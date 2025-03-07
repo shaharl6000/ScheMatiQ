@@ -97,7 +97,7 @@ def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruc
 
     for i, t in enumerate(progress_bar):
         input_data = {k: v.cuda() for k, v in t.items()}
-        model_output = model.generate(**input_data, max_length=350)
+        model_output = model.generate(**input_data, max_new_tokens=100)
         decoded_text = tokenizer.batch_decode(model_output)[0]
 
         # Create a dictionary containing query, data, and the answer
