@@ -16,6 +16,10 @@ Write the code as modular as possible, to be able to work on much longer documen
 from typing import List
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm
+import json
+import re
+import argparse
+import os
 
 access_token = "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"
 
@@ -43,8 +47,6 @@ few_shots_chained = ""
 for n, i in enumerate(few_shots):
     few_shots_chained += f"{n + 1}. Query: {i.query}\nText: {i.text}\nAnswer: {i.result!s}\n"
 
-log_file = "output_log.txt"
-
 
 def create_prompt(cur_query, cur_data):
     final_input = Input(cur_query, cur_data, [])
@@ -60,13 +62,13 @@ def create_prompt(cur_query, cur_data):
     return prompt
 
 
-def write_to_log(message):
+def write_to_log(message, log_file):
     print(message)
     with open(log_file, "a") as file:
         file.write(str(message) + "\n")
 
 
-def run_model(data, query, model_name="meta-llama/Meta-Llama-3-8B-Instruct"):
+def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruct"):
     # quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
     model = AutoModelForCausalLM.from_pretrained(model_name, token=access_token).cuda()
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=access_token)
@@ -87,28 +89,78 @@ def run_model(data, query, model_name="meta-llama/Meta-Llama-3-8B-Instruct"):
     for t in progress_bar:
         input = {k: v.cuda() for k, v in t.items()}
         cur_output = tokenizer.batch_decode(model.generate(**input, max_length=350))[0]
-        write_to_log("-----------------output:")
-        write_to_log(cur_output)
+        write_to_log("-----------------output:", log_file)
+        write_to_log(cur_output, log_file)
+
+
+def get_data(json_path):
+    pattern = re.compile(r'text\s*=\s*"(.*?)"')
+    data = []
+    with open(json_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            # Each line in your file is a separate JSON object
+            json_obj = json.loads(line)
+
+            code_snippet = json_obj.get('text', '')
+            match = pattern.search(code_snippet)
+            if match:
+                # Group(1) is the text captured inside the quotes.
+                data.append(match.group(1))
+                print(match.group(1))
+
+    return data
+
+
+def main(args):
+    input_path = args.input
+    output_path = args.output
+
+    name_no_ext, ext = os.path.splitext(input_path)
+
+    metadata = {
+        "domain": "",
+        "dataset": name_no_ext,
+        "original schema": ["Location", "Organization", "Person", "Miscellaneous"]  # correct only to CoNLL03
+    }
+    write_to_log("-----------------metadata:", output_path)
+    write_to_log(metadata, output_path)
+
+    query = "what is happening in the scene?"
+    data = get_data(input_path)
+
+    # data = [
+    #     "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday",
+    #     "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan",
+    #     "China controlled most of the match and saw several chances missed until the 78th minute when Uzbek striker Igor Shkvyrin took advantage of a misdirected defensive header to lob the ball over the advancing Chinese keeper and into an empty net .",
+    #     "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area .",
+    #     "The former Soviet republic was playing in an Asian Cup finals tie for the first time",
+    #     "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders",
+    #     "Two goals from defensive errors in the last six minutes allowed Japan to come from behind and collect all three points from their opening meeting against Syria .",
+    #     "At the Oval , Surrey captain Chris Lewis , another man dumped by England , continued to silence his critics as he followed his four for 45 on Thursday with 80 not out on Friday in the match against Warwickshire ."]
+
+    run_model(data, query, output_path)
+
 
 
 if __name__ == "__main__":
     print("start")
+    parser = argparse.ArgumentParser()
 
-    metadata = {
-        "domain": "",
-        "dataset": "CoNLL03_NER test",
-        "original schema": ["Location", "Organization", "Person", "Miscellaneous"]
-    }
-    query = "what is happening in the scene?"
-    data = [
-        "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday",
-        "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan",
-        "China controlled most of the match and saw several chances missed until the 78th minute when Uzbek striker Igor Shkvyrin took advantage of a misdirected defensive header to lob the ball over the advancing Chinese keeper and into an empty net .",
-        "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area .",
-        "The former Soviet republic was playing in an Asian Cup finals tie for the first time",
-        "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders",
-        "Two goals from defensive errors in the last six minutes allowed Japan to come from behind and collect all three points from their opening meeting against Syria .",
-        "At the Oval , Surrey captain Chris Lewis , another man dumped by England , continued to silence his critics as he followed his four for 45 on Thursday with 80 not out on Friday in the match against Warwickshire ."]
+    parser.add_argument(
+        "-i",
+        "--input",
+        dest="input",
+        type=str,
+        help="Path to the input IE data JSON file.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output",
+        dest="output",
+        type=str,
+        help="Path where output will be saved.",
+    )
+    args = parser.parse_args()
 
-    run_model(data, query)
+    main(args)
 
