@@ -73,6 +73,10 @@ def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruc
     model = AutoModelForCausalLM.from_pretrained(model_name, token=access_token).cuda()
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=access_token)
 
+    # Make sure pad_token is set correctly
+    tokenizer.pad_token = tokenizer.eos_token
+    model.config.pad_token_id = tokenizer.eos_token_id
+
     def get_tokenized_list(documents, cur_query):
         tokenized_list = []
         for cur_data in documents:
@@ -86,7 +90,7 @@ def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruc
     tokenized_list = get_tokenized_list(data, query)
     progress_bar = tqdm(tokenized_list, desc="Inference: ")
 
-    for t in progress_bar:
+    for i, t in enumerate(progress_bar):
         input_data = {k: v.cuda() for k, v in t.items()}
         model_output = model.generate(**input_data, max_length=350)
         decoded_text = tokenizer.batch_decode(model_output)[0]
@@ -145,7 +149,6 @@ def main(args):
     #     "At the Oval , Surrey captain Chris Lewis , another man dumped by England , continued to silence his critics as he followed his four for 45 on Thursday with 80 not out on Friday in the match against Warwickshire ."]
 
     run_model(data, query, output_path)
-
 
 
 if __name__ == "__main__":
