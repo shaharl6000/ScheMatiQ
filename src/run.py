@@ -87,10 +87,17 @@ def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruc
     progress_bar = tqdm(tokenized_list, desc="Inference: ")
 
     for t in progress_bar:
-        input = {k: v.cuda() for k, v in t.items()}
-        cur_output = tokenizer.batch_decode(model.generate(**input, max_length=350))[0]
-        write_to_log("-----------------output:", log_file)
-        write_to_log(cur_output, log_file)
+        input_data = {k: v.cuda() for k, v in t.items()}
+        model_output = model.generate(**input_data, max_length=350)
+        decoded_text = tokenizer.batch_decode(model_output)[0]
+
+        # Create a dictionary containing query, data, and the answer
+        cur_output_dict = {
+            "query": query,
+            "data": data[i],
+            "answer": decoded_text
+        }
+        write_to_log(str(cur_output_dict), log_file)
 
 
 def get_data(json_path):
@@ -106,7 +113,6 @@ def get_data(json_path):
             if match:
                 # Group(1) is the text captured inside the quotes.
                 data.append(match.group(1))
-                print(match.group(1))
 
     return data
 
@@ -123,7 +129,7 @@ def main(args):
         "original schema": ["Location", "Organization", "Person", "Miscellaneous"]  # correct only to CoNLL03
     }
     write_to_log("-----------------metadata:", output_path)
-    write_to_log(metadata, output_path)
+    write_to_log(str(metadata), output_path)
 
     query = "what is happening in the scene?"
     data = get_data(input_path)
