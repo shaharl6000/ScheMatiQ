@@ -80,11 +80,16 @@ def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruc
     def get_tokenized_list(documents, cur_query):
         tokenized_list = []
         for cur_data in documents:
-          tokenized_list.append(tokenizer(
-              create_prompt(cur_query, cur_data),
-              return_tensors="pt",
-              return_attention_mask=False
-          ))
+            prompt = create_prompt(cur_query, cur_data)
+            inputs = tokenizer(
+                prompt,
+                return_tensors="pt",
+                return_attention_mask=True,
+                padding=True,
+                truncation=True,
+                max_length=512
+            )
+            tokenized_list.append(inputs)
         return tokenized_list
 
     tokenized_list = get_tokenized_list(data, query)
@@ -124,6 +129,10 @@ def get_data(json_path):
 def main(args):
     input_path = args.input
     output_path = args.output
+
+    if os.path.exists(output_path):
+        print(f"removed {output_path}")
+        os.remove(output_path)
 
     name_no_ext, ext = os.path.splitext(input_path)
 
