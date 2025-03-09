@@ -45,7 +45,7 @@ few_shots = [Input("Does the trip cost lots of money?",
 
 few_shots_chained = ""
 for n, i in enumerate(few_shots):
-    few_shots_chained += f"{n + 1}. Query: {i.query}\nText: {i.text}\nAnswer: {i.result!s}\n"
+    few_shots_chained += f"{n + 1}. Query: {i.query}\nText: {i.text}\nFields: {i.result!s}\n"
 
 
 def create_prompt(cur_query, cur_data):
@@ -95,6 +95,8 @@ def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruc
     tokenized_list = get_tokenized_list(data, query)
     progress_bar = tqdm(tokenized_list, desc="Inference: ")
 
+    write_to_log(f"-----------------Inference in {model_name} model: ", log_file)
+
     for i, t in enumerate(progress_bar):
         input_data = {k: v.cuda() for k, v in t.items()}
         model_output = model.generate(**input_data, max_new_tokens=100)
@@ -109,19 +111,21 @@ def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruc
         write_to_log(str(cur_output_dict), log_file)
 
 
-def get_data(json_path):
+def get_data(json_path, max_lines=None):
     pattern = re.compile(r'text\s*=\s*"(.*?)"')
     data = []
+    j = 0
     with open(json_path, 'r', encoding='utf-8') as f:
         for line in f:
-            # Each line in your file is a separate JSON object
+            if max_lines is not None and j > max_lines: break
+            # Each line in the file is a separate JSON object
             json_obj = json.loads(line)
 
             code_snippet = json_obj.get('text', '')
             match = pattern.search(code_snippet)
             if match:
-                # Group(1) is the text captured inside the quotes.
                 data.append(match.group(1))
+            j += 1
 
     return data
 
@@ -141,11 +145,11 @@ def main(args):
         "dataset": name_no_ext,
         "original schema": ["Location", "Organization", "Person", "Miscellaneous"]  # correct only to CoNLL03
     }
-    write_to_log("-----------------metadata:", output_path)
+    write_to_log("-----------------Metadata:", output_path)
     write_to_log(str(metadata), output_path)
 
     query = "what is happening in the scene?"
-    data = get_data(input_path)
+    data = get_data(input_path, args.max_n)
 
     # data = [
     #     "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday",
@@ -177,6 +181,12 @@ if __name__ == "__main__":
         dest="output",
         type=str,
         help="Path where output will be saved.",
+    )
+    parser.add_argument(
+        "-max_n",
+        dest="max_n",
+        type=int,
+        help="Maximum number of examples to process.",
     )
     args = parser.parse_args()
 
