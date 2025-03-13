@@ -1,4 +1,3 @@
-
 """
 Work on a framework that receives multiple texts (“document” even if they are short),
  a query that is very degenerated now,
@@ -14,7 +13,8 @@ Write the code as modular as possible, to be able to work on much longer documen
 """
 
 from typing import List
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+import torch
 from tqdm import tqdm
 import json
 import re
@@ -25,33 +25,61 @@ access_token = "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"
 
 
 class Input:
-    def __init__(self, query: str, text: str, result: List):
+    def __init__(self, query: str, text: str, result: List, explanation: str = None):
         self.query = query
         self.text = text
         self.result = result
+        self.explanation = explanation
 
     def __repr__(self):
+        explanation = f", explanation={self.explanation}" if self.explanation is not None else ""
         return (f"Input(query={self.query!r}, "
                 f"text={self.text!r}, "
                 f"result={self.result!r})")
 
 
-few_shots = [Input("Does the trip cost lots of money?",
-                       "A five-day road trip for two in Tuscany features light hikes, wine tasting, and rejuvenating natural hot springs—all within a manageable drive from the city.",
-                       ["Duration", "Number of Participants", "Place", "Attraction"]),
-                 Input("Who will win the game?",
-                       "Next Sunday, Barcelona and Real Madrid will face off in a highly anticipated soccer match that promises intense rivalry and thrilling action.",
-                       ["Sport", "Time", "Team"])]
+few_shots = [Input(query="Does the trip cost lots of money?",
+                   text="A five-day road trip for two in Tuscany features light hikes, "
+                        "wine tasting, and rejuvenating natural hot springs—all within a"
+                        " manageable drive from the city.",
+                   result=["Duration", "Number of Participants", "Place", "Attraction"],
+                   explanation="all found in the text: Duration: \"five-day\", "
+                               "Number of Participants: \"Two\", Place: \"Tuscany\", "
+                               "Attraction: [\"light hikes\", \"wine tasting\", \"hot springs\"] "
+                               "And all can affect the costs."),
+             Input(query="Who will win the game?",
+                   text="Next Sunday, Barcelona and Real Madrid will face off in a highly "
+                        "anticipated soccer match that promises intense rivalry and thrilling action.",
+                   result=["Sport", "Time", "Team"],
+                   explanation="all found in the text: Sport: \"soccer\",  Time: \"Next Sunday\", "
+                               "Team: [\"Barcelona\", \"Real Madrid\" And all can affect the winner.")
+             ]
 
 few_shots_chained = ""
 for n, i in enumerate(few_shots):
     few_shots_chained += f"{n + 1}. Query: {i.query}\nText: {i.text}\nFields: {i.result!s}\n"
 
 
-def create_prompt(cur_query, cur_data):
+def create_prompt_one_doc(cur_query, cur_data):
     final_input = Input(cur_query, cur_data, [])
     prompt = f"You are given a text and a query. Your task is to identify the set of fields present in the text that" \
              f" can directly address the query. You should only output an array (e.g., [field1, field2, ...]) " \
+             f"of the appropriate fields without any explanation or additional commentary. \n" \
+             f"Few-shot examples: \n" \
+             f"{few_shots_chained} \n" \
+             f"Now answer the following without providing any explanation: \n" \
+             f"Query: {final_input.query}\nText: {final_input.text}\n"
+
+    print(prompt)
+    return prompt
+
+
+def create_prompt_multi_doc(cur_query, cur_data):
+    final_input = Input(cur_query, cur_data, [])
+    prompt = f"You are given a multiple documents and a query. " \
+             f"Your task is to identify the set of fields present in the text that" \
+             f" can directly address the query. It can be that not all of them can be found in all of the texts" \
+             f"You should only output one array (e.g., [field1, field2, ...]) " \
              f"of the appropriate fields without any explanation or additional commentary. \n" \
              f"Few-shot examples: \n" \
              f"{few_shots_chained} \n" \
@@ -68,9 +96,12 @@ def write_to_log(message, log_file):
         file.write(str(message) + "\n")
 
 
-def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruct"):
-    # quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16)
-    model = AutoModelForCausalLM.from_pretrained(model_name, token=access_token).cuda()
+def run_model(data, query, log_file, num_documents=1, model_name="meta-llama/Llama-3.2-3B-Instruct", quantize=False):
+    quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16) \
+        if quantize else None
+    model = AutoModelForCausalLM.from_pretrained(model_name,
+                                                 token=access_token,
+                                                 quantization_config=quantization_config).cuda()
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=access_token)
 
     # Make sure pad_token is set correctly
@@ -80,14 +111,15 @@ def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruc
     def get_tokenized_list(documents, cur_query):
         tokenized_list = []
         for cur_data in documents:
-            prompt = create_prompt(cur_query, cur_data)
+            prompt = create_prompt_one_doc(cur_query, cur_data) \
+                if num_documents == 1 \
+                else create_prompt_multi_doc(cur_query, cur_data)
             inputs = tokenizer(
                 prompt,
                 return_tensors="pt",
                 return_attention_mask=True,
                 padding=True,
-                truncation=True,
-                max_length=512
+                truncation=True
             )
             tokenized_list.append(inputs)
         return tokenized_list
@@ -99,7 +131,7 @@ def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruc
 
     for i, t in enumerate(progress_bar):
         input_data = {k: v.cuda() for k, v in t.items()}
-        model_output = model.generate(**input_data, max_new_tokens=100)
+        model_output = model.generate(**input_data)
         decoded_text = tokenizer.batch_decode(model_output)[0]
 
         # Create a dictionary containing query, data, and the answer
@@ -112,9 +144,14 @@ def run_model(data, query, log_file, model_name="meta-llama/Llama-3.2-3B-Instruc
 
 
 def get_data(json_path, max_lines=None):
-    pattern = re.compile(r'text\s*=\s*"(.*?)"')
+    # getting data from GoLLIE data generated
+    pattern_text = re.compile(r'text\s*=\s*"(.*?)"')
+    pattern_schema = re.compile(r"class\s+(\w+)(?:\(.*?\))?:", re.MULTILINE)
+
     data = []
+    original_schema = []
     j = 0
+
     with open(json_path, 'r', encoding='utf-8') as f:
         for line in f:
             if max_lines is not None and j > max_lines: break
@@ -122,12 +159,25 @@ def get_data(json_path, max_lines=None):
             json_obj = json.loads(line)
 
             code_snippet = json_obj.get('text', '')
-            match = pattern.search(code_snippet)
-            if match:
-                data.append(match.group(1))
-            j += 1
+            match_data = pattern_text.search(code_snippet)
+            if match_data:
+                data.append(match_data.group(1))
 
-    return data
+            match_schema = pattern_schema.findall(code_snippet)
+            for match in match_schema:
+                if match not in original_schema:
+                    original_schema.append(match)
+
+            j += 1
+    name_no_ext, ext = os.path.splitext(json_path)
+
+    metadata = {
+        "domain": "",
+        "dataset": name_no_ext,
+        "original schema": original_schema  # for example: ["Location", "Organization", "Person", "Miscellaneous"]
+    }
+
+    return data, metadata
 
 
 def main(args):
@@ -138,30 +188,13 @@ def main(args):
         print(f"removed {output_path}")
         os.remove(output_path)
 
-    name_no_ext, ext = os.path.splitext(input_path)
+    query = "what is happening in the scene?"
+    data, metadata = get_data(input_path, args.max_n)
 
-    metadata = {
-        "domain": "",
-        "dataset": name_no_ext,
-        "original schema": ["Location", "Organization", "Person", "Miscellaneous"]  # correct only to CoNLL03
-    }
     write_to_log("-----------------Metadata:", output_path)
     write_to_log(str(metadata), output_path)
 
-    query = "what is happening in the scene?"
-    data = get_data(input_path, args.max_n)
-
-    # data = [
-    #     "Japan began the defence of their Asian Cup title with a lucky 2-1 win against Syria in a Group C championship match on Friday",
-    #     "But China saw their luck desert them in the second match of the group , crashing to a surprise 2-0 defeat to newcomers Uzbekistan",
-    #     "China controlled most of the match and saw several chances missed until the 78th minute when Uzbek striker Igor Shkvyrin took advantage of a misdirected defensive header to lob the ball over the advancing Chinese keeper and into an empty net .",
-    #     "Oleg Shatskiku made sure of the win in injury time , hitting an unstoppable left foot shot from just outside the area .",
-    #     "The former Soviet republic was playing in an Asian Cup finals tie for the first time",
-    #     "Despite winning the Asian Games title two years ago , Uzbekistan are in the finals as outsiders",
-    #     "Two goals from defensive errors in the last six minutes allowed Japan to come from behind and collect all three points from their opening meeting against Syria .",
-    #     "At the Oval , Surrey captain Chris Lewis , another man dumped by England , continued to silence his critics as he followed his four for 45 on Thursday with 80 not out on Friday in the match against Warwickshire ."]
-
-    run_model(data, query, output_path)
+    run_model(data=data, query=query, log_file=output_path, num_documents=args.num_of_docs)
 
 
 if __name__ == "__main__":
@@ -173,6 +206,7 @@ if __name__ == "__main__":
         "--input",
         dest="input",
         type=str,
+        required=True,
         help="Path to the input IE data JSON file.",
     )
     parser.add_argument(
@@ -180,6 +214,7 @@ if __name__ == "__main__":
         "--output",
         dest="output",
         type=str,
+        required=True,
         help="Path where output will be saved.",
     )
     parser.add_argument(
@@ -188,7 +223,12 @@ if __name__ == "__main__":
         type=int,
         help="Maximum number of examples to process.",
     )
+    parser.add_argument(
+        "-num_of_docs",
+        dest="num_of_docs",
+        type=int,
+        help="Number of documents to process each time.",
+    )
     args = parser.parse_args()
 
     main(args)
-
