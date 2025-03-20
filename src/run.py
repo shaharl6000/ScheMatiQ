@@ -311,7 +311,7 @@ if __name__ == "__main__":
         "-num_of_docs",
         dest="num_of_docs",
         type=int,
-        default=1,
+        default=None,
         help="Number of documents to process each time.",
     )
     args = parser.parse_args()
