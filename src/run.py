@@ -13,8 +13,8 @@ Write the code as modular as possible, to be able to work on much longer documen
 """
 
 from typing import List
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-import torch
+# from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+# import torch
 from tqdm import tqdm
 import json
 import re
@@ -74,19 +74,25 @@ def create_prompt_one_doc(cur_query, cur_data):
     return prompt
 
 
-def create_prompt_multi_doc(cur_query, cur_data):
-    final_input = Input(cur_query, cur_data, [])
-    prompt = f"You are given a multiple documents and a query. " \
-             f"Your task is to identify the set of fields present in the text that" \
-             f" can directly address the query. It can be that not all of them can be found in all of the texts" \
-             f"You should only output one array (e.g., [field1, field2, ...]) " \
-             f"of the appropriate fields without any explanation or additional commentary. \n" \
-             f"Few-shot examples: \n" \
-             f"{few_shots_chained} \n" \
-             f"Now answer the following without providing any explanation: \n" \
-             f"Query: {final_input.query}\nText: {final_input.text}\n"
+def create_prompt(instructions, cur_query, docs):
+    """
+    Create a prompt from instructions, the query, and a list of documents.
+    If docs is a list of strings, we combine them into a single prompt.
+    """
+    # Combine all documents into one text block
+    # You can style this however you want; here's one example:
+    docs_text = ""
+    for i, doc in enumerate(docs, start=1):
+        docs_text += f"Document {i}: {doc}\n"
 
-    print(prompt)
+    final_input = Input(cur_query, docs_text, [])
+    prompt = (
+        f"{instructions}:\n"
+        f"{few_shots_chained}\n"
+        "Now answer the following without providing any explanation:\n"
+        f"Query: {final_input.query}\n"
+        f"{final_input.text}\n"
+    )
     return prompt
 
 
@@ -96,7 +102,15 @@ def write_to_log(message, log_file):
         file.write(str(message) + "\n")
 
 
-def run_model(data, query, log_file, num_documents=1, model_name="meta-llama/Llama-3.2-3B-Instruct", quantize=False):
+def run_model(
+    instructions,
+    data,                 # List of documents
+    query,
+    log_file,
+    num_documents=1,     # Can be an integer or None
+    model_name="meta-llama/Llama-3.2-3B-Instruct",
+    quantize=False
+):
     quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16) \
         if quantize else None
     model = AutoModelForCausalLM.from_pretrained(model_name,
@@ -107,37 +121,84 @@ def run_model(data, query, log_file, num_documents=1, model_name="meta-llama/Lla
     # Make sure pad_token is set correctly
     tokenizer.pad_token = tokenizer.eos_token
     model.config.pad_token_id = tokenizer.eos_token_id
+    max_context_length = model.config.max_position_embeddings
 
-    def get_tokenized_list(documents, cur_query):
-        tokenized_list = []
-        for cur_data in documents:
-            prompt = create_prompt_one_doc(cur_query, cur_data) \
-                if num_documents == 1 \
-                else create_prompt_multi_doc(cur_query, cur_data)
-            inputs = tokenizer(
-                prompt,
-                return_tensors="pt",
-                return_attention_mask=True,
-                padding=True,
-                truncation=True
-            )
-            tokenized_list.append(inputs)
-        return tokenized_list
+    def make_chunks(documents, chunk_size, max_length):
+        """
+        If chunk_size is not None, slice the documents into groups
+        of that size, applying truncation at the tokenizer level.
 
-    tokenized_list = get_tokenized_list(data, query)
-    progress_bar = tqdm(tokenized_list, desc="Inference: ")
+        If chunk_size is None, keep adding docs until we exceed
+        the model's max context length, then start a new prompt.
+        """
+        if chunk_size is not None:
+            # Fixed-size chunks
+            for i in range(0, len(documents), chunk_size):
+                yield documents[i: i + chunk_size]
+        else:
+            # Greedy grouping until we reach max context length
+            current_batch = []
+            for doc in documents:
+                test_batch = current_batch + [doc]
+                # Create a prompt to see if we exceed max length
+                test_prompt = create_prompt(instructions, query, test_batch)
+                test_ids = tokenizer(
+                    test_prompt,
+                    return_tensors="pt",
+                    truncation=False,  # We'll do a strict check ourselves
+                    padding=False
+                )["input_ids"]
+
+                if test_ids.shape[1] > max_length:
+                    # If adding this doc exceeds context,
+                    # yield the current batch and start a new one
+                    if not current_batch:
+                        # Edge case: if a single doc is bigger than max length,
+                        # we at least attempt to truncate it at the tokenizer level
+                        yield [doc]
+                    else:
+                        # Yield the current batch (fits in context), start new
+                        yield current_batch
+                        current_batch = [doc]
+                else:
+                    # We can safely add this doc
+                    current_batch = test_batch
+
+            # Yield whatever is left
+            if current_batch:
+                yield current_batch
+
+    # Convert the list of document-chunks into tokenized prompts
+    prompts_and_inputs = []
+    for chunk in make_chunks(data, num_documents, max_context_length):
+        prompt = create_prompt(instructions, query, chunk)
+
+        # Now tokenize with truncation just in case (to be safe).
+        # If chunk_size is not None, this effectively ensures we won't exceed context.
+        # If chunk_size is None, we've tried to check ourselves, but we still do a final
+        # truncation pass for safety.
+        inputs = tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=max_context_length,
+            padding=True
+        )
+        prompts_and_inputs.append((chunk, prompt, inputs))
+
+    progress_bar = tqdm(prompts_and_inputs, desc="Inference: ")
 
     write_to_log(f"-----------------Inference in {model_name} model: ", log_file)
 
-    for i, t in enumerate(progress_bar):
+    for i, (chunk_docs, prompt_text, t) in enumerate(progress_bar):
         input_data = {k: v.cuda() for k, v in t.items()}
         model_output = model.generate(**input_data)
-        decoded_text = tokenizer.batch_decode(model_output)[0]
+        decoded_text = tokenizer.batch_decode(model_output, skip_special_tokens=True)[0]
 
-        # Create a dictionary containing query, data, and the answer
+        # Create a dictionary containing the query, docs, and the answer
         cur_output_dict = {
             "query": query,
-            "data": data[i],
+            "documents_used": chunk_docs,
             "answer": decoded_text
         }
         write_to_log(str(cur_output_dict), log_file)
@@ -180,6 +241,18 @@ def get_data(json_path, max_lines=None):
     return data, metadata
 
 
+def get_instructions(json_path, num_of_docs):
+    with open(json_path, 'r') as f:
+        prompts = json.load(f)
+
+    if num_of_docs == 1:
+        instruction = next(item['prompt'] for item in prompts if item['id'] == 1)
+    else:
+        instruction = next(item['prompt'] for item in prompts if item['id'] == 2)
+
+    return instruction
+
+
 def main(args):
     input_path = args.input
     output_path = args.output
@@ -194,7 +267,11 @@ def main(args):
     write_to_log("-----------------Metadata:", output_path)
     write_to_log(str(metadata), output_path)
 
-    run_model(data=data, query=query, log_file=output_path, num_documents=args.num_of_docs)
+    instructions = get_instructions(args.prompts, args.num_of_docs)
+
+    run_model(instructions=instructions,
+              data=data, query=query,
+              log_file=output_path, num_documents=args.num_of_docs)
 
 
 if __name__ == "__main__":
@@ -218,6 +295,13 @@ if __name__ == "__main__":
         help="Path where output will be saved.",
     )
     parser.add_argument(
+        "--prompts",
+        dest="prompts",
+        type=str,
+        default=r"data/prompts.txt",
+        help="Path to the prompts JSON file.",
+    )
+    parser.add_argument(
         "-max_n",
         dest="max_n",
         type=int,
@@ -227,6 +311,7 @@ if __name__ == "__main__":
         "-num_of_docs",
         dest="num_of_docs",
         type=int,
+        default=1,
         help="Number of documents to process each time.",
     )
     args = parser.parse_args()

@@ -1,0 +1,2 @@
+-----------------Metadata:
+{'domain': '', 'dataset': 'data\\example', 'original schema': ['Location', 'Organization', 'Person', 'Miscellaneous']}
