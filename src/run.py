@@ -271,6 +271,7 @@ def main(args):
 
     run_model(instructions=instructions,
               data=data, query=query,
+              model_name=args.model_name,
               log_file=output_path, num_documents=args.num_of_docs)
 
 
@@ -314,6 +315,15 @@ if __name__ == "__main__":
         default=None,
         help="Number of documents to process each time.",
     )
+
+    parser.add_argument(
+        "-model_name",
+        dest="model_name",
+        type=str,
+        default="meta-llama/Llama-3.2-3B-Instruct",
+        help="HF name of LLM to run.",
+    )
+
     args = parser.parse_args()
 
     main(args)
