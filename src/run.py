@@ -268,11 +268,12 @@ def main(args):
     write_to_log(str(metadata), output_path)
 
     instructions = get_instructions(args.prompts, args.num_of_docs)
-
+    model_name = args.model_name
+    quantize = "27b" in model_name or "70b" in model_name
     run_model(instructions=instructions,
               data=data, query=query,
-              model_name=args.model_name,
-              log_file=output_path, num_documents=args.num_of_docs)
+              model_name=model_name,
+              log_file=output_path, num_documents=args.num_of_docs, quantize=quantize)
 
 
 if __name__ == "__main__":
