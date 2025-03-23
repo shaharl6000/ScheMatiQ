@@ -302,7 +302,7 @@ def main(args):
     num_of_docs = 1 if 1 == len(data) else args.num_of_docs
     instructions = get_instructions(args.prompts, num_of_docs)
     model_name = args.model_name
-    quantize = "27b" in model_name or "70b" in model_name
+    quantize = "27b" in model_name or "70B" in model_name
     run_model(instructions=instructions,
               data=data, query=query,
               model_name=model_name,
