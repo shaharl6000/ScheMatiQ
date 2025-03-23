@@ -294,7 +294,7 @@ def main(args):
     else:
         query = "Given a protein sequence, can it be determined whether or not it contains a nuclear export " \
                 "signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?"
-        data, metadata = get_data_NES(input_path, args.max_n)
+        data, metadata = get_data_NES(input_path)
 
     write_to_log("-----------------Metadata:", output_path)
     write_to_log(str(metadata), output_path)
