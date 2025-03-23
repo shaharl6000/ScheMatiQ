@@ -114,14 +114,13 @@ def run_model(
     quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16) \
         if quantize else None
     model = AutoModelForCausalLM.from_pretrained(model_name,
-                                                 token=access_token,
+                                                 use_auth_token=access_token,
                                                  quantization_config=quantization_config).cuda()
-    tokenizer = AutoTokenizer.from_pretrained(model_name, token=access_token)
+    tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=access_token)
 
     # Make sure pad_token is set correctly
     tokenizer.pad_token = tokenizer.eos_token
-    if not quantize:
-        model.config.pad_token_id = tokenizer.eos_token_id
+    model.config.pad_token_id = tokenizer.eos_token_id
     max_context_length = int(model.config.max_position_embeddings / 2)
 
     def make_chunks(documents, chunk_size, max_length):
