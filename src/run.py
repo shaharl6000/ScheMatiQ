@@ -120,7 +120,8 @@ def run_model(
 
     # Make sure pad_token is set correctly
     tokenizer.pad_token = tokenizer.eos_token
-    model.config.pad_token_id = tokenizer.eos_token_id
+    if not quantize:
+        model.config.pad_token_id = tokenizer.eos_token_id
     max_context_length = int(model.config.max_position_embeddings / 2)
 
     def make_chunks(documents, chunk_size, max_length):
