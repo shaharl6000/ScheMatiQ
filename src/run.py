@@ -111,6 +111,9 @@ def run_model(
         model_name="meta-llama/Llama-3.2-3B-Instruct",
         quantize=False
 ):
+
+    write_to_log(f"---run model: {model_name}, quantize? {quantize}, num of document: {num_documents}", log_file)
+    write_to_log(f"---query: {query}, instructions: {instructions}, size of data: {len(data)}", log_file)
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_compute_dtype=torch.bfloat16
