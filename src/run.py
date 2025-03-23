@@ -209,7 +209,7 @@ def run_model(
         write_to_log(str(cur_output_dict), log_file)
 
 
-def get_data(json_path, max_lines=None):
+def get_data_gollie(json_path, max_lines=None):
     # getting data from GoLLIE data generated
     pattern_text = re.compile(r'text\s*=\s*"(.*?)"')
     pattern_schema = re.compile(r"class\s+(\w+)(?:\(.*?\))?:", re.MULTILINE)
@@ -246,6 +246,27 @@ def get_data(json_path, max_lines=None):
     return data, metadata
 
 
+def get_data_NES(directory_path):
+    data = []
+
+    for filename in os.listdir(directory_path):
+        # Check if the file ends with .txt
+        if filename.endswith(".txt"):
+            file_path = os.path.join(directory_path, filename)
+            # Read the file content
+            with open(file_path, "r", encoding="utf-8") as file:
+                content = file.read()
+            data.append(content)
+
+    metadata = {
+        "domain": "Scientific Papers",
+        "dataset": "NES",
+        "original schema": ""  # TODO: add NESdb scheme ?
+    }
+
+    return data, metadata
+
+
 def get_instructions(json_path, num_of_docs):
     with open(json_path, 'r') as f:
         prompts = json.load(f)
@@ -266,13 +287,20 @@ def main(args):
         print(f"removed {output_path}")
         os.remove(output_path)
 
-    query = "what is happening in the scene?"
-    data, metadata = get_data(input_path, args.max_n)
+    if "GoLLIE" in input_path:
+        query = "what is happening in the scene?"
+        data, metadata = get_data_gollie(input_path, args.max_n)
+
+    else:
+        query = "Given a protein sequence, can it be determined whether or not it contains a nuclear export " \
+                "signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?"
+        data, metadata = get_data_NES(input_path, args.max_n)
 
     write_to_log("-----------------Metadata:", output_path)
     write_to_log(str(metadata), output_path)
 
-    instructions = get_instructions(args.prompts, args.num_of_docs)
+    num_of_docs = 1 if 1 == len(data) else args.num_of_docs
+    instructions = get_instructions(args.prompts, num_of_docs)
     model_name = args.model_name
     quantize = "27b" in model_name or "70b" in model_name
     run_model(instructions=instructions,
