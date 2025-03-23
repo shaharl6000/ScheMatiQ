@@ -111,12 +111,14 @@ def run_model(
     model_name="meta-llama/Llama-3.2-3B-Instruct",
     quantize=False
 ):
-    quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16) \
-        if quantize else None
+    # quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16) \
+    #     if quantize else None
     model = AutoModelForCausalLM.from_pretrained(model_name,
-                                                 use_auth_token=access_token,
-                                                 quantization_config=quantization_config).cuda()
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_auth_token=access_token)
+                                                 token=access_token,
+                                                 device_map="auto",
+                                                 load_in_4bit=True,
+                                                 torch_dtype="auto").cuda()
+    tokenizer = AutoTokenizer.from_pretrained(model_name, token=access_token)
 
     # Make sure pad_token is set correctly
     tokenizer.pad_token = tokenizer.eos_token
