@@ -103,21 +103,25 @@ def write_to_log(message, log_file):
 
 
 def run_model(
-    instructions,
-    data,                 # List of documents
-    query,
-    log_file,
-    num_documents=1,     # Can be an integer or None
-    model_name="meta-llama/Llama-3.2-3B-Instruct",
-    quantize=False
+        instructions,
+        data,  # List of documents
+        query,
+        log_file,
+        num_documents=1,  # Can be an integer or None
+        model_name="meta-llama/Llama-3.2-3B-Instruct",
+        quantize=False
 ):
-    # quantization_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_compute_dtype=torch.bfloat16) \
-    #     if quantize else None
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",  # or "fp4"
+        bnb_4bit_compute_dtype=torch.bfloat16,  # or torch.float16
+        bnb_4bit_use_double_quant=True) \
+        if quantize else None
     model = AutoModelForCausalLM.from_pretrained(model_name,
                                                  token=access_token,
+                                                 quantization_config=quantization_config,
                                                  device_map="auto",
-                                                 load_in_4bit=True,
-                                                 torch_dtype="auto").cuda()
+                                                 )
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=access_token)
 
     # Make sure pad_token is set correctly
