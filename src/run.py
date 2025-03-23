@@ -119,9 +119,8 @@ def run_model(
         if quantize else None
     model = AutoModelForCausalLM.from_pretrained(model_name,
                                                  token=access_token,
-                                                 quantization_config=quantization_config,
-                                                 device_map="auto",
-                                                 )
+                                                 quantization_config=quantization_config
+                                                 ).cuda()
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=access_token)
 
     # Make sure pad_token is set correctly
