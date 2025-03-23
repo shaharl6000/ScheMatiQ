@@ -113,14 +113,13 @@ def run_model(
 ):
     quantization_config = BitsAndBytesConfig(
         load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",  # or "fp4"
-        bnb_4bit_compute_dtype=torch.bfloat16,  # or torch.float16
-        bnb_4bit_use_double_quant=True) \
-        if quantize else None
+        bnb_4bit_compute_dtype=torch.bfloat16
+    ) if quantize else None
     model = AutoModelForCausalLM.from_pretrained(model_name,
                                                  token=access_token,
-                                                 quantization_config=quantization_config
-                                                 ).cuda()
+                                                 quantization_config=quantization_config,
+                                                 device_map="auto",
+                                                 )
     tokenizer = AutoTokenizer.from_pretrained(model_name, token=access_token)
 
     # Make sure pad_token is set correctly
@@ -197,7 +196,8 @@ def run_model(
 
     for i, (chunk_docs, prompt_text, t) in enumerate(progress_bar):
         input_data = {k: v.cuda() for k, v in t.items()}
-        model_output = model.generate(**input_data)
+        model_output = model.generate(**input_data,
+                                      temperature=0.8)
         decoded_text = tokenizer.batch_decode(model_output, skip_special_tokens=True)[0]
 
         # Create a dictionary containing the query, docs, and the answer
