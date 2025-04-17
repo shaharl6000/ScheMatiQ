@@ -24,7 +24,8 @@ import json
 import re
 from pathlib import Path
 from typing import Dict, Iterator, List
-
+import os
+HF_TOKEN = os.environ.get("HF_TOKEN")
 import torch
 from tqdm import tqdm
 from transformers import (
@@ -48,13 +49,14 @@ bnb_cfg = BitsAndBytesConfig(
 )
 
 print("⏳  Loading tokenizer & model (this can take several minutes)…")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True, token=HF_TOKEN)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
     quantization_config=bnb_cfg,
     device_map="auto",
     torch_dtype=torch.float16,
     trust_remote_code=True,   # Llama‑3 uses ChatML template in tokenizer
+    token=HF_TOKEN
 )
 model.eval()
 
