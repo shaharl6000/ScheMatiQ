@@ -34,7 +34,7 @@ from transformers import (
 )
 
 # ─────────────────────────────  CONFIG  ──────────────────────────────
-MODEL_NAME = "meta-llama/Meta-Llama-3.3-70B-Instruct"   # HF hub name
+MODEL_NAME = "meta-llama/Llama-3.3-70B-Instruct"   # HF hub name
 MAX_NEW_TOKENS  = 200
 TEMPERATURE     = 0.9
 STOP_SEQUENCE   = "###"                              # we append this at end
