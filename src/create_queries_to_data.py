@@ -31,7 +31,7 @@ from transformers import (
 )
 
 # ─────────────────────────────  CONFIG  ──────────────────────────────
-MODEL_NAME = "meta-llama/Llama-3.3-70B-Instruct"   # HF hub name
+MODEL_NAME = "google/gemma-3-27b-it" #"meta-llama/Llama-3.3-70B-Instruct"   # HF hub name
 MAX_NEW_TOKENS  = 200
 TEMPERATURE     = 0.9
 STOP_SEQUENCE   = "###"                              # we append this at end
@@ -52,7 +52,7 @@ model = AutoModelForCausalLM.from_pretrained(
     quantization_config=bnb_cfg,
     device_map="auto",
     torch_dtype=torch.float16,
-    trust_remote_code=True,   # Llama‑3 uses ChatML template in tokenizer
+    trust_remote_code=True,
     token=HF_TOKEN
 )
 model.eval()
@@ -214,7 +214,7 @@ def process_file(inp: Path, out: Path) -> None:
 
 def cli() -> None:
     ap = argparse.ArgumentParser(
-        description="Infer table research‑questions with a quantised Llama‑3.3‑70B."
+        description=f"Infer table research‑questions with a quantised {MODEL_NAME} ."
     )
     ap.add_argument("input_jsonl", type=Path, help="input JSONL")
     ap.add_argument(
