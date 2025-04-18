@@ -11,10 +11,6 @@ Dependencies
 ------------
 pip install "transformers>=4.40.0" accelerate bitsandbytes tqdm
 
-(If you have several GPUs, set `CUDA_VISIBLE_DEVICES`,
-otherwise the model will automatically shard.)
-
-Author : you 😉
 ---------------------------------------------------------
 """
 
@@ -39,6 +35,7 @@ MODEL_NAME = "meta-llama/Llama-3.3-70B-Instruct"   # HF hub name
 MAX_NEW_TOKENS  = 200
 TEMPERATURE     = 0.9
 STOP_SEQUENCE   = "###"                              # we append this at end
+MAX_PAPER_CHARS = 30000   # keep at most 30k characters from each paper
 
 # 4‑bit nf4 quantisation –fits in ~34GB VRAM
 bnb_cfg = BitsAndBytesConfig(
@@ -85,10 +82,50 @@ REF_CUE_RE = re.compile(r"(?im)^(references|bibliography|acknowledg(e)?ments?)\b
 
 
 def preprocess_paper(text: str) -> str:
-    """Strip trailing references / bibliography / acknowledgments."""
+    """
+    1. Strip everything from the first 'References/Bibliography/Ack…' heading onward.
+    2. Return at most MAX_PAPER_CHARS characters of the remaining body.
+    """
     m = REF_CUE_RE.search(text)
-    return text[: m.start()].strip() if m else text.strip()
+    cleaned = text[: m.start()].strip() if m else text.strip()
+    return cleaned[:MAX_PAPER_CHARS]
 
+
+RESULT_LIKE_RE = re.compile(
+    r"(?im)^(results?|experiments?|evaluation|findings|discussion|conclusions?)\b"
+)
+INTRO_RE = re.compile(r"(?im)^(1[.)]?\s+)?introduction\b")
+
+def preprocess_paper_extra(text: str) -> str:
+    """
+    • Remove trailing References/Bibliography/Acknowledgments.
+    • Keep the Abstract (if present) **plus**
+        – Results/Experiments/Evaluation/… section, *or*
+        – Discussion/Conclusion, *or*
+        – Introduction, *or*
+        – fall back to the full body.
+    • Truncate to MAX_PAPER_CHARS.
+    """
+    # 1️⃣ strip references
+    ref = REF_CUE_RE.search(text)
+    body = text[: ref.start()].strip() if ref else text.strip()
+
+    # 2️⃣ grab abstract
+    abs_m = re.search(r"(?is)^abstract\b(.+?)(?=^\s*\w)", body, re.M)
+    abstract = abs_m.group(0).strip() if abs_m else ""
+
+    # 3️⃣ pick the most informative main section
+    main_section = ""
+    for pat in (RESULT_LIKE_RE, INTRO_RE):
+        m = pat.search(body)
+        if m:
+            main_section = body[m.start():]
+            break
+    if not main_section:
+        main_section = body  # ultimate fallback
+
+    cleaned = f"{abstract}\n\n{main_section}".strip()
+    return cleaned[:MAX_PAPER_CHARS]
 
 def iter_jsonl(path: Path) -> Iterator[Dict[str, str]]:
     with path.open(encoding="utf-8") as fh:
@@ -125,16 +162,23 @@ def build_prompt(example: Dict[str, str], current: Dict[str, str]) -> str:
 
 @torch.inference_mode()
 def generate_query(prompt: str) -> str:
-    input_ids = tokenizer(prompt, return_tensors="pt").to(model.device)
+    prompt_text = str(prompt)
+    inputs = tokenizer(
+        prompt_text,
+        return_tensors="pt",
+        truncation=True,
+        max_length=tokenizer.model_max_length,
+    ).to(model.device)
+
     output_ids = model.generate(
-        **input_ids,
+        **inputs,
         max_new_tokens=MAX_NEW_TOKENS,
         temperature=TEMPERATURE,
         pad_token_id=tokenizer.eos_token_id,
-        eos_token_id=tokenizer.convert_tokens_to_ids(STOP_SEQUENCE),
     )
-    generated = tokenizer.decode(output_ids[0][input_ids["input_ids"].shape[-1] :])
-    return generated.strip().split(STOP_SEQUENCE)[0].strip()
+    generated = tokenizer.decode(output_ids[0][inputs.input_ids.shape[-1] :]).strip()
+    # optional: stop at the custom delimiter if it appears
+    return generated.split(STOP_SEQUENCE)[0].strip()
 
 
 # ───────────────────────────  MAIN FLOW  ─────────────────────────────
