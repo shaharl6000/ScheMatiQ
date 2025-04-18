@@ -35,7 +35,7 @@ MODEL_NAME = "meta-llama/Llama-3.3-70B-Instruct"   # HF hub name
 MAX_NEW_TOKENS  = 200
 TEMPERATURE     = 0.9
 STOP_SEQUENCE   = "###"                              # we append this at end
-MAX_PAPER_CHARS = 30000   # keep at most 30k characters from each paper
+MAX_PAPER_CHARS = 15000   # keep at most 30k characters from each paper
 
 # 4‑bit nf4 quantisation –fits in ~34GB VRAM
 bnb_cfg = BitsAndBytesConfig(
@@ -189,7 +189,7 @@ def process_file(inp: Path, out: Path) -> None:
 
     # preprocess once
     for rec in records:
-        rec["processed_paper_content"] = preprocess_paper(rec["paper_content"])
+        rec["processed_paper_content"] = preprocess_paper_extra(rec["paper_content"])
 
     example = records[0]  # use first line as one‑shot demonstration
 
