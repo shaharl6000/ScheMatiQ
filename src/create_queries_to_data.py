@@ -31,7 +31,7 @@ from transformers import (
 )
 
 # ─────────────────────────────  CONFIG  ──────────────────────────────
-MODEL_NAME = "google/gemma-3-27b-it" #"meta-llama/Llama-3.3-70B-Instruct"   # HF hub name
+MODEL_NAME = "meta-llama/Llama-3.3-70B-Instruct"   # HF hub name
 MAX_NEW_TOKENS  = 200
 TEMPERATURE     = 0.9
 STOP_SEQUENCE   = "###"                              # we append this at end
@@ -146,10 +146,10 @@ def build_prompt(example: Dict[str, str], current: Dict[str, str]) -> str:
         {
             "role": "user",
             "content": (
-                "### Example\n"
-                f"Paper Content:\n{example['processed_paper_content']}\n\n"
-                f"Table:\n{example['table']}\n\n"
-                f"Answer:\n{ONE_SHOT_ANSWER}\n\n"
+                # "### Example\n"
+                # f"Paper Content:\n{example['processed_paper_content']}\n\n"
+                # f"Table:\n{example['table']}\n\n"
+                # f"Answer:\n{ONE_SHOT_ANSWER}\n\n"
                 "### Task\n"
                 f"Paper Content:\n{current['processed_paper_content']}\n\n"
                 f"Table:\n{current['table']}\n\n"
