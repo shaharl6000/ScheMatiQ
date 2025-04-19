@@ -43,7 +43,7 @@ TASK_INSTRUCTIONS = (
     "this table was designed to answer. The question should reflect the "
     "purpose behind including this table in the paper.\n"
     "Important:\n"
-    "• Do NOT simply restate or rephrase the column headers.\n"
+    "• Do NOT simply restate or rephrase the column headers, you CANNOT use the headers at all in the question.\n"
     "• Instead, infer the underlying question or hypothesis the authors were "
     "investigating through this table.\n"
     "What did they want to understand, compare, or demonstrate?\n"
