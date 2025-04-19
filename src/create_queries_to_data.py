@@ -1,63 +1,42 @@
+#!/usr/bin/env python
+# -*- coding: utf‑8 -*-
 """
 ---------------------------------------------------------
 Infer the research‑question each table in a paper answers
-using **Meta‑Llama‑3‑70B‑Instruct** loaded locally with
-4‑bit quantisation (bitsandbytes).
+with **Meta‑Llama‑3‑70B‑Instruct** via either
+  • a local 4‑bit‑quantised HF model,  *or*
+  • Together AI’s hosted endpoint.
 
-INPUT  : JSONL –{id, paper_content, table}
-OUTPUT : JSONL –{id, processed_paper_content, table, query}
+INPUT  : JSONL  {id, paper_content, table}
+OUTPUT : JSONL  {id, processed_paper_content, table, query}
 
-Dependencies
-------------
-pip install "transformers>=4.40.0" accelerate bitsandbytes tqdm
-
+USAGE
+-----
+python infer_questions.py  papers.jsonl  -o queries.jsonl        # default HF
+python infer_questions.py  papers.jsonl  --backend together      # Together AI
+export TOGETHER_API_KEY=... ; pip install together               # for Together
+export HF_TOKEN=... ; pip install "transformers>=4.40" accelerate bitsandbytes
 ---------------------------------------------------------
 """
-
 from __future__ import annotations
+
 import argparse
 import json
+import os
 import re
+import sys
 from pathlib import Path
 from typing import Dict, Iterator, List
-import os
-HF_TOKEN = os.environ.get("HF_TOKEN")
-import torch
-from tqdm import tqdm
-from transformers import (
-    AutoTokenizer,
-    AutoModelForCausalLM,
-    BitsAndBytesConfig,
-)
 
-# ─────────────────────────────  CONFIG  ──────────────────────────────
-MODEL_NAME = "meta-llama/Llama-3.3-70B-Instruct"   # HF hub name
-MAX_NEW_TOKENS  = 200
-TEMPERATURE     = 0.9
-STOP_SEQUENCE   = "###"                              # we append this at end
-MAX_PAPER_CHARS = 15000   # keep at most 30k characters from each paper
+from tqdm import tqdm   # shared dependency
 
-# 4‑bit nf4 quantisation –fits in ~34GB VRAM
-bnb_cfg = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_use_double_quant=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.float16,
-)
+# ─────────────────────────────  CONSTANTS  ──────────────────────────────
+MODEL_NAME        = "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free" #"meta-llama/Llama-3.3-70B-Instruct"
+MAX_NEW_TOKENS    = 200
+TEMPERATURE       = 0.9
+STOP_SEQUENCE     = "###"             # custom delimiter
+MAX_PAPER_CHARS   = 15_000
 
-print("⏳  Loading tokenizer & model (this can take several minutes)…")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, use_fast=True, token=HF_TOKEN)
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
-    quantization_config=bnb_cfg,
-    device_map="auto",
-    torch_dtype=torch.float16,
-    trust_remote_code=True,
-    token=HF_TOKEN
-)
-model.eval()
-
-# ──────────────────────  PROMPT COMPONENTS  ──────────────────────────
 TASK_INSTRUCTIONS = (
     "You are given the content of a scientific paper and one of its tables. "
     "Your task is to infer the specific research question or motivation that "
@@ -71,41 +50,94 @@ TASK_INSTRUCTIONS = (
     "Return only the inferred question, in a clear and concise way."
 )
 
-ONE_SHOT_ANSWER = (
-    "How do recent NLG systems turn restaurant meaning representations into "
-    "natural‑language utterances, and how much stylistic variation do those "
-    "outputs exhibit?"
-)
+# ─────────────────────────── REGEX HELPERS ─────────────────────────────
+REF_CUE_RE       = re.compile(r"(?im)^(references|bibliography|acknowledg(e)?ments?)\b")
+RESULT_LIKE_RE   = re.compile(r"(?im)^(results?|experiments?|evaluation|findings|discussion|conclusions?)\b")
+INTRO_RE         = re.compile(r"(?im)^(1[.)]?\s+)?introduction\b")
 
-# ─────────────────────────  REGEX HELPERS  ───────────────────────────
-REF_CUE_RE = re.compile(r"(?im)^(references|bibliography|acknowledg(e)?ments?)\b")
-
-
-def preprocess_paper(text: str) -> str:
+# ───────────────────────────  BACKEND LOADER  ──────────────────────────
+def get_generator(backend: str):
     """
-    1. Strip everything from the first 'References/Bibliography/Ack…' heading onward.
-    2. Return at most MAX_PAPER_CHARS characters of the remaining body.
+    Returns a single function `generate(messages, max_tokens, temperature, stop)` that
+    hides all the backend‑specific machinery.
     """
-    m = REF_CUE_RE.search(text)
-    cleaned = text[: m.start()].strip() if m else text.strip()
-    return cleaned[:MAX_PAPER_CHARS]
+    backend = backend.lower()
+    if backend == "hf":
+        # --- local HF model (4‑bit, bitsandbytes) --------------------------------
+        import torch
+        from transformers import (
+            AutoModelForCausalLM,
+            AutoTokenizer,
+            BitsAndBytesConfig,
+        )
+
+        bnb_cfg = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_use_double_quant=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.float16,
+        )
+
+        print("⏳  Loading tokenizer & model locally …")
+        tokenizer = AutoTokenizer.from_pretrained(
+            MODEL_NAME, use_fast=True, token=os.getenv("HF_TOKEN")
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_NAME,
+            quantization_config=bnb_cfg,
+            device_map="auto",
+            torch_dtype=torch.float16,
+            trust_remote_code=True,
+            token=os.getenv("HF_TOKEN"),
+        )
+        model.eval()
+
+        def _generate(messages: List[Dict[str, str]], max_tokens, temperature, stop):
+            prompt_text = tokenizer.apply_chat_template(
+                messages, add_generation_prompt=True
+            )
+            inp = tokenizer(prompt_text, return_tensors="pt").to(model.device)
+            out_ids = model.generate(
+                **inp,
+                max_new_tokens=max_tokens,
+                temperature=temperature,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+            completion = tokenizer.decode(
+                out_ids[0][inp.input_ids.shape[-1] :]
+            ).strip()
+            # obey custom delimiter if present
+            if stop:
+                completion = completion.split(stop[0])[0]
+            return completion.strip()
+
+        return _generate
+
+    # ------------------ Together AI hosted backend -------------------------------
+    elif backend == "together":
+        from together import Together
+        TOGETHER_API_KEY="tgp_v1_CsXuE0uRINMbtPadckRykLY-c5F5JWK_ZG1m1fi1e9s"
+        client = Together(api_key=TOGETHER_API_KEY)
+
+        def _generate(messages: List[Dict[str, str]], max_tokens, temperature, stop):
+            resp = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stop=stop,
+            )
+            return resp.choices[0].message.content.strip()
+
+        return _generate
+
+    else:
+        raise ValueError(f"Unknown backend '{backend}'. Choose 'hf' or 'together'.")
 
 
-RESULT_LIKE_RE = re.compile(
-    r"(?im)^(results?|experiments?|evaluation|findings|discussion|conclusions?)\b"
-)
-INTRO_RE = re.compile(r"(?im)^(1[.)]?\s+)?introduction\b")
-
+# ───────────────────────────  UTILS  ──────────────────────────────────
 def preprocess_paper_extra(text: str) -> str:
-    """
-    • Remove trailing References/Bibliography/Acknowledgments.
-    • Keep the Abstract (if present) **plus**
-        – Results/Experiments/Evaluation/… section, *or*
-        – Discussion/Conclusion, *or*
-        – Introduction, *or*
-        – fall back to the full body.
-    • Truncate to MAX_PAPER_CHARS.
-    """
+    """Clean the paper and truncate."""
     # 1️⃣ strip references
     ref = REF_CUE_RE.search(text)
     body = text[: ref.start()].strip() if ref else text.strip()
@@ -114,7 +146,7 @@ def preprocess_paper_extra(text: str) -> str:
     abs_m = re.search(r"(?is)^abstract\b(.+?)(?=^\s*\w)", body, re.M)
     abstract = abs_m.group(0).strip() if abs_m else ""
 
-    # 3️⃣ pick the most informative main section
+    # 3️⃣ pick a main informative section
     main_section = ""
     for pat in (RESULT_LIKE_RE, INTRO_RE):
         m = pat.search(body)
@@ -122,10 +154,11 @@ def preprocess_paper_extra(text: str) -> str:
             main_section = body[m.start():]
             break
     if not main_section:
-        main_section = body  # ultimate fallback
+        main_section = body  # fallback
 
     cleaned = f"{abstract}\n\n{main_section}".strip()
     return cleaned[:MAX_PAPER_CHARS]
+
 
 def iter_jsonl(path: Path) -> Iterator[Dict[str, str]]:
     with path.open(encoding="utf-8") as fh:
@@ -134,69 +167,41 @@ def iter_jsonl(path: Path) -> Iterator[Dict[str, str]]:
                 yield json.loads(raw)
 
 
-def build_prompt(example: Dict[str, str], current: Dict[str, str]) -> str:
-    """
-    Llama‑3 expects ChatML. We’ll emit a single system + user turn:
-    <|begin_of_text|><|start_header_id|>system\n…<|end_header_id|>\n… etc.
-
-    The tokenizer can build this with `apply_chat_template`.
-    """
-    messages = [
+def build_messages(example: Dict[str, str], current: Dict[str, str]) -> List[Dict[str, str]]:
+    """Common chat‑messages format expected by both backends."""
+    return [
         {"role": "system", "content": TASK_INSTRUCTIONS},
         {
             "role": "user",
-            "content": (
-                # "### Example\n"
-                # f"Paper Content:\n{example['processed_paper_content']}\n\n"
-                # f"Table:\n{example['table']}\n\n"
-                # f"Answer:\n{ONE_SHOT_ANSWER}\n\n"
-                "### Task\n"
+            "content":
+                f"### Task\n"
                 f"Paper Content:\n{current['processed_paper_content']}\n\n"
                 f"Table:\n{current['table']}\n\n"
                 "Answer:"
-            ),
         },
     ]
-    return tokenizer.apply_chat_template(messages, add_generation_prompt=True)
 
 
-@torch.inference_mode()
-def generate_query(prompt: str) -> str:
-    prompt_text = str(prompt)
-    inputs = tokenizer(
-        prompt_text,
-        return_tensors="pt",
-        truncation=True,
-        max_length=tokenizer.model_max_length,
-    ).to(model.device)
-
-    output_ids = model.generate(
-        **inputs,
-        max_new_tokens=MAX_NEW_TOKENS,
-        temperature=TEMPERATURE,
-        pad_token_id=tokenizer.eos_token_id,
-    )
-    generated = tokenizer.decode(output_ids[0][inputs.input_ids.shape[-1] :]).strip()
-    # optional: stop at the custom delimiter if it appears
-    return generated.split(STOP_SEQUENCE)[0].strip()
-
-
-# ───────────────────────────  MAIN FLOW  ─────────────────────────────
-def process_file(inp: Path, out: Path) -> None:
-    records: List[Dict[str, str]] = list(iter_jsonl(inp))
+# ───────────────────────────  DRIVER  ────────────────────────────────
+def process_file(inp: Path, out: Path, generate) -> None:
+    records = list(iter_jsonl(inp))
     if not records:
         raise ValueError("Input JSONL is empty!")
 
-    # preprocess once
     for rec in records:
         rec["processed_paper_content"] = preprocess_paper_extra(rec["paper_content"])
 
-    example = records[0]  # use first line as one‑shot demonstration
+    example = records[0]  # kept for expansion if you want few‑shot
 
     with out.open("w", encoding="utf-8") as f_out:
         for rec in tqdm(records, desc="Inferring questions"):
-            prompt = build_prompt(example, rec)
-            rec["query"] = generate_query(prompt)
+            messages = build_messages(example, rec)
+            rec["query"] = generate(
+                messages,
+                max_tokens=MAX_NEW_TOKENS,
+                temperature=TEMPERATURE,
+                stop=[STOP_SEQUENCE],
+            )
             print(rec["query"])
             f_out.write(
                 json.dumps(
@@ -212,22 +217,35 @@ def process_file(inp: Path, out: Path) -> None:
             )
 
 
-def cli() -> None:
-    ap = argparse.ArgumentParser(
-        description=f"Infer table research‑questions with a quantised {MODEL_NAME} ."
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Infer table research‑questions with Llama‑3‑70B‑Instruct."
     )
-    ap.add_argument("input_jsonl", type=Path, help="input JSONL")
-    ap.add_argument(
-        "-o",
-        "--output_jsonl",
+    parser.add_argument(
+        "-o", "--output_jsonl",
         type=Path,
         default=Path("queries.jsonl"),
         help="output JSONL (default: queries.jsonl)",
     )
-    args = ap.parse_args()
-    process_file(args.input_jsonl, args.output_jsonl)
+
+    parser.add_argument(
+        "-i", "--input_jsonl",
+        type=Path,
+        required=True,
+        help="path to input JSONL",
+    )
+
+    parser.add_argument(
+        "--backend",
+        choices=["hf", "together"],
+        default="together",
+        help="Which backend to use: 'hf' (local) or 'together' (hosted).",
+    )
+    args = parser.parse_args()
+
+    generate = get_generator(args.backend)
+    process_file(args.input_jsonl, args.output_jsonl, generate)
     print(f"✅  Done – results in {args.output_jsonl.resolve()}")
 
-
 if __name__ == "__main__":
-    cli()
+    main()
