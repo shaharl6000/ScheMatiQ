@@ -41,13 +41,17 @@ TASK_INSTRUCTIONS = (
     "You are given the content of a scientific paper and one of its tables. "
     "Your task is to infer the specific research question or motivation that "
     "this table was designed to answer. The question should reflect the "
-    "purpose behind including this table in the paper.\n"
+    "purpose behind including this table in the paper.\n\n"
     "Important:\n"
-    "• Do NOT simply restate or rephrase the column headers, you CANNOT use the headers at all in the question.\n"
+    "• Do NOT simply restate or re‑phrase the column headers — you CANNOT "
+    "use the headers at all in the question.\n"
     "• Instead, infer the underlying question or hypothesis the authors were "
-    "investigating through this table.\n"
-    "What did they want to understand, compare, or demonstrate?\n"
-    "Return only the inferred question, in a clear and concise way."
+    "investigating through this table. What did they want to understand, "
+    "compare, or demonstrate?\n\n"
+    "Output format:\n"
+    "• If you succeed, return *only* the inferred question (one line).\n"
+    "• If you cannot find any valid research question that exactly fit and was induced by the paper about the table,"
+    "output: \"NO_QUERY\" (exactly, without quotes or extra text)."
 )
 
 # ─────────────────────────── REGEX HELPERS ─────────────────────────────
@@ -196,13 +200,24 @@ def process_file(inp: Path, out: Path, generate) -> None:
     with out.open("w", encoding="utf-8") as f_out:
         for rec in tqdm(records, desc="Inferring questions"):
             messages = build_messages(example, rec)
-            rec["query"] = generate(
+
+            # Ask the model
+            answer = generate(
                 messages,
                 max_tokens=MAX_NEW_TOKENS,
                 temperature=TEMPERATURE,
                 stop=[STOP_SEQUENCE],
-            )
+            ).strip()
+
+            # If the model signals failure, just log it and keep going
+            if "NO_QUERY" in answer:
+                print(f"NO_QUERY for id {rec['id']}")
+                continue  # ⇢ skip writing this record to the JSONL
+
+            # Otherwise keep the normal path
+            rec["query"] = answer
             print(rec["query"])
+
             f_out.write(
                 json.dumps(
                     {
@@ -246,6 +261,11 @@ def main() -> None:
     generate = get_generator(args.backend)
     process_file(args.input_jsonl, args.output_jsonl, generate)
     print(f"✅  Done – results in {args.output_jsonl.resolve()}")
+
+
+def read_queries():
+    pass
+
 
 if __name__ == "__main__":
     main()

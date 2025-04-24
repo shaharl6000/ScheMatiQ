@@ -10,6 +10,7 @@ import arxiv
 import io
 import requests
 from PyPDF2 import PdfReader
+from collections import Counter
 
 def arxivDIGESTables_data():
     tables = load_dataset("blnewman/arxivDIGESTables", split="validation",
@@ -17,13 +18,37 @@ def arxivDIGESTables_data():
     arxiv_ids = tables["arxiv_id"]
     tables_txt = tables["table"]
 
-    out_path = "arxiv_tables.jsonl"
+    lengths = []
+    for raw in tables_txt:
+        try:
+            obj = json.loads(raw)  # parse the JSON string
+            lengths.append(len(obj))  # number of top‑level keys
+        except (json.JSONDecodeError, TypeError):
+            # handle bad or non‑JSON items gracefully
+            continue
+
+    hist = Counter(lengths)  # build the histogram
+
+    print("Histogram of top‑level key counts:")
+    for n_keys, freq in sorted(hist.items()):
+        print(f"{n_keys:>2} keys : ({freq})")
+
+    out_path = "arxiv_tables_filtered.jsonl"
     client = arxiv.Client()
+
+    count_skipped = 0
 
     with open(out_path, "w", encoding="utf-8") as fout:
         for arxiv_id, table in tqdm(zip(arxiv_ids, tables_txt),
                                     total=len(arxiv_ids)):
             try:
+                if len(json.loads(table)) < 4:
+                    count_skipped += 1
+                    if count_skipped % 10 == 0:
+                        print(f"skipped {count_skipped} tables")
+                    continue
+
+
                 # 1) look up the record and get the PDF URL
                 record = next(client.results(arxiv.Search(id_list=[arxiv_id])))
                 pdf_url = record.pdf_url
