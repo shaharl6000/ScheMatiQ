@@ -2,7 +2,6 @@ import PyPDF2
 import json
 import os
 import re
-import requests
 import wget
 from tqdm import tqdm
 from datasets import load_dataset
@@ -11,12 +10,19 @@ import io
 import requests
 from PyPDF2 import PdfReader
 from collections import Counter
+import io
+
+
+MIN_COLUMNS_THRESH = 4
+
 
 def arxivDIGESTables_data():
     tables = load_dataset("blnewman/arxivDIGESTables", split="validation",
                           trust_remote_code=True)
     arxiv_ids = tables["arxiv_id"]
     tables_txt = tables["table"]
+    tabids = tables["tabid"]
+    captions = tables["caption"]
 
     lengths = []
     for raw in tables_txt:
@@ -33,16 +39,16 @@ def arxivDIGESTables_data():
     for n_keys, freq in sorted(hist.items()):
         print(f"{n_keys:>2} keys : ({freq})")
 
-    out_path = "arxiv_tables_filtered.jsonl"
+    out_path = f"arxiv_tables_filtered_{MIN_COLUMNS_THRESH}_columns.jsonl"
     client = arxiv.Client()
 
     count_skipped = 0
 
     with open(out_path, "w", encoding="utf-8") as fout:
-        for arxiv_id, table in tqdm(zip(arxiv_ids, tables_txt),
+        for arxiv_id, tabid, table, caption in tqdm(zip(arxiv_ids, tabids, tables_txt, captions),
                                     total=len(arxiv_ids)):
             try:
-                if len(json.loads(table)) < 4:
+                if len(json.loads(table)) < MIN_COLUMNS_THRESH:
                     count_skipped += 1
                     if count_skipped % 10 == 0:
                         print(f"skipped {count_skipped} tables")
@@ -67,7 +73,9 @@ def arxivDIGESTables_data():
                     {
                         "id": arxiv_id,
                         "paper_content": paper_text,
-                        "table": table
+                        "tabid" : tabid,
+                        "table": table,
+                        "caption": caption
                     },
                     ensure_ascii=False  # keep Unicode chars readable
                 ) + "\n")
@@ -113,7 +121,7 @@ def get_queries_from_arxivDIGESTables(path_json):
 # # Now `data` is a list of Python dictionaries
 # print(data)
 
-def text_from_url(url):
+def text_from_url_s2orc(url):
     # modify these
     API_KEY = "..." #TODO: waiting for approval or the api key
     DATASET_NAME = "s2orc"
@@ -136,7 +144,7 @@ def text_from_url(url):
     print("Downloaded all shards.")
 
 
-def text_from_pdf(pdf_path, output_txt_path):
+def text_from_pdf(pdf_path, output_txt_path=""):
     with open(pdf_path, "rb") as file:
         pdf_reader = PyPDF2.PdfReader(file)
 
@@ -148,9 +156,37 @@ def text_from_pdf(pdf_path, output_txt_path):
             page = pdf_reader.pages[page_num]
             text += page.extract_text()  # Extract text from each page
 
+    # # Save text to a .txt file
+    # with open(output_txt_path, "w", encoding="utf-8") as txt_file:
+    #     txt_file.write(text)
+
+    print(f"Text extracted and saved to {output_txt_path}")
+    return text
+
+
+def pdf_to_json(pdf_path, output_txt_path):
+
+    caption = ("A sample page from NESdb that shows 7 of the 14 illustrated features of the NES "
+               "from snurportin 1 (SNUPN). The features not shown include full name, alternative names, "
+               "organism, three-dimensional structures, comments, references, and a user input form.")
+
+    with open('../data/NESTable.jsonl', 'r', encoding='utf-8') as f:
+        table = f.read().strip()
+
+    paper_text = text_from_pdf(pdf_path)
+
     # Save text to a .txt file
-    with open(output_txt_path, "w", encoding="utf-8") as txt_file:
-        txt_file.write(text)
+    with open(output_txt_path, "w", encoding="utf-8") as fout:
+        fout.write(json.dumps(
+            {
+                "id": "NES",
+                "paper_content": paper_text,
+                "table": table,
+                "caption": caption
+            },
+            ensure_ascii=False  # keep Unicode chars readable
+        ) + "\n")
+
 
     print(f"Text extracted and saved to {output_txt_path}")
 
@@ -165,3 +201,6 @@ if __name__ == "__main__":
     # text_from_pdf(pdf_path, output_txt_path)
 
     arxivDIGESTables_data()
+
+    # pdf_to_json(r"../data/NES_paper.pdf", "NESdb.txt")
+

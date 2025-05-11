@@ -36,21 +36,21 @@ MAX_NEW_TOKENS    = 200
 TEMPERATURE       = 0.9
 STOP_SEQUENCE     = "###"             # custom delimiter
 MAX_PAPER_CHARS   = 15_000
+MIN_COLUMNS_THRESH = 0
 
 TASK_INSTRUCTIONS = (
-    "You are given the content of a scientific paper and one of its tables. "
-    "Your task is to infer the specific research question or motivation that "
-    "this table was designed to answer. The question should reflect the "
-    "purpose behind including this table in the paper.\n\n"
+    "You are given the content of a scientific paper, the caption of one of its tables, and the table itself. "
+    "Your task is to infer the specific research question or motivation that this table was designed to answer. "
+    "The question should reflect the purpose behind including this table in the paper.\n\n"
     "Important:\n"
-    "• Do NOT simply restate or re‑phrase the column headers — you CANNOT "
-    "use the headers at all in the question.\n"
-    "• Instead, infer the underlying question or hypothesis the authors were "
-    "investigating through this table. What did they want to understand, "
-    "compare, or demonstrate?\n\n"
+    "• Do NOT simply restate or re‑phrase the column headers — you CANNOT use the headers at all in the question.\n"
+    "• Instead, infer the underlying question or hypothesis the authors were investigating through this table. "
+    "What did they want to understand, compare, or demonstrate?\n"
+    "• If the table is descriptive (e.g., about datasets or models), think carefully about why these specific columns "
+    "were included. What are they aiming to highlight or explain by presenting this set of attributes?\n\n"
     "Output format:\n"
     "• If you succeed, return *only* the inferred question (one line).\n"
-    "• If you cannot find any valid research question that exactly fit and was induced by the paper about the table,"
+    "• If you cannot find any valid research question that clearly fits and was induced by the paper and table, "
     "output: \"NO_QUERY\" (exactly, without quotes or extra text)."
 )
 
@@ -180,6 +180,7 @@ def build_messages(example: Dict[str, str], current: Dict[str, str]) -> List[Dic
             "content":
                 f"### Task\n"
                 f"Paper Content:\n{current['processed_paper_content']}\n\n"
+                f"Caption:\n{current['caption']}\n\n"
                 f"Table:\n{current['table']}\n\n"
                 "Answer:"
         },
