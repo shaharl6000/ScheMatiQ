@@ -1,0 +1,15 @@
+{
+  "query": "How did climate change affect wheat yields in Europe after 2010?",
+  "docs_path": "data/docs",
+  "backend": {
+    "provider": "together",
+    "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+    "max_tokens": 1024,
+    "temperature": 0.2
+  },
+  "retriever": {
+  "type": "prompting",
+  "sentences_per_doc": 4
+  },
+  "output_path": "outputs/schema_wheat.json"
+}

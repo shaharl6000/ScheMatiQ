@@ -19,12 +19,14 @@ Replace the two stubs:
 
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Dict, Sequence, Tuple
-import logging
+from typing import List, Dict, Sequence, Tuple, Any
 import itertools
-import json
-from retrievers import EmbeddingRetriever
+from retrievers import Retriever, EmbeddingRetriever, PromptingRetriever
 from llm_backends import LLMInterface, TogetherLLM, OpenAILLM
+import argparse
+import json
+import logging
+from pathlib import Path
 
 ##############################################################################
 # 1. Model-agnostic helper layers                                            #
@@ -178,21 +180,111 @@ def discover_schema(
     return schema
 
 
-##############################################################################
-# 4. Example usage (wired to do nothing until you add concrete back-ends)    #
-##############################################################################
+# ------------------------------------------------------------------------ #
+# Helpers                                                                  #
+# ------------------------------------------------------------------------ #
+def load_documents(path: Path) -> List[str]:
+    exts = {".txt", ".md", ".html", ".htm"}
+    docs = []
+    for p in path.rglob("*"):
+        if p.suffix.lower() in exts and p.is_file():
+            docs.append(p.read_text(encoding="utf-8", errors="ignore"))
+    if not docs:
+        raise RuntimeError(f"No text files found under {path}")
+    return docs
+
+
+def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
+    provider = cfg.get("provider", "together").lower()
+    if provider == "together":
+        return TogetherLLM(
+            model=cfg.get("model", "mistralai/Mixtral-8x7B-Instruct-v0.1"),
+            max_tokens=cfg.get("max_tokens", 1024),
+            temperature=cfg.get("temperature", 0.3),
+            api_key=cfg.get("api_key"),               # falls back to env var
+        )
+    elif provider == "openai":
+        return OpenAILLM(
+            model=cfg.get("model", "gpt-4o-mini"),
+            max_tokens=cfg.get("max_tokens", 1024),
+            temperature=cfg.get("temperature", 0.3),
+            api_key=cfg.get("api_key"),
+        )
+    else:
+        raise ValueError(f"Unknown backend provider: {provider}")
+
+
+def build_retriever(cfg: Dict[str, Any], llm_for_prompting: LLMInterface) -> Retriever:
+    rtype = cfg.get("type", "embedding").lower()
+    if rtype == "embedding":
+        return EmbeddingRetriever(
+            model_name=cfg.get("model_name", "all-MiniLM-L6-v2"),
+            passage_chars=cfg.get("passage_chars", 512),
+            overlap=cfg.get("overlap", 64),
+        )
+    elif rtype == "prompting":
+        return PromptingRetriever(
+            llm=llm_for_prompting,
+            sentences_per_doc=cfg.get("sentences_per_doc", 3),
+            max_doc_chars=cfg.get("max_doc_chars", 4000),
+        )
+    else:
+        raise ValueError(f"Unknown retriever type: {rtype}")
+
+
+def save_schema(
+    out_path: Path,
+    query: str,
+    retriever_cfg: Dict[str, Any],
+    backend_cfg: Dict[str, Any],
+    docs_path: str,
+    schema: Schema,
+) -> None:
+    artefact = {
+        "query": query,
+        "docs_path": docs_path,
+        "backend": backend_cfg,
+        "retriever": retriever_cfg,
+        "schema": [col.to_dict() for col in schema],
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(artefact, indent=2, ensure_ascii=False))
+    logging.info("Saved schema JSON to %s", out_path.resolve())
+
+
+# ------------------------------------------------------------------------ #
+# Main                                                                     #
+# ------------------------------------------------------------------------ #
+def main(cfg_path: Path) -> None:
+    cfg = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
+    logging.info("Loaded config from %s", cfg_path)
+
+    query = cfg["query"]
+    docs_path = Path(cfg["docs_path"])
+    backend_cfg = cfg.get("backend", {})
+    retriever_cfg = cfg.get("retriever", {})
+    output_path = Path(cfg.get("output_path", "schema_output.json"))
+
+    # Set up components
+    llm_for_schema = build_llm(backend_cfg)
+    retriever = build_retriever(retriever_cfg, llm_for_schema)
+
+    # Load docs
+    docs = load_documents(docs_path)
+
+    # Run discovery
+    schema = discover_schema(query, docs, llm_for_schema, retriever)
+
+    # Persist artefact
+    save_schema(output_path, query, retriever_cfg, backend_cfg, str(docs_path), schema)
+
+    print("\nFinal schema\n------------")
+    for col in schema:
+        print(f"• {col.name}: {col.rationale}")
+
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-
-    # --------------------------------------------------------------------- #
-    # ❶ Plug in your real retriever & LLM here.                              #
-    # --------------------------------------------------------------------- #
-    llm = LLMInterface()           # ← replace with OpenAI/Together/HF client
-    retriever = EmbeddingRetriever()
-
-    docs = ["<long doc1 …>", "<long doc2 …>", "<long doc3 …>"]
-    question = "How did climate change affect wheat yields in Europe after 2010?"
-
-    final_schema = discover_schema(question, docs, llm, retriever)
-    print("\nFinal schema:\n", final_schema)
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    parser = argparse.ArgumentParser(description="Query-Based Schema Discovery runner")
+    parser.add_argument("--config", required=True, type=Path, help="Path to JSON config")
+    main(parser.parse_args().config)

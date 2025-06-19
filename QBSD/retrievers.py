@@ -101,9 +101,9 @@ class PromptingRetriever(Retriever):
 
     Example
     -------
-    >>> llm = OpenAILLM(model="gpt-4o-mini")        # any LLMInterface subclass
-    >>> r = PromptingRetriever(llm)
-    >>> passages = r.query(docs, "What is the F1 score of BERT?")
+     llm = OpenAILLM(model="gpt-4o-mini")        # any LLMInterface subclass
+     r = PromptingRetriever(llm)
+     passages = r.query(docs, "What is the F1 score of BERT?")
     """
 
     SYSTEM_TEMPLATE = (
