@@ -8,14 +8,17 @@ The API keys are pulled from standard environment variables by default:
 
 from __future__ import annotations
 import os
+from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 
 ##############################################################################
 # Base class (copied from scaffold for convenience – delete if already there)
 ##############################################################################
 
-class LLMInterface:
+class LLMInterface(ABC):
     """Minimal wrapper so core code is backend-agnostic."""
+
+    @abstractmethod
     def __init__(self, **backend_kwargs):
         self.backend_kwargs = backend_kwargs
 
@@ -30,8 +33,8 @@ class LLMInterface:
 
 class TogetherLLM(LLMInterface):
     """
-    >>> llm = TogetherLLM(model="meta-llama/Llama-3-8b-chat-hf")
-    >>> answer = llm.generate("What is the capital of France?")
+     llm = TogetherLLM(model="meta-llama/Llama-3-8b-chat-hf")
+     answer = llm.generate("What is the capital of France?")
     """
 
     def __init__(
@@ -61,6 +64,7 @@ class TogetherLLM(LLMInterface):
             temperature=temperature,
         )
 
+
     def generate(self, prompt: str, **kwargs) -> str:
         params = {**self._default_args, **kwargs}
         # Together chat endpoint expects OpenAI-style 'messages'
@@ -75,8 +79,8 @@ class TogetherLLM(LLMInterface):
 
 class OpenAILLM(LLMInterface):
     """
-    >>> llm = OpenAILLM(model="gpt-4o-mini")
-    >>> answer = llm.generate("List three Israeli cities.")
+     llm = OpenAILLM(model="gpt-4o-mini")
+     answer = llm.generate("List three Israeli cities.")
     """
 
     def __init__(

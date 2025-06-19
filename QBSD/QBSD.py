@@ -23,7 +23,7 @@ from typing import List, Dict, Sequence, Tuple
 import logging
 import itertools
 import json
-from EmbeddingRetriever import EmbeddingRetriever
+from retrievers import EmbeddingRetriever
 from llm_backends import LLMInterface, TogetherLLM, OpenAILLM
 
 ##############################################################################
