@@ -9,10 +9,13 @@ Two retrieval strategies under a single interface:
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Sequence
+from typing import List, Sequence, Iterable
 import logging
-import textwrap
+import copy
+import random
 import re
+
+_SENT_SPLIT_RE = re.compile(r"(?<=[\.\?!])\s+")
 
 ##############################################################################
 # Abstract base                                                              #
@@ -37,16 +40,30 @@ except ImportError:
     SentenceTransformer = None        # type: ignore
 
 
+def _split_sentences(text: str) -> List[str]:
+    """Very lightweight sentence tokenizer (avoids NLTK install)."""
+    return [s.strip() for s in _SENT_SPLIT_RE.split(text.strip()) if s.strip()]
+
+
+def _yield_word_slices(words: List[str], size: int) -> Iterable[str]:
+    """Yield sub-lists of <size> words (used for over-long sentences)."""
+    for i in range(0, len(words), size):
+        piece = words[i: i + size]
+        if piece:
+            yield " ".join(piece)
+
+
 class EmbeddingRetriever(Retriever):
     """
-    Fast dense-vector retriever (see earlier version for details).
+    Dense-vector retriever that chunks documents by **word count**, not characters.
+    Each passage contains up to `max_words` words (tries to fill the budget as
+    tightly as possible).
     """
 
     def __init__(
         self,
         model_name: str = "all-MiniLM-L6-v2",
-        passage_chars: int = 512,
-        overlap: int = 50,
+        max_words: int = 1000,
         batch_size: int = 32,
         device: str | None = None,
     ):
@@ -56,14 +73,17 @@ class EmbeddingRetriever(Retriever):
                 "pip install 'sentence-transformers>=2.5 numpy'"
             )
 
+        self.k = 15
         self.model = SentenceTransformer(model_name, device=device)
-        self.passage_chars = passage_chars
-        self.overlap = overlap
+        self.max_words = max_words
+        self.max_words_chunk = int(max_words / self.k)
         self.batch_size = batch_size
 
+
     # ---- Retriever API -------------------------------------------------- #
-    def query(self, docs: Sequence[str], question: str, k: int = 3) -> List[str]:
-        passages = []
+    def query(self, docs: Sequence[str], question: str, k: int = None) -> List[str]:
+        """Return top-k passages most similar to *question*."""
+        passages: List[str] = []
         for d in docs:
             passages.extend(self._chunk(d))
 
@@ -72,20 +92,57 @@ class EmbeddingRetriever(Retriever):
 
         # Encode
         q_emb = self.model.encode([question], show_progress_bar=False)[0]
-        p_embs = self.model.encode(passages, batch_size=self.batch_size,
-                                   show_progress_bar=False)
-        # Cosine sim
+        p_embs = self.model.encode(
+            passages, batch_size=self.batch_size, show_progress_bar=False
+        )
+
+        # Cosine similarity
         q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
-        p_norm = p_embs / (np.linalg.norm(p_embs, axis=1, keepdims=True) + 1e-8)
+        p_norm = p_embs / (
+            np.linalg.norm(p_embs, axis=1, keepdims=True) + 1e-8
+        )
         sims = p_norm @ q_norm
-        top = sims.argsort()[-k:][::-1]
+        chosen_k = self.k if k is None else k
+        top = sims.argsort()[-chosen_k:][::-1]
         return [passages[i] for i in top]
 
     # ---- Helpers -------------------------------------------------------- #
     def _chunk(self, doc: str) -> List[str]:
-        step = self.passage_chars - self.overlap
-        return [doc[i:i + self.passage_chars].strip()
-                for i in range(0, len(doc), step) if doc[i:i + self.passage_chars].strip()]
+        """
+        Split *doc* into passages of ≤ `self.max_words` words, trying to
+        keep each passage close to the limit by concatenating sentences.
+        """
+        sentences = _split_sentences(doc)
+        chunks: List[str] = []
+        current: List[str] = []
+        count = 0
+
+        for sent in sentences:
+            words = sent.split()
+            wlen = len(words)
+
+            # Sentence itself fits budget → accumulate
+            if wlen <= self.max_words_chunk:
+                if count + wlen <= self.max_words_chunk:
+                    current.append(sent)
+                    count += wlen
+                else:
+                    # flush and start new passage
+                    if current:
+                        chunks.append(" ".join(current).strip())
+                    current = [sent]
+                    count = wlen
+            else:
+                # Sentence longer than budget → slice by words
+                if current:
+                    chunks.append(" ".join(current).strip())
+                    current, count = [], 0
+                chunks.extend(_yield_word_slices(words, self.max_words_chunk))
+
+        if current:
+            chunks.append(" ".join(current).strip())
+
+        return chunks
 
 
 ##############################################################################
@@ -113,11 +170,21 @@ class PromptingRetriever(Retriever):
         "separate line, with NO commentary, bullet points, numbering or extra text."
     )
 
+    # taken from attribute-first paper
+    content_selection_general_template = (
+        "In this task, you are presented with several documents, which need to be summarized. As an intermediate step, "
+        "you need to identify salient content within the documents. For each document, copy verbatim the salient spans, "
+        "and use <SPAN_DELIM> as a delimiter between each consecutive span. "
+        "IMPORTANT: The output must be of the format Document [<DOC_ID>]: <SPAN_DELIM>-delimited consecutive salient spans. "
+        "IMPORTANT: Each salient content must be a single consecutive verbatim span from the corresponding passages. "
+        "IMPORTANT: make sure the total number of copied words (from all documents) is around 200 words, and not more than 900."
+    )
+
     def __init__(
         self,
         llm: LLMInterface,
         sentences_per_doc: int = 3,
-        max_doc_chars: int = 4000,
+        max_doc_chars: int = 1000,
     ):
         self.llm = llm
         self.sentences_per_doc = sentences_per_doc
@@ -173,3 +240,74 @@ class PromptingRetriever(Retriever):
             if len(s.split()) > 2  # keep non-trivial sentences
         ]
         return sentences
+
+
+def test_retriever_stability(
+    retriever: Retriever,
+    docs: Sequence[str],
+    question: str,
+    k: int = 5,
+    seed: int = 42,
+) -> None:
+    """
+    1. Computes cosine-similarity scores for *all* passages.
+    2. Prints the top-k and bottom-k passages.
+    3. Shuffles `docs` and re-runs the query.
+    4. Asserts that the same top-k passages are returned (order-agnostic).
+
+    Raises
+    ------
+    AssertionError
+        If shuffling causes a change in the retrieved top-k set.
+    """
+
+    # --- helper to get all passages + sims ------------------------------- #
+    passages = []
+    for d in docs:
+        passages.extend(retriever._chunk(d))
+
+        if not passages:
+            print("⚠️  No passages produced from the documents.")
+            return
+
+        q_emb = retriever.model.encode([question], show_progress_bar=False)[0]
+        p_embs = retriever.model.encode(
+            passages, batch_size=retriever.batch_size, show_progress_bar=False
+        )
+
+        q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
+        p_norm = p_embs / (np.linalg.norm(p_embs, axis=1, keepdims=True) + 1e-8)
+        sims = p_norm @ q_norm
+
+        # --- top & bottom k --------------------------------------------------- #
+        top_idx = sims.argsort()[-k:][::-1]
+        bot_idx = sims.argsort()[:k]
+
+        top_passages = [passages[i] for i in top_idx]
+        bot_passages = [passages[i] for i in bot_idx]
+
+        # print("\n🏆 Top-{} passages:".format(k))
+        # print("\n---\n".join(top_passages))
+        #
+        # print("\n🪫 Bottom-{} passages:".format(k))
+        # print("\n---\n".join(bot_passages))
+
+        # --- shuffle docs & re-query ----------------------------------------- #
+        bot_and_top = top_passages + bot_passages
+        shuffled_docs = copy.copy(bot_and_top)
+        # print(f"num of shuffled_docs {len(shuffled_docs)}")
+        random.Random(seed).shuffle(shuffled_docs)
+        # print(f"query is: {question}")
+
+        top_after_shuffle = retriever.query(shuffled_docs, question, k=k)
+
+        # --- check stability -------------------------------------------------- #
+        if set(top_passages) == set(top_after_shuffle):
+            print("\n✅  Retrieval stable after shuffling.")
+        else:
+            print("\n❌  Top-{} passages changed after shuffling!".format(k))
+            diff_old = set(top_passages) - set(top_after_shuffle)
+            diff_new = set(top_after_shuffle) - set(top_passages)
+            print("   Lost after shuffle:", diff_old or "—")
+            print("   Gained after shuffle:", diff_new or "—")
+            raise AssertionError("Retriever is not order-invariant!")
