@@ -2,15 +2,16 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import tiktoken
 
 import ast
 import json
 import re
 from pathlib import Path
 from typing import Dict, List
-
 from datasets import load_dataset
 from tqdm import tqdm
+import time
 from utils import get_generator
 
 # system instruction from ArxivDigest paper
@@ -21,12 +22,13 @@ SYSTEM_INSTRUCTION = (
 )
 
 # prompt template from ArxivDigest paper with changes of receiving query
-PROMPT_TEMPLATE = """[System]
+PROMPT_TEMPLATE_BASELINE = """[System]
 Imagine the following scenario: A user is making a table for a scholarly paper that aims to answer the research question:
 
     "{query}"
 
-To compare and contrast relevant works, the user provides the title and content of each paper.  
+To compare and contrast relevant works, the user provides the title and content of each paper.
+  
 Your task is the following: **Given the list of papers *and* the query**, find aspects that are shared by the given research papers and are pertinent to answering the query.  
 Within each aspect, identify attributes that can be used to compare the given papers **with respect to the query**.
 
@@ -46,43 +48,139 @@ Return a JSON object in the following format:
 }}
 """
 
+PROMPT_TEMPLATE_CAPTION =  """ [System] 
+Imagine the following scenario: A user is making a table for a scholarly paper that aims to answer the research question:
+
+    "{query}"
+    
+To compare and contrast the papers, the user provides the title and content of each paper. 
+To help you build the table, the user provides a caption of this table, which is referred to in the paper as additional information.
+Your task is the following: **Given the list of papers *and* the query**, find aspects that are shared by the given research papers and are pertinent to answering the query.  
+Within each aspect, identify attributes that can be used to compare the given papers **with respect to the query**.
+
+[Caption] {caption} 
+
+Your task is the following: **Given the list of papers *and* the query**, find aspects that are shared by the given research papers and are pertinent to answering the query.  
+Within each aspect, identify attributes that can be used to compare the given papers **with respect to the query**.
+
+First, return the list of similar aspects as a Python list, for example:  
+    ["<similar aspect that all given papers shared>", ...]  
+
+Then, think of each aspect as a topic for the Related Work section of the user's paper.  
+Finally, list attributes that compare the given papers for that aspect.  
+Return a JSON object in the following format:
+
+```json
+{{
+  "<aspect 1>": ["<comparable attribute within aspect 1>",
+                 "<comparable attribute within aspect 1>",
+                 ...],
+  ...
+}}
+"""
+
+
+prompt_template = PROMPT_TEMPLATE_CAPTION
+
 #--------------------  Generation parameters -------------------------------
 MAX_NEW_TOKENS = 512
 TEMPERATURE = 0.3
 STOP_SEQUENCE = None # keep None unless you need a custom stop token
-NUM_ATTRIBUTES = 3 # default attributes per aspect
+NUM_ATTRIBUTES = 6 # default attributes per aspect
 
+ENC = tiktoken.encoding_for_model("gpt-3.5-turbo")  # close enough
+
+MAX_CTX_TOKENS = 8192
+SAFETY_MARGIN   = 32
+DEFAULT_SENTENCE_LEVELS = (11, 9, 7, 5, 3, 1)
+
+def fit_prompt(
+    messages: list[dict[str, str]],
+    max_new: int = MAX_NEW_TOKENS,
+    sentence_levels: tuple[int, ...] = DEFAULT_SENTENCE_LEVELS,
+) -> list[dict[str, str]]:
+    """
+    Ensure (prompt_tokens + max_new) <= MAX_CTX_TOKENS – SAFETY_MARGIN.
+    * If already true, returns unchanged (no trimming).
+    * Otherwise, progressively shorten abstracts to the specified
+      sentence caps, then drop full papers if still too long.
+    """
+    def n_tokens(s: str) -> int:
+        return len(ENC.encode(s))
+
+    def shorten(block: str, cap: int) -> str:
+        title, abstract = block.split("Abstract:", 1)
+        sentences = re.split(r"(?<=[.!?])\s+", abstract.strip())
+        short_abs = " ".join(sentences[:cap])
+        return f"{title}Abstract: {short_abs}"
+
+    user_msg = messages[1]["content"]
+    header, _, papers_blob = user_msg.partition("\n\nPapers:\n\n")
+    blocks = papers_blob.split("\n\n") if papers_blob else []
+
+    full_len = n_tokens(user_msg) + max_new
+    if full_len <= MAX_CTX_TOKENS - SAFETY_MARGIN:
+        # fits as-is – done ✅
+        return messages
+
+    # 1) shorten abstracts ---------------------------------------------------
+    for cap in sentence_levels:
+        new_blocks = [shorten(b, cap) for b in blocks]
+        short_prompt = header + "\n\nPapers:\n\n" + "\n\n".join(new_blocks)
+        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - SAFETY_MARGIN:
+            print(f"✂️  Trimmed abstracts to ≤ {cap} sentences each.")
+            messages[1]["content"] = short_prompt
+            return messages
+
+    # 2) drop papers from the end -------------------------------------------
+    while blocks:
+        blocks.pop()  # remove last paper
+        short_prompt = header + "\n\nPapers:\n\n" + "\n\n".join(blocks)
+        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - SAFETY_MARGIN:
+            print(f"📄  Dropped papers – {len(blocks)} remain.")
+            messages[1]["content"] = short_prompt
+            return messages
+
+    # 3) Fallback: all papers gone; keep header only -------------------------
+    print("⚠️  All papers trimmed; only the header remains.")
+    messages[1]["content"] = header
+    return messages
 
 # -------------------- Message builder -------------------------------------
+
+
+
 def build_messages(
     query: str,
     papers: List[Dict[str, str]],
+    caption: str,
     num_attributes: int = NUM_ATTRIBUTES,
-    ) -> List[Dict[str, str]]:
+) -> List[Dict[str, str]]:
     """
-    Convert (query, papers) ➜ chat-completion message list.
-    Each paper dict must contain 'title' and 'abstract' keys.
+    Convert (query, papers, caption) ➜ chat-completion messages.
+    Each paper dict must contain at least 'title' and 'abstract'.
     """
-    paper_blocks = []
-    for i, p in enumerate(papers, 1):
-        title = p.get("title", "").strip()
-    abstract = p.get("abstract", "").strip()
-    paper_blocks.append(
-    f"[Paper {i}]\n"
-    f"Title: {title}\n"
-    f"Abstract: {abstract}"
-    )
-    input_info = "Papers:\n\n" + "\n\n".join(paper_blocks)
+    # --- build the paper list once ------------------------------------------
+    paper_blocks = [
+        (
+            f"[Paper {i}]\n"
+            f"Title: {p.get('title', '').strip()}\n"
+            f"Abstract: {p.get('abstract', '').strip()}"
+        )
+        for i, p in enumerate(papers, start=1)
+    ]
+    papers_section = "\n\n".join(paper_blocks)
 
-    user_prompt = PROMPT_TEMPLATE.format(
+    # --- render the prompt ---------------------------------------------------
+    user_prompt = prompt_template.format(
         query=query,
+        caption=caption,          # <- now supplied
         num_attributes=num_attributes,
-        input_info=input_info,
-    )
+    ) + "\n\nPapers:\n\n" + papers_section
 
     return [
         {"role": "system", "content": SYSTEM_INSTRUCTION},
-        {"role": "user", "content": user_prompt},
+        {"role": "user",   "content": user_prompt},
     ]
 
 # -------------------- Main processing loop --------------------------------
@@ -91,41 +189,55 @@ def process_query_file(
     out: Path,
     generate,
     num_attributes: int = NUM_ATTRIBUTES,
-    ) -> None:
+    resume: bool = False,            # ← new flag
+) -> None:
     """
-    Read JSONL with {"tabid", "query"}, build query-centric schemas
-    with an LLM, and write results to JSONL out.
+    Read JSONL with {"tabid", "query", "caption"}, build schemas with an LLM,
+    and append results to JSONL out.  If resume=True and out already exists,
+    tabids that are already present are skipped.
     """
-    # -- Load the queries ------------------------------------------------------
+    # -- Load the queries ----------------------------------------------------
     with inp.open("r", encoding="utf-8") as f_in:
-        records = [json.loads(line) for line in f_in if line.strip()]
+        records = [json.loads(l) for l in f_in if l.strip()]
     if not records:
         raise ValueError("Input JSONL is empty!")
-    # -- Load the arxivDIGESTables validation split once ----------------------
-    ds = load_dataset(
-        "blnewman/arxivDIGESTables",
-        split="validation",
-        trust_remote_code=True,
-    )
+
+    # -- If resuming, read existing tabids -----------------------------------
+    done_tabids: set[str] = set()
+    if resume and out.exists():
+        with out.open("r", encoding="utf-8") as f_out:
+            done_tabids = {json.loads(l)["tabid"] for l in f_out if l.strip()}
+        print(f"🔄  Resume enabled – {len(done_tabids)} tabids already processed.")
+
+    # -- Load the validation split once --------------------------------------
+    ds = load_dataset("blnewman/arxivDIGESTables",
+                      split="validation",
+                      trust_remote_code=True)
     tabid_to_row = {tid: ds[i] for i, tid in enumerate(ds["tabid"])}
 
-    # -- Iterate and generate --------------------------------------------------
-    with out.open("w", encoding="utf-8") as f_out:
+    # -- Iterate and generate -------------------------------------------------
+    # open in *append* mode so we keep previous runs intact
+    mode = "a" if resume else "w"
+    with out.open(mode, encoding="utf-8") as f_out:
         for rec in tqdm(records, desc="Inferring aspects"):
-            tabid: str = rec["tabid"]
-            query: str = rec["query"]
+            tabid, query, caption = rec["tabid"], rec["query"], rec["caption"]
+
+            if tabid in done_tabids:
+                continue  # already done ✔︎
 
             if tabid not in tabid_to_row:
                 print(f"⚠️  tabid {tabid} not found in dataset; skipping.")
                 continue
 
-            row = tabid_to_row[tabid]
-            papers = row["row_bib_map"]  # list[dict]
+            papers = tabid_to_row[tabid]["row_bib_map"]
 
-            messages = build_messages(query, papers, num_attributes)
+            messages = build_messages(query, papers, caption, num_attributes)
+
+            time.sleep(5.1)
+            trimmed_messages = fit_prompt(messages, MAX_NEW_TOKENS)
 
             answer = generate(
-                messages,
+                trimmed_messages,
                 max_tokens=MAX_NEW_TOKENS,
                 temperature=TEMPERATURE,
                 stop=[STOP_SEQUENCE] if STOP_SEQUENCE else None,
@@ -153,6 +265,7 @@ def process_query_file(
                 json.dumps(
                     {
                         "tabid": tabid,
+                        "caption": caption,
                         "query": query,
                         "aspects": aspects,
                         "schema": schema,
@@ -188,10 +301,21 @@ def main() -> None:
         default="together",
         help="Which backend to use: 'hf' (local) or 'together' (hosted).",
     )
+    parser.add_argument(
+        "--resume", dest="resume_out", action="store_true",
+        help="If set, append to the existing output JSONL and skip tabids "
+             "that have already been processed."
+    )
+
     args = parser.parse_args()
 
     generate = get_generator(args.backend)
-    process_query_file(args.input_jsonl, args.output_jsonl, generate)
+    process_query_file(
+        args.input_jsonl,
+        args.output_jsonl,
+        generate,
+        resume=args.resume_out,
+    )
     print(f"✅  Done – results in {args.output_jsonl.resolve()}")
 
 if __name__ == "__main__":

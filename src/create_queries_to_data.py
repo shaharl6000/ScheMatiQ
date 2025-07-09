@@ -144,6 +144,8 @@ def process_file(inp: Path, out: Path, generate) -> None:
                         "processed_paper_content": rec["processed_paper_content"],
                         "table": rec["table"],
                         "query": rec["query"],
+                        "tabid": rec["tabid"],
+                        "caption": rec["caption"]
                     },
                     ensure_ascii=False,
                 )
