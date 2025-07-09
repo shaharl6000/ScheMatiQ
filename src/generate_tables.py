@@ -21,16 +21,17 @@ SYSTEM_INSTRUCTION = (
     "You are able to interpret research papers, create questions and answers, and compare multiple papers."
 )
 
-# prompt template from ArxivDigest paper with changes of receiving query
-PROMPT_TEMPLATE_BASELINE = """[System]
-Imagine the following scenario: A user is making a table for a scholarly paper that aims to answer the research question:
+# ---------------------------------------------------------------------------
+# 1) Prompt templates (generic, with an optional {query_block} placeholder)
+# ---------------------------------------------------------------------------
 
-    "{query}"
+PROMPT_TEMPLATE_BASELINE = """[System]
+Imagine the following scenario: A user is making a table for a scholarly paper{query_block}
 
 To compare and contrast relevant works, the user provides the title and content of each paper.
-  
-Your task is the following: **Given the list of papers *and* the query**, find aspects that are shared by the given research papers and are pertinent to answering the query.  
-Within each aspect, identify attributes that can be used to compare the given papers **with respect to the query**.
+
+Your task is the following: **Given the list of papers{query_suffix}**, find aspects that are shared by the given research papers{pertinent}.
+Within each aspect, identify attributes that can be used to compare the given papers{respect}.
 
 First, return the list of similar aspects as a Python list, for example:  
     ["<similar aspect that all given papers shared>", ...]  
@@ -40,28 +41,19 @@ Finally, list attributes that compare the given papers for that aspect.
 Return a JSON object in the following format:
 
 ```json
-{{
-  "<aspect 1>": ["<comparable attribute within aspect 1>",
-                 "<comparable attribute within aspect 1>",
-                 ...],
-  ...
-}}
+{{ … }}
 """
 
-PROMPT_TEMPLATE_CAPTION =  """ [System] 
-Imagine the following scenario: A user is making a table for a scholarly paper that aims to answer the research question:
+PROMPT_TEMPLATE_CAPTION = """[System]
+Imagine the following scenario: A user is making a table for a scholarly paper{query_block}
 
-    "{query}"
-    
-To compare and contrast the papers, the user provides the title and content of each paper. 
-To help you build the table, the user provides a caption of this table, which is referred to in the paper as additional information.
-Your task is the following: **Given the list of papers *and* the query**, find aspects that are shared by the given research papers and are pertinent to answering the query.  
-Within each aspect, identify attributes that can be used to compare the given papers **with respect to the query**.
+To compare and contrast the papers, the user provides the title and content of each paper.  
+To help you build the table, the user also provides a caption referring to it as additional information.
 
-[Caption] {caption} 
+[Caption] {caption}
 
-Your task is the following: **Given the list of papers *and* the query**, find aspects that are shared by the given research papers and are pertinent to answering the query.  
-Within each aspect, identify attributes that can be used to compare the given papers **with respect to the query**.
+Your task is the following: **Given the list of papers{query_suffix}**, find aspects that are shared by the given research papers{pertinent}.
+Within each aspect, identify attributes that can be used to compare the given papers{respect}.
 
 First, return the list of similar aspects as a Python list, for example:  
     ["<similar aspect that all given papers shared>", ...]  
@@ -71,16 +63,21 @@ Finally, list attributes that compare the given papers for that aspect.
 Return a JSON object in the following format:
 
 ```json
-{{
-  "<aspect 1>": ["<comparable attribute within aspect 1>",
-                 "<comparable attribute within aspect 1>",
-                 ...],
-  ...
-}}
+{{ … }}
 """
 
+# ---------------------------------------------------------------------------
+# 2) Build all four prompt variants in one place
+# ---------------------------------------------------------------------------
 
-prompt_template = PROMPT_TEMPLATE_CAPTION
+PROMPT_VARIANTS = [
+    # name                template                 use_caption   include_query
+    ("baseline_query", PROMPT_TEMPLATE_BASELINE, False, True),
+    ("baseline_noquery", PROMPT_TEMPLATE_BASELINE, False, False),
+    ("caption_query", PROMPT_TEMPLATE_CAPTION, True, True),
+    ("caption_noquery", PROMPT_TEMPLATE_CAPTION, True, False),
+]
+
 
 #--------------------  Generation parameters -------------------------------
 MAX_NEW_TOKENS = 512
@@ -148,35 +145,47 @@ def fit_prompt(
 
 # -------------------- Message builder -------------------------------------
 
-
-
 def build_messages(
     query: str,
     papers: List[Dict[str, str]],
     caption: str,
+    *,
+    template: str,
+    include_query: bool,
     num_attributes: int = NUM_ATTRIBUTES,
 ) -> List[Dict[str, str]]:
-    """
-    Convert (query, papers, caption) ➜ chat-completion messages.
-    Each paper dict must contain at least 'title' and 'abstract'.
-    """
-    # --- build the paper list once ------------------------------------------
-    paper_blocks = [
-        (
-            f"[Paper {i}]\n"
-            f"Title: {p.get('title', '').strip()}\n"
-            f"Abstract: {p.get('abstract', '').strip()}"
+    # ---- decide per-variant wording --------------------------------------
+    if include_query:
+        query_block  = (
+            " that aims to answer the research question:\n\n"
+            f'    "{query}"\n'
         )
-        for i, p in enumerate(papers, start=1)
-    ]
-    papers_section = "\n\n".join(paper_blocks)
+        query_suffix = " *and* the query"
+        pertinent    = " and are pertinent to answering the query"
+        respect      = " **with respect to the query**"
+    else:
+        query_block  = ""
+        query_suffix = ""
+        pertinent    = ""
+        respect      = ""
 
-    # --- render the prompt ---------------------------------------------------
-    user_prompt = prompt_template.format(
-        query=query,
-        caption=caption,          # <- now supplied
+    # ---- render the prompt ------------------------------------------------
+    user_prompt = template.format(
+        query_block=query_block,
+        query_suffix=query_suffix,
+        pertinent=pertinent,
+        respect=respect,
+        caption=caption,
         num_attributes=num_attributes,
-    ) + "\n\nPapers:\n\n" + papers_section
+    )
+
+    # ---- append papers ----------------------------------------------------
+    paper_blocks = [
+        f"[Paper {i}]\nTitle: {p.get('title','').strip()}\n"
+        f"Abstract: {p.get('abstract','').strip()}"
+        for i, p in enumerate(papers, 1)
+    ]
+    user_prompt += "\n\nPapers:\n\n" + "\n\n".join(paper_blocks)
 
     return [
         {"role": "system", "content": SYSTEM_INSTRUCTION},
@@ -186,95 +195,101 @@ def build_messages(
 # -------------------- Main processing loop --------------------------------
 def process_query_file(
     inp: Path,
-    out: Path,
+    out: Path,                     # e.g. results.jsonl  (suffix gives us ".jsonl")
     generate,
     num_attributes: int = NUM_ATTRIBUTES,
-    resume: bool = False,            # ← new flag
+    resume: bool = False,
 ) -> None:
-    """
-    Read JSONL with {"tabid", "query", "caption"}, build schemas with an LLM,
-    and append results to JSONL out.  If resume=True and out already exists,
-    tabids that are already present are skipped.
-    """
-    # -- Load the queries ----------------------------------------------------
-    with inp.open("r", encoding="utf-8") as f_in:
+
+    # -- load task records once ---------------------------------------------
+    with inp.open(encoding="utf-8") as f_in:
         records = [json.loads(l) for l in f_in if l.strip()]
     if not records:
         raise ValueError("Input JSONL is empty!")
 
-    # -- If resuming, read existing tabids -----------------------------------
-    done_tabids: set[str] = set()
-    if resume and out.exists():
-        with out.open("r", encoding="utf-8") as f_out:
-            done_tabids = {json.loads(l)["tabid"] for l in f_out if l.strip()}
-        print(f"🔄  Resume enabled – {len(done_tabids)} tabids already processed.")
+    # -- load dataset once ---------------------------------------------------
+    ds            = load_dataset("blnewman/arxivDIGESTables",
+                                 split="validation", trust_remote_code=True)
+    tabid_to_row  = {tid: ds[i] for i, tid in enumerate(ds["tabid"])}
 
-    # -- Load the validation split once --------------------------------------
-    ds = load_dataset("blnewman/arxivDIGESTables",
-                      split="validation",
-                      trust_remote_code=True)
-    tabid_to_row = {tid: ds[i] for i, tid in enumerate(ds["tabid"])}
+    # -----------------------------------------------------------------------
+    # helper to make "base_stem_variant.jsonl"
+    # -----------------------------------------------------------------------
+    def variant_path(base: Path, variant_name: str) -> Path:
+        return base.with_name(f"{base.stem}_{variant_name}{base.suffix}")
 
-    # -- Iterate and generate -------------------------------------------------
-    # open in *append* mode so we keep previous runs intact
-    mode = "a" if resume else "w"
-    with out.open(mode, encoding="utf-8") as f_out:
-        for rec in tqdm(records, desc="Inferring aspects"):
-            tabid, query, caption = rec["tabid"], rec["query"], rec["caption"]
+    # -----------------------------------------------------------------------
+    # iterate over prompt variants
+    # -----------------------------------------------------------------------
+    for var_name, tmpl, use_cap, inc_q in PROMPT_VARIANTS:
+        path = variant_path(out, var_name)
+        mode = "a" if resume and path.exists() else "w"
 
-            if tabid in done_tabids:
-                continue  # already done ✔︎
+        # -------- determine which tabids are already done (for this variant)
+        done: set[str] = set()
+        if resume and path.exists():
+            with path.open(encoding="utf-8") as f_prev:
+                done = {json.loads(l)["tabid"] for l in f_prev if l.strip()}
+            print(f"🔄  {var_name}: skipping {len(done)} completed tabids.")
 
-            if tabid not in tabid_to_row:
-                print(f"⚠️  tabid {tabid} not found in dataset; skipping.")
-                continue
+        # 2) when appending / writing new results
+        with path.open(mode, encoding="utf-8") as f_out, \
+                tqdm(records, desc=f"{var_name:>18}") as pbar:
+            for rec in pbar:
+                tabid, query, caption = rec["tabid"], rec["query"], rec["caption"]
+                if tabid in done:
+                    continue
 
-            papers = tabid_to_row[tabid]["row_bib_map"]
+                papers = tabid_to_row.get(tabid, {}).get("row_bib_map", [])
+                if not papers:
+                    print(f"⚠️  tabid {tabid} missing papers; skip.")
+                    continue
 
-            messages = build_messages(query, papers, caption, num_attributes)
-
-            time.sleep(5.1)
-            trimmed_messages = fit_prompt(messages, MAX_NEW_TOKENS)
-
-            answer = generate(
-                trimmed_messages,
-                max_tokens=MAX_NEW_TOKENS,
-                temperature=TEMPERATURE,
-                stop=[STOP_SEQUENCE] if STOP_SEQUENCE else None,
-            ).strip()
-
-            # -- Parse model output -------------------------------------------
-            try:
-                aspects_match = re.search(r"\[.*?\]", answer, re.DOTALL)
-                json_match = re.search(r"\{.*}", answer, re.DOTALL)
-
-                aspects = (
-                    ast.literal_eval(aspects_match.group(0))
-                    if aspects_match else []
+                messages = build_messages(
+                    query,
+                    papers,
+                    caption if use_cap else "",
+                    template=tmpl,
+                    include_query=inc_q,
+                    num_attributes=num_attributes,
                 )
-                schema = (
-                    json.loads(json_match.group(0))
-                    if json_match else {}
-                )
-            except Exception as exc:
-                print(f"⚠️  Could not parse output for tabid {tabid}: {exc}")
-                continue
 
-            # -- Write one JSONL line -----------------------------------------
-            f_out.write(
-                json.dumps(
-                    {
-                        "tabid": tabid,
-                        "caption": caption,
-                        "query": query,
-                        "aspects": aspects,
-                        "schema": schema,
-                        "raw_answer": answer,  # keep for reproducibility
-                    },
-                    ensure_ascii=False,
+                time.sleep(5.1)
+                trimmed = fit_prompt(messages, MAX_NEW_TOKENS)
+
+                answer = generate(
+                    trimmed,
+                    max_tokens=MAX_NEW_TOKENS,
+                    temperature=TEMPERATURE,
+                    stop=[STOP_SEQUENCE] if STOP_SEQUENCE else None,
+                ).strip()
+
+                # --- parse model output (same as before) --------------------
+                try:
+                    aspects_match = re.search(r"\[.*?\]", answer, re.DOTALL)
+                    json_match    = re.search(r"\{.*}",  answer, re.DOTALL)
+                    aspects = ast.literal_eval(aspects_match.group(0)) if aspects_match else []
+                    schema  = json.loads(json_match.group(0))          if json_match    else {}
+                except Exception as exc:
+                    print(f"⚠️  parse failure for {tabid} in {var_name}: {exc}")
+                    continue
+
+                # --- write result ------------------------------------------
+                f_out.write(
+                    json.dumps(
+                        {
+                            "tabid":   tabid,
+                            "caption": caption,
+                            "query":   query,
+                            "aspects": aspects,
+                            "schema":  schema,
+                            "raw_answer": answer,
+                        },
+                        ensure_ascii=False,
+                    ) + "\n"
                 )
-                + "\n"
-            )
+
+        print(f"✅  Finished {var_name} ➜ {path.resolve()}")
 
 
 def main() -> None:
