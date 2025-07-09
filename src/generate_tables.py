@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+import random
 import tiktoken
-
 import ast
 import json
 import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Any
 from datasets import load_dataset
 from tqdm import tqdm
 import time
@@ -41,7 +40,13 @@ Finally, list attributes that compare the given papers for that aspect.
 Return a JSON object in the following format:
 
 ```json
-{{ … }}
+{{
+  "<aspect 1>": ["<comparable attribute within aspect 1>",
+                 "<comparable attribute within aspect 1>",
+                 ...],
+  ...
+}}
+
 """
 
 PROMPT_TEMPLATE_CAPTION = """[System]
@@ -63,7 +68,39 @@ Finally, list attributes that compare the given papers for that aspect.
 Return a JSON object in the following format:
 
 ```json
-{{ … }}
+{{
+  "<aspect 1>": ["<comparable attribute within aspect 1>",
+                 "<comparable attribute within aspect 1>",
+                 ...],
+  ...
+}}
+"""
+
+PROMPT_TEMPLATE_ICL = """[System]
+Imagine the following scenario: A user is making a table for a scholarly paper{query_block}
+
+To compare and contrast the papers, the user provides the title and content of each paper.  
+To help you build the table, the user provides similar tables that you can refer to as follows: 
+
+{icl_tables_block}
+
+Your task is the following: **Given the list of papers{query_suffix}**, find aspects that are shared by the given research papers{pertinent}.
+Within each aspect, identify attributes that can be used to compare the given papers{respect}.
+
+First, return the list of similar aspects as a Python list, for example:  
+    ["<similar aspect that all given papers shared>", ...]  
+
+Then, think of each aspect as a topic for the Related Work section of the user's paper.  
+Finally, list attributes that compare the given papers for that aspect.  
+Return a JSON object in the following format:
+
+```json
+{{
+  "<aspect 1>": ["<comparable attribute within aspect 1>",
+                 "<comparable attribute within aspect 1>",
+                 ...],
+  ...
+}}
 """
 
 # ---------------------------------------------------------------------------
@@ -71,11 +108,13 @@ Return a JSON object in the following format:
 # ---------------------------------------------------------------------------
 
 PROMPT_VARIANTS = [
-    # name                template                 use_caption   include_query
-    ("baseline_query", PROMPT_TEMPLATE_BASELINE, False, True),
-    ("baseline_noquery", PROMPT_TEMPLATE_BASELINE, False, False),
-    ("caption_query", PROMPT_TEMPLATE_CAPTION, True, True),
-    ("caption_noquery", PROMPT_TEMPLATE_CAPTION, True, False),
+    # name                template                 use_caption  include_query  use_icl
+    ("baseline_query",    PROMPT_TEMPLATE_BASELINE, False,       True,          False),
+    ("baseline_noquery",  PROMPT_TEMPLATE_BASELINE, False,       False,         False),
+    ("caption_query",     PROMPT_TEMPLATE_CAPTION,  True,        True,          False),
+    ("caption_noquery",   PROMPT_TEMPLATE_CAPTION,  True,        False,         False),
+    ("icl_query",         PROMPT_TEMPLATE_ICL,      False,       True,          True ),
+    ("icl_noquery",       PROMPT_TEMPLATE_ICL,      False,       False,         True ),
 ]
 
 
@@ -90,6 +129,39 @@ ENC = tiktoken.encoding_for_model("gpt-3.5-turbo")  # close enough
 MAX_CTX_TOKENS = 8192
 SAFETY_MARGIN   = 32
 DEFAULT_SENTENCE_LEVELS = (11, 9, 7, 5, 3, 1)
+
+JSON_FENCE = re.compile(r"```json(.*?)```", re.S)  # fenced block
+FIRST_JS = re.compile(r"\{[^{}]*\}(?=\s*$)", re.S)  # { … } at end of text
+LIST_RE = re.compile(r"\[[^\[\]]*\]", re.S)
+
+def parse_llm_output(text: str) -> tuple[list, dict]:
+    """
+    Extract (<aspect-list>, <schema-dict>) from the raw model answer.
+    Raises ValueError if neither structure is found.
+    """
+    # ---------- aspect list -------------------------------------------------
+    m = LIST_RE.search(text)
+    aspects = ast.literal_eval(m.group(0)) if m else []
+
+    # ---------- JSON object -------------------------------------------------
+    # 1) prefer a ```json code fence
+    m = JSON_FENCE.search(text)
+    if m:
+        candidate = m.group(1).strip()
+    else:
+        # 2) otherwise grab the *last* balanced {...} block
+        m = FIRST_JS.search(text)
+        if not m:
+            raise ValueError("No JSON object found.")
+        candidate = m.group(0)
+
+    try:
+        schema = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        # final fallback: try to load until the first '}\n'
+        candidate = candidate.split("}\n", 1)[0] + "}"
+        schema = json.loads(candidate)   # may still fail
+    return aspects, schema
 
 def fit_prompt(
     messages: list[dict[str, str]],
@@ -143,6 +215,41 @@ def fit_prompt(
     messages[1]["content"] = header
     return messages
 
+def pick_example_tables(
+    this_tabid: str,
+    tabid_to_row: Dict[str, Dict[str, Any]],
+    k: int = 5,
+) -> List[str]:
+    """
+    Collect up to *k* Markdown tables from other rows in the dataset.
+
+    Searches several commonly-used field names; returns an empty list if none
+    are found.  Does **not** raise.
+    """
+    pool = [
+        row for tid, row in tabid_to_row.items()
+        if tid != this_tabid
+    ]
+    if not pool:
+        return []
+
+    tables: List[str] = []
+    # oversample a bit to improve the chance of finding non-empty tables
+    for row in random.sample(pool, k=min(k * 3, len(pool))):
+        tbl = (
+            row.get("markdown_table")
+            or row.get("table_markdown")
+            or row.get("table_md")
+            or row.get("table")
+            or ""
+        ).strip()
+        if tbl:
+            tables.append(tbl)
+        if len(tables) >= k:
+            break
+
+    return tables[:k]
+
 # -------------------- Message builder -------------------------------------
 
 def build_messages(
@@ -152,9 +259,11 @@ def build_messages(
     *,
     template: str,
     include_query: bool,
+    example_tables: List[str] | None = None,
     num_attributes: int = NUM_ATTRIBUTES,
 ) -> List[Dict[str, str]]:
-    # ---- decide per-variant wording --------------------------------------
+
+    # -- query-dependent wording -------------------------------------------
     if include_query:
         query_block  = (
             " that aims to answer the research question:\n\n"
@@ -164,22 +273,28 @@ def build_messages(
         pertinent    = " and are pertinent to answering the query"
         respect      = " **with respect to the query**"
     else:
-        query_block  = ""
-        query_suffix = ""
-        pertinent    = ""
-        respect      = ""
+        query_block = query_suffix = pertinent = respect = ""
 
-    # ---- render the prompt ------------------------------------------------
+    # -- ICL block (may be empty) ------------------------------------------
+    if example_tables:
+        icl_tables_block = "\n\n".join(
+            f"[Table {i}]\n{tbl.strip()}" for i, tbl in enumerate(example_tables, 1)
+        )
+    else:
+        icl_tables_block = ""
+
+    # -- render template ----------------------------------------------------
     user_prompt = template.format(
         query_block=query_block,
         query_suffix=query_suffix,
         pertinent=pertinent,
         respect=respect,
         caption=caption,
+        icl_tables_block=icl_tables_block,
         num_attributes=num_attributes,
     )
 
-    # ---- append papers ----------------------------------------------------
+    # -- append the current paper list -------------------------------------
     paper_blocks = [
         f"[Paper {i}]\nTitle: {p.get('title','').strip()}\n"
         f"Abstract: {p.get('abstract','').strip()}"
@@ -221,20 +336,19 @@ def process_query_file(
     # -----------------------------------------------------------------------
     # iterate over prompt variants
     # -----------------------------------------------------------------------
-    for var_name, tmpl, use_cap, inc_q in PROMPT_VARIANTS:
+    for var_name, tmpl, use_cap, inc_q, use_icl in PROMPT_VARIANTS:
         path = variant_path(out, var_name)
         mode = "a" if resume and path.exists() else "w"
 
-        # -------- determine which tabids are already done (for this variant)
-        done: set[str] = set()
+        done = set()
         if resume and path.exists():
             with path.open(encoding="utf-8") as f_prev:
                 done = {json.loads(l)["tabid"] for l in f_prev if l.strip()}
             print(f"🔄  {var_name}: skipping {len(done)} completed tabids.")
 
-        # 2) when appending / writing new results
         with path.open(mode, encoding="utf-8") as f_out, \
                 tqdm(records, desc=f"{var_name:>18}") as pbar:
+
             for rec in pbar:
                 tabid, query, caption = rec["tabid"], rec["query"], rec["caption"]
                 if tabid in done:
@@ -245,12 +359,20 @@ def process_query_file(
                     print(f"⚠️  tabid {tabid} missing papers; skip.")
                     continue
 
+                example_tables = (
+                    pick_example_tables(tabid, tabid_to_row, k=5) if use_icl else None
+                )
+                if use_icl and not example_tables:
+                    print(f"⚠️  No example tables found for {tabid}.")
+
+                # ---------------------------------------------------------------
                 messages = build_messages(
                     query,
                     papers,
                     caption if use_cap else "",
                     template=tmpl,
                     include_query=inc_q,
+                    example_tables=example_tables,
                     num_attributes=num_attributes,
                 )
 
@@ -266,10 +388,7 @@ def process_query_file(
 
                 # --- parse model output (same as before) --------------------
                 try:
-                    aspects_match = re.search(r"\[.*?\]", answer, re.DOTALL)
-                    json_match    = re.search(r"\{.*}",  answer, re.DOTALL)
-                    aspects = ast.literal_eval(aspects_match.group(0)) if aspects_match else []
-                    schema  = json.loads(json_match.group(0))          if json_match    else {}
+                    aspects, schema = parse_llm_output(answer)
                 except Exception as exc:
                     print(f"⚠️  parse failure for {tabid} in {var_name}: {exc}")
                     continue
