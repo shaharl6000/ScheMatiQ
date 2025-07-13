@@ -127,7 +127,7 @@ NUM_ATTRIBUTES = 6 # default attributes per aspect
 ENC = tiktoken.encoding_for_model("gpt-3.5-turbo")  # close enough
 
 MAX_CTX_TOKENS = 8192
-SAFETY_MARGIN   = 32
+SAFETY_MARGIN   = 128
 DEFAULT_SENTENCE_LEVELS = (11, 9, 7, 5, 3, 1)
 
 JSON_FENCE = re.compile(r"```json(.*?)```", re.S)  # fenced block

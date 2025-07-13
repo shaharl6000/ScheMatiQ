@@ -9,7 +9,7 @@ The API keys are pulled from standard environment variables by default:
 from __future__ import annotations
 import os
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 
 ##############################################################################
 # Base class (copied from scaffold for convenience – delete if already there)
@@ -65,10 +65,24 @@ class TogetherLLM(LLMInterface):
         )
 
 
-    def generate(self, prompt: str, **kwargs) -> str:
+    def generate(self,
+                 prompt: Union[str, List[Dict[str, str]]],
+                 **kwargs) -> str:
+        """
+        Args
+        ----
+        prompt : str | list[dict]
+            • str  – plain prompt → wrapped as [{'role':'user', 'content': prompt}]
+            • list – already‑formatted chat messages (role/content pairs)
+        """
         params = {**self._default_args, **kwargs}
-        # Together chat endpoint expects OpenAI-style 'messages'
-        params["messages"] = [{"role": "user", "content": prompt}]
+
+        # Detect format
+        if isinstance(prompt, list):
+            params["messages"] = prompt        # already chat‑style
+        else:
+            params["messages"] = [{"role": "user", "content": prompt}]
+
         resp = self._client.chat.completions.create(**params)
         return resp.choices[0].message.content.strip()
 
@@ -110,8 +124,23 @@ class OpenAILLM(LLMInterface):
             temperature=temperature,
         )
 
-    def generate(self, prompt: str, **kwargs) -> str:
+    def generate(self,
+                 prompt: Union[str, List[Dict[str, str]]],
+                 **kwargs) -> str:
+        """
+        Args
+        ----
+        prompt : str | list[dict]
+            • str  – plain prompt → wrapped as [{'role':'user', 'content': prompt}]
+            • list – already‑formatted chat messages (role/content pairs)
+        """
         params = {**self._default_args, **kwargs}
-        params["messages"] = [{"role": "user", "content": prompt}]
+
+        # Detect format
+        if isinstance(prompt, list):
+            params["messages"] = prompt        # already chat‑style
+        else:
+            params["messages"] = [{"role": "user", "content": prompt}]
+
         resp = self._client.chat.completions.create(**params)
         return resp.choices[0].message.content.strip()

@@ -25,9 +25,10 @@ def _embed(text: str):
 class Column:
     name: str
     rationale: str
+    definition: str
 
     def to_dict(self) -> Dict[str, str]:
-        return {"column": self.name, "explanation": self.rationale}
+        return {"column": self.name, "explanation": self.rationale, "definition": self.definition}
 
     # Needed for `set` / dict keys
     def __hash__(self): return hash(self.name.lower())

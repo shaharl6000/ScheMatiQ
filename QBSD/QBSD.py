@@ -17,16 +17,16 @@ Replace the two stubs:
     • LLMInterface.generate(...)  (for prompt → completion)
 """
 
+import utils
 from __future__ import annotations
 from typing import List, Dict, Sequence, Tuple, Any
 import itertools
-from retrievers import Retriever, EmbeddingRetriever, PromptingRetriever, test_retriever_stability
-from llm_backends import LLMInterface, TogetherLLM, OpenAILLM
 import argparse
 import json
 import logging
 from pathlib import Path
 from schema import Schema, Column
+
 
 ##############################################################################
 # Core pipeline                                                           #
@@ -35,7 +35,7 @@ from schema import Schema, Column
 def select_relevant_content(
     docs: Sequence[str],
     query: str,
-    retriever: EmbeddingRetriever,
+    retriever,
     passages_per_doc: int = 3,
 ) -> List[str]:
     """Return a flat list of passages drawn from all docs."""
@@ -45,7 +45,7 @@ def select_relevant_content(
     return passages
 
 
-def _parse_schema_from_llm(text: str,
+def _parse_schema_from_llm(raw_text: str,
                            query: str,
                            max_keys_schema: int,
                            ) -> Schema:
@@ -53,42 +53,105 @@ def _parse_schema_from_llm(text: str,
     Very lenient parser: lines that look like "Column: rationale".
     Adapt this to your favorite JSON-only format if you prefer.
     """
-    columns = []
-    for line in text.splitlines():
-        if ":" in line:
-            name, rationale = line.split(":", 1)
-            name, rationale = name.strip(), rationale.strip()
-            if name:
-                columns.append(Column(name=name, rationale=rationale))
+    try:
+        payload = json.loads(raw_text)
+        columns = [Column(**c) for c in payload]
+    except (json.JSONDecodeError, TypeError, KeyError):
+        # ← fallback: lenient parsing for old models / bad outputs
+        print("fallback to no definition")
+        columns = []
+        for line in raw_text.splitlines():
+            if ":" in line:
+                name, rationale = [s.strip() for s in line.split(":", 1)]
+                if name:
+                    columns.append(Column(
+                        name=name,
+                        definition="",
+                        rationale=rationale
+                    ))
     return Schema(query=query, max_keys=max_keys_schema, columns=columns)
 
 
-SYSTEM_MSG = """You are an expert data analyst. 
-Given a user *query* and one or more *passages*, output ONLY a set
-of column headers with a one-sentence explanation each. 
-Use the format: <Column>: <Why this helps answer the query>. 
-Return NO extra commentary.
-"""
+SYSTEM_PROMPT = """
+You are *SchemaLLM*, a senior data analyst who converts collections of papers
+into research‑ready table schemas.
+
+### Task
+1. **Silently reason** about the user’s query and the supplied passages.
+2. Select the most important aspects that, if turned into table columns,
+   would best support answering the query.
+3. Identify only those aspects whose answers can be found in the provided
+   passages — do **not** invent information that is absent from the text.
+4. Return **only** a JSON list; do **not** expose your reasoning.
+   
+### Output JSON spec
+[
+  {{
+    "name":        "<snake_case_column_name>",
+    "definition":  "<one‑sentence definition of what data belongs here>",
+    "rationale":   "<one‑sentence on why this column helps answer the query>"
+  }},
+  ...
+]
+
+### Constraints
+* Keep `name` concise (3–5 words, snake_case).
+* Do not write markdown, comments, or any text outside the JSON.
+""".strip()
+
+USER_PROMPT_TMPL = """
+<QUERY>
+{query}
+</QUERY>
+
+<PASSAGES>
+{joined_passages}
+</PASSAGES>
+""".strip()
+
+DRAFT_SCHEMA_TMPL = """
+A draft schema already exists. Review it first – then append columns as needed.
+
+<DRAFT_SCHEMA>
+{json_schema}
+</DRAFT_SCHEMA>
+""".strip()
+
+def build_messages(query: str,
+                   passages: list[str],
+                   draft_schema=None):
+    user_parts = [USER_PROMPT_TMPL.format(
+        query=query.strip(),
+        joined_passages="\n\n".join(p.strip() for p in passages)
+    )]
+
+    if draft_schema:
+        serialisable = utils._to_jsonable(draft_schema)
+        user_parts.append(
+            DRAFT_SCHEMA_TMPL.format(
+                json_schema=json.dumps(serialisable,
+                                       indent=2,
+                                       ensure_ascii=False)
+            )
+        )
+
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user",   "content": "\n\n".join(user_parts).strip()},
+    ]
+
 
 def generate_schema(
     passages: List[str],
     query: str,
     max_keys_schema: int,
     current_schema: Schema | None,
-    llm: LLMInterface,
+    llm,
 ) -> Schema:
     """
     Feed passages + (optional) current schema to the LLM, ask for additions.
     """
-    prompt_parts = [SYSTEM_MSG, f"User query:\n{query}\n"]
-    if current_schema and len(current_schema):
-        prompt_parts.append("Current draft schema:\n" + repr(current_schema) + "\n")
-        prompt_parts.append("You may *extend* or *refine* this schema if needed.\n")
-    joined_passages = "\n\n".join(passages)
-    prompt_parts.append("Passages:\n" + joined_passages + "\n")
-    prompt_parts.append("### Proposed schema\n")
-    prompt = "\n".join(prompt_parts)
-
+    prompt = build_messages(query, passages, current_schema)
     llm_response = llm.generate(prompt)
     return _parse_schema_from_llm(llm_response, query=query, max_keys_schema=max_keys_schema)
 
@@ -106,8 +169,8 @@ def discover_schema(
     query: str,
     documents: List[str],
     max_keys_schema : int,
-    llm: LLMInterface,
-    retriever: EmbeddingRetriever,
+    llm,
+    retriever,
     batch_size: int = 4,
     max_iters: int = 6,
 ) -> Schema:
@@ -151,44 +214,6 @@ def load_documents(path: Path) -> List[str]:
     return docs
 
 
-def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
-    provider = cfg.get("provider", "together").lower()
-    if provider == "together":
-        return TogetherLLM(
-            model=cfg.get("model", "mistralai/Mixtral-8x7B-Instruct-v0.1"),
-            max_tokens=cfg.get("max_tokens", 1024),
-            temperature=cfg.get("temperature", 0.3),
-            api_key=cfg.get("api_key"),               # falls back to env var
-        )
-    elif provider == "openai":
-        return OpenAILLM(
-            model=cfg.get("model", "gpt-4o-mini"),
-            max_tokens=cfg.get("max_tokens", 1024),
-            temperature=cfg.get("temperature", 0.3),
-            api_key=cfg.get("api_key"),
-        )
-    else:
-        raise ValueError(f"Unknown backend provider: {provider}")
-
-
-def build_retriever(cfg: Dict[str, Any], llm_for_prompting: LLMInterface = None) -> Retriever:
-    rtype = cfg.get("type", "embedding").lower()
-    if rtype == "embedding":
-        return EmbeddingRetriever(
-            model_name=cfg.get("model_name", "all-MiniLM-L6-v2"),
-        )
-    elif rtype == "prompting":
-        if llm_for_prompting is None:
-            raise ValueError("Unknown llm_for_prompting for prompting retriever")
-        return PromptingRetriever(
-            llm=llm_for_prompting,
-            sentences_per_doc=cfg.get("sentences_per_doc", 3),
-            max_doc_chars=cfg.get("max_doc_chars", 4000),
-        )
-    else:
-        raise ValueError(f"Unknown retriever type: {rtype}")
-
-
 def save_schema(
     out_path: Path,
     query: str,
@@ -224,8 +249,8 @@ def main(cfg_path: Path) -> None:
     output_path = Path(cfg.get("output_path", "schema_output.json"))
 
     # Set up components
-    llm_for_schema = build_llm(backend_cfg)
-    retriever = build_retriever(retriever_cfg, llm_for_schema)
+    llm_for_schema = utils.build_llm(backend_cfg)
+    retriever = utils.build_retriever(retriever_cfg, llm_for_schema)
 
     # Load docs
     docs = load_documents(docs_path)
@@ -242,24 +267,9 @@ def main(cfg_path: Path) -> None:
 
 
 if __name__ == "__main__":
-    TEST = False
-
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     parser = argparse.ArgumentParser(description="Query-Based Schema Discovery runner")
     parser.add_argument("--config", required=True, type=Path, help="Path to JSON config")
 
-    if TEST:
-        # test:
-        cfg_path = parser.parse_args().config
-        cfg = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
-        logging.info("Loaded config from %s", cfg_path)
-
-        query = cfg["query"]
-        retriever = build_retriever(cfg.get("retriever", {}))
-        docs = load_documents(Path(cfg["docs_path"]))
-
-        test_retriever_stability(retriever, docs, query)
-    else:
-        # run QBSD
-        main(parser.parse_args().config)
+    main(parser.parse_args().config)
 

@@ -13,5 +13,5 @@
     "model_name": "all-MiniLM-L6-v2",
     "overlap": 64
   },
-  "output_path": "outputs/nes_exp7_barak_q_100_keys_fixed_retriever.json"
+  "output_path": "outputs/nes_exp10_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop.json"
 }
