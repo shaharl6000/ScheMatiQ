@@ -305,12 +305,15 @@ def build_messages(
 
     # -- append the current paper list -------------------------------------
     if retriever:
+        fallbacks = 0
+        paper_num = 0
         paper_blocks = []
         for i, p in enumerate(papers, 1):
+            paper_num += 1
             text = p.get("text", "")
             if text == "":
                 content = p.get('abstract','').strip()
-                print(f"⚠️ content missing, fallback to abstract.")
+                fallbacks += 1
             else:
                 passages = retriever.query([text], question=query, k=10)
                 content = "".join(p.strip() for p in passages)
@@ -319,6 +322,8 @@ def build_messages(
                 f"Title: {p.get('title', '').strip()}\n"
                 f"Paper content: {content}"
             )
+        if fallbacks > 0:
+            print(f"fallback to abstract in {fallbacks}/{paper_num} papers.")
     else:
         paper_blocks = [
             f"[Paper {i}]\nTitle: {p.get('title','').strip()}\n"
