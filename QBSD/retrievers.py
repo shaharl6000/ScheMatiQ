@@ -9,13 +9,29 @@ Two retrieval strategies under a single interface:
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Sequence, Iterable
+from typing import List, Sequence, Iterable, Any
 import logging
 import copy
 import random
 import re
 
 _SENT_SPLIT_RE = re.compile(r"(?<=[\.\?!])\s+")
+
+
+def _to_unicode(x: Any) -> str:
+    """
+    Return a well‑formed Unicode string.
+    • bytes          → decoded    (try utf‑8, then latin‑1, finally ignore errors)
+    • everything else→ str(x)
+    """
+    if isinstance(x, bytes):
+        for enc in ("utf-8", "latin-1"):
+            try:
+                return x.decode(enc)
+            except UnicodeDecodeError:
+                pass
+        return x.decode("utf-8", errors="ignore")
+    return str(x)
 
 ##############################################################################
 # Abstract base                                                              #
@@ -81,19 +97,28 @@ class EmbeddingRetriever(Retriever):
 
 
     # ---- Retriever API -------------------------------------------------- #
-    def query(self, docs: Sequence[str], question: str, k: int = None) -> List[str]:
-        """Return top-k passages most similar to *question*."""
-        passages: List[str] = []
+    def query(self, docs: Sequence[str], question: str, k: int | None = None) -> list[str]:
+        # ---- 1. collect & sanitise chunks ----------------------------------
+        passages: list[str] = []
         for d in docs:
-            passages.extend(self._chunk(d))
+            d = _to_unicode(d)  # 🆕 make sure the doc itself is clean
+            for chunk in self._chunk(d):
+                # flatten lists / tuples
+                if isinstance(chunk, (list, tuple)):
+                    passages.extend(_to_unicode(c) for c in chunk)
+                else:
+                    passages.append(_to_unicode(chunk))  # 🆕
 
+        passages = [p.strip() for p in passages if p and p.strip()]
         if not passages:
             return []
 
-        # Encode
-        q_emb = self.model.encode([question], show_progress_bar=False)[0]
+        # ---- 2. encode safely ----------------------------------------------
+        q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
         p_embs = self.model.encode(
-            passages, batch_size=self.batch_size, show_progress_bar=False
+            passages,
+            batch_size=self.batch_size,
+            show_progress_bar=False,
         )
 
         # Cosine similarity
@@ -107,6 +132,7 @@ class EmbeddingRetriever(Retriever):
         return [passages[i] for i in top]
 
     # ---- Helpers -------------------------------------------------------- #
+
     def _chunk(self, doc: str) -> List[str]:
         """
         Split *doc* into passages of ≤ `self.max_words` words, trying to
