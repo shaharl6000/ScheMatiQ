@@ -8,10 +8,36 @@ import arxiv
 import io
 import requests
 from PyPDF2 import PdfReader
-import difflib
-import re, unicodedata
+from dataclasses import asdict, is_dataclass
+from pathlib import Path                    #  NEW
+import os, re, unicodedata, io, difflib
+import numpy as np
+import requests, arxiv
+from PyPDF2 import PdfReader
+from dataclasses import asdict, is_dataclass
+import platform                 #  NEW  (place near your other imports)
 
-TOGETHER_API_KEY="tgp_v1_CsXuE0uRINMbtPadckRykLY-c5F5JWK_ZG1m1fi1e9s"
+_IS_WINDOWS = platform.system().lower().startswith("win")
+_CACHE_ENABLED = not _IS_WINDOWS
+
+print(f"-------------_CACHE_ENABLED: {_CACHE_ENABLED}")
+
+CACHE_DIR = Path("data_arxiv")                    # configurable if you like
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+_SAFE_CHARS = re.compile(r"[^A-Za-z0-9 _.-]+")
+def _safe_filename(title: str, max_len: int = 120) -> str:
+    """
+    Turn an arbitrary paper title into a filesystem‑safe slug.
+    """
+    slug = _SAFE_CHARS.sub("", title).strip().replace(" ", "_")
+    return (slug[:max_len] or "untitled") + ".txt"
+
+def _cache_path(title: str) -> Path:
+    return CACHE_DIR / _safe_filename(title)
+
+
+TOGETHER_API_KEY="tgp_v1_CDqcNiCaTIOYlU4lmCcW8ovlO9PHcbhGNOgk_q5p4-A"
 CTRL_CHARS = re.compile(r"[\u0000-\u001F\u007F-\u009F]")         # ASCII C0 + DEL
 
 def _clean_pdf_text(txt: str) -> str:
@@ -138,11 +164,39 @@ def search_arxiv_by_title(
         return []
 
 
-def get_paper_from_title(title: str, client: arxiv.Client, *, exact=True) -> str | None:
-    results = search_arxiv_by_title(title, client, exact=False, max_results=5)
-    try:
+def get_paper_from_title(title: str,
+                         client: arxiv.Client,
+                         *,
+                         exact: bool = True) -> str | None:
+    """
+    • On Linux/macOS  → use the on‑disk cache under ``data/``.
+    • On Windows      → skip all caching and always hit the arXiv API.
+    """
+    # ---------- Windows: fall back to plain (uncached) lookup ----------
+    if not _CACHE_ENABLED:
+        results = search_arxiv_by_title(title, client, exact=exact, max_results=5)
+        if not results:
+            return None
         arxiv_id = results[0].get_short_id()
-    except IndexError:
+        return get_paper_from_arxiv_id(arxiv_id, client) or None
+
+    # ---------- Non‑Windows: full cache path ----------
+    cache_file = _cache_path(title)
+
+    # ① Cache hit?
+    if cache_file.exists():
+        cached = cache_file.read_text(encoding="utf-8")
+        return cached if cached else None
+
+    # ② Cache miss → query arXiv
+    results = search_arxiv_by_title(title, client, exact=exact, max_results=5)
+    if not results:
+        cache_file.touch()        # negative cache
         return None
 
-    return get_paper_from_arxiv_id(arxiv_id, client)
+    arxiv_id  = results[0].get_short_id()
+    pdf_text  = get_paper_from_arxiv_id(arxiv_id, client) or ""
+
+    # ③ Persist result (empty string allowed)
+    cache_file.write_text(pdf_text, encoding="utf-8")
+    return pdf_text or None
