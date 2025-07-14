@@ -16,6 +16,27 @@ import requests, arxiv
 from PyPDF2 import PdfReader
 from dataclasses import asdict, is_dataclass
 import platform                 #  NEW  (place near your other imports)
+import unicodedata, re
+from difflib import SequenceMatcher
+
+def _best_title_match(query_t, results):
+    return max(
+        results,
+        key=lambda r: SequenceMatcher(
+            None, query_t, _canonical_title(r.title)
+        ).ratio(),
+    )
+
+
+_RE_LATEX_MATH = re.compile(r"\$[^$]+\$")          # very coarse but good enough
+_RE_PUNCT      = re.compile(r"[^\w\s-]")
+
+def _canonical_title(t: str) -> str:
+    """Strip LaTeX, normalise Unicode, drop exotic punctuation, squash spaces."""
+    t = _RE_LATEX_MATH.sub(" ", t)                 # remove  $\\alpha$  etc.
+    t = unicodedata.normalize("NFKD", t)           # é → é  etc.
+    t = _RE_PUNCT.sub(" ", t)
+    return re.sub(r"\s+", " ", t).strip().lower()
 
 _IS_WINDOWS = platform.system().lower().startswith("win")
 _CACHE_ENABLED = not _IS_WINDOWS
@@ -133,17 +154,56 @@ def get_paper_from_arxiv_id(arxiv_id: str, client: arxiv.Client) -> str:
         print(f"pdf extraction failed: {e}, return empty string")
         return ""
 
-def search_arxiv_by_title(
-    title: str,
-    client: arxiv.Client,
-    *,
-    max_results: int = 10,
-    exact: bool = True,
-) -> list[arxiv.Result]:
+def _smart_search_arxiv_by_title(title: str,
+                                 client: arxiv.Client,
+                                 *,
+                                 max_results_each: int = 5) -> list[arxiv.Result]:
+    """
+    Progressive query loosening + local fuzzy re‑ranking.
+    Returns [] if nothing found.
+    """
+    t = _canonical_title(title)
+    steps = [
+        f'ti:"{t}"',                                  # exact
+        f'ti:"{" ".join(t.split()[:10])}"',           # prefix
+        " AND ".join(f'ti:"{w}"' for w in t.split()[:3]),  # key nouns
+        f'all:"{t}"',                                 # anywhere
+    ]
+
+    for q in steps:
+        try:
+            hits = list(client.results(arxiv.Search(
+                query=q,
+                max_results=max_results_each,
+                sort_by=arxiv.SortCriterion.Relevance,
+            )))
+        except arxiv.UnexpectedEmptyPageError:
+            hits = []
+
+        if hits:                                     # fuzzy sort on original title
+            hits.sort(
+                key=lambda r: difflib.SequenceMatcher(None,
+                                                     title.lower(),
+                                                     r.title.lower()).ratio(),
+                reverse=True,
+            )
+            return hits
+    return []
+
+
+def search_arxiv_by_title(title: str,
+                          client: arxiv.Client,
+                          *,
+                          max_results: int = 10,
+                          exact: bool = False) -> list[arxiv.Result]:
+    """
+    First try a simple arXiv title query.
+    If that returns no hits (or an empty‑page error), fall back to the
+    smarter progressive strategy defined above.
+    """
     quoted = f'"{title}"' if exact else title
     query  = f"ti:{quoted}"
 
-    # ② Hit the API.
     search = arxiv.Search(
         query=query,
         max_results=max_results,
@@ -151,17 +211,24 @@ def search_arxiv_by_title(
     )
     try:
         hits = list(client.results(search))
-
-        # ③ If we asked for a fuzzy match, re‑rank locally by
-        #    string similarity so the best‑looking title is first.
-        if not exact and hits:
-            hits.sort(
-                key=lambda r: difflib.SequenceMatcher(None, title.lower(), r.title.lower()).ratio(),
-                reverse=True,
-            )
-        return hits
     except arxiv.UnexpectedEmptyPageError:
-        return []
+        hits = []
+
+    # local fuzzy re‑rank when using the loose (non‑exact) query
+    if not exact and hits:
+        hits.sort(
+            key=lambda r: difflib.SequenceMatcher(None,
+                                                  title.lower(),
+                                                  r.title.lower()).ratio(),
+            reverse=True,
+        )
+
+    # return immediately if we found something; otherwise run fallback
+    if hits:
+        return hits
+
+    # ── Fallback: smarter multi‑step search ──
+    return _smart_search_arxiv_by_title(title, client, max_results_each=max_results)
 
 
 def get_paper_from_title(title: str,
