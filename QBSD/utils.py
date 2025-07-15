@@ -211,7 +211,8 @@ def search_arxiv_by_title(title: str,
     )
     try:
         hits = list(client.results(search))
-    except arxiv.UnexpectedEmptyPageError:
+    except Exception as e:
+        print(f"❌ Failed to download full text from {query}: {e}")
         hits = []
 
     # local fuzzy re‑rank when using the loose (non‑exact) query
