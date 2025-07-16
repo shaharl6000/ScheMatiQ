@@ -58,7 +58,7 @@ def _cache_path(title: str) -> Path:
     return CACHE_DIR / _safe_filename(title)
 
 
-TOGETHER_API_KEY="tgp_v1_CDqcNiCaTIOYlU4lmCcW8ovlO9PHcbhGNOgk_q5p4-A"
+TOGETHER_API_KEY="tgp_v1_UjWulPxwULiq9libZQdygog2sM9nRMZB2xVgTPDwG6Q"
 CTRL_CHARS = re.compile(r"[\u0000-\u001F\u007F-\u009F]")         # ASCII C0 + DEL
 
 def _clean_pdf_text(txt: str) -> str:
