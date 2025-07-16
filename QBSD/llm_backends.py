@@ -63,6 +63,7 @@ class TogetherLLM(LLMInterface):
             max_tokens=max_tokens,
             temperature=temperature,
         )
+        print(f"---------------- api key: {self.api_key}")
 
 
     def generate(self,
