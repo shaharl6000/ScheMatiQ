@@ -112,7 +112,7 @@ Return a JSON object in the following format:
 PROMPT_VARIANTS = [
     # name                         template                 use_caption  include_query  use_icl     use_retrieval
     # ("baseline_query",              PROMPT_TEMPLATE_BASELINE, False,       True,          False,          False),
-    ("baseline_query_retrieval",    PROMPT_TEMPLATE_BASELINE, False,       True,          False,          True),
+    # ("baseline_query_retrieval",    PROMPT_TEMPLATE_BASELINE, False,       True,          False,          True),
     # ("baseline_noquery",            PROMPT_TEMPLATE_BASELINE, False,       False,         False,          False),
     # ("caption_query",               PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          False),
     ("caption_query_retrieval",     PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          True),
