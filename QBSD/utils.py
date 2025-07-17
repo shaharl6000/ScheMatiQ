@@ -74,6 +74,7 @@ def _download_ok(pdf: bytes) -> bool:
 
 def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
     provider = cfg.get("provider", "together").lower()
+    print(f"-------provider: {provider}")
     if provider == "together":
         return TogetherLLM(
             model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
