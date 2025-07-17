@@ -112,14 +112,14 @@ Return a JSON object in the following format:
 PROMPT_VARIANTS = [
     # name                         template                 use_caption  include_query  use_icl     use_retrieval
       ("baseline_query",              PROMPT_TEMPLATE_BASELINE, False,       True,          False,          False),
-    #  ("baseline_query_retrieval",    PROMPT_TEMPLATE_BASELINE, False,       True,          False,          True),
+     ("baseline_query_retrieval",    PROMPT_TEMPLATE_BASELINE, False,       True,          False,          True),
       ("baseline_noquery",            PROMPT_TEMPLATE_BASELINE, False,       False,         False,          False),
-     # ("caption_query",               PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          False),
-     # ("caption_query_retrieval",     PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          True),
-    # ("caption_noquery",             PROMPT_TEMPLATE_CAPTION,  True,        False,         False,          False),
-    # ("icl_query",                   PROMPT_TEMPLATE_ICL,      False,       True,          True ,          False),
-     # ("icl_query_retrieval",         PROMPT_TEMPLATE_ICL,      False,       True,          True ,          True),
-     # ("icl_noquery",                 PROMPT_TEMPLATE_ICL,      False,       False,         True ,          False),
+     ("caption_query",               PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          False),
+     ("caption_query_retrieval",     PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          True),
+    ("caption_noquery",             PROMPT_TEMPLATE_CAPTION,  True,        False,         False,          False),
+    ("icl_query",                   PROMPT_TEMPLATE_ICL,      False,       True,          True ,          False),
+     ("icl_query_retrieval",         PROMPT_TEMPLATE_ICL,      False,       True,          True ,          True),
+     ("icl_noquery",                 PROMPT_TEMPLATE_ICL,      False,       False,         True ,          False),
 ]
 
 
@@ -342,6 +342,7 @@ def process_query_file(
     inp: Path,
     out: Path,                     # e.g. results.jsonl  (suffix gives us ".jsonl")
     llm_for_generation,
+    prompts=None,
     num_attributes: int = NUM_ATTRIBUTES,
     resume: bool = False,
 ) -> None:
@@ -366,7 +367,14 @@ def process_query_file(
     # -----------------------------------------------------------------------
     # iterate over prompt variants
     # -----------------------------------------------------------------------
-    for var_name, tmpl, use_cap, inc_q, use_icl, use_retrieval in PROMPT_VARIANTS:
+    prompt_variants = PROMPT_VARIANTS
+    if prompts:
+        prompt_variants = []
+        for i in prompts:
+            for j in PROMPT_VARIANTS:
+                if j[0] == i:
+                    prompt_variants.append(j)
+    for var_name, tmpl, use_cap, inc_q, use_icl, use_retrieval in prompt_variants:
         client = arxiv.Client() if use_retrieval else None
         retriever = utils.build_retriever({}) if use_retrieval else None
 
@@ -481,13 +489,24 @@ def main() -> None:
              "that have already been processed."
     )
 
+    parser.add_argument(
+        "--api_key", dest="api_key", default=None,
+        help=""
+    )
+
+    parser.add_argument(
+        "--prompts", dest="prompts", default=None,
+        help=""
+    )
+
     args = parser.parse_args()
 
-    llm_for_generation = utils.build_llm({"provider": args.backend})
+    llm_for_generation = utils.build_llm({"provider": args.backend, "api_key": args.api_key})
     process_query_file(
         args.input_jsonl,
         args.output_jsonl,
         llm_for_generation,
+        prompts=args.prompts,
         resume=args.resume_out,
     )
     print(f"✅  Done – results in {args.output_jsonl.resolve()}")
