@@ -202,9 +202,12 @@ class HuggingFaceLLM(LLMInterface):
                 "device_map": "auto" if self.device == "cuda" else None,
             }
 
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        token = "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"
+
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, token=token)
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
+            token=token,
             **quant_args
         )
         self.generator = pipeline(
