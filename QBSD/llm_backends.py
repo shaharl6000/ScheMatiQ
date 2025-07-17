@@ -220,7 +220,6 @@ class HuggingFaceLLM(LLMInterface):
             "text-generation",
             model=self.model,
             tokenizer=self.tokenizer,
-            device=0 if self.device == "cuda" else -1
         )
 
     def generate(self,
