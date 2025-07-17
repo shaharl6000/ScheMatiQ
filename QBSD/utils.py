@@ -51,7 +51,7 @@ def _cache_path(title: str) -> Path:
     return CACHE_DIR / _safe_filename(title)
 
 
-TOGETHER_API_KEY="ac6e1ba2edbf7aa32b40d912c373efb15136e0981e3ab30d0f4973bf66a8c631"
+TOGETHER_API_KEY="719cd9851fc75d7da09699ab136df47f733000c4c0c3bed42ef80a51ba4e5082"
 CTRL_CHARS = re.compile(r"[\u0000-\u001F\u007F-\u009F]")         # ASCII C0 + DEL
 
 def _clean_pdf_text(txt: str) -> str:
@@ -90,7 +90,7 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
         )
     elif provider == "hf":
         return HuggingFaceLLM(
-            model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
+            model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct"),
             max_tokens=cfg.get("max_tokens", 1024),
             temperature=cfg.get("temperature", 0.3),
             api_key=cfg.get("api_key"),

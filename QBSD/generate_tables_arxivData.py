@@ -111,15 +111,15 @@ Return a JSON object in the following format:
 
 PROMPT_VARIANTS = [
     # name                         template                 use_caption  include_query  use_icl     use_retrieval
-    ("baseline_query",              PROMPT_TEMPLATE_BASELINE, False,       True,          False,          False),
-    ("baseline_query_retrieval",    PROMPT_TEMPLATE_BASELINE, False,       True,          False,          True),
-    ("baseline_noquery",            PROMPT_TEMPLATE_BASELINE, False,       False,         False,          False),
-    ("caption_query",               PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          False),
-    ("caption_query_retrieval",     PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          True),
+    # ("baseline_query",              PROMPT_TEMPLATE_BASELINE, False,       True,          False,          False),
+    # ("baseline_query_retrieval",    PROMPT_TEMPLATE_BASELINE, False,       True,          False,          True),
+    # ("baseline_noquery",            PROMPT_TEMPLATE_BASELINE, False,       False,         False,          False),
+    # ("caption_query",               PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          False),
+    # ("caption_query_retrieval",     PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          True),
     ("caption_noquery",             PROMPT_TEMPLATE_CAPTION,  True,        False,         False,          False),
     ("icl_query",                   PROMPT_TEMPLATE_ICL,      False,       True,          True ,          False),
-    ("icl_query_retrieval",         PROMPT_TEMPLATE_ICL,      False,       True,          True ,          True),
-    ("icl_noquery",                 PROMPT_TEMPLATE_ICL,      False,       False,         True ,          False),
+    # ("icl_query_retrieval",         PROMPT_TEMPLATE_ICL,      False,       True,          True ,          True),
+    # ("icl_noquery",                 PROMPT_TEMPLATE_ICL,      False,       False,         True ,          False),
 ]
 
 
@@ -471,7 +471,7 @@ def main() -> None:
 
     parser.add_argument(
         "--backend",
-        choices=["hf", "together"],
+        choices=["hf", "together", "openai"],
         default="together",
         help="Which backend to use: 'hf' (local) or 'together' (hosted).",
     )
@@ -483,7 +483,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    llm_for_generation = utils.build_llm({"provider": "together"})
+    llm_for_generation = utils.build_llm({"provider": args.backend})
     process_query_file(
         args.input_jsonl,
         args.output_jsonl,

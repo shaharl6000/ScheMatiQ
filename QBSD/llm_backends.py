@@ -64,6 +64,7 @@ class TogetherLLM(LLMInterface):
             temperature=temperature,
         )
         print(f"---------------- api key: {self.api_key}")
+        print(f"---------------- model: {self.model}")
 
 
     def generate(self,
