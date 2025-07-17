@@ -495,7 +495,7 @@ def main() -> None:
     )
 
     parser.add_argument(
-        "--prompts", dest="prompts", default=None,
+        "--prompts", dest="prompts", nargs="+", default=None,
         help=""
     )
 
