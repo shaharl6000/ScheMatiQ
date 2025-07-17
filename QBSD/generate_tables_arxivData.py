@@ -115,7 +115,7 @@ PROMPT_VARIANTS = [
     # ("baseline_query_retrieval",    PROMPT_TEMPLATE_BASELINE, False,       True,          False,          True),
     # ("baseline_noquery",            PROMPT_TEMPLATE_BASELINE, False,       False,         False,          False),
     # ("caption_query",               PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          False),
-    ("caption_query_retrieval",     PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          True),
+    # ("caption_query_retrieval",     PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          True),
     # ("caption_noquery",             PROMPT_TEMPLATE_CAPTION,  True,        False,         False,          False),
     # ("icl_query",                   PROMPT_TEMPLATE_ICL,      False,       True,          True ,          False),
     ("icl_query_retrieval",         PROMPT_TEMPLATE_ICL,      False,       True,          True ,          True),
