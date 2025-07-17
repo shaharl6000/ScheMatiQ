@@ -145,3 +145,94 @@ class OpenAILLM(LLMInterface):
 
         resp = self._client.chat.completions.create(**params)
         return resp.choices[0].message.content.strip()
+
+##############################################################################
+# 3. HuggingFace Transformers implementation (with quantization)           #
+##############################################################################
+
+class HuggingFaceLLM(LLMInterface):
+    """
+     llm = HuggingFaceLLM(model="meta-llama/Llama-3.3-70B-Instruct")
+     answer = llm.generate("What's the meaning of life?")
+    """
+
+    def __init__(
+        self,
+        model: str,
+        max_tokens: int = 1024,
+        temperature: float = 0.3,
+        device: str | None = None,
+        **backend_kwargs,
+    ):
+        super().__init__(**backend_kwargs)
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, pipeline
+        except ImportError as e:
+            raise ImportError(
+                "pip install transformers accelerate" 
+                "(https://pypi.org/project/transformers/)") from e
+
+        self.model_name = model
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Check number of parameters from config
+        config = AutoConfig.from_pretrained(model)
+        n_params = config.hidden_size * config.num_hidden_layers * config.vocab_size
+        use_quant = n_params > 20e9  # >20B
+
+        quant_args = {}
+        if use_quant:
+            try:
+                from transformers import BitsAndBytesConfig
+            except ImportError:
+                raise ImportError("pip install bitsandbytes")
+
+            quant_args = {
+                "load_in_4bit": True,
+                "quantization_config": BitsAndBytesConfig(load_in_4bit=True),
+                "device_map": "auto",
+            }
+        else:
+            quant_args = {
+                "torch_dtype": "auto",
+                "device_map": "auto" if self.device == "cuda" else None,
+            }
+
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            self.model_name,
+            **quant_args
+        )
+        self.generator = pipeline(
+            "text-generation",
+            model=self.model,
+            tokenizer=self.tokenizer,
+            device=0 if self.device == "cuda" else -1
+        )
+
+    def generate(self,
+                 prompt: Union[str, List[Dict[str, str]]],
+                 **kwargs) -> str:
+        """
+        Args
+        ----
+        prompt : str | list[dict]
+            • str  – plain prompt
+            • list – chat-style messages (merged to prompt text)
+        """
+        if isinstance(prompt, list):
+            # Convert messages to plain prompt text
+            prompt = "\n".join([f"{m['role']}: {m['content']}" for m in prompt])
+
+        gen_args = {
+            "max_new_tokens": kwargs.get("max_tokens", self.max_tokens),
+            "temperature": kwargs.get("temperature", self.temperature),
+            "do_sample": True,
+            "return_full_text": False,
+        }
+
+        output = self.generator(prompt, **gen_args)[0]["generated_text"]
+        return output.strip()

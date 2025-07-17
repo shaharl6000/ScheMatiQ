@@ -1,16 +1,9 @@
 
 from retrievers import Retriever, EmbeddingRetriever, PromptingRetriever, test_retriever_stability
-from llm_backends import LLMInterface, TogetherLLM, OpenAILLM
-from typing import List, Dict, Sequence, Tuple, Any
-from dataclasses import asdict, is_dataclass
-import numpy as np
-import arxiv
-import io
-import requests
-from PyPDF2 import PdfReader
-from dataclasses import asdict, is_dataclass
-from pathlib import Path                    #  NEW
-import os, re, unicodedata, io, difflib
+from llm_backends import LLMInterface, TogetherLLM, OpenAILLM, HuggingFaceLLM
+from typing import List, Dict, Any
+from pathlib import Path
+import io, difflib
 import numpy as np
 import requests, arxiv
 from PyPDF2 import PdfReader
@@ -83,7 +76,7 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
     provider = cfg.get("provider", "together").lower()
     if provider == "together":
         return TogetherLLM(
-            model=cfg.get("model", "mistralai/Mixtral-8x7B-Instruct-v0.1"),
+            model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
             max_tokens=cfg.get("max_tokens", 1024),
             temperature=cfg.get("temperature", 0.3),
             api_key=cfg.get("api_key", TOGETHER_API_KEY),               # falls back to env var
@@ -91,6 +84,13 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
     elif provider == "openai":
         return OpenAILLM(
             model=cfg.get("model", "gpt-4o-mini"),
+            max_tokens=cfg.get("max_tokens", 1024),
+            temperature=cfg.get("temperature", 0.3),
+            api_key=cfg.get("api_key"),
+        )
+    elif provider == "hf":
+        return HuggingFaceLLM(
+            model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
             max_tokens=cfg.get("max_tokens", 1024),
             temperature=cfg.get("temperature", 0.3),
             api_key=cfg.get("api_key"),
