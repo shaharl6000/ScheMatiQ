@@ -437,24 +437,25 @@ def process_query_file(
                 # --- parse model output (same as before) --------------------
                 try:
                     aspects, schema = parse_llm_output(answer)
+                    # --- write result ------------------------------------------
+                    f_out.write(
+                        json.dumps(
+                            {
+                                "tabid": tabid,
+                                "caption": caption,
+                                "query": query,
+                                "aspects": aspects,
+                                "schema": schema,
+                                "raw_answer": answer,
+                            },
+                            ensure_ascii=False,
+                        ) + "\n"
+                    )
                 except Exception as exc:
                     print(f"⚠️  parse failure for {tabid} in {var_name}: {exc}")
                     continue
 
-                # --- write result ------------------------------------------
-                f_out.write(
-                    json.dumps(
-                        {
-                            "tabid":   tabid,
-                            "caption": caption,
-                            "query":   query,
-                            "aspects": aspects,
-                            "schema":  schema,
-                            "raw_answer": answer,
-                        },
-                        ensure_ascii=False,
-                    ) + "\n"
-                )
+
 
         print(f"✅  Finished {var_name} ➜ {path.resolve()}")
 
