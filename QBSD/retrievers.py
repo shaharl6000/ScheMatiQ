@@ -82,7 +82,7 @@ class EmbeddingRetriever(Retriever):
         self,
         model_name: str = "all-MiniLM-L6-v2",
         max_words: int = 1000,
-        batch_size: int = 8,
+        batch_size: int = 4,
         k: int = 15,
         device: str | None = None,
     ):
