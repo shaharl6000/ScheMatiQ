@@ -14,6 +14,7 @@ import logging
 import copy
 import random
 import re
+from transformers import AutoTokenizer
 
 _SENT_SPLIT_RE = re.compile(r"(?<=[\.\?!])\s+")
 
@@ -92,10 +93,17 @@ class EmbeddingRetriever(Retriever):
 
         self.k = k
         self.is_cross_encoder = False
+        self.model_name = model_name
 
         if "Qwen" in model_name:
             self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
             self.is_cross_encoder = True
+            tokenizer = AutoTokenizer.from_pretrained(self.model_name, trust_remote_code=True)
+            if tokenizer.pad_token_id is None:
+                tokenizer.pad_token = tokenizer.eos_token
+            self.model.tokenizer = tokenizer
+            self.model.model.config.pad_token_id = tokenizer.pad_token_id
+
         else:
             self.model = SentenceTransformer(model_name, device=device)
         self.max_words = max_words
