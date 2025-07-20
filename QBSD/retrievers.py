@@ -82,7 +82,7 @@ class EmbeddingRetriever(Retriever):
         self,
         model_name: str = "all-MiniLM-L6-v2",
         max_words: int = 1000,
-        batch_size: int = 4,
+        batch_size: int = 32,
         k: int = 15,
         device: str | None = None,
     ):
@@ -95,6 +95,7 @@ class EmbeddingRetriever(Retriever):
         self.k = k
         self.is_cross_encoder = False
         self.model_name = model_name
+        self.batch_size = batch_size
 
         if "Qwen" in model_name:
             self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
@@ -104,12 +105,13 @@ class EmbeddingRetriever(Retriever):
                 tokenizer.pad_token = tokenizer.eos_token
             self.model.tokenizer = tokenizer
             self.model.model.config.pad_token_id = tokenizer.pad_token_id
+            self.batch_size = 2
 
         else:
             self.model = SentenceTransformer(model_name, device=device)
         self.max_words = max_words
         self.max_words_chunk = int(max_words / self.k)
-        self.batch_size = batch_size
+
 
         print(f"-------Create EmbeddingRetriever, with model: {model_name}, k: {self.k}, "
               f"max_words: {self.max_words}, batch_size: {self.batch_size}")
