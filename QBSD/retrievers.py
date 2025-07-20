@@ -15,6 +15,7 @@ import copy
 import random
 import re
 from transformers import AutoTokenizer
+import torch
 
 _SENT_SPLIT_RE = re.compile(r"(?<=[\.\?!])\s+")
 
@@ -133,6 +134,29 @@ class EmbeddingRetriever(Retriever):
         top = sims.argsort()[-chosen_k:][::-1]
         return [passages[i] for i in top]
 
+    def _rerank_passages(self, pairs: list[tuple[str, str]], chunk: int) -> np.ndarray:
+        """
+        Call self.model.predict on <chunk>‑sized slices to avoid GPU OOM.
+        Clears CUDA cache after each slice.
+        """
+        scores: list[float] = []
+        for i in range(0, len(pairs), chunk):
+            sub = pairs[i: i + chunk]
+            # len(sub) may be smaller than chunk for the last slice
+            scores.extend(
+                self.model.predict(
+                    sub,
+                    batch_size=len(sub),  # safe even without pad token
+                    show_progress_bar=False,
+                )
+            )
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()  # reclaim reserved-but-unused blocks
+        return np.asarray(scores)
+
+    # --------------------------------------------------------------------- #
+    # Re‑written _query_cross_encoder using the helper
+    # --------------------------------------------------------------------- #
     def _query_cross_encoder(
             self,
             passages: list[str],
@@ -140,16 +164,13 @@ class EmbeddingRetriever(Retriever):
             k: int | None = None,
     ) -> list[str]:
         pairs = [(question, p) for p in passages]
-        scores = np.asarray(
-            self.model.predict(
-                pairs,
-                batch_size=self.batch_size,
-                show_progress_bar=False,
-            )
-        )
+
+        scores = self._rerank_passages(pairs, self.batch_size)
+
         chosen_k = min(self.k if k is None else k, len(passages))
         top_idx = scores.argsort()[-chosen_k:][::-1]
         return [passages[i] for i in top_idx]
+
 
     def query(self, docs: Sequence[str], question: str, k: int | None = None) -> list[str]:
         # ---- 1. collect & sanitise chunks ----------------------------------
