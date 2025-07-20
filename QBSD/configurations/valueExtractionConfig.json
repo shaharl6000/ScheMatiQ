@@ -1,0 +1,18 @@
+{
+  "schema_path": "outputs/nes_exp10_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop.json",
+  "mode" : "all",
+  "backend_cfg": {
+    "provider": "together",
+    "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "max_tokens": 1024,
+    "temperature": 0.3,
+    "api_key": "f882d63f818dc302682900cbbacf4d7027445f21f682cba9a62d5e7597e6cf03"
+  },
+  "retriever": {
+    "type": "embedding",
+    "model_name": "all-MiniLM-L6-v2",
+    "passage_chars": 512,
+    "overlap": 64
+  },
+  "output_path": "outputs/nes_exp1_values.json"
+}

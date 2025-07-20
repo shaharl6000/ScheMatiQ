@@ -11,6 +11,7 @@ from dataclasses import asdict, is_dataclass
 import platform                 #  NEW  (place near your other imports)
 import unicodedata, re
 from difflib import SequenceMatcher
+import tiktoken
 
 def _best_title_match(query_t, results):
     return max(
@@ -23,6 +24,12 @@ def _best_title_match(query_t, results):
 
 _RE_LATEX_MATH = re.compile(r"\$[^$]+\$")          # very coarse but good enough
 _RE_PUNCT      = re.compile(r"[^\w\s-]")
+
+MAX_CTX_TOKENS = 8192
+SAFETY_MARGIN   = 256
+DEFAULT_SENTENCE_LEVELS = (11, 9, 7, 5, 3, 1)
+ENC = tiktoken.encoding_for_model("gpt-4o")  # close enough
+MAX_NEW_TOKENS = 512
 
 def _canonical_title(t: str) -> str:
     """Strip LaTeX, normalise Unicode, drop exotic punctuation, squash spaces."""
@@ -269,3 +276,72 @@ def get_paper_from_title(title: str,
     # ③ Persist result (empty string allowed)
     cache_file.write_text(pdf_text, encoding="utf-8")
     return pdf_text or None
+
+
+def fit_prompt(
+    messages: list[dict[str, str]],
+    max_new: int = MAX_NEW_TOKENS,
+    sentence_levels: tuple[int, ...] = DEFAULT_SENTENCE_LEVELS,
+    truncate: bool = False,
+) -> list[dict[str, str]]:
+    """
+    Ensure (prompt_tokens + max_new) ≤ MAX_CTX_TOKENS–SAFETY_MARGIN.
+    """
+    def n_tokens(s: str) -> int:
+        return len(ENC.encode(s))
+
+    # ------------------------------------------------------------------ #
+    # Fast path: if we only want raw truncation
+    # ------------------------------------------------------------------ #
+    allowed_prompt = MAX_CTX_TOKENS - SAFETY_MARGIN - max_new
+    user_msg = messages[1]["content"]
+
+    if truncate:
+        if n_tokens(user_msg) > allowed_prompt:
+            # keep only the first `allowed_prompt` tokens
+            kept = ENC.encode(user_msg)[:allowed_prompt]
+            messages[1]["content"] = ENC.decode(kept)
+            # optional: let the caller know
+            print(f"✂️  Hard‑truncated prompt to {allowed_prompt} tokens.")
+        return messages
+
+    # ------------------------------------------------------------------ #
+    # Original logic (shorten abstracts → drop papers → header‑only)
+    # ------------------------------------------------------------------ #
+    def shorten(block: str, cap: int) -> str:
+        title, sep, abstract = block.partition("Paper content:")
+        if not sep:                       # separator missing → leave as‑is
+            return block
+        sentences = re.split(r"(?<=[.!?])\\s+", abstract.strip())
+        short_abs = " ".join(sentences[:cap])
+        return f"{title}{sep} {short_abs}"
+
+    header, _, papers_blob = user_msg.partition("\\n\\nPapers:\\n\\n")
+    blocks = papers_blob.split("\\n\\n") if papers_blob else []
+
+    full_len = n_tokens(user_msg) + max_new
+    if full_len <= MAX_CTX_TOKENS - SAFETY_MARGIN:
+        return messages                                        # fits as‑is ✅
+
+    # 1) shorten Paper contents ----------------------------------------
+    for cap in sentence_levels:
+        new_blocks = [shorten(b, cap) for b in blocks]
+        short_prompt = header + "\\n\\nPapers:\\n\\n" + "\\n\\n".join(new_blocks)
+        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - SAFETY_MARGIN:
+            print(f"✂️  Trimmed Paper contents to ≤ {cap} sentences each.")
+            messages[1]["content"] = short_prompt
+            return messages
+
+    # 2) drop papers from the end --------------------------------------
+    while blocks:
+        blocks.pop()
+        short_prompt = header + "\\n\\nPapers:\\n\\n" + "\\n\\n".join(blocks)
+        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - SAFETY_MARGIN:
+            print(f"📄  Dropped papers – {len(blocks)} remain.")
+            messages[1]["content"] = short_prompt
+            return messages
+
+    # 3) Fallback: all papers gone; keep header only -------------------
+    print("⚠️  All papers trimmed; only the header remains.")
+    messages[1]["content"] = header
+    return messages

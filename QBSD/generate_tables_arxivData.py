@@ -3,7 +3,6 @@ from __future__ import annotations
 import arxiv
 import argparse
 import random
-import tiktoken
 import ast
 import json
 import re
@@ -129,11 +128,6 @@ TEMPERATURE = 0.3
 STOP_SEQUENCE = None # keep None unless you need a custom stop token
 NUM_ATTRIBUTES = 6 # default attributes per aspect
 
-ENC = tiktoken.encoding_for_model("gpt-3.5-turbo")  # close enough
-
-MAX_CTX_TOKENS = 8192
-SAFETY_MARGIN   = 128
-DEFAULT_SENTENCE_LEVELS = (11, 9, 7, 5, 3, 1)
 
 JSON_FENCE = re.compile(r"```json(.*?)```", re.S)  # fenced block
 FIRST_JS = re.compile(r"\{[^{}]*\}(?=\s*$)", re.S)  # { … } at end of text
@@ -167,61 +161,6 @@ def parse_llm_output(text: str) -> tuple[list, dict]:
         candidate = candidate.split("}\n", 1)[0] + "}"
         schema = json.loads(candidate)   # may still fail
     return aspects, schema
-
-def fit_prompt(
-    messages: list[dict[str, str]],
-    max_new: int = MAX_NEW_TOKENS,
-    sentence_levels: tuple[int, ...] = DEFAULT_SENTENCE_LEVELS,
-) -> list[dict[str, str]]:
-    """
-    Ensure (prompt_tokens + max_new) <= MAX_CTX_TOKENS – SAFETY_MARGIN.
-    * If already true, returns unchanged (no trimming).
-    * Otherwise, progressively shorten abstracts to the specified
-      sentence caps, then drop full papers if still too long.
-    """
-    def n_tokens(s: str) -> int:
-        return len(ENC.encode(s))
-
-    def shorten(block: str, cap: int) -> str:
-        # safe split
-        title, sep, abstract = block.partition("Paper content:")
-        if not sep:                          # separator missing → leave as–is
-            return block
-        sentences = re.split(r"(?<=[.!?])\s+", abstract.strip())
-        short_abs = " ".join(sentences[:cap])
-        return f"{title}{sep} {short_abs}"
-
-    user_msg = messages[1]["content"]
-    header, _, papers_blob = user_msg.partition("\n\nPapers:\n\n")
-    blocks = papers_blob.split("\n\n") if papers_blob else []
-
-    full_len = n_tokens(user_msg) + max_new
-    if full_len <= MAX_CTX_TOKENS - SAFETY_MARGIN:
-        # fits as-is – done ✅
-        return messages
-
-    # 1) shorten Paper contents ---------------------------------------------------
-    for cap in sentence_levels:
-        new_blocks = [shorten(b, cap) for b in blocks]
-        short_prompt = header + "\n\nPapers:\n\n" + "\n\n".join(new_blocks)
-        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - SAFETY_MARGIN:
-            print(f"✂️  Trimmed Paper contents to ≤ {cap} sentences each.")
-            messages[1]["content"] = short_prompt
-            return messages
-
-    # 2) drop papers from the end -------------------------------------------
-    while blocks:
-        blocks.pop()  # remove last paper
-        short_prompt = header + "\n\nPapers:\n\n" + "\n\n".join(blocks)
-        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - SAFETY_MARGIN:
-            print(f"📄  Dropped papers – {len(blocks)} remain.")
-            messages[1]["content"] = short_prompt
-            return messages
-
-    # 3) Fallback: all papers gone; keep header only -------------------------
-    print("⚠️  All papers trimmed; only the header remains.")
-    messages[1]["content"] = header
-    return messages
 
 def pick_example_tables(
     this_tabid: str,
@@ -427,7 +366,7 @@ def process_query_file(
 
                 if not use_retrieval:
                     time.sleep(5.1)
-                trimmed = fit_prompt(messages, MAX_NEW_TOKENS)
+                trimmed = utils.fit_prompt(messages, MAX_NEW_TOKENS)
 
                 answer = llm_for_generation.generate(
                     trimmed,
