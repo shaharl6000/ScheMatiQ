@@ -342,6 +342,7 @@ def process_query_file(
     inp: Path,
     out: Path,                     # e.g. results.jsonl  (suffix gives us ".jsonl")
     llm_for_generation,
+    retriever = None,
     prompts=None,
     num_attributes: int = NUM_ATTRIBUTES,
     resume: bool = False,
@@ -376,7 +377,8 @@ def process_query_file(
                     prompt_variants.append(j)
     for var_name, tmpl, use_cap, inc_q, use_icl, use_retrieval in prompt_variants:
         client = arxiv.Client() if use_retrieval else None
-        retriever = utils.build_retriever({}) if use_retrieval else None
+        if use_retrieval and retriever is None:
+            retriever = utils.build_retriever({})
 
         path = variant_path(out, var_name)
         mode = "a" if resume and path.exists() else "w"
@@ -500,13 +502,21 @@ def main() -> None:
         help=""
     )
 
+    parser.add_argument(
+        "--retriever_name", dest="retriever_name", default=None,
+        help=""
+    )
+
     args = parser.parse_args()
 
     llm_for_generation = utils.build_llm({"provider": args.backend, "api_key": args.api_key})
+    retriever = utils.build_retriever({"model_name": args.retriever_name}) if args.retriever_name else None
+
     process_query_file(
         args.input_jsonl,
         args.output_jsonl,
         llm_for_generation,
+        retriever=retriever,
         prompts=args.prompts,
         resume=args.resume_out,
     )

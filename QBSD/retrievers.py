@@ -50,7 +50,7 @@ class Retriever(ABC):
 
 try:
     import numpy as np
-    from sentence_transformers import SentenceTransformer
+    from sentence_transformers import SentenceTransformer, CrossEncoder
 except ImportError:
     # Delay hard dependency – only needed if you actually instantiate this class
     SentenceTransformer = None        # type: ignore
@@ -81,6 +81,7 @@ class EmbeddingRetriever(Retriever):
         model_name: str = "all-MiniLM-L6-v2",
         max_words: int = 1000,
         batch_size: int = 32,
+        k: int = 15,
         device: str | None = None,
     ):
         if SentenceTransformer is None:
@@ -89,14 +90,59 @@ class EmbeddingRetriever(Retriever):
                 "pip install 'sentence-transformers>=2.5 numpy'"
             )
 
-        self.k = 15
-        self.model = SentenceTransformer(model_name, device=device)
+        self.k = k
+        self.is_cross_encoder = False
+
+        if "Qwen" in model_name:
+            self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
+            self.is_cross_encoder = True
+        else:
+            self.model = SentenceTransformer(model_name, device=device)
         self.max_words = max_words
         self.max_words_chunk = int(max_words / self.k)
         self.batch_size = batch_size
 
+        print(f"-------Create EmbeddingRetriever, with model: {model_name}, k: {self.k}, "
+              f"max_words: {self.max_words}, batch_size: {self.batch_size}")
+
 
     # ---- Retriever API -------------------------------------------------- #
+    def _query_sentence_transformer(self,passages: list[str], question: str, k: int | None = None) -> list[str]:
+        q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
+        p_embs = self.model.encode(
+            passages,
+            batch_size=self.batch_size,
+            show_progress_bar=False,
+        )
+
+        # Cosine similarity
+        q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
+        p_norm = p_embs / (
+            np.linalg.norm(p_embs, axis=1, keepdims=True) + 1e-8
+        )
+        sims = p_norm @ q_norm
+        chosen_k = self.k if k is None else k
+        top = sims.argsort()[-chosen_k:][::-1]
+        return [passages[i] for i in top]
+
+    def _query_cross_encoder(
+            self,
+            passages: list[str],
+            question: str,
+            k: int | None = None,
+    ) -> list[str]:
+        pairs = [(question, p) for p in passages]
+        scores = np.asarray(
+            self.model.predict(
+                pairs,
+                batch_size=self.batch_size,
+                show_progress_bar=False,
+            )
+        )
+        chosen_k = min(self.k if k is None else k, len(passages))
+        top_idx = scores.argsort()[-chosen_k:][::-1]
+        return [passages[i] for i in top_idx]
+
     def query(self, docs: Sequence[str], question: str, k: int | None = None) -> list[str]:
         # ---- 1. collect & sanitise chunks ----------------------------------
         passages: list[str] = []
@@ -114,22 +160,10 @@ class EmbeddingRetriever(Retriever):
             return []
 
         # ---- 2. encode safely ----------------------------------------------
-        q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
-        p_embs = self.model.encode(
-            passages,
-            batch_size=self.batch_size,
-            show_progress_bar=False,
-        )
-
-        # Cosine similarity
-        q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
-        p_norm = p_embs / (
-            np.linalg.norm(p_embs, axis=1, keepdims=True) + 1e-8
-        )
-        sims = p_norm @ q_norm
-        chosen_k = self.k if k is None else k
-        top = sims.argsort()[-chosen_k:][::-1]
-        return [passages[i] for i in top]
+        if self.is_cross_encoder:
+            return self._query_cross_encoder(passages, question, k)
+        else:
+            return self._query_sentence_transformer(passages, question, k)
 
     # ---- Helpers -------------------------------------------------------- #
 
