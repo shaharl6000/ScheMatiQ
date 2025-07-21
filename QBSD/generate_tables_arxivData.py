@@ -448,7 +448,7 @@ def main() -> None:
     )
 
     parser.add_argument(
-        "--retriever_k", dest="retriever_k", default=10,
+        "--retriever_k", dest="retriever_k", type=int, default=10,
         help=""
     )
 
