@@ -111,7 +111,7 @@ class EmbeddingRetriever(Retriever):
         else:
             self.model = SentenceTransformer(model_name, device=device)
         self.max_words = max_words
-        self.max_words_chunk = int(max_words / self.k)
+        self.max_words_chunk = min(int(max_words / self.k), 128)
 
 
         print(f"-------Create EmbeddingRetriever, with model: {model_name}, k: {self.k}, "

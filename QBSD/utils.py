@@ -343,6 +343,6 @@ def fit_prompt(
             return messages
 
     # 3) Fallback: all papers gone; keep header only -------------------
-    print("⚠️  All papers trimmed; only the header remains.")
+    print(f"⚠️  All papers trimmed; only the header remains, call truncation! \n Header: {header}")
     messages[1]["content"] = header
-    return messages
+    return fit_prompt(messages, max_new=max_new, sentence_levels=sentence_levels, truncate=True)
