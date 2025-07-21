@@ -83,7 +83,7 @@ class EmbeddingRetriever(Retriever):
         model_name: str = "all-MiniLM-L6-v2",
         max_words: int = 1000,
         batch_size: int = 32,
-        k: int = 15,
+        k: int = 3,
         device: str | None = None,
     ):
         if SentenceTransformer is None:
