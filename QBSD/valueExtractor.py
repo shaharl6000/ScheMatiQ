@@ -3,10 +3,52 @@ from dataclasses import asdict
 import pandas as pd         #  only std dep; install if missing
 from schema import Schema, Column
 from llm_backends import LLMInterface
-from retrievers import Retriever
+import re, ast
 from typing import List, Dict, Any
 import json, logging
 import utils
+
+# ─── regexes reused / adapted from earlier helper ──────────────────────────
+JSON_FENCE = re.compile(r"```json(.*?)```", re.S)     # fenced code block
+LAST_JS    = re.compile(r"\{[\s\S]*\}\s*$", re.S)     # last {...} before EOF
+
+def parse_llm_output(text: str) -> dict:
+    """
+    Extract the (single) JSON object produced by the *ValueLLM* system prompt.
+
+    Parameters
+    ----------
+    text : str
+        Raw LLM output (may contain extra pre‑/post‑amble, code fences, etc.).
+
+    Returns
+    -------
+    dict
+        Parsed JSON as a Python dictionary.
+
+    Raises
+    ------
+    ValueError
+        If no JSON object can be found or deserialised.
+    """
+    # 1) Prefer a fenced ```json … ``` block
+    m = JSON_FENCE.search(text)
+    candidate = m.group(1).strip() if m else None
+
+    # 2) Otherwise, fall back to the *last* balanced {...} block
+    if candidate is None:
+        m = LAST_JS.search(text)
+        if not m:
+            raise ValueError("No JSON object found in output.")
+        candidate = m.group(0)
+
+    # 3) Attempt to parse; try a minimal truncate‑and‑retry on failure
+    try:
+        return json.loads(candidate)
+    except json.JSONDecodeError:
+        # Sometimes the tail contains stray tokens – keep up to the first '}\n'
+        candidate = candidate.split("}\n", 1)[0] + "}"
+        return json.loads(candidate)
 
 SYSTEM_PROMPT_VAL = """
 You are *ValueLLM*, a meticulous data curator.
@@ -16,14 +58,12 @@ You are *ValueLLM*, a meticulous data curator.
    or more *column specifications* (name + definition).
 2. For each requested column, extract the answer **strictly from the paper
    text**. If the paper does not contain the information, return {{}}.
-3. Return the answer(s) together with up to 5 **exact** supporting excerpts
-   (total ≤800 words). Do not invent facts or paraphrase the excerpts.
+3. If there is no answer in the paper, return an empty dictionary, i.e., '{}'.
 
 ### Output spec (single or multi‑column)
 {
   "<column_name>": {
     "answer":   "<concise but complete answer>",
-    "excerpts": ["<exact span 1>", "..."]
   },
   ...
 }
@@ -96,7 +136,11 @@ def extract_values_for_paper(paper_title: str,
         msgs = build_val_messages(schema.query, paper_title, paper_text, cols, mode="all")
         trimmed = utils.fit_prompt(msgs, truncate=True, max_new=max_new_tokens)
         raw = llm.generate(trimmed)
-        return json.loads(raw)
+        try:
+            return parse_llm_output(raw)
+        except Exception as exc:
+            print(f"⚠️  parse failure for {paper_title}")
+            return {}
 
     # mode == "one" : loop over columns
     row: Dict[str, Any] = {}
@@ -158,4 +202,4 @@ def main(cfg_path: Path) -> None:
     print(df.head())
 
 if __name__ == "__main__":
-    main(r"configurations/valueExtractionConfig.json")
+    main(Path("configurations/valueExtractionConfig.json"))

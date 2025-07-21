@@ -254,7 +254,7 @@ def build_messages(
                 content = p.get('abstract','').strip()
                 fallbacks += 1
             else:
-                passages = retriever.query([text], question=query, k=10)
+                passages = retriever.query([text], question=query, k=3)
                 content = "".join(p.strip() for p in passages)
             paper_blocks.append(
                 f"[Paper {i}]\n"
