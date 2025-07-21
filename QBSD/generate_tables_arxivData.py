@@ -254,7 +254,7 @@ def build_messages(
                 content = p.get('abstract','').strip()
                 fallbacks += 1
             else:
-                passages = retriever.query([text], question=query, k=3)
+                passages = retriever.query([text], question=query)
                 content = "".join(p.strip() for p in passages)
             paper_blocks.append(
                 f"[Paper {i}]\n"
@@ -281,6 +281,7 @@ def process_query_file(
     inp: Path,
     out: Path,                     # e.g. results.jsonl  (suffix gives us ".jsonl")
     llm_for_generation,
+    retriever_k: int = 10,
     retriever = None,
     prompts=None,
     num_attributes: int = NUM_ATTRIBUTES,
@@ -317,7 +318,7 @@ def process_query_file(
     for var_name, tmpl, use_cap, inc_q, use_icl, use_retrieval in prompt_variants:
         client = arxiv.Client() if use_retrieval else None
         if use_retrieval and retriever is None:
-            retriever = utils.build_retriever({})
+            retriever = utils.build_retriever({"k": retriever_k})
 
         path = variant_path(out, var_name)
         mode = "a" if resume and path.exists() else "w"
@@ -446,15 +447,22 @@ def main() -> None:
         help=""
     )
 
+    parser.add_argument(
+        "--retriever_k", dest="retriever_k", default=10,
+        help=""
+    )
+
     args = parser.parse_args()
 
     llm_for_generation = utils.build_llm({"provider": args.backend, "api_key": args.api_key})
-    retriever = utils.build_retriever({"model_name": args.retriever_name}) if args.retriever_name else None
+    retriever = utils.build_retriever({"model_name": args.retriever_name,
+                                       "k": args.retriever_k}) if args.retriever_name else None
 
     process_query_file(
         args.input_jsonl,
         args.output_jsonl,
         llm_for_generation,
+        retriever_k=args.retriever_k,
         retriever=retriever,
         prompts=args.prompts,
         resume=args.resume_out,

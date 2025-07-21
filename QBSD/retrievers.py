@@ -81,7 +81,7 @@ class EmbeddingRetriever(Retriever):
     def __init__(
         self,
         model_name: str = "all-MiniLM-L6-v2",
-        max_words: int = 1000,
+        max_words: int = 248,
         batch_size: int = 32,
         k: int = 3,
         device: str | None = None,
@@ -96,6 +96,7 @@ class EmbeddingRetriever(Retriever):
         self.is_cross_encoder = False
         self.model_name = model_name
         self.batch_size = batch_size
+        self.is_first_run = True
 
         if "Qwen" in model_name:
             self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
@@ -189,6 +190,10 @@ class EmbeddingRetriever(Retriever):
         passages = [p.strip() for p in passages if p and p.strip()]
         if not passages:
             return []
+
+        if self.is_first_run:
+            print(f"-------first query run, k: {k}")
+            self.is_first_run = False
 
         # ---- 2. encode safely ----------------------------------------------
         if self.is_cross_encoder:

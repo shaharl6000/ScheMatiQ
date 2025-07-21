@@ -112,6 +112,7 @@ def build_retriever(cfg: Dict[str, Any], llm_for_prompting: LLMInterface = None)
     if rtype == "embedding":
         return EmbeddingRetriever(
             model_name=cfg.get("model_name", "all-MiniLM-L6-v2"),
+            k=cfg.get("k", 15)
         )
     elif rtype == "prompting":
         if llm_for_prompting is None:
