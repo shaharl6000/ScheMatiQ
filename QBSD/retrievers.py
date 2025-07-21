@@ -81,7 +81,7 @@ class EmbeddingRetriever(Retriever):
     def __init__(
         self,
         model_name: str = "all-MiniLM-L6-v2",
-        max_words: int = 248,
+        max_words: int = 512,
         batch_size: int = 32,
         k: int = 3,
         device: str | None = None,
