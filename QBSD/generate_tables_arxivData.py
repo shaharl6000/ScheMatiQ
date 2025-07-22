@@ -294,6 +294,9 @@ def process_query_file(
     if not records:
         raise ValueError("Input JSONL is empty!")
 
+    # TODO: debugging
+    records = records[:100]
+
     # -- load dataset once ---------------------------------------------------
     ds            = load_dataset("blnewman/arxivDIGESTables",
                                  split="validation", trust_remote_code=True)
