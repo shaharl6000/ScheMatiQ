@@ -1,11 +1,11 @@
 from pathlib import Path
 from dataclasses import asdict
-import pandas as pd         #  only std dep; install if missing
 from schema import Schema, Column
 from llm_backends import LLMInterface
-import re, ast
+import re
 from typing import List, Dict, Any
-import json, logging
+import json, time
+from tqdm import tqdm
 import utils
 
 # ─── regexes reused / adapted from earlier helper ──────────────────────────
@@ -122,84 +122,126 @@ def build_val_messages(query: str,
 
 
 ###############################################################################
-def extract_values_for_paper(paper_title: str,
-                             paper_text: str,
-                             schema: Schema,
-                             llm: LLMInterface,
-                             max_new_tokens: int,
-                             mode: str = "all") -> Dict[str, Any]:
+def extract_values_for_paper(
+    paper_title: str,
+    paper_text: str,
+    schema: Schema,
+    llm: LLMInterface,
+    max_new_tokens: int,
+    mode: str = "all",
+) -> Dict[str, Any]:
     """
-    Returns a dict {column_name -> {"answer": str, "excerpts": [...]}}
+    Returns a dict {column_name -> {...}} for one paper.
     """
     if mode == "all":
-        cols = [c for c in schema.columns]
-        msgs = build_val_messages(schema.query, paper_title, paper_text, cols, mode="all")
+        msgs = build_val_messages(
+            schema.query,
+            paper_title,
+            paper_text,
+            [c for c in schema.columns],
+            mode="all",
+        )
         trimmed = utils.fit_prompt(msgs, truncate=True, max_new=max_new_tokens)
         raw = llm.generate(trimmed)
         try:
             return parse_llm_output(raw)
-        except Exception as exc:
+        except Exception:
             print(f"⚠️  parse failure for {paper_title}")
             return {}
 
-    # mode == "one" : loop over columns
+    # mode == "one"
     row: Dict[str, Any] = {}
     for col in schema:
-        msgs = build_val_messages(schema.query, paper_title, paper_text,
-                                  [asdict(col)], mode="one")
+        msgs = build_val_messages(
+            schema.query, paper_title, paper_text, [asdict(col)], mode="one"
+        )
         raw = llm.generate(msgs)
-        # Expect {"<col_name>": {...}}
-        answer_obj = json.loads(raw).get(col.name, {})
-        row[col.name] = answer_obj
+        row[col.name] = json.loads(raw).get(col.name, {})
     return row
 
 
-def build_table(schema_path: Path,
-                llm: LLMInterface,
-                max_new_tokens: int,
-                mode: str = "all") -> pd.DataFrame:
+def build_table_jsonl(
+    schema_path: Path,
+    docs_directory: Path,
+    output_path: Path,
+    llm: LLMInterface,
+    *,
+    max_new_tokens: int = 512,
+    resume: bool = False,
+    mode: str = "all",
+) -> None:
     """
-    • input_path: JSON produced by QBSD.py (contains schema + docs_path)
-    • mode: "all" (faster, bigger prompt) or "one" (smaller prompt, more calls)
-    Returns a pandas DataFrame with papers as rows and schema columns as cols.
+    Stream each paper's extracted values to *output_path* (JSONL).
+    Nothing is kept in memory except the current row.
     """
-    data = json.loads(schema_path.read_text(encoding="utf-8"))
+    # ----- load schema ------------------------------------------------------
+    data   = json.loads(schema_path.read_text(encoding="utf-8"))
     schema = Schema(query=data["query"],
                     columns=data["schema"],
                     max_keys=len(data["schema"]))
-    docs_path = Path(data["docs_path"])
-    docs = list(docs_path.glob("*"))         # expects one file per paper
+
+    docs = sorted(docs_directory.glob("*"))
     if not docs:
-        raise RuntimeError(f"No docs found under {docs_path}")
+        raise RuntimeError(f"No docs found under {docs_directory.resolve()}")
 
-    table_rows = []
-    for doc_path in docs:
-        paper_title = doc_path.stem
-        paper_text  = doc_path.read_text(encoding="utf-8", errors="ignore")
-        logging.info("Extracting values for %s …", paper_title)
-        row_dict = extract_values_for_paper(paper_title, paper_text, schema, llm, max_new_tokens, mode)
-        row_dict["_paper"] = paper_title
-        table_rows.append(row_dict)
+    # ----- resume logic -----------------------------------------------------
+    done: set[str] = set()
+    mode_flag      = "a" if resume and output_path.exists() else "w"
 
-    df = pd.DataFrame(table_rows).set_index("_paper")
-    return df
+    if resume and output_path.exists():
+        with output_path.open(encoding="utf-8") as f_prev:
+            done = {json.loads(l)["_paper"] for l in f_prev if l.strip()}
+        print(f"🔄  Resuming – {len(done)} papers already done; skipping.")
+
+    # ----- extraction loop --------------------------------------------------
+    written = 0
+
+    with output_path.open(mode_flag, encoding="utf-8") as f_out, \
+            tqdm(docs, desc="extract") as pbar:
+
+        for doc_path in pbar:
+            paper_title = doc_path.stem
+            if paper_title in done:
+                continue
+
+            paper_text = doc_path.read_text(encoding="utf-8", errors="ignore")
+            print(f"Extracting values for {paper_title} …")
+
+            row_dict = extract_values_for_paper(
+                paper_title, paper_text, schema, llm, max_new_tokens, mode
+            )
+            row_dict["_paper"] = paper_title
+
+            f_out.write(json.dumps(row_dict, ensure_ascii=False) + "\n")
+            written += 1
+            time.sleep(0.1)        # gentle on the API
+
+    print(f"✅  Added {written} new papers ➜ {output_path.resolve()}")
 
 
 def main(cfg_path: Path) -> None:
     cfg = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
-    logging.info("Loaded config from %s", cfg_path)
+    print(f"Loaded config from {cfg_path}")
 
     schema_path = Path(cfg["schema_path"])
+    docs_dir    = Path(cfg["docs_directory"])
+    output_path = Path(cfg.get("output_path", "table_output.jsonl"))
     backend_cfg = cfg.get("backend_cfg", {})
-    mode = cfg.get("mode", {})
-    output_path = Path(cfg.get("output_path", "table_output.json"))
+    max_new     = backend_cfg.get("max_tokens", 512)
+    mode        = cfg.get("mode", "all")
+    resume      = cfg.get("resume", False)
 
     llm = utils.build_llm(backend_cfg)
 
-    df = build_table(schema_path, llm, mode=mode, max_new_tokens=backend_cfg.get("max_tokens", 512))
-    df.to_csv(output_path, index=True)
-    logging.info("Saved table to %s", output_path)
-    print(df.head())
+    build_table_jsonl(
+        schema_path,
+        docs_dir,
+        output_path,
+        llm,
+        max_new_tokens=max_new,
+        resume=resume,
+        mode=mode,
+    )
 
 if __name__ == "__main__":
     main(Path("configurations/valueExtractionConfig.json"))
