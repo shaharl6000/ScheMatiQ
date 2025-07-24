@@ -320,6 +320,7 @@ def process_query_file(
             for j in PROMPT_VARIANTS:
                 if j[0] == i:
                     prompt_variants.append(j)
+    print(f"-------------------prompt_variants: {prompt_variants}")
     for var_name, tmpl, use_cap, inc_q, use_icl, use_retrieval in prompt_variants:
         client = arxiv.Client() if use_retrieval else None
         if use_retrieval and retriever is None:
