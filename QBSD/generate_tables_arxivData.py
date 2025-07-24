@@ -369,6 +369,7 @@ def process_query_file(
                     for c in full_schema.columns:
                         aspects.append(c.name)
                         schema[c.name] = c.definition
+                    answer = ""
 
                 else:
                     messages = build_messages(
