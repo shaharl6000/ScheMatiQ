@@ -36,12 +36,11 @@ def select_relevant_content(
     docs: Sequence[str],
     query: str,
     retriever,
-    passages_per_doc: int = 3,
 ) -> List[str]:
     """Return a flat list of passages drawn from all docs."""
     passages = []
     for doc in docs:
-        passages.extend(retriever.query([doc], question=query, k=passages_per_doc))
+        passages.extend(retriever.query([doc], question=query))
     return passages
 
 
