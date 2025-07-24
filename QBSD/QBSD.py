@@ -151,7 +151,8 @@ def generate_schema(
     Feed passages + (optional) current schema to the LLM, ask for additions.
     """
     prompt = build_messages(query, passages, current_schema)
-    llm_response = llm.generate(prompt)
+    trimmed = utils.fit_prompt(prompt, truncate=True)
+    llm_response = llm.generate(trimmed)
     return _parse_schema_from_llm(llm_response, query=query, max_keys_schema=max_keys_schema)
 
 

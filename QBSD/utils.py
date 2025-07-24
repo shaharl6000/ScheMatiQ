@@ -85,7 +85,7 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
     if provider == "together":
         return TogetherLLM(
             model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
-            max_tokens=cfg.get("max_tokens", 1024),
+            max_tokens=cfg.get("max_tokens", 512),
             temperature=cfg.get("temperature", 0.3),
             api_key=cfg.get("api_key", TOGETHER_API_KEY),               # falls back to env var
         )
