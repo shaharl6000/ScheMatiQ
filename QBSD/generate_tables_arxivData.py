@@ -13,6 +13,7 @@ from scipy.sparse.linalg import use_solver
 from tqdm import tqdm
 import time
 import utils
+import QBSD
 
 # system instruction from ArxivDigest paper
 SYSTEM_INSTRUCTION = (
@@ -110,15 +111,16 @@ Return a JSON object in the following format:
 
 PROMPT_VARIANTS = [
     # name                         template                 use_caption  include_query  use_icl     use_retrieval
-      ("baseline_query",              PROMPT_TEMPLATE_BASELINE, False,       True,          False,          False),
-     ("baseline_query_retrieval",    PROMPT_TEMPLATE_BASELINE, False,       True,          False,          True),
-      ("baseline_noquery",            PROMPT_TEMPLATE_BASELINE, False,       False,         False,          False),
-     ("caption_query",               PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          False),
-     ("caption_query_retrieval",     PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          True),
+    ("baseline_query",              PROMPT_TEMPLATE_BASELINE, False,       True,          False,          False),
+    ("baseline_query_retrieval",    PROMPT_TEMPLATE_BASELINE, False,       True,          False,          True),
+    ("baseline_noquery",            PROMPT_TEMPLATE_BASELINE, False,       False,         False,          False),
+    ("caption_query",               PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          False),
+    ("caption_query_retrieval",     PROMPT_TEMPLATE_CAPTION,  True,        True,          False,          True),
     ("caption_noquery",             PROMPT_TEMPLATE_CAPTION,  True,        False,         False,          False),
     ("icl_query",                   PROMPT_TEMPLATE_ICL,      False,       True,          True ,          False),
-     ("icl_query_retrieval",         PROMPT_TEMPLATE_ICL,      False,       True,          True ,          True),
-     ("icl_noquery",                 PROMPT_TEMPLATE_ICL,      False,       False,         True ,          False),
+    ("icl_query_retrieval",         PROMPT_TEMPLATE_ICL,      False,       True,          True ,          True),
+    ("icl_noquery",                 PROMPT_TEMPLATE_ICL,      False,       False,         True ,          False),
+    ("QBSD",                        "",                       False,       True,          False,          True),
 ]
 
 
@@ -357,31 +359,46 @@ def process_query_file(
                     print(f"⚠️  No example tables found for {tabid}.")
 
                 # ---------------------------------------------------------------
-                messages = build_messages(
-                    query,
-                    papers,
-                    caption if use_cap else "",
-                    template=tmpl,
-                    include_query=inc_q,
-                    retriever=retriever,
-                    example_tables=example_tables,
-                    num_attributes=num_attributes,
-                )
+                if "QBSD" in var_name:
+                    full_schema = QBSD.discover_schema(query=query, documents=papers, batch_size=2,
+                                                  max_keys_schema=NUM_ATTRIBUTES,
+                                                  llm=llm_for_generation, retriever=retriever)
+                    aspects = []
+                    schema = {}
+                    for c in full_schema.columns:
+                        aspects.append(c.name)
+                        schema[c.name] = c.definition
 
-                if not use_retrieval:
-                    time.sleep(5.1)
-                trimmed = utils.fit_prompt(messages, MAX_NEW_TOKENS)
+                else:
+                    messages = build_messages(
+                        query,
+                        papers,
+                        caption if use_cap else "",
+                        template=tmpl,
+                        include_query=inc_q,
+                        retriever=retriever,
+                        example_tables=example_tables,
+                        num_attributes=num_attributes,
+                    )
 
-                answer = llm_for_generation.generate(
-                    trimmed,
-                    max_tokens=MAX_NEW_TOKENS,
-                    temperature=TEMPERATURE,
-                    stop=[STOP_SEQUENCE] if STOP_SEQUENCE else None,
-                ).strip()
+                    if not use_retrieval:
+                        time.sleep(5.1)
+                    trimmed = utils.fit_prompt(messages, MAX_NEW_TOKENS)
 
-                # --- parse model output (same as before) --------------------
+                    answer = llm_for_generation.generate(
+                        trimmed,
+                        max_tokens=MAX_NEW_TOKENS,
+                        temperature=TEMPERATURE,
+                        stop=[STOP_SEQUENCE] if STOP_SEQUENCE else None,
+                    ).strip()
+
+                    # --- parse model output (same as before) --------------------
+                    try:
+                        aspects, schema = parse_llm_output(answer)
+                    except Exception as exc:
+                        print(f"⚠️  parse failure for {tabid} in {var_name}: {exc}")
+                        continue
                 try:
-                    aspects, schema = parse_llm_output(answer)
                     # --- write result ------------------------------------------
                     f_out.write(
                         json.dumps(
@@ -397,10 +414,8 @@ def process_query_file(
                         ) + "\n"
                     )
                 except Exception as exc:
-                    print(f"⚠️  parse failure for {tabid} in {var_name}: {exc}")
+                    print(f"⚠️ Json write failure for {tabid} in {var_name}: {exc}")
                     continue
-
-
 
         print(f"✅  Finished {var_name} ➜ {path.resolve()}")
 

@@ -18,7 +18,7 @@ Replace the two stubs:
 """
 
 import utils
-from __future__ import annotations
+# from __future__ import annotations
 from typing import List, Dict, Sequence, Tuple, Any
 import itertools
 import argparse

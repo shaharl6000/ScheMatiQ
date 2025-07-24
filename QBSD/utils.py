@@ -282,6 +282,7 @@ def get_paper_from_title(title: str,
 def fit_prompt(
     messages: list[dict[str, str]],
     max_new: int = MAX_NEW_TOKENS,
+    safety_margins: int = SAFETY_MARGIN,
     sentence_levels: tuple[int, ...] = DEFAULT_SENTENCE_LEVELS,
     truncate: bool = False,
 ) -> list[dict[str, str]]:
@@ -294,7 +295,7 @@ def fit_prompt(
     # ------------------------------------------------------------------ #
     # Fast path: if we only want raw truncation
     # ------------------------------------------------------------------ #
-    allowed_prompt = MAX_CTX_TOKENS - SAFETY_MARGIN - max_new
+    allowed_prompt = MAX_CTX_TOKENS - safety_margins - max_new
     user_msg = messages[1]["content"]
 
     if truncate:
@@ -328,7 +329,7 @@ def fit_prompt(
     for cap in sentence_levels:
         new_blocks = [shorten(b, cap) for b in blocks]
         short_prompt = header + "\\n\\nPapers:\\n\\n" + "\\n\\n".join(new_blocks)
-        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - SAFETY_MARGIN:
+        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - safety_margins:
             print(f"✂️  Trimmed Paper contents to ≤ {cap} sentences each.")
             messages[1]["content"] = short_prompt
             return messages
@@ -337,7 +338,7 @@ def fit_prompt(
     while blocks:
         blocks.pop()
         short_prompt = header + "\\n\\nPapers:\\n\\n" + "\\n\\n".join(blocks)
-        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - SAFETY_MARGIN:
+        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - safety_margins:
             print(f"📄  Dropped papers – {len(blocks)} remain.")
             messages[1]["content"] = short_prompt
             return messages

@@ -9,46 +9,70 @@ from tqdm import tqdm
 import utils
 
 # ─── regexes reused / adapted from earlier helper ──────────────────────────
-JSON_FENCE = re.compile(r"```json(.*?)```", re.S)     # fenced code block
-LAST_JS    = re.compile(r"\{[\s\S]*\}\s*$", re.S)     # last {...} before EOF
+JSON_FENCE = re.compile(r"```json(.*?)```", re.S)   # fenced ```json … ```
+LAST_JS    = re.compile(r"\{[\s\S]*\}\s*$", re.S)       # last {...} before EOF
 
-def parse_llm_output(text: str) -> dict:
+def _extract_json_str(text: str) -> str:
     """
-    Extract the (single) JSON object produced by the *ValueLLM* system prompt.
-
-    Parameters
-    ----------
-    text : str
-        Raw LLM output (may contain extra pre‑/post‑amble, code fences, etc.).
-
-    Returns
-    -------
-    dict
-        Parsed JSON as a Python dictionary.
-
-    Raises
-    ------
-    ValueError
-        If no JSON object can be found or deserialised.
+    Pull the *text* of the JSON object out of the LLM output.
     """
-    # 1) Prefer a fenced ```json … ``` block
     m = JSON_FENCE.search(text)
     candidate = m.group(1).strip() if m else None
 
-    # 2) Otherwise, fall back to the *last* balanced {...} block
     if candidate is None:
         m = LAST_JS.search(text)
         if not m:
             raise ValueError("No JSON object found in output.")
         candidate = m.group(0)
 
-    # 3) Attempt to parse; try a minimal truncate‑and‑retry on failure
+    return candidate
+
+
+def parse_llm_output(text: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Parse ValueLLM output into a normalised dict::
+
+        {
+          "<column>": { "answer": <str>, "excerpts": <list[str]> },
+          ...
+        }
+
+    • Missing "answer" / "excerpts" keys are filled with "" / []
+    • If the model returned just a string for a column, it is wrapped
+      into the {"answer": "..."} structure for consistency.
+    """
+    raw_json = _extract_json_str(text)
+
+    # First pass – try as‑is
     try:
-        return json.loads(candidate)
+        data = json.loads(raw_json)
     except json.JSONDecodeError:
-        # Sometimes the tail contains stray tokens – keep up to the first '}\n'
-        candidate = candidate.split("}\n", 1)[0] + "}"
-        return json.loads(candidate)
+        # Common failure: trailing tokens after the last } – truncate
+        raw_json = raw_json.split("}\n", 1)[0] + "}"
+        data = json.loads(raw_json)
+
+    if not isinstance(data, dict):
+        raise ValueError("Top‑level JSON is not an object.")
+
+    # Normalise each column entry
+    norm: Dict[str, Dict[str, Any]] = {}
+    for col, val in data.items():
+        # Case 1: already the expected dict but possibly missing keys
+        if isinstance(val, dict):
+            answer   = val.get("answer", "")
+            excerpts = val.get("excerpts", [])
+            # Guarantee correct types
+            if not isinstance(answer, str):
+                answer = str(answer)
+            if not isinstance(excerpts, list):
+                excerpts = [str(excerpts)]
+            norm[col] = {"answer": answer, "excerpts": excerpts}
+
+        # Case 2: the model emitted a bare string / number
+        else:
+            norm[col] = {"answer": str(val), "excerpts": []}
+
+    return norm
 
 SYSTEM_PROMPT_VAL = """
 You are *ValueLLM*, a meticulous data curator.
@@ -141,7 +165,7 @@ def extract_values_for_paper(
             [c for c in schema.columns],
             mode="all",
         )
-        trimmed = utils.fit_prompt(msgs, truncate=True, max_new=max_new_tokens)
+        trimmed = utils.fit_prompt(msgs, truncate=True, max_new=max_new_tokens, safety_margins=512)
         raw = llm.generate(trimmed)
         try:
             return parse_llm_output(raw)
