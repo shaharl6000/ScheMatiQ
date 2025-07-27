@@ -35,6 +35,51 @@ def _to_unicode(x: Any) -> str:
         return x.decode("utf-8", errors="ignore")
     return str(x)
 
+_SECTION_RE = re.compile(
+    r"""(?imx)
+    ^\s*(?:                # common section markers
+        \d{1,2}\.?\s+|     # "1 "  or "1. "
+        \\section\*?\{|    # LaTeX \section{...}
+        \\subsection\*?\{| # LaTeX \subsection{...}
+        \#\s+|             # Markdown #
+        (?:abstract|introduction|related\ work|background|method[s]?|
+           approach|dataset[s]?|experiment[s]?|results?|discussion|
+           conclusion[s]?|limitations?|future\ work|appendix)\b
+    )
+    """,
+    re.I | re.M,
+)
+
+_TABLE_FIG_RE = re.compile(r"(?im)^\s*(table|figure|algorithm)\s+\d+[:.]")
+
+def _split_by_structure(doc: str) -> List[str]:
+    """
+    Heuristically split the document into coarse 'blocks' (sections, tables, etc.).
+    Fallback to the whole doc if no matches found.
+    """
+    # Insert a delimiter before lines that look like headings/captions.
+    marked = []
+    for line in doc.splitlines():
+        if _SECTION_RE.match(line) or _TABLE_FIG_RE.match(line):
+            marked.append("§§§" + line)
+        else:
+            marked.append(line)
+    chunks = "\n".join(marked).split("§§§")
+    return [c.strip() for c in chunks if c.strip()]
+
+def _sliding_windows(words: List[str], max_len: int, overlap: int) -> Iterable[List[str]]:
+    """
+    Yield word windows with overlap. max_len >= 1, 0 <= overlap < max_len
+    """
+    if not words:
+        return
+    step = max_len - overlap
+    if step <= 0:
+        step = max_len  # avoid infinite loop
+    for start in range(0, len(words), step):
+        window = words[start:start + max_len]
+        if window:
+            yield window
 ##############################################################################
 # Abstract base                                                              #
 ##############################################################################
@@ -180,7 +225,7 @@ class EmbeddingRetriever(Retriever):
         passages: list[str] = []
         for d in docs:
             d = _to_unicode(d)  # 🆕 make sure the doc itself is clean
-            for chunk in self._chunk(d):
+            for chunk in self._improved_chunk(d):  #self._chunk(d):
                 # flatten lists / tuples
                 if isinstance(chunk, (list, tuple)):
                     passages.extend(_to_unicode(c) for c in chunk)
@@ -202,6 +247,60 @@ class EmbeddingRetriever(Retriever):
             return self._query_sentence_transformer(passages, question, k)
 
     # ---- Helpers -------------------------------------------------------- #
+
+    def _improved_chunk(self, doc: str, *, overlap_words: int = 64, respect_structure: bool = True) -> List[str]:
+        """
+        Split *doc* into passages of ≤ self.max_words_chunk words.
+        Improvements:
+        - Optional sliding window with `overlap_words`.
+        - Optional structure-aware pre-split (sections, tables, captions).
+        """
+        max_w = self.max_words_chunk  # per-passage budget
+        ovlp = max(0, min(overlap_words, max_w - 1))  # keep sane
+
+        # 1. High-level split by structure
+        blocks = _split_by_structure(doc) if respect_structure else [doc]
+
+        out: List[str] = []
+
+        for block in blocks:
+            # 2. Sentence split → word budget packing (like your original), but keep windows
+            sentences = _split_sentences(block)
+            sent_words = [s.split() for s in sentences]
+
+            # Pack sentences into word lists no longer than max_w (like your current logic)
+            packed: List[List[str]] = []
+            current: List[str] = []
+            count = 0
+            for wlist in sent_words:
+                wlen = len(wlist)
+                if wlen <= max_w:
+                    if count + wlen <= max_w:
+                        current.extend(wlist)
+                        count += wlen
+                    else:
+                        if current:
+                            packed.append(current)
+                        current = wlist[:]
+                        count = wlen
+                else:
+                    # sentence longer than budget → slice
+                    if current:
+                        packed.append(current)
+                        current, count = [], 0
+                    # use original helper to slice long sentences
+                    for slice_words in _yield_word_slices(wlist, max_w):
+                        packed.append(slice_words)
+            if current:
+                packed.append(current)
+
+            # 3. Sliding windows over packed blocks
+            #    First flatten each packed list then window it
+            for p in packed:
+                for win in _sliding_windows(p, max_w, ovlp):
+                    out.append(" ".join(win).strip())
+
+        return out
 
     def _chunk(self, doc: str) -> List[str]:
         """
