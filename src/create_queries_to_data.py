@@ -24,7 +24,7 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Dict, Iterator, List
+from typing import Dict, Iterator, List, Any, Callable
 from tqdm import tqdm
 
 from utils import get_generator
@@ -36,7 +36,7 @@ STOP_SEQUENCE     = "###"             # custom delimiter
 MAX_PAPER_CHARS   = 15_000
 MIN_COLUMNS_THRESH = 0
 
-TASK_INSTRUCTIONS = (
+EXTRACT_QUERY_INSTRUCTION = (
     "You are given the content of a scientific paper, the caption of one of its tables, and the table itself. "
     "Your task is to infer the specific research question or motivation that this table was designed to answer. "
     "The question should reflect the purpose behind including this table in the paper.\n\n"
@@ -51,6 +51,40 @@ TASK_INSTRUCTIONS = (
     "• If you cannot find any valid research question that clearly fits and was induced by the paper and table, "
     "output: \"NO_QUERY\" (exactly, without quotes or extra text)."
 )
+
+RETRIEVAL_QUERY_INSTRUCTION = """
+You are QueryRewriteLLM. Your job is to convert a natural‑language query into retrieval-optimized keyword strings.
+TASK
+Given ORIGINAL_QUERY, produce 3–5 alternative rewrites that are:
+Short (≤12 tokens each), noun-heavy, minimal or no verbs
+Focused on key entities, concepts, attributes
+Include common synonyms/aliases and section cues (e.g., “method”, “dataset”, “table 1”) when helpful
+No punctuation except commas or semicolons, no stopwords (“the”, “of”, “to”, “for”, etc.)
+OUTPUT FORMAT (only JSON)
+{
+  "rewrites": [
+    "…",
+    "…"
+  ]
+}
+CONSTRAINTS
+Do not invent entities not implied by the original query.
+Prefer nouns/adjectives; if a verb is unavoidable, keep 1–2 max, infinitive form.
+Avoid questions, full sentences, and filler words.
+
+EXAMPLE
+ORIGINAL_QUERY: "Compare how having many short documents vs. few long ones affects RAG accuracy with fixed context length"
+OUTPUT:
+{
+  "rewrites": [
+    "RAG breadth depth tradeoff context length fixed accuracy",
+    "many short documents vs few long documents retrieval performance",
+    "context budget allocation documents count passage length RAG metrics",
+    "retrieval augmented generation document granularity evaluation",
+    "fixed token budget document segmentation impact LLM accuracy"
+  ]
+}
+"""
 
 # ─────────────────────────── REGEX HELPERS ─────────────────────────────
 REF_CUE_RE       = re.compile(r"(?im)^(references|bibliography|acknowledg(e)?ments?)\b")
@@ -88,11 +122,32 @@ def iter_jsonl(path: Path) -> Iterator[Dict[str, str]]:
             if raw.strip():
                 yield json.loads(raw)
 
+JSON_FENCE = re.compile(r"```json(.*?)```", re.S | re.I)
+FIRST_OBJ = re.compile(r"\{.*\}", re.S)
 
-def build_messages(example: Dict[str, str], current: Dict[str, str]) -> List[Dict[str, str]]:
+def safe_parse_json(text: str) -> Dict[str, Any]:
+    """
+    Try to robustly extract the first JSON object from a model response.
+    """
+    m = JSON_FENCE.search(text)
+    if m:
+        candidate = m.group(1).strip()
+    else:
+        m = FIRST_OBJ.search(text)
+        candidate = m.group(0).strip() if m else ""
+
+    try:
+        return json.loads(candidate)
+    except Exception:
+        # Last resort: try to repair common mistakes
+        candidate = candidate.replace("\n", " ").strip()
+        return json.loads(candidate)
+
+
+def build_messages_extract_query(example: Dict[str, str], current: Dict[str, str]) -> List[Dict[str, str]]:
     """Common chat‑messages format expected by both backends."""
     return [
-        {"role": "system", "content": TASK_INSTRUCTIONS},
+        {"role": "system", "content": EXTRACT_QUERY_INSTRUCTION},
         {
             "role": "user",
             "content":
@@ -104,9 +159,20 @@ def build_messages(example: Dict[str, str], current: Dict[str, str]) -> List[Dic
         },
     ]
 
+def build_messages_retrieval_query(rec: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Chat-completion style messages."""
+    original_query = rec["query"]
+    return [
+        {"role": "system", "content": RETRIEVAL_QUERY_INSTRUCTION},
+        {
+            "role": "user",
+            "content": f"ORIGINAL_QUERY: \"\"\"{original_query}\"\"\"\nReturn only JSON."
+        },
+    ]
+
 
 # ───────────────────────────  DRIVER  ────────────────────────────────
-def process_file(inp: Path, out: Path, generate) -> None:
+def process_file_query_extraction(inp: Path, out: Path, generate) -> None:
     records = list(iter_jsonl(inp))
     if not records:
         raise ValueError("Input JSONL is empty!")
@@ -118,7 +184,7 @@ def process_file(inp: Path, out: Path, generate) -> None:
 
     with out.open("w", encoding="utf-8") as f_out:
         for rec in tqdm(records, desc="Inferring questions"):
-            messages = build_messages(example, rec)
+            messages = build_messages_extract_query(example, rec)
 
             # Ask the model
             answer = generate(
@@ -153,6 +219,42 @@ def process_file(inp: Path, out: Path, generate) -> None:
             )
 
 
+def process_file_retrieval_query(
+    inp: Path,
+    out: Path,
+    generate,
+    max_new_tokens: int = 256,
+    temperature: float = 0.3,
+    stop: List[str] | None = None,
+) -> None:
+    records = list(iter_jsonl(inp))
+    if not records:
+        raise ValueError("Input JSONL is empty!")
+
+    with out.open("w", encoding="utf-8") as f_out:
+        for rec in tqdm(records, desc="Rewriting queries"):
+            messages = build_messages_retrieval_query(rec)
+
+            raw = generate(
+                messages=messages,
+                max_tokens=max_new_tokens,
+                temperature=temperature,
+                stop=stop or [],
+            ).strip()
+
+            try:
+                parsed = safe_parse_json(raw)
+                rewrites = parsed.get("rewrites", [])
+                if not isinstance(rewrites, list) or not rewrites:
+                    raise ValueError("Missing/empty 'rewrites' list.")
+            except Exception as e:
+                raise ValueError(f"Failed to parse model output for id={rec.get('id')}: {raw}") from e
+
+            rec["retrieval_queries"] = rewrites
+
+            f_out.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Infer table research‑questions with Llama‑3‑70B‑Instruct."
@@ -180,7 +282,8 @@ def main() -> None:
     args = parser.parse_args()
 
     generate = get_generator(args.backend)
-    process_file(args.input_jsonl, args.output_jsonl, generate)
+    # process_file_query_extraction(args.input_jsonl, args.output_jsonl, generate)
+    process_file_retrieval_query(args.input_jsonl, args.output_jsonl, generate)
     print(f"✅  Done – results in {args.output_jsonl.resolve()}")
 
 
