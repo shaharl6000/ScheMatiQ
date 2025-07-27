@@ -9,16 +9,29 @@ Two retrieval strategies under a single interface:
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Sequence, Iterable, Any
-import logging
+from typing import List, Sequence, Iterable, Any, Dict, Callable, Tuple
+from dataclasses import dataclass
 import copy
 import random
 import re
+import json
 from transformers import AutoTokenizer
 import torch
 
 _SENT_SPLIT_RE = re.compile(r"(?<=[\.\?!])\s+")
+JSON_FENCE = re.compile(r"```json(.*?)```", re.S | re.I)
+FIRST_OBJ = re.compile(r"\{.*\}", re.S)
 
+def safe_parse_json(text: str) -> Dict[str, Any]:
+    m = JSON_FENCE.search(text)
+    if m:
+        candidate = m.group(1).strip()
+    else:
+        m = FIRST_OBJ.search(text)
+        candidate = m.group(0).strip() if m else ""
+    # lightweight fix
+    candidate = candidate.replace("\n", " ").strip()
+    return json.loads(candidate)
 
 def _to_unicode(x: Any) -> str:
     """
@@ -89,6 +102,60 @@ class Retriever(ABC):
     def query(self, docs: Sequence[str], question: str, k: int = 3) -> List[str]:
         """Return up to *k* passages relevant to *question*."""
         ...
+
+    def _improved_chunk(self, doc: str, *, overlap_words: int = 64, respect_structure: bool = True) -> List[str]:
+        """
+        Split *doc* into passages of ≤ self.max_words_chunk words.
+        Improvements:
+        - Optional sliding window with `overlap_words`.
+        - Optional structure-aware pre-split (sections, tables, captions).
+        """
+        max_w = self.max_words_chunk  # per-passage budget
+        ovlp = max(0, min(overlap_words, max_w - 1))  # keep sane
+
+        # 1. High-level split by structure
+        blocks = _split_by_structure(doc) if respect_structure else [doc]
+
+        out: List[str] = []
+
+        for block in blocks:
+            # 2. Sentence split → word budget packing (like your original), but keep windows
+            sentences = _split_sentences(block)
+            sent_words = [s.split() for s in sentences]
+
+            # Pack sentences into word lists no longer than max_w (like your current logic)
+            packed: List[List[str]] = []
+            current: List[str] = []
+            count = 0
+            for wlist in sent_words:
+                wlen = len(wlist)
+                if wlen <= max_w:
+                    if count + wlen <= max_w:
+                        current.extend(wlist)
+                        count += wlen
+                    else:
+                        if current:
+                            packed.append(current)
+                        current = wlist[:]
+                        count = wlen
+                else:
+                    # sentence longer than budget → slice
+                    if current:
+                        packed.append(current)
+                        current, count = [], 0
+                    # use original helper to slice long sentences
+                    for slice_words in _yield_word_slices(wlist, max_w):
+                        packed.append(slice_words)
+            if current:
+                packed.append(current)
+
+            # 3. Sliding windows over packed blocks
+            #    First flatten each packed list then window it
+            for p in packed:
+                for win in _sliding_windows(p, max_w, ovlp):
+                    out.append(" ".join(win).strip())
+
+        return out
 
 
 ##############################################################################
@@ -248,60 +315,6 @@ class EmbeddingRetriever(Retriever):
 
     # ---- Helpers -------------------------------------------------------- #
 
-    def _improved_chunk(self, doc: str, *, overlap_words: int = 64, respect_structure: bool = True) -> List[str]:
-        """
-        Split *doc* into passages of ≤ self.max_words_chunk words.
-        Improvements:
-        - Optional sliding window with `overlap_words`.
-        - Optional structure-aware pre-split (sections, tables, captions).
-        """
-        max_w = self.max_words_chunk  # per-passage budget
-        ovlp = max(0, min(overlap_words, max_w - 1))  # keep sane
-
-        # 1. High-level split by structure
-        blocks = _split_by_structure(doc) if respect_structure else [doc]
-
-        out: List[str] = []
-
-        for block in blocks:
-            # 2. Sentence split → word budget packing (like your original), but keep windows
-            sentences = _split_sentences(block)
-            sent_words = [s.split() for s in sentences]
-
-            # Pack sentences into word lists no longer than max_w (like your current logic)
-            packed: List[List[str]] = []
-            current: List[str] = []
-            count = 0
-            for wlist in sent_words:
-                wlen = len(wlist)
-                if wlen <= max_w:
-                    if count + wlen <= max_w:
-                        current.extend(wlist)
-                        count += wlen
-                    else:
-                        if current:
-                            packed.append(current)
-                        current = wlist[:]
-                        count = wlen
-                else:
-                    # sentence longer than budget → slice
-                    if current:
-                        packed.append(current)
-                        current, count = [], 0
-                    # use original helper to slice long sentences
-                    for slice_words in _yield_word_slices(wlist, max_w):
-                        packed.append(slice_words)
-            if current:
-                packed.append(current)
-
-            # 3. Sliding windows over packed blocks
-            #    First flatten each packed list then window it
-            for p in packed:
-                for win in _sliding_windows(p, max_w, ovlp):
-                    out.append(" ".join(win).strip())
-
-        return out
-
     def _chunk(self, doc: str) -> List[str]:
         """
         Split *doc* into passages of ≤ `self.max_words` words, trying to
@@ -347,94 +360,209 @@ class EmbeddingRetriever(Retriever):
 from llm_backends import LLMInterface   # assumes the base class lives there
 
 
+LLM_RANK_INSTRUCTION = """
+You are *RetrievalJudgeLLM*. Your goal is to pick and rank the text chunks that
+will best help another model derive **informative aspects/columns** for a table
+schema answering the user's query.
+
+### INPUT
+- QUERY: the user's information need
+- CHUNKS: numbered passages from papers
+
+### WHAT TO DO
+1. For each chunk, judge how *useful* it is for identifying important, answerable
+   aspects (e.g., task, dataset, metrics, model details, hyperparameters, results).
+2. Assign a score 0–1 (float). 1 = essential, 0 = useless.
+3. Prefer chunks with concrete definitions, enumerations, tables, metrics, or
+   explicit descriptions of entities/attributes.
+4. Ignore chunks with only generic motivation or unrelated content.
+
+### OUTPUT (ONLY JSON)
+{
+  "ranked": [
+    {"i": <chunk_index>, "score": <float 0-1>},
+    ...
+  ]
+}
+No extra keys, no comments.
+""".strip()
+
+# --------------------------------------------------------------------------
+# Retriever Class
+# --------------------------------------------------------------------------
+
+@dataclass
+class PromptingRetrieverConfig:
+    k: int = 5
+    max_new_tokens: int = 512
+    temperature: float = 0.0
+    stop: List[str] | None = None
+    batch_size: int = 40          # how many passages to present per LLM call
+    finalist_factor: float = 2.0  # keep top k*factor from each batch for final rerank
+    mode: str = "sampled_rank"    # "rank" (single call) or "sampled_rank"
+    overlap_words: int = 64
+    respect_structure: bool = True
+
 class PromptingRetriever(Retriever):
     """
-    Uses an LLM to *extract* relevant sentences from each document.
+    LLM-based retriever/reranker.
 
-    Example
-    -------
-     llm = OpenAILLM(model="gpt-4o-mini")        # any LLMInterface subclass
-     r = PromptingRetriever(llm)
-     passages = r.query(docs, "What is the F1 score of BERT?")
+    `generate(messages, max_tokens, temperature, stop)` must be provided externally.
     """
 
-    SYSTEM_TEMPLATE = (
-        "You are a helpful research assistant. "
-        "Given a QUESTION and a DOCUMENT, return ONLY the sentences from the "
-        "document that help answer the question. Output each sentence on a "
-        "separate line, with NO commentary, bullet points, numbering or extra text."
-    )
+    def __init__(self,
+                 generate: Callable[..., str],
+                 config: PromptingRetrieverConfig | None = None):
+        self.generate = generate
+        self.cfg = config or PromptingRetrieverConfig()
+        self.is_first_run = True
 
-    # taken from attribute-first paper
-    content_selection_general_template = (
-        "In this task, you are presented with several documents, which need to be summarized. As an intermediate step, "
-        "you need to identify salient content within the documents. For each document, copy verbatim the salient spans, "
-        "and use <SPAN_DELIM> as a delimiter between each consecutive span. "
-        "IMPORTANT: The output must be of the format Document [<DOC_ID>]: <SPAN_DELIM>-delimited consecutive salient spans. "
-        "IMPORTANT: Each salient content must be a single consecutive verbatim span from the corresponding passages. "
-        "IMPORTANT: make sure the total number of copied words (from all documents) is around 200 words, and not more than 900."
-    )
+    # ---- Public API ----------------------------------------------------- #
+    def query(self, docs: Sequence[str], question: str, k: int | None = None) -> List[str]:
+        # 1. chunk
+        passages: List[str] = []
+        for d in docs:
+            d = _to_unicode(d)
+            for ch in self._chunk(d,
+                                  overlap_words=self.cfg.overlap_words,
+                                  respect_structure=self.cfg.respect_structure):
+                if isinstance(ch, (list, tuple)):
+                    passages.extend(_to_unicode(c) for c in ch)
+                else:
+                    passages.append(_to_unicode(ch))
+        passages = [p.strip() for p in passages if p.strip()]
+        if not passages:
+            return []
 
-    def __init__(
-        self,
-        llm: LLMInterface,
-        sentences_per_doc: int = 3,
-        max_doc_chars: int = 1000,
-    ):
-        self.llm = llm
-        self.sentences_per_doc = sentences_per_doc
-        self.max_doc_chars = max_doc_chars
+        if self.is_first_run:
+            print(f"PromptingRetriever first run: {len(passages)} passages, mode={self.cfg.mode}")
+            self.is_first_run = False
 
-    # ---- Retriever API -------------------------------------------------- #
-    def query(self, docs: Sequence[str], question: str, k: int = 3) -> List[str]:
-        extracted: List[str] = []
+        # 2. rank
+        scores = self._rank_passages_with_llm(passages, question)
 
-        for doc in docs:
-            doc_trimmed = doc[: self.max_doc_chars]
-            prompt = self._build_prompt(question, doc_trimmed)
-            try:
-                raw = self.llm.generate(prompt, max_tokens=512, temperature=0)
-            except Exception as e:
-                logging.warning("LLM extraction failed: %s", e)
-                continue
+        # 3. pick top-k
+        chosen_k = min(k or self.cfg.k, len(passages))
+        top_idx = np.argsort(scores)[-chosen_k:][::-1]
+        return [passages[i] for i in top_idx]
 
-            sentences = self._parse_sentences(raw)
-            extracted.extend(sentences[: self.sentences_per_doc])
+    # ---- Core ranking logic -------------------------------------------- #
+    def _rank_passages_with_llm(self, passages: List[str], query: str) -> np.ndarray:
+        if self.cfg.mode == "rank":
+            return self._single_llm_rank(passages, query)
+        else:
+            return self._batched_two_stage_rank(passages, query)
 
-        # Return the *k* longest (simple heuristic) to mimic “most informative”
-        extracted.sort(key=len, reverse=True)
-        return extracted[:k]
+    def _single_llm_rank(self, passages: List[str], query: str) -> np.ndarray:
+        payload = self._build_chunk_payload(passages)
+        messages = self._build_messages(query, payload)
 
-    # ---- Helpers -------------------------------------------------------- #
-    def _build_prompt(self, question: str, document: str) -> str:
-        return (
-            f"{self.SYSTEM_TEMPLATE}\n\n"
-            f"QUESTION:\n{question}\n\n"
-            f"DOCUMENT:\n{document}\n\n"
-            f"### Relevant sentences\n"
-        )
+        raw = self.generate(
+            messages=messages,
+            max_tokens=self.cfg.max_new_tokens,
+            temperature=self.cfg.temperature,
+            stop=self.cfg.stop or []
+        ).strip()
+
+        parsed = self._parse_rank_json(raw, len(passages))
+        return self._scores_from_parsed(parsed, len(passages))
+
+    def _batched_two_stage_rank(self, passages: List[str], query: str) -> np.ndarray:
+        bs = self.cfg.batch_size
+        finals: List[Tuple[int, float]] = []
+
+        # 1st stage: batch-wise scoring
+        for start in range(0, len(passages), bs):
+            end = min(start + bs, len(passages))
+            sub_pass = passages[start:end]
+            payload = self._build_chunk_payload(sub_pass, offset=start)
+            messages = self._build_messages(query, payload)
+            raw = self.generate(
+                messages=messages,
+                max_tokens=self.cfg.max_new_tokens,
+                temperature=self.cfg.temperature,
+                stop=self.cfg.stop or []
+            ).strip()
+            parsed = self._parse_rank_json(raw, len(sub_pass), offset=start)
+            scored = [(d["i"], float(d["score"])) for d in parsed["ranked"]]
+            # keep top local finalists
+            keep = max(1, int(self.cfg.finalist_factor * self.cfg.k))
+            scored_sorted = sorted(scored, key=lambda x: x[1], reverse=True)[:keep]
+            finals.extend(scored_sorted)
+
+        # 2nd stage: rerank finalists if we reduced
+        unique_final_ids = sorted({i for i, _ in finals})
+        if len(unique_final_ids) <= self.cfg.batch_size:
+            # direct rerank
+            sub_pass = [passages[i] for i in unique_final_ids]
+            payload = self._build_chunk_payload(sub_pass, offset=0)
+            messages = self._build_messages(query, payload)
+            raw = self.generate(
+                messages=messages,
+                max_tokens=self.cfg.max_new_tokens,
+                temperature=self.cfg.temperature,
+                stop=self.cfg.stop or []
+            ).strip()
+            parsed = self._parse_rank_json(raw, len(sub_pass), offset=0)
+            reranked_scores = {d["i"]: float(d["score"]) for d in parsed["ranked"]}
+            scores = np.zeros(len(passages), dtype=float)
+            for i, s in reranked_scores.items():
+                scores[unique_final_ids[i]] = s
+        else:
+            # No second pass; just aggregate first-pass scores
+            scores = np.zeros(len(passages), dtype=float)
+            for i, s in finals:
+                scores[i] = max(scores[i], s)
+
+        return scores
+
+    # ---- Prompt builders & parsing -------------------------------------- #
+    def _build_messages(self, query: str, chunk_payload: str) -> List[Dict[str, str]]:
+        return [
+            {"role": "system", "content": LLM_RANK_INSTRUCTION},
+            {
+                "role": "user",
+                "content": f"QUERY:\n{query}\n\nCHUNKS:\n{chunk_payload}\n\nReturn JSON only."
+            },
+        ]
 
     @staticmethod
-    def _parse_sentences(text: str) -> List[str]:
-        """
-        Split LLM output into individual sentences and scrub mild punctuation /
-        bullet-style clutter.
-        """
-        # Drop leading bullets / numbers on each line
-        cleaned = re.sub(r"^[\s•\-\d\)\.]+", "", text, flags=re.MULTILINE)
+    def _build_chunk_payload(passages: List[str], offset: int = 0) -> str:
+        lines = []
+        for i, p in enumerate(passages, start=offset):
+            # Escape double quotes minimally
+            p_clean = p.replace("\n", " ").strip()
+            lines.append(f"[{i}] {p_clean}")
+        return "\n".join(lines)
 
-        # Split on newlines *or* sentence boundaries like ". "
-        parts = re.split(r"\n+|(?<=[.!?])\s+", cleaned)
+    @staticmethod
+    def _parse_rank_json(raw: str, n_passages: int, offset: int = 0) -> Dict[str, Any]:
+        parsed = safe_parse_json(raw)
+        if "ranked" not in parsed or not isinstance(parsed["ranked"], list):
+            raise ValueError(f"Bad LLM JSON (no 'ranked'): {raw}")
+        # basic check
+        for d in parsed["ranked"]:
+            if "i" not in d or "score" not in d:
+                raise ValueError(f"Rank item missing keys: {d}")
+            if not (offset <= int(d["i"]) < offset + n_passages):
+                # allow 0-based indexing across docs
+                pass
+        return parsed
 
-        # Characters we want to strip from each side
-        strip_chars = ' \t\r\n"\'“”‘’()`[]{}<>*•-.,;:'
+    @staticmethod
+    def _scores_from_parsed(parsed: Dict[str, Any], total: int) -> np.ndarray:
+        scores = np.zeros(total, dtype=float)
+        for d in parsed["ranked"]:
+            i = int(d["i"])
+            s = float(d["score"])
+            if 0 <= i < total:
+                scores[i] = s
+        return scores
 
-        sentences = [
-            s.strip(strip_chars)  # remove cruft
-            for s in parts
-            if len(s.split()) > 2  # keep non-trivial sentences
-        ]
-        return sentences
+    # ---- Chunker wrapper (reuse your improved version) ------------------- #
+    def _chunk(self, doc: str, *, overlap_words: int, respect_structure: bool) -> List[str]:
+        # assuming you already implemented this improved version:
+        return self._improved_chunk(doc, overlap_words=overlap_words, respect_structure=respect_structure)
 
 
 def test_retriever_stability(

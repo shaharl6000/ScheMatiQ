@@ -123,25 +123,89 @@ def iter_jsonl(path: Path) -> Iterator[Dict[str, str]]:
                 yield json.loads(raw)
 
 JSON_FENCE = re.compile(r"```json(.*?)```", re.S | re.I)
-FIRST_OBJ = re.compile(r"\{.*\}", re.S)
+FIRST_OBJ  = re.compile(r"\{.*\}", re.S)
+CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")   # except \n \t if you want to keep them
 
 def safe_parse_json(text: str) -> Dict[str, Any]:
     """
-    Try to robustly extract the first JSON object from a model response.
+    Robustly extract & repair a single JSON object.
+    1. Look for ```json fences, else first {...}
+    2. Normalize quotes/control chars
+    3. Try json.loads
+    4. If still broken & looks like the expected schema, manually rebuild it.
     """
+    # -------- 1. Extract candidate  -------- #
     m = JSON_FENCE.search(text)
     if m:
         candidate = m.group(1).strip()
     else:
         m = FIRST_OBJ.search(text)
-        candidate = m.group(0).strip() if m else ""
+        candidate = m.group(0).strip() if m else text.strip()
 
+    # -------- 2. Quick normalizations -------- #
+    # unify fancy quotes → "
+    candidate = candidate.replace("“", '"').replace("”", '"').replace("’", "'")
+    # kill control chars that JSON hates
+    candidate = CONTROL_CHARS.sub(" ", candidate)
+
+    # common trailing commas
+    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
+
+    # -------- 3. First attempt -------- #
     try:
         return json.loads(candidate)
     except Exception:
-        # Last resort: try to repair common mistakes
-        candidate = candidate.replace("\n", " ").strip()
-        return json.loads(candidate)
+        pass
+
+    # -------- 4. Special-case fix for the expected schema  -------- #
+    # Expecting: {"rewrites": [ "..." , "..." ]}
+    # We'll recover the list of strings manually, then rebuild valid JSON.
+    rewrites = _recover_rewrites(candidate)
+    if rewrites:
+        return {"rewrites": rewrites}
+
+    # -------- 5. Give up -------- #
+    raise ValueError(f"Cannot parse JSON:\n{candidate}")
+
+
+def _recover_rewrites(candidate: str) -> list[str] | None:
+    """
+    Try to salvage a 'rewrites' list from malformed JSON text.
+    Strategy:
+      - find the first [ ... ] after "rewrites"
+      - split on lines or quotes, repair missing end-quotes
+    """
+    m = re.search(r'"rewrites"\s*:\s*\[(.*?)]', candidate, re.S | re.I)
+    if not m:
+        return None
+
+    inner = m.group(1)
+
+    # Split by lines or quotes; easiest is to grab all string-like segments between quotes.
+    # But because quotes may be unbalanced, fall back to commas/newlines.
+    maybe_items = re.split(r",\s*\n|,\s*(?![^[]*\])", inner)  # commas at top level
+    cleaned: list[str] = []
+    for item in maybe_items:
+        item = item.strip()
+        if not item:
+            continue
+        # remove leading/trailing quotes if present
+        if item.startswith('"') and not item.endswith('"'):
+            item += '"'                       # add missing
+        if item.endswith('"') and not item.startswith('"'):
+            item = '"' + item
+        # strip again
+        item = item.strip().strip(',')
+        # finally pull the string content
+        m2 = re.match(r'^"(.*)"$', item)
+        if m2:
+            cleaned.append(m2.group(1))
+        else:
+            # last fallback: try to unquote
+            cleaned.append(item.strip('"'))
+    # filter empties
+    cleaned = [c for c in cleaned if c]
+    return cleaned or None
 
 
 def build_messages_extract_query(example: Dict[str, str], current: Dict[str, str]) -> List[Dict[str, str]]:
