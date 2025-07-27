@@ -26,7 +26,7 @@ _RE_LATEX_MATH = re.compile(r"\$[^$]+\$")          # very coarse but good enough
 _RE_PUNCT      = re.compile(r"[^\w\s-]")
 
 MAX_CTX_TOKENS = 8192
-SAFETY_MARGIN   = 256
+SAFETY_MARGIN   = 512
 DEFAULT_SENTENCE_LEVELS = (11, 9, 7, 5, 3, 1)
 ENC = tiktoken.encoding_for_model("gpt-4o")  # close enough
 MAX_NEW_TOKENS = 512
