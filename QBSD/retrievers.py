@@ -17,10 +17,16 @@ import re
 import json
 from transformers import AutoTokenizer
 import torch
+import tiktoken
 
+_enc = tiktoken.encoding_for_model("gpt-4o")
 _SENT_SPLIT_RE = re.compile(r"(?<=[\.\?!])\s+")
 JSON_FENCE = re.compile(r"```json(.*?)```", re.S | re.I)
 FIRST_OBJ = re.compile(r"\{.*\}", re.S)
+DEFAULT_MAX_INPUT_TOKENS = 7800
+DEFAULT_TRUNCATE_WORDS   = 250
+TOGETHER_LIMIT = 8193
+SAFETY_MARGIN  = 512
 
 def safe_parse_json(text: str) -> Dict[str, Any]:
     m = JSON_FENCE.search(text)
@@ -93,15 +99,64 @@ def _sliding_windows(words: List[str], max_len: int, overlap: int) -> Iterable[L
         window = words[start:start + max_len]
         if window:
             yield window
+
+
+def _approx_tokens(txt: str) -> int:
+    return len(_enc.encode(txt))
+
 ##############################################################################
 # Abstract base                                                              #
 ##############################################################################
 
 class Retriever(ABC):
+    def __init__(
+        self,
+        max_words_chunk: int = 512,
+    ):
+        self.max_words_chunk = max_words_chunk
+
     @abstractmethod
     def query(self, docs: Sequence[str], question: str, k: int = 3) -> List[str]:
         """Return up to *k* passages relevant to *question*."""
         ...
+
+    def _chunk(self, doc: str) -> List[str]:
+        """
+        Split *doc* into passages of ≤ `self.max_words` words, trying to
+        keep each passage close to the limit by concatenating sentences.
+        """
+        sentences = _split_sentences(doc)
+        chunks: List[str] = []
+        current: List[str] = []
+        count = 0
+
+        for sent in sentences:
+            words = sent.split()
+            wlen = len(words)
+
+            # Sentence itself fits budget → accumulate
+            if wlen <= self.max_words_chunk:
+                if count + wlen <= self.max_words_chunk:
+                    current.append(sent)
+                    count += wlen
+                else:
+                    # flush and start new passage
+                    if current:
+                        chunks.append(" ".join(current).strip())
+                    current = [sent]
+                    count = wlen
+            else:
+                # Sentence longer than budget → slice by words
+                if current:
+                    chunks.append(" ".join(current).strip())
+                    current, count = [], 0
+                chunks.extend(_yield_word_slices(words, self.max_words_chunk))
+
+        if current:
+            chunks.append(" ".join(current).strip())
+
+        return chunks
+
 
     def _improved_chunk(self, doc: str, *, overlap_words: int = 64, respect_structure: bool = True) -> List[str]:
         """
@@ -190,14 +245,9 @@ class EmbeddingRetriever(Retriever):
     tightly as possible).
     """
 
-    def __init__(
-        self,
-        model_name: str = "all-MiniLM-L6-v2",
-        max_words: int = 512,
-        batch_size: int = 32,
-        k: int = 3,
-        device: str | None = None,
-    ):
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: int = 512, batch_size: int = 32, k: int = 3,
+                 device: str | None = None):
+        super().__init__()
         if SentenceTransformer is None:
             raise ImportError(
                 "sentence-transformers not installed. "
@@ -313,44 +363,6 @@ class EmbeddingRetriever(Retriever):
         else:
             return self._query_sentence_transformer(passages, question, k)
 
-    # ---- Helpers -------------------------------------------------------- #
-
-    def _chunk(self, doc: str) -> List[str]:
-        """
-        Split *doc* into passages of ≤ `self.max_words` words, trying to
-        keep each passage close to the limit by concatenating sentences.
-        """
-        sentences = _split_sentences(doc)
-        chunks: List[str] = []
-        current: List[str] = []
-        count = 0
-
-        for sent in sentences:
-            words = sent.split()
-            wlen = len(words)
-
-            # Sentence itself fits budget → accumulate
-            if wlen <= self.max_words_chunk:
-                if count + wlen <= self.max_words_chunk:
-                    current.append(sent)
-                    count += wlen
-                else:
-                    # flush and start new passage
-                    if current:
-                        chunks.append(" ".join(current).strip())
-                    current = [sent]
-                    count = wlen
-            else:
-                # Sentence longer than budget → slice by words
-                if current:
-                    chunks.append(" ".join(current).strip())
-                    current, count = [], 0
-                chunks.extend(_yield_word_slices(words, self.max_words_chunk))
-
-        if current:
-            chunks.append(" ".join(current).strip())
-
-        return chunks
 
 
 ##############################################################################
@@ -401,7 +413,9 @@ class PromptingRetrieverConfig:
     finalist_factor: float = 2.0  # keep top k*factor from each batch for final rerank
     mode: str = "sampled_rank"    # "rank" (single call) or "sampled_rank"
     overlap_words: int = 64
-    respect_structure: bool = True
+    respect_structure: bool = True,
+    truncate_words_per_chunk: int = 512,
+    max_input_tokens: int = 7000   #TODO: shahar to not truncate but split doc or something..
 
 class PromptingRetriever(Retriever):
     """
@@ -410,12 +424,17 @@ class PromptingRetriever(Retriever):
     `generate(messages, max_tokens, temperature, stop)` must be provided externally.
     """
 
-    def __init__(self,
-                 generate: Callable[..., str],
-                 config: PromptingRetrieverConfig | None = None):
+    def __init__(self, generate: Callable[..., str], config: PromptingRetrieverConfig | None = None):
+        super().__init__()
         self.generate = generate
-        self.cfg = config or PromptingRetrieverConfig()
         self.is_first_run = True
+        self.cfg = config or PromptingRetrieverConfig()
+        # sanitize config fields
+        for attr, default in [("max_input_tokens", 7800), ("truncate_words_per_chunk", 250)]:
+            val = getattr(self.cfg, attr, default)
+            if isinstance(val, (list, tuple)):
+                val = val[0]
+            setattr(self.cfg, attr, int(val))
 
     # ---- Public API ----------------------------------------------------- #
     def query(self, docs: Sequence[str], question: str, k: int | None = None) -> List[str]:
@@ -457,60 +476,102 @@ class PromptingRetriever(Retriever):
         payload = self._build_chunk_payload(passages)
         messages = self._build_messages(query, payload)
 
-        raw = self.generate(
-            messages=messages,
-            max_tokens=self.cfg.max_new_tokens,
-            temperature=self.cfg.temperature,
-            stop=self.cfg.stop or []
-        ).strip()
+        raw = self.generate(messages).strip()
 
         parsed = self._parse_rank_json(raw, len(passages))
         return self._scores_from_parsed(parsed, len(passages))
 
+    def _call_llm(self, messages: List[Dict[str, str]]) -> str:
+        """
+        Send messages to the LLM, but first ensure `inputs + max_new_tokens <= 8193`.
+        We only trim the *last user message* content.
+        """
+        hard_cap = TOGETHER_LIMIT - getattr(self.cfg, "max_new_tokens", 128) - SAFETY_MARGIN
+
+        def msgs_tok_len(msgs: List[Dict[str, str]]) -> int:
+            return sum(_approx_tokens(m["role"]) + _approx_tokens(m["content"]) for m in msgs)
+
+        # Trim if needed
+        if msgs_tok_len(messages) > hard_cap:
+            # pick the last user message (fallback: last message)
+            user_idx = next((i for i in reversed(range(len(messages)))
+                             if messages[i]["role"] == "user"), len(messages) - 1)
+            content = messages[user_idx]["content"]
+            lines = content.splitlines()
+            # drop 10% lines until under cap (at least 1 each loop)
+            while lines and msgs_tok_len(messages) > hard_cap:
+                drop = max(1, int(len(lines) * 0.1))
+                lines = lines[:-drop]
+                messages[user_idx]["content"] = "\n".join(lines)
+            if not lines:
+                raise ValueError("Unable to fit any payload under token budget.")
+
+        return self.generate(messages).strip()
+
+
+    def _truncate_chunk(self, text: str) -> str:
+        limit = getattr(self.cfg, "truncate_words_per_chunk", 250)
+        # normalize bad types
+        if isinstance(limit, (list, tuple)):
+            limit = limit[0]
+        if limit is None:
+            limit = 250
+        limit = int(limit)
+
+        words = text.split()
+        if len(words) <= limit:
+            return text
+        return " ".join(words[:limit])
+
     def _batched_two_stage_rank(self, passages: List[str], query: str) -> np.ndarray:
-        bs = self.cfg.batch_size
         finals: List[Tuple[int, float]] = []
+        # ---- 1st stage: token-bounded mini-batches ----
+        start = 0
+        while start < len(passages):
+            # pack as many chunks as will fit into max_input_tokens
+            cur_payload_chunks: List[str] = []
+            cur_indices: List[int] = []
+            token_budget = getattr(self.cfg, "max_input_tokens", DEFAULT_MAX_INPUT_TOKENS)
+            while start < len(passages) and len(cur_indices) < self.cfg.batch_size:
+                idx = start
+                candidate = self._truncate_chunk(passages[idx].replace("\n", " ").strip())
+                chunk_line = f"[{idx}] {candidate}"
+                need = _approx_tokens(chunk_line)
+                if need > token_budget and cur_indices:
+                    break  # send what we have
+                if need > token_budget and not cur_indices:
+                    # single huge chunk: send anyway (or skip)
+                    pass
+                cur_payload_chunks.append(chunk_line)
+                cur_indices.append(idx)
+                token_budget -= need
+                start += 1
 
-        # 1st stage: batch-wise scoring
-        for start in range(0, len(passages), bs):
-            end = min(start + bs, len(passages))
-            sub_pass = passages[start:end]
-            payload = self._build_chunk_payload(sub_pass, offset=start)
+            payload = "\n".join(cur_payload_chunks)
             messages = self._build_messages(query, payload)
-            raw = self.generate(
-                messages=messages,
-                max_tokens=self.cfg.max_new_tokens,
-                temperature=self.cfg.temperature,
-                stop=self.cfg.stop or []
-            ).strip()
-            parsed = self._parse_rank_json(raw, len(sub_pass), offset=start)
-            scored = [(d["i"], float(d["score"])) for d in parsed["ranked"]]
-            # keep top local finalists
-            keep = max(1, int(self.cfg.finalist_factor * self.cfg.k))
-            scored_sorted = sorted(scored, key=lambda x: x[1], reverse=True)[:keep]
-            finals.extend(scored_sorted)
+            raw = self._call_llm(messages)
+            parsed = self._parse_rank_json(raw, len(cur_indices), offset=cur_indices[0], total_len=len(passages))
+            scored = [(d["i"], d["score"]) for d in parsed["ranked"]]
 
-        # 2nd stage: rerank finalists if we reduced
-        unique_final_ids = sorted({i for i, _ in finals})
-        if len(unique_final_ids) <= self.cfg.batch_size:
-            # direct rerank
-            sub_pass = [passages[i] for i in unique_final_ids]
+            scored = [(int(d["i"]), float(d["score"])) for d in parsed["ranked"]]
+            keep = max(1, int(self.cfg.finalist_factor * self.cfg.k))
+            finals.extend(sorted(scored, key=lambda x: x[1], reverse=True)[:keep])
+
+        # ---- 2nd stage: rerank finalists if small enough ----
+        unique_ids = sorted({i for i, _ in finals})
+        scores = np.zeros(len(passages), dtype=float)
+
+        if len(unique_ids) <= self.cfg.batch_size:
+            sub_pass = [passages[i] for i in unique_ids]
             payload = self._build_chunk_payload(sub_pass, offset=0)
             messages = self._build_messages(query, payload)
-            raw = self.generate(
-                messages=messages,
-                max_tokens=self.cfg.max_new_tokens,
-                temperature=self.cfg.temperature,
-                stop=self.cfg.stop or []
-            ).strip()
-            parsed = self._parse_rank_json(raw, len(sub_pass), offset=0)
-            reranked_scores = {d["i"]: float(d["score"]) for d in parsed["ranked"]}
-            scores = np.zeros(len(passages), dtype=float)
-            for i, s in reranked_scores.items():
-                scores[unique_final_ids[i]] = s
+            raw = self._call_llm(messages)
+            parsed = self._parse_rank_json(raw, len(sub_pass), offset=0, total_len=len(passages))
+            local = {int(d["i"]): float(d["score"]) for d in parsed["ranked"]}
+            for li, sc in local.items():
+                gi = unique_ids[li]
+                scores[gi] = sc
         else:
-            # No second pass; just aggregate first-pass scores
-            scores = np.zeros(len(passages), dtype=float)
             for i, s in finals:
                 scores[i] = max(scores[i], s)
 
@@ -535,19 +596,29 @@ class PromptingRetriever(Retriever):
             lines.append(f"[{i}] {p_clean}")
         return "\n".join(lines)
 
-    @staticmethod
-    def _parse_rank_json(raw: str, n_passages: int, offset: int = 0) -> Dict[str, Any]:
+
+    def _parse_rank_json(self, raw: str, n_passages: int, offset: int, total_len: int) -> Dict[str, Any]:
         parsed = safe_parse_json(raw)
         if "ranked" not in parsed or not isinstance(parsed["ranked"], list):
             raise ValueError(f"Bad LLM JSON (no 'ranked'): {raw}")
-        # basic check
+
+        fixed = []
         for d in parsed["ranked"]:
-            if "i" not in d or "score" not in d:
-                raise ValueError(f"Rank item missing keys: {d}")
-            if not (offset <= int(d["i"]) < offset + n_passages):
-                # allow 0-based indexing across docs
-                pass
-        return parsed
+            i = int(d["i"])
+            s = float(d["score"])
+
+            # local -> global
+            if 0 <= i < n_passages:
+                gi = i + offset
+            else:
+                # maybe already global
+                gi = i
+
+            # clamp / skip invalid
+            if 0 <= gi < total_len:
+                fixed.append({"i": gi, "score": s})
+
+        return {"ranked": fixed}
 
     @staticmethod
     def _scores_from_parsed(parsed: Dict[str, Any], total: int) -> np.ndarray:

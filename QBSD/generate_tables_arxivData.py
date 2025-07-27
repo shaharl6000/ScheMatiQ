@@ -468,6 +468,11 @@ def main() -> None:
     )
 
     parser.add_argument(
+        "--retriever_type", dest="retriever_type", default="embedding",
+        help=""
+    )
+
+    parser.add_argument(
         "--retriever_k", dest="retriever_k", type=int, default=10,
         help=""
     )
@@ -475,8 +480,13 @@ def main() -> None:
     args = parser.parse_args()
 
     llm_for_generation = utils.build_llm({"provider": args.backend, "api_key": args.api_key})
-    retriever = utils.build_retriever({"model_name": args.retriever_name,
-                                       "k": args.retriever_k}) if args.retriever_name else None
+
+    retriever_cfg = {"model_name": args.retriever_name,
+                                       "k": args.retriever_k,
+                                       "type": args.retriever_type}
+
+    retriever = utils.build_retriever(retriever_cfg, llm_for_prompting=llm_for_generation) \
+                                    if (args.retriever_name or args.retriever_type != "embedding") else None
 
     process_query_file(
         args.input_jsonl,

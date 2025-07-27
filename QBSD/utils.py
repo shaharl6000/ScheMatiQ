@@ -118,9 +118,7 @@ def build_retriever(cfg: Dict[str, Any], llm_for_prompting: LLMInterface = None)
         if llm_for_prompting is None:
             raise ValueError("Unknown llm_for_prompting for prompting retriever")
         return PromptingRetriever(
-            llm=llm_for_prompting,
-            sentences_per_doc=cfg.get("sentences_per_doc", 3),
-            max_doc_chars=cfg.get("max_doc_chars", 4000),
+            generate=llm_for_prompting.generate,
         )
     else:
         raise ValueError(f"Unknown retriever type: {rtype}")
