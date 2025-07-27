@@ -226,13 +226,29 @@ def process_file_retrieval_query(
     max_new_tokens: int = 256,
     temperature: float = 0.3,
     stop: List[str] | None = None,
+    resume: bool = True,
 ) -> None:
     records = list(iter_jsonl(inp))
     if not records:
         raise ValueError("Input JSONL is empty!")
 
-    with out.open("w", encoding="utf-8") as f_out:
+    # ---- 1. Collect already processed tabids (if resume & file exists) ----
+    processed_tabids: set[str] = set()
+    if resume and out.exists():
+        for line in iter_jsonl(out):
+            tid = line.get("tabid")
+            if tid is not None:
+                processed_tabids.add(tid)
+
+    # ---- 2. Open file (append if resuming, else overwrite) -----------------
+    mode = "a" if (resume and out.exists()) else "w"
+    with out.open(mode, encoding="utf-8") as f_out:
         for rec in tqdm(records, desc="Rewriting queries"):
+            tid = rec.get("tabid")
+            if resume and tid in processed_tabids:
+                # Skip work, already done
+                continue
+
             messages = build_messages_retrieval_query(rec)
 
             raw = generate(
@@ -248,11 +264,14 @@ def process_file_retrieval_query(
                 if not isinstance(rewrites, list) or not rewrites:
                     raise ValueError("Missing/empty 'rewrites' list.")
             except Exception as e:
-                raise ValueError(f"Failed to parse model output for id={rec.get('id')}: {raw}") from e
+                raise ValueError(
+                    f"Failed to parse model output for tabid={tid}: {raw}"
+                ) from e
 
             rec["retrieval_queries"] = rewrites
 
             f_out.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f_out.flush()  # optional: safer on long runs
 
 
 def main() -> None:
