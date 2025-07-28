@@ -263,7 +263,7 @@ def build_messages(
                     fallbacks += 1
                     content = p.get('abstract', '').strip()
                     print(f"Failed to retrieve {text}: {exc}")
-                
+
             paper_blocks.append(
                 f"[Paper {i}]\n"
                 f"Title: {p.get('title', '').strip()}\n"

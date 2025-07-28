@@ -184,7 +184,12 @@ def discover_schema(
     batches = [list(itertools.islice(doc_iter, batch_size)) for _ in range((len(documents)+batch_size-1)//batch_size)]
 
     for it, batch_docs in enumerate(batches[:max_iters], start=1):
-        passages = select_relevant_content(batch_docs, query, retriever)
+        try:
+            passages = select_relevant_content(batch_docs, query, retriever)
+        except Exception as exc:
+            print(f"Failed to retrieve {exc}")
+            continue
+
         proposed = generate_schema(passages, query, max_keys_schema, schema, llm)
         merged = schema.merge(proposed)
 
