@@ -343,9 +343,12 @@ def process_query_file(
 
         with path.open(mode, encoding="utf-8") as f_out, \
                 tqdm(records, desc=f"{var_name:>18}") as pbar:
-
+            if "retrieval_queries" in records[0]:
+                print("------- retrieved query is used")
             for rec in pbar:
                 tabid, query, caption = rec["tabid"], rec["query"], rec["caption"]
+                if "retrieval_queries" in rec:
+                    query = rec["retrieval_queries"][0] #todo, for now take the first
                 if tabid in done:
                     continue
 
