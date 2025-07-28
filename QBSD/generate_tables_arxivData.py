@@ -256,8 +256,14 @@ def build_messages(
                 content = p.get('abstract','').strip()
                 fallbacks += 1
             else:
-                passages = retriever.query([text], question=query)
-                content = "".join(p.strip() for p in passages)
+                try:
+                    passages = retriever.query([text], question=query)
+                    content = "".join(p.strip() for p in passages)
+                except Exception as exc:
+                    fallbacks += 1
+                    content = p.get('abstract', '').strip()
+                    print(f"Failed to retrieve {text}: {exc}")
+                
             paper_blocks.append(
                 f"[Paper {i}]\n"
                 f"Title: {p.get('title', '').strip()}\n"

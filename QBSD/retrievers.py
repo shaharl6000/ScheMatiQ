@@ -27,17 +27,39 @@ DEFAULT_MAX_INPUT_TOKENS = 7800
 DEFAULT_TRUNCATE_WORDS   = 250
 TOGETHER_LIMIT = 8193
 SAFETY_MARGIN  = 512
+CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 
-def safe_parse_json(text: str) -> Dict[str, Any]:
+def safe_parse_json(text: str, fallback_key: str | None = None) -> Dict[str, Any]:
+    """
+    Try hard to parse a JSON object. If it fails and `fallback_key` is given,
+    salvage that list with regex.
+    """
+    # ---- extract candidate block ----
     m = JSON_FENCE.search(text)
-    if m:
-        candidate = m.group(1).strip()
-    else:
-        m = FIRST_OBJ.search(text)
-        candidate = m.group(0).strip() if m else ""
-    # lightweight fix
-    candidate = candidate.replace("\n", " ").strip()
-    return json.loads(candidate)
+    candidate = m.group(1).strip() if m else (FIRST_OBJ.search(text).group(0).strip() if FIRST_OBJ.search(text) else text.strip())
+
+    # ---- normalize ----
+    candidate = CONTROL_CHARS.sub(" ", candidate)
+    candidate = candidate.replace("“", '"').replace("”", '"').replace("’", "'")
+    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)  # trailing commas
+
+    # ---- first try ----
+    try:
+        return json.loads(candidate)
+    except Exception:
+        if not fallback_key:
+            raise
+
+    # ---- salvage path ----
+    if fallback_key == "ranked":
+        ranked = []
+        # find {"i": 3, "score": 0.87} like objects
+        for m in re.finditer(r'\{\s*"i"\s*:\s*(\d+).*?"score"\s*:\s*([0-9.]+)', candidate, re.S):
+            ranked.append({"i": int(m.group(1)), "score": float(m.group(2))})
+        if ranked:
+            return {"ranked": ranked}
+
+    raise ValueError(f"Cannot parse JSON:\n{candidate}")
 
 def _to_unicode(x: Any) -> str:
     """
