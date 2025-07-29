@@ -295,7 +295,7 @@ class EmbeddingRetriever(Retriever):
         else:
             self.model = SentenceTransformer(model_name, device=device)
         self.max_words = max_words
-        self.max_words_chunk = min(int(max_words / self.k), 128)
+        self.max_words_chunk = max(int(max_words / self.k), 128)
 
 
         print(f"-------Create EmbeddingRetriever, with model: {model_name}, k: {self.k}, "
@@ -311,14 +311,30 @@ class EmbeddingRetriever(Retriever):
             show_progress_bar=False,
         )
 
+        # shahar: improve ?
+        dynamic_k = True
+
         # Cosine similarity
         q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
         p_norm = p_embs / (
             np.linalg.norm(p_embs, axis=1, keepdims=True) + 1e-8
         )
         sims = p_norm @ q_norm
+        # print(f"-----sims: mean {sum(sims)/len(sims)} sorted list: {sims.argsort()}")
         chosen_k = self.k if k is None else k
+        if dynamic_k:
+            # min, but only when sim is > thresh
+            minimum = 2
+            thresh = 0.65
+            num_above = int((sims > thresh).sum())
+            chosen_k = max(minimum, num_above)
+            print(f"---- chosen k = {chosen_k}, num_above: {num_above}, thresh: {thresh} ----")
+
         top = sims.argsort()[-chosen_k:][::-1]
+
+
+
+
         return [passages[i] for i in top]
 
     def _rerank_passages(self, pairs: list[tuple[str, str]], chunk: int) -> np.ndarray:
