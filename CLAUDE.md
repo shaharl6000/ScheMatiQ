@@ -27,6 +27,14 @@ The codebase is organized into two main directories:
 - `abstracts/` and `full_text/` - Research paper data directories
 - `manually/` - Manual annotation data
 
+### arxivDIGESTables/ - Evaluation Framework
+- `metric/run_eval.py` - **Main evaluation script** for comparing QBSD output against gold standard tables
+- `metric/metrics.py` - Core evaluation metrics (SchemaRecallMetric, BaseMetric)
+- `metric/metrics_utils.py` - Featurizers and scorers for different evaluation approaches
+- `metric/table.py` - Table data structure for evaluation
+- `predictions/` - Evaluation results and scoring outputs
+- Based on ArxivDIGESTables dataset for table synthesis evaluation
+
 ## Development Commands
 
 ### Running QBSD
@@ -48,8 +56,33 @@ QBSD experiments are configured via JSON files in `QBSD/configurations/`. Key co
 - `query` - The research question to explore
 - `docs_path` - Path to document collection  
 - `backend` - LLM provider and model settings
-- `retriever` - Embedding model configuration
+- `retriever` - Embedding model configuration with dynamic_k, batch_size, device settings
 - `max_keys_schema` - Schema size limit
+
+### Evaluation with arxivDIGESTables
+The `arxivDIGESTables/metric/run_eval.py` script evaluates QBSD-generated table schemas against gold standard tables:
+
+```bash
+cd arxivDIGESTables/metric
+python run_eval.py
+```
+
+**Key Evaluation Components:**
+- **Featurizers** - Different ways to represent column schemas:
+  - `name`: Uses raw column names
+  - `values`: Concatenates column names with their values  
+  - `decontext`: Uses LLM (Mixtral) to decontextualize column names
+- **Scorers** - Similarity measurement methods:
+  - `exact_match`: Exact string matching
+  - `jaccard`: Jaccard similarity with stopword removal
+  - `sentence_transformers`: Semantic similarity using embeddings
+  - `llama3`: LLM-based alignment scoring
+- **Metrics**: SchemaRecallMetric computes recall scores with alignment thresholds (0.5, 0.7, 0.9)
+
+**Input/Output:**
+- Input: QBSD-generated schemas (from `data/schema_6_filtered/results_gpt4o_clean_QBSD.jsonl`)
+- Gold Standard: ArxivDIGESTables dataset tables
+- Output: Detailed evaluation results with recall scores and column alignments in `predictions/SCORE_*.jsonl`
 
 ## Key Concepts
 
@@ -74,4 +107,6 @@ The project focuses on Nuclear Export Signal (NES) research, extracting structur
 - Configuration files define experimental parameters and should be customized per experiment
 - The system supports both Together AI and OpenAI backends via environment variables (TOGETHER_API_KEY, OPENAI_API_KEY)
 - All API keys must be set as environment variables - no hardcoded tokens remain in the codebase
+- **Retrievers are now fully configurable** - dynamic_k, thresholds, batch sizes, and devices can be set via config files or CLI arguments
+- **Evaluation capabilities** are provided through arxivDIGESTables framework for objective schema quality assessment
 - **NEVER run LLM flows (QBSD.py or any scripts that call OpenAI/Together AI APIs) without explicit user permission due to API costs**
