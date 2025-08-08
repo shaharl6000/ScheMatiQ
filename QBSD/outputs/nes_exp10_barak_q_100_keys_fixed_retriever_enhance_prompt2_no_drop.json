@@ -1,0 +1,127 @@
+{
+  "query": "Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment??",
+  "docs_path": "..\\src\\full_text",
+  "backend": {
+    "provider": "together",
+    "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "max_tokens": 1000,
+    "temperature": 0.2
+  },
+  "retriever": {
+    "type": "embedding",
+    "model_name": "all-MiniLM-L6-v2",
+    "overlap": 64
+  },
+  "schema": [
+    {
+      "column": "protein_sequence",
+      "explanation": "Determining the presence and strength of a nuclear export signal requires analyzing the protein sequence",
+      "definition": "The sequence of amino acids in a protein"
+    },
+    {
+      "column": "nes_presence",
+      "explanation": "The primary question is to determine if a protein sequence contains an NES",
+      "definition": "Whether a protein sequence contains a nuclear export signal"
+    },
+    {
+      "column": "nes_strength",
+      "explanation": "If an NES is present, its strength is crucial for understanding its effectiveness",
+      "definition": "The strength of the nuclear export signal in a protein sequence"
+    },
+    {
+      "column": "nes_confidence",
+      "explanation": "The accuracy of NES prediction is important for reliable conclusions",
+      "definition": "The confidence level in the assessment of the nuclear export signal"
+    },
+    {
+      "column": "nes_location",
+      "explanation": "Knowing the location of the NES can help in understanding its functionality and interaction with other sequences",
+      "definition": "The location of the nuclear export signal within the protein sequence"
+    },
+    {
+      "column": "crm1_dependency",
+      "explanation": "CRM1-dependent NESs have distinct characteristics and may require specific prediction methods",
+      "definition": "Whether the nuclear export signal is CRM1-dependent"
+    },
+    {
+      "column": "hydrophobic_residues",
+      "explanation": "Hydrophobic residues are important for the function of NESs, particularly CRM1-dependent ones",
+      "definition": "The number of hydrophobic residues in the nuclear export signal"
+    },
+    {
+      "column": "nes_pattern",
+      "explanation": "The pattern of amino acids can help identify the type of NES and its potential strength",
+      "definition": "The pattern of amino acids in the nuclear export signal"
+    },
+    {
+      "column": "nes_type",
+      "explanation": "Different types of NESs may have distinct characteristics and require specific prediction methods",
+      "definition": "The type of nuclear export signal, such as PKI-type or other"
+    },
+    {
+      "column": "leucine_rich",
+      "explanation": "Leucine-rich NESs are a common type of NES and may require specific prediction methods",
+      "definition": "Whether the nuclear export signal is leucine-rich"
+    },
+    {
+      "column": "nes_length",
+      "explanation": "The length of the NES can affect its strength and functionality",
+      "definition": "The length of the nuclear export signal in amino acids"
+    },
+    {
+      "column": "key_residues",
+      "explanation": "Key residues can be crucial for the function and strength of the NES",
+      "definition": "The key residues within the nuclear export signal"
+    },
+    {
+      "column": "nes_consensus",
+      "explanation": "The consensus sequence can help identify the NES and understand its functionality",
+      "definition": "The consensus sequence of the nuclear export signal"
+    },
+    {
+      "column": "crm1_interaction",
+      "explanation": "The interaction between the NES and CRM1 is crucial for nuclear export",
+      "definition": "The interaction between the NES and the CRM1 nuclear export receptor"
+    },
+    {
+      "column": "nes_prediction_method",
+      "explanation": "Different prediction methods may have varying levels of accuracy and reliability",
+      "definition": "The method used to predict the presence and strength of the NES"
+    },
+    {
+      "column": "nes_validation",
+      "explanation": "Validation of the NES prediction is important for confirming its accuracy and reliability",
+      "definition": "The validation of the NES prediction, such as through experimental methods"
+    },
+    {
+      "column": "exportin1_dependency",
+      "explanation": "Exportin-1 is a primary nuclear export receptor for cargo proteins containing a leucine-rich NES",
+      "definition": "Whether the nuclear export signal is exportin-1-dependent"
+    },
+    {
+      "column": "nes_masking",
+      "explanation": "NES masking can affect the interaction between the NES and the exportin protein",
+      "definition": "Whether the NES is masked by other protein sequences or structures"
+    },
+    {
+      "column": "nes_accessibility",
+      "explanation": "NES accessibility is crucial for the interaction between the NES and the exportin protein",
+      "definition": "The accessibility of the NES to the exportin protein"
+    },
+    {
+      "column": "\"name\"",
+      "explanation": "\"nes_prediction_method\",",
+      "definition": ""
+    },
+    {
+      "column": "\"definition\"",
+      "explanation": "\"The functionality of the nuclear export signal, such as its ability to mediate nuclear export\",",
+      "definition": ""
+    },
+    {
+      "column": "\"rationale\"",
+      "explanation": "\"Knowing the location of the NES can help in understanding its functionality and interaction with other sequences\"",
+      "definition": ""
+    }
+  ]
+}

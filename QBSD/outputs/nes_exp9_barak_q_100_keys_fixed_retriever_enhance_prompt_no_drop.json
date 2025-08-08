@@ -1,0 +1,112 @@
+{
+  "query": "Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment??",
+  "docs_path": "..\\src\\full_text",
+  "backend": {
+    "provider": "together",
+    "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "max_tokens": 1000,
+    "temperature": 0.2
+  },
+  "retriever": {
+    "type": "embedding",
+    "model_name": "all-MiniLM-L6-v2",
+    "overlap": 64
+  },
+  "schema": [
+    {
+      "column": "protein_sequence",
+      "explanation": "This column is necessary to identify potential nuclear export signals within the protein",
+      "definition": "The sequence of amino acids in a protein"
+    },
+    {
+      "column": "nes_presence",
+      "explanation": "This column directly answers the query about the presence of an NES",
+      "definition": "Whether a nuclear export signal is present in the protein sequence"
+    },
+    {
+      "column": "nes_strength",
+      "explanation": "This column provides additional information about the NES, helping to assess its effectiveness",
+      "definition": "The strength or affinity of the nuclear export signal"
+    },
+    {
+      "column": "confidence_level",
+      "explanation": "This column provides a measure of reliability for the NES identification and strength estimation",
+      "definition": "The confidence level in the assessment of the NES presence and strength"
+    },
+    {
+      "column": "nes_location",
+      "explanation": "This column helps to identify the specific region of the protein responsible for nuclear export",
+      "definition": "The location of the nuclear export signal within the protein sequence"
+    },
+    {
+      "column": "nes_type",
+      "explanation": "This column provides further details about the NES, which can inform its strength and functionality",
+      "definition": "The type of nuclear export signal, such as PKI-type or other"
+    },
+    {
+      "column": "hydrophobic_residues",
+      "explanation": "This column is relevant because the presence and arrangement of hydrophobic residues are characteristic of NESs",
+      "definition": "The number and spacing of hydrophobic residues within the NES"
+    },
+    {
+      "column": "crm1_dependency",
+      "explanation": "This column is important because CRM1 is a key mediator of nuclear export, and its dependency can affect NES strength and functionality",
+      "definition": "Whether the nuclear export signal is dependent on CRM1 for its function"
+    },
+    {
+      "column": "leptomycin_b_sensitivity",
+      "explanation": "This column helps to confirm the CRM1 dependency of the NES and its functionality",
+      "definition": "Whether the nuclear export signal is sensitive to leptomycin B, an inhibitor of CRM1-dependent export"
+    },
+    {
+      "column": "nes_key_residues",
+      "explanation": "This column provides detailed information about the NES, which can be used to predict its strength and functionality",
+      "definition": "The specific amino acid residues within the NES that are crucial for its function"
+    },
+    {
+      "column": "nes_prediction_method",
+      "explanation": "This column provides information about the prediction methodology, which can affect the confidence level in the assessment",
+      "definition": "The method used to predict the presence and strength of the NES"
+    },
+    {
+      "column": "nes_score",
+      "explanation": "This column provides a numerical value that can be used to compare the strength of different NESs",
+      "definition": "A quantitative score indicating the strength of the NES"
+    },
+    {
+      "column": "protein_function",
+      "explanation": "This column provides context about the protein and its potential role in nuclear export",
+      "definition": "The functional role of the protein containing the NES"
+    },
+    {
+      "column": "exportin1_binding_affinity",
+      "explanation": "This column provides additional information about the NES, helping to assess its effectiveness in nuclear export",
+      "definition": "The binding affinity of the NES to exportin-1"
+    },
+    {
+      "column": "nes_masking_status",
+      "explanation": "This column helps to understand the regulation of NES activity and its impact on nuclear export",
+      "definition": "Whether the NES is masked or accessible for interaction with exportin-1"
+    },
+    {
+      "column": "regulatory_proteins",
+      "explanation": "This column provides information about the regulatory mechanisms controlling NES function and nuclear export",
+      "definition": "Proteins that regulate the activity or accessibility of the NES"
+    },
+    {
+      "column": "\"name\"",
+      "explanation": "\"exportin1_binding_affinity\",",
+      "definition": ""
+    },
+    {
+      "column": "\"definition\"",
+      "explanation": "\"Whether the nuclear export signal is sensitive to leptomycin B, an inhibitor of CRM1-dependent export\",",
+      "definition": ""
+    },
+    {
+      "column": "\"rationale\"",
+      "explanation": "\"This column is important because CRM1 is a key mediator of nuclear export, and its dependency can affect NES strength and functionality\"",
+      "definition": ""
+    }
+  ]
+}

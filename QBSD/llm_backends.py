@@ -125,6 +125,8 @@ class OpenAILLM(LLMInterface):
             max_tokens=max_tokens,
             temperature=temperature,
         )
+        print(f"---------------- api key: {self.api_key}")
+        print(f"---------------- model: {self.model}")
 
     def generate(self,
                  prompt: Union[str, List[Dict[str, str]]],

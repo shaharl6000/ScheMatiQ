@@ -64,7 +64,7 @@ def get_generator(backend: str, model_name: str = DEF_MODEL_NAME):
     # ------------------ Together AI hosted backend -------------------------------
     elif backend == "together":
         from together import Together
-        TOGETHER_API_KEY="f882d63f818dc302682900cbbacf4d7027445f21f682cba9a62d5e7597e6cf03"
+        TOGETHER_API_KEY="tgp_v1_CsXuE0uRINMbtPadckRykLY-c5F5JWK_ZG1m1fi1e9s"
         client = Together(api_key=TOGETHER_API_KEY)
 
         def _generate(messages: List[Dict[str, str]], max_tokens, temperature, stop):

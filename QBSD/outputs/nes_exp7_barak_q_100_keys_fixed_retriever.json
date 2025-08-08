@@ -1,0 +1,141 @@
+{
+  "query": "Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment??",
+  "docs_path": "..\\src\\full_text",
+  "backend": {
+    "provider": "together",
+    "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "max_tokens": 1000,
+    "temperature": 0.2
+  },
+  "retriever": {
+    "type": "embedding",
+    "model_name": "all-MiniLM-L6-v2",
+    "overlap": 64
+  },
+  "schema": [
+    {
+      "column": "Sequence",
+      "explanation": "This helps answer the query by providing the actual protein sequence to analyze for nuclear export signals."
+    },
+    {
+      "column": "NES_Prediction",
+      "explanation": "This helps answer the query by predicting the presence and strength of nuclear export signals within the given sequence."
+    },
+    {
+      "column": "NES_Strength",
+      "explanation": "This helps answer the query by quantifying the strength of the predicted nuclear export signals."
+    },
+    {
+      "column": "Confidence_Score",
+      "explanation": "This helps answer the query by providing a confidence score for the predicted nuclear export signals."
+    },
+    {
+      "column": "CRM1_Affinity",
+      "explanation": "This helps answer the query by measuring the affinity of the predicted nuclear export signals for the CRM1 receptor."
+    },
+    {
+      "column": "NES_Accessibility",
+      "explanation": "This helps answer the query by assessing the accessibility of the predicted nuclear export signals within the protein structure."
+    },
+    {
+      "column": "Phosphorylation_Site",
+      "explanation": "This helps answer the query by identifying potential phosphorylation sites that could regulate nuclear export."
+    },
+    {
+      "column": "NLS_Presence",
+      "explanation": "This helps answer the query by detecting the presence of nuclear localization signals that could counteract nuclear export."
+    },
+    {
+      "column": "Exportin_Recognition",
+      "explanation": "This helps answer the query by identifying the specific exportins that recognize the predicted nuclear export signals."
+    },
+    {
+      "column": "NES_Type",
+      "explanation": "This helps answer the query by classifying the type of nuclear export signal, such as Rev-type or PKI-type."
+    },
+    {
+      "column": "Heme_Binding_Motif",
+      "explanation": "This helps answer the query by identifying heme-binding motifs that could regulate nuclear export."
+    },
+    {
+      "column": "Protein_Size",
+      "explanation": "This helps answer the query by considering the size of the protein, which can affect nuclear export."
+    },
+    {
+      "column": "Subcellular_Localization",
+      "explanation": "This helps answer the query by predicting the subcellular localization of the protein, which can be influenced by nuclear export signals."
+    },
+    {
+      "column": "NES_Mutation_Effect",
+      "explanation": "This helps answer the query by analyzing the effect of mutations on the nuclear export signal."
+    },
+    {
+      "column": "CRM1_Dependence",
+      "explanation": "This helps answer the query by determining whether the nuclear export signal is dependent on CRM1."
+    },
+    {
+      "column": "LMB_Sensitivity",
+      "explanation": "This helps answer the query by assessing the sensitivity of the nuclear export signal to the export inhibitor LMB."
+    },
+    {
+      "column": "NES_Consensus_Sequence",
+      "explanation": "This helps answer the query by identifying the consensus sequence of the nuclear export signal."
+    },
+    {
+      "column": "Nuclear_Export_Pathway",
+      "explanation": "This helps answer the query by identifying the nuclear export pathway used by the protein."
+    },
+    {
+      "column": "Protein_Interactions",
+      "explanation": "This helps answer the query by identifying protein interactions that could influence nuclear export."
+    },
+    {
+      "column": "Post_Translational_Modifications",
+      "explanation": "This helps answer the query by identifying post-translational modifications that could regulate nuclear export."
+    },
+    {
+      "column": "Cellular_Context",
+      "explanation": "This helps answer the query by considering the cellular context in which nuclear export occurs."
+    },
+    {
+      "column": "NES_Pattern",
+      "explanation": "This helps answer the query by identifying the pattern of the nuclear export signal, such as the presence of hydrophobic residues."
+    },
+    {
+      "column": "NES_Hydrophobicity",
+      "explanation": "This helps answer the query by measuring the hydrophobicity of the nuclear export signal."
+    },
+    {
+      "column": "NES_Charge",
+      "explanation": "This helps answer the query by analyzing the charge of the nuclear export signal."
+    },
+    {
+      "column": "NES_Secondary_Structure",
+      "explanation": "This helps answer the query by predicting the secondary structure of the nuclear export signal."
+    },
+    {
+      "column": "NES_Tertiary_Structure",
+      "explanation": "This helps answer the query by predicting the tertiary structure of the nuclear export signal."
+    },
+    {
+      "column": "NES_Ligand_Binding",
+      "explanation": "This helps answer the query by identifying potential ligand binding sites within the nuclear export signal."
+    },
+    {
+      "column": "NES_Disease_Association",
+      "explanation": "This helps answer the query by identifying potential disease associations with the nuclear export signal."
+    },
+    {
+      "column": "NES_Evolutionary_Conservation",
+      "explanation": "This helps answer the query by analyzing the evolutionary conservation of the nuclear export signal."
+    },
+    {
+      "column": "RatA_Sensitivity",
+      "explanation": "This helps answer the query by assessing the sensitivity of the nuclear export signal to the export inhibitor RatA."
+    },
+    {
+      "column": "XPO1_Dependence",
+      "explanation": "This helps answer the query by determining whether the nuclear export signal is dependent on XPO1."
+    }
+  ]
+}

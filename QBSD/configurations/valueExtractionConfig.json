@@ -1,5 +1,6 @@
 {
   "schema_path": "outputs/nes_exp10_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop.json",
+  "docs_directory" : "../src/full_text_test",
   "mode" : "all",
   "backend_cfg": {
     "provider": "together",
@@ -14,5 +15,5 @@
     "passage_chars": 512,
     "overlap": 64
   },
-  "output_path": "outputs/nes_exp1_values.json"
+  "output_path": "outputs/values_nes_no_retriever.json"
 }

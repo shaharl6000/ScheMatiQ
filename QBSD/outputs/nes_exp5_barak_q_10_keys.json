@@ -1,0 +1,58 @@
+{
+  "query": "Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment??",
+  "docs_path": "..\\src\\full_text",
+  "backend": {
+    "provider": "together",
+    "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "max_tokens": 5000,
+    "temperature": 0.2
+  },
+  "retriever": {
+    "type": "embedding",
+    "model_name": "all-MiniLM-L6-v2",
+    "passage_chars": 512,
+    "overlap": 64
+  },
+  "schema": [
+    {
+      "column": "NES_Functionality",
+      "explanation": "This evaluates the functionality of the predicted NES, including its ability to mediate nuclear export and interact with exportin proteins."
+    },
+    {
+      "column": "CRM1_Dependence",
+      "explanation": "This assesses whether the nuclear export of the protein is dependent on CRM1, a key exportin protein, to understand the export mechanism."
+    },
+    {
+      "column": "Exportin_Binding",
+      "explanation": "This evaluates the binding affinity of the predicted NES to exportin proteins, such as CRM1, to determine the strength of the NES."
+    },
+    {
+      "column": "NES_Confidence",
+      "explanation": "This provides a confidence score for the predicted NES, indicating the likelihood that the sequence contains a functional NES."
+    },
+    {
+      "column": "Nuclear_Export_Activity",
+      "explanation": "This measures the ability of the protein to undergo nuclear export, confirming the functionality of the predicted NES."
+    },
+    {
+      "column": "NES_Type",
+      "explanation": "This categorizes the NES into different types, such as classical or non-classical, to understand its characteristics."
+    },
+    {
+      "column": "NES_Pattern",
+      "explanation": "This identifies potential NES patterns in the sequence, such as the LX2-4 pattern, to assess the presence of an NES."
+    },
+    {
+      "column": "NES_Conservation",
+      "explanation": "This analyzes the conservation of the predicted NES across different species, indicating its potential importance."
+    },
+    {
+      "column": "RanGTP_Dependence",
+      "explanation": "This assesses whether the nuclear export of the protein is dependent on RanGTP, a key regulator of nuclear export."
+    },
+    {
+      "column": "Sequence_Motif",
+      "explanation": "This identifies specific sequence motifs, such as PKI-type or Rev-type NES, to determine the type of NES present."
+    }
+  ]
+}

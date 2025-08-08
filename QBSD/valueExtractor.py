@@ -189,6 +189,7 @@ def build_table_jsonl(
     docs_directory: Path,
     output_path: Path,
     llm: LLMInterface,
+    retriever = None,
     *,
     max_new_tokens: int = 512,
     resume: bool = False,
@@ -249,13 +250,15 @@ def main(cfg_path: Path) -> None:
 
     schema_path = Path(cfg["schema_path"])
     docs_dir    = Path(cfg["docs_directory"])
-    output_path = Path(cfg.get("output_path", "table_output.jsonl"))
+    output_path = Path(cfg["output_path"])
     backend_cfg = cfg.get("backend_cfg", {})
     max_new     = backend_cfg.get("max_tokens", 512)
     mode        = cfg.get("mode", "all")
     resume      = cfg.get("resume", False)
+    retriever_cfg = cfg.get("retriever", None)
 
     llm = utils.build_llm(backend_cfg)
+    retriever = utils.build_retriever(retriever_cfg) if retriever_cfg is not None else None
 
     build_table_jsonl(
         schema_path,

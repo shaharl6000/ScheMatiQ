@@ -23,7 +23,7 @@ from typing import List, Dict, Sequence, Tuple, Any
 import itertools
 import argparse
 import json
-import logging
+import logging, re
 from pathlib import Path
 from schema import Schema, Column
 
@@ -44,6 +44,16 @@ def select_relevant_content(
     return passages
 
 
+_CODE_FENCE = re.compile(r"```(?:\s*json)?\s*(.*?)\s*```", re.DOTALL)
+
+def _extract_json(text: str) -> str:
+    """
+    Return the JSON payload inside a Markdown code-block if one exists,
+    otherwise return the original string (stripped of leading/trailing space).
+    """
+    match = _CODE_FENCE.search(text)
+    return match.group(1) if match else text.strip()
+
 def _parse_schema_from_llm(raw_text: str,
                            query: str,
                            max_keys_schema: int,
@@ -52,12 +62,14 @@ def _parse_schema_from_llm(raw_text: str,
     Very lenient parser: lines that look like "Column: rationale".
     Adapt this to your favorite JSON-only format if you prefer.
     """
+    cleaned = _extract_json(raw_text)
     try:
-        payload = json.loads(raw_text)
+        payload = json.loads(cleaned)
         columns = [Column(**c) for c in payload]
+        # print(f"cleaned raw text good: {raw_text}")
     except (json.JSONDecodeError, TypeError, KeyError):
         # ← fallback: lenient parsing for old models / bad outputs
-        print("fallback to no definition")
+        print(f"cleaned fallback to no definition. raw text: {cleaned}")
         columns = []
         for line in raw_text.splitlines():
             if ":" in line:

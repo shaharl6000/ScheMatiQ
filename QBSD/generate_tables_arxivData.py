@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Any
 from datasets import load_dataset
-from scipy.sparse.linalg import use_solver
+from huggingface_hub import snapshot_download
 from tqdm import tqdm
 import time
 import utils
@@ -306,9 +306,9 @@ def process_query_file(
     records = records[:100]
 
     # -- load dataset once ---------------------------------------------------
-    ds            = load_dataset("blnewman/arxivDIGESTables",
+    ds = load_dataset("blnewman/arxivDIGESTables",
                                  split="validation", trust_remote_code=True)
-    tabid_to_row  = {tid: ds[i] for i, tid in enumerate(ds["tabid"])}
+    tabid_to_row = {tid: ds[i] for i, tid in enumerate(ds["tabid"])}
 
     # -----------------------------------------------------------------------
     # helper to make "base_stem_variant.jsonl"

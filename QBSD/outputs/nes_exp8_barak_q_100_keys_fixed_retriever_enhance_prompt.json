@@ -1,0 +1,62 @@
+{
+  "query": "Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment??",
+  "docs_path": "..\\src\\full_text",
+  "backend": {
+    "provider": "together",
+    "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "max_tokens": 1000,
+    "temperature": 0.2
+  },
+  "retriever": {
+    "type": "embedding",
+    "model_name": "all-MiniLM-L6-v2",
+    "overlap": 64
+  },
+  "schema": [
+    {
+      "column": "protein_sequence",
+      "explanation": "This column is necessary to identify potential NES motifs within the protein",
+      "definition": "The sequence of amino acids in a protein"
+    },
+    {
+      "column": "nes_motif",
+      "explanation": "This column helps to determine whether a protein contains a functional NES",
+      "definition": "The specific sequence of amino acids that constitutes a nuclear export signal"
+    },
+    {
+      "column": "nes_strength",
+      "explanation": "This column provides information on the potential export activity of the protein",
+      "definition": "A measure of the effectiveness of the NES in promoting nuclear export"
+    },
+    {
+      "column": "confidence_score",
+      "explanation": "This column helps to assess the accuracy of the NES identification and strength prediction",
+      "definition": "A measure of the reliability of the NES prediction"
+    },
+    {
+      "column": "exportin_recognition",
+      "explanation": "This column provides information on the potential mechanism of nuclear export",
+      "definition": "The specific exportin protein that recognizes and binds to the NES"
+    },
+    {
+      "column": "crm1_dependency",
+      "explanation": "This column helps to understand the specific mechanism of nuclear export",
+      "definition": "Whether the NES is dependent on CRM1 for nuclear export"
+    },
+    {
+      "column": "nes_type",
+      "explanation": "This column provides additional information on the characteristics of the NES",
+      "definition": "The type of NES, such as PKI-type or other"
+    },
+    {
+      "column": "hydrophobic_residues",
+      "explanation": "This column helps to identify the characteristics of the NES motif",
+      "definition": "The number and pattern of hydrophobic residues in the NES"
+    },
+    {
+      "column": "nes_length",
+      "explanation": "This column provides information on the size of the NES motif",
+      "definition": "The length of the NES motif in amino acids"
+    }
+  ]
+}

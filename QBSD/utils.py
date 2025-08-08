@@ -38,7 +38,7 @@ def _canonical_title(t: str) -> str:
     t = _RE_PUNCT.sub(" ", t)
     return re.sub(r"\s+", " ", t).strip().lower()
 
-_IS_WINDOWS = platform.system().lower().startswith("win")
+_IS_WINDOWS = "win" in platform.system().lower()
 _CACHE_ENABLED = not _IS_WINDOWS
 
 print(f"-------------_CACHE_ENABLED: {_CACHE_ENABLED}")
@@ -91,7 +91,7 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
         )
     elif provider == "openai":
         return OpenAILLM(
-            model=cfg.get("model", "gpt-4o-mini"),
+            model=cfg.get("model", "gpt-4o"),
             max_tokens=cfg.get("max_tokens", 1024),
             temperature=cfg.get("temperature", 0.3),
             api_key=cfg.get("api_key"),

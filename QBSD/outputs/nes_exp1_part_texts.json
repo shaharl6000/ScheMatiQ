@@ -1,0 +1,86 @@
+{
+  "query": "What characteristics distinguish nuclear export signals in different proteins and how do these signals interact with the export receptor CRM1 to regulate nuclear-cytoplasmic trafficking?",
+  "docs_path": "..\\src\\full_text_test",
+  "backend": {
+    "provider": "together",
+    "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "max_tokens": 5000,
+    "temperature": 0.2
+  },
+  "retriever": {
+    "type": "embedding",
+    "model_name": "all-MiniLM-L6-v2",
+    "passage_chars": 512,
+    "overlap": 64
+  },
+  "schema": [
+    {
+      "column": "Protein",
+      "explanation": "Identifies the specific protein being studied to understand its nuclear export characteristics."
+    },
+    {
+      "column": "Nuclear Export Signal (NES)",
+      "explanation": "Helps determine the presence and characteristics of NES in different proteins."
+    },
+    {
+      "column": "CRM1 Binding",
+      "explanation": "Reveals how NES interacts with the export receptor CRM1 to regulate nuclear-cytoplasmic trafficking."
+    },
+    {
+      "column": "Leucine-Rich NES Motif",
+      "explanation": "Specifies the sequence motif that mediates the binding of proteins to CRM1 for nuclear export."
+    },
+    {
+      "column": "Nuclear-Cytoplasmic Trafficking Regulation",
+      "explanation": "Explains how the interaction between NES and CRM1 regulates the movement of proteins between the nucleus and cytoplasm."
+    },
+    {
+      "column": "Export Efficiency",
+      "explanation": "Measures how efficiently proteins are exported from the nucleus to the cytoplasm."
+    },
+    {
+      "column": "Cytoplasmic Retention Mechanism",
+      "explanation": "Describes alternative mechanisms by which proteins can be localized in the cytoplasm."
+    },
+    {
+      "column": "Nuclear Localization Signal (NLS)",
+      "explanation": "Contrasts with NES by identifying signals that direct proteins to the nucleus."
+    },
+    {
+      "column": "Protein Sequence Alignment",
+      "explanation": "Compares the sequences of different proteins to identify conserved NES motifs."
+    },
+    {
+      "column": "Inhibitor Effect (e.g., Leptomycin B)",
+      "explanation": "Assesses how specific inhibitors affect nuclear export to understand the role of CRM1 and NES in this process."
+    },
+    {
+      "column": "NES Sequence Conservation",
+      "explanation": "Analyzes the conservation of NES sequences across different proteins and species."
+    },
+    {
+      "column": "CRM1 Expression Level",
+      "explanation": "Examines the expression level of CRM1 in different cell types and conditions."
+    },
+    {
+      "column": "Nuclear Export Kinetics",
+      "explanation": "Studies the rate and dynamics of nuclear export for different proteins."
+    },
+    {
+      "column": "Protein-Protein Interaction",
+      "explanation": "Investigates the interactions between proteins containing NES and other proteins involved in nuclear-cytoplasmic trafficking."
+    },
+    {
+      "column": "Subcellular Localization",
+      "explanation": "Determines the subcellular localization of proteins containing NES under different conditions."
+    },
+    {
+      "column": "Post-Translational Modification",
+      "explanation": "Examines the effect of post-translational modifications on NES function and nuclear export."
+    },
+    {
+      "column": "Cell Type Specificity",
+      "explanation": "Analyzes the cell type specificity of NES-mediated nuclear export and its regulation."
+    }
+  ]
+}

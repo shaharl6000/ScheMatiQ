@@ -1,0 +1,94 @@
+{
+  "query": "What characteristics distinguish nuclear export signals in different proteins and how do these signals interact with the export receptor CRM1 to regulate nuclear-cytoplasmic trafficking?",
+  "docs_path": "..\\src\\full_text",
+  "backend": {
+    "provider": "together",
+    "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "max_tokens": 5000,
+    "temperature": 0.2
+  },
+  "retriever": {
+    "type": "embedding",
+    "model_name": "all-MiniLM-L6-v2",
+    "passage_chars": 512,
+    "overlap": 64
+  },
+  "schema": [
+    {
+      "column": "Protein",
+      "explanation": "Identifies the specific proteins being analyzed for nuclear export signals."
+    },
+    {
+      "column": "NES_Type",
+      "explanation": "Describes the type of nuclear export signal present in the protein, such as leucine-rich NES."
+    },
+    {
+      "column": "CRM1_Interaction",
+      "explanation": "Examines how the protein interacts with the export receptor CRM1."
+    },
+    {
+      "column": "Ran_GTP_Binding",
+      "explanation": "Investigates the role of Ran·GTP in the protein's nuclear export process."
+    },
+    {
+      "column": "Export_Mechanism",
+      "explanation": "Determines whether the protein's nuclear export is CRM1-dependent or independent."
+    },
+    {
+      "column": "Subcellular_Distribution",
+      "explanation": "Describes the protein's distribution within the cell, including nuclear and cytoplasmic localization."
+    },
+    {
+      "column": "NES_Orientation",
+      "explanation": "Analyzes the orientation of the nuclear export signal in binding to exportin CRM1."
+    },
+    {
+      "column": "NES_Affinity",
+      "explanation": "Measures the affinity of the nuclear export signal for CRM1, correlating with nuclear export activity."
+    },
+    {
+      "column": "Domain_Involved",
+      "explanation": "Identifies the specific domain of the protein involved in nuclear export, such as the tail or head domain."
+    },
+    {
+      "column": "Cargo_Protein",
+      "explanation": "Identifies proteins that are carried by the exportin CRM1."
+    },
+    {
+      "column": "Nuclear_Export_Sequence",
+      "explanation": "Describes the specific sequence of amino acids that facilitates nuclear export."
+    },
+    {
+      "column": "Export_Inhibitor_Sensitivity",
+      "explanation": "Examines the protein's sensitivity to export inhibitors, such as LMB."
+    },
+    {
+      "column": "Subcellular_Localization",
+      "explanation": "Determines the protein's localization within the cell, including nuclear, cytoplasmic, or shuttling between the two."
+    },
+    {
+      "column": "Regulatory_Mechanisms",
+      "explanation": "Investigates the regulatory mechanisms that control nuclear-cytoplasmic trafficking, including post-translational modifications and binding partners."
+    },
+    {
+      "column": "NES_Key_Residues",
+      "explanation": "Identifies the key residues within the NES that are crucial for CRM1 binding and nuclear export."
+    },
+    {
+      "column": "Cargo_Complex_Composition",
+      "explanation": "Examines the composition of the cargo complex, including the protein, RanGTP, and exportin."
+    },
+    {
+      "column": "Nuclear_Export_Kinetics",
+      "explanation": "Measures the rate of nuclear export for a given protein, providing insight into the dynamics of the process."
+    },
+    {
+      "column": "Export_Receptor_Specificity",
+      "explanation": "Determines the specificity of the export receptor CRM1 for different NES-containing proteins."
+    },
+    {
+      "column": "Protein_Post_Translational_Modifications",
+      "explanation": "Investigates the role of post-translational modifications, such as phosphorylation, in regulating nuclear export."
+    }
+  ]
+}

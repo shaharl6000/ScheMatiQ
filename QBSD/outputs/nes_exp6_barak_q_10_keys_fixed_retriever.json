@@ -1,0 +1,57 @@
+{
+  "query": "Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment??",
+  "docs_path": "..\\src\\full_text",
+  "backend": {
+    "provider": "together",
+    "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+    "max_tokens": 2000,
+    "temperature": 0.2
+  },
+  "retriever": {
+    "type": "embedding",
+    "model_name": "all-MiniLM-L6-v2",
+    "overlap": 64
+  },
+  "schema": [
+    {
+      "column": "Subcellular_Localization",
+      "explanation": "Predicts the subcellular localization of the protein based on the presence and strength of the nuclear export signal."
+    },
+    {
+      "column": "NES_Orientation",
+      "explanation": "Predicts the orientation of the nuclear export signal in relation to the protein structure."
+    },
+    {
+      "column": "NES_Class",
+      "explanation": "Classifies the type of nuclear export signal present, such as leucine-rich or other types."
+    },
+    {
+      "column": "NES_Masking",
+      "explanation": "Predicts whether the nuclear export signal can be masked by protein-protein interactions."
+    },
+    {
+      "column": "NES_Motif",
+      "explanation": "Identifies the specific motif of the nuclear export signal, such as the LXXLXXLXL motif."
+    },
+    {
+      "column": "NES_Accessibility",
+      "explanation": "Determines the accessibility of the nuclear export signal within the protein structure."
+    },
+    {
+      "column": "NES_Presence",
+      "explanation": "Indicates whether a nuclear export signal is present in the protein sequence."
+    },
+    {
+      "column": "NES_Confidence",
+      "explanation": "Assesses the confidence level in the prediction of the nuclear export signal."
+    },
+    {
+      "column": "Sequence",
+      "explanation": "Identifies the protein sequence to be analyzed for nuclear export signals."
+    },
+    {
+      "column": "CRM1_Affinity",
+      "explanation": "Evaluates the affinity of the nuclear export signal for the CRM1 receptor."
+    }
+  ]
+}

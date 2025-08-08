@@ -24,7 +24,7 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Dict, Iterator, List, Any, Callable
+from typing import Dict, Iterator, List
 from tqdm import tqdm
 
 from utils import get_generator
@@ -36,7 +36,7 @@ STOP_SEQUENCE     = "###"             # custom delimiter
 MAX_PAPER_CHARS   = 15_000
 MIN_COLUMNS_THRESH = 0
 
-EXTRACT_QUERY_INSTRUCTION = (
+TASK_INSTRUCTIONS = (
     "You are given the content of a scientific paper, the caption of one of its tables, and the table itself. "
     "Your task is to infer the specific research question or motivation that this table was designed to answer. "
     "The question should reflect the purpose behind including this table in the paper.\n\n"
@@ -51,40 +51,6 @@ EXTRACT_QUERY_INSTRUCTION = (
     "• If you cannot find any valid research question that clearly fits and was induced by the paper and table, "
     "output: \"NO_QUERY\" (exactly, without quotes or extra text)."
 )
-
-RETRIEVAL_QUERY_INSTRUCTION = """
-You are QueryRewriteLLM. Your job is to convert a natural‑language query into retrieval-optimized keyword strings.
-TASK
-Given ORIGINAL_QUERY, produce 3–5 alternative rewrites that are:
-Short (≤12 tokens each), noun-heavy, minimal or no verbs
-Focused on key entities, concepts, attributes
-Include common synonyms/aliases and section cues (e.g., “method”, “dataset”, “table 1”) when helpful
-No punctuation except commas or semicolons, no stopwords (“the”, “of”, “to”, “for”, etc.)
-OUTPUT FORMAT (only JSON)
-{
-  "rewrites": [
-    "…",
-    "…"
-  ]
-}
-CONSTRAINTS
-Do not invent entities not implied by the original query.
-Prefer nouns/adjectives; if a verb is unavoidable, keep 1–2 max, infinitive form.
-Avoid questions, full sentences, and filler words.
-
-EXAMPLE
-ORIGINAL_QUERY: "Compare how having many short documents vs. few long ones affects RAG accuracy with fixed context length"
-OUTPUT:
-{
-  "rewrites": [
-    "RAG breadth depth tradeoff context length fixed accuracy",
-    "many short documents vs few long documents retrieval performance",
-    "context budget allocation documents count passage length RAG metrics",
-    "retrieval augmented generation document granularity evaluation",
-    "fixed token budget document segmentation impact LLM accuracy"
-  ]
-}
-"""
 
 # ─────────────────────────── REGEX HELPERS ─────────────────────────────
 REF_CUE_RE       = re.compile(r"(?im)^(references|bibliography|acknowledg(e)?ments?)\b")
@@ -122,96 +88,11 @@ def iter_jsonl(path: Path) -> Iterator[Dict[str, str]]:
             if raw.strip():
                 yield json.loads(raw)
 
-JSON_FENCE = re.compile(r"```json(.*?)```", re.S | re.I)
-FIRST_OBJ  = re.compile(r"\{.*\}", re.S)
-CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")   # except \n \t if you want to keep them
 
-def safe_parse_json(text: str) -> Dict[str, Any]:
-    """
-    Robustly extract & repair a single JSON object.
-    1. Look for ```json fences, else first {...}
-    2. Normalize quotes/control chars
-    3. Try json.loads
-    4. If still broken & looks like the expected schema, manually rebuild it.
-    """
-    # -------- 1. Extract candidate  -------- #
-    m = JSON_FENCE.search(text)
-    if m:
-        candidate = m.group(1).strip()
-    else:
-        m = FIRST_OBJ.search(text)
-        candidate = m.group(0).strip() if m else text.strip()
-
-    # -------- 2. Quick normalizations -------- #
-    # unify fancy quotes → "
-    candidate = candidate.replace("“", '"').replace("”", '"').replace("’", "'")
-    # kill control chars that JSON hates
-    candidate = CONTROL_CHARS.sub(" ", candidate)
-
-    # common trailing commas
-    candidate = re.sub(r",\s*([}\]])", r"\1", candidate)
-
-    # -------- 3. First attempt -------- #
-    try:
-        return json.loads(candidate)
-    except Exception:
-        pass
-
-    # -------- 4. Special-case fix for the expected schema  -------- #
-    # Expecting: {"rewrites": [ "..." , "..." ]}
-    # We'll recover the list of strings manually, then rebuild valid JSON.
-    rewrites = _recover_rewrites(candidate)
-    if rewrites:
-        return {"rewrites": rewrites}
-
-    # -------- 5. Give up -------- #
-    raise ValueError(f"Cannot parse JSON:\n{candidate}")
-
-
-def _recover_rewrites(candidate: str) -> list[str] | None:
-    """
-    Try to salvage a 'rewrites' list from malformed JSON text.
-    Strategy:
-      - find the first [ ... ] after "rewrites"
-      - split on lines or quotes, repair missing end-quotes
-    """
-    m = re.search(r'"rewrites"\s*:\s*\[(.*?)]', candidate, re.S | re.I)
-    if not m:
-        return None
-
-    inner = m.group(1)
-
-    # Split by lines or quotes; easiest is to grab all string-like segments between quotes.
-    # But because quotes may be unbalanced, fall back to commas/newlines.
-    maybe_items = re.split(r",\s*\n|,\s*(?![^[]*\])", inner)  # commas at top level
-    cleaned: list[str] = []
-    for item in maybe_items:
-        item = item.strip()
-        if not item:
-            continue
-        # remove leading/trailing quotes if present
-        if item.startswith('"') and not item.endswith('"'):
-            item += '"'                       # add missing
-        if item.endswith('"') and not item.startswith('"'):
-            item = '"' + item
-        # strip again
-        item = item.strip().strip(',')
-        # finally pull the string content
-        m2 = re.match(r'^"(.*)"$', item)
-        if m2:
-            cleaned.append(m2.group(1))
-        else:
-            # last fallback: try to unquote
-            cleaned.append(item.strip('"'))
-    # filter empties
-    cleaned = [c for c in cleaned if c]
-    return cleaned or None
-
-
-def build_messages_extract_query(example: Dict[str, str], current: Dict[str, str]) -> List[Dict[str, str]]:
+def build_messages(example: Dict[str, str], current: Dict[str, str]) -> List[Dict[str, str]]:
     """Common chat‑messages format expected by both backends."""
     return [
-        {"role": "system", "content": EXTRACT_QUERY_INSTRUCTION},
+        {"role": "system", "content": TASK_INSTRUCTIONS},
         {
             "role": "user",
             "content":
@@ -223,20 +104,9 @@ def build_messages_extract_query(example: Dict[str, str], current: Dict[str, str
         },
     ]
 
-def build_messages_retrieval_query(rec: Dict[str, Any]) -> List[Dict[str, str]]:
-    """Chat-completion style messages."""
-    original_query = rec["query"]
-    return [
-        {"role": "system", "content": RETRIEVAL_QUERY_INSTRUCTION},
-        {
-            "role": "user",
-            "content": f"ORIGINAL_QUERY: \"\"\"{original_query}\"\"\"\nReturn only JSON."
-        },
-    ]
-
 
 # ───────────────────────────  DRIVER  ────────────────────────────────
-def process_file_query_extraction(inp: Path, out: Path, generate) -> None:
+def process_file(inp: Path, out: Path, generate) -> None:
     records = list(iter_jsonl(inp))
     if not records:
         raise ValueError("Input JSONL is empty!")
@@ -248,7 +118,7 @@ def process_file_query_extraction(inp: Path, out: Path, generate) -> None:
 
     with out.open("w", encoding="utf-8") as f_out:
         for rec in tqdm(records, desc="Inferring questions"):
-            messages = build_messages_extract_query(example, rec)
+            messages = build_messages(example, rec)
 
             # Ask the model
             answer = generate(
@@ -283,61 +153,6 @@ def process_file_query_extraction(inp: Path, out: Path, generate) -> None:
             )
 
 
-def process_file_retrieval_query(
-    inp: Path,
-    out: Path,
-    generate,
-    max_new_tokens: int = 256,
-    temperature: float = 0.3,
-    stop: List[str] | None = None,
-    resume: bool = True,
-) -> None:
-    records = list(iter_jsonl(inp))
-    if not records:
-        raise ValueError("Input JSONL is empty!")
-
-    # ---- 1. Collect already processed tabids (if resume & file exists) ----
-    processed_tabids: set[str] = set()
-    if resume and out.exists():
-        for line in iter_jsonl(out):
-            tid = line.get("tabid")
-            if tid is not None:
-                processed_tabids.add(tid)
-
-    # ---- 2. Open file (append if resuming, else overwrite) -----------------
-    mode = "a" if (resume and out.exists()) else "w"
-    with out.open(mode, encoding="utf-8") as f_out:
-        for rec in tqdm(records, desc="Rewriting queries"):
-            tid = rec.get("tabid")
-            if resume and tid in processed_tabids:
-                # Skip work, already done
-                continue
-
-            messages = build_messages_retrieval_query(rec)
-
-            raw = generate(
-                messages=messages,
-                max_tokens=max_new_tokens,
-                temperature=temperature,
-                stop=stop or [],
-            ).strip()
-
-            try:
-                parsed = safe_parse_json(raw)
-                rewrites = parsed.get("rewrites", [])
-                if not isinstance(rewrites, list) or not rewrites:
-                    raise ValueError("Missing/empty 'rewrites' list.")
-            except Exception as e:
-                raise ValueError(
-                    f"Failed to parse model output for tabid={tid}: {raw}"
-                ) from e
-
-            rec["retrieval_queries"] = rewrites
-
-            f_out.write(json.dumps(rec, ensure_ascii=False) + "\n")
-            f_out.flush()  # optional: safer on long runs
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Infer table research‑questions with Llama‑3‑70B‑Instruct."
@@ -365,8 +180,7 @@ def main() -> None:
     args = parser.parse_args()
 
     generate = get_generator(args.backend)
-    # process_file_query_extraction(args.input_jsonl, args.output_jsonl, generate)
-    process_file_retrieval_query(args.input_jsonl, args.output_jsonl, generate)
+    process_file(args.input_jsonl, args.output_jsonl, generate)
     print(f"✅  Done – results in {args.output_jsonl.resolve()}")
 
 
