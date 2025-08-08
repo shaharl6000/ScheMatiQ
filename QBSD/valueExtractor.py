@@ -1,5 +1,4 @@
 from pathlib import Path
-from dataclasses import asdict
 from schema import Schema, Column
 from llm_backends import LLMInterface
 import re
@@ -145,6 +144,24 @@ def build_val_messages(query: str,
     ]
 
 
+def _build_retrieval_query(schema: Schema, columns: List[Column] = None) -> str:
+    """
+    Build an effective retrieval query combining the main schema query 
+    with specific column information for targeted passage retrieval.
+    """
+    base_query = schema.query
+    
+    if columns:
+        # Add column-specific context for more targeted retrieval
+        column_context = " ".join([
+            f"Information about {col.name}: {col.definition}" 
+            for col in columns
+        ])
+        return f"{base_query} {column_context}"
+    
+    return base_query
+
+
 ###############################################################################
 def extract_values_for_paper(
     paper_title: str,
@@ -153,34 +170,63 @@ def extract_values_for_paper(
     llm: LLMInterface,
     max_new_tokens: int,
     mode: str = "all",
+    retriever = None,
+    retrieval_k: int = 8,
 ) -> Dict[str, Any]:
     """
     Returns a dict {column_name -> {...}} for one paper.
+    Uses retriever when available to find relevant passages, otherwise falls back to text truncation.
     """
+    # Determine effective text to use for value extraction
+    effective_text = paper_text
+    
+    if retriever is not None:
+        # Use retriever to find relevant passages instead of full text
+        if mode == "all":
+            retrieval_query = _build_retrieval_query(schema, list(schema.columns))
+        else:
+            retrieval_query = _build_retrieval_query(schema)
+            
+        try:
+            relevant_passages = retriever.query([paper_text], retrieval_query, k=retrieval_k)
+            if relevant_passages:
+                # Combine retrieved passages with clear separators
+                effective_text = "\n\n--- RELEVANT PASSAGE ---\n\n".join(relevant_passages)
+                print(f"📖 Retrieved {len(relevant_passages)} relevant passages for {paper_title}")
+            else:
+                print(f"⚠️  No relevant passages found for {paper_title}, using full text")
+        except Exception as e:
+            print(f"⚠️  Retrieval failed for {paper_title}: {e}, using full text")
+    
     if mode == "all":
         msgs = build_val_messages(
             schema.query,
             paper_title,
-            paper_text,
-            [c for c in schema.columns],
+            effective_text,
+            [c.to_dict() for c in schema.columns],
             mode="all",
         )
         trimmed = utils.fit_prompt(msgs, truncate=True, max_new=max_new_tokens, safety_margins=512)
         raw = llm.generate(trimmed)
         try:
             return parse_llm_output(raw)
-        except Exception:
-            print(f"⚠️  parse failure for {paper_title}")
+        except Exception as e:
+            print(f"⚠️  parse failure for {paper_title}: {e}")
             return {}
 
     # mode == "one"
     row: Dict[str, Any] = {}
-    for col in schema:
+    for col in schema.columns:
         msgs = build_val_messages(
-            schema.query, paper_title, paper_text, [asdict(col)], mode="one"
+            schema.query, paper_title, effective_text, [col.to_dict()], mode="one"
         )
         raw = llm.generate(msgs)
-        row[col.name] = json.loads(raw).get(col.name, {})
+        try:
+            parsed = json.loads(raw)
+            row[col.name] = parsed.get(col.name, {})
+        except json.JSONDecodeError as e:
+            print(f"⚠️  JSON parse failure for column {col.name} in {paper_title}: {e}")
+            row[col.name] = {}
     return row
 
 
@@ -194,6 +240,7 @@ def build_table_jsonl(
     max_new_tokens: int = 512,
     resume: bool = False,
     mode: str = "all",
+    retrieval_k: int = 8,
 ) -> None:
     """
     Stream each paper's extracted values to *output_path* (JSONL).
@@ -201,8 +248,21 @@ def build_table_jsonl(
     """
     # ----- load schema ------------------------------------------------------
     data   = json.loads(schema_path.read_text(encoding="utf-8"))
+    
+    # Convert dictionary columns to Column objects
+    columns = []
+    for col_dict in data["schema"]:
+        if isinstance(col_dict, dict):
+            # Handle both possible formats: {"column": name, "definition": def} or {"name": name, "definition": def}
+            name = col_dict.get("column") or col_dict.get("name")
+            definition = col_dict.get("definition", "")
+            rationale = col_dict.get("explanation", "") or col_dict.get("rationale", "")
+            columns.append(Column(name=name, definition=definition, rationale=rationale))
+        else:
+            columns.append(col_dict)  # Already a Column object
+    
     schema = Schema(query=data["query"],
-                    columns=data["schema"],
+                    columns=columns,
                     max_keys=len(data["schema"]))
 
     docs = sorted(docs_directory.glob("*"))
@@ -233,7 +293,7 @@ def build_table_jsonl(
             print(f"Extracting values for {paper_title} …")
 
             row_dict = extract_values_for_paper(
-                paper_title, paper_text, schema, llm, max_new_tokens, mode
+                paper_title, paper_text, schema, llm, max_new_tokens, mode, retriever, retrieval_k
             )
             row_dict["_paper"] = paper_title
 
@@ -256,6 +316,7 @@ def main(cfg_path: Path) -> None:
     mode        = cfg.get("mode", "all")
     resume      = cfg.get("resume", False)
     retriever_cfg = cfg.get("retriever", None)
+    retrieval_k = cfg.get("retrieval_k", 8)  # Default to 8 passages
 
     llm = utils.build_llm(backend_cfg)
     retriever = utils.build_retriever(retriever_cfg) if retriever_cfg is not None else None
@@ -265,9 +326,11 @@ def main(cfg_path: Path) -> None:
         docs_dir,
         output_path,
         llm,
+        retriever,
         max_new_tokens=max_new,
         resume=resume,
         mode=mode,
+        retrieval_k=retrieval_k,
     )
 
 if __name__ == "__main__":

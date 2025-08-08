@@ -6,14 +6,15 @@
     "provider": "together",
     "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
     "max_tokens": 1024,
-    "temperature": 0.3,
-    "api_key": "f882d63f818dc302682900cbbacf4d7027445f21f682cba9a62d5e7597e6cf03"
+    "temperature": 0.3
   },
   "retriever": {
     "type": "embedding",
     "model_name": "all-MiniLM-L6-v2",
     "passage_chars": 512,
-    "overlap": 64
+    "overlap": 64,
+    "k": 15
   },
-  "output_path": "outputs/values_nes_no_retriever.json"
+  "retrieval_k": 8,
+  "output_path": "outputs/values_nes_with_retriever.json"
 }
