@@ -142,42 +142,6 @@ class Retriever(ABC):
         """Return up to *k* passages relevant to *question*."""
         ...
 
-    def _chunk(self, doc: str) -> List[str]:
-        """
-        Split *doc* into passages of ≤ `self.max_words` words, trying to
-        keep each passage close to the limit by concatenating sentences.
-        """
-        sentences = _split_sentences(doc)
-        chunks: List[str] = []
-        current: List[str] = []
-        count = 0
-
-        for sent in sentences:
-            words = sent.split()
-            wlen = len(words)
-
-            # Sentence itself fits budget → accumulate
-            if wlen <= self.max_words_chunk:
-                if count + wlen <= self.max_words_chunk:
-                    current.append(sent)
-                    count += wlen
-                else:
-                    # flush and start new passage
-                    if current:
-                        chunks.append(" ".join(current).strip())
-                    current = [sent]
-                    count = wlen
-            else:
-                # Sentence longer than budget → slice by words
-                if current:
-                    chunks.append(" ".join(current).strip())
-                    current, count = [], 0
-                chunks.extend(_yield_word_slices(words, self.max_words_chunk))
-
-        if current:
-            chunks.append(" ".join(current).strip())
-
-        return chunks
 
 
     def _improved_chunk(self, doc: str, *, overlap_words: int = 64, respect_structure: bool = True) -> List[str]:
@@ -222,7 +186,7 @@ class Retriever(ABC):
                         current, count = [], 0
                     # use original helper to slice long sentences
                     for slice_words in _yield_word_slices(wlist, max_w):
-                        packed.append(slice_words)
+                        packed.append(slice_words.split())
             if current:
                 packed.append(current)
 
@@ -268,7 +232,8 @@ class EmbeddingRetriever(Retriever):
     """
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: int = 512, batch_size: int = 32, k: int = 3,
-                 device: str | None = None):
+                 device: str | None = None, enable_dynamic_k: bool = False, 
+                 dynamic_k_threshold: float = 0.65, dynamic_k_minimum: int = 2):
         super().__init__()
         if SentenceTransformer is None:
             raise ImportError(
@@ -281,6 +246,11 @@ class EmbeddingRetriever(Retriever):
         self.model_name = model_name
         self.batch_size = batch_size
         self.is_first_run = True
+        
+        # Dynamic k parameters
+        self.enable_dynamic_k = enable_dynamic_k
+        self.dynamic_k_threshold = dynamic_k_threshold
+        self.dynamic_k_minimum = dynamic_k_minimum
 
         if "Qwen" in model_name:
             self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
@@ -311,9 +281,6 @@ class EmbeddingRetriever(Retriever):
             show_progress_bar=False,
         )
 
-        # shahar: improve ?
-        dynamic_k = True
-
         # Cosine similarity
         q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
         p_norm = p_embs / (
@@ -322,13 +289,12 @@ class EmbeddingRetriever(Retriever):
         sims = p_norm @ q_norm
         # print(f"-----sims: mean {sum(sims)/len(sims)} sorted list: {sims.argsort()}")
         chosen_k = self.k if k is None else k
-        if dynamic_k:
+        
+        if self.enable_dynamic_k:
             # min, but only when sim is > thresh
-            minimum = 2
-            thresh = 0.65
-            num_above = int((sims > thresh).sum())
-            chosen_k = max(minimum, num_above)
-            print(f"---- chosen k = {chosen_k}, num_above: {num_above}, thresh: {thresh} ----")
+            num_above = int((sims > self.dynamic_k_threshold).sum())
+            chosen_k = max(self.dynamic_k_minimum, num_above)
+            print(f"---- chosen k = {chosen_k}, num_above: {num_above}, thresh: {self.dynamic_k_threshold} ----")
 
         top = sims.argsort()[-chosen_k:][::-1]
 
@@ -480,9 +446,9 @@ class PromptingRetriever(Retriever):
         passages: List[str] = []
         for d in docs:
             d = _to_unicode(d)
-            for ch in self._chunk(d,
-                                  overlap_words=self.cfg.overlap_words,
-                                  respect_structure=self.cfg.respect_structure):
+            for ch in self._improved_chunk(d,
+                                          overlap_words=self.cfg.overlap_words,
+                                          respect_structure=self.cfg.respect_structure):
                 if isinstance(ch, (list, tuple)):
                     passages.extend(_to_unicode(c) for c in ch)
                 else:
@@ -516,7 +482,7 @@ class PromptingRetriever(Retriever):
 
         raw = self.generate(messages).strip()
 
-        parsed = self._parse_rank_json(raw, len(passages))
+        parsed = self._parse_rank_json(raw, len(passages), offset=0, total_len=len(passages))
         return self._scores_from_parsed(parsed, len(passages))
 
     def _call_llm(self, messages: List[Dict[str, str]]) -> str:
@@ -668,14 +634,10 @@ class PromptingRetriever(Retriever):
                 scores[i] = s
         return scores
 
-    # ---- Chunker wrapper (reuse your improved version) ------------------- #
-    def _chunk(self, doc: str, *, overlap_words: int, respect_structure: bool) -> List[str]:
-        # assuming you already implemented this improved version:
-        return self._improved_chunk(doc, overlap_words=overlap_words, respect_structure=respect_structure)
 
 
 def test_retriever_stability(
-    retriever: Retriever,
+    retriever: EmbeddingRetriever,
     docs: Sequence[str],
     question: str,
     k: int = 5,
@@ -696,7 +658,7 @@ def test_retriever_stability(
     # --- helper to get all passages + sims ------------------------------- #
     passages = []
     for d in docs:
-        passages.extend(retriever._chunk(d))
+        passages.extend(retriever._improved_chunk(d))
 
         if not passages:
             print("⚠️  No passages produced from the documents.")

@@ -113,13 +113,35 @@ def build_retriever(cfg: Dict[str, Any], llm_for_prompting: LLMInterface = None)
     if rtype == "embedding":
         return EmbeddingRetriever(
             model_name=cfg.get("model_name", "all-MiniLM-L6-v2"),
-            k=cfg.get("k", 15)
+            k=cfg.get("k", 15),
+            max_words=cfg.get("max_words", 512),
+            batch_size=cfg.get("batch_size", 32),
+            device=cfg.get("device"),
+            enable_dynamic_k=cfg.get("enable_dynamic_k", False),
+            dynamic_k_threshold=cfg.get("dynamic_k_threshold", 0.65),
+            dynamic_k_minimum=cfg.get("dynamic_k_minimum", 2)
         )
     elif rtype == "prompting":
         if llm_for_prompting is None:
             raise ValueError("Unknown llm_for_prompting for prompting retriever")
+        # Create PromptingRetrieverConfig from cfg
+        from retrievers import PromptingRetrieverConfig
+        prompting_config = PromptingRetrieverConfig(
+            k=cfg.get("k", 5),
+            max_new_tokens=cfg.get("max_new_tokens", 512),
+            temperature=cfg.get("temperature", 0.0),
+            stop=cfg.get("stop"),
+            batch_size=cfg.get("batch_size", 40),
+            finalist_factor=cfg.get("finalist_factor", 2.0),
+            mode=cfg.get("mode", "sampled_rank"),
+            overlap_words=cfg.get("overlap_words", 64),
+            respect_structure=cfg.get("respect_structure", True),
+            truncate_words_per_chunk=cfg.get("truncate_words_per_chunk", 512),
+            max_input_tokens=cfg.get("max_input_tokens", 7000)
+        )
         return PromptingRetriever(
             generate=llm_for_prompting.generate,
+            config=prompting_config
         )
     else:
         raise ValueError(f"Unknown retriever type: {rtype}")

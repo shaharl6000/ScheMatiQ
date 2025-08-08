@@ -11,7 +11,15 @@
   "retriever": {
     "type": "embedding",
     "model_name": "all-MiniLM-L6-v2",
-    "overlap": 64
+    "k": 15,
+    "max_words": 512,
+    "batch_size": 32,
+    "device": null,
+    "enable_dynamic_k": true,
+    "dynamic_k_threshold": 0.65,
+    "dynamic_k_minimum": 2,
+    "overlap_words": 64,
+    "respect_structure": true
   },
   "output_path": "outputs/nes_exp10_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop.json"
 }

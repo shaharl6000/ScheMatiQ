@@ -330,7 +330,17 @@ def process_query_file(
     for var_name, tmpl, use_cap, inc_q, use_icl, use_retrieval in prompt_variants:
         client = arxiv.Client() if use_retrieval else None
         if use_retrieval and retriever is None:
-            retriever = utils.build_retriever({"k": retriever_k})
+            retriever = utils.build_retriever({
+                "k": retriever_k,
+                "type": "embedding",
+                "model_name": "all-MiniLM-L6-v2",
+                "max_words": 512,
+                "batch_size": 32,
+                "device": None,
+                "enable_dynamic_k": False,
+                "dynamic_k_threshold": 0.65,
+                "dynamic_k_minimum": 2
+            })
 
         path = variant_path(out, var_name)
         mode = "a" if resume and path.exists() else "w"
@@ -483,16 +493,54 @@ def main() -> None:
 
     parser.add_argument(
         "--retriever_k", dest="retriever_k", type=int, default=10,
-        help=""
+        help="Number of passages to retrieve"
+    )
+
+    parser.add_argument(
+        "--max_words", dest="max_words", type=int, default=512,
+        help="Maximum words per retriever passage"
+    )
+
+    parser.add_argument(
+        "--batch_size", dest="batch_size", type=int, default=32,
+        help="Batch size for embedding retrieval"
+    )
+
+    parser.add_argument(
+        "--device", dest="device", default=None,
+        help="Device for model (cuda/cpu)"
+    )
+
+    parser.add_argument(
+        "--enable_dynamic_k", dest="enable_dynamic_k", action="store_true",
+        help="Enable dynamic k selection based on similarity threshold"
+    )
+
+    parser.add_argument(
+        "--dynamic_k_threshold", dest="dynamic_k_threshold", type=float, default=0.65,
+        help="Similarity threshold for dynamic k selection"
+    )
+
+    parser.add_argument(
+        "--dynamic_k_minimum", dest="dynamic_k_minimum", type=int, default=2,
+        help="Minimum number of passages for dynamic k"
     )
 
     args = parser.parse_args()
 
     llm_for_generation = utils.build_llm({"provider": args.backend, "api_key": args.api_key})
 
-    retriever_cfg = {"model_name": args.retriever_name,
-                                       "k": args.retriever_k,
-                                       "type": args.retriever_type}
+    retriever_cfg = {
+        "model_name": args.retriever_name,
+        "k": args.retriever_k,
+        "type": args.retriever_type,
+        "max_words": args.max_words,
+        "batch_size": args.batch_size,
+        "device": args.device,
+        "enable_dynamic_k": args.enable_dynamic_k,
+        "dynamic_k_threshold": args.dynamic_k_threshold,
+        "dynamic_k_minimum": args.dynamic_k_minimum
+    }
 
     retriever = utils.build_retriever(retriever_cfg, llm_for_prompting=llm_for_generation) \
                                     if (args.retriever_name or args.retriever_type != "embedding") else None
