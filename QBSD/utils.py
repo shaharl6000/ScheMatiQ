@@ -12,6 +12,7 @@ import platform                 #  NEW  (place near your other imports)
 import unicodedata, re
 from difflib import SequenceMatcher
 import tiktoken
+import os
 
 def _best_title_match(query_t, results):
     return max(
@@ -58,7 +59,7 @@ def _cache_path(title: str) -> Path:
     return CACHE_DIR / _safe_filename(title)
 
 
-TOGETHER_API_KEY="ac6e1ba2edbf7aa32b40d912c373efb15136e0981e3ab30d0f4973bf66a8c631"
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
 CTRL_CHARS = re.compile(r"[\u0000-\u001F\u007F-\u009F]")         # ASCII C0 + DEL
 
 def _clean_pdf_text(txt: str) -> str:

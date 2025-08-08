@@ -63,8 +63,7 @@ class TogetherLLM(LLMInterface):
             max_tokens=max_tokens,
             temperature=temperature,
         )
-        print(f"---------------- api key: {self.api_key}")
-        print(f"---------------- model: {self.model}")
+        # Removed API key printing for security
 
 
     def generate(self,
@@ -125,8 +124,6 @@ class OpenAILLM(LLMInterface):
             max_tokens=max_tokens,
             temperature=temperature,
         )
-        print(f"---------------- api key: {self.api_key}")
-        print(f"---------------- model: {self.model}")
 
     def generate(self,
                  prompt: Union[str, List[Dict[str, str]]],
@@ -210,7 +207,7 @@ class HuggingFaceLLM(LLMInterface):
                 "device_map": "auto" if self.device == "cuda" else None,
             }
 
-        token = "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"
+        token = os.getenv("HF_TOKEN")
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, token=token)
         self.model = AutoModelForCausalLM.from_pretrained(

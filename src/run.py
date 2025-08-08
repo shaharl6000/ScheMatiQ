@@ -13,15 +13,22 @@ Write the code as modular as possible, to be able to work on much longer documen
 """
 
 from typing import List
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 import torch
 from tqdm import tqdm
 import json
 import re
 import argparse
 import os
+import sys
+from pathlib import Path
 
-access_token = "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"
+# Add QBSD directory to path to import llm_backends
+sys.path.append(str(Path(__file__).parent.parent / "QBSD"))
+from llm_backends import HuggingFaceLLM
+
+access_token = os.getenv("HF_TOKEN")
+if not access_token:
+    raise ValueError("HF_TOKEN environment variable not set")
 
 
 class Input:
@@ -114,21 +121,17 @@ def run_model(
 
     write_to_log(f"---run model: {model_name}, quantize? {quantize}, num of document: {num_documents}", log_file)
     write_to_log(f"---query: {query}, instructions: {instructions}, size of data: {len(data)}", log_file)
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_compute_dtype=torch.bfloat16
-    ) if quantize else None
-    model = AutoModelForCausalLM.from_pretrained(model_name,
-                                                 token=access_token,
-                                                 quantization_config=quantization_config,
-                                                 device_map="auto",
-                                                 )
-    tokenizer = AutoTokenizer.from_pretrained(model_name, token=access_token)
-
-    # Make sure pad_token is set correctly
-    tokenizer.pad_token = tokenizer.eos_token
-    model.config.pad_token_id = tokenizer.eos_token_id
-    max_context_length = int(model.config.max_position_embeddings / 2)
+    
+    # Use HuggingFaceLLM from llm_backends.py
+    llm = HuggingFaceLLM(
+        model=model_name,
+        max_tokens=512,  # Will be adjusted per generation
+        temperature=0.8,
+    )
+    
+    # For context length estimation, we'll use a rough approximation
+    # since we can't access the model config directly through HuggingFaceLLM
+    max_context_length = 4096  # Conservative default, can be adjusted
 
     def make_chunks(documents, chunk_size, max_length):
         """
@@ -149,14 +152,10 @@ def run_model(
                 test_batch = current_batch + [doc]
                 # Create a prompt to see if we exceed max length
                 test_prompt = create_prompt(instructions, query, test_batch)
-                test_ids = tokenizer(
-                    test_prompt,
-                    return_tensors="pt",
-                    truncation=False,  # We'll do a strict check ourselves
-                    padding=False
-                )["input_ids"]
+                # Rough token count estimation (4 characters per token average)
+                estimated_tokens = len(test_prompt) // 4
 
-                if test_ids.shape[1] > max_length:
+                if estimated_tokens > max_length:
                     # If adding this doc exceeds context,
                     # yield the current batch and start a new one
                     if not current_batch:
@@ -180,28 +179,22 @@ def run_model(
     for chunk in make_chunks(data, num_documents, max_context_length):
         prompt = create_prompt(instructions, query, chunk)
 
-        # Now tokenize with truncation just in case (to be safe).
-        # If chunk_size is not None, this effectively ensures we won't exceed context.
-        # If chunk_size is None, we've tried to check ourselves, but we still do a final
-        # truncation pass for safety.
-        inputs = tokenizer(
-            prompt,
-            return_tensors="pt",
-            truncation=True,
-            max_length=max_context_length,
-            padding=True
-        )
-        prompts_and_inputs.append((chunk, prompt, inputs))
+        # Store prompt for HuggingFaceLLM processing
+        # We don't need to tokenize here since HuggingFaceLLM handles that internally
+        prompts_and_inputs.append((chunk, prompt, None))
 
     progress_bar = tqdm(prompts_and_inputs, desc="Inference: ")
 
     write_to_log(f"-----------------Inference in {model_name} model: ", log_file)
 
     for i, (chunk_docs, prompt_text, t) in enumerate(progress_bar):
-        input_data = {k: v.cuda() for k, v in t.items()}
-        model_output = model.generate(**input_data,
-                                      temperature=0.8)
-        decoded_text = tokenizer.batch_decode(model_output, skip_special_tokens=True)[0]
+        # Convert prompt to messages format for HuggingFaceLLM
+        messages = [
+            {"role": "user", "content": prompt_text}
+        ]
+        
+        # Generate using HuggingFaceLLM
+        decoded_text = llm.generate(messages, temperature=0.8)
 
         # Create a dictionary containing the query, docs, and the answer
         cur_output_dict = {

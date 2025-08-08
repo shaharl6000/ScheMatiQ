@@ -1,82 +1,70 @@
 import os
-from typing import Dict, List
+import sys
+from pathlib import Path
+from typing import Dict, List, Callable
 
-DEF_MODEL_NAME        = "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"
+# Add QBSD directory to path to import llm_backends
+sys.path.append(str(Path(__file__).parent.parent / "QBSD"))
+from llm_backends import TogetherLLM, HuggingFaceLLM
+
+DEF_MODEL_NAME = "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"
 
 # ───────────────────────────  BACKEND LOADER  ──────────────────────────
-def get_generator(backend: str, model_name: str = DEF_MODEL_NAME):
+def get_generator(backend: str, model_name: str = DEF_MODEL_NAME) -> Callable:
     """
     Returns a single function `generate(messages, max_tokens, temperature, stop)` that
-    hides all the backend‑specific machinery.
+    uses the standardized llm_backends.py interface.
     """
     backend = backend.lower()
+    
     if backend == "hf":
-        # --- local HF model (4‑bit, bitsandbytes) --------------------------------
-        import torch
-        from transformers import (
-            AutoModelForCausalLM,
-            AutoTokenizer,
-            BitsAndBytesConfig,
+        # Use HuggingFaceLLM from llm_backends.py
+        llm = HuggingFaceLLM(
+            model=model_name,
+            max_tokens=1024,  # default, will be overridden by caller
+            temperature=0.3,  # default, will be overridden by caller
         )
-
-        bnb_cfg = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_use_double_quant=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.float16,
-        )
-
-        print("⏳  Loading tokenizer & model locally …")
-        tokenizer = AutoTokenizer.from_pretrained(
-            model_name, use_fast=True, token=os.getenv("HF_TOKEN")
-        )
-        model = AutoModelForCausalLM.from_pretrained(
-            model_name,
-            quantization_config=bnb_cfg,
-            device_map="auto",
-            torch_dtype=torch.float16,
-            trust_remote_code=True,
-            token=os.getenv("HF_TOKEN"),
-        )
-        model.eval()
-
+        
         def _generate(messages: List[Dict[str, str]], max_tokens, temperature, stop):
-            prompt_text = tokenizer.apply_chat_template(
-                messages, add_generation_prompt=True
+            # HuggingFaceLLM doesn't support stop parameter in generate method
+            # But we can post-process the output if needed
+            result = llm.generate(
+                messages, 
+                max_tokens=max_tokens, 
+                temperature=temperature
             )
-            inp = tokenizer(prompt_text, return_tensors="pt").to(model.device)
-            out_ids = model.generate(
-                **inp,
-                max_new_tokens=max_tokens,
-                temperature=temperature,
-                pad_token_id=tokenizer.eos_token_id,
-            )
-            completion = tokenizer.decode(
-                out_ids[0][inp.input_ids.shape[-1] :]
-            ).strip()
-            # obey custom delimiter if present
+            # Apply stop processing if provided
             if stop:
-                completion = completion.split(stop[0])[0]
-            return completion.strip()
-
+                for stop_seq in stop:
+                    if stop_seq in result:
+                        result = result.split(stop_seq)[0]
+            return result.strip()
+        
         return _generate
 
-    # ------------------ Together AI hosted backend -------------------------------
     elif backend == "together":
-        from together import Together
-        TOGETHER_API_KEY="tgp_v1_CsXuE0uRINMbtPadckRykLY-c5F5JWK_ZG1m1fi1e9s"
-        client = Together(api_key=TOGETHER_API_KEY)
-
+        # Use TogetherLLM from llm_backends.py
+        llm = TogetherLLM(
+            model=model_name,
+            max_tokens=1024,  # default, will be overridden by caller
+            temperature=0.3,  # default, will be overridden by caller
+        )
+        
         def _generate(messages: List[Dict[str, str]], max_tokens, temperature, stop):
-            resp = client.chat.completions.create(
-                model=model_name,
-                messages=messages,
+            # TogetherLLM supports stop parameter but through different interface
+            # We'll post-process if needed
+            result = llm.generate(
+                messages,
                 max_tokens=max_tokens,
-                temperature=temperature,
-                stop=stop,
+                temperature=temperature
             )
-            return resp.choices[0].message.content.strip()
-
+            # Apply stop processing if provided
+            if stop:
+                for stop_seq in stop:
+                    if stop_seq in result:
+                        result = result.split(stop_seq)[0]
+            return result.strip()
+        
         return _generate
 
     else:
