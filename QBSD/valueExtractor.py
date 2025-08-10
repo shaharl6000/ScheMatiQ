@@ -291,7 +291,7 @@ def merge_row_data(existing_row: Dict[str, Any], new_row: Dict[str, Any], new_pa
     
     # For each column in the new data
     for col_name, new_col_data in new_row.items():
-        if col_name.startswith('_'):  # Skip metadata fields
+        if col_name.startswith('_'):  # Skip metadata fields (they're preserved from existing_row)
             continue
             
         if not isinstance(new_col_data, dict):
@@ -541,7 +541,20 @@ def build_table_jsonl(
             # Start with existing row data if resuming
             current_row = existing_rows.get(row_name, {
                 "_row_name": row_name,
-                "_papers": []
+                "_papers": [],
+                "_metadata": {
+                    "query": schema.query,
+                    "retriever": {
+                        "type": retriever.__class__.__name__ if retriever else None,
+                        "model": getattr(retriever, 'model_name', None) if retriever else None
+                    },
+                    "backend": {
+                        "type": llm.__class__.__name__,
+                        "model": getattr(llm, 'model', None),
+                        "temperature": getattr(llm, 'temperature', None),
+                        "max_tokens": getattr(llm, 'max_tokens', None)
+                    }
+                }
             })
             
             # Process each paper for this row
@@ -565,6 +578,21 @@ def build_table_jsonl(
                     if not current_row.get("_papers"):
                         current_row.update(paper_data)
                         current_row["_papers"] = [paper_title]
+                        # Ensure metadata is preserved/set
+                        if "_metadata" not in current_row:
+                            current_row["_metadata"] = {
+                                "query": schema.query,
+                                "retriever": {
+                                    "type": retriever.__class__.__name__ if retriever else None,
+                                    "model": getattr(retriever, 'model_name', None) if retriever else None
+                                },
+                                "backend": {
+                                    "type": llm.__class__.__name__,
+                                    "model": getattr(llm, 'model', None),
+                                    "temperature": getattr(llm, 'temperature', None),
+                                    "max_tokens": getattr(llm, 'max_tokens', None)
+                                }
+                            }
                     else:
                         # Merge with existing row data
                         current_row = merge_row_data(current_row, paper_data, paper_title)
@@ -577,7 +605,12 @@ def build_table_jsonl(
                     continue
             
             # Write the completed row (even if no new papers were processed)
-            f_out.write(json.dumps(current_row, ensure_ascii=False) + "\n")
+            try:
+                f_out.write(json.dumps(current_row, ensure_ascii=False) + "\n")
+            except TypeError as e:
+                print(f"❌ JSON serialization failed for current_row:")
+                print(current_row)
+                raise e
             rows_written += 1
     
     # Replace the original file with the temporary file
