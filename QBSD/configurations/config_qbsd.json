@@ -21,5 +21,5 @@
     "overlap_words": 64,
     "respect_structure": true
   },
-  "output_path": "outputs/nes_exp10_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop.json"
+  "output_path": "outputs/nes_exp11_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop_enhance_ret.json"
 }

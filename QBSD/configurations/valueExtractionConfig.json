@@ -1,7 +1,7 @@
 {
-  "schema_path": "outputs/nes_exp10_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop.json",
+  "schema_path": "outputs/nes_exp11_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop_enhance_ret.json",
   "docs_directory" : "../src/full_text_test",
-  "mode" : "all",
+  "mode" : "one_by_one",
   "backend_cfg": {
     "provider": "together",
     "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
@@ -16,5 +16,5 @@
     "k": 15
   },
   "retrieval_k": 8,
-  "output_path": "outputs/values_nes_with_retriever.json"
+  "output_path": "outputs/values_nes_with_retriever_one_by_one4.json"
 }
