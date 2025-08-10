@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """
 Evaluation script for QBSD valueExtractor outputs against ground truth data.
+Dynamically aligns prediction and ground truth schemas using semantic similarity.
 Handles schema mismatches and provides comprehensive evaluation metrics.
+
+Usage:
+    python evaluate_valueextractor.py --gt_file path/to/groundtruth.csv --pred_file path/to/predictions.json [--output_path results.json]
 """
 
 import json
@@ -10,6 +14,7 @@ import numpy as np
 from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional
 import re
+import argparse
 from difflib import SequenceMatcher
 from sentence_transformers import SentenceTransformer
 import torch
@@ -20,30 +25,6 @@ class ValueExtractorEvaluator:
     def __init__(self, similarity_threshold: float = 0.7):
         self.similarity_threshold = similarity_threshold
         self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
-        
-        # Field mapping: prediction field -> possible GT field variations
-        self.field_mappings = {
-            # Prediction field -> GT field mappings
-            'nes_presence': ['Experimental Evidence for CRM1-mediated Export'],
-            'nes_location': ['Functional Export Signals', 'All ranges', 'Merged ranges'],
-            'nes_strength': ['Experimental Evidence for CRM1-mediated Export'],
-            'nes_type': ['Secondary Structure of Export Signal'],
-            'leucine_rich': ['Experimental Evidence for CRM1-mediated Export'],
-            'crm1_dependency': ['Experimental Evidence for CRM1-mediated Export'],
-            'protein_sequence': ['Sequence', 'Peptide_sequence'],
-            'nes_pattern': ['Functional Export Signals'],
-            'nes_length': ['Min ranges len'],
-            'key_residues': ['Other Residues Important for Export'],
-            'hydrophobic_residues': ['Other Residues Important for Export'],
-            'nes_consensus': ['Functional Export Signals'],
-            'crm1_interaction': ['Experimental Evidence for CRM1-mediated Export'],
-            'nes_prediction_method': ['Experimental Evidence for CRM1-mediated Export'],
-            'nes_validation': ['Experimental Evidence for CRM1-mediated Export'],
-            'exportin1_dependency': ['Experimental Evidence for CRM1-mediated Export'],
-            'nes_confidence': ['is_NesDB_doubt'],
-            'nes_masking': [],  # No direct GT equivalent
-            'nes_accessibility': []  # No direct GT equivalent
-        }
     
     def load_ground_truth(self, csv_path: str) -> pd.DataFrame:
         """Load ground truth data from CSV file."""
@@ -157,29 +138,19 @@ class ValueExtractorEvaluator:
         return matches
     
     def align_fields(self, pred_fields: List[str], gt_fields: List[str]) -> Dict[str, str]:
-        """Align prediction fields to ground truth fields."""
+        """Align prediction fields to ground truth fields using dynamic similarity matching."""
         field_alignment = {}
         
-        # First pass: Use explicit mappings (pred_field -> gt_field)
+        # Use similarity matching for all fields (no hardcoded mappings)
         for pred_field in pred_fields:
-            pred_field_clean = pred_field.lower().strip()
-            
-            if pred_field_clean in self.field_mappings:
-                for gt_candidate in self.field_mappings[pred_field_clean]:
-                    if gt_candidate in gt_fields:
-                        field_alignment[pred_field] = gt_candidate
-                        break
-        
-        # Second pass: Use similarity matching for unmapped fields
-        unmapped_pred_fields = [f for f in pred_fields if f not in field_alignment]
-        unmapped_gt_fields = [f for f in gt_fields if f not in field_alignment.values()]
-        
-        for pred_field in unmapped_pred_fields:
             pred_field_clean = pred_field.lower().strip()
             best_match = None
             best_score = 0
             
-            for gt_field in unmapped_gt_fields:
+            # Find GT fields not already aligned
+            available_gt_fields = [f for f in gt_fields if f not in field_alignment.values()]
+            
+            for gt_field in available_gt_fields:
                 gt_field_clean = gt_field.lower().strip()
                 
                 # String similarity
@@ -196,8 +167,8 @@ class ValueExtractorEvaluator:
                 except:
                     pass
                 
-                # Combined score
-                combined_score = max(string_score, semantic_score)
+                # Combined score - give semantic similarity higher weight
+                combined_score = 0.3 * string_score + 0.7 * semantic_score
                 
                 if combined_score > best_score and combined_score > self.similarity_threshold:
                     best_score = combined_score
@@ -205,6 +176,7 @@ class ValueExtractorEvaluator:
             
             if best_match:
                 field_alignment[pred_field] = best_match
+                print(f"Field alignment: '{pred_field}' -> '{best_match}' (score: {best_score:.3f})")
         
         return field_alignment
     
@@ -448,23 +420,33 @@ class ValueExtractorEvaluator:
 def main():
     """Main execution function."""
     
-    # Paths - adjust these as needed (relative to QBSD/eval directory)
-    gt_csv_path = "../../data/NesDB_all_CRM1_with_peptides.csv"
-    pred_json_path = "../outputs/values_nes_with_retriever_one_by_one3.json" 
-    output_path = "evaluation_results.json"
+    parser = argparse.ArgumentParser(description='Evaluate valueExtractor outputs against ground truth data')
+    parser.add_argument('--gt_file', required=True, help='Path to ground truth CSV file')
+    parser.add_argument('--pred_file', required=True, help='Path to predictions JSON file')
+    parser.add_argument('--output_path', help='Path for output results (optional, auto-generated if not provided)')
+    parser.add_argument('--similarity_threshold', type=float, default=0.7, help='Similarity threshold for field alignment (default: 0.7)')
+    
+    args = parser.parse_args()
+    
+    # Generate output path if not provided
+    if not args.output_path:
+        pred_path = Path(args.pred_file)
+        output_path = f"evaluation_results_{pred_path.stem}.json"
+    else:
+        output_path = args.output_path
     
     # Check if files exist
-    if not Path(gt_csv_path).exists():
-        print(f"ERROR: Ground truth file not found: {gt_csv_path}")
+    if not Path(args.gt_file).exists():
+        print(f"ERROR: Ground truth file not found: {args.gt_file}")
         return
     
-    if not Path(pred_json_path).exists():
-        print(f"ERROR: Predictions file not found: {pred_json_path}")
+    if not Path(args.pred_file).exists():
+        print(f"ERROR: Predictions file not found: {args.pred_file}")
         return
     
     # Run evaluation
-    evaluator = ValueExtractorEvaluator(similarity_threshold=0.7)
-    results = evaluator.run_evaluation(gt_csv_path, pred_json_path, output_path)
+    evaluator = ValueExtractorEvaluator(similarity_threshold=args.similarity_threshold)
+    results = evaluator.run_evaluation(args.gt_file, args.pred_file, output_path)
     
     # Print additional analysis
     if results and 'protein_results' in results:
