@@ -6,6 +6,10 @@ from typing import List, Dict, Any
 import json, time
 from tqdm import tqdm
 import utils
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+from functools import lru_cache
+import hashlib
 
 # ─── regexes reused / adapted from earlier helper ──────────────────────────
 JSON_FENCE = re.compile(r"```json(.*?)```", re.S)   # fenced ```json … ```
@@ -202,6 +206,35 @@ _PLACEHOLDER_RE = re.compile(
     re.I,
 )
 
+# ─── caching and optimization ──────────────────────────────────────────────────
+# Thread-safe cache for LLM responses
+_llm_cache = {}
+_cache_lock = threading.Lock()
+
+def _get_text_hash(text: str) -> str:
+    """Generate a hash for text content for caching purposes."""
+    return hashlib.md5(text.encode('utf-8')).hexdigest()[:16]
+
+def _get_cache_key(paper_text: str, column_name: str, mode: str, strict: bool) -> str:
+    """Generate cache key for LLM responses."""
+    text_hash = _get_text_hash(paper_text)
+    return f"{text_hash}:{column_name}:{mode}:{strict}"
+
+def _get_cached_response(cache_key: str) -> Dict[str, Any] | None:
+    """Thread-safe cache retrieval."""
+    with _cache_lock:
+        return _llm_cache.get(cache_key)
+
+def _cache_response(cache_key: str, response: Dict[str, Any]) -> None:
+    """Thread-safe cache storage with size limit."""
+    with _cache_lock:
+        if len(_llm_cache) > 1000:  # Limit cache size
+            # Remove oldest entries (simple FIFO)
+            oldest_keys = list(_llm_cache.keys())[:100]
+            for key in oldest_keys:
+                del _llm_cache[key]
+        _llm_cache[cache_key] = response
+
 def _is_placeholder(answer: str, excerpts: List[str]) -> bool:
     if not isinstance(answer, str):
         return False
@@ -381,6 +414,12 @@ def extract_values_for_paper(
             else:
                 eff = paper_text
 
+        # Check cache first
+        cache_key = _get_cache_key(eff, col.name, "one_by_one", strict)
+        cached_result = _get_cached_response(cache_key)
+        if cached_result is not None:
+            return cached_result
+
         msgs = build_val_messages(
             schema.query, paper_title, eff, [col.to_dict()],
             mode="one_by_one", strict=strict
@@ -390,7 +429,11 @@ def extract_values_for_paper(
         try:
             parsed = parse_llm_output(raw)
             cleaned = _postprocess(parsed, [col.name])
-            return cleaned.get(col.name, {})
+            result = cleaned.get(col.name, {})
+            
+            # Cache the result
+            _cache_response(cache_key, result)
+            return result
         except Exception as e:
             print(f"⚠️  parse failure for column {col.name} in {paper_title}: {e}")
             return {}
@@ -428,27 +471,67 @@ def extract_values_for_paper(
 
         return cleaned
 
-    # mode == "one_by_one"
+    # mode == "one_by_one" with optimized fallback logic
     row: Dict[str, Any] = {}
     for col in schema.columns:
         # Attempt 1: normal rules, per-column retrieval
         first = _single_column_attempt(col, strict=False, k_override=None, use_snippets=False)
 
-        if first:
+        if first and first.get('answer', '').strip():
             row[col.name] = first
             continue
 
-        # Attempt 2: expanded retrieval + strict prompt
-        second = _single_column_attempt(col, strict=True, k_override=_expand_k(retrieval_k), use_snippets=False)
-        if second:
-            row[col.name] = second
-            continue
+        # Attempt 2: Only try expanded retrieval if we have a retriever and got empty result
+        if retriever is not None:
+            second = _single_column_attempt(col, strict=True, k_override=_expand_k(retrieval_k), use_snippets=False)
+            if second and second.get('answer', '').strip():
+                row[col.name] = second
+                continue
 
-        # Attempt 3: heuristic snippets + strict prompt (works even without a retriever)
-        third = _single_column_attempt(col, strict=True, k_override=None, use_snippets=True)
-        row[col.name] = third if third else {}
+        # Attempt 3: Only if previous attempts truly failed and we have substantial text
+        if len(paper_text) > 1000:  # Only for reasonably sized documents
+            third = _single_column_attempt(col, strict=True, k_override=None, use_snippets=True)
+            if third and third.get('answer', '').strip():
+                row[col.name] = third
 
     return row
+
+
+def process_single_paper(
+    doc_path: Path,
+    schema: Schema,
+    llm: LLMInterface,
+    max_new_tokens: int,
+    mode: str,
+    retriever,
+    retrieval_k: int,
+    processed_papers: set
+) -> tuple[str, str, Dict[str, Any] | None]:
+    """
+    Process a single paper and return (row_name, paper_title, extracted_data).
+    Returns None for extracted_data if paper should be skipped or fails.
+    """
+    paper_title = doc_path.stem
+    row_name = extract_row_name_from_filename(doc_path.name)
+    
+    # Skip if already processed
+    if paper_title in processed_papers:
+        return row_name, paper_title, None
+    
+    try:
+        paper_text = doc_path.read_text(encoding="utf-8", errors="ignore")
+        print(f"🔍 Extracting values for {paper_title} (row: {row_name})...")
+
+        # Extract values for this paper
+        paper_data = extract_values_for_paper(
+            paper_title, paper_text, schema, llm, max_new_tokens, mode, retriever, retrieval_k
+        )
+        
+        return row_name, paper_title, paper_data
+        
+    except Exception as e:
+        print(f"⚠️  Error processing {paper_title}: {e}")
+        return row_name, paper_title, None
 
 
 def build_table_jsonl(
@@ -462,6 +545,7 @@ def build_table_jsonl(
     resume: bool = False,
     mode: str = "all",
     retrieval_k: int = 8,
+    max_workers: int = 3,
 ) -> None:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
@@ -525,19 +609,51 @@ def build_table_jsonl(
         
         print(f"🔄 Loaded {len(existing_rows)} existing rows, {len(processed_papers)} papers already processed")
 
-    # ----- Row processing loop ----------------------------------------------
+    # ----- Parallel processing setup ---------------------------------------
     rows_written = 0
     papers_processed = 0
     
-    # Use a temporary file to write all new content, then replace the original
+    # Collect all papers that need processing
+    papers_to_process = []
+    for row_name, papers_for_row in papers_by_row.items():
+        for doc_path in papers_for_row:
+            paper_title = doc_path.stem
+            if paper_title not in processed_papers:
+                papers_to_process.append(doc_path)
+    
+    print(f"🚀 Processing {len(papers_to_process)} papers using {max_workers} parallel workers...")
+    
+    # Process papers in parallel
+    paper_results = {}  # {paper_title: (row_name, extracted_data)}
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all papers for processing
+        future_to_paper = {
+            executor.submit(
+                process_single_paper, 
+                doc_path, schema, llm, max_new_tokens, mode, retriever, retrieval_k, processed_papers
+            ): doc_path
+            for doc_path in papers_to_process
+        }
+        
+        # Collect results as they complete
+        for future in tqdm(as_completed(future_to_paper), total=len(papers_to_process), desc="processing papers"):
+            doc_path = future_to_paper[future]
+            try:
+                row_name, paper_title, extracted_data = future.result()
+                if extracted_data is not None:
+                    paper_results[paper_title] = (row_name, extracted_data)
+                    papers_processed += 1
+                    
+            except Exception as e:
+                print(f"⚠️  Error in parallel processing for {doc_path.stem}: {e}")
+    
+    # ----- Row assembly and writing ----------------------------------------
+    print("📝 Assembling rows and writing output...")
     temp_output = output_path.with_suffix('.tmp')
     
-    with temp_output.open('w', encoding="utf-8") as f_out, \
-         tqdm(papers_by_row.items(), desc="processing rows") as pbar:
-        
-        for row_name, papers_for_row in pbar:
-            pbar.set_description(f"processing {row_name}")
-            
+    with temp_output.open('w', encoding="utf-8") as f_out:
+        for row_name in papers_by_row.keys():
             # Start with existing row data if resuming
             current_row = existing_rows.get(row_name, {
                 "_row_name": row_name,
@@ -557,28 +673,14 @@ def build_table_jsonl(
                 }
             })
             
-            # Process each paper for this row
-            for doc_path in papers_for_row:
-                paper_title = doc_path.stem
-                
-                # Skip if this paper was already processed for this row
-                if paper_title in processed_papers:
-                    continue
-                
-                try:
-                    paper_text = doc_path.read_text(encoding="utf-8", errors="ignore")
-                    print(f"🔍 Extracting values for {paper_title} (row: {row_name})...")
-
-                    # Extract values for this paper
-                    paper_data = extract_values_for_paper(
-                        paper_title, paper_text, schema, llm, max_new_tokens, mode, retriever, retrieval_k
-                    )
-                    
-                    # If this is the first paper for this row, initialize the row
+            # Merge results from all papers for this row
+            for paper_title, (paper_row_name, paper_data) in paper_results.items():
+                if paper_row_name == row_name:
                     if not current_row.get("_papers"):
+                        # First paper for this row
                         current_row.update(paper_data)
                         current_row["_papers"] = [paper_title]
-                        # Ensure metadata is preserved/set
+                        # Ensure metadata is preserved
                         if "_metadata" not in current_row:
                             current_row["_metadata"] = {
                                 "query": schema.query,
@@ -596,22 +698,14 @@ def build_table_jsonl(
                     else:
                         # Merge with existing row data
                         current_row = merge_row_data(current_row, paper_data, paper_title)
-                    
-                    papers_processed += 1
-                    time.sleep(0.1)  # gentle on the API
-                    
-                except Exception as e:
-                    print(f"⚠️  Error processing {paper_title}: {e}")
-                    continue
             
-            # Write the completed row (even if no new papers were processed)
+            # Write the completed row
             try:
                 f_out.write(json.dumps(current_row, ensure_ascii=False) + "\n")
+                rows_written += 1
             except TypeError as e:
-                print(f"❌ JSON serialization failed for current_row:")
-                print(current_row)
+                print(f"❌ JSON serialization failed for row {row_name}")
                 raise e
-            rows_written += 1
     
     # Replace the original file with the temporary file
     if output_path.exists():
@@ -634,6 +728,7 @@ def main(cfg_path: Path) -> None:
     resume      = cfg.get("resume", False)
     retriever_cfg = cfg.get("retriever", None)
     retrieval_k = cfg.get("retrieval_k", 8)  # Default to 8 passages
+    max_workers = cfg.get("max_workers", 3)  # Default to 3 parallel workers
 
     llm = utils.build_llm(backend_cfg)
     retriever = utils.build_retriever(retriever_cfg) if retriever_cfg is not None else None
@@ -648,6 +743,7 @@ def main(cfg_path: Path) -> None:
         resume=resume,
         mode=mode,
         retrieval_k=retrieval_k,
+        max_workers=max_workers,
     )
 
 if __name__ == "__main__":
