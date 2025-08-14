@@ -621,32 +621,48 @@ def build_table_jsonl(
             if paper_title not in processed_papers:
                 papers_to_process.append(doc_path)
     
-    print(f"🚀 Processing {len(papers_to_process)} papers using {max_workers} parallel workers...")
-    
-    # Process papers in parallel
+    # Process papers (parallel or sequential based on max_workers)
     paper_results = {}  # {paper_title: (row_name, extracted_data)}
     
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all papers for processing
-        future_to_paper = {
-            executor.submit(
-                process_single_paper, 
-                doc_path, schema, llm, max_new_tokens, mode, retriever, retrieval_k, processed_papers
-            ): doc_path
-            for doc_path in papers_to_process
-        }
-        
-        # Collect results as they complete
-        for future in tqdm(as_completed(future_to_paper), total=len(papers_to_process), desc="processing papers"):
-            doc_path = future_to_paper[future]
+    if max_workers == 0:
+        # Sequential processing to avoid threading issues
+        print(f"🔄 Processing {len(papers_to_process)} papers sequentially...")
+        for doc_path in tqdm(papers_to_process, desc="processing papers"):
             try:
-                row_name, paper_title, extracted_data = future.result()
+                row_name, paper_title, extracted_data = process_single_paper(
+                    doc_path, schema, llm, max_new_tokens, mode, retriever, retrieval_k, processed_papers
+                )
                 if extracted_data is not None:
                     paper_results[paper_title] = (row_name, extracted_data)
                     papers_processed += 1
+                    time.sleep(0.5)  # Gentle on API
                     
             except Exception as e:
-                print(f"⚠️  Error in parallel processing for {doc_path.stem}: {e}")
+                print(f"⚠️  Error processing {doc_path.stem}: {e}")
+    else:
+        # Parallel processing
+        print(f"🚀 Processing {len(papers_to_process)} papers using {max_workers} parallel workers...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all papers for processing
+            future_to_paper = {
+                executor.submit(
+                    process_single_paper, 
+                    doc_path, schema, llm, max_new_tokens, mode, retriever, retrieval_k, processed_papers
+                ): doc_path
+                for doc_path in papers_to_process
+            }
+            
+            # Collect results as they complete
+            for future in tqdm(as_completed(future_to_paper), total=len(papers_to_process), desc="processing papers"):
+                doc_path = future_to_paper[future]
+                try:
+                    row_name, paper_title, extracted_data = future.result()
+                    if extracted_data is not None:
+                        paper_results[paper_title] = (row_name, extracted_data)
+                        papers_processed += 1
+                        
+                except Exception as e:
+                    print(f"⚠️  Error in parallel processing for {doc_path.stem}: {e}")
     
     # ----- Row assembly and writing ----------------------------------------
     print("📝 Assembling rows and writing output...")

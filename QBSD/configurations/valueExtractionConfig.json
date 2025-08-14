@@ -3,7 +3,7 @@
   "docs_directory" : "../src/full_text",
   "mode" : "one_by_one",
   "resume" : true,
-  "max_workers": 3,
+  "max_workers": 0,
   "backend_cfg": {
     "provider": "together",
     "model": "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
