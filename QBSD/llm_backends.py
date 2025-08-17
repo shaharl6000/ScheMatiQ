@@ -21,6 +21,10 @@ def _is_rate_limit_error(error_str: str) -> bool:
     """Check if error is a rate limit error (429)."""
     return "429" in error_str and ("rate limit" in error_str.lower() or "rate_limit" in error_str.lower())
 
+def _is_server_overloaded_error(error_str: str) -> bool:
+    """Check if error is a server overloaded error (503)."""
+    return "503" in error_str and ("overloaded" in error_str.lower() or "not ready" in error_str.lower())
+
 def _extract_wait_time(error_str: str) -> int:
     """Extract wait time from rate limit error or return default."""
     # For Together AI rate limits, wait based on the per-minute limit
@@ -115,7 +119,7 @@ class TogetherLLM(LLMInterface):
                 error_str = str(e)
                 last_exception = e
                 
-                # Check if this is a rate limit error
+                # Check if this is a retryable error
                 if _is_rate_limit_error(error_str):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(error_str)
@@ -124,8 +128,16 @@ class TogetherLLM(LLMInterface):
                         continue
                     else:
                         print(f"❌ Rate limit error after {max_retries} retries: {error_str}")
+                elif _is_server_overloaded_error(error_str):
+                    if attempt < max_retries:
+                        wait_time = 10 + random.randint(5, 15)
+                        print(f"🔄 Server overloaded (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"❌ Server overloaded error after {max_retries} retries: {error_str}")
                 else:
-                    # Not a rate limit error, don't retry
+                    # Not a retryable error, don't retry
                     break
         
         # Re-raise the last exception
@@ -187,8 +199,41 @@ class OpenAILLM(LLMInterface):
         else:
             params["messages"] = [{"role": "user", "content": prompt}]
 
-        resp = self._client.chat.completions.create(**params)
-        return resp.choices[0].message.content.strip()
+        # Retry logic for rate limits and server overload
+        max_retries = 3
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                resp = self._client.chat.completions.create(**params)
+                return resp.choices[0].message.content.strip()
+            except Exception as e:
+                error_str = str(e)
+                last_exception = e
+                
+                # Check if this is a retryable error
+                if _is_rate_limit_error(error_str):
+                    if attempt < max_retries:
+                        wait_time = _extract_wait_time(error_str)
+                        print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"❌ Rate limit error after {max_retries} retries: {error_str}")
+                elif _is_server_overloaded_error(error_str):
+                    if attempt < max_retries:
+                        wait_time = 10 + random.randint(5, 15)
+                        print(f"🔄 Server overloaded (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"❌ Server overloaded error after {max_retries} retries: {error_str}")
+                else:
+                    # Not a retryable error, don't retry
+                    break
+        
+        # Re-raise the last exception
+        raise last_exception
 
 ##############################################################################
 # 3. HuggingFace Transformers implementation (with quantization)           #
