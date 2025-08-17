@@ -1,0 +1,1 @@
+# Configuration and constants for value extraction
