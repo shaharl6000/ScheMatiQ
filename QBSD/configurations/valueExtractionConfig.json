@@ -1,5 +1,5 @@
 {
-  "schema_path": "outputs/nes_exp10_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop.json",
+  "schema_path": "outputs/schemas/nes_experiments/exp01-10/nes_exp10_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop.json",
   "docs_directory" : "../src/full_text",
   "mode" : "one_by_one",
   "resume" : true,

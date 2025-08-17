@@ -286,6 +286,27 @@ def _keywords_for(col: Column) -> List[str]:
     return re.findall(r"[A-Za-z0-9_]+", base)
 
 
+def validate_row_completion(row_data: Dict[str, Any], expected_papers: set[str]) -> bool:
+    """
+    Check if a row is complete by verifying all expected papers have been processed.
+    
+    Args:
+        row_data: The row data from JSONL
+        expected_papers: Set of paper titles that should be in this row
+    
+    Returns:
+        True if the row is complete and doesn't need further processing
+    """
+    if not row_data or not isinstance(row_data, dict):
+        return False
+    
+    # Get papers that contributed to this row
+    row_papers = set(row_data.get("_papers", []))
+    
+    # Row is complete if it contains all expected papers
+    return expected_papers.issubset(row_papers)
+
+
 def extract_row_name_from_filename(filename: str) -> str:
     """
     Extract row name from filename by taking the part before the first underscore.
@@ -587,91 +608,84 @@ def build_table_jsonl(
     for row_name, papers in papers_by_row.items():
         print(f"  • {row_name}: {len(papers)} papers")
 
-    # ----- Resume logic - load existing rows by row name -------------------
+    # ----- Resume logic - load existing rows and track completion -----------
     existing_rows: Dict[str, Dict[str, Any]] = {}
     processed_papers: set[str] = set()
+    completed_rows: set[str] = set()  # Track rows that are fully processed
     
     if resume and output_path.exists():
         print("🔄 Loading existing data for resume...")
-        with output_path.open(encoding="utf-8") as f_prev:
-            for line in f_prev:
-                if line.strip():
-                    try:
-                        row_data = json.loads(line)
-                        row_name = row_data.get("_row_name")
-                        if row_name:
-                            existing_rows[row_name] = row_data
-                            # Track all papers that contributed to this row
-                            papers = row_data.get("_papers", [])
-                            processed_papers.update(papers)
-                    except json.JSONDecodeError as e:
-                        print(f"⚠️  Skipping invalid JSON line: {e}")
+        try:
+            with output_path.open(encoding="utf-8") as f_prev:
+                for line_num, line in enumerate(f_prev, 1):
+                    if line.strip():
+                        try:
+                            row_data = json.loads(line)
+                            row_name = row_data.get("_row_name")
+                            if row_name:
+                                existing_rows[row_name] = row_data
+                                # Track all papers that contributed to this row
+                                papers = row_data.get("_papers", [])
+                                processed_papers.update(papers)
+                                
+                                # Check if this row is complete (has data for all expected papers)
+                                expected_papers_for_row = {p.stem for p in papers_by_row.get(row_name, [])}
+                                if validate_row_completion(row_data, expected_papers_for_row):
+                                    completed_rows.add(row_name)
+                        except json.JSONDecodeError as e:
+                            print(f"⚠️  Skipping invalid JSON line {line_num}: {e}")
+        except Exception as e:
+            print(f"⚠️  Error reading existing file: {e}")
+            # If we can't read the existing file safely, don't use resume mode
+            existing_rows.clear()
+            processed_papers.clear()
+            completed_rows.clear()
         
         print(f"🔄 Loaded {len(existing_rows)} existing rows, {len(processed_papers)} papers already processed")
+        print(f"🔄 {len(completed_rows)} rows are complete, {len(existing_rows) - len(completed_rows)} rows may need updates")
 
-    # ----- Parallel processing setup ---------------------------------------
-    rows_written = 0
+    # ----- Determine what work needs to be done -----------------------------
     papers_processed = 0
     
-    # Collect all papers that need processing
+    # Collect all papers that need processing (not already processed)
     papers_to_process = []
     for row_name, papers_for_row in papers_by_row.items():
+        # Skip rows that are already complete
+        if row_name in completed_rows:
+            continue
+            
         for doc_path in papers_for_row:
             paper_title = doc_path.stem
             if paper_title not in processed_papers:
                 papers_to_process.append(doc_path)
     
-    # Process papers (parallel or sequential based on max_workers)
-    paper_results = {}  # {paper_title: (row_name, extracted_data)}
+    if not papers_to_process:
+        print("✅ All papers already processed. Nothing to do.")
+        return
     
-    if max_workers == 0:
-        # Sequential processing to avoid threading issues
-        print(f"🔄 Processing {len(papers_to_process)} papers sequentially...")
-        for doc_path in tqdm(papers_to_process, desc="processing papers"):
-            try:
-                row_name, paper_title, extracted_data = process_single_paper(
-                    doc_path, schema, llm, max_new_tokens, mode, retriever, retrieval_k, processed_papers
-                )
-                if extracted_data is not None:
-                    paper_results[paper_title] = (row_name, extracted_data)
-                    papers_processed += 1
-                    time.sleep(0.5)  # Gentle on API
-                    
-            except Exception as e:
-                print(f"⚠️  Error processing {doc_path.stem}: {e}")
-    else:
-        # Parallel processing
-        print(f"🚀 Processing {len(papers_to_process)} papers using {max_workers} parallel workers...")
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all papers for processing
-            future_to_paper = {
-                executor.submit(
-                    process_single_paper, 
-                    doc_path, schema, llm, max_new_tokens, mode, retriever, retrieval_k, processed_papers
-                ): doc_path
-                for doc_path in papers_to_process
-            }
+    # Track which rows have been written to avoid duplicates
+    written_rows = set()
+    
+    # Helper function to write a completed row incrementally
+    def write_row_if_complete(row_name: str, new_paper_results: dict):
+        """Write a row to output file if all its papers are processed."""
+        if row_name in written_rows or row_name in completed_rows:
+            return
             
-            # Collect results as they complete
-            for future in tqdm(as_completed(future_to_paper), total=len(papers_to_process), desc="processing papers"):
-                doc_path = future_to_paper[future]
-                try:
-                    row_name, paper_title, extracted_data = future.result()
-                    if extracted_data is not None:
-                        paper_results[paper_title] = (row_name, extracted_data)
-                        papers_processed += 1
-                        
-                except Exception as e:
-                    print(f"⚠️  Error in parallel processing for {doc_path.stem}: {e}")
-    
-    # ----- Row assembly and writing ----------------------------------------
-    print("📝 Assembling rows and writing output...")
-    temp_output = output_path.with_suffix('.tmp')
-    
-    with temp_output.open('w', encoding="utf-8") as f_out:
-        for row_name in papers_by_row.keys():
-            # Start with existing row data if resuming
-            current_row = existing_rows.get(row_name, {
+        # Check if all papers for this row have been processed
+        expected_papers = {p.stem for p in papers_by_row.get(row_name, [])}
+        processed_papers_for_row = {title for title, (r_name, _) in new_paper_results.items() if r_name == row_name}
+        existing_papers = set(existing_rows.get(row_name, {}).get("_papers", []))
+        all_papers_for_row = processed_papers_for_row | existing_papers
+        
+        if not expected_papers.issubset(all_papers_for_row):
+            return  # Row not complete yet
+            
+        # Row is complete - assemble and write it
+        if row_name in existing_rows:
+            current_row = existing_rows[row_name].copy()
+        else:
+            current_row = {
                 "_row_name": row_name,
                 "_papers": [],
                 "_metadata": {
@@ -687,48 +701,127 @@ def build_table_jsonl(
                         "max_tokens": getattr(llm, 'max_tokens', None)
                     }
                 }
-            })
-            
-            # Merge results from all papers for this row
-            for paper_title, (paper_row_name, paper_data) in paper_results.items():
-                if paper_row_name == row_name:
-                    if not current_row.get("_papers"):
-                        # First paper for this row
-                        current_row.update(paper_data)
-                        current_row["_papers"] = [paper_title]
-                        # Ensure metadata is preserved
-                        if "_metadata" not in current_row:
-                            current_row["_metadata"] = {
-                                "query": schema.query,
-                                "retriever": {
-                                    "type": retriever.__class__.__name__ if retriever else None,
-                                    "model": getattr(retriever, 'model_name', None) if retriever else None
-                                },
-                                "backend": {
-                                    "type": llm.__class__.__name__,
-                                    "model": getattr(llm, 'model', None),
-                                    "temperature": getattr(llm, 'temperature', None),
-                                    "max_tokens": getattr(llm, 'max_tokens', None)
-                                }
-                            }
-                    else:
-                        # Merge with existing row data
-                        current_row = merge_row_data(current_row, paper_data, paper_title)
-            
-            # Write the completed row
+            }
+        
+        # Merge new paper results for this row
+        for paper_title, (paper_row_name, paper_data) in new_paper_results.items():
+            if paper_row_name == row_name:
+                existing_papers = current_row.get("_papers", [])
+                if paper_title in existing_papers:
+                    continue  # Skip duplicates
+                    
+                if not existing_papers:
+                    current_row.update(paper_data)
+                    current_row["_papers"] = [paper_title]
+                    current_row["_row_name"] = row_name
+                else:
+                    current_row = merge_row_data(current_row, paper_data, paper_title)
+        
+        # Add GT_NES column
+        gt_nes_value = "in_doubt" if "namesDoubt" in str(docs_directory) else "yes"
+        current_row["GT_NES"] = {
+            "answer": gt_nes_value,
+            "excerpts": [f"Based on source directory: {docs_directory}"]
+        }
+        
+        # Write row if it has actual data
+        if any(key for key in current_row.keys() if not key.startswith('_')):
             try:
-                f_out.write(json.dumps(current_row, ensure_ascii=False) + "\n")
-                rows_written += 1
-            except TypeError as e:
-                print(f"❌ JSON serialization failed for row {row_name}")
-                raise e
+                with output_path.open('a', encoding="utf-8") as f_out:
+                    f_out.write(json.dumps(current_row, ensure_ascii=False) + "\n")
+                written_rows.add(row_name)
+                print(f"✅ Completed and wrote row: {row_name}")
+            except Exception as e:
+                print(f"❌ Failed to write row {row_name}: {e}")
+
+    # Initialize output file (truncate if not resuming, or backup existing)
+    if not resume or not output_path.exists():
+        # Start fresh
+        with output_path.open('w', encoding="utf-8") as f:
+            pass  # Create empty file
+    else:
+        # Create backup and start fresh for incremental writing
+        backup_path = output_path.with_suffix(f".backup.{int(time.time())}")
+        import shutil
+        try:
+            shutil.copy2(output_path, backup_path)
+            print(f"🔒 Created backup: {backup_path}")
+        except Exception as e:
+            print(f"⚠️  Could not create backup: {e}")
+        
+        # Write existing complete rows first
+        with output_path.open('w', encoding="utf-8") as f_out:
+            for row_name, row_data in existing_rows.items():
+                if row_name in completed_rows:
+                    # Add GT_NES to existing complete rows
+                    gt_nes_value = "in_doubt" if "namesDoubt" in str(docs_directory) else "yes"
+                    row_data["GT_NES"] = {
+                        "answer": gt_nes_value,
+                        "excerpts": [f"Based on source directory: {docs_directory}"]
+                    }
+                    f_out.write(json.dumps(row_data, ensure_ascii=False) + "\n")
+                    written_rows.add(row_name)
+
+    # Process papers with incremental row writing
+    paper_results = {}  # Still needed for tracking what's been processed
     
-    # Replace the original file with the temporary file
-    if output_path.exists():
-        output_path.unlink()
-    temp_output.rename(output_path)
+    if max_workers == 0:
+        # Sequential processing
+        print(f"🔄 Processing {len(papers_to_process)} papers sequentially with incremental writing...")
+        for doc_path in tqdm(papers_to_process, desc="processing papers"):
+            try:
+                row_name, paper_title, extracted_data = process_single_paper(
+                    doc_path, schema, llm, max_new_tokens, mode, retriever, retrieval_k, processed_papers
+                )
+                if extracted_data is not None:
+                    paper_results[paper_title] = (row_name, extracted_data)
+                    papers_processed += 1
+                    
+                    # Try to write row if complete
+                    write_row_if_complete(row_name, paper_results)
+                    time.sleep(0.5)  # Gentle on API
+                    
+            except Exception as e:
+                print(f"⚠️  Error processing {doc_path.stem}: {e}")
+    else:
+        # Parallel processing with incremental writing
+        print(f"🚀 Processing {len(papers_to_process)} papers using {max_workers} parallel workers with incremental writing...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_paper = {
+                executor.submit(
+                    process_single_paper, 
+                    doc_path, schema, llm, max_new_tokens, mode, retriever, retrieval_k, processed_papers
+                ): doc_path
+                for doc_path in papers_to_process
+            }
+            
+            for future in tqdm(as_completed(future_to_paper), total=len(papers_to_process), desc="processing papers"):
+                doc_path = future_to_paper[future]
+                try:
+                    row_name, paper_title, extracted_data = future.result()
+                    if extracted_data is not None:
+                        paper_results[paper_title] = (row_name, extracted_data)
+                        papers_processed += 1
+                        
+                        # Try to write row if complete
+                        write_row_if_complete(row_name, paper_results)
+                        
+                except Exception as e:
+                    print(f"⚠️  Error in parallel processing for {doc_path.stem}: {e}")
     
-    print(f"✅ Processed {papers_processed} papers into {rows_written} rows ➜ {output_path.resolve()}")
+    # Final check: write any remaining incomplete rows
+    print("📝 Writing any remaining incomplete rows...")
+    remaining_rows = 0
+    for row_name in papers_by_row.keys():
+        if row_name not in written_rows and row_name not in completed_rows:
+            write_row_if_complete(row_name, paper_results)
+            if row_name in written_rows:
+                remaining_rows += 1
+    
+    total_rows = len(written_rows) + len(completed_rows)
+    print(f"✅ Incremental processing complete: {papers_processed} papers processed into {total_rows} total rows ➜ {output_path.resolve()}")
+    if remaining_rows > 0:
+        print(f"📄 Wrote {remaining_rows} additional incomplete rows at the end")
 
 
 def main(cfg_path: Path) -> None:
