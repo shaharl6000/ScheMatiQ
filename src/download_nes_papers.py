@@ -11,12 +11,12 @@ import difflib
 
 
 BASE_URL = "http://prodata.swmed.edu/LRNes/IndexFiles/"
-MAIN_PAGE = "http://prodata.swmed.edu/LRNes/IndexFiles/namesGood.php"
+MAIN_PAGE = ("http://prodata.swmed.edu/LRNes/IndexFiles/namesDoubt.php")
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 }
-OUTPUT_DIR_ABS = "abstracts"
-OUTPUT_DIR_FULL = "full_text"
+OUTPUT_DIR_ABS = "abstracts_namesDoubt."
+OUTPUT_DIR_FULL = "full_text_namesDoubt"
 os.makedirs(OUTPUT_DIR_ABS, exist_ok=True)
 os.makedirs(OUTPUT_DIR_FULL, exist_ok=True)
 

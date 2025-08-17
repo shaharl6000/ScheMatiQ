@@ -424,7 +424,7 @@ def main():
     parser.add_argument('--gt_file', required=True, help='Path to ground truth CSV file')
     parser.add_argument('--pred_file', required=True, help='Path to predictions JSON file')
     parser.add_argument('--output_path', help='Path for output results (optional, auto-generated if not provided)')
-    parser.add_argument('--similarity_threshold', type=float, default=0.7, help='Similarity threshold for field alignment (default: 0.7)')
+    parser.add_argument('--similarity_threshold', type=float, default=0.3, help='Similarity threshold for field alignment (default: 0.7)')
     
     args = parser.parse_args()
     
