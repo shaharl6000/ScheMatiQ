@@ -16,7 +16,11 @@ The codebase is organized into two main directories:
 - `llm_backends.py` - LLM interface implementations (Together AI, OpenAI) with abstract base class
 - `retrievers.py` - Content retrieval implementations (embedding-based retrieval)
 - `utils.py` - Utility functions for text processing and file operations
-- `valueExtractor.py` - Value extraction from discovered schemas
+- `valueExtractor.py` - Clean interface to the refactored value extraction system
+- `value_extraction/` - **Modular value extraction framework**:
+  - `core/` - Business logic classes (TableBuilder, PaperProcessor, JSONResponseParser, LLMCache, RowDataManager)
+  - `utils/` - Utility functions (TextProcessor, PromptBuilder)
+  - `config/` - Configuration constants and system prompts
 - `configurations/` - JSON config files for different experimental setups
 
 ### src/ - Data Processing & Experiments  
@@ -51,6 +55,14 @@ pip install -r requirements.txt
 
 Key dependencies: transformers, torch, sentence-transformers, datasets, pandas, requests
 
+### Running Value Extraction
+```bash
+cd QBSD
+python valueExtractor.py  # Uses default config
+# OR
+python -c "import valueExtractor; valueExtractor.main(Path('configurations/valueExtractionConfig.json'))"
+```
+
 ### Configuration
 QBSD experiments are configured via JSON files in `QBSD/configurations/`. Key config parameters:
 - `query` - The research question to explore
@@ -58,6 +70,15 @@ QBSD experiments are configured via JSON files in `QBSD/configurations/`. Key co
 - `backend` - LLM provider and model settings
 - `retriever` - Embedding model configuration with dynamic_k, batch_size, device settings
 - `max_keys_schema` - Schema size limit
+
+**Value Extraction Config** (`valueExtractionConfig.json`):
+- `schema_path` - Path to discovered schema JSON file
+- `docs_directory` - Directory containing papers to extract from
+- `output_path` - Output JSONL file for extracted table data
+- `mode` - Extraction mode: "all" (batch) or "one_by_one" (per-column)
+- `resume` - Boolean to resume from existing output file
+- `retrieval_k` - Number of passages to retrieve per query
+- `max_workers` - Parallel processing workers (0 = sequential)
 
 ### Evaluation with arxivDIGESTables
 The `arxivDIGESTables/metric/run_eval.py` script evaluates QBSD-generated table schemas against gold standard tables:
@@ -92,11 +113,32 @@ python run_eval.py
 3. Schema merging using semantic similarity
 4. Convergence evaluation to determine completion
 
+**Value Extraction Pipeline:**
+1. **Paper Grouping**: Group papers by row name (extracted from filename prefix)
+2. **Resume Logic**: Load existing data and identify completed/incomplete rows
+3. **Paper Processing**: Extract values from papers using schema columns
+   - Retrieval-based text selection for targeted extraction
+   - Multi-strategy fallbacks (expanded retrieval → heuristic snippets)
+   - LLM caching to avoid redundant calls
+4. **Row Assembly**: Merge data from multiple papers into single table rows
+5. **Incremental Writing**: Write completed rows immediately to prevent data loss
+
 **Core Classes:**
+
+*Schema Discovery:*
 - `Column` - Individual schema column with name, rationale, definition
 - `Schema` - Collection of columns with merging and similarity operations
 - `LLMInterface` - Abstract base for different LLM providers
 - `EmbeddingRetriever` - Document passage retrieval
+
+*Value Extraction:*
+- `TableBuilder` - Orchestrates the complete value extraction pipeline
+- `PaperProcessor` - Handles value extraction from individual papers
+- `JSONResponseParser` - Parses and validates LLM JSON responses
+- `LLMCache` - Thread-safe LRU cache for LLM responses
+- `RowDataManager` - Manages row grouping, merging, and validation
+- `TextProcessor` - Text processing utilities (snippets, keywords, retrieval queries)
+- `PromptBuilder` - Constructs prompts for value extraction LLM calls
 
 ## Research Domain
 The project focuses on Nuclear Export Signal (NES) research, extracting structured information about protein sequences and their export properties from scientific literature.
@@ -109,4 +151,6 @@ The project focuses on Nuclear Export Signal (NES) research, extracting structur
 - All API keys must be set as environment variables - no hardcoded tokens remain in the codebase
 - **Retrievers are now fully configurable** - dynamic_k, thresholds, batch sizes, and devices can be set via config files or CLI arguments
 - **Evaluation capabilities** are provided through arxivDIGESTables framework for objective schema quality assessment
+- **Resume functionality** preserves existing rows exactly as written - no data modification occurs when resuming
+- **Value extraction is modular** - import classes from `value_extraction.core` for programmatic use (e.g., `from value_extraction import TableBuilder`)
 - **NEVER run LLM flows (QBSD.py or any scripts that call OpenAI/Together AI APIs) without explicit user permission due to API costs**
