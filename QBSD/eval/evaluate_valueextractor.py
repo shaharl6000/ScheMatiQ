@@ -314,6 +314,12 @@ class ValueExtractorEvaluator:
         gt_total_fields = len(gt_fields)  # Total GT fields available
         gt_recall = gt_fields_matched / gt_total_fields if gt_total_fields > 0 else 0
         
+        # Calculate precision: matched_fields / total_pred_fields (same as field_recall)
+        precision = matched_fields / total_pred_fields if total_pred_fields > 0 else 0
+        
+        # Calculate F1 score: 2 * (precision * recall) / (precision + recall)
+        f1_score = 2 * (precision * gt_recall) / (precision + gt_recall) if (precision + gt_recall) > 0 else 0
+        
         avg_scores = {metric: score / matched_fields if matched_fields > 0 else 0 
                      for metric, score in total_scores.items()}
         
@@ -321,6 +327,8 @@ class ValueExtractorEvaluator:
             'field_results': field_results,
             'field_recall': field_recall,  # Prediction-based recall
             'gt_recall': gt_recall,         # GT-based recall (arxivDIGESTables style)
+            'precision': precision,         # Precision score
+            'f1_score': f1_score,          # F1 score
             'matched_fields': matched_fields,
             'total_pred_fields': total_pred_fields,
             'total_gt_fields': gt_total_fields,
@@ -328,11 +336,13 @@ class ValueExtractorEvaluator:
             'alignment_matrix': field_alignment
         }
     
-    def calculate_arxiv_style_recall(self, protein_results: Dict[str, Any]) -> Dict[str, float]:
-        """Calculate recall metrics in the style of arxivDIGESTables SchemaRecallMetric."""
+    def calculate_comprehensive_metrics(self, protein_results: Dict[str, Any]) -> Dict[str, float]:
+        """Calculate comprehensive metrics including recall, precision, and F1 scores."""
         
         all_gt_recalls = []
         all_field_recalls = []
+        all_precisions = []
+        all_f1_scores = []
         all_exact_matches = []
         all_semantic_similarities = []
         
@@ -340,16 +350,24 @@ class ValueExtractorEvaluator:
         for protein_data in protein_results.values():
             all_gt_recalls.append(protein_data['gt_recall'])
             all_field_recalls.append(protein_data['field_recall'])
+            all_precisions.append(protein_data['precision'])
+            all_f1_scores.append(protein_data['f1_score'])
             all_exact_matches.append(protein_data['avg_scores']['exact_match'])
             all_semantic_similarities.append(protein_data['avg_scores']['semantic_similarity'])
         
         return {
             'schema_recall': np.mean(all_gt_recalls),  # arxivDIGESTables style
             'field_recall': np.mean(all_field_recalls),  # Prediction-based
+            'precision': np.mean(all_precisions),      # Average precision
+            'f1_score': np.mean(all_f1_scores),        # Average F1 score
             'exact_match_score': np.mean(all_exact_matches),
             'semantic_similarity_score': np.mean(all_semantic_similarities),
             'median_schema_recall': np.median(all_gt_recalls),
-            'std_schema_recall': np.std(all_gt_recalls)
+            'std_schema_recall': np.std(all_gt_recalls),
+            'median_precision': np.median(all_precisions),
+            'std_precision': np.std(all_precisions),
+            'median_f1_score': np.median(all_f1_scores),
+            'std_f1_score': np.std(all_f1_scores)
         }
     
     def run_evaluation(self, gt_csv_path: str, pred_json_path: str, output_path: str = None) -> Dict[str, Any]:
@@ -373,34 +391,46 @@ class ValueExtractorEvaluator:
             protein_result = self.evaluate_protein(gt_row, pred_dict)
             results[protein_name] = protein_result
         
-        # Calculate overall statistics using both approaches
-        arxiv_metrics = self.calculate_arxiv_style_recall(results)
+        # Calculate overall statistics using comprehensive metrics
+        comprehensive_metrics = self.calculate_comprehensive_metrics(results)
         
         overall_stats = {
             'total_proteins_evaluated': len(results),
-            # arxivDIGESTables-style metrics
-            'schema_recall': arxiv_metrics['schema_recall'],  # GT-based recall
-            'field_recall': arxiv_metrics['field_recall'],   # Prediction-based recall  
-            'exact_match_score': arxiv_metrics['exact_match_score'],
-            'semantic_similarity_score': arxiv_metrics['semantic_similarity_score'],
-            'median_schema_recall': arxiv_metrics['median_schema_recall'],
-            'std_schema_recall': arxiv_metrics['std_schema_recall'],
+            # Core metrics
+            'schema_recall': comprehensive_metrics['schema_recall'],  # GT-based recall
+            'field_recall': comprehensive_metrics['field_recall'],   # Prediction-based recall
+            'precision': comprehensive_metrics['precision'],          # Average precision
+            'f1_score': comprehensive_metrics['f1_score'],           # Average F1 score
+            'exact_match_score': comprehensive_metrics['exact_match_score'],
+            'semantic_similarity_score': comprehensive_metrics['semantic_similarity_score'],
+            # Statistical measures
+            'median_schema_recall': comprehensive_metrics['median_schema_recall'],
+            'std_schema_recall': comprehensive_metrics['std_schema_recall'],
+            'median_precision': comprehensive_metrics['median_precision'],
+            'std_precision': comprehensive_metrics['std_precision'],
+            'median_f1_score': comprehensive_metrics['median_f1_score'],
+            'std_f1_score': comprehensive_metrics['std_f1_score'],
             # Legacy metrics for compatibility
-            'avg_field_recall': arxiv_metrics['field_recall'],
-            'avg_exact_match': arxiv_metrics['exact_match_score'], 
-            'avg_semantic_similarity': arxiv_metrics['semantic_similarity_score']
+            'avg_field_recall': comprehensive_metrics['field_recall'],
+            'avg_exact_match': comprehensive_metrics['exact_match_score'], 
+            'avg_semantic_similarity': comprehensive_metrics['semantic_similarity_score']
         }
         
         # Print summary
         print(f"\n=== EVALUATION SUMMARY ===")
         print(f"Total proteins evaluated: {overall_stats['total_proteins_evaluated']}")
-        print(f"\n--- arxivDIGESTables-Style Metrics ---")
+        print(f"\n--- Core Performance Metrics ---")
         print(f"Schema recall (GT-based): {overall_stats['schema_recall']:.3f}")
+        print(f"Precision: {overall_stats['precision']:.3f}")
+        print(f"F1 Score: {overall_stats['f1_score']:.3f}")
         print(f"Field recall (Pred-based): {overall_stats['field_recall']:.3f}")
+        print(f"\n--- Content Quality Metrics ---")
         print(f"Exact match score: {overall_stats['exact_match_score']:.3f}")
         print(f"Semantic similarity score: {overall_stats['semantic_similarity_score']:.3f}")
-        print(f"Median schema recall: {overall_stats['median_schema_recall']:.3f}")
-        print(f"Schema recall std dev: {overall_stats['std_schema_recall']:.3f}")
+        print(f"\n--- Statistical Measures ---")
+        print(f"Median schema recall: {overall_stats['median_schema_recall']:.3f} (std: {overall_stats['std_schema_recall']:.3f})")
+        print(f"Median precision: {overall_stats['median_precision']:.3f} (std: {overall_stats['std_precision']:.3f})")
+        print(f"Median F1 score: {overall_stats['median_f1_score']:.3f} (std: {overall_stats['std_f1_score']:.3f})")
         
         # Save detailed results
         if output_path:
@@ -453,26 +483,34 @@ def main():
     if results and 'protein_results' in results:
         print(f"\n=== DETAILED ANALYSIS ===")
         
-        # Best and worst performing proteins
-        protein_scores = [(name, data['field_recall']) 
+        # Best and worst performing proteins by F1 score
+        protein_scores = [(name, data['f1_score']) 
                          for name, data in results['protein_results'].items()]
         protein_scores.sort(key=lambda x: x[1], reverse=True)
         
-        print(f"Best performing proteins (schema recall):")
-        for name, score in protein_scores[:3]:
-            gt_recall = results['protein_results'][name]['gt_recall'] 
-            matched = results['protein_results'][name]['matched_fields']
-            total_pred = results['protein_results'][name]['total_pred_fields']
-            total_gt = results['protein_results'][name]['total_gt_fields']
-            print(f"  {name}: {gt_recall:.3f} GT recall | {score:.3f} field recall ({matched}/{total_pred} pred fields, {len(set(results['protein_results'][name]['alignment_matrix'].values()))}/{total_gt} GT fields)")
+        print(f"Best performing proteins (F1 score):")
+        # Sort by F1 score instead of field recall
+        protein_f1_scores = [(name, data['f1_score']) for name, data in results['protein_results'].items()]
+        protein_f1_scores.sort(key=lambda x: x[1], reverse=True)
         
-        print(f"Worst performing proteins (schema recall):")
-        for name, score in protein_scores[-3:]:
-            gt_recall = results['protein_results'][name]['gt_recall']
-            matched = results['protein_results'][name]['matched_fields']
-            total_pred = results['protein_results'][name]['total_pred_fields']
-            total_gt = results['protein_results'][name]['total_gt_fields']
-            print(f"  {name}: {gt_recall:.3f} GT recall | {score:.3f} field recall ({matched}/{total_pred} pred fields, {len(set(results['protein_results'][name]['alignment_matrix'].values()))}/{total_gt} GT fields)")
+        for name, f1_score in protein_f1_scores[:3]:
+            data = results['protein_results'][name]
+            gt_recall = data['gt_recall']
+            precision = data['precision']
+            matched = data['matched_fields']
+            total_pred = data['total_pred_fields']
+            total_gt = data['total_gt_fields']
+            print(f"  {name}: F1={f1_score:.3f} | R={gt_recall:.3f} | P={precision:.3f} | ({matched}/{total_pred} pred, {len(set(data['alignment_matrix'].values()))}/{total_gt} GT fields)")
+        
+        print(f"Worst performing proteins (F1 score):")
+        for name, f1_score in protein_f1_scores[-3:]:
+            data = results['protein_results'][name]
+            gt_recall = data['gt_recall']
+            precision = data['precision']
+            matched = data['matched_fields']
+            total_pred = data['total_pred_fields']
+            total_gt = data['total_gt_fields']
+            print(f"  {name}: F1={f1_score:.3f} | R={gt_recall:.3f} | P={precision:.3f} | ({matched}/{total_pred} pred, {len(set(data['alignment_matrix'].values()))}/{total_gt} GT fields)")
         
         # Field analysis - which prediction fields perform best
         field_performance = {}
