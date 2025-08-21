@@ -314,21 +314,33 @@ class ValueExtractorEvaluator:
         gt_total_fields = len(gt_fields)  # Total GT fields available
         gt_recall = gt_fields_matched / gt_total_fields if gt_total_fields > 0 else 0
         
-        # Calculate precision: matched_fields / total_pred_fields (same as field_recall)
-        precision = matched_fields / total_pred_fields if total_pred_fields > 0 else 0
-        
-        # Calculate F1 score: 2 * (precision * recall) / (precision + recall)
-        f1_score = 2 * (precision * gt_recall) / (precision + gt_recall) if (precision + gt_recall) > 0 else 0
-        
+        # Calculate average scores first (needed for precision calculation)
         avg_scores = {metric: score / matched_fields if matched_fields > 0 else 0 
                      for metric, score in total_scores.items()}
+        
+        # Calculate precision including value quality (like recall does)
+        # Schema precision: how many predicted fields matched GT fields
+        schema_precision = matched_fields / total_pred_fields if total_pred_fields > 0 else 0
+        
+        # Value-weighted precision: incorporate quality of matched values
+        # Use average semantic similarity of matched fields as value quality weight
+        value_quality_weight = avg_scores['semantic_similarity'] if matched_fields > 0 else 0
+        precision = schema_precision * value_quality_weight if value_quality_weight > 0 else schema_precision
+        
+        # Calculate F1 score using value-weighted precision and GT recall
+        f1_score = 2 * (precision * gt_recall) / (precision + gt_recall) if (precision + gt_recall) > 0 else 0
+        
+        # Also calculate schema-only F1 for comparison
+        schema_f1 = 2 * (schema_precision * gt_recall) / (schema_precision + gt_recall) if (schema_precision + gt_recall) > 0 else 0
         
         return {
             'field_results': field_results,
             'field_recall': field_recall,  # Prediction-based recall
             'gt_recall': gt_recall,         # GT-based recall (arxivDIGESTables style)
-            'precision': precision,         # Precision score
-            'f1_score': f1_score,          # F1 score
+            'precision': precision,         # Value-weighted precision score
+            'schema_precision': schema_precision,  # Schema-only precision
+            'f1_score': f1_score,          # Value-weighted F1 score
+            'schema_f1': schema_f1,        # Schema-only F1 score
             'matched_fields': matched_fields,
             'total_pred_fields': total_pred_fields,
             'total_gt_fields': gt_total_fields,
@@ -342,7 +354,9 @@ class ValueExtractorEvaluator:
         all_gt_recalls = []
         all_field_recalls = []
         all_precisions = []
+        all_schema_precisions = []
         all_f1_scores = []
+        all_schema_f1_scores = []
         all_exact_matches = []
         all_semantic_similarities = []
         
@@ -351,23 +365,31 @@ class ValueExtractorEvaluator:
             all_gt_recalls.append(protein_data['gt_recall'])
             all_field_recalls.append(protein_data['field_recall'])
             all_precisions.append(protein_data['precision'])
+            all_schema_precisions.append(protein_data['schema_precision'])
             all_f1_scores.append(protein_data['f1_score'])
+            all_schema_f1_scores.append(protein_data['schema_f1'])
             all_exact_matches.append(protein_data['avg_scores']['exact_match'])
             all_semantic_similarities.append(protein_data['avg_scores']['semantic_similarity'])
         
         return {
             'schema_recall': np.mean(all_gt_recalls),  # arxivDIGESTables style
             'field_recall': np.mean(all_field_recalls),  # Prediction-based
-            'precision': np.mean(all_precisions),      # Average precision
-            'f1_score': np.mean(all_f1_scores),        # Average F1 score
+            'precision': np.mean(all_precisions),      # Value-weighted precision
+            'schema_precision': np.mean(all_schema_precisions),  # Schema-only precision
+            'f1_score': np.mean(all_f1_scores),        # Value-weighted F1 score
+            'schema_f1': np.mean(all_schema_f1_scores),  # Schema-only F1 score
             'exact_match_score': np.mean(all_exact_matches),
             'semantic_similarity_score': np.mean(all_semantic_similarities),
             'median_schema_recall': np.median(all_gt_recalls),
             'std_schema_recall': np.std(all_gt_recalls),
             'median_precision': np.median(all_precisions),
             'std_precision': np.std(all_precisions),
+            'median_schema_precision': np.median(all_schema_precisions),
+            'std_schema_precision': np.std(all_schema_precisions),
             'median_f1_score': np.median(all_f1_scores),
-            'std_f1_score': np.std(all_f1_scores)
+            'std_f1_score': np.std(all_f1_scores),
+            'median_schema_f1': np.median(all_schema_f1_scores),
+            'std_schema_f1': np.std(all_schema_f1_scores)
         }
     
     def run_evaluation(self, gt_csv_path: str, pred_json_path: str, output_path: str = None) -> Dict[str, Any]:
@@ -396,11 +418,15 @@ class ValueExtractorEvaluator:
         
         overall_stats = {
             'total_proteins_evaluated': len(results),
-            # Core metrics
+            # Core metrics (value-weighted)
             'schema_recall': comprehensive_metrics['schema_recall'],  # GT-based recall
             'field_recall': comprehensive_metrics['field_recall'],   # Prediction-based recall
-            'precision': comprehensive_metrics['precision'],          # Average precision
-            'f1_score': comprehensive_metrics['f1_score'],           # Average F1 score
+            'precision': comprehensive_metrics['precision'],          # Value-weighted precision
+            'f1_score': comprehensive_metrics['f1_score'],           # Value-weighted F1 score
+            # Schema-only metrics
+            'schema_precision': comprehensive_metrics['schema_precision'],  # Schema-only precision
+            'schema_f1': comprehensive_metrics['schema_f1'],               # Schema-only F1 score
+            # Content quality metrics
             'exact_match_score': comprehensive_metrics['exact_match_score'],
             'semantic_similarity_score': comprehensive_metrics['semantic_similarity_score'],
             # Statistical measures
@@ -408,8 +434,12 @@ class ValueExtractorEvaluator:
             'std_schema_recall': comprehensive_metrics['std_schema_recall'],
             'median_precision': comprehensive_metrics['median_precision'],
             'std_precision': comprehensive_metrics['std_precision'],
+            'median_schema_precision': comprehensive_metrics['median_schema_precision'],
+            'std_schema_precision': comprehensive_metrics['std_schema_precision'],
             'median_f1_score': comprehensive_metrics['median_f1_score'],
             'std_f1_score': comprehensive_metrics['std_f1_score'],
+            'median_schema_f1': comprehensive_metrics['median_schema_f1'],
+            'std_schema_f1': comprehensive_metrics['std_schema_f1'],
             # Legacy metrics for compatibility
             'avg_field_recall': comprehensive_metrics['field_recall'],
             'avg_exact_match': comprehensive_metrics['exact_match_score'], 
