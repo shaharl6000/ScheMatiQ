@@ -15,12 +15,13 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 
-def extract_data_fields(record: Dict[str, Any]) -> Dict[str, str]:
+def extract_data_fields(record: Dict[str, Any], include_excerpts: bool = False) -> Dict[str, str]:
     """
     Extract data fields from a JSON record, excluding metadata fields.
     
     Args:
         record: JSON record containing QBSD extraction results
+        include_excerpts: Whether to include excerpts in the output
         
     Returns:
         Dictionary with cleaned data fields
@@ -44,6 +45,11 @@ def extract_data_fields(record: Dict[str, Any]) -> Dict[str, str]:
             if isinstance(value, dict):
                 if 'answer' in value:
                     cleaned_record[key] = value['answer']
+                    # Add excerpts if requested and available
+                    if include_excerpts and 'excerpts' in value and value['excerpts']:
+                        excerpts_key = f"{key}_excerpts"
+                        # Join excerpts with semicolon separator for CSV compatibility
+                        cleaned_record[excerpts_key] = "; ".join(value['excerpts'])
                 else:
                     # Convert dict to string representation
                     cleaned_record[key] = str(value)
@@ -53,13 +59,14 @@ def extract_data_fields(record: Dict[str, Any]) -> Dict[str, str]:
     return cleaned_record
 
 
-def convert_json_to_csv(input_file: Path, output_file: Path = None) -> None:
+def convert_json_to_csv(input_file: Path, output_file: Path = None, include_excerpts: bool = False) -> None:
     """
     Convert JSON file to CSV format.
     
     Args:
         input_file: Path to input JSON file
         output_file: Path to output CSV file (optional)
+        include_excerpts: Whether to include excerpts in the output
     """
     if output_file is None:
         output_file = input_file.with_suffix('.csv')
@@ -75,7 +82,7 @@ def convert_json_to_csv(input_file: Path, output_file: Path = None) -> None:
                 
             try:
                 record = json.loads(line)
-                cleaned_record = extract_data_fields(record)
+                cleaned_record = extract_data_fields(record, include_excerpts)
                 records.append(cleaned_record)
             except json.JSONDecodeError as e:
                 print(f"Warning: Skipping invalid JSON on line {line_num}: {e}", file=sys.stderr)
@@ -130,6 +137,12 @@ Examples:
         help='Output CSV file path (default: input_file.csv)'
     )
     
+    parser.add_argument(
+        '--include-excerpts',
+        action='store_true',
+        help='Include excerpts from the JSON in the CSV output'
+    )
+    
     args = parser.parse_args()
     
     if not args.input_file.exists():
@@ -137,7 +150,7 @@ Examples:
         sys.exit(1)
     
     try:
-        convert_json_to_csv(args.input_file, args.output)
+        convert_json_to_csv(args.input_file, args.output, args.include_excerpts)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

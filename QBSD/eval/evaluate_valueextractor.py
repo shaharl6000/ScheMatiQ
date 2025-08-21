@@ -263,9 +263,10 @@ class ValueExtractorEvaluator:
         metadata_cols = ['protein_name', 'ID', 'Full Name', 'Alternative Names', 'Organism', 'Fasta Header', 'Sequence', 'CRM1_hash', 'Peptide_hash', 'Negative_hash', 'combined']
         gt_fields = [col for col in gt_row.index if col not in metadata_cols and pd.notna(gt_row[col]) and str(gt_row[col]).strip()]
         
-        # Get prediction fields (exclude metadata)
+        # Get prediction fields (exclude metadata and excerpt columns)
         pred_fields = [key for key in pred_dict.keys() 
                       if not key.startswith('_') 
+                      and not key.endswith('_excerpts')  # Exclude excerpt columns
                       and key not in ['"name"', '"definition"', '"rationale"', 'name', 'definition', 'rationale']]
         
         # Align fields (pred_field -> gt_field)
