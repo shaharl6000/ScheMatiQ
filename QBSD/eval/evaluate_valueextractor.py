@@ -497,20 +497,22 @@ def main():
             data = results['protein_results'][name]
             gt_recall = data['gt_recall']
             precision = data['precision']
+            schema_precision = data['schema_precision']
             matched = data['matched_fields']
             total_pred = data['total_pred_fields']
             total_gt = data['total_gt_fields']
-            print(f"  {name}: F1={f1_score:.3f} | R={gt_recall:.3f} | P={precision:.3f} | ({matched}/{total_pred} pred, {len(set(data['alignment_matrix'].values()))}/{total_gt} GT fields)")
+            print(f"  {name}: F1={f1_score:.3f} | R={gt_recall:.3f} | P={precision:.3f} | SP={schema_precision:.3f} | ({matched}/{total_pred} pred, {len(set(data['alignment_matrix'].values()))}/{total_gt} GT fields)")
         
         print(f"Worst performing proteins (F1 score):")
         for name, f1_score in protein_f1_scores[-3:]:
             data = results['protein_results'][name]
             gt_recall = data['gt_recall']
             precision = data['precision']
+            schema_precision = data['schema_precision']
             matched = data['matched_fields']
             total_pred = data['total_pred_fields']
             total_gt = data['total_gt_fields']
-            print(f"  {name}: F1={f1_score:.3f} | R={gt_recall:.3f} | P={precision:.3f} | ({matched}/{total_pred} pred, {len(set(data['alignment_matrix'].values()))}/{total_gt} GT fields)")
+            print(f"  {name}: F1={f1_score:.3f} | R={gt_recall:.3f} | P={precision:.3f} | SP={schema_precision:.3f} | ({matched}/{total_pred} pred, {len(set(data['alignment_matrix'].values()))}/{total_gt} GT fields)")
         
         # Field analysis - which prediction fields perform best
         field_performance = {}
