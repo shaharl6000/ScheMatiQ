@@ -1,0 +1,1647 @@
+{
+  "overall_stats": {
+    "total_proteins_evaluated": 7,
+    "schema_recall": 0.6153846153846155,
+    "field_recall": 0.42105263157894735,
+    "exact_match_score": 0.07142857142857142,
+    "semantic_similarity_score": 0.11678503207596284,
+    "median_schema_recall": 0.6153846153846154,
+    "std_schema_recall": 1.1102230246251565e-16,
+    "avg_field_recall": 0.42105263157894735,
+    "avg_exact_match": 0.07142857142857142,
+    "avg_semantic_similarity": 0.11678503207596284
+  },
+  "protein_results": {
+    "hst2": {
+      "field_results": {
+        "protein_sequence": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "EIVHDLENLSLDQSEHESAD",
+          "pred_value": "amino acids 306 to 317, LX2−3LX2−3LXL",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.1829531043767929,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_presence": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_strength": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly quantified",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_confidence": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly stated",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_location": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "amino acids 306 to 317",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_dependency": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MEGILDFSNDLDIALLDQVVSTFYQGSGVQQKQAQEILTKFQDNPDAWQKADQILQFSTNPQSKFIALSILDKLITRKWKLLPNDHRIGIRNFVVGMIISMCQDDEVFKTQKNLINKSDLTLVQILKQEWPQNWPEFIPELIGSSSSSVNVCENNMIVLKLLSEEVFDFSAEQMTQAKALHLKNSMSKEFEQIFKLCFQVLEQGSSSSLIVATLESLLRYLHWIPYRYIYETNILELLSTKFMTSPDTRAITLKCLTEVSNLKIPQDNDLIKRQTVLFFQNTLQQIATSVMPVTADLKATYANANGNDQSFLQDLAMFLTTYLARNRALLESDESLRELLLNAHQYLIQLSKIEERELFKTTLDYWHNLVADLFYEVQRLPATEMSPLIQLSVGSQAISTGSGALNPEYMKRFPLKKHIYEEICSQLRLVIIENMVRPEEVLVVENDEGEIVREFVKESDTIQLYKSEREVLVYLTHLNVIDTEEIMISKLARQIDGSEWSWHNINTLSWAIGSISGTMSEDTEKRFVVTVIKDLLDLTVKKRGKDNKAVVASDIMYVVGQYPRFLKAHWNFLRTVILKLFEFMHETHEGVQDMACDTFIKIVQKCKYHFVIQQPRESEPFIQTIIRDIQKTTADLQPQQVHTFYKACGIIISEERSVAERNRLLSDLMQLPNMAWDTIVEQSTANPTLLLDSETVKIIANIIKTNVAVCTSMGADFYPQLGHIYYNMLQLYRAVSSMISAQVAAEGLIATKTPKVRGLRTIKKEILKLVETYISKARNLDDVVKVLVEPLLNAVLEDYMNNVPDARDAEVLNCMTTVVEKVGHMIPQGVILILQSVFECTLDMINKDFTEYPEHRVEFYKLLKVINEKSFAAFLELPPAAFKLFVDAICWAFKHNNRDVEVNGLQIALDLVKNIERMGNVPFANEFHKNYFFIFVSETFFVLTDSDHKSGFSKQALLLMKLISLVYDNKISVPLYQEAEVPQGTSNQVYLSQYLANMLSNAFPHLTSEQIASFLSALTKQYKDLVVFKGTLRDFLVQIKEVGGDPTDYLFAEDKENALMEQNRLEREKAAKIGGLLKPSELDD",
+          "pred_value": "Yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "hydrophobic_residues": {
+          "gt_field": "Other Residues Important for Export",
+          "gt_value": "[]",
+          "pred_value": "2",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_pattern": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "VRKIAAHMKSNPNAKVIFMVGA",
+          "pred_value": "LX 2−3 LX 2−3 LXL",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.02203013375401497,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_type": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_length": {
+          "gt_field": "Min ranges len",
+          "gt_value": "2",
+          "pred_value": "12",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 1.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "key_residues": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_consensus": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "LX 2−3 LX 2−3 LXL",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "Mutations That Affect CRM1 Binding",
+          "gt_value": "[]",
+          "pred_value": "Crm1 recognizes a leucine (L)‐rich nuclear export sequence (NES) of the form LX 2−3 LX 2−3 LXL",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_prediction_method": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "NetNES 1.1 prediction program",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_validation": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Experimental methods, such as immunofluorescence and mutational analysis",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "exportin1_dependency": {
+          "gt_field": "Functional Export Signals",
+          "gt_value": "[]",
+          "pred_value": "Yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_masking": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "No",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_accessibility": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "The NES is accessible to the exportin protein Crm1",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        }
+      },
+      "field_recall": 0.42105263157894735,
+      "gt_recall": 0.6153846153846154,
+      "matched_fields": 8,
+      "total_pred_fields": 19,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.125,
+        "semantic_similarity": 0.025622904766350985
+      },
+      "alignment_matrix": {
+        "protein_sequence": "Peptide_sequence",
+        "nes_presence": "is_NesDB_doubt",
+        "crm1_dependency": "CRM1_sequence",
+        "hydrophobic_residues": "Other Residues Important for Export",
+        "nes_pattern": "Negative_sequence",
+        "nes_length": "Min ranges len",
+        "crm1_interaction": "Mutations That Affect CRM1 Binding",
+        "exportin1_dependency": "Functional Export Signals"
+      }
+    },
+    "l-prx": {
+      "field_results": {
+        "protein_sequence": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "ENFKYEDALRLLQCAEPYKV",
+          "pred_value": "Not explicitly provided",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.1922263503074646,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_presence": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_strength": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly quantified",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_confidence": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly stated",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_location": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "between residues 73 and 86 in the PDZ domain",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_dependency": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKSKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFVTLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHDQLIEKRLNLRETLMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDVPPRRQLYLPMLFKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTERIMTEKLHNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPTQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTSLNPGNPVNNQIFLQEYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEEREIALRQADEEKHKRQMSVPGIFNPHEIPEEMCD",
+          "pred_value": "Yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "hydrophobic_residues": {
+          "gt_field": "Other Residues Important for Export",
+          "gt_value": "[]",
+          "pred_value": "leucine, isoleucine, valine, phenylalanine, or methionine",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_pattern": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "VSEVAVPEVRLPEVQLPKVPEM",
+          "pred_value": "ΨX 2–3 ΨX 2–3 ΨXΨ",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.17193686962127686,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_type": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich NES",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_length": {
+          "gt_field": "Min ranges len",
+          "gt_value": "2",
+          "pred_value": "14",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "key_residues": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine, isoleucine, valine, phenylalanine, or methionine",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_consensus": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "ΨX 2–3 ΨX 2–3 ΨXΨ",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "Mutations That Affect CRM1 Binding",
+          "gt_value": "[]",
+          "pred_value": "inhibited by LMB",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_prediction_method": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "NetNES",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_validation": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "experimental validation using LMB treatment",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "exportin1_dependency": {
+          "gt_field": "Functional Export Signals",
+          "gt_value": "[]",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_masking": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "{}",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_accessibility": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "accessible to the exportin protein CRM1",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        }
+      },
+      "field_recall": 0.42105263157894735,
+      "gt_recall": 0.6153846153846154,
+      "matched_fields": 8,
+      "total_pred_fields": 19,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.0,
+        "semantic_similarity": 0.04552040249109268
+      },
+      "alignment_matrix": {
+        "protein_sequence": "Peptide_sequence",
+        "nes_presence": "is_NesDB_doubt",
+        "crm1_dependency": "CRM1_sequence",
+        "hydrophobic_residues": "Other Residues Important for Export",
+        "nes_pattern": "Negative_sequence",
+        "nes_length": "Min ranges len",
+        "crm1_interaction": "Mutations That Affect CRM1 Binding",
+        "exportin1_dependency": "Functional Export Signals"
+      }
+    },
+    "l-periaxin": {
+      "field_results": {
+        "protein_sequence": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "ENFKYEDALRLLQCAEPYKV",
+          "pred_value": "Not explicitly provided",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.1922263503074646,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_presence": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_strength": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Not explicitly quantified",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_confidence": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly stated",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_location": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "between residues 73 and 86 in the PDZ domain",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_dependency": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKAKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFETLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHGQLLEKRLNLREALMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDIPPRRQLYLTVLSKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTEIIMTKKLQNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPAQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTPLNPGSPVSNQMFIQDYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEERETALRQAQEEKHKLQMSVPGILNPHEIPEEMCD",
+          "pred_value": "Yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "hydrophobic_residues": {
+          "gt_field": "Other Residues Important for Export",
+          "gt_value": "[]",
+          "pred_value": "leucine, isoleucine, valine, phenylalanine, or methionine",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_pattern": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "KLPKVPEMAVPDVRIPEVQLPK",
+          "pred_value": "ΨX 2–3 ΨX 2–3 ΨXΨ",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.19569344818592072,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_type": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich NES",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_length": {
+          "gt_field": "Min ranges len",
+          "gt_value": "2",
+          "pred_value": "14",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "key_residues": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine, isoleucine, valine, phenylalanine, or methionine",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_consensus": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "ΨX 2–3 ΨX 2–3 ΨXΨ",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "Mutations That Affect CRM1 Binding",
+          "gt_value": "[]",
+          "pred_value": "inhibited by LMB",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_prediction_method": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "NetNES",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_validation": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Nuclear export of L-periaxin is inhibited by LMB, which specifically prevents NES-dependent nuclear protein export",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "exportin1_dependency": {
+          "gt_field": "Functional Export Signals",
+          "gt_value": "[]",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_masking": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "No",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_accessibility": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "accessible to the exportin protein CRM1",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        }
+      },
+      "field_recall": 0.42105263157894735,
+      "gt_recall": 0.6153846153846154,
+      "matched_fields": 8,
+      "total_pred_fields": 19,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.0,
+        "semantic_similarity": 0.048489974811673164
+      },
+      "alignment_matrix": {
+        "protein_sequence": "Peptide_sequence",
+        "nes_presence": "is_NesDB_doubt",
+        "crm1_dependency": "CRM1_sequence",
+        "hydrophobic_residues": "Other Residues Important for Export",
+        "nes_pattern": "Negative_sequence",
+        "nes_length": "Min ranges len",
+        "crm1_interaction": "Mutations That Affect CRM1 Binding",
+        "exportin1_dependency": "Functional Export Signals"
+      }
+    },
+    "nade": {
+      "field_results": {
+        "protein_sequence": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "EMREIRRKLRELQLRNCLRI",
+          "pred_value": "124 amino acids, with a predicted molecular mass of 14,532 Da",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.07954354584217072,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_presence": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_strength": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_confidence": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not determined",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_location": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "amino acid residues 36–48",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_dependency": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKAKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFETLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHGQLLEKRLNLREALMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDIPPRRQLYLTVLSKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTEIIMTKKLQNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPAQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTPLNPGNPVNNQMFIQDYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEERETALRQAQEEKHKLQMSVPGILNPHEIPEEMCD",
+          "pred_value": "No",
+          "scores": {
+            "exact_match": 1.0,
+            "substring_match": 1.0,
+            "semantic_similarity": 1.0,
+            "has_prediction": 1.0
+          }
+        },
+        "hydrophobic_residues": {
+          "gt_field": "Other Residues Important for Export",
+          "gt_value": "[]",
+          "pred_value": "leucine-rich",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_pattern": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "QARRLAPNFRWAIPNRQMNDGL",
+          "pred_value": "leucine-rich",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.08700495958328247,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_type": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich nuclear export signal",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_length": {
+          "gt_field": "Min ranges len",
+          "gt_value": "3",
+          "pred_value": "not explicitly stated",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "key_residues": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_consensus": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich nuclear export signal",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "Mutations That Affect CRM1 Binding",
+          "gt_value": "[]",
+          "pred_value": "not explicitly mentioned",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_prediction_method": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Leucine-rich nuclear export signal (NES) consensus motif",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_validation": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "experimental methods such as GST fusion proteins and in vitro translated mNADE",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "exportin1_dependency": {
+          "gt_field": "Functional Export Signals",
+          "gt_value": "[]",
+          "pred_value": "Not determined",
+          "scores": {
+            "exact_match": 1.0,
+            "substring_match": 1.0,
+            "semantic_similarity": 1.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_masking": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "No",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_accessibility": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        }
+      },
+      "field_recall": 0.42105263157894735,
+      "gt_recall": 0.6153846153846154,
+      "matched_fields": 8,
+      "total_pred_fields": 19,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.25,
+        "substring_match": 0.25,
+        "semantic_similarity": 0.27081856317818165
+      },
+      "alignment_matrix": {
+        "protein_sequence": "Peptide_sequence",
+        "nes_presence": "is_NesDB_doubt",
+        "crm1_dependency": "CRM1_sequence",
+        "hydrophobic_residues": "Other Residues Important for Export",
+        "nes_pattern": "Negative_sequence",
+        "nes_length": "Min ranges len",
+        "crm1_interaction": "Mutations That Affect CRM1 Binding",
+        "exportin1_dependency": "Functional Export Signals"
+      }
+    },
+    "wdr42a": {
+      "field_results": {
+        "protein_sequence": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "TSSGIEVEASDLSLSLTGDD",
+          "pred_value": "39 IEVEASDLSLSL 50",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.631578947368421,
+            "semantic_similarity": 0.5516378879547119,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_presence": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_strength": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "strong",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_confidence": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "High",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_location": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "39-50",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_dependency": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKSKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFVTLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHDQLIEKRLNLRETLMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDVPPRRQLYLPMLFKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTERIMTEKLHNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPTQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTSLNPGNPVNNQIFLQEYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEEREIALRQADEEKHKRQMSVPGIFNPHEIPEEMCD",
+          "pred_value": "Yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "hydrophobic_residues": {
+          "gt_field": "Other Residues Important for Export",
+          "gt_value": "[]",
+          "pred_value": "4",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_pattern": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "DLFDSHMLWFLMHHLRQRRHHR",
+          "pred_value": "φX2–3φX2–3φXφ, where φ is a hydrophobic residue and X is any amino acid residue",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.15715903043746948,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_type": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich NES",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_length": {
+          "gt_field": "Min ranges len",
+          "gt_value": "11",
+          "pred_value": "12",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "key_residues": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Leucine and Isoleucine",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_consensus": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "φX2–3φX2–3φXφ",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "Mutations That Affect CRM1 Binding",
+          "gt_value": "[]",
+          "pred_value": "CRM1 dependent",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_prediction_method": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "NetNES 1.1 Server",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_validation": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Experimental methods, including mutational analysis, fluorescence microscopy, and co-immunoprecipitation",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "exportin1_dependency": {
+          "gt_field": "Functional Export Signals",
+          "gt_value": "['39-50']",
+          "pred_value": "CRM1-dependent",
+          "scores": {
+            "exact_match": 1.0,
+            "substring_match": 1.0,
+            "semantic_similarity": 1.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_masking": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "{}",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_accessibility": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "accessible to the exportin protein CRM1",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        }
+      },
+      "field_recall": 0.42105263157894735,
+      "gt_recall": 0.6153846153846154,
+      "matched_fields": 8,
+      "total_pred_fields": 19,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.125,
+        "substring_match": 0.20394736842105263,
+        "semantic_similarity": 0.21359961479902267
+      },
+      "alignment_matrix": {
+        "protein_sequence": "Peptide_sequence",
+        "nes_presence": "is_NesDB_doubt",
+        "crm1_dependency": "CRM1_sequence",
+        "hydrophobic_residues": "Other Residues Important for Export",
+        "nes_pattern": "Negative_sequence",
+        "nes_length": "Min ranges len",
+        "crm1_interaction": "Mutations That Affect CRM1 Binding",
+        "exportin1_dependency": "Functional Export Signals"
+      }
+    },
+    "p120ctn": {
+      "field_results": {
+        "protein_sequence": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "QESLEEELDVLVLDDEGGQV",
+          "pred_value": "leucine-rich motif",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.12124314159154892,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_presence": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_strength": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "functional",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_confidence": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly stated",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_location": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "exon B",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_dependency": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKSKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFVTLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHDQLIEKRLNLRETLMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDVPPRRQLYLPMLFKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTERIMTEKLHNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPTQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTSLNPGNPVNNQIFLQEYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEEREIALRQADEEKHKRQMSVPGIFNPHEIPEEMCD",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "hydrophobic_residues": {
+          "gt_field": "Other Residues Important for Export",
+          "gt_value": "[]",
+          "pred_value": "at least 2 leucine residues",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_pattern": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "LLDHPKKEVHLGACGALKNISF",
+          "pred_value": "leucine-rich motif",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.17223721742630005,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_type": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich motif",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_length": {
+          "gt_field": "Min ranges len",
+          "gt_value": "15",
+          "pred_value": "{}",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "key_residues": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine residues",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_consensus": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich motif",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "Mutations That Affect CRM1 Binding",
+          "gt_value": "[]",
+          "pred_value": "sensitive to leptomycin B",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_prediction_method": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Experimental mutation and microinjection assays",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_validation": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "experimental methods, such as mutation of the NES and inhibition with leptomycin B",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "exportin1_dependency": {
+          "gt_field": "Functional Export Signals",
+          "gt_value": "['943-958']",
+          "pred_value": "No",
+          "scores": {
+            "exact_match": 1.0,
+            "substring_match": 1.0,
+            "semantic_similarity": 1.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_masking": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "{}",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_accessibility": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "accessible to exportin protein",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        }
+      },
+      "field_recall": 0.42105263157894735,
+      "gt_recall": 0.6153846153846154,
+      "matched_fields": 8,
+      "total_pred_fields": 19,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.125,
+        "substring_match": 0.125,
+        "semantic_similarity": 0.16168504487723112
+      },
+      "alignment_matrix": {
+        "protein_sequence": "Peptide_sequence",
+        "nes_presence": "is_NesDB_doubt",
+        "crm1_dependency": "CRM1_sequence",
+        "hydrophobic_residues": "Other Residues Important for Export",
+        "nes_pattern": "Negative_sequence",
+        "nes_length": "Min ranges len",
+        "crm1_interaction": "Mutations That Affect CRM1 Binding",
+        "exportin1_dependency": "Functional Export Signals"
+      }
+    },
+    "p28gank": {
+      "field_results": {
+        "protein_sequence": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "MEGCVSNLMVCNLAYSGKLEELKESILADKSLATRTDQ",
+          "pred_value": "amino acids 1-38 at the N terminus",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.08277295529842377,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_presence": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_strength": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly quantified",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_confidence": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly stated",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_location": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "N terminus (amino acids 1-38)",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_dependency": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKSKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFVTLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHDQLIEKRLNLRETLMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDVPPRRQLYLPMLFKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTERIMTEKLHNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPTQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTSLNPGNPVNNQIFLQEYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEEREIALRQADEEKHKRQMSVPGIFNPHEIPEEMCD",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "hydrophobic_residues": {
+          "gt_field": "Other Residues Important for Export",
+          "gt_value": "[]",
+          "pred_value": "leucine-rich",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_pattern": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "LYYKASTNIQDTEGNTPLHLAC",
+          "pred_value": "leucine-rich",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.33129680156707764,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_type": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "leucine-rich NES",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_length": {
+          "gt_field": "Min ranges len",
+          "gt_value": "37",
+          "pred_value": "38",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "key_residues": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Leucine-rich NES at the N terminus (amino acids 1-38)",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_consensus": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Not explicitly stated",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "Mutations That Affect CRM1 Binding",
+          "gt_value": "[]",
+          "pred_value": "CRM1-dependent pathway",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_prediction_method": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Mutational analysis and immunostaining",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_validation": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Experimental methods such as immunofluorescence, confocal microscopy, and nuclear protein extraction",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "exportin1_dependency": {
+          "gt_field": "Functional Export Signals",
+          "gt_value": "[]",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_masking": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Yes",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nes_accessibility": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Accessible at the N terminus",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        }
+      },
+      "field_recall": 0.42105263157894735,
+      "gt_recall": 0.6153846153846154,
+      "matched_fields": 8,
+      "total_pred_fields": 19,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.0,
+        "semantic_similarity": 0.051758719608187675
+      },
+      "alignment_matrix": {
+        "protein_sequence": "Peptide_sequence",
+        "nes_presence": "is_NesDB_doubt",
+        "crm1_dependency": "CRM1_sequence",
+        "hydrophobic_residues": "Other Residues Important for Export",
+        "nes_pattern": "Negative_sequence",
+        "nes_length": "Min ranges len",
+        "crm1_interaction": "Mutations That Affect CRM1 Binding",
+        "exportin1_dependency": "Functional Export Signals"
+      }
+    }
+  }
+}

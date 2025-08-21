@@ -1,0 +1,779 @@
+{
+  "overall_stats": {
+    "total_proteins_evaluated": 7,
+    "schema_recall": 0.38461538461538464,
+    "field_recall": 0.625,
+    "exact_match_score": 0.0,
+    "semantic_similarity_score": 0.07223733578409466,
+    "median_schema_recall": 0.38461538461538464,
+    "std_schema_recall": 0.0,
+    "avg_field_recall": 0.625,
+    "avg_exact_match": 0.0,
+    "avg_semantic_similarity": 0.07223733578409466
+  },
+  "protein_results": {
+    "hst2": {
+      "field_results": {
+        "protein_name": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "EIVHDLENLSLDQSEHESAD",
+          "pred_value": "Hst2",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.2709270417690277,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_sequence": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "VRKIAAHMKSNPNAKVIFMVGA",
+          "pred_value": "LX 2−3 LX 2−3 LXL",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.02203013375401497,
+            "has_prediction": 1.0
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MEGILDFSNDLDIALLDQVVSTFYQGSGVQQKQAQEILTKFQDNPDAWQKADQILQFSTNPQSKFIALSILDKLITRKWKLLPNDHRIGIRNFVVGMIISMCQDDEVFKTQKNLINKSDLTLVQILKQEWPQNWPEFIPELIGSSSSSVNVCENNMIVLKLLSEEVFDFSAEQMTQAKALHLKNSMSKEFEQIFKLCFQVLEQGSSSSLIVATLESLLRYLHWIPYRYIYETNILELLSTKFMTSPDTRAITLKCLTEVSNLKIPQDNDLIKRQTVLFFQNTLQQIATSVMPVTADLKATYANANGNDQSFLQDLAMFLTTYLARNRALLESDESLRELLLNAHQYLIQLSKIEERELFKTTLDYWHNLVADLFYEVQRLPATEMSPLIQLSVGSQAISTGSGALNPEYMKRFPLKKHIYEEICSQLRLVIIENMVRPEEVLVVENDEGEIVREFVKESDTIQLYKSEREVLVYLTHLNVIDTEEIMISKLARQIDGSEWSWHNINTLSWAIGSISGTMSEDTEKRFVVTVIKDLLDLTVKKRGKDNKAVVASDIMYVVGQYPRFLKAHWNFLRTVILKLFEFMHETHEGVQDMACDTFIKIVQKCKYHFVIQQPRESEPFIQTIIRDIQKTTADLQPQQVHTFYKACGIIISEERSVAERNRLLSDLMQLPNMAWDTIVEQSTANPTLLLDSETVKIIANIIKTNVAVCTSMGADFYPQLGHIYYNMLQLYRAVSSMISAQVAAEGLIATKTPKVRGLRTIKKEILKLVETYISKARNLDDVVKVLVEPLLNAVLEDYMNNVPDARDAEVLNCMTTVVEKVGHMIPQGVILILQSVFECTLDMINKDFTEYPEHRVEFYKLLKVINEKSFAAFLELPPAAFKLFVDAICWAFKHNNRDVEVNGLQIALDLVKNIERMGNVPFANEFHKNYFFIFVSETFFVLTDSDHKSGFSKQALLLMKLISLVYDNKISVPLYQEAEVPQGTSNQVYLSQYLANMLSNAFPHLTSEQIASFLSALTKQYKDLVVFKGTLRDFLVQIKEVGGDPTDYLFAEDKENALMEQNRLEREKAAKIGGLLKPSELDD",
+          "pred_value": "Crm1 recognizes a leucine (L)-rich nuclear export sequence (NES) of the form LX2−3LX2−3LXL",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.009882115758955479,
+            "has_prediction": 1.0
+          }
+        },
+        "nuclear_export_mechanism": {
+          "gt_field": "Mutations That Affect Nuclear Export",
+          "gt_value": "['315-317']",
+          "pred_value": "Crm1-dependent nuclear export mediated by a putative leucine-rich nuclear export sequence",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "subcellular_localization": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "cytoplasmic",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "ran_gtp_dependency": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly mentioned",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nup214_interaction": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "{}",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich_nes": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        }
+      },
+      "field_recall": 0.625,
+      "gt_recall": 0.38461538461538464,
+      "matched_fields": 5,
+      "total_pred_fields": 8,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.0,
+        "semantic_similarity": 0.06056785825639963
+      },
+      "alignment_matrix": {
+        "protein_name": "Peptide_sequence",
+        "nes_sequence": "Negative_sequence",
+        "crm1_interaction": "CRM1_sequence",
+        "nuclear_export_mechanism": "Mutations That Affect Nuclear Export",
+        "leucine_rich_nes": "is_NesDB_doubt"
+      }
+    },
+    "l-prx": {
+      "field_results": {
+        "protein_name": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "ENFKYEDALRLLQCAEPYKV",
+          "pred_value": "L-periaxin",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.05708789825439453,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_sequence": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "VSEVAVPEVRLPEVQLPKVPEM",
+          "pred_value": "Between residues 73 and 86, with a double leucine motif (L83, 85)",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.07441078871488571,
+            "has_prediction": 1.0
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKSKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFVTLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHDQLIEKRLNLRETLMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDVPPRRQLYLPMLFKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTERIMTEKLHNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPTQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTSLNPGNPVNNQIFLQEYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEEREIALRQADEEKHKRQMSVPGIFNPHEIPEEMCD",
+          "pred_value": "inhibited by LMB, which prevents NES-dependent nuclear protein export by inhibiting the interaction of NES with CRM1/exportin",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.008235613815486431,
+            "has_prediction": 1.0
+          }
+        },
+        "nuclear_export_mechanism": {
+          "gt_field": "Mutations That Affect Nuclear Export",
+          "gt_value": "['81-83']",
+          "pred_value": "The protein is forcibly excluded from the nucleus to the cytoplasm through a nuclear export signal (NES) that interacts with the export receptor CRM1",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "subcellular_localization": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "cytoplasmic and nuclear",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "ran_gtp_dependency": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly mentioned",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nup214_interaction": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "No interaction between the protein and nucleoporin Nup214 was mentioned in the text.",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich_nes": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        }
+      },
+      "field_recall": 0.625,
+      "gt_recall": 0.38461538461538464,
+      "matched_fields": 5,
+      "total_pred_fields": 8,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.0,
+        "semantic_similarity": 0.027946860156953336
+      },
+      "alignment_matrix": {
+        "protein_name": "Peptide_sequence",
+        "nes_sequence": "Negative_sequence",
+        "crm1_interaction": "CRM1_sequence",
+        "nuclear_export_mechanism": "Mutations That Affect Nuclear Export",
+        "leucine_rich_nes": "is_NesDB_doubt"
+      }
+    },
+    "l-periaxin": {
+      "field_results": {
+        "protein_name": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "ENFKYEDALRLLQCAEPYKV",
+          "pred_value": "L-periaxin",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.05708789825439453,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_sequence": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "KLPKVPEMAVPDVRIPEVQLPK",
+          "pred_value": "Between residues 73 and 86, characterized by a leucine-rich sequence",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.11821940541267395,
+            "has_prediction": 1.0
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKAKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFETLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHGQLLEKRLNLREALMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDIPPRRQLYLTVLSKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTEIIMTKKLQNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPAQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTPLNPGSPVSNQMFIQDYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEERETALRQAQEEKHKLQMSVPGILNPHEIPEEMCD",
+          "pred_value": "inhibited by leptomycin B (LMB), which prevents NES-dependent nuclear protein export by inhibiting the interaction of NES with CRM1/exportin",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nuclear_export_mechanism": {
+          "gt_field": "Mutations That Affect Nuclear Export",
+          "gt_value": "['81-83']",
+          "pred_value": "Nuclear export signal (NES) in the PDZ domain, mediated by the export receptor CRM1/exportin",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "subcellular_localization": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "cytoplasmic and nuclear",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "ran_gtp_dependency": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "not explicitly mentioned",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nup214_interaction": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "None",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich_nes": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        }
+      },
+      "field_recall": 0.625,
+      "gt_recall": 0.38461538461538464,
+      "matched_fields": 5,
+      "total_pred_fields": 8,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.0,
+        "semantic_similarity": 0.035061460733413694
+      },
+      "alignment_matrix": {
+        "protein_name": "Peptide_sequence",
+        "nes_sequence": "Negative_sequence",
+        "crm1_interaction": "CRM1_sequence",
+        "nuclear_export_mechanism": "Mutations That Affect Nuclear Export",
+        "leucine_rich_nes": "is_NesDB_doubt"
+      }
+    },
+    "nade": {
+      "field_results": {
+        "protein_name": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "EMREIRRKLRELQLRNCLRI",
+          "pred_value": "NADE",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.23775871098041534,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_sequence": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "QARRLAPNFRWAIPNRQMNDGL",
+          "pred_value": "leucine-rich",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.08700495958328247,
+            "has_prediction": 1.0
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKAKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFETLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHGQLLEKRLNLREALMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDIPPRRQLYLTVLSKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTEIIMTKKLQNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPAQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTPLNPGNPVNNQMFIQDYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEERETALRQAQEEKHKLQMSVPGILNPHEIPEEMCD",
+          "pred_value": "leucine-rich nuclear export signal (NES) is used for protein transportation from nucleus to cytosol",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nuclear_export_mechanism": {
+          "gt_field": "Mutations That Affect Nuclear Export",
+          "gt_value": "['94-97']",
+          "pred_value": "leucine-rich nuclear export signal (NES)",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.032072387635707855,
+            "has_prediction": 1.0
+          }
+        },
+        "subcellular_localization": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "cytoplasm and nucleus",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "ran_gtp_dependency": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Not explicitly mentioned",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nup214_interaction": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "{}",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich_nes": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "present",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        }
+      },
+      "field_recall": 0.625,
+      "gt_recall": 0.38461538461538464,
+      "matched_fields": 5,
+      "total_pred_fields": 8,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.0,
+        "semantic_similarity": 0.07136721163988113
+      },
+      "alignment_matrix": {
+        "protein_name": "Peptide_sequence",
+        "nes_sequence": "Negative_sequence",
+        "crm1_interaction": "CRM1_sequence",
+        "nuclear_export_mechanism": "Mutations That Affect Nuclear Export",
+        "leucine_rich_nes": "is_NesDB_doubt"
+      }
+    },
+    "wdr42a": {
+      "field_results": {
+        "protein_name": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "TSSGIEVEASDLSLSLTGDD",
+          "pred_value": "WDR42A",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.21145257353782654,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_sequence": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "DLFDSHMLWFLMHHLRQRRHHR",
+          "pred_value": "39 IEVEASDLSLSL 50",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.3714962303638458,
+            "has_prediction": 1.0
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKSKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFVTLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHDQLIEKRLNLRETLMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDVPPRRQLYLPMLFKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTERIMTEKLHNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPTQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTSLNPGNPVNNQIFLQEYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEEREIALRQADEEKHKRQMSVPGIFNPHEIPEEMCD",
+          "pred_value": "direct recognition of NES",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.06375487893819809,
+            "has_prediction": 1.0
+          }
+        },
+        "nuclear_export_mechanism": {
+          "gt_field": "Mutations That Affect Nuclear Export",
+          "gt_value": "['39-50']",
+          "pred_value": "CRM1-dependent",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.043035052716732025,
+            "has_prediction": 1.0
+          }
+        },
+        "subcellular_localization": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "nucleus and cytoplasm",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "ran_gtp_dependency": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Ran dependent and required GTP hydrolysis for nuclear import, but not explicitly stated for nuclear export",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nup214_interaction": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "None",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich_nes": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        }
+      },
+      "field_recall": 0.625,
+      "gt_recall": 0.38461538461538464,
+      "matched_fields": 5,
+      "total_pred_fields": 8,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.0,
+        "semantic_similarity": 0.1379477471113205
+      },
+      "alignment_matrix": {
+        "protein_name": "Peptide_sequence",
+        "nes_sequence": "Negative_sequence",
+        "crm1_interaction": "CRM1_sequence",
+        "nuclear_export_mechanism": "Mutations That Affect Nuclear Export",
+        "leucine_rich_nes": "is_NesDB_doubt"
+      }
+    },
+    "p120ctn": {
+      "field_results": {
+        "protein_name": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "QESLEEELDVLVLDDEGGQV",
+          "pred_value": "p120 ctn",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.1413586288690567,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_sequence": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "LLDHPKKEVHLGACGALKNISF",
+          "pred_value": "leucine-rich motif",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.17223721742630005,
+            "has_prediction": 1.0
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKSKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFVTLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHDQLIEKRLNLRETLMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDVPPRRQLYLPMLFKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTERIMTEKLHNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPTQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTSLNPGNPVNNQIFLQEYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEEREIALRQADEEKHKRQMSVPGIFNPHEIPEEMCD",
+          "pred_value": "leucine-rich NES",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.08487413823604584,
+            "has_prediction": 1.0
+          }
+        },
+        "nuclear_export_mechanism": {
+          "gt_field": "Mutations That Affect Nuclear Export",
+          "gt_value": "['951-953']",
+          "pred_value": "leucine-rich nuclear export signal (NES) encoded by exon B",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.12007845938205719,
+            "has_prediction": 1.0
+          }
+        },
+        "subcellular_localization": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "nuclear and cytoplasmic",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "ran_gtp_dependency": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "None",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nup214_interaction": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "{}",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich_nes": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "yes",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        }
+      },
+      "field_recall": 0.625,
+      "gt_recall": 0.38461538461538464,
+      "matched_fields": 5,
+      "total_pred_fields": 8,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.0,
+        "semantic_similarity": 0.10370968878269196
+      },
+      "alignment_matrix": {
+        "protein_name": "Peptide_sequence",
+        "nes_sequence": "Negative_sequence",
+        "crm1_interaction": "CRM1_sequence",
+        "nuclear_export_mechanism": "Mutations That Affect Nuclear Export",
+        "leucine_rich_nes": "is_NesDB_doubt"
+      }
+    },
+    "p28gank": {
+      "field_results": {
+        "protein_name": {
+          "gt_field": "Peptide_sequence",
+          "gt_value": "MEGCVSNLMVCNLAYSGKLEELKESILADKSLATRTDQ",
+          "pred_value": "p28 GANK",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.1967172920703888,
+            "has_prediction": 1.0
+          }
+        },
+        "nes_sequence": {
+          "gt_field": "Negative_sequence",
+          "gt_value": "LYYKASTNIQDTEGNTPLHLAC",
+          "pred_value": "located at the N terminus of p28 GANK",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.09055513888597488,
+            "has_prediction": 1.0
+          }
+        },
+        "crm1_interaction": {
+          "gt_field": "CRM1_sequence",
+          "gt_value": "MPAIMTMLADHAARQLLDFSQKLDINLLDNVVNCLYHGEGAQQRMAQEVLTHLKEHPDAWTRVDTILEFSQNMNTKYYGLQILENVIKTRWKILPRNQCEGIKKYVVGLIIKTSSDPTCVEKEKVYIGKLNMILVQILKQEWPKHWPTFISDIVGASRTSESLCQNNMVILKLLSEEVFDFSSGQITQVKSKHLKDSMCNEFSQIFQLCQFVMENSQNAPLVHATLETLLRFLNWIPLGYIFETKLISTLIYKFLNVPMFRNVSLKCLTEIAGVSVSQYEEQFVTLFTLTMMQLKQMLPLNTNIRLAYSNGKDDEQNFIQNLSLFLCTFLKEHDQLIEKRLNLRETLMEALHYMLLVSEVEETEIFKICLEYWNHLAAELYRESPFSTSASPLLSGSQHFDVPPRRQLYLPMLFKVRLLMVSRMAKPEEVLVVENDQGEVVREFMKDTDSINLYKNMRETLVYLTHLDYVDTERIMTEKLHNQVNGTEWSWKNLNTLCWAIGSISGAMHEEDEKRFLVTVIKDLLGLCEQKRGKDNKAIIASNIMYIVGQYPRFLRAHWKFLKTVVNKLFEFMHETHDGVQDMACDTFIKIAQKCRRHFVQVQVGEVMPFIDEILNNINTIICDLQPQQVHTFYEAVGYMIGAQTDQTVQEHLIEKYMLLPNQVWDSIIQQATKNVDILKDPETVKQLGSILKTNVRACKAVGHPFVIQLGRIYLDMLNVYKCLSENISAAIQANGEMVTKQPLIRSMRTVKRETLKLISGWVSRSNDPQMVAENFVPPLLDAVLIDYQRNVPAAREPEVLSTMAIIVNKLGGHITAEIPQIFDAVFECTLNMINKDFEEYPEHRTNFFLLLQAVNSHCFPAFLAIPPTQFKLVLDSIIWAFKHTMRNVADTGLQILFTLLQNVAQEEAAAQSFYQTYFCDILQHIFSVVTDTSHTAGLTMHASILAYMFNLVEEGKISTSLNPGNPVNNQIFLQEYVANLLKSAFPHLQDAQVKLFVTGLFSLNQDIPAFKEHLRDFLVQIKEFAGEDTSDLFLEEREIALRQADEEKHKRQMSVPGIFNPHEIPEEMCD",
+          "pred_value": "CRM1-dependent pathway, disrupts the interaction between CRM1/exportin 1 and the nuclear export signal",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        },
+        "nuclear_export_mechanism": {
+          "gt_field": "Mutations That Affect Nuclear Export",
+          "gt_value": "['1-38']",
+          "pred_value": "CRM1-dependent pathway",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.05803018808364868,
+            "has_prediction": 1.0
+          }
+        },
+        "subcellular_localization": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "nuclear and cytoplasmic",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "ran_gtp_dependency": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "Not explicitly mentioned in the provided text.",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "nup214_interaction": {
+          "gt_field": null,
+          "gt_value": "",
+          "pred_value": "None",
+          "scores": {
+            "exact_match": 0,
+            "substring_match": 0,
+            "semantic_similarity": 0,
+            "has_prediction": 1
+          }
+        },
+        "leucine_rich_nes": {
+          "gt_field": "is_NesDB_doubt",
+          "gt_value": "False",
+          "pred_value": "present in IκBα",
+          "scores": {
+            "exact_match": 0.0,
+            "substring_match": 0.0,
+            "semantic_similarity": 0.0,
+            "has_prediction": 1.0
+          }
+        }
+      },
+      "field_recall": 0.625,
+      "gt_recall": 0.38461538461538464,
+      "matched_fields": 5,
+      "total_pred_fields": 8,
+      "total_gt_fields": 13,
+      "avg_scores": {
+        "exact_match": 0.0,
+        "substring_match": 0.0,
+        "semantic_similarity": 0.06906052380800247
+      },
+      "alignment_matrix": {
+        "protein_name": "Peptide_sequence",
+        "nes_sequence": "Negative_sequence",
+        "crm1_interaction": "CRM1_sequence",
+        "nuclear_export_mechanism": "Mutations That Affect Nuclear Export",
+        "leucine_rich_nes": "is_NesDB_doubt"
+      }
+    }
+  }
+}

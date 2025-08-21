@@ -418,14 +418,17 @@ class ValueExtractorEvaluator:
         
         overall_stats = {
             'total_proteins_evaluated': len(results),
-            # Core metrics (value-weighted)
-            'schema_recall': comprehensive_metrics['schema_recall'],  # GT-based recall
-            'field_recall': comprehensive_metrics['field_recall'],   # Prediction-based recall
-            'precision': comprehensive_metrics['precision'],          # Value-weighted precision
-            'f1_score': comprehensive_metrics['f1_score'],           # Value-weighted F1 score
-            # Schema-only metrics
-            'schema_precision': comprehensive_metrics['schema_precision'],  # Schema-only precision
-            'schema_f1': comprehensive_metrics['schema_f1'],               # Schema-only F1 score
+            # Organized metrics structure as requested
+            'schema': {
+                'recall': comprehensive_metrics['schema_recall'],
+                'precision': comprehensive_metrics['schema_precision'],
+                'f1': comprehensive_metrics['schema_f1']
+            },
+            'values': {
+                'recall': comprehensive_metrics['schema_recall'],  # Same as schema recall
+                'precision': comprehensive_metrics['precision'],   # Value-weighted precision
+                'f1': comprehensive_metrics['f1_score']          # Value-weighted F1
+            },
             # Content quality metrics
             'exact_match_score': comprehensive_metrics['exact_match_score'],
             'semantic_similarity_score': comprehensive_metrics['semantic_similarity_score'],
@@ -441,6 +444,12 @@ class ValueExtractorEvaluator:
             'median_schema_f1': comprehensive_metrics['median_schema_f1'],
             'std_schema_f1': comprehensive_metrics['std_schema_f1'],
             # Legacy metrics for compatibility
+            'schema_recall': comprehensive_metrics['schema_recall'],
+            'field_recall': comprehensive_metrics['field_recall'],
+            'precision': comprehensive_metrics['precision'],
+            'f1_score': comprehensive_metrics['f1_score'],
+            'schema_precision': comprehensive_metrics['schema_precision'],
+            'schema_f1': comprehensive_metrics['schema_f1'],
             'avg_field_recall': comprehensive_metrics['field_recall'],
             'avg_exact_match': comprehensive_metrics['exact_match_score'], 
             'avg_semantic_similarity': comprehensive_metrics['semantic_similarity_score']
@@ -449,11 +458,14 @@ class ValueExtractorEvaluator:
         # Print summary
         print(f"\n=== EVALUATION SUMMARY ===")
         print(f"Total proteins evaluated: {overall_stats['total_proteins_evaluated']}")
-        print(f"\n--- Core Performance Metrics ---")
-        print(f"Schema recall (GT-based): {overall_stats['schema_recall']:.3f}")
-        print(f"Precision: {overall_stats['precision']:.3f}")
-        print(f"F1 Score: {overall_stats['f1_score']:.3f}")
-        print(f"Field recall (Pred-based): {overall_stats['field_recall']:.3f}")
+        print(f"\n--- Schema Metrics ---")
+        print(f"Schema recall: {overall_stats['schema']['recall']:.3f}")
+        print(f"Schema precision: {overall_stats['schema']['precision']:.3f}")
+        print(f"Schema F1: {overall_stats['schema']['f1']:.3f}")
+        print(f"\n--- Value Metrics ---")
+        print(f"Value recall: {overall_stats['values']['recall']:.3f}")
+        print(f"Value precision: {overall_stats['values']['precision']:.3f}")
+        print(f"Value F1: {overall_stats['values']['f1']:.3f}")
         print(f"\n--- Content Quality Metrics ---")
         print(f"Exact match score: {overall_stats['exact_match_score']:.3f}")
         print(f"Semantic similarity score: {overall_stats['semantic_similarity_score']:.3f}")
