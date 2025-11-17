@@ -70,7 +70,8 @@ def _parse_schema_from_llm(raw_text: str,
         # print(f"cleaned raw text good: {raw_text}")
     except (json.JSONDecodeError, TypeError, KeyError):
         # ← fallback: lenient parsing for old models / bad outputs
-        print(f"cleaned fallback to no definition. raw text: {cleaned}")
+        print(f"❌ JSON parsing failed. Cleaned text: '{cleaned}'")
+        print(f"📝 Original raw text (first 500 chars): '{raw_text[:500]}'")
         columns = []
         for line in raw_text.splitlines():
             if ":" in line:
@@ -81,6 +82,7 @@ def _parse_schema_from_llm(raw_text: str,
                         definition="",
                         rationale=rationale
                     ))
+        print(f"📊 Extracted {len(columns)} columns from fallback parsing")
     return Schema(query=query, max_keys=max_keys_schema, columns=columns)
 
 
