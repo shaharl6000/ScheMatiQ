@@ -24,6 +24,7 @@ import itertools
 import argparse
 import json
 import logging, re
+import time
 from pathlib import Path
 from schema import Schema, Column
 
@@ -273,11 +274,17 @@ def main(cfg_path: Path) -> None:
     docs = load_documents(docs_path)
 
     # Run discovery
+    start_time = time.time()
     schema = discover_schema(query, docs, max_keys_schema, llm_for_schema, retriever)
+    elapsed_time = time.time() - start_time
+
+    # Log timing results
+    logging.info("Schema discovery completed for %d documents in %.2f seconds (%.2f minutes)", len(docs), elapsed_time, elapsed_time / 60)
 
     # Persist artefact
     save_schema(output_path, query, retriever_cfg, backend_cfg, str(docs_path), schema)
 
+    print(f"\nSchema discovery completed for {len(docs)} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
     print("\nFinal schema\n------------")
     for col in schema:
         print(f"• {col.name}: {col.rationale}")

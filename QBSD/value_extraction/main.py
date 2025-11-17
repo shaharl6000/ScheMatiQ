@@ -1,6 +1,7 @@
 """Main entry point for value extraction with refactored structure."""
 
 import json
+import time
 from pathlib import Path
 
 import utils
@@ -59,6 +60,13 @@ def main(cfg_path: Path) -> None:
     llm = utils.build_llm(backend_cfg)
     retriever = utils.build_retriever(retriever_cfg) if retriever_cfg is not None else None
 
+    # Count documents in the directory
+    docs = sorted(docs_dir.glob("*"))
+    docs_count = len(docs)
+
+    # Run value extraction with timing
+    print(f"Starting value extraction for {docs_count} documents...")
+    start_time = time.time()
     build_table_jsonl(
         schema_path,
         docs_dir,
@@ -71,3 +79,6 @@ def main(cfg_path: Path) -> None:
         retrieval_k=retrieval_k,
         max_workers=max_workers,
     )
+    elapsed_time = time.time() - start_time
+    
+    print(f"\nValue extraction completed for {docs_count} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")

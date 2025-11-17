@@ -6,7 +6,7 @@
     "provider": "hf",
     "model": "meta-llama/Llama-3.2-3B",
     "max_tokens": 1000,
-    "temperature": 0.2
+    "temperature": 0.8
   },
   "retriever": {
     "type": "embedding",
@@ -21,5 +21,5 @@
     "overlap_words": 64,
     "respect_structure": true
   },
-  "output_path": "outputs/nes_exp_llama3_2_3b.json"
+  "output_path": "outputs/nes_exp_llama3_2_3b_temp08.json"
 }
