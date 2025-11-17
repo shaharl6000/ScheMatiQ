@@ -408,10 +408,41 @@ class GeminiLLM(LLMInterface):
                     prompt_text,
                     generation_config=gen_config
                 )
+                
+                # Handle safety filtering or empty responses
+                if not response.candidates:
+                    print(f"⚠️  Gemini returned no candidates. Finish reason: {response.prompt_feedback}")
+                    return "No response generated due to safety filters or other restrictions."
+                
+                candidate = response.candidates[0]
+                if candidate.finish_reason and candidate.finish_reason != 1:  # 1 = STOP (normal completion)
+                    finish_reasons = {
+                        2: "SAFETY (blocked by safety filters)",
+                        3: "RECITATION (blocked due to recitation)",
+                        4: "OTHER",
+                        5: "BLOCKLIST",
+                        6: "PROHIBITED_CONTENT",
+                        7: "SPII",
+                        8: "MALFORMED_FUNCTION_CALL"
+                    }
+                    reason = finish_reasons.get(candidate.finish_reason, f"UNKNOWN ({candidate.finish_reason})")
+                    print(f"⚠️  Gemini blocked response. Reason: {reason}")
+                    return f"Response blocked by Gemini: {reason}. Please try rephrasing your request."
+                
+                if not candidate.content or not candidate.content.parts:
+                    print("⚠️  Gemini returned empty content")
+                    return "Empty response from Gemini."
+                
                 return response.text.strip()
+                
             except Exception as e:
                 error_str = str(e)
                 last_exception = e
+                
+                # Handle safety filter errors specifically
+                if "Invalid operation" in error_str and "finish_reason" in error_str:
+                    print(f"⚠️  Gemini safety filter triggered: {error_str}")
+                    return "Response blocked by Gemini safety filters. Please try rephrasing your request."
                 
                 # Check if this is a retryable error
                 if _is_rate_limit_error(error_str) or "quota" in error_str.lower():
