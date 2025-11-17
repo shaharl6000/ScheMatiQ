@@ -367,7 +367,31 @@ class GeminiLLM(LLMInterface):
                 "(https://pypi.org/project/google-generativeai/)") from e
 
         genai.configure(api_key=self.api_key)
-        self._client = genai.GenerativeModel(self.model)
+        
+        # Configure safety settings to be less restrictive for scientific content
+        safety_settings = [
+            {
+                "category": "HARM_CATEGORY_HARASSMENT",
+                "threshold": "BLOCK_ONLY_HIGH"
+            },
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_ONLY_HIGH"
+            },
+            {
+                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "threshold": "BLOCK_ONLY_HIGH"
+            },
+            {
+                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                "threshold": "BLOCK_ONLY_HIGH"
+            }
+        ]
+        
+        self._client = genai.GenerativeModel(
+            self.model,
+            safety_settings=safety_settings
+        )
         self._default_args: Dict[str, Any] = dict(
             generation_config=genai.types.GenerationConfig(
                 max_output_tokens=max_tokens,
@@ -390,6 +414,10 @@ class GeminiLLM(LLMInterface):
             prompt_text = "\n".join([f"{m['role']}: {m['content']}" for m in prompt])
         else:
             prompt_text = prompt
+            
+        # Add scientific context to help with safety filtering
+        scientific_context = "Context: This is a scientific research task about cellular biology and protein sequences. Terms like 'nuclear' refer to cell nuclei (the cellular organelle), not weapons or harmful content."
+        prompt_text = f"{scientific_context}\n\n{prompt_text}"
 
         # Merge generation config
         gen_config = self._default_args["generation_config"]
