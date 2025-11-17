@@ -333,3 +333,106 @@ class HuggingFaceLLM(LLMInterface):
 
         output = self.generator(prompt, **gen_args)[0]["generated_text"]
         return output.strip()
+
+
+##############################################################################
+# 4. Google Gemini implementation                                           #
+##############################################################################
+
+class GeminiLLM(LLMInterface):
+    """
+     llm = GeminiLLM(model="gemini-1.5-flash")
+     answer = llm.generate("What is the capital of France?")
+    """
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str | None = None,
+        max_tokens: int = 1024,
+        temperature: float = 0.3,
+        **backend_kwargs,
+    ):
+        super().__init__(**backend_kwargs)
+        self.model = model
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        if not self.api_key:
+            raise ValueError("Gemini API key missing. Set GEMINI_API_KEY.")
+        
+        try:
+            import google.generativeai as genai
+        except ImportError as e:
+            raise ImportError(
+                "pip install google-generativeai "
+                "(https://pypi.org/project/google-generativeai/)") from e
+
+        genai.configure(api_key=self.api_key)
+        self._client = genai.GenerativeModel(self.model)
+        self._default_args: Dict[str, Any] = dict(
+            generation_config=genai.types.GenerationConfig(
+                max_output_tokens=max_tokens,
+                temperature=temperature,
+            )
+        )
+
+    def generate(self,
+                 prompt: Union[str, List[Dict[str, str]]],
+                 **kwargs) -> str:
+        """
+        Args
+        ----
+        prompt : str | list[dict]
+            • str  – plain prompt
+            • list – chat-style messages (converted to plain prompt)
+        """
+        # Convert chat messages to plain text if needed
+        if isinstance(prompt, list):
+            prompt_text = "\n".join([f"{m['role']}: {m['content']}" for m in prompt])
+        else:
+            prompt_text = prompt
+
+        # Merge generation config
+        gen_config = self._default_args["generation_config"]
+        if kwargs.get("max_tokens"):
+            gen_config.max_output_tokens = kwargs["max_tokens"]
+        if kwargs.get("temperature") is not None:
+            gen_config.temperature = kwargs["temperature"]
+
+        # Retry logic for rate limits
+        max_retries = 3
+        last_exception = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                response = self._client.generate_content(
+                    prompt_text,
+                    generation_config=gen_config
+                )
+                return response.text.strip()
+            except Exception as e:
+                error_str = str(e)
+                last_exception = e
+                
+                # Check if this is a retryable error
+                if _is_rate_limit_error(error_str) or "quota" in error_str.lower():
+                    if attempt < max_retries:
+                        wait_time = _extract_wait_time(error_str)
+                        print(f"🚦 Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"❌ Rate limit error after {max_retries} retries: {error_str}")
+                elif _is_server_overloaded_error(error_str):
+                    if attempt < max_retries:
+                        wait_time = 10 + random.randint(5, 15)
+                        print(f"🔄 Server overloaded (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        time.sleep(wait_time)
+                        continue
+                    else:
+                        print(f"❌ Server overloaded error after {max_retries} retries: {error_str}")
+                else:
+                    # Not a retryable error, don't retry
+                    break
+        
+        # Re-raise the last exception
+        raise last_exception

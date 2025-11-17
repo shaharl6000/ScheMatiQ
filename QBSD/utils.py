@@ -1,6 +1,6 @@
 
 from retrievers import Retriever, EmbeddingRetriever, PromptingRetriever, test_retriever_stability
-from llm_backends import LLMInterface, TogetherLLM, OpenAILLM, HuggingFaceLLM
+from llm_backends import LLMInterface, TogetherLLM, OpenAILLM, HuggingFaceLLM, GeminiLLM
 from typing import List, Dict, Any
 from pathlib import Path
 import io, difflib
@@ -100,6 +100,13 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
     elif provider == "hf":
         return HuggingFaceLLM(
             model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct"),
+            max_tokens=cfg.get("max_tokens", 1024),
+            temperature=cfg.get("temperature", 0.3),
+            api_key=cfg.get("api_key"),
+        )
+    elif provider == "gemini":
+        return GeminiLLM(
+            model=cfg.get("model", "gemini-1.5-flash"),
             max_tokens=cfg.get("max_tokens", 1024),
             temperature=cfg.get("temperature", 0.3),
             api_key=cfg.get("api_key"),
