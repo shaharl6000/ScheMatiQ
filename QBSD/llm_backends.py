@@ -12,6 +12,7 @@ import time
 import random
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Union
+import re
 
 ##############################################################################
 # Rate limit retry utilities                                                 #
@@ -443,19 +444,9 @@ class GeminiLLM(LLMInterface):
                     return "No response generated due to safety filters or other restrictions."
                 
                 candidate = response.candidates[0]
-                if candidate.finish_reason and candidate.finish_reason != 1:  # 1 = STOP (normal completion)
-                    finish_reasons = {
-                        2: "SAFETY (blocked by safety filters)",
-                        3: "RECITATION (blocked due to recitation)",
-                        4: "OTHER",
-                        5: "BLOCKLIST",
-                        6: "PROHIBITED_CONTENT",
-                        7: "SPII",
-                        8: "MALFORMED_FUNCTION_CALL"
-                    }
-                    reason = finish_reasons.get(candidate.finish_reason, f"UNKNOWN ({candidate.finish_reason})")
-                    print(f"⚠️  Gemini blocked response. Reason: {reason}")
-                    return f"Response blocked by Gemini: {reason}. Please try rephrasing your request."
+                finish_reason = candidate.finish_reason.name
+                if finish_reason and finish_reason != "STOP":  # 1 = STOP (normal completion)
+                    print(f"✅ Response generated. Finish reason: {finish_reason}")
                 
                 if not candidate.content or not candidate.content.parts:
                     print("⚠️  Gemini returned empty content")

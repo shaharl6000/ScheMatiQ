@@ -5,7 +5,7 @@
   "backend": {
     "provider": "hf",
     "model": "Qwen/Qwen2.5-7B-Instruct",
-    "max_tokens": 1000,
+    "max_tokens": 10000,
     "temperature": 0.2
   },
   "retriever": {
@@ -21,5 +21,5 @@
     "overlap_words": 64,
     "respect_structure": true
   },
-  "output_path": "outputs/nes_exp_qwen2_5_7b.json"
+  "output_path": "outputs/nes_exp_qwen2_5_7b_10000.json"
 }
