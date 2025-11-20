@@ -313,6 +313,7 @@ def fit_prompt(
     safety_margins: int = SAFETY_MARGIN,
     sentence_levels: tuple[int, ...] = DEFAULT_SENTENCE_LEVELS,
     truncate: bool = False,
+    max_context_tokens: int = MAX_CTX_TOKENS,
 ) -> list[dict[str, str]]:
     """
     Ensure (prompt_tokens + max_new) ≤ MAX_CTX_TOKENS–SAFETY_MARGIN.
@@ -323,7 +324,7 @@ def fit_prompt(
     # ------------------------------------------------------------------ #
     # Fast path: if we only want raw truncation
     # ------------------------------------------------------------------ #
-    allowed_prompt = MAX_CTX_TOKENS - safety_margins - max_new
+    allowed_prompt = max_context_tokens - safety_margins - max_new
     user_msg = messages[1]["content"]
 
     if truncate:
@@ -338,26 +339,26 @@ def fit_prompt(
     # ------------------------------------------------------------------ #
     # Original logic (shorten abstracts → drop papers → header‑only)
     # ------------------------------------------------------------------ #
-    def shorten(block: str, cap: int) -> str:
+    def shorten(block: str, sentence_cap: int) -> str:
         title, sep, abstract = block.partition("Paper content:")
         if not sep:                       # separator missing → leave as‑is
             return block
         sentences = re.split(r"(?<=[.!?])\\s+", abstract.strip())
-        short_abs = " ".join(sentences[:cap])
+        short_abs = " ".join(sentences[:sentence_cap])
         return f"{title}{sep} {short_abs}"
 
     header, _, papers_blob = user_msg.partition("\\n\\nPapers:\\n\\n")
     blocks = papers_blob.split("\\n\\n") if papers_blob else []
 
     full_len = n_tokens(user_msg) + max_new
-    if full_len <= MAX_CTX_TOKENS - SAFETY_MARGIN:
+    if full_len <= max_context_tokens - SAFETY_MARGIN:
         return messages                                        # fits as‑is ✅
 
     # 1) shorten Paper contents ----------------------------------------
     for cap in sentence_levels:
         new_blocks = [shorten(b, cap) for b in blocks]
         short_prompt = header + "\\n\\nPapers:\\n\\n" + "\\n\\n".join(new_blocks)
-        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - safety_margins:
+        if n_tokens(short_prompt) + max_new <= max_context_tokens - safety_margins:
             print(f"✂️  Trimmed Paper contents to ≤ {cap} sentences each.")
             messages[1]["content"] = short_prompt
             return messages
@@ -366,7 +367,7 @@ def fit_prompt(
     while blocks:
         blocks.pop()
         short_prompt = header + "\\n\\nPapers:\\n\\n" + "\\n\\n".join(blocks)
-        if n_tokens(short_prompt) + max_new <= MAX_CTX_TOKENS - safety_margins:
+        if n_tokens(short_prompt) + max_new <= max_context_tokens - safety_margins:
             print(f"📄  Dropped papers – {len(blocks)} remain.")
             messages[1]["content"] = short_prompt
             return messages
@@ -374,4 +375,4 @@ def fit_prompt(
     # 3) Fallback: all papers gone; keep header only -------------------
     print(f"⚠️  All papers trimmed; only the header remains, call truncation! \n Header: {header}")
     messages[1]["content"] = header
-    return fit_prompt(messages, max_new=max_new, sentence_levels=sentence_levels, truncate=True)
+    return fit_prompt(messages, max_new=max_new, sentence_levels=sentence_levels, truncate=True, max_context_tokens=max_context_tokens)

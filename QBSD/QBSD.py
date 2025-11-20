@@ -161,12 +161,13 @@ def generate_schema(
     max_keys_schema: int,
     current_schema: Schema | None,
     llm,
+    max_context_tokens: int = 8192,
 ) -> Schema:
     """
     Feed passages + (optional) current schema to the LLM, ask for additions.
     """
     prompt = build_messages(query, passages, current_schema)
-    trimmed = utils.fit_prompt(prompt, truncate=True)
+    trimmed = utils.fit_prompt(prompt, truncate=True, max_context_tokens=max_context_tokens)
     llm_response = llm.generate(trimmed)
     return _parse_schema_from_llm(llm_response, query=query, max_keys_schema=max_keys_schema)
 
@@ -188,6 +189,7 @@ def discover_schema(
     retriever,
     batch_size: int = 4,
     max_iters: int = 6,
+    max_context_tokens: int = 8192,
 ) -> Schema:
     """
     Main orchestration loop.
@@ -205,7 +207,7 @@ def discover_schema(
             print(f"Failed to retrieve {exc}")
             continue
 
-        proposed = generate_schema(passages, query, max_keys_schema, schema, llm)
+        proposed = generate_schema(passages, query, max_keys_schema, schema, llm, max_context_tokens)
         merged = schema.merge(proposed)
 
         logging.info("Iteration %d — columns: %d → %d (J=%.2f)",
@@ -277,7 +279,8 @@ def main(cfg_path: Path) -> None:
 
     # Run discovery
     start_time = time.time()
-    schema = discover_schema(query, docs, max_keys_schema, llm_for_schema, retriever)
+    max_context_tokens = backend_cfg.get("max_context_tokens", 8192)
+    schema = discover_schema(query, docs, max_keys_schema, llm_for_schema, retriever, max_context_tokens=max_context_tokens)
     elapsed_time = time.time() - start_time
 
     # Log timing results
