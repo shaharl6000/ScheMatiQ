@@ -1,0 +1,12 @@
+[
+  {
+    "name": "protein_name",
+    "definition": "The name or identifier of the protein being studied",
+    "rationale": "Essential identifier needed to distinguish different proteins in the research"
+  },
+  {
+    "name": "protein_sequence",
+    "definition": "The amino acid sequence of the protein or relevant domain",
+    "rationale": "Core structural information needed for protein analysis and comparison"
+  }
+]

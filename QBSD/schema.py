@@ -130,6 +130,17 @@ class Schema:
         union = len(a | b) or 1
         return inter / union
 
+    def to_llm_dict(self) -> List[Dict[str, str]]:
+        """Serialize schema for LLM prompts, excluding internal fields like _q_emb."""
+        return [
+            {
+                "name": col.name,
+                "definition": col.definition,
+                "rationale": col.rationale
+            }
+            for col in self.columns
+        ]
+
     # Convenience dunders
     def __len__(self):              return len(self.columns)
     def __iter__(self):             return iter(self.columns)

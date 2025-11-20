@@ -87,16 +87,20 @@ def _parse_schema_from_llm(raw_text: str,
 
 
 SYSTEM_PROMPT = """
-You are *SchemaLLM*, a senior data analyst who converts collections of papers
-into research‑ready table schemas.
+You are *SchemaLLM*, a senior data analyst who discovers NEW table columns to extend existing schemas.
 
 ### Task
-1. **Silently reason** about the user’s query and the supplied passages.
-2. Select the most important aspects that, if turned into table columns,
-   would best support answering the query.
-3. Identify only those aspects whose answers can be found in the provided
+1. **Silently reason** about the user's query and the supplied passages.
+2. **If an existing schema is provided:**
+   - Review the existing columns to understand what is already covered
+   - Identify NEW aspects not covered by existing columns
+   - Do NOT repeat or include existing columns in your output
+   - Return ONLY new columns that complement the existing schema
+3. **If no existing schema is provided:**
+   - Create initial columns based on the query and passages
+4. Identify only those aspects whose answers can be found in the provided
    passages — do **not** invent information that is absent from the text.
-4. Return **only** a JSON list; do **not** expose your reasoning.
+5. Return **only** a JSON list of NEW columns; do **not** expose your reasoning.
    
 ### Output JSON spec
 [
@@ -108,9 +112,13 @@ into research‑ready table schemas.
   ...
 ]
 
-### Constraints
-* Keep `name` concise (3–5 words, snake_case).
-* Do not write markdown, comments, or any text outside the JSON.
+### Critical Guidelines
+* Return ONLY new columns that are missing from the existing schema
+* Keep `name` concise (3–5 words, snake_case)
+* Avoid creating near-duplicates of existing columns
+* Focus on discovering gaps and missing information
+* Do not write markdown, comments, or any text outside the JSON
+* If no new columns are needed, return an empty JSON array: []
 """.strip()
 
 USER_PROMPT_TMPL = """
@@ -140,7 +148,7 @@ def build_messages(query: str,
     )]
 
     if draft_schema:
-        serialisable = utils._to_jsonable(draft_schema)
+        serialisable = draft_schema.to_llm_dict()
         user_parts.append(
             DRAFT_SCHEMA_TMPL.format(
                 json_schema=json.dumps(serialisable,
@@ -181,24 +189,44 @@ def evaluate_schema_convergence(prev: Schema, new: Schema, thresh: float = 0.9) 
     return overlap >= thresh and no_growth
 
 
+def load_initial_schema(initial_schema_path: Path, query: str, max_keys_schema: int) -> Schema:
+    """Load initial schema from JSON file."""
+    if not initial_schema_path.exists():
+        logging.info("No initial schema file found at %s, starting with empty schema", initial_schema_path)
+        return Schema(query=query, max_keys=max_keys_schema)
+    
+    try:
+        data = json.loads(initial_schema_path.read_text(encoding="utf-8"))
+        columns = [Column(**col) for col in data]
+        logging.info("Loaded initial schema with %d columns from %s", len(columns), initial_schema_path)
+        return Schema(query=query, columns=columns, max_keys=max_keys_schema)
+    except Exception as e:
+        logging.warning("Failed to load initial schema from %s: %s. Starting with empty schema.", initial_schema_path, e)
+        return Schema(query=query, max_keys=max_keys_schema)
+
+
 def discover_schema(
     query: str,
     documents: List[str],
     max_keys_schema : int,
     llm,
     retriever,
-    batch_size: int = 4,
-    max_iters: int = 6,
-    max_context_tokens: int = 8192,
+    documents_batch_size,
+    max_context_tokens,
+    initial_schema: Schema | None = None,
+    max_iters: int = 6
 ) -> Schema:
     """
     Main orchestration loop.
     """
     logging.info("Starting schema discovery…")
-    schema = Schema(query=query, max_keys=max_keys_schema)
+    schema = initial_schema or Schema(query=query, max_keys=max_keys_schema)
+    logging.info("Starting with schema containing %d columns", len(schema))
+    
     # Simple batching; one doc may be chunked if > batch_size
     doc_iter = iter(documents)
-    batches = [list(itertools.islice(doc_iter, batch_size)) for _ in range((len(documents)+batch_size-1)//batch_size)]
+    batches = [list(itertools.islice(doc_iter, documents_batch_size))
+               for _ in range((len(documents)+documents_batch_size-1)//documents_batch_size)]
 
     for it, batch_docs in enumerate(batches[:max_iters], start=1):
         try:
@@ -266,9 +294,19 @@ def main(cfg_path: Path) -> None:
     query = cfg["query"]
     docs_path = Path(cfg["docs_path"])
     backend_cfg = cfg.get("backend", {})
+    documents_batch_size = cfg.get("documents_batch_size", 4)
     retriever_cfg = cfg.get("retriever", {})
     max_keys_schema = cfg["max_keys_schema"]
     output_path = Path(cfg.get("output_path", "schema_output.json"))
+    
+    # Load initial schema if specified
+    initial_schema = None
+    if "initial_schema_path" in cfg:
+        initial_schema_path = Path(cfg["initial_schema_path"])
+        # Make path relative to config file directory if not absolute
+        if not initial_schema_path.is_absolute():
+            initial_schema_path = cfg_path.parent / initial_schema_path
+        initial_schema = load_initial_schema(initial_schema_path, query, max_keys_schema)
 
     # Set up components
     llm_for_schema = utils.build_llm(backend_cfg)
@@ -280,7 +318,11 @@ def main(cfg_path: Path) -> None:
     # Run discovery
     start_time = time.time()
     max_context_tokens = backend_cfg.get("max_context_tokens", 8192)
-    schema = discover_schema(query, docs, max_keys_schema, llm_for_schema, retriever, max_context_tokens=max_context_tokens)
+    schema = discover_schema(query=query, documents=docs,
+                             max_keys_schema=max_keys_schema, llm=llm_for_schema, retriever=retriever,
+                             max_context_tokens=max_context_tokens,
+                             documents_batch_size=documents_batch_size,
+                             initial_schema=initial_schema)
     elapsed_time = time.time() - start_time
 
     # Log timing results
