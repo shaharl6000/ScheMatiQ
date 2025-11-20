@@ -48,4 +48,10 @@ __all__ = [
 ]
 
 if __name__ == "__main__":
-    main(Path("configurations/valueExtractionConfig.json"))
+    import sys
+    if len(sys.argv) > 1:
+        config_path = Path(sys.argv[1])
+    else:
+        config_path = Path("configurations/valueExtractionConfig.json")
+    
+    main(config_path)

@@ -11,17 +11,5 @@
     "temperature": 0.2,
     "max_context_tokens": 1000000
   },
-  "retriever": {
-    "type": "embedding",
-    "model_name": "all-MiniLM-L6-v2",
-    "passage_chars": 2048,
-    "overlap": 128,
-    "k": 20,
-    "enable_dynamic_k": true,
-    "dynamic_k_threshold": 0.6,
-    "dynamic_k_minimum": 5
-  },
-  "retrieval_k": 12,
-  "rate_limit_delay": 2.0,
   "output_path": "outputs/value_extractions/gemini_longcontext/values_nes_gemini_longcontext_all.json"
 }

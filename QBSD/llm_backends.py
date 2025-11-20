@@ -352,10 +352,12 @@ class GeminiLLM(LLMInterface):
         api_key: str | None = None,
         max_tokens: int = 1024,
         temperature: float = 0.3,
+        max_context_tokens: int = 1000000,  # Gemini has 1M context by default
         **backend_kwargs,
     ):
         super().__init__(**backend_kwargs)
         self.model = model
+        self.max_context_tokens = max_context_tokens
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("Gemini API key missing. Set GEMINI_API_KEY.")

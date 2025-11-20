@@ -28,6 +28,24 @@ class PaperProcessor:
         self.text_processor = TextProcessor()
         self.prompt_builder = PromptBuilder()
     
+    def _should_skip_truncation(self) -> bool:
+        """Check if this LLM supports long context and should skip truncation."""
+        # Check for Gemini or other long-context models
+        model_name = getattr(self.llm, 'model', '').lower()
+        provider = getattr(self.llm, '__class__', None)
+        
+        # Skip truncation for Gemini models or models with "long" in the name
+        if provider and 'gemini' in provider.__name__.lower():
+            return True
+        if 'gemini' in model_name or 'long' in model_name:
+            return True
+        
+        # Check if no retriever is used (indicating long context mode)
+        if self.retriever is None:
+            return True
+            
+        return False
+    
     def extract_values_for_paper(self,
                                 paper_title: str,
                                 paper_text: str,
@@ -79,8 +97,12 @@ class PaperProcessor:
                 schema.query, paper_title, eff, [col.to_dict()],
                 mode="one_by_one", strict=strict
             )
-            trimmed = utils.fit_prompt(msgs, truncate=True, max_new=max_new_tokens, 
-                                     safety_margins=SAFETY_MARGIN_SINGLE_MODE)
+            # Skip truncation for long context models
+            should_truncate = not self._should_skip_truncation()
+            max_ctx = getattr(self.llm, 'max_context_tokens', 8192) if hasattr(self.llm, 'max_context_tokens') else 8192
+            trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens, 
+                                     safety_margins=SAFETY_MARGIN_SINGLE_MODE,
+                                     max_context_tokens=max_ctx)
             raw = self.llm.generate(trimmed)
             try:
                 parsed = self.json_parser.parse_response(raw)
@@ -101,8 +123,12 @@ class PaperProcessor:
                 schema.query, paper_title, eff, [c.to_dict() for c in schema.columns],
                 mode="all", strict=False
             )
-            trimmed = utils.fit_prompt(msgs, truncate=True, max_new=max_new_tokens, 
-                                     safety_margins=SAFETY_MARGIN_ALL_MODE)
+            # Skip truncation for long context models
+            should_truncate = not self._should_skip_truncation()
+            max_ctx = getattr(self.llm, 'max_context_tokens', 8192) if hasattr(self.llm, 'max_context_tokens') else 8192
+            trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens, 
+                                     safety_margins=SAFETY_MARGIN_ALL_MODE,
+                                     max_context_tokens=max_ctx)
             raw = self.llm.generate(trimmed)
             try:
                 parsed = self.json_parser.parse_response(raw)
