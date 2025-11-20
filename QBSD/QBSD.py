@@ -38,7 +38,12 @@ def select_relevant_content(
     query: str,
     retriever,
 ) -> List[str]:
-    """Return a flat list of passages drawn from all docs."""
+    """Return a flat list of passages drawn from all docs, or whole docs if no retriever."""
+    if retriever is None:
+        # No retriever configured - return whole documents
+        return list(docs)
+    
+    # Use retriever to select relevant passages
     passages = []
     for doc in docs:
         passages.extend(retriever.query([doc], question=query))
@@ -95,7 +100,7 @@ You are *SchemaLLM*, a senior data analyst who discovers NEW table columns to ex
    - Review the existing columns to understand what is already covered
    - Identify NEW aspects not covered by existing columns
    - Do NOT repeat or include existing columns in your output
-   - Return ONLY new columns that complement the existing schema
+   - Return ONLY genuinely novel columns that are critical for answering the query
 3. **If no existing schema is provided:**
    - Create initial columns based on the query and passages
 4. Identify only those aspects whose answers can be found in the provided
@@ -112,13 +117,13 @@ You are *SchemaLLM*, a senior data analyst who discovers NEW table columns to ex
   ...
 ]
 
-### Critical Guidelines
-* Return ONLY new columns that are missing from the existing schema
+### Critical Guidelines - BE VERY RESTRICTIVE
+* Return ONLY new columns that are missing from the existing schema AND are essential
 * Keep `name` concise (3–5 words, snake_case)
 * Avoid creating near-duplicates of existing columns
-* Focus on discovering gaps and missing information
 * Do not write markdown, comments, or any text outside the JSON
-* If no new columns are needed, return an empty JSON array: []
+* If no new essential columns are needed, return an empty JSON array: []
+* QUALITY over QUANTITY - fewer, well-justified columns are better than many marginal ones
 """.strip()
 
 USER_PROMPT_TMPL = """
@@ -310,7 +315,12 @@ def main(cfg_path: Path) -> None:
 
     # Set up components
     llm_for_schema = utils.build_llm(backend_cfg)
-    retriever = utils.build_retriever(retriever_cfg, llm_for_schema)
+    retriever = None
+    if retriever_cfg:  # Only build retriever if configuration exists
+        retriever = utils.build_retriever(retriever_cfg, llm_for_schema)
+        logging.info("Using retriever: %s", retriever_cfg.get("type", "unknown"))
+    else:
+        logging.info("No retriever configured - will use whole documents")
 
     # Load docs
     docs = load_documents(docs_path)
@@ -332,7 +342,7 @@ def main(cfg_path: Path) -> None:
     save_schema(output_path, query, retriever_cfg, backend_cfg, str(docs_path), schema)
 
     print(f"\nSchema discovery completed for {len(docs)} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
-    print("\nFinal schema\n------------")
+    print(f"\nFinal schema ({len(schema)} columns)\n------------")
     for col in schema:
         print(f"• {col.name}: {col.rationale}")
 
