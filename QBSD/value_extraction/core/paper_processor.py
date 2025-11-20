@@ -46,6 +46,81 @@ class PaperProcessor:
             
         return False
     
+    def _create_fallback_retriever(self):
+        """Create a default retriever for fallback when in long context mode."""
+        # Use default retriever configuration for fallback
+        fallback_config = {
+            "type": "embedding",
+            "model_name": "all-MiniLM-L6-v2",  # Fast, lightweight model
+            "k": 8,  # Default retrieval count
+            "max_words": 512,
+            "batch_size": 32,
+            "enable_dynamic_k": True,
+            "dynamic_k_threshold": 0.65,
+            "dynamic_k_minimum": 2
+        }
+        return utils.build_retriever(fallback_config)
+    
+    def _single_column_attempt_with_retriever(self, 
+                                            col: Column,
+                                            strict: bool,
+                                            k_override: int | None,
+                                            retriever,
+                                            paper_text: str,
+                                            schema: Schema,
+                                            paper_title: str,
+                                            use_snippets: bool = False) -> Dict[str, Any]:
+        """Single column extraction attempt with explicit retriever control."""
+        # Prepare text based on retriever availability
+        if retriever is not None:
+            try:
+                retrieval_query = self.text_processor.build_retrieval_query(None, [col])
+                passages = retriever.query([paper_text], retrieval_query, k=(k_override or 8))
+                if passages:
+                    eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(passages)
+                else:
+                    eff = paper_text
+            except Exception as e:
+                print(f"⚠️  Fallback retrieval failed for {col.name}: {e}, using full text")
+                eff = paper_text
+        else:
+            if use_snippets:
+                keywords = self.text_processor.keywords_for_column(col)
+                eff = self.text_processor.heuristic_snippets(paper_text, keywords)
+            else:
+                eff = paper_text
+
+        # Check cache first
+        cache_key = self.cache.get_cache_key(eff, col.name, "fallback", strict)
+        cached_result = self.cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
+
+        # Build and execute LLM call
+        msgs = self.prompt_builder.build_val_messages(
+            schema.query, paper_title, eff, [col.to_dict()],
+            mode="one_by_one", strict=strict
+        )
+        
+        # Skip truncation for long context models
+        should_truncate = not self._should_skip_truncation()
+        max_ctx = getattr(self.llm, 'max_context_tokens', 8192) if hasattr(self.llm, 'max_context_tokens') else 8192
+        trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=512, 
+                                 safety_margins=SAFETY_MARGIN_SINGLE_MODE,
+                                 max_context_tokens=max_ctx)
+        raw = self.llm.generate(trimmed)
+        try:
+            parsed = self.json_parser.parse_response(raw)
+            cleaned = self.json_parser.postprocess(parsed, [col.name])
+            result = cleaned.get(col.name, {})
+            
+            # Cache the result
+            self.cache.put(cache_key, result)
+            return result
+        except Exception as e:
+            print(f"⚠️  parse failure for column {col.name}: {e}")
+            return {}
+    
     def extract_values_for_paper(self,
                                 paper_title: str,
                                 paper_text: str,
@@ -143,15 +218,28 @@ class PaperProcessor:
             missing = [c for c in schema.columns if c.name not in cleaned]
             if missing:
                 print(f"↻ Fallback per-column for {len(missing)} missing: {[c.name for c in missing]}")
-            for col in missing:
-                # First fallback: expanded k + strict prompt
-                expanded_k = self.text_processor.expand_k(retrieval_k)
-                col_res = _single_column_attempt(col, strict=True, k_override=expanded_k, use_snippets=False)
-                if not col_res:
-                    # Second fallback: heuristic snippets (no retriever) or even stricter evidence demand
-                    col_res = _single_column_attempt(col, strict=True, k_override=None, use_snippets=True)
-                if col_res:
-                    cleaned[col.name] = col_res
+                
+                # Create fallback retriever if we don't have one (long context mode)
+                fallback_retriever = self.retriever
+                if self.retriever is None:
+                    print(f"📡 Creating fallback retriever for missing columns in long context mode")
+                    fallback_retriever = self._create_fallback_retriever()
+                
+                for col in missing:
+                    # First fallback: expanded k + strict prompt with retrieval
+                    expanded_k = self.text_processor.expand_k(retrieval_k)
+                    col_res = self._single_column_attempt_with_retriever(
+                        col, strict=True, k_override=expanded_k, retriever=fallback_retriever, 
+                        paper_text=paper_text, schema=schema, paper_title=paper_title, use_snippets=False
+                    )
+                    if not col_res:
+                        # Second fallback: heuristic snippets (no retriever) or even stricter evidence demand
+                        col_res = self._single_column_attempt_with_retriever(
+                            col, strict=True, k_override=None, retriever=None,
+                            paper_text=paper_text, schema=schema, paper_title=paper_title, use_snippets=True
+                        )
+                    if col_res:
+                        cleaned[col.name] = col_res
 
             return cleaned
 
