@@ -1,0 +1,227 @@
+ed Search
+Resistance to chemotherapeutic drugs is a major obstacle in the treatment of leukemia and multiple myeloma. We have previously found that myeloma and leukemic cells in transition from low-density log phase conditions to high-density plateau phase conditions export substantial amounts of endogenous topoisomerase II alpha from the nucleus to the cytoplasm. In order for topoisomerase-targeted chemotherapy to function, the topoisomerase target must have access to the nuclear DNA. Therefore, the nuclear export of topoisomerase II alpha may contribute to drug resistance, and defining this mechanism may lead to methods to preclude this avenue of resistance. We have identified nuclear export signals for topoisomerase II alpha at amino acids 1017-1028 and 1054-1066, using FITC-labeled BSA-export signal peptide conjugates microinjected into the nuclei of HeLa cells. Functional confirmation of both signals (1017-1028 and 1054-1066) was provided by transfection of human myeloma cells with plasmids containing the gene for a full-length human FLAG-topoisomerase fusion protein, mutated at hydrophobic amino acid residues in the export signals. Of the six putative export signals tested, the two sites above were found to induce export into the cytoplasm. Export by both signals was blocked by treatment of the cells with leptomycin B, indicating that a CRM-1-dependent pathway mediates export. Site-directed mutagenesis of two central hydrophobic residues in either export signal in full-length human topoisomerase blocked export of recombinant FLAG-topoisomerase II alpha, indicating that both signals may be required for export. Interestingly, this pair of nuclear export signals (1017-1028 and 1054-1066) also defines a dimerization domain of the topoisomerase II alpha molecule.
+Keywords:
+Topoisomerase II alpha (topo IIα)
+,
+Nuclear export signal (NES)
+,
+CRM-1
+,
+Site-directed mutagenesis
+,
+Microinjection
+© The Company of Biologists Limited 2004
+2004
+You do not currently have access to this content.
+Sign in
+Don't already have an account?
+Register
+Client Account
+You could not be signed in. Please check your email address / username and password and try again.
+Email address / Username
+?
+Password
+Could not validate captcha.  Please try again.
+Sign in
+Reset password
+Register
+Sign in via your institution
+Sign in via Shibboleth
+Pay-Per-View Access
+$30.00
+Buy This Article
+Advertisement
+Email alerts
+Article activity alert
+Accepted manuscripts alert
+Table of contents alert
+Latest published articles alert
+Close Modal
+1,901
+Views
+39
+Web of Science
+32
+Crossref
+View Metrics
+×
+Close Modal
+Cited by
+Web of Science (39)
+Google Scholar
+Crossref (32)
+JCS fast-track option
+Have a paper that has been reviewed elsewhere? JCS is pleased to consider such manuscripts for
+fast-tracked decision making
+. Send us your manuscript together with the full set of reviews and decision letters, and we will make an initial decision within one week.
+Special Issue – Cell Biology of Mitochondria
+Our special issue on ‘Cell Biology of Mitochondria’ is now complete. Explore this issue and
+read the Editorial
+from our Guest Editors Ana J. García-Sáez and Heidi McBride.
+Save the date – Imaging Cell Dynamics
+We are delighted to announce that we will be hosting a 2026 Imaging Cell Dynamics meeting. This meeting will provide a unique opportunity to bring together experts working at the interface between cell biology and imaging. Save the date for 11-14 May 2026 and
+register
+for more information.
+Origin and evolution of mitochondrial inner membrane composition
+In this Review, Kailash Venkatraman and colleagues
+provide an examination of the morphological similarities between
+prokaryotic intracytoplasmic membranes and mitochondrial inner membranes, and whether cristae evolution has driven specialisation of the mitochondrial lipidome.
+Resolution in super-resolution microscopy
+Super-resolution microscopy (SRM) has emerged as a powerful tool for biological discovery. In this Perspective, Kirti Prakash and colleagues
+compile expert opinions on crucial, yet often overlooked, aspects of SRM
+that are essential for maximising its benefits and advancing the field.
+Social media
+Other journals from
+The Company of Biologists
+Development
+Journal of Experimental Biology
+Disease Models & Mechanisms
+Biology Open
+Recommended for you by TrendMD
+MRE11 facilitates the removal of human topoisomerase II complexes from genomic DNA
+Ka Cheong Lee, Kay Padget, Hannah Curtis, et al.
+,
+Biol Open
+,
+2012
+Topoisomerase II inhibition prevents anaphase chromatid segregation in mammalian cells independently of the generation of DNA strand breaks
+Duncan J. Clarke, Robert T. Johnson, C. Stephen Downes
+,
+J Cell Sci
+,
+1993
+During both interphase and mitosis, DNA topoisomerase II interacts with DNA as well as RNA through the protein’s C-terminal domain
+Ryszard Rzepecki, Paul A. Fisher
+,
+J Cell Sci
+,
+2000
+Functional compatibility between isoform α and β of type II DNA topoisomerase
+Ayako Sakaguchi
+,
+J Cell Sci
+,
+2004
+Inhibitors of topoisomerases I and II arrest DNA replication, but do not prevent nucleosome assembly in vivo
+Anthony T. Annunziato
+,
+J Cell Sci
+,
+1989
+Characterization of a Topoisomerase II Gene Rearrangement in a Human Small-Cell Lung Cancer Cell Line
+Monica Binaschi
+,
+JNCI: Journal of the National Cancer Institute
+,
+1992
+SEQUENCES OF INTEREST: Leucine Zipper in Human DNA Topoisomerase II
+Leonard A. Zwelling
+,
+Molecular Endocrinology
+,
+1989
+Coupling the core of the anticancer drug etoposide to an oligonucleotide induces topoisomerase II-mediated cleavage at specific DNA sequences
+Lorena Infante Lara
+,
+Nucleic Acids Research
+,
+2018
+A tri-serine cluster within the topoisomerase IIα-interaction domain of the BLM helicase is required for regulating chromosome breakage in human cells
+Julia Harris Behnfeldt
+,
+Human Molecular Genetics
+,
+2018
+Inhibitory Effect of the Noncamptothecin Topoisomerase I Inhibitor LMP-400 on Female Mice Models and Human Pheochromocytoma Cells
+Schovanek
+,
+Endocrinology
+,
+2015
+Powered by
+Privacy policy
+Google Analytics settings
+About JCS
+Editors and Board
+Aims and scope
+Submit a manuscript
+Manuscript preparation
+Journal policies
+Rights and permissions
+Sign up for alerts
+Contacts
+Development
+Journal of Cell Science
+Journal of Experimental Biology
+Disease Models & Mechanisms
+Biology Open
+The Node
+preLights
+FocalPlane
+Grants
+Journal Meetings
+Workshops
+Library hub
+Company news
+Accessibility policy
+Contacts
+Twitter
+Bluesky
+LinkedIn
+Youtube
+Privacy policy
+Terms & conditions
+Copyright policy
+Cookies
+© 2025 The Company of Biologists. All rights reserved.
+Registered Charity 277992 | Registered in England and Wales | Company Limited by Guarantee No 514735
+Registered office: Bidder Building, Station Road, Histon, Cambridge CB24 9LF, UK
+Close Modal
+Close Modal
+This Feature Is Available To Subscribers Only
+Sign In
+or
+Create an Account
+Close Modal
+Close Modal
+By clicking “Accept all cookies”, you agree to the storing of cookies on your device to enhance site navigation, analyse site usage, and assist in our marketing efforts.
+View our cookie policy
+Accept all cookies
+Cookie settings
+Your opt out preference signal is honoured
+Privacy preference centre
+When you visit any website, it may store or retrieve information on your browser, mostly in the form of cookies. This information might be about you, your preferences or your device and is mostly used to make the site work as you expect it to. The information does not usually directly identify you, but it can give you a more personalised web experience. Because we respect your right to privacy, you can choose not to allow some types of cookies. Click on the different category headings to find out more and change our default settings. However, blocking some types of cookies may impact your experience of the site and the services we are able to offer.
+More information
+Allow all
+Manage consent preferences
+Functional cookies
+Functional cookies
+These cookies enable the website to provide enhanced functionality and personalisation. They may be set by us or by our vetted third-party providers whose services have been integrated into our sites. These cookies improve the user experience and provide more personalised services. If you do not allow these cookies, some or all of these services may not function properly.
+Targeting cookies
+Targeting cookies
+These cookies may be set through our site by our advertising partners. They may be used by those companies to build a profile of your interests and show you relevant adverts on other sites. They do not store directly personal information, but are based on uniquely identifying your browser and internet device. If you do not allow these cookies, you will experience less targeted advertising.
+Performance cookies
+Performance cookies
+Performance cookies collect information about how users interact with a website, such as which pages they visit, how long they stay, or if they encounter any errors. These cookies help us measure and improve the performance of our sites. These cookies do not collect any personal information that can identify the user. Allowing these cookies will allow for a better user experience.
+Essential cookies
+Always active
+Essential cookies are those that are strictly necessary for the operation of a website. They enable services such as logging in, shopping baskets, and e-billing. Without these cookies, the website cannot function properly. These cookies do not require consent from the user. These cookies do not store any personally identifiable information.
+Back Button
+Cookie List
+Search Icon
+Filter Icon
+Clear
+checkbox label
+label
+Apply
+Cancel
+Consent
+Leg.Interest
+checkbox label
+label
+checkbox label
+label
+checkbox label
+label
+Reject all
+Confirm my choices

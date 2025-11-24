@@ -1,0 +1,43 @@
+Abstract
+We report that in breast cancer cells, tyrosine phosphorylation of the estradiol receptor alpha (ERalpha) by Src regulates cytoplasmic localization of the receptor and DNA synthesis. Inhibition of Src or use of a peptide mimicking the ERalpha p-Tyr537 sequence abolishes ERalpha tyrosine phosphorylation and traps the receptor in nuclei of estradiol-treated MCF-7 cells. An ERalpha mutant carrying a mutation of Tyr537 to phenylalanine (ER537F) persistently localizes in nuclei of various cell types. In contrast with ERalpha wt, ER537F does not associate with Ran and its interaction with Crm1 is insensitive to estradiol. Thus, independently of estradiol, ER537F is retained in nuclei, where it entangles FKHR-driving cell cycle arrest. Chromatin immunoprecipitation analysis reveals that overexpression of ER537F in breast cancer cells enhances FKHR interaction with cyclin D1 promoter. This mutant also counteracts cell transformation by the activated forms of Src or PI3-K. In conclusion, in addition to regulating receptor localization, ERalpha phosphorylation by Src is required for hormone responsiveness of DNA synthesis in breast cancer cells.
+Access through your institution
+Buy or subscribe
+This is a preview of subscription content,
+access via your institution
+Access options
+Access through your institution
+Subscribe to this journal
+Receive 50 print issues and online access
+251,40 € per year
+only 5,03 € per issue
+Learn more
+Buy this article
+Purchase on SpringerLink
+Instant access to full article PDF
+Buy now
+Prices may be subject to local taxes which are calculated during checkout
+Additional access options:
+Log in
+Learn about institutional subscriptions
+Read our FAQs
+Contact customer support
+Figure 1
+Figure 2
+Figure 3
+Figure 4
+Figure 5
+Figure 6
+Figure 7
+Similar content being viewed by others
+Genome engineering for estrogen receptor mutations reveals differential responses to anti-estrogens and new prognostic gene signatures for breast cancer
+Article
+Open access
+05 October 2022
+ERα/PR crosstalk is altered in the context of the ERα Y537S mutation and contributes to endocrine therapy-resistant tumor proliferation
+Article
+Open access
+30 November 2023
+A reappraisal of cell cycle phase enrichment in synchronized estrogen receptor-positive cell models derived from breast adenocarcinomas
+Article
+Open access
+18 February 2025

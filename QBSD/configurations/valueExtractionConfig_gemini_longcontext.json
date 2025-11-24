@@ -7,9 +7,9 @@
   "backend_cfg": {
     "provider": "gemini",
     "model": "gemini-2.5-flash",
-    "max_tokens": 8192,
+    "max_tokens": 16000,
     "temperature": 0.2,
     "max_context_tokens": 1000000
   },
-  "output_path": "outputs/value_extractions/gemini_longcontext/values_nes_gemini_longcontext_all.json"
+  "output_path": "outputs/value_extractions/gemini_longcontext/values_nes_gemini_longcontext_all2_more_outtokens.json"
 }

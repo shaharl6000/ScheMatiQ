@@ -1,0 +1,60 @@
+Abstract
+Actin is a major cytoskeletal element and is normally kept cytoplasmic by exportin 6 (Exp6)-driven nuclear export. Here, we show that Exp6 recognizes actin features that are conserved from yeast to human. Surprisingly however, microinjected actin was not exported from
+Xenopus laevis
+oocyte nuclei, unless Exp6 was co-injected, indicating that the pathway is inactive in this cell type. Indeed, Exp6 is undetectable in oocytes, but is synthesized from meiotic maturation onwards, which explains how actin export resumes later in embryogenesis. Exp6 thus represents the first example of a strictly developmentally regulated nuclear transport pathway. We asked why
+Xenopus
+oocytes lack Exp6 and observed that ectopic application of Exp6 renders the giant oocyte nuclei extremely fragile. This effect correlates with the selective disappearance of a sponge-like intranuclear scaffold of F-actin. These nuclei have a normal G2-phase DNA content in a volume 100,000 times larger than nuclei of somatic cells. Apparently, their mechanical integrity cannot be maintained by chromatin and the associated nuclear matrix, but instead requires an intranuclear actin-scaffold.
+Access through your institution
+Buy or subscribe
+This is a preview of subscription content,
+access via your institution
+Access options
+Access through your institution
+Subscribe to this journal
+Receive 12 print issues and online access
+195,33 € per year
+only 16,28 € per issue
+Learn more
+Buy this article
+Purchase on SpringerLink
+Instant access to full article PDF
+Buy now
+Prices may be subject to local taxes which are calculated during checkout
+Additional access options:
+Log in
+Learn about institutional subscriptions
+Read our FAQs
+Contact customer support
+Figure 1: Actin export from nuclei of
+Xenopus
+oocytes requires exogenous Exp6.
+Figure 2:
+Xenopus
+Exp6 is active in nuclear actin export.
+Figure 3: Xenopus oocytes stockpile
+Exp6
+mRNA, but selectively lack the Exp6 protein.
+Figure 4: Synthesis of the Exp6 protein is induced during meiotic maturation.
+Figure 5: Exp6 depletes the large actin pool from nuclei of
+Xenopus
+ooctyes.
+Figure 6: A sponge-like actin meshwork within nuclei of
+Xenopus
+oocytes.
+Similar content being viewed by others
+Nuclear position controls the activity of cortical actomyosin networks powering simultaneous morphogenetic events
+Article
+Open access
+12 February 2025
+Cytoplasmic forces functionally reorganize nuclear condensates in oocytes
+Article
+Open access
+29 August 2022
+Centripetal nuclear shape fluctuations associate with chromatin condensation in early prophase
+Article
+Open access
+12 July 2023
+Accession codes
+Accessions
+GenBank/EMBL/DDBJ
+AJ865375

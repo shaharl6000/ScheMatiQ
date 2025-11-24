@@ -1,0 +1,200 @@
+ed Search
+AU-rich elements (AREs) present in the 3′ untranslated regions of many protooncogene, cytokine, and lymphokine messages target them for rapid degradation. HuR, a ubiquitously expressed member of the ELAV (embryonic lethal abnormal vision) family of RNA binding proteins, selectively binds AREs and stabilizes ARE-containing mRNAs in transiently transfected cells. Here, we identify four mammalian proteins that bind regions of HuR known to be essential for its ability to shuttle between the nucleus and the cytoplasm and to stabilize mRNA: SETα, SETβ, pp32, and acidic protein rich in leucine (APRIL). Three have been reported to be protein phosphatase 2A inhibitors. All four ligands contain long, acidic COOH-terminal tails, while pp32 and APRIL share a second motif: rev-like leucine-rich repeats in their NH
+2
+-terminal regions. We show that pp32 and APRIL are nucleocytoplasmic shuttling proteins that interact with the nuclear export factor CRM1 (chromosomal region maintenance protein 1). The inhibition of CRM1 by leptomycin B leads to the nuclear retention of pp32 and APRIL, their increased association with HuR, and an increase in HuR's association with nuclear poly(A)+ RNA. Furthermore, transcripts from the ARE-containing c-
+fos
+gene are selectively retained in the nucleus, while the cytoplasmic distribution of total poly(A)+ RNA is not altered. These data provide evidence that interaction of its ligands with HuR modulate HuR's ability to bind its target mRNAs in vivo and suggest that CRM1 is instrumental in the export of at least some cellular mRNAs under certain conditions. We discuss the possible role of these ligands upstream of HuR in pathways that govern the stability of ARE-containing mRNAs.
+© 2000 The Rockefeller University Press
+2000
+The Rockefeller University Press
+You do not currently have access to this content.
+Sign in
+Don't already have an account?
+Register
+Client Account
+You could not be signed in. Please check your email address / username and password and try again.
+Username (Note: This may be your email address.)
+?
+Password
+Could not validate captcha.  Please try again.
+Sign In
+Reset password
+Register
+Sign in via your Institution
+Sign in via your Institution
+Sign in via OpenAthens
+Buy This Article
+12,939
+Views
+320
+Web of Science
+302
+Crossref
+341
+CITATIONS
+341
+Total citations
+11
+Recent citations
+17
+Field Citation Ratio
+5.12
+Relative Citation Ratio
+View Metrics
+×
+Close Modal
+364
+12
+353
+1
+Smart Citations
+364
+12
+353
+1
+Citing Publications
+Supporting
+Mentioning
+Contrasting
+View Citations
+See how this article has been cited at
+scite.ai
+scite shows how a scientific paper has been cited by providing the context of the citation, a classification describing whether it supports, mentions, or contrasts the cited claim, and a label indicating in which section the citation was made.
+Suggested Content
+Nucleocytoplasmic Shuttling of Endocytic Proteins
+The Telomerase/Vault-Associated Protein Tep1 Is Required for Vault RNA Stability and Its Association with the Vault Particle
+A Role for RanBP1 in the Release of CRM1 from the Nuclear Pore Complex in a Terminal Step of Nuclear Export
+Email alerts
+Complete Issue Alert
+Daily Publication Alert
+Close Modal
+Recommended for you
+Caspase-mediated cleavage of HuR in the cytoplasm contributes to pp32/PHAP-I regulation of apoptosis
+Rachid Mazrouï, Sergio Di Marco, Eveline Clair, et al.
+,
+J Cell Biol
+,
+2008
+Adenovirus E4orf6 targets pp32/LANP to control the fate of ARE-containing mRNAs by perturbing the CRM1-dependent mechanism
+Fumihiro Higashino, Mariko Aoyagi, Akiko Takahashi, et al.
+,
+J Cell Biol
+,
+2005
+Stress granules and processing bodies are dynamically linked sites of mRNP remodeling
+Nancy Kedersha, Georg Stoecklin, Maranatha Ayodele, et al.
+,
+J Cell Biol
+,
+2005
+Consecutive interactions with HSP90 and eEF1A underlie a functional maturation and storage pathway of AID in the cytoplasm
+Stephen P. Methot, Ludivine C. Litzler, Felipe Trajtenberg, et al.
+,
+J Exp Med
+,
+2015
+RNPS1 stabilizes NAT10 protein to facilitate translation in cancer via tRNA ac4C modification
+International Journal of Oral Science
+,
+2024
+Cinobufagin Triggers Defects in Spindle Formation and Cap-Dependent Translation in Liver Cancer Cells by Inhibiting the AURKA-mTOR-eIF4E Axis
+Xiaohan Jin
+,
+The American Journal of Chinese Medicine
+,
+2020
+Phenformin activates ER stress to promote autophagic cell death via NIBAN1 and DDIT4 in oral squamous cell carcinoma independent of AMPK
+Dexuan Zhuang, Shuangshuang Wang, Huiting Deng, et al.
+,
+International Journal of Oral Science
+,
+2024
+LITTIP/Lgr6/HnRNPK complex regulates cementogenesis via Wnt signaling
+Tiancheng Li
+,
+International Journal of Oral Science
+,
+2023
+Powered by
+Privacy policy
+Google Analytics settings
+Advertisement
+Advertisement
+Newest Articles
+Current Issue
+Archive
+Email Alerts
+Submit a Manuscript
+Instructions for Authors
+For Librarians
+About JCB
+Editors & Staff
+Policies & Permissions
+Accessibility Statement
+Cookie Policy
+Terms & Conditions
+Advertise
+Contact
+Newsroom
+Privacy Policy
+RSS Feeds
+Facebook
+X/Twitter
+Instagram
+YouTube
+LinkedIn
+Bluesky
+© 2025 Rockefeller University Press
+Online ISSN
+1540-8140
+Print ISSN
+0021-9525
+Close Modal
+Close Modal
+This Feature Is Available To Subscribers Only
+Sign In
+or
+Create an Account
+Close Modal
+Close Modal
+Cookies Button
+Cookies
+By clicking “Accept All Cookies”, you agree to the storing of cookies on your device to enhance site navigation, analyze site usage, and assist in our marketing efforts.
+Accept All Cookies
+Cookie Settings
+Privacy Preference Center
+When you visit any website, it may store or retrieve information on your browser, mostly in the form of cookies. This information might be about you, your preferences or your device and is mostly used to make the site work as you expect it to. The information does not usually directly identify you, but it can give you a more personalized web experience. Because we respect your right to privacy, you can choose not to allow some types of cookies. Click on the different category headings to find out more and change our default settings. However, blocking some types of cookies may impact your experience of the site and the services we are able to offer.
+Cookie Notices and Cookie Consent Explained
+Allow All
+Manage Consent Preferences
+Essential cookies
+Always Active
+Essential cookies are those that are strictly necessary for the operation of a website. They enable services such as logging in, shopping baskets, and e-billing. Without these cookies, the website cannot function properly. These cookies do not require consent from the user. These cookies do not store any personally identifiable information.
+Performance cookies
+Performance cookies
+Performance cookies collect information about how users interact with a website, such as which pages they visit, how long they stay, or if they encounter any errors. These cookies help us measure and improve the performance of our sites. These cookies do not collect any personal information that can identify the user. Allowing these cookies will allow for a better user experience.
+Functional cookies
+Functional cookies
+These cookies enable the website to provide enhanced functionality and personalisation. They may be set by us or by our vetted third-party providers whose services have been integrated into our sites. These cookies improve the user experience and provide more personalised services. If you do not allow these cookies, some or all of these services may not function properly.
+Targeting cookies
+Targeting cookies
+These cookies may be set through our site by our advertising partners. They may be used by those companies to build a profile of your interests and show you relevant adverts on other sites. They do not store directly personal information, but are based on uniquely identifying your browser and internet device. If you do not allow these cookies, you will experience less targeted advertising.
+Back Button
+Cookie List
+Search Icon
+Filter Icon
+Clear
+checkbox label
+label
+Apply
+Cancel
+Consent
+Leg.Interest
+checkbox label
+label
+checkbox label
+label
+checkbox label
+label
+Reject All
+Confirm My Choices

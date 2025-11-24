@@ -1,0 +1,131 @@
+hare
+Abstract
+Rel and IκB protein families form a complex cellular regulatory network. A major regulatory function of IκB proteins is to retain Rel proteins in the cell cytoplasm. In addition, IκB proteins have also been postulated to serve nuclear functions. These include the maintenance of inducible NF-κB-dependent gene transcription, as well as termination of inducible transcription. We show that IκBα shuttles between the nucleus and the cytoplasm, utilizing the nuclear export receptor CRM1. A CRM1-binding export sequence was identified in the N-terminal domain of IκBα but not in that of IκBβ or IκBɛ. By reconstituting major aspects of NF-κB–IκB sequestration in yeast, we demonstrate that cytoplasmic retention of p65 (also called RelA) by IκBα requires Crm1p-dependent nuclear export. In mammalian cells, inhibition of CRM1 by leptomycin B resulted in nuclear localization of cotransfected p65 and IκBα in COS cells and enhanced nuclear relocation of endogenous p65 in T cells. These observations suggest that the main function of IκBα is that of a nuclear export chaperone rather than a cytoplasmic tether. We propose that the nucleus is the major site of p65-IκBα association, from where these complexes must be exported in order to create the cytoplasmic pool.
+ACKNOWLEDGMENTS
+LMB used in this study was kindly provided by M. Yoshida. We thank M. Rosbash for comments on the manuscript, Phil Gnatowski for help in the preparation of the manuscript, and Zaira Garcea for enthusiastic assistance in some of these experiments during the summer of 1998.
+This work was supported by NIH grants to R.S. (AI 41035) and L.D. (GM54768).
+ADDENDUM IN PROOF
+The N-terminal NES in IκBα has also been identified by Johnson et al. (EMBO J.
+18:
+6682–6693, 1999).
+Reprints and Corporate Permissions
+Please note:
+Selecting permissions
+does not
+provide access to the full text of the article, please see our help page
+How do I view content?
+To request a reprint or corporate permissions for this article, please click on the relevant link below:
+Order Reprints
+Request Corporate Permissions
+Academic Permissions
+Please note:
+Selecting permissions
+does not
+provide access to the full text of the article, please see our help page
+How do I view content?
+Obtain permissions instantly via Rightslink by clicking on the button below:
+Request Academic Permissions
+If you are unable to obtain permissions via Rightslink, please complete and submit this
+Permissions form
+. For more information, please visit our
+Permissions help page
+.
+Back to Top
+Related research
+People also read
+lists articles that other readers of this article have read.
+Recommended articles
+lists articles that we recommend and is powered by our AI driven recommendation engine.
+Cited by
+lists all citing articles based on Crossref citations.
+Articles with the Crossref icon will open in a new tab.
+People also read
+Recommended articles
+Cited by
+132
+NEDD4L Promotes I
+κ
+B
+α
+Ubiquitination and Degradation in the Pathogenesis of Diabetic Retinopathy
+Li Cui
+et al.
+Current Eye Research
+Published online: 12 Oct 2023
+Diversification from Russian nuclear fuel requires market-oriented solutions
+Yanliang Pan
+Bulletin of the Atomic Scientists
+Published online: 15 Jan 2024
+N4BP3 Activates TLR4-NF-κB Pathway in Inflammatory Bowel Disease by Promoting K48-Linked IκBα Ubiquitination
+Wang Jiang
+et al.
+Journal of Inflammation Research
+Published online: 4 Jun 2025
+Open Access
+View more
+To cite this article:
+Reference style:
+APA
+Chicago
+Harvard
+Citation copied to clipboard
+Copy citation to clipboard
+Reference styles above use APA (6th edition), Chicago (16th edition) & Harvard (10th edition)
+Download citation
+Download a citation file in RIS format that can be imported by citation management software including
+                EndNote, ProCite, RefWorks and Reference Manager.
+Choose format:
+RIS
+BibTex
+RefWorks Direct Export
+Choose options:
+Citation
+Citation & abstract
+Citation & references
+Download citations
+Information for
+Authors
+R&D professionals
+Editors
+Librarians
+Societies
+Open access
+Overview
+Open journals
+Open Select
+Dove Medical Press
+F1000Research
+Opportunities
+Reprints and e-prints
+Advertising solutions
+Accelerated publication
+Corporate access solutions
+Help and information
+Help and contact
+Newsroom
+All journals
+Books
+Keep up to date
+Register to receive personalised research and resources by email
+Sign me up
+Taylor and Francis Group Facebook page
+Taylor and Francis Group X Twitter page
+Taylor and Francis Group Linkedin page
+Taylor and Francis Group Youtube page
+Taylor and Francis Group Weibo page
+Taylor and Francis Group Bluesky page
+Copyright © 2025
+Informa UK Limited
+Privacy policy
+Cookies
+Terms & conditions
+Accessibility
+Registered in England & Wales No. 01072954
+5 Howick Place | London | SW1P 1WG
+Copy link
+✓
+Thanks for sharing!
+×
+Find any service
+AddToAny
+More…

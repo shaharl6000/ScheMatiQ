@@ -1,0 +1,61 @@
+Abstract
+Centrosome duplication is tightly controlled during faithful cell division, and unnecessary reduplication can lead to supernumerary centrosomes and multipolar spindles that are associated with most human cancer cells
+1
+,
+2
+,
+3
+,
+4
+,
+5
+. In addition to nucleocytoplasmic transport, the Ran–Crm1 network is involved in regulating centrosome duplication to ensure the formation of a bipolar spindle
+6
+,
+7
+,
+8
+. Here, we discover that nucleophosmin (NPM) may be a Ran–Crm1 substrate that controls centrosome duplication. NPM contains a functional nuclear export signal (NES) that is responsible for both its nucleocytoplasmic shuttling and its association with centrosomes, which are Ran–Crm1-dependent as they are sensitive to Crm1-specific nuclear export inhibition, either by leptomycin B (LMB) or by the expression of a Ran-binding protein, RanBP1. Notably, LMB treatment induces premature centrosome duplication in quiescent cells, which coincides with NPM dissociation from centrosomes. Moreover, deficiency of NPM by RNA interference results in supernumerary centrosomes, which can be reversed by reintroducing wild-type but not NES-mutated NPM. Mutation of a potential proline-dependent kinase phosphorylation site at residue 95, from threonine to aspartic acid (T95D) within the NES motif, abolishes NPM association and inhibition of centrosome duplication. Our results are consistent with the hypothesis that the Ran–Crm1 complex may promote a local enrichment of NPM on centrosomes, thereby preventing centrosome reduplication.
+Access through your institution
+Buy or subscribe
+This is a preview of subscription content,
+access via your institution
+Access options
+Access through your institution
+Subscribe to this journal
+Receive 12 print issues and online access
+195,33 € per year
+only 16,28 € per issue
+Learn more
+Buy this article
+Purchase on SpringerLink
+Instant access to full article PDF
+Buy now
+Prices may be subject to local taxes which are calculated during checkout
+Additional access options:
+Log in
+Learn about institutional subscriptions
+Read our FAQs
+Contact customer support
+Figure 1: Nucleocytoplasmic shuttling of NPM depends on the presence of functional NES and NLS motifs mediated by the Ran network.
+Figure 2: The centrosome association of NPM and initiation of centrosome duplication are sensitive to Ran–Crm1-specific nuclear export inhibition.
+Figure 3: Centrosome-enriched fractions contain NPM, which is sensitive to the nuclear export inhibitor, LMB.
+Figure 4: Deficiency of NPM by RNA interference is associated with unscheduled centrosome duplication and abnormal spindles.
+Figure 5: The NPM NES motif is required for NPM-mediated suppression of centrosome duplication.
+Similar content being viewed by others
+Mutual dependency between lncRNA
+LETN
+and protein NPM1 in controlling the nucleolar structure and functions sustaining cell proliferation
+Article
+Open access
+11 January 2021
+Two-step regulation of centromere distribution by condensin II and the nuclear envelope proteins
+Article
+01 August 2022
+In-cell architecture of the nuclear pore and snapshots of its turnover
+Article
+02 September 2020
+Accession codes
+Accessions
+BINDPlus
+312465

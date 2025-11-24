@@ -164,6 +164,233 @@ class TableBuilder:
             except Exception as e:
                 print(f"❌ Failed to write row {row_name}: {e}")
     
+    def build_table_jsonl_multi_dirs(self,
+                                    schema_path: Path,
+                                    docs_directories: list[Path],
+                                    output_path: Path,
+                                    *,
+                                    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+                                    resume: bool = False,
+                                    mode: str = "all",
+                                    retrieval_k: int = 8,
+                                    max_workers: int = DEFAULT_MAX_WORKERS) -> None:
+        """
+        Extract values from papers across multiple directories and write to JSONL.
+        Handles different GT_NES values based on directory names (namesDoubt vs others).
+        """
+        # Aggregate all documents from all directories with their source info
+        all_docs_with_source = []
+        for docs_directory in docs_directories:
+            docs = sorted(docs_directory.glob("*"))
+            for doc in docs:
+                if doc.is_file():
+                    all_docs_with_source.append((doc, docs_directory))
+        
+        if not all_docs_with_source:
+            raise RuntimeError(f"No documents found across directories: {[str(d) for d in docs_directories]}")
+        
+        print(f"📁 Processing {len(all_docs_with_source)} documents from {len(docs_directories)} directories")
+        
+        # Use the existing build logic but with enhanced directory tracking
+        self._build_table_multi_dirs_impl(
+            schema_path, all_docs_with_source, output_path,
+            max_new_tokens=max_new_tokens, resume=resume, mode=mode,
+            retrieval_k=retrieval_k, max_workers=max_workers
+        )
+    
+    def _build_table_multi_dirs_impl(self,
+                                    schema_path: Path,
+                                    docs_with_source: list[tuple[Path, Path]],  # (doc_path, source_dir)
+                                    output_path: Path,
+                                    *,
+                                    max_new_tokens: int,
+                                    resume: bool,
+                                    mode: str,
+                                    retrieval_k: int,
+                                    max_workers: int) -> None:
+        """Implementation for multi-directory processing."""
+        schema = Schema.from_json(schema_path)
+        print(f"🗂️  Loaded schema with {len(schema.columns)} columns")
+        
+        # Group by row names
+        papers_by_row = {}
+        doc_to_source = {}  # Track source directory for each document
+        
+        for doc_path, source_dir in docs_with_source:
+            doc_to_source[doc_path] = source_dir
+            row_name = self.paper_processor.extract_row_name(doc_path.name)
+            if row_name not in papers_by_row:
+                papers_by_row[row_name] = []
+            papers_by_row[row_name].append(doc_path)
+        
+        print(f"📊 Found {len(papers_by_row)} unique rows from documents")
+        
+        # Handle resume logic
+        existing_rows, processed_papers, completed_rows = {}, set(), set()
+        if resume and output_path.exists():
+            existing_rows, processed_papers, completed_rows = self._load_existing_data(
+                output_path, papers_by_row
+            )
+        
+        # Process rows
+        written_rows = set()
+        total_rows = len(papers_by_row)
+        
+        for row_idx, (row_name, papers) in enumerate(papers_by_row.items(), 1):
+            print(f"\n🔄 Processing row {row_idx}/{total_rows}: {row_name}")
+            
+            if row_name in completed_rows:
+                print(f"⏭️  Row {row_name} already completed, skipping...")
+                written_rows.add(row_name)
+                continue
+            
+            # Process with directory-specific GT_NES logic
+            self._process_row_multi_dirs(
+                row_name, papers, doc_to_source, schema, mode, retrieval_k, 
+                max_new_tokens, max_workers, existing_rows, processed_papers,
+                written_rows, completed_rows, output_path
+            )
+        
+        print(f"\n✅ Processing complete! Wrote {len(written_rows)} rows to {output_path}")
+    
+    def _process_row_multi_dirs(self,
+                               row_name: str,
+                               papers: list[Path],
+                               doc_to_source: dict[Path, Path],
+                               schema: Schema,
+                               mode: str,
+                               retrieval_k: int,
+                               max_new_tokens: int,
+                               max_workers: int,
+                               existing_rows: dict,
+                               processed_papers: set,
+                               written_rows: set,
+                               completed_rows: set,
+                               output_path: Path) -> None:
+        """Process a single row across multiple directories."""
+        current_row = existing_rows.get(row_name, {}).copy()
+        current_row["_row_name"] = row_name
+        current_row["_papers"] = [p.name for p in papers]
+        
+        # Determine predominant source directory for GT_NES assignment
+        source_dirs = [doc_to_source[p] for p in papers]
+        doubt_count = sum(1 for d in source_dirs if "namesDoubt" in str(d))
+        is_predominantly_doubt = doubt_count > len(source_dirs) / 2
+        
+        # Add metadata with source directory info
+        current_row["_metadata"] = {
+            "query": schema.query,
+            "source_directories": [str(d) for d in set(source_dirs)],
+            "doubt_papers": doubt_count,
+            "total_papers": len(papers),
+            "is_predominantly_doubt": is_predominantly_doubt
+        }
+        
+        # Process papers similar to single directory version but track sources
+        if mode == "one_by_one":
+            self._process_row_one_by_one_multi_dirs(
+                current_row, papers, doc_to_source, schema, retrieval_k, 
+                max_new_tokens, existing_rows, processed_papers
+            )
+        else:
+            self._process_row_all_multi_dirs(
+                current_row, papers, doc_to_source, schema, retrieval_k,
+                max_new_tokens, max_workers, existing_rows, processed_papers
+            )
+        
+        # Set GT_NES based on predominant source
+        if row_name not in existing_rows or "GT_NES" not in current_row:
+            gt_nes_value = "in doubt" if is_predominantly_doubt else "yes"
+            current_row["GT_NES"] = {
+                "answer": gt_nes_value,
+                "excerpts": [f"Based on source directories: {set(str(d) for d in source_dirs)}"]
+            }
+        
+        # Write row if it has actual data
+        if any(key for key in current_row.keys() if not key.startswith('_')):
+            try:
+                with output_path.open('a', encoding="utf-8") as f_out:
+                    f_out.write(json.dumps(current_row, ensure_ascii=False) + "\n")
+                written_rows.add(row_name)
+                print(f"✅ Completed and wrote row: {row_name}")
+            except Exception as e:
+                print(f"❌ Failed to write row {row_name}: {e}")
+    
+    def _process_row_one_by_one_multi_dirs(self, current_row: dict, papers: list[Path], 
+                                          doc_to_source: dict, schema: Schema, 
+                                          retrieval_k: int, max_new_tokens: int,
+                                          existing_rows: dict, processed_papers: set) -> None:
+        """Process row one column at a time (multi-directory version)."""
+        for column in schema.columns:
+            column_name = column['column']
+            if column_name in current_row:
+                continue
+                
+            for paper in papers:
+                if paper in processed_papers:
+                    continue
+                    
+                try:
+                    result = self.paper_processor.extract_single_column_value(
+                        paper, column, schema.query, self.retriever,
+                        retrieval_k=retrieval_k, max_new_tokens=max_new_tokens
+                    )
+                    if result and column_name in result:
+                        current_row.update(result)
+                        processed_papers.add(paper)
+                        break
+                except Exception as e:
+                    print(f"⚠️  Error processing {paper.name} for column {column_name}: {e}")
+    
+    def _process_row_all_multi_dirs(self, current_row: dict, papers: list[Path],
+                                   doc_to_source: dict, schema: Schema,
+                                   retrieval_k: int, max_new_tokens: int,
+                                   max_workers: int, existing_rows: dict,
+                                   processed_papers: set) -> None:
+        """Process row with all columns at once (multi-directory version)."""
+        unprocessed_papers = [p for p in papers if p not in processed_papers]
+        
+        if max_workers > 1 and len(unprocessed_papers) > 1:
+            # Parallel processing
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_paper = {
+                    executor.submit(
+                        self.paper_processor.extract_all_column_values,
+                        paper, schema, self.retriever,
+                        retrieval_k=retrieval_k, max_new_tokens=max_new_tokens
+                    ): paper for paper in unprocessed_papers
+                }
+                
+                for future in concurrent.futures.as_completed(future_to_paper):
+                    paper = future_to_paper[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            # Merge result into current row
+                            for key, value in result.items():
+                                if key not in current_row:
+                                    current_row[key] = value
+                            processed_papers.add(paper)
+                    except Exception as e:
+                        print(f"⚠️  Error processing {paper.name}: {e}")
+        else:
+            # Sequential processing
+            for paper in unprocessed_papers:
+                try:
+                    result = self.paper_processor.extract_all_column_values(
+                        paper, schema, self.retriever,
+                        retrieval_k=retrieval_k, max_new_tokens=max_new_tokens
+                    )
+                    if result:
+                        # Merge result into current row
+                        for key, value in result.items():
+                            if key not in current_row:
+                                current_row[key] = value
+                        processed_papers.add(paper)
+                except Exception as e:
+                    print(f"⚠️  Error processing {paper.name}: {e}")
+    
     def build_table_jsonl(self,
                          schema_path: Path,
                          docs_directory: Path,

@@ -1,0 +1,1234 @@
+Abstract
+The APC (adenomatous polyposis coli) tumor suppressor protein has many different intracellular functions including a nuclear export activity. Only little is known about the molecular architecture of the 2843-amino acid APC protein. Guided by secondary structure predictions we identified a fragment close to the N-terminal end, termed APC-(129–250), as a soluble and protease-resistant domain. We solved the crystal structure of APC-(129–250), which is monomeric and consists of three α-helices forming two separate antiparallel coiled coils. APC-(129–250) includes the nuclear export signal NES-(165–174) at the C-terminal end of the first helix. Surprisingly, the conserved hydrophobic amino acids of NES-(165–174) are buried in one of the coiled coils and are thus not accessible for interaction with other proteins. We demonstrate the direct interaction of APC-(129–250) with the nuclear export factor chromosome maintenance region 1 (Crm-1). This interaction is enhanced by the small GTPase Ran in its activated GTP-bound form and also by a double mutation in APC-(129–250), which deletes two amino acids forming two of the major interhelical interactions within the coiled coil. These observations hint to a regulatory mechanism of the APC nuclear export activity by NES masking.
+APC
+adenomatous polyposis coli
+NES
+nuclear export signal
+Crm-1
+chromosome maintenance region 1
+GppNHp
+guanosine 5′-(β,γ-imido)triphosphate
+SAD
+single-wavelength anomalous dispersion
+CNS
+crystallography NMR software
+STAT
+signal transducers and activators of transcription
+The tumor suppressor gene APC
+1
+is inactivated in the majority of human colorectal cancers. One major function of the APC protein is the regulation of the level and intracellular localization of the signaling proto-oncoprotein β-catenin (
+1
+1.
+Fearnhead, N.S. ∙ Britton, M.P. ∙ Bodmer, W.F.
+Hum. Mol. Genet.
+2001;
+10
+:721-733
+Crossref
+Scopus (759)
+PubMed
+Google Scholar
+). Together with other proteins the APC protein increases the turnover rate of cytosolic β-catenin and thereby decreases the intracellular β-catenin level (
+2-5
+2.
+Sakanaka, C. ∙ Weiss, J.B. ∙ Williams, L.T.
+Proc. Natl. Acad. Sci. U. S. A.
+1998;
+95
+:3020-3023
+Crossref
+Scopus (283)
+PubMed
+Google Scholar
+3.
+Behrens, J. ∙ Jerchow, B.A. ∙ Wurtele, M. ...
+Science.
+1998;
+280
+:596-599
+Crossref
+Scopus (1138)
+PubMed
+Google Scholar
+4.
+Hart, M.J. ∙ de los Santos, R. ∙ Albert, I.N. ...
+Curr. Biol.
+1998;
+8
+:573-581
+Full Text
+Full Text (PDF)
+PubMed
+Google Scholar
+5.
+Rubinfeld, B. ∙ Albert, I. ∙ Porfiri, E. ...
+Science.
+1996;
+272
+:1023-1026
+Crossref
+Scopus (1332)
+PubMed
+Google Scholar
+). Stabilizing mutations in β-catenin or truncating mutations in APC lead to an increase of the intracellular β-catenin concentration (
+6-8
+6.
+Munemitsu, S. ∙ Albert, I. ∙ Souza, B. ...
+Proc. Natl. Acad. Sci. U. S. A.
+1995;
+92
+:3046-3050
+Crossref
+Scopus (967)
+PubMed
+Google Scholar
+7.
+Rubinfeld, B. ∙ Albert, I. ∙ Porfiri, E. ...
+Cancer Res.
+1997;
+57
+:4624-4630
+PubMed
+Google Scholar
+8.
+Morin, P.J. ∙ Sparks, A.B. ∙ Korinek, V. ...
+Science.
+1997;
+275
+:1787-1790
+Crossref
+Scopus (3606)
+PubMed
+Google Scholar
+). As a consequence, β-catenin can enter the nucleus where it activates transcription in complex with a transcription factor of the T-cell transcription factor/lymphoid enhancer binding factor family (
+9
+9.
+Behrens, J. ∙ von Kries, J.P. ∙ Kuhl, M. ...
+Nature.
+1996;
+382
+:638-642
+Crossref
+Scopus (2659)
+PubMed
+Google Scholar
+,
+10
+10.
+Molenaar, M. ∙ van de Wettering, M. ∙ Oosterwegel, M. ...
+Cell.
+1996;
+86
+:391-399
+Full Text
+Full Text (PDF)
+Scopus (1650)
+PubMed
+Google Scholar
+). In addition to regulating the cytosolic β-catenin level, the APC protein can also regulate the intracellular localization of β-catenin and its nuclear signaling activity. The APC protein has a nuclear export function and may shuttle β-catenin between the nucleus and the cytoplasm (
+1
+1.
+Fearnhead, N.S. ∙ Britton, M.P. ∙ Bodmer, W.F.
+Hum. Mol. Genet.
+2001;
+10
+:721-733
+Crossref
+Scopus (759)
+PubMed
+Google Scholar
+). The nuclear accumulation of APC, induced by the inhibition of the exportin Crm-1 (chromosome maintenance region 1), leads to the accumulation of β-catenin in the nucleus (
+12-14
+12.
+Henderson, B.R.
+Nat. Cell Biol.
+2000;
+2
+:653-660
+Crossref
+Scopus (418)
+PubMed
+Google Scholar
+13.
+Rosin-Arbesfeld, R. ∙ Townsley, F. ∙ Bienz, M.
+Nature.
+2000;
+406
+:1009-1012
+Crossref
+Scopus (309)
+PubMed
+Google Scholar
+14.
+Neufeld, K.L. ∙ Zhang, F. ∙ Cullen, B.R. ...
+EMBO Rep.
+2000;
+1
+:519-523
+Crossref
+Scopus (146)
+PubMed
+Google Scholar
+). The APC protein contains several leucine-rich motifs, which might function as pertinent nuclear export signals (NESs), suggesting that APC interacts directly with Crm-1 (
+15
+15.
+Neufeld, K.L. ∙ Nix, D.A. ∙ Bogerd, H. ...
+Proc. Natl. Acad. Sci. U. S. A.
+2000;
+97
+:12085-12090
+Crossref
+Scopus (141)
+PubMed
+Google Scholar
+). Two leucine-rich motifs, which were proposed as NES motifs, are located at the N terminus including residues 68–77 and 165–174, respectively (
+12
+12.
+Henderson, B.R.
+Nat. Cell Biol.
+2000;
+2
+:653-660
+Crossref
+Scopus (418)
+PubMed
+Google Scholar
+,
+14
+14.
+Neufeld, K.L. ∙ Zhang, F. ∙ Cullen, B.R. ...
+EMBO Rep.
+2000;
+1
+:519-523
+Crossref
+Scopus (146)
+PubMed
+Google Scholar
+,
+15
+15.
+Neufeld, K.L. ∙ Nix, D.A. ∙ Bogerd, H. ...
+Proc. Natl. Acad. Sci. U. S. A.
+2000;
+97
+:12085-12090
+Crossref
+Scopus (141)
+PubMed
+Google Scholar
+).
+MATERIALS AND METHODS
+Subcloning, Mutagenesis, Expression, and Protein Purification
+The full-length APC cDNA was kindly provided by Paul Polakis (Genentech). The fragments APC-(2–250) and APC-(129–250) were PCR-amplified. The double mutation L189A/I196A was introduced into APC-(129–250) by site-directed mutagenesis using the QuikChange method (Stratagene) and verified by sequencing. The gene fragments were ligated into pGEX-6P-2 and recombinantly expressed as glutathione
+S
+-transferase fusion proteins in the
+Escherichia coli
+strain BL21. Bacteria were harvested and lysed by sonification, and proteins were purified by affinity chromatography. The glutathione
+S
+-transferase fusion part was cleaved off by incubation with 2 units of PreScission protease (AmershamBiosciences)/5 mg of protein at 4 °C overnight, and the cleaved protein was further purified by gel filtration on a Superdex S200 column. The purification yielded 40 mg of protein of 99% purity from 1 liter of bacterial culture. To solve the phase problem APC-(129–250) was expressed in a methionine-deficient
+E. coli
+strain in the presence of selenomethionine (Se-Met). Mass spectroscopic analysis confirmed the presence of three Se-Mets in purified APC-(129–250)-Se (not shown). Crm-1 was subcloned in pQE60 (Qiagen), expressed as a His
+6
+-tagged protein, and purified on a Ni
+2+
+affinity column.
+Biochemical Analysis
+The trypsin-resistant domain was identified by incubating APC-(2–250) with trypsin at a 1:1000 ratio at 30 °C. The reaction was followed by the time-dependent analysis of aliquots of the reaction by SDS-PAGE over 120 min. An aliquot of the 30-min fraction was analyzed by matrix-assisted laser desorption/ionization time of flight analysis. The N-terminal sequences of the trypsin-resistant protein fragments were determined by sequential degradation from the N-terminal end and the analysis of the amino acids by capillary high performance liquid chromatography. The potential formation of multimers of APC-(2–250) and APC-(129–250) was followed by gel filtration on a Superdex S200 36/99 column of the glutathione
+S
+-transferase-free purified protein. The presence of secondary structural elements was analyzed by CD spectroscopy on a J-710 spectropolarimeter (Jasco). The interaction between APC, Crm-1, and Ran was analyzed in a pull-down assay (
+16
+16.
+Lee, S.H. ∙ Hannink, M.
+J. Biol. Chem.
+2001;
+276
+:23599-23606
+Full Text
+Full Text (PDF)
+Scopus (25)
+PubMed
+Google Scholar
+). His
+6
+-tagged Crm-1 was immobilized to magnetic Ni
+2+
+beads (Qiagen) and precipitated using a magnetic separator. The pull-down assay was performed in the presence or the absence of the following proteins: APC-(129–250) wild type or double mutated APC-(129–250)-L189A/I196A and Ran in its inactive GDP-bound form or in its active form bound to the GTP analogue GppNHp, respectively. Aliquots of the precipitates were analyzed for the presence of APC-(129–250) by Western blot using a novel polyclonal antibody. This antibody had been raised against APC-(2–250) in rabbit. In a control Western blot the detection sensitivity of this antibody was demonstrated (
+Fig. 4
+A
+). The equal loading of all proteins was controlled by the Bradford method right before the assay. The equal concentrations of Crm-1 and Ran were also shown by bands at the corresponding sizes of comparable intensities on a Coomassie-stained gel, which was run in parallel as a control.
+Figure viewer
+FIG. 4
+The interaction between APC -(129–250) and Crm-1 is enhanced by active Ran and by the deletion of two positions, which are important for the masking of the NES -(165–174).
+A
+, evaluation of the sensitivity of a new anti-APC antibody in the Western blot detection of APC-(2–250) and APC-(129–250). Different amounts of the two proteins (
+lanes 1
+and
+4
+, 100 ng;
+lanes 2
+and
+5
+, 10 ng;
+lanes 3
+and
+6
+, 5 ng) were electrophoretically separated, blotted, and incubated with the polyclonal rabbit antibody, which was raised against purified APC-(2–250). The blots were developed with a secondary goat anti-rabbit antibody coupled to horseradish peroxidase followed by enhanced chemoluminescence detection.
+B
+,
+upper panel
+, Western blot analysis of APC-(129–250) precipitated by immobilized Crm-1. APC-(129–250) in its wild type (
+wt
+) (
+lanes 1–3
+) or in its double mutated form (
+mut
+) (
+lanes 4
+and
+5
+) was incubated with purified His
+6
+-tagged Crm-1 (
+lanes 2–5
+) and with RanGDP (
+lanes 3
+and
+5
+) or with constitutively active RanGppNHp (
+lanes 2
+and
+4
+) where indicated. After precipitation with Ni
+2+
+beads, the pellet was analyzed by Western blot using the new polyclonal anti-APC-(2–250) antibody. In the presence of active Ran (RanGppNHp), the amount of precipitated APC-(129–250) is increased (
+lane 2
+). Also, the introduction of the double mutation L189A/I196A, which is assumed to facilitate the unmasking of the NES-(165–174), enhances the interaction (
+lane 4
+). These results indicate a partial separation of the coiled coil and an unmasking of the NES-(165–174) by Crm-1 and by active Ran.
+Middle
+and
+lower panels
+, the presence of comparable amounts of Crm-1 and Ran was controlled by the intensities of bands of the corresponding sizes in a stained SDS-polyacrylamide gel, which was run in parallel with aliquots of the samples as a control. Note that only active Ran is precipitated by immobilized Crm-1, and therefore RanGDP is not visible in the
+middle panel
+of
+lanes 3
+and
+5. C
+, quantitative column presentation of the results shown in
+B
+as -fold increase of the amount of Crm-1-bound APC-(129–250). The amount of wild type APC-(129–250) precipitated by Crm-1 in the presence of RanGDP was set as 1 (
+column 3
+). The amount of wild type APC-(129–250) is increased 2-fold in the presence of active RanGppNHp (
+column 2
+), and the amount of the double mutant APC-(129–250) is increased more than 4-fold (
+column 4
+).
+Crystallization and Structure Determination
+Crystallization conditions for APC-(129–250) were screened using several commercially available crystallization screens (Hampton Research) in hanging drop vapor diffusion set-ups at 4 °C, 12 °C, and 20 °C with 1 ml of reservoir solution. The best conditions were 14–20% polyethylene glycol 3350, 100 m
+m
+potassium iodide, 10 m
+m
+strontium chloride at 4 °C with 20–30 mg/ml protein for both the native and selenomethionine-labeled proteins. The crystals were cryoprotected in a solution containing 20% polyethylene glycol 3350, 10% xylitol, and 5% sucrose. Data sets were collected at 100 K to a resolution of 2.0 Å (native) and 2.5 Å (selenomethionine) on a MAR CCD detector at the ID14–1 beam line (European Synchrotron Radiation Facility, Grenoble, France) using a wavelength of 0.934 Å and processed with XDS (
+17
+17.
+Kabsch, W.
+J. Appl. Crystallogr.
+1993;
+26
+:795-800
+Crossref
+Scopus (3285)
+Google Scholar
+). The positions of the three selenomethionines were found by SOLVE (
+18
+18.
+Terwilliger, T.C. ∙ Berendzen, J.
+Acta Crystallogr. Sect. D. Biol. Crystallogr.
+1999;
+55
+:849-861
+Crossref
+Scopus (3230)
+PubMed
+Google Scholar
+) and used for SAD phasing including density modification (solvent flipping) with CNS (
+19
+19.
+Brunger, A.T. ∙ Adams, P.D. ∙ Clore, G.M. ...
+Acta Crystallogr. Sect. D. Biol. Crystallogr.
+1998;
+54
+:905-921
+Crossref
+Scopus (17070)
+PubMed
+Google Scholar
+). The excellent initial electron density allowed unambiguous tracing of the main chain and showed very good density for the side chains. The model was built with O (
+20
+20.
+Jones, T.A. ∙ Kjeldgaard, M.
+Methods Enzymol.
+1997;
+277
+:173-208
+Crossref
+Scopus (508)
+PubMed
+Google Scholar
+) and initially refined against the 2.5-Å Se-Met data set using the SAD phase information. Subsequently the model was refined against the native data set with a resolution of 2.0 Å, and water molecules were added. The final model has excellent geometries with
+R
+cryst
+= 25.7% and
+R
+free
+= 30.9% and comprises residues 130–173 and 179–239. Since no signs for twinning or pseudosymmetry or other problems with the data could be detected, the high
+R
+free
+(even after extensive refinement) is most likely due to the disordered regions (17 of 122 residues, corresponding to 14%), and we thus conclude that the structure is correctly refined. The very good experimental electron density ensures that the structure is correctly built.
+RESULTS
+Structural Domains in the APC Protein
+To identify structural domains of the APC protein we analyzed the 2843-amino acid APC sequence with the PHD secondary structure prediction program (
+21
+21.
+Rost, B. ∙ Sander, C.
+Proteins.
+1994;
+19
+:55-72
+Crossref
+Scopus (1360)
+PubMed
+Google Scholar
+). Remarkably, less than 25% of the amino acids within the APC sequence are organized within secondary structural elements (not shown). The APC protein includes only two stretches of more than 250 amino acids with a portion of defined structural elements higher than 60%. First, the N-terminal 250 amino acids form the stretch with the highest portion of structural elements. This domain includes the N-terminal 55 amino acids, which form a coiled coil region that is responsible for the dimerization of the APC protein (
+22-24
+22.
+Joslyn, G. ∙ Richardson, D.S. ∙ White, R. ...
+Proc. Natl. Acad. Sci. U. S. A.
+1993;
+90
+:11109-11113
+Crossref
+Scopus (173)
+PubMed
+Google Scholar
+23.
+Sharma, V.A. ∙ Logan, J. ∙ King, D.S. ...
+Curr. Biol.
+1998;
+8
+:823-830
+Full Text
+Full Text (PDF)
+Scopus (31)
+PubMed
+Google Scholar
+24.
+Day, C.L. ∙ Alber, T.
+J. Mol. Biol.
+2000;
+301
+:147-156
+Crossref
+Scopus (49)
+PubMed
+Google Scholar
+). The N-terminal 250 amino acids also include the two leucine-rich motifs, residues 68–77 and 165–174, which were proposed as NES motifs (
+12
+12.
+Henderson, B.R.
+Nat. Cell Biol.
+2000;
+2
+:653-660
+Crossref
+Scopus (418)
+PubMed
+Google Scholar
+,
+15
+15.
+Neufeld, K.L. ∙ Nix, D.A. ∙ Bogerd, H. ...
+Proc. Natl. Acad. Sci. U. S. A.
+2000;
+97
+:12085-12090
+Crossref
+Scopus (141)
+PubMed
+Google Scholar
+). Second, the helical region from amino acids 407 through 775 covers seven so-called ARMADILLO repeats, which show sequence homology to the repeat domain of the
+Drosophila
+protein armadillo (
+25
+25.
+Peifer, M. ∙ Berg, S. ∙ Reynolds, A.B.
+Cell.
+1994;
+76
+:789-791
+Full Text (PDF)
+Scopus (586)
+PubMed
+Google Scholar
+,
+26
+26.
+Hirschl, D. ∙ Bayer, P. ∙ Müller, O.
+FEBS Lett.
+1996;
+383
+:31-36
+Crossref
+Scopus (13)
+PubMed
+Google Scholar
+). Thus, the large APC protein seems to represent a long string of single protein binding elements and of only a few structured domains, each with a distinct function, which are connected via variable stretches, rather than a compact globular protein with surface regions of which each is responsible for one of the numerous APC functions.
+Based on these outcomes, we further analyzed the N-terminal region of the APC protein. At this stage of our study, there were only preliminary structural data available for this region (
+22
+22.
+Joslyn, G. ∙ Richardson, D.S. ∙ White, R. ...
+Proc. Natl. Acad. Sci. U. S. A.
+1993;
+90
+:11109-11113
+Crossref
+Scopus (173)
+PubMed
+Google Scholar
+,
+23
+23.
+Sharma, V.A. ∙ Logan, J. ∙ King, D.S. ...
+Curr. Biol.
+1998;
+8
+:823-830
+Full Text
+Full Text (PDF)
+Scopus (31)
+PubMed
+Google Scholar
+). We purified the recombinantly expressed protein fragment APC-(2–250) and found that APC-(2–250) forms oligomeric complexes (
+Fig.1
+A
+). The elution profile of the analytical gel filtration indicated the formation of tetramers and trimers, although we cannot rule out the additional formation of dimers. The dimerization of the very first 55 amino acids in solution has already been proven (
+22
+22.
+Joslyn, G. ∙ Richardson, D.S. ∙ White, R. ...
+Proc. Natl. Acad. Sci. U. S. A.
+1993;
+90
+:11109-11113
+Crossref
+Scopus (173)
+PubMed
+Google Scholar
+) and was consistent with the crystal structure, which was solved in the meantime and which also showed indications for the formation of tetramers of the first 55 amino acids (
+24
+24.
+Day, C.L. ∙ Alber, T.
+J. Mol. Biol.
+2000;
+301
+:147-156
+Crossref
+Scopus (49)
+PubMed
+Google Scholar
+). Remarkably the gel filtration showed the first indication for the presence of a stable domain within APC-(2–250), namely a degradation product of ∼16.8 kDa (
+Fig. 1
+A
+). The results of the CD spectroscopic analysis of APC-(2–250) were in line with the presence of primarily helical segments, which were already proposed by the secondary structure prediction (
+Fig. 1
+B
+). Despite several attempts and the testing of many different screening conditions, we failed to crystallize APC-(2–250). To identify protease-resistant structural domains we performed limited trypsin digestion of APC-(2–250). This digestion resulted in one main fragment of 13,949 Da as determined by mass spectroscopy (
+Fig.2
+). The N-terminal sequencing of this fragment revealed the sequence ESTGYLEEL, which is identical to the APC protein sequence from position 129. The C-terminal end of the fragment was identified by virtual design of trypsin-digested APC fragments beginning at position 129 and comparison of the masses of these fragments to the mass of the experimental fragment using public software (expasy.ch). The designed trypsin fragments APC-(129–246) and APC-(129–250) with the masses of 13,952 and 14,492 Da, respectively, coincided best with the experimentally obtained fragment. Next APC-(129–250) was subcloned, expressed, and purified. Remarkably APC-(129–250) eluted as monomer and did not show any indication of dimerization in the analytical gel filtration (
+Fig.1
+C
+). This result makes it unlikely that a putative dimerization domain within the region from amino acids 125 through 156 might be responsible for the different phenotypes of the inherited cancer predisposition familial adenomatous polyposis as suggested previously (
+24
+24.
+Day, C.L. ∙ Alber, T.
+J. Mol. Biol.
+2000;
+301
+:147-156
+Crossref
+Scopus (49)
+PubMed
+Google Scholar
+). CD spectroscopic analysis demonstrated the thermal stability of APC-(129–250) and the presence of helical elements (
+Fig. 1
+D
+).
+Figure viewer
+FIG. 1
+APC -(2–250) forms multimers, whereas APC -(129–250) is monomeric.
+A
+, elution profile of the analytical gel filtration of APC-(2–250). The molecular masses of the eluted peaks as calculated from calibration with standard proteins are shown in kDa. Peaks indicate the presence of tetra- (at ∼102.3 kDa), tri- (83.1 kDa), and monomeric forms (31.6 kDa) and of a degradation product (16.8 kDa) of APC-(2–250). The presence of a small degradation product was the first experimental indication for a stable domain of about 16.8 kDa within APC-(2–250).
+B
+, temperature-dependent CD spectroscopic analysis of APC-(2–250). The characteristic double minima indicate the presence of helical elements. The drastic signal decrease at temperatures higher than 40 °C indicates the denaturation of the structural domains.
+C
+, elution profile of the analytical gel filtration of the protease-stable APC-(129–250), which elutes from the gel filtration column only in the monomeric form (16.8 kDa).
+D
+, temperature-dependent CD spectroscopic analysis of APC-(129–250), which denatures at temperatures higher than 50 °C. θ, molar ellipticity;
+mAU
+, milliabsorption units; grad, rotation units.
+Figure viewer
+FIG. 2
+APC -(2–250) includes a trypsin-resistant domain of 13,949 Da.
+A
+, SDS-PAGE analysis of APC-(2–250) after incubation with trypsin for the indicated times.
+Numbers
+on the
+right
+indicate the molecular masses of marker proteins in kDa.
+B
+, results of the mass spectroscopic analysis of the trypsin-digested APC-(2–250). The spectrum shows a major peak at 13,949
+m
+/
+z
+.
+The Structure of APC-(129–250)
+The crystal structure of APC-(129–250) was solved at 2-Å resolution (
+Table I
+). Of the 122 amino acids of APC-(129–250), 99 amino acids are organized within three α-helices (
+Fig. 3
+): helix I from amino acids 132 to 172, helix II from amino acids 179 to 204, and helix III from amino acids 208 to 239. Residues 205 and 206 form a kink between helices II and III, whereas residues 129, 174–178, and 240–250 are not visible in the electron density and are assumed to be flexible in the crystal. The three helices form two separate antiparallel coiled coils (
+Fig.3
+B
+). The first coiled coil is formed by residues 134–148 of helix I and residues 217–231 of helix III. The second coiled coil is formed by residues 158–172 of helix I and residues 186–200 of helix II. The helices are interacting with each other via apolar residues at positions a and d of heptad repeat motifs (abcdefg)
+n
+, which are commonly found within coiled coils (
+27
+27.
+Lupas, A.
+Trends Biochem. Sci.
+1996;
+21
+:375-382
+Abstract
+Full Text (PDF)
+Scopus (1008)
+PubMed
+Google Scholar
+,
+28
+28.
+Burkhard, P. ∙ Stetefeld, J. ∙ Strelkov, S.V.
+Trends Cell Biol.
+2001;
+11
+:82-88
+Full Text
+Full Text (PDF)
+Scopus (883)
+PubMed
+Google Scholar
+). In addition to the apolar interhelical interactions, there are six ionic interhelical interactions between charged residues of helices I and III. Remarkably there are no ionic interhelical interactions within the second coiled coil region indicating a weaker or less specific interaction between helices I and II compared with the interaction between helix I and helix III. The potential higher flexibility of this region is consistent with increased temperature factors in this region.
+Figure viewer
+FIG. 3
+The structure of APC -(129–250).
+A
+, the overall structure of APC-(129–250) in ribbon presentation. The position of the NES-(165–174) is shown in
+dark gray. B
+, the sequence, the structural elements, and the interhelical interactions of APC-(129–250). The helical domains are
+boxed in gray
+and are
+numbered I–III
+from the N- to the C-terminal end. Helix I forms antiparallel coiled coils with helices II and III. The heptad repeats (abcdefg)
+n
+, which are characteristic for coiled coils, are indicated. The apolar residues at the first (
+a
+) and the fourth (
+d
+) positions of the antiparallel heptad repeats form the hydrophobic interhelical interactions. Selected hydrophobic interhelical interactions are shown in
+open ellipses
+. All ionic interhelical interactions are indicated by
+dashed lines
+. Note that there are no ionic interactions between helices I and II. The NES motif from amino acids 165 to 174 is
+boxed
+in a
+dotted frame. C
+, details of the hydrophilic central region. Representative amino acids and their interactions are shown. The position of a water molecule is indicated as a
+red ball
+.
+Native
+Se-Met
+Space group
+P3
+2
+21
+P3
+2
+21
+Unit cell
+a=b=46.1 Å c=113.3 Å
+a=b=46.2 Å c=112.3 Å
+α=β=90°
+γ=120°
+α=β=90°
+γ=120°
+Resolution
+40–2.0 Å
+30–2.5 Å
+Observed reflections
+65,629
+56,396
+Unique reflections
+9,685
+9,218
+Completeness (%)
+98.6 (98.8)
+96.1 (71.5)
+I/ς
+18.8 (6.3)
+27.9 (12.2)
+R
+merge
+1-a
+(%)
+6.7
+5.5
+Refinement
+Phasing statistics
+Resolution (Å)
+20.0–2.0
+Reflections
+10,548
+FOM
+1-b
+after SOLVE: 0.34 (3 sites, 2.5 Å resolution)
+R
+cryst
+1-c
+(%)
+25.7
+R
+free
+(%)
+30.9
+Phasing power
+1-d
+SAD phasing:
+2.16 (centric)
+Model
+1.93 (acentric)
+Non-hydrogen atoms
+Protein
+885
+FOM after SAD phasing with CNS: 0.4
+Water
+56
+r.m.s.
+1-e
+deviation from expected geometry
+FOM after density modification with CNS: 0.91
+Bond lengths (Å)
+0.008
+Bond angles (°)
+1.0
+Overall B-value (Å
+2
+)
+42.8
+Table I
+Summary of crystallographic data
+Numbers in parentheses denote the corresponding values for the outer resolution shell, 2.1–2.0 Å for the native data set and 2.5–2.4 Å for the selenomethionine data set.
+1-a
+R
+merge
+=
+∑
+h
+k
+l
+∑
+𝑖
+‖
+𝐼
+𝑖
+−
+<
+𝐼
+>
+‖
+∑
+h
+k
+l
+∑
+𝑖
+‖
+<
+𝐼
+>
+‖
+where
+I
+i
+is the intensity for the
+i
+th measurement of an equivalent reflection with indices
+h
+,
+k
+,
+l
+.
+1-b
+FOM, figure of merit.
+1-c
+R
+cryst
+=
+∑
+h
+k
+l
+‖
+‖
+⁢
+𝐹
+o
+b
+s
+⁢
+‖
+−
+‖
+⁢
+𝐹
+c
+a
+l
+c
+⁢
+‖
+‖
+∑
+h
+k
+l
+‖
+𝐹
+o
+b
+s
+‖
+where
+F
+obs
+denotes the observed structure factor amplitude and
+F
+calc
+denotes the structure factor amplitude calculated from the model. 10% of reflections were used to calculate
+R
+free
+.
+1-d
+Phasing power, as defined in CNS (
+19
+19.
+Brunger, A.T. ∙ Adams, P.D. ∙ Clore, G.M. ...
+Acta Crystallogr. Sect. D. Biol. Crystallogr.
+1998;
+54
+:905-921
+Crossref
+Scopus (17070)
+PubMed
+Google Scholar
+).
+1-e
+r.m.s., root mean square.
+Open table in a new tab
+The three helices frame a hydrophilic centric zone (
+Fig.3
+C
+). This zone is bordered by amino acids 147–155 and 210–217 and the hydrophobic interactions between the residues Arg-217/Leu-148 and Lys-155/Met-210, respectively. The centric zone contains a water molecule and the charged side chains of Glu-151, Glu-152, Arg-213, and Arg-217, which reach into this zone.
+The Interaction of APC-(129–250) with Crm-1
+The nuclear export of proteins and RNA molecules is mediated by the functional protein family of exportins and the small GTPase Ran (
+29
+29.
+Kohler, M. ∙ Haller, H. ∙ Hartmann, E.
+Exp. Nephrol.
+1999;
+7
+:290-294
+Crossref
+Scopus (27)
+PubMed
+Google Scholar
+). The cargo to be exported from the nucleus forms a trimeric complex with an exportin protein and the active RanGTP. This complex is transported out of the nucleus where it dissociates. Preliminary data indicated that a peptide with the sequence corresponding to the NES-(165–174) of the APC protein can directly interact with Crm-1 (
+15
+15.
+Neufeld, K.L. ∙ Nix, D.A. ∙ Bogerd, H. ...
+Proc. Natl. Acad. Sci. U. S. A.
+2000;
+97
+:12085-12090
+Crossref
+Scopus (141)
+PubMed
+Google Scholar
+). After mutation of Leu-172 and Leu-174 to Ala the interaction of the NES-(165–174) peptide with Crm-1 is abolished. When this double mutated peptide was fused to an indicator protein, this indicator protein accumulated in the nucleus (
+15
+15.
+Neufeld, K.L. ∙ Nix, D.A. ∙ Bogerd, H. ...
+Proc. Natl. Acad. Sci. U. S. A.
+2000;
+97
+:12085-12090
+Crossref
+Scopus (141)
+PubMed
+Google Scholar
+). These studies indicated that this specific region of APC is a
+bona fide
+NES, which is active
+in vivo
+, and prompted us to investigate the direct interaction between APC-(129–250) and Crm-1. In an affinity pull-down assay, APC-(129–250) interacted directly with Crm-1 (
+Fig.4
+B
+). The addition of Ran in its active GTP-bound form to the assay led to the increase of the precipitated amount of the Crm-1-bound APC-(129–250) in comparison to the amount of bound protein in the presence of RanGDP. Thus, active Ran enhances the interaction between APC-(129–250) and Crm-1. In general, the interaction of Crm-1 with NES sequences is thought to be determined by hydrophobic residues, especially leucines, in relatively short sequence stretches (
+30-32
+30.
+Ossareh-Nazari, B. ∙ Gwizdek, C. ∙ Dargemont, C.
+Traffic.
+2001;
+2
+:684-689
+Crossref
+Scopus (73)
+PubMed
+Google Scholar
+31.
+Ossareh-Nazari, B. ∙ Bachelerie, F. ∙ Dargemont, C.
+Science.
+1997;
+278
+:141-144
+Crossref
+Scopus (630)
+PubMed
+Google Scholar
+32.
+Fukuda, M. ∙ Asano, S. ∙ Nakamura, T. ...
+Nature.
+1997;
+390
+:308-311
+Crossref
+Scopus (1054)
+PubMed
+Google Scholar
+). The leucines are arranged mainly on one side of an amphipathic helix as exemplified by the NES in p53 (
+33
+33.
+Stommel, J.M. ∙ Marchenko, N.D. ∙ Jimenez, G.S. ...
+EMBO J.
+1999;
+18
+:1660-1672
+Crossref
+Scopus (619)
+PubMed
+Google Scholar
+). An alignment of the NES-(165–174) of APC-(129–250) with two other known NES sequences is shown in
+Fig.5
+A
+.
+Figure viewer
+FIG. 5
+The NES -(165–174) in APC compared with the NES -(340–350) of p53 and the NES -(308–318) of STAT-1, whose structures are known and whose activities on the corresponding full-length protein have been proven.
+A
+, sequence alignment of NES-(165–174) APC with the NES motifs of p53 and STAT-1. The conserved amino acids were defined as
+A–D
+and as
+D
+′ in STAT-1 because of the different positions.
+B
+, superimposition of NES motifs with known structures and proven nuclear export activity: the NES-(165–174) (
+gray
+) of APC, NES-(340–350) of p53 (
+light blue
+), and the NES-(308–318) of STAT-1 (
+dark blue
+). The positions of the conserved residues A and B are identical in all three proteins. The spatial direction of C is rotated by approximately one helix position in APC compared with position C in p53 but is still pointing in the same direction. STAT-1 lacks the corresponding position C. The position of D, which could not be determined in APC, is different in p53 and STAT-1. We thus defined the position D′ in STAT-1. For p53 and STAT-1 only the NES motifs are shown; other residues have been omitted for clarity.
+Remarkably the conserved hydrophobic residues Leu-165, Ile-169, and Leu-172 of NES-(165–174) are buried within the coiled coil of helices I and II (
+Figs. 3
+B
+and
+5
+B
+). This leaves two possibilities to explain the interaction of this APC fragment with Crm-1: either Crm-1 interacts with a part of APC-(129–250) different from the NES-(165–174) or the leucines of the NES-(165–174) are “unmasked” to be available for the interaction. On first sight and from the structural point of view, the first possibility is more likely since it is difficult to imagine that the coiled coil structure might unravel to expose the hydrophobic residues of the NES-(165–174). However, we also have indications for the second possibility (see below). The first possibility would be similar to the situation in the Rev protein of human immunodeficiency virus, type 1 where Rev is able to interact with Crm-1 both with the NES motif and in an NES-independent way. In this case, only the NES-mediated interaction was leptomycin B-sensitive and Ran-dependent (
+34
+34.
+Askjaer, P. ∙ Jensen, T.H. ∙ Nilsson, J. ...
+J. Biol. Chem.
+1998;
+273
+:33414-33422
+Full Text
+Full Text (PDF)
+Scopus (176)
+PubMed
+Google Scholar
+). The finding that a small amount of APC-(129–250) is precipitated by Crm-1 in the presence of inactive RanGDP is an experimental indication for an NES-independent interaction between APC-(129–250) and Crm-1 (
+Fig. 4
+B
+,
+lane 4
+).
+The second possible explanation for an APC/Crm-1 interaction via the NES-(165–174) is supported by several findings. The second coiled coil is formed by the five apolar interactions of the amino acids Tyr-158, Leu-162, Leu-165, Ile-169, and Leu-172 of helix I with the amino acids Arg-186, Leu-189, Ala-193, Ile-196, and Met-200 of helix II, respectively (
+Fig. 3
+B
+). The prevention of these interactions by site-directed mutagenesis should lead to a weaker coherence between the helices I and II and should thus facilitate the unmasking of the NES-(165–174). To verify this assumption, we tested the Crm-1 interaction with a double mutated form of APC-(129–250) in the pull-down assay. In the mutant APC-(129–250)-L189A/I196A (
+Fig.4
+B
+,
+mut
+) two of the main interhelical interactions are abolished, which should improve the unmasking of the NES-(165–174) and the APC-(129–250) binding to Crm-1. Indeed, the mutation increases the amount of Crm-1-bound APC-(129–250) in comparison to the amount of Crm-1-bound wild type APC-(129–250) (
+Fig.4
+B
+). The amount of the precipitated double mutant was increased more than 2-fold compared with the non-mutated control (
+Fig.4
+C
+). Another sign for a specific interaction and thus for an unmasking of the NES-(165–174) upon interaction with Crm-1 and Ran is the enhancement of the binding of APC-(129–250) to Crm-1 by the active form of Ran, RanGppNHp, but not by the inactive RanGDP. Furthermore, two findings derived from the three-dimensional structure of APC-(129–250) demonstrate a high flexibility of this region of the coiled coil and thus indicate that detachment of the helices I and II could indeed be a possible mechanism. First, in contrast to the coiled coil between helices I and III, there are no ionic interactions between helices I and II. Helix II, which faces the NES-(165–174), has higher temperature factors than the rest of the structure, indicating that this helix is quite flexible and might be able to detach from the NES-(165–174). Second, the unusual “kink” between helix II and III would allow a movement of helix II without disturbing the second stable coiled coil moiety, thus giving a potential explanation for this unusual structural feature.
+DISCUSSION
+Here we present the three-dimensional structure of the largest APC protein domain solved so far. The APC-(129–250) structure comprises three helices, which form two single coiled coils surrounding a hydrophilic center. The two coiled coil regions are separated by an unusual kink between helix II and helix III. A comparison via a DALI search (
+35
+35.
+Holm, L. ∙ Sander, C.
+Proteins.
+1998;
+33
+:88-96
+Crossref
+Scopus (155)
+PubMed
+Google Scholar
+) showed that there is no other coiled coil structure yet known with a prominent kink like the one in APC-(129–250). The NES-(165–174) is part of one of the coiled coils. APC-(129–250) was shown to interact with Crm-1, although the conserved residues of the NES-(165–174) are masked by interhelical interactions. Both active Ran and a double mutation in APC-(129–250), which is assumed to make the separation of the two helices easier, can improve the binding of APC-(129–250) to Crm-1. These results support the assumption that the masked residues of the NES-(165–174) might become accessible via a conformational change induced by the interacting partners Crm-1 and RanGTP.
+The NES-(165–174) in APC and the NES Motifs in Other Proteins
+Leucine-rich stretches, which might exhibit nuclear export activity, have been identified in many different proteins. In most cases their activities have been proven only by using the short motifs fused to indicator proteins. There is only a small number of NES motifs, whose activities in the corresponding full-length proteins have been definitely proven
+in vivo
+. Of these NES motifs, only a very few have been structurally analyzed. That one has to be very careful when assigning NES motifs is shown by the structures of the leucine-rich motifs in 14-3-3 (amino acids 217–227) and in IκBα (amino acids 265–274, the C-terminal NES), which are similar to the structures of the NES-(340–350) in p53 and of the NES-(165–174) in APC. Recent studies have shown that these motifs have no nuclear export activity in the corresponding full-length proteins 14-3-3 and IκBα, respectively (
+16
+16.
+Lee, S.H. ∙ Hannink, M.
+J. Biol. Chem.
+2001;
+276
+:23599-23606
+Full Text
+Full Text (PDF)
+Scopus (25)
+PubMed
+Google Scholar
+,
+36-38
+36.
+Rittinger, K. ∙ Budman, J., Xu, J. ∙ Volinia, S. ...
+Mol. Cell.
+1999;
+4
+:153-166
+Full Text
+Full Text (PDF)
+Scopus (433)
+PubMed
+Google Scholar
+37.
+Brunet, A. ∙ Kanai, F. ∙ Stehn, J., Xu, J. ...
+J. Cell Biol.
+2002;
+156
+:817-828
+Crossref
+Scopus (471)
+PubMed
+Google Scholar
+38.
+Johnson, C. ∙ Van Antwerp, D. ∙ Hope, T.J.
+EMBO J.
+1999;
+18
+:6682-6693
+Crossref
+PubMed
+Google Scholar
+).
+Structurally the NES-(165–174) in APC is mainly helical and localized at the end of helix I of APC-(129–250) (
+Fig. 3
+,
+A
+and
+B
+). A similar helix-terminal position has already been found for the NES motifs in p53 and STAT-1 (
+Fig. 5
+) (
+33
+33.
+Stommel, J.M. ∙ Marchenko, N.D. ∙ Jimenez, G.S. ...
+EMBO J.
+1999;
+18
+:1660-1672
+Crossref
+Scopus (619)
+PubMed
+Google Scholar
+,
+39-41
+39.
+Begitt, A. ∙ Meyer, T. ∙ van Rossum, M. ...
+Proc. Natl. Acad. Sci. U. S. A.
+2000;
+97
+:10418-10423
+Crossref
+Scopus (138)
+PubMed
+Google Scholar
+40.
+Mowen, K. ∙ David, M.
+Mol. Cell. Biol.
+2000;
+20
+:7273-7281
+Crossref
+Scopus (66)
+PubMed
+Google Scholar
+41.
+Zhang, Y. ∙ Xiong, Y.
+Science.
+2001;
+292
+:1910-1915
+Crossref
+Scopus (313)
+PubMed
+Google Scholar
+). According to our knowledge, the only unambiguous NES, whose structure is known, is the NES-(340–350) in p53. The NES-(308–318) in STAT-1 is not rigorously confined; however, its nuclear export activity has not been disproved as in the case of 14-3-3 and IκBα. Therefore, the NES-(308–318) in STAT-1 is included in the superpositioning (
+Fig.5
+B
+). By analogy to the NES-(340–350) in p53, we also found the unidirectional orientation of the first three conserved hydrophobic residues of the NES-(165–174) in APC, Leu-165, Ile-169, and Leu-172 (
+Fig. 5
+B
+). Leu-172 is in a slightly different position compared with this position in other known NES structures. This position seems to be less well conserved since p53 shows a slightly different position and STAT-1 lacks this position. Leu-174 of APC-(129–250) is not visible in the electron density.
+That an active NES can be masked has been shown already for two other proteins (
+42
+42.
+Craig, E. ∙ Zhang, Z.K. ∙ Davies, K.P. ...
+EMBO J.
+2002;
+21
+:31-42
+Crossref
+Scopus (84)
+PubMed
+Google Scholar
+). First, in the tetrameric form of p53, the NES-(340–350) is masked. Second, the NES-(308–318) in STAT-1 is buried in a coiled coil structure similar to the NES-(165–174) in APC. The tyrosine phosphorylation of STAT-1 leads to the activation of the nuclear export activity (
+39
+39.
+Begitt, A. ∙ Meyer, T. ∙ van Rossum, M. ...
+Proc. Natl. Acad. Sci. U. S. A.
+2000;
+97
+:10418-10423
+Crossref
+Scopus (138)
+PubMed
+Google Scholar
+). Thus, it was postulated that the phosphorylation leads to the unmasking of the NES-(308–318) in STAT-1 (
+40
+40.
+Mowen, K. ∙ David, M.
+Mol. Cell. Biol.
+2000;
+20
+:7273-7281
+Crossref
+Scopus (66)
+PubMed
+Google Scholar
+). The Crm-1 binding might be enhanced by a conformational change, which leads to the free accessibility of a formerly masked NES. This conformational change might be induced by a third interaction partner. As an example, the interaction of the functional N-terminal NES of IκBα with Crm-1 is activated by Ran in its active GTP-bound form (
+16
+16.
+Lee, S.H. ∙ Hannink, M.
+J. Biol. Chem.
+2001;
+276
+:23599-23606
+Full Text
+Full Text (PDF)
+Scopus (25)
+PubMed
+Google Scholar
+). By analogy, active Ran enhances the interaction between Crm-1 and APC-(129–250) (
+Fig. 4
+,
+B
+and
+C
+). We also show that the interaction between APC-(129–250) and Crm-1 can be improved by the deletion of side chains, which are important for the masking of the NES-(165–174) because they form contacts between the NES and helix II. These results make an unmasking mechanism induced by Crm-1 and active Ran very likely. Nevertheless we are aware that our
+in vitro
+results of the affinity pull-down assay have yet to be confirmed by data from
+in vivo
+experiments.
+Tumor-relevant Mutations in APC-(129–250)
+According to the APC gene mutation data base (p53.curie.fr), more than 5% of all mutations identified thus far in the APC gene are located in the gene region coding for APC-(129–250). Nearly all of these mutations are stop mutations, which have been identified in the germ line of familial adenomatous polyposis patients. Only two mutations lead to amino acid changes indicating that the amino acids at these positions play an important role in the tumor-suppressing activity of the APC protein. First, the Trp to Leu mutation at position 157 is located at the middle of helix I (
+43
+43.
+Walon, C. ∙ Kartheuser, A. ∙ Michils, G. ...
+Hum. Genet.
+1997;
+100
+:601-605
+Crossref
+Scopus (40)
+PubMed
+Google Scholar
+). In the wild type APC protein Trp-157 points to the outside, perpendicular to the axis of helix I, and forms a prominent protrusion (not shown). Trp-157 is surrounded by a large hydrophobic patch stretching toward Ser-171. Thus, the interaction of helix I with other domains of the APC protein or with other proteins mediated by Trp-157 might be important for the tumor-suppressing activity of the APC protein. Second, the Ser to Ile mutation at position 171 is located within the NES-(165–174) (
+44
+44.
+van der Luijt, R.B. ∙ Khan, P.M. ∙ Vasen, H.F. ...
+Hum. Mutat.
+1997;
+9
+:7-16
+Crossref
+Scopus (118)
+PubMed
+Google Scholar
+) with the Ser side chain pointing toward the outside. A recent study showed that the serine phosphorylation of the NES-(14–25) of p53 is important for the regulation of its nuclear export activity (
+41
+41.
+Zhang, Y. ∙ Xiong, Y.
+Science.
+2001;
+292
+:1910-1915
+Crossref
+Scopus (313)
+PubMed
+Google Scholar
+). Provided that the NES-(165–174) is important for tumor suppression and that it is regulated by phosphorylation, one could assume that the Ser to Ile mutation at position 171 might result in the decrease or the loss of the tumor-suppressing activity of the APC protein. Our finding that the software NetPhos (
+11
+11.
+Blom, N. ∙ Gammeltoft, S. ∙ Brunak, S.
+J. Mol. Biol.
+1999;
+294
+:1351-1362
+Crossref
+Scopus (2654)
+PubMed
+Google Scholar
+) identified Ser-171 as a putative phosphorylation site supports this notion.
+ACKNOWLEDGEMENTS
+We thank Ilme Schlichting and Axel Scheidig for the collection of the data sets and Klaus Scheffzek for critically reading the manuscript. We are indebted to Alfred Wittinghofer for fruitful discussions and continuous support.

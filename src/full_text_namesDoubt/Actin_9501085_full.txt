@@ -1,0 +1,332 @@
+dia
+Share
+Actin is a highly conserved, ubiquitous cytoskeletal protein, which is essential for multiple cellular functions. Despite its small size (
+M
+r
+= 42 000), unpolymerized forms of actin, as well as polymerized forms, exist primarily in the cytoplasm, excluded from the nucleus. Although spatial control of actin is crucially important, the molecular mechanisms ensuring the cytoplasmic localization of unpolymerized actin have not been revealed so far. In this paper we report that actin contains two leucine‐rich type nuclear export signal (NES) sequences in the middle part of the molecule, which are both shown to be functional. Monomeric actin, when injected into the nucleus, was rapidly exported in a manner which was sensitive to leptomycin B (LMB), a specific inhibitor of NES‐dependent nuclear export. LMB treatment of cells prevented nuclear exclusion of endogenous actin, inducing its nuclear accumulation. Furthermore, actin mutants with disrupted NESs accumulated in the nucleus. Expression of these NES‐disrupted actin mutants, but not of wild‐type actin, induced a decrease in the proliferative potential of the cell. These results reveal a novel molecular mechanism controlling the subcellular distribution of actin.
+Introduction
+Actin is present in almost all eukaryotic cells and is essential for cytokinesis, cell locomotion, cell motility, cell morphology, cell growth and other crucial events (
+Pollard, 1990
+;
+Stossel, 1993
+;
+Mitchison and Cramer, 1996
+). Although actin should be able to diffuse through the nuclear pore because of its relatively low molecular mass (42 000), both polymerized and unpolymerized actin are present almost exclusively in the cytoplasm. Most eukaryotic cells contain high concentrations of monomeric or unpolymerized actin which exists in a dynamic equilibrium with its polymerized form. It has been suggested that most of the monomeric actin in cells may exist in a form complexed with small proteins such as thymosin (
+Nachmias, 1993
+), profilin and other proteins (
+Stossel
+et al
+., 1985
+;
+Pollard and Cooper, 1986
+). The molecular masses of these actin binding proteins are small and thus the monomeric actin complex, for example the actin–thymosin or actin–profilin complex, must be able to enter the nucleus by diffusion. Nevertheless, almost all actin molecules are primarily found in the cytoplasm, excluded from the nucleus.
+There are a number of reports dealing with the issue of the subcellular localization of actin isoforms within the cytoplasm, due to differential mRNA localization (
+Hill
+et al
+., 1994
+;
+Bassell and Singer, 1997
+) or to specific interaction with proteins (
+Shuster
+et al
+., 1996
+). However, the results described in these reports do not account fully for the cytoplasmic localization of actin.
+Some types of stress, such as heat shock and DMSO treatment, are known to induce nuclear translocation of actin in various eukaryotic cells (
+Iida and Yahara, 1986
+;
+Nishida
+et al
+., 1987
+;
+Aizawa
+et al
+., 1995
+). The induction of intranuclear localization of actin by heat shock is reversible; when the temperature reverts to 37°C, actin molecules rapidly return to the cytoplasm. These results may suggest that actin is able to shuttle between the cytoplasm and the nucleus, and that some mechanism might operate to export actin from the nucleus to the cytoplasm. Thus, we considered the possibility that actin might have a nuclear export signal (NES) sequence. Similar to nuclear localization signals (NLS), NES sequences are short sequence motifs which are necessary and sufficient to mediate the nuclear export of large carrier proteins (
+Gorlich and Mattaj, 1996
+;
+Nigg, 1997
+). Important for their function is a characteristic spacing of hydrophobic residues, mainly leucine or isoleucine (
+Figure 1B
+) (
+Fischer
+et al
+., 1995
+;
+Wen
+et al
+., 1995
+;
+Gorlich and Mattaj, 1996
+;
+Nigg, 1997
+). By examining the amino acid sequence of actin by eye, we found two such sequences in the middle part of the molecule. Both of these sequences are shown to have nuclear export activity. This finding led us to analyze the nuclear export of actin further. The detailed analyses, whose results are also shown in this paper, demonstrate clearly that actin is exported from the nucleus by virtue of these two NES sequences and that the apparent cytoplasmic localization of actin is directed by this nuclear export mechanism. Furthermore, we show that expression of actin mutants with disrupted NESs, but not of wild‐type actin, is able to induce a decrease in the proliferative potential of the cell. Thus, this study reveals a novel mechanism for determining the subcellular distribution of a major cytoskeletal protein that may be important for cell physiology.
+Open in Viewer
+Figure 1
+. Two putative NES sequences in actin. (
+A
+) Schematic representation of the primary structure of actin showing two sequences (NES‐1, residues 170–181; NES‐2, residues 211–222) which contain four hydrophobic residues (written in outline letters) with the same characteristic spacing as in established NES sequences (B). (
+B
+) Sequence comparison. The two putative NES sequences of actin [mammalian α‐, β‐ and γ‐actin and
+S.cerevisiae
+(
+S.c
+.) actin] are aligned with the NES sequences of PKIα, MAP kinase kinase (MAPKK), and Rev. Important hydrophobic residues (leucine, isoleucine or valine) in the sequence are boxed. (
+C
+) Ribbon diagram of the actin monomer. The NES‐1 (yellow, with the critical hydrophobic residues in green) portion and the NES‐2 (yellow, with the critical hydrophobic residues in red) portion seem to be exposed at the exterior. This diagram was made by using RasMol (
+Sayle and Milner‐White, 1995
+), based on the crystallographic data (
+Kabsch
+et al
+., 1990
+;
+Schutt
+et al
+., 1993
+)
+Download figure
+Download PowerPoint
+Results and discussion
+Two NES sequences in actin
+We found two putative NES sequences in actin, designated NES‐1 and NES‐2, respectively (
+Figure 1A
+). Both are conserved in all isoforms of actin (α, β and γ) from higher eukaryotes and also in the actin of lower eukaryotes (
+Figure 1B
+), and contain four hydrophobic residues present at a typical, characteristic spacing, like the well‐established NES (
+Figure 1B
+).
+To test whether these sequences function as an NES, we synthesized the corresponding peptides (NES‐1 and NES‐2), conjugated them to ovalbumin (NES‐1–OV and NES‐2–OV), and injected each of the conjugates into the nucleus of rat 3Y1 cells. Both conjugates were almost completely excluded from the nucleus within 10 min (
+Figure 2A
+and
+B
+) whereas coinjected RITC–BSA remained in the nucleus (
+Figure 2A
+and
+B
+). Importantly, the nuclear export of both NES‐1–OV and NES‐2–OV was inhibited completely by leptomycin B (LMB) (
+Figure 2A
+and
+B
+), a specific inhibitor of nuclear export mediated by leucine‐rich NESs (
+Fornerod
+et al
+., 1997
+;
+Fukuda
+et al
+., 1997
+;
+Ossareh‐Nazari
+et al
+., 1997
+). These results indicate that both putative NES sequences found in the actin sequence, NES‐1 and NES‐2, can potentially function as NES.
+Open in Viewer
+Figure 2
+. Nuclear export of actin. (A and B) Both NES‐1 and NES‐2 can function as NES. Ovalbumin conjugated with the NES‐1 (residues 170–181) peptide (NES‐1–OV) (
+A
+) or ovalbumin conjugated with the NES‐2 (residues 211–222) peptide (NES‐2–OV) (
+B
+) was co‐injected with RITC–BSA into the nuclei of rat 3Y1 cells. Ten minutes after injection, cells were fixed and stained with anti‐OV antibody. LMB (final concentration, 2 ng/ml) was added 30 min before injection. Bar, 10 μm. (
+C
+) Actin (TMR‐actin, 1 mg/ml) was injected, together with FITC‐labeled goat anti‐rabbit IgG (1 mg/ml), into the nuclei of rat 3Y1 cells in the absence (control) or presence (+LMB) of LMB. The cells were fixed 5, 10 and 30 min after injection. LMB (final concentration, 2 ng/ml) was added 30 min before injection. Bar, 10 μm. At each point, about 70 nuclei were injected with the mixture of TMR‐actin and FITC‐IgG, and the photographs shown are representative. In the absence of LMB (left), >80% of the cells showed marked incorporation of the injected actin into actin filaments in the stress fibers and in the cell periphery in the cytoplasm at 10 min, while in the presence of LMB, only a small amount of the injected actin was detected in actin filaments in the cell periphery of ∼60% of the cells, and in the remainder of the cells no clear incorporation into actin filaments was seen at 10 min. After 30 min the outline of the nucleus, which was still clearly visible by the fluorescence of the injected actin in the presence of LMB (see the right panel, 30 min), became completely invisible by the actin fluorescence in all cells in the absence of LMB. Thus, nuclear export of actin is, for the most part, sensitive to LMB.
+Download figure
+Download PowerPoint
+Nuclear export of TMR‐actin
+It is inferred from the tertiary structure of the actin molecule (
+Kabsch
+et al
+., 1990
+;
+Schutt
+et al
+., 1993
+) that both NES‐1 and NES‐2 are located on the surface (
+Figure 1C
+). If so, they should also function in their natural context to direct the nuclear export of actin. To examine this possibility, we injected tetramethylrhodamine‐labeled actin (TMR‐actin) (
+Kellogg
+et al
+., 1988
+) into the nucleus of rat 3Y1 cells. Five minutes after injection TMR‐actin was exported from the nucleus and a portion of the exported actin was incorporated into actin filaments in the cell periphery and into stress fibers (
+Figure 2C
+, left). After 10 min a considerable amount of injected actin was excluded from the nucleus, and the incorporation into stress fibers became more pronounced (
+Figure 2C
+, left). After 30 min the amount of the injected actin left in the nucleus was greatly decreased, the majority now residing in the cytoplasm (
+Figure 2C
+, left). In the presence of LMB, the nuclear export of actin was suppressed markedly (
+Figure 2C
+, right). Five minutes after injection, all of the actin was essentially still in the nucleus. The extent of the nuclear export of actin 30 min after injection in the presence of LMB was approximately the same as that at 5 min after injection in the absence of LMB (
+Figure 2C
+). Thus for the most part, nuclear export of the injected actin is sensitive to LMB and therefore is most likely NES‐mediated. The small amount of LMB‐insensitive export may be caused by passive diffusion.
+LMB induces nuclear accumulation of endogenous actin
+If the subcellular distribution of endogenous actin is regulated by its NES sequences, LMB treatment should interfere with the cytoplasmic localization of actin. To test this hypothesis, the subcellular distribution of endogenous actin in fibroblastic cells was investigated before and after LMB treatment. Indirect immunofluorescent staining showed that before treatment with LMB, actin was present almost exclusively in the cytoplasm as a constituent of cytoplasmic actin filaments, or in an unpolymerized form which is visualized as diffuse staining in the cytoplasm (
+Figure 3A
+). After LMB treatment, actin became localized to the nucleus in all cells (
+Figure 3B
+). In ∼30
+%
+of the cells, paracrystal‐like structures of actin were detected within the nucleus (
+Figure 3B
+, upper panels), and in ∼5
+%
+of the cells, strong nuclear accumulation of actin occurred (
+Figure 3B
+, lower panels). Therefore, cytoplasmic localization of actin, i.e. the nuclear exclusion of actin in cells, is mediated, at least in part, by NES‐mediated nuclear export of actin. It has been suggested previously that about half of the actin in cells exists in an unpolymerized form presumably complexed with small proteins such as thymosin and profilin (
+Stossel
+et al
+., 1985
+;
+Pollard and Cooper, 1986
+;
+Nachmias, 1993
+). Although these complex forms of monomeric actin could enter the nucleus by diffusion, almost all actin molecules are found in the cytoplasm. This can be accounted for by the present finding that the cytoplasmic localization, or nuclear exclusion, of actin is achieved by its export from the nucleus.
+Open in Viewer
+Figure 3
+. Effect of LMB on the subcellular distribution of endogenous actin. (A and B) Rat 3Y1 cells were incubated at 37°C in the absence (
+A
+, control) or presence (
+B
+, +LMB) of LMB (10 ng/ml) for 24 h. Cells were then fixed and stained with anti‐actin monoclonal antibody and DAPI. In the absence of LMB, the intensity of actin staining, if any, in the nucleus was much weaker than that in the cytoplasm in all cells. In the presence of LMB, however, in ∼70% of the cells the staining intensity in the nucleus became similar to that in the cytoplasm, and in ∼30% of the cells the staining was heavier in the nucleus. The percentages of cells showing actin paracrystal‐like structure(s) in the nucleus were 0% (−LMB, A) and 32% (+LMB, B), respectively. The percentages of cells showing strong nuclear accumulation of actin in the nucleus were 0% (−LMB, A) and 4.5% (+LMB, B). Bar, 10 μm.
+Download figure
+Download PowerPoint
+Both NES‐1 and NES‐2 mediate the cytoplasmic localization of actin
+The above data show that the two putative NES sequences in actin can mediate nuclear export when coupled to an unrelated carrier protein, and that both injected and endogenous actin accumulate in the nucleus in the presence of the nuclear export inhibitor, LMB. To confirm that the nuclear export of actin is mediated by its two NES sequences, NES‐1 and NES‐2, we made three mutant actins in which critical hydrophobic residues (the third and fourth hydrophobic residue) in either NES‐1 or NES‐2, or both were replaced by alanines to disrupt NES‐1, NES‐2 or both, respectively (disNES‐1, disNES‐2, or disNES‐1&2 in
+Figure 4A
+). It has been established previously that this type of mutation makes NES nonfunctional (
+Fischer
+et al
+., 1995
+;
+Wen
+et al
+., 1995
+;
+Gorlich and Mattaj, 1996
+;
+Nigg, 1997
+). HA‐tagged forms of these mutants or of wild‐type actin were transfected into Swiss‐3T3 cells and into 3Y1 cells. Their subcellular distribution was then determined by staining with anti‐HA antibody. In Swiss‐3T3 cells, where moderate levels of these actin forms were expressed, wild‐type actin localized to the cytoplasm, and the exogenously expressed actin was incorporated into actin filaments in the cell periphery and into stress fibers (
+Figure 4B
+). The NES‐1‐disrupted actin (disNES‐1) and the NES‐2‐disrupted actin (disNES‐2) also localized primarily to the cytoplasm and were incorporated into actin filaments. Only a portion of them was observed in the nucleus (
+Figure 4B
+). In contrast, the mutant actin in which both NESs were disrupted (disNES‐1&2) localized primarily to the nucleus, i.e. in ∼60% of the cells the staining in the nucleus was stronger than in the cytoplasm (
+Figure 4B
+), and in ∼40% of the cells the staining intensity was almost the same in both regions. In 3Y1 cells, in which the transfected actins were expressed to a relatively higher level, even wild‐type actin could be detected in the nucleus (
+Figure 4C
+), disNES‐1 and disNES‐2 actins accumulated in the nucleus, and disNES‐1&2 actin accumulated in the nucleus more strongly (
+Figure 4C
+). In ∼60% of the cells expressing disNES‐1 or disNES‐2 actin, the staining in the nucleus was stronger than that in the cytoplasm, and in the remainder of the cells the staining was similar in both regions. In >80% of the cells expressing disNES‐1&2 actin, the staining in the nucleus was heavier than that in the cytoplasm. These results clearly indicate that both NES‐1 and NES‐2 function to direct the nuclear export of actin, although the mechanism by which NESs‐disrupted actin (disNES‐1&2) accumulates in the nucleus remains to be elucidated.
+Open in Viewer
+Figure 4
+. Expression of NES‐disrupted actin. (
+A
+) Schematic diagram of wild‐type (WT) actin and three actin mutants with disrupted NES (disNES‐1, disNES‐2, and disNES‐1&2). Two (the third and fourth) of four hydrophobic residues in each NES sequences were replaced by alanines as indicated. Swiss‐3T3 cells (
+B
+) or rat 3Y1 cells (
+C
+) were transiently transfected with a plasmid harboring a hemagglutinin (HA)‐tagged form of wild‐type (WT), disNES‐1, disNES‐2, or disNES‐1&2
+S.c
+. actin. Two days after transfection, the subcellular distribution of transfected actin was determined by staining with anti‐HA monoclonal antibody. Bars, 10 μm. In (B), ∼20% of the Swiss‐3T3 cells expressing WT actin showed the weak nuclear staining of actin, and the remainder essentially showed no nuclear staining. In cells expressing disNES‐1 or disNES‐2, almost all (>95%) cells showed some nuclear staining, and in ∼25% of the cells the intensity of nuclear staining was similar to, or slightly heavier than, that of the cytoplasmic staining. In cells expressing disNES‐1&2, ∼60% of cells showed heavier nuclear staining, and the remainder of the cells showed staining of almost the same intensity in both the nucleus and the cytoplasm. In (C), in 3Y1 cells expressing WT, the staining intensity in the nucleus was similar to that in the cytoplasm in ∼50% of the cells, and in the remainder the nucleus staining was less than cytoplasmic staining. In cells expressing disNES‐1 or disNES‐2, ∼60% of the cells showed much heavier nuclear staining as shown in the figures, and in ∼40% of the cells the staining intensity was almost the same in both regions. In cells expressing disNES‐1&2, >80% of the cells showed strong nuclear staining of the mutant actin. (
+D
+) Expression of mutant actin inhibits cell proliferation. A plasmid encoding WT, disNES‐1, disNES‐2, or disNES‐1&2 actin was co‐injected with a GFP‐expression plasmid (pEGF‐N1) into the nuclei of rat 3Y1 cells (100 cells per each plasmid). The number of cells which expressed GFP was determined 24, 48 and 72 h after injection, and is expressed as % cell number relative to that 24 h after injection. The numbers of cells expressing GFP after 24 h in this experiment are: WT = 83; disNES‐1 = 97; disNES‐2 = 117; and disNES‐1&2 = 72. Essentially the same results were obtained in two independent experiments.
+Download figure
+Download PowerPoint
+In our preliminary experiment, the NES‐disrupted actins complemented the lethality associated with temperature‐sensitive mutant actin in yeast to some extent (data not shown). This result and the fact that the NES‐disrupted actins in mammalian cells are able to be incorporated into actin filaments in the stress fibers or in the cell periphery (see
+Figure 4B
+and
+C
+) may suggest that the NES‐disrupted actins have native conformations.
+Overexpression of NES‐disrupted actin induces a decrease in the proliferative potential of the cell
+During the course of these experiments, we noticed that while the number of 3Y1 cells expressing wild‐type actin increased with time, the number of cells expressing either of the mutant actins did not increase significantly. To quantitate this observation, we injected a plasmid‐encoding GFP together with each actin plasmid into the nuclei of 3Y1 cells, and followed the proliferation of the cells by counting the number expressing GFP. The result shown in
+Figure 4D
+clearly indicates that expression of NES‐disrupted actin mutants, but not of wild‐type actin, induced a marked decrease in the proliferation rate of the cell. In 3Y1 cells the single mutants (disNES‐1 and disNES‐2) as well as the double mutant actin (disNES‐1&2) accumulated markedly in the nucleus (see
+Figure 4C
+), so the three mutants might have similar effects on the proliferation of 3Y1 cells in this experiment. The precise relationship between the extent of nuclear accumulation of actin and the extent of inhibition of cell proliferation is yet to be studied. We further noticed that expression of NES‐disrupted actin mutants induced a slight reduction in size of both the cell and the nucleus. The nucleus shrank slightly, and the intensity of DAPI staining increased slightly (data not shown). Thus, expression of NES‐disrupted actin results in its nuclear accumulation, and induces deterioration of the cell such as the decrease of proliferative potential.
+Effect of LMB on the heat shock‐induced nuclear accumulation of actin
+It has been reported previously that heat shock causes nuclear accumulation of both actin and cofilin, and induces the formation of actin–cofilin rods in the nucleus (
+Figure 5A
+) (
+Nishida
+et al
+., 1987
+). Cofilin (
+Nishida
+et al
+., 1984
+) is a ubiquitous low molecular weight actin‐binding protein which interestingly has a nuclear localization signal (NLS) (
+Matsuzaki
+et al
+., 1988
+;
+Iida
+et al
+., 1992
+). Simultaneous treatment with heat shock and LMB accelerated nuclear import of both actin and cofilin, resulting in drastic accumulation of both proteins in the nucleus, and in the induction of numerous and comparatively thicker actin–cofilin rods than with heat shock alone (
+Figure 5B
+). This result further supports the idea that the NESs in actin are functioning in cells. Thus we would like to suggest that the subcellular distribution of actin is determined by a balance between cofilin NLS‐mediated nuclear import and actin NESs‐mediated nuclear export.
+In vivo
+actin might actually shuttle between the nucleus and the cytoplasm.
+Open in Viewer
+Figure 5
+. Effect of LMB on the heat shock‐induced nuclear accumulation of actin and cofilin. (A and B) Rat 3Y1 cells were incubated at 43°C for 60 or 90 min in the absence (
+A
+) or presence (
+B
+) of LMB (2 ng/ml) and then stained with anti‐actin monoclonal antibody and affinity‐purified anti‐cofilin antibody. LMB was added 5 min before the temperature shift from 37°C to 43°C (B). The percentages of cells showing actin–cofilin rods whose length is >5 μm in the nucleus were 0% (A, 0 min), 15% (A, 60 min), 50% (A, 90 min), 0% (B, 0 min), 80% (B, 60 min) and >90% (B, 90 min). In the presence of LMB (B) at 90 min, 5% of the cells showed extraordinarily strong accumulation of both actin and cofilin in the nucleus, a typical example of which is shown as one of the four cells indicated in the figure. Bar, 10 μm.
+Download figure
+Download PowerPoint
+Conclusion
+Our results reveal, for the first time, the NES‐mediated nuclear export of actin, a ubiquitous, essential cytoskeletal protein. This mechanism may be utilized to ensure cytoplasmic localization, i.e. nuclear exclusion of actin under normal conditions, since the presence of actin in the nucleus is harmful to the cell as shown here. Another possibility is that the shuttling of actin between the nucleus and the cytoplasm may have some physiological relevance. The present finding thus defines a novel molecular mechanism regulating subcellular distribution, or intracellular transport, of actin, that may be important for the control of cell proliferation
+Materials and methods
+Conjugation of synthetic peptides to ovalbumin
+The NES‐1 peptide corresponding to residues 170–181 (ALPHAIMRLDLA) of actin and the NES‐2 peptide corresponding to residues 211–222 (DIKEKLCYVALD) of actin were synthesized and conjugated to ovalbumin (OV) using the bifunctional cross‐linking reagent sulfo‐SMCC (Calbiochem) as described previously (
+Fukuda
+et al
+., 1996
+).
+TMR‐actin
+N
+‐hydroxysuccinimidyl 5‐carboxytetramethyl rhodamine (TMR)‐labeled actin was prepared as described previously (
+Kellogg
+et al
+., 1988
+), and then further purified by Sephadex G‐100 SF gel filtration chromatography. TMR‐actin (1 mg/ml in 2 mM Tris–HCl, 0.08 mM CaCl
+2
+, 0.2 mM ATP and 0.2 mM DTT, pH 8.0) was injected into the nuclei of rat 3Y1 cells
+Cell culture, microinjection and staining
+Cultures of 3Y1 cells and microinjection of NES–OV and plasmids were performed as described previously (
+Fukuda
+et al
+., 1996
+). After injection, cells were fixed and stained as described previously (
+Fukuda
+et al
+., 1996
+). The primary antibodies used here were a rabbit anti‐ovalbumin antibody (40 μg/ml; Cappel), a monoclonal antibody to actin (C4; 10 μg/ml; Boehringer Mannheim), a rabbit anti‐cofilin antibody (1:20 dilution) (
+Nishida
+et al
+., 1987
+) and a monoclonal antibody to HA (12CA5; 20 μg/ml). Leptomycin B was a kind gift from M.Yoshida (University of Tokyo).
+DNA construction
+A
+Saccharomyces cerevisiae
+act1 (
+S.c
+. actin) cDNA was subcloned into pNV7. The open reading frame of act1 was amplified by PCR with a 5′ primer 5′‐GGATCCATGGATTCTGAGGTTGCT‐3′ and a 3′ primer 5′‐GGATCCTTAGAAACACTTGTGGTG‐3′, which produce
+Bam
+HI sites at both ends of act1. A
+Bam
+HI fragment was cloned into pBluescript (Stratagene). Mutagenesis of Ile‐178 to Ala and Leu‐180 to Ala in
+S.c
+. actin was performed by the QuickChange Site‐Directed Mutagenesis Kit (Stratagene) using mutagenic primers 5′‐CACGCCATTTTGAGAGCCGATGCGGCCGGTAGAGATTTG‐3′ and 5′‐CAAATCTCTACCGGCCGCATCGGCTCTCAAAATGGCGTG‐3′ to yield disNES‐1 actin. To obtain disNES‐2 actin (V219A/L221A actin) and disNES‐1&2 actin, mutagenic primers 5′‐GAAAAACTATGTTACGCCGCCGCGGACTTCGAACAAG‐3′ and 5′‐CTTGTTCGAAGTCCGCGGCGGCGTAA‐ CATAGTTTTTC‐3′ were used. For disNES‐1&2 actin, disNES‐1 actin was used as a template. Each
+Bam
+HI fragment of wild‐type, disNES‐1, disNES‐2 and disNES‐1&2 was cloned into pcDL–SRα457 and pcDL–SRαHA1 as described (
+Shirakabe
+et al
+., 1997
+).
+Transfection
+Swiss‐3T3 cells or rat 3Y1 cells were transfected as described (
+Shirakabe
+et al
+., 1997
+). The cells were fixed 48 h after transfection and stained as described above
+Acknowledgements
+We thank M.Watanabe for the preparation of NES‐2–OV, Dr M.Yoshida for LMB, and Dr K.Matsumoto and Dr H.Ellinger‐Ziegelbauer for their comments on the manuscript. This work was supported by grants from the Ministry of Education, Science and Culture of Japan (to E.Nishida).

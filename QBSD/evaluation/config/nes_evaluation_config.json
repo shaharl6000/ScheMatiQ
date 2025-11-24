@@ -23,7 +23,6 @@
     "binary_threshold": 0.8,
     "sequence_similarity_threshold": 0.85
   },
-  
   "gt_options": {
     "binary_options": ["yes", "in doubt", "no"]
   },

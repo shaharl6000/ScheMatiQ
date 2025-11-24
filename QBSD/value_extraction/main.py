@@ -11,7 +11,7 @@ from .config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
 
 def build_table_jsonl(
     schema_path: Path,
-    docs_directory: Path,
+    docs_directories: list[Path],
     output_path: Path,
     llm,
     retriever=None,
@@ -29,9 +29,9 @@ def build_table_jsonl(
     This is the main entry point that maintains backward compatibility with the original API.
     """
     table_builder = TableBuilder(llm, retriever)
-    table_builder.build_table_jsonl(
+    table_builder.build_table_jsonl_multi_dirs(
         schema_path,
-        docs_directory,
+        docs_directories,
         output_path,
         max_new_tokens=max_new_tokens,
         resume=resume,
@@ -47,7 +47,15 @@ def main(cfg_path: Path) -> None:
     print(f"Loaded config from {cfg_path}")
 
     schema_path = Path(cfg["schema_path"])
-    docs_dir = Path(cfg["docs_directory"])
+    
+    # Support both single directory (backward compatibility) and multiple directories
+    if "docs_directories" in cfg:
+        docs_directories = [Path(d) for d in cfg["docs_directories"]]
+    elif "docs_directory" in cfg:
+        docs_directories = [Path(cfg["docs_directory"])]
+    else:
+        raise ValueError("Configuration must specify either 'docs_directory' or 'docs_directories'")
+    
     output_path = Path(cfg["output_path"])
     backend_cfg = cfg.get("backend_cfg", {})
     max_new = backend_cfg.get("max_tokens", DEFAULT_MAX_NEW_TOKENS)
@@ -60,16 +68,20 @@ def main(cfg_path: Path) -> None:
     llm = utils.build_llm(backend_cfg)
     retriever = utils.build_retriever(retriever_cfg) if retriever_cfg is not None else None
 
-    # Count documents in the directory
-    docs = sorted(docs_dir.glob("*"))
-    docs_count = len(docs)
-
+    # Count documents across all directories
+    total_docs_count = 0
+    for docs_dir in docs_directories:
+        docs = sorted(docs_dir.glob("*"))
+        docs_count = len(docs)
+        total_docs_count += docs_count
+        print(f"📁 Found {docs_count} documents in {docs_dir}")
+    
     # Run value extraction with timing
-    print(f"Starting value extraction for {docs_count} documents...")
+    print(f"\nStarting value extraction for {total_docs_count} documents across {len(docs_directories)} directories...")
     start_time = time.time()
     build_table_jsonl(
         schema_path,
-        docs_dir,
+        docs_directories,
         output_path,
         llm,
         retriever,
@@ -81,4 +93,4 @@ def main(cfg_path: Path) -> None:
     )
     elapsed_time = time.time() - start_time
     
-    print(f"\nValue extraction completed for {docs_count} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
+    print(f"\nValue extraction completed for {total_docs_count} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
