@@ -19,10 +19,14 @@ class FewShotManager:
                 - n_shots_per_category: Number of examples per GT category
                 - selection_strategy: How to select examples
                 - specific_rows: Optional specific rows to use
+                - prefer_complete_rows: If True, prioritize rows with most filled columns
+                - min_completeness_ratio: Minimum ratio of filled columns (0.0-1.0)
         """
         self.n_shots_per_category = config.get("n_shots_per_category", 3)
         self.selection_strategy = config.get("selection_strategy", "stratified")
         self.specific_rows = config.get("specific_rows", [])
+        self.prefer_complete_rows = config.get("prefer_complete_rows", True)
+        self.min_completeness_ratio = config.get("min_completeness_ratio", 0.7)
         
     def extract_gt_examples(self, 
                            data: List[Dict[str, Any]], 
@@ -46,6 +50,11 @@ class FewShotManager:
         if not gt_data:
             print(f"⚠️  No ground truth data found in column '{gt_column}'")
             return []
+        
+        # Filter by completeness if enabled
+        if self.prefer_complete_rows:
+            gt_data = self._filter_by_completeness(gt_data, gt_column)
+            print(f"📊 Filtered to {len(gt_data)} rows meeting completeness criteria")
             
         # Use specific rows if provided
         if self.specific_rows:
@@ -138,6 +147,51 @@ class FewShotManager:
         print(f"📋 Selected {len(examples)} specific examples")
         return examples
     
+    def _filter_by_completeness(self, 
+                               data: List[Dict[str, Any]], 
+                               gt_column: str) -> List[Dict[str, Any]]:
+        """Filter rows to only include complete or almost complete ones."""
+        # Define columns to exclude when calculating completeness
+        exclude_keys = {gt_column, 'paper_name', 'title', 'id', '_metadata', '_row_name', '_papers'}
+        
+        rows_with_completeness = []
+        for row in data:
+            # Count relevant columns (exclude metadata and GT)
+            relevant_keys = [k for k in row.keys() if k not in exclude_keys]
+            total_relevant = len(relevant_keys)
+            
+            if total_relevant == 0:
+                continue
+            
+            # Count filled columns (non-None, non-empty values)
+            filled_count = 0
+            for key in relevant_keys:
+                value = row[key]
+                if value is not None:
+                    if isinstance(value, dict):
+                        # For nested dictionaries (like column results)
+                        if 'answer' in value and value['answer'] is not None and str(value['answer']).strip():
+                            filled_count += 1
+                    elif str(value).strip():
+                        filled_count += 1
+            
+            completeness_ratio = filled_count / total_relevant
+            rows_with_completeness.append((row, completeness_ratio))
+        
+        # Filter by minimum completeness ratio
+        complete_rows = [row for row, ratio in rows_with_completeness 
+                        if ratio >= self.min_completeness_ratio]
+        
+        if not complete_rows:
+            print(f"⚠️  No rows meet minimum completeness ratio {self.min_completeness_ratio:.1%}")
+            # Fall back to top 50% most complete rows
+            sorted_rows = sorted(rows_with_completeness, key=lambda x: x[1], reverse=True)
+            halfway_point = max(1, len(sorted_rows) // 2)
+            complete_rows = [row for row, _ in sorted_rows[:halfway_point]]
+            print(f"📊 Falling back to top {len(complete_rows)} most complete rows")
+        
+        return complete_rows
+    
     def format_examples_for_prompt(self, 
                                   examples: List[Dict[str, Any]], 
                                   query: str,
@@ -178,7 +232,7 @@ class FewShotManager:
                          f"Paper_{i}")
             
             # Format extracted data (exclude GT and metadata)
-            exclude_keys = {gt_column, 'paper_name', 'title', 'id', '_metadata'}
+            exclude_keys = {gt_column, 'paper_name', 'title', 'id', '_metadata', '_row_name', '_papers'}
             data_items = []
             for key, value in example.items():
                 if key not in exclude_keys and value is not None:

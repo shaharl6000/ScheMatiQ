@@ -6,7 +6,9 @@
   "few_shot_config": {
     "n_shots_per_category": 2,
     "selection_strategy": "stratified",
-    "specific_rows": []
+    "specific_rows": [],
+    "prefer_complete_rows": true,
+    "min_completeness_ratio": 0.7
   },
   
   "evaluator_config": {

@@ -101,7 +101,7 @@ class RowQueryEvaluator:
                         exclude_columns: set = None) -> str:
         """Format row data for LLM consumption."""
         exclude_columns = exclude_columns or set()
-        exclude_columns.update({'paper_name', 'title', 'id', '_metadata'})
+        exclude_columns.update({'paper_name', 'title', 'id', '_metadata', '_row_name', '_papers'})
         
         formatted_items = []
         
@@ -235,7 +235,7 @@ ANSWER:"""
                             exclude_columns: set = None) -> List[str]:
         """Analyze which columns the LLM likely used in its response."""
         exclude_columns = exclude_columns or set()
-        exclude_columns.update({'paper_name', 'title', 'id', '_metadata'})
+        exclude_columns.update({'paper_name', 'title', 'id', '_metadata', '_row_name', '_papers'})
         
         used_columns = []
         response_lower = response.lower()
