@@ -48,18 +48,22 @@ class PaperProcessor:
     
     def _create_fallback_retriever(self):
         """Create a default retriever for fallback when in long context mode."""
-        # Use default retriever configuration for fallback
-        fallback_config = {
-            "type": "embedding",
-            "model_name": "all-MiniLM-L6-v2",  # Fast, lightweight model
-            "k": 8,  # Default retrieval count
-            "max_words": 512,
-            "batch_size": 32,
-            "enable_dynamic_k": True,
-            "dynamic_k_threshold": 0.65,
-            "dynamic_k_minimum": 2
-        }
-        return utils.build_retriever(fallback_config)
+        try:
+            # Use default retriever configuration for fallback
+            fallback_config = {
+                "type": "embedding",
+                "model_name": "all-MiniLM-L6-v2",  # Fast, lightweight model
+                "k": 8,  # Default retrieval count
+                "max_words": 512,
+                "batch_size": 32,
+                "enable_dynamic_k": True,
+                "dynamic_k_threshold": 0.65,
+                "dynamic_k_minimum": 2
+            }
+            return utils.build_retriever(fallback_config)
+        except Exception as e:
+            print(f"⚠️  Failed to create fallback retriever: {e}")
+            return None
     
     def _single_column_attempt_with_retriever(self, 
                                             col: Column,
@@ -228,10 +232,15 @@ class PaperProcessor:
                 for col in missing:
                     # First fallback: expanded k + strict prompt with retrieval
                     expanded_k = self.text_processor.expand_k(retrieval_k)
-                    col_res = self._single_column_attempt_with_retriever(
-                        col, strict=True, k_override=expanded_k, retriever=fallback_retriever, 
-                        paper_text=paper_text, schema=schema, paper_title=paper_title, use_snippets=False
-                    )
+                    col_res = {}
+                    
+                    # Only try retrieval fallback if we have a working fallback retriever
+                    if fallback_retriever is not None:
+                        col_res = self._single_column_attempt_with_retriever(
+                            col, strict=True, k_override=expanded_k, retriever=fallback_retriever, 
+                            paper_text=paper_text, schema=schema, paper_title=paper_title, use_snippets=False
+                        )
+                    
                     if not col_res:
                         # Second fallback: heuristic snippets (no retriever) or even stricter evidence demand
                         col_res = self._single_column_attempt_with_retriever(
