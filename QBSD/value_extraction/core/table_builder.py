@@ -208,8 +208,9 @@ class TableBuilder:
                                     mode: str,
                                     retrieval_k: int,
                                     max_workers: int) -> None:
-        """Implementation for multi-directory processing."""
-        schema = Schema.from_json(schema_path)
+        """Implementation for multi-directory process
+        ing."""
+        schema = self._load_schema(schema_path)
         print(f"🗂️  Loaded schema with {len(schema.columns)} columns")
         
         # Group by row names
@@ -218,7 +219,7 @@ class TableBuilder:
         
         for doc_path, source_dir in docs_with_source:
             doc_to_source[doc_path] = source_dir
-            row_name = self.paper_processor.extract_row_name(doc_path.name)
+            row_name = self.row_manager.extract_row_name_from_filename(doc_path.name)
             if row_name not in papers_by_row:
                 papers_by_row[row_name] = []
             papers_by_row[row_name].append(doc_path)
@@ -322,7 +323,12 @@ class TableBuilder:
                                           existing_rows: dict, processed_papers: set) -> None:
         """Process row one column at a time (multi-directory version)."""
         for column in schema.columns:
-            column_name = column['column']
+            # Handle both dict and Column object formats
+            if isinstance(column, dict):
+                column_name = column.get('column') or column.get('name')
+            else:
+                column_name = column.name
+            
             if column_name in current_row:
                 continue
                 
@@ -331,9 +337,16 @@ class TableBuilder:
                     continue
                     
                 try:
-                    result = self.paper_processor.extract_single_column_value(
-                        paper, column, schema.query, self.retriever,
-                        retrieval_k=retrieval_k, max_new_tokens=max_new_tokens
+                    paper_text = paper.read_text(encoding="utf-8", errors="ignore")
+                    # Create a single-column schema for this extraction
+                    single_column_schema = Schema(
+                        query=schema.query, 
+                        columns=[column], 
+                        max_keys=1
+                    )
+                    result = self.paper_processor.extract_values_for_paper(
+                        paper.stem, paper_text, single_column_schema, 
+                        max_new_tokens, mode="one_by_one", retrieval_k=retrieval_k
                     )
                     if result and column_name in result:
                         current_row.update(result)
@@ -356,9 +369,8 @@ class TableBuilder:
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_paper = {
                     executor.submit(
-                        self.paper_processor.extract_all_column_values,
-                        paper, schema, self.retriever,
-                        retrieval_k=retrieval_k, max_new_tokens=max_new_tokens
+                        self._extract_values_from_paper_file,
+                        paper, schema, retrieval_k, max_new_tokens
                     ): paper for paper in unprocessed_papers
                 }
                 
@@ -378,9 +390,8 @@ class TableBuilder:
             # Sequential processing
             for paper in unprocessed_papers:
                 try:
-                    result = self.paper_processor.extract_all_column_values(
-                        paper, schema, self.retriever,
-                        retrieval_k=retrieval_k, max_new_tokens=max_new_tokens
+                    result = self._extract_values_from_paper_file(
+                        paper, schema, retrieval_k, max_new_tokens
                     )
                     if result:
                         # Merge result into current row
@@ -390,6 +401,20 @@ class TableBuilder:
                         processed_papers.add(paper)
                 except Exception as e:
                     print(f"⚠️  Error processing {paper.name}: {e}")
+    
+    def _extract_values_from_paper_file(self, paper_path: Path, schema: Schema, 
+                                       retrieval_k: int, max_new_tokens: int) -> dict:
+        """Helper method to extract values from a paper file."""
+        try:
+            paper_text = paper_path.read_text(encoding="utf-8", errors="ignore")
+            paper_title = paper_path.stem
+            return self.paper_processor.extract_values_for_paper(
+                paper_title, paper_text, schema, max_new_tokens, 
+                mode="all", retrieval_k=retrieval_k
+            )
+        except Exception as e:
+            print(f"⚠️  Error reading or processing {paper_path.name}: {e}")
+            return {}
     
     def build_table_jsonl(self,
                          schema_path: Path,
