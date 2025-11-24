@@ -22,5 +22,8 @@
     "overlap_words": 64,
     "respect_structure": true
   },
+  "gt_options": {
+    "binary_options": ["yes", "in doubt", "no"]
+  },
   "output_path": "outputs/nes_exp11_barak_q_100_keys_fixed_retriever_enhance_prompt2_no_drop_enhance_ret.json"
 }
