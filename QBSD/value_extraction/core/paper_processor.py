@@ -78,7 +78,7 @@ class PaperProcessor:
         # Prepare text based on retriever availability
         if retriever is not None:
             try:
-                retrieval_query = self.text_processor.build_retrieval_query(None, [col])
+                retrieval_query = self.text_processor.build_retrieval_query(schema, [col])
                 passages = retriever.query([paper_text], retrieval_query, k=(k_override or 8))
                 if passages:
                     eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(passages)
