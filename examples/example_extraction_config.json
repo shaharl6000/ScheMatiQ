@@ -1,0 +1,26 @@
+{
+  "schema_path": "outputs/protein_schema.json",
+  "docs_directories": [
+    "data/papers",
+    "data/reviews"
+  ],
+  "mode": "all",
+  "resume": true,
+  "max_workers": 1,
+  "backend_cfg": {
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "max_tokens": 16000,
+    "temperature": 0.2,
+    "max_context_tokens": 1000000
+  },
+  "retriever": {
+    "type": "embedding",
+    "model_name": "all-MiniLM-L6-v2",
+    "k": 8,
+    "enable_dynamic_k": true,
+    "dynamic_k_threshold": 0.65
+  },
+  "retrieval_k": 8,
+  "output_path": "outputs/extracted_data.jsonl"
+}

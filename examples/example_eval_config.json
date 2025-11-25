@@ -1,0 +1,37 @@
+{
+  "query_config_path": "examples/example_config.json",
+  "data_path_override": "outputs/extracted_data.jsonl",
+  "gt_column": "ground_truth_label",
+  
+  "few_shot_config": {
+    "n_shots_per_category": 3,
+    "selection_strategy": "stratified",
+    "prefer_complete_rows": true,
+    "min_completeness_ratio": 0.7
+  },
+  
+  "evaluator_config": {
+    "provider": "openai",
+    "model": "gpt-4o",
+    "max_tokens": 1024,
+    "temperature": 0.1
+  },
+  
+  "comparison_config": {
+    "default_strategy": "auto",
+    "binary_threshold": 0.8
+  },
+  
+  "evaluation_metrics": [
+    "accuracy",
+    "confidence", 
+    "completeness",
+    "column_utilization"
+  ],
+  
+  "output_config": {
+    "save_individual_results": true,
+    "include_reasoning": true,
+    "generate_summary_report": true
+  }
+}
