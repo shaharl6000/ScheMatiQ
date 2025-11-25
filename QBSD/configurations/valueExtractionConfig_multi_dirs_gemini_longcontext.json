@@ -1,8 +1,8 @@
 {
   "schema_path": "outputs/nes_exp_gemini_flash_longcontext_new20_11_2025.json",
   "docs_directories": [
-    "../src/full_text",
-    "../src/full_text_namesDoubt"
+    "../src/full_text_namesDoubt",
+    "../src/full_text"
   ],
   "mode": "all",
   "resume": true,
