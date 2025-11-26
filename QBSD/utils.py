@@ -7,8 +7,8 @@ import io, difflib
 import numpy as np
 import requests, arxiv
 from PyPDF2 import PdfReader
-from dataclasses import asdict, is_dataclass
-import platform                 #  NEW  (place near your other imports)
+from dataclasses import asdict
+import platform
 import unicodedata, re
 from difflib import SequenceMatcher
 import tiktoken

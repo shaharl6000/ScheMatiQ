@@ -7,11 +7,14 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 
 
-import QBSD.utils
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
+import utils
 
-from .few_shot_manager import FewShotManager
-from .row_evaluator import RowQueryEvaluator, RowEvaluationResult
-from .gt_comparator import GTComparator, ComparisonResult
+from few_shot_manager import FewShotManager
+from row_evaluator import RowQueryEvaluator, RowEvaluationResult
+from gt_comparator import GTComparator, ComparisonResult
 
 
 @dataclass

@@ -23,7 +23,7 @@ import sys
 import argparse
 from pathlib import Path
 
-from QBSD.evaluation.core.schema_evaluator import SchemaEvaluator
+from schema_evaluator import SchemaEvaluator
 
 
 def main():
@@ -69,13 +69,13 @@ def main():
         print()
         
         # Initialize evaluator
-        evaluator = SchemaEvaluator(str(config_path))
+        evaluator = SchemaEvaluator(config_path)
         
         # Run evaluation
         result = evaluator.evaluate_schema()
         
         # Save results
-        evaluator.save_results(result, str(output_path))
+        evaluator.save_results(result, output_path)
         
         # Print summary
         evaluator.print_summary(result)

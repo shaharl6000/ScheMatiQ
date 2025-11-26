@@ -1,6 +1,6 @@
 {
-  "query_config_path": "QBSD/configurations/config_qbsd_gemini_flash_longcontext.json",
-  "data_path_override": "outputs/value_extractions/gemini_longcontext/values_nes_gemini_longcontext_all2_more_outtokens.json",
+  "query_config_path": "configurations/config_qbsd_gemini_flash_longcontext.json",
+  "data_path_override": "outputs/value_extractions/gemini_longcontext/values_nes_multi_dirs_gemini_longcontext.json",
   "gt_column": "GT_NES",
   
   "few_shot_config": {
@@ -10,10 +10,10 @@
   },
   
   "evaluator_config": {
-    "provider": "openai",
-    "model": "gpt-4o",
-    "max_tokens": 1024,
-    "temperature": 0.1
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "max_tokens": 16000,
+    "temperature": 0.2
   },
   
   "comparison_config": {

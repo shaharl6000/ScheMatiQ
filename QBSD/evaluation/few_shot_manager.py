@@ -4,8 +4,6 @@ import json
 import random
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-import pandas as pd
-
 
 class FewShotManager:
     """Manages few-shot examples from ground truth data for evaluation."""
@@ -77,10 +75,17 @@ class FewShotManager:
         # Group by GT values
         gt_groups = {}
         for row in data:
-            gt_value = row[gt_column]
-            if gt_value not in gt_groups:
-                gt_groups[gt_value] = []
-            gt_groups[gt_value].append(row)
+            # Extract GT value from nested structure if needed
+            gt_data = row.get(gt_column)
+            if isinstance(gt_data, dict) and 'answer' in gt_data:
+                gt_value = gt_data['answer']
+            else:
+                gt_value = gt_data
+            
+            if gt_value is not None:
+                if gt_value not in gt_groups:
+                    gt_groups[gt_value] = []
+                gt_groups[gt_value].append(row)
         
         # Sample from each group
         examples = []
@@ -110,8 +115,15 @@ class FewShotManager:
         # Count GT value frequencies
         gt_counts = {}
         for row in data:
-            gt_value = row[gt_column]
-            gt_counts[gt_value] = gt_counts.get(gt_value, 0) + 1
+            # Extract GT value from nested structure if needed
+            gt_data = row.get(gt_column)
+            if isinstance(gt_data, dict) and 'answer' in gt_data:
+                gt_value = gt_data['answer']
+            else:
+                gt_value = gt_data
+            
+            if gt_value is not None:
+                gt_counts[gt_value] = gt_counts.get(gt_value, 0) + 1
         
         # Sort by frequency and take top examples
         sorted_gts = sorted(gt_counts.items(), key=lambda x: x[1], reverse=True)
@@ -122,7 +134,16 @@ class FewShotManager:
                 break
                 
             # Get examples for this GT value
-            gt_examples = [row for row in data if row[gt_column] == gt_value]
+            gt_examples = []
+            for row in data:
+                gt_data = row.get(gt_column)
+                if isinstance(gt_data, dict) and 'answer' in gt_data:
+                    row_gt_value = gt_data['answer']
+                else:
+                    row_gt_value = gt_data
+                
+                if row_gt_value == gt_value:
+                    gt_examples.append(row)
             selected = random.sample(gt_examples, min(self.n_shots_per_category, len(gt_examples)))
             examples.extend(selected)
             

@@ -1,14 +1,14 @@
-"""Schema evaluation framework for QBSD."""
+"""Evaluation modules."""
 
-from .core.schema_evaluator import SchemaEvaluator, SchemaEvaluationResult
-from .core.few_shot_manager import FewShotManager
-from .core.row_evaluator import RowQueryEvaluator, RowEvaluationResult
-from .core.gt_comparator import GTComparator, ComparisonResult
+from schema_evaluator import SchemaEvaluator, SchemaEvaluationResult
+from few_shot_manager import FewShotManager
+from row_evaluator import RowQueryEvaluator, RowEvaluationResult
+from gt_comparator import GTComparator, ComparisonResult
 
 __all__ = [
     'SchemaEvaluator',
-    'SchemaEvaluationResult', 
-    'FewShotManager',
+    'SchemaEvaluationResult',
+    'FewShotManager', 
     'RowQueryEvaluator',
     'RowEvaluationResult',
     'GTComparator',
