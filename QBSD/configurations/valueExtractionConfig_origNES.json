@@ -1,0 +1,18 @@
+{
+  "schema_path": "outputs/original_nesdb_schema.json",
+  "docs_directories": [
+    "../src/full_text_namesDoubt",
+    "../src/full_text"
+  ],
+  "mode": "all",
+  "resume": true,
+  "max_workers": 1,
+  "backend_cfg": {
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "max_tokens": 16000,
+    "temperature": 0.2,
+    "max_context_tokens": 1000000
+  },
+  "output_path": "outputs/value_extractions/gemini_longcontext/values_orig_nes_multi_dirs_gemini_longcontext.json"
+}

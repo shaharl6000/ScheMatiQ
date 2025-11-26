@@ -23,23 +23,45 @@ def _is_rate_limit_error(error_str: str) -> bool:
     return "429" in error_str and ("rate limit" in error_str.lower() or "rate_limit" in error_str.lower())
 
 def _is_quota_exhausted_error(error_str: str) -> bool:
-    """Check if error is a quota exhausted (RPD) error - requires key switch."""
+    """Check if error is a quota exhausted (RPD/daily) error - requires key switch."""
     error_lower = error_str.lower()
-    quota_indicators = [
-        "quota exceeded", "quota exhausted", "daily quota", 
-        "requests per day", "rpd", "quota_exceeded",
-        "insufficient quota", "quota limit exceeded"
+    
+    # Exclude per-minute errors from being classified as quota exhausted
+    if "per minute" in error_lower or "perminute" in error_lower:
+        return False
+    
+    # Look for daily/billing quota indicators
+    rpd_indicators = [
+        "daily quota", "requests per day", "rpd", 
+        "billing", "insufficient quota", "plan and billing",
+        "quota exhausted", "quota limit exceeded"
     ]
-    return any(indicator in error_lower for indicator in quota_indicators)
+    
+    # Must be a 429 error and contain RPD indicators
+    return "429" in error_str and any(indicator in error_lower for indicator in rpd_indicators)
 
 def _is_rpm_error(error_str: str) -> bool:
     """Check if error is requests per minute (RPM) error - requires waiting."""
     error_lower = error_str.lower()
-    rpm_indicators = [
+    
+    # Specific Gemini RPM indicators
+    gemini_rpm_indicators = [
+        "generatereq​uestsperminuteperprojectpermodel",
+        "perminute", "per minute"
+    ]
+    
+    # General RPM indicators
+    general_rpm_indicators = [
         "requests per minute", "rpm", "per minute limit",
         "minute quota", "too many requests"
     ]
-    return "429" in error_str and any(indicator in error_lower for indicator in rpm_indicators)
+    
+    # Must be a 429 error with per-minute indicators
+    if "429" in error_str:
+        return (any(indicator in error_lower for indicator in gemini_rpm_indicators) or 
+                any(indicator in error_lower for indicator in general_rpm_indicators))
+    
+    return False
 
 def _is_server_overloaded_error(error_str: str) -> bool:
     """Check if error is a server overloaded error (503)."""
@@ -47,10 +69,29 @@ def _is_server_overloaded_error(error_str: str) -> bool:
 
 def _extract_wait_time(error_str: str) -> int:
     """Extract wait time from rate limit error or return default."""
-    # For Together AI rate limits, wait based on the per-minute limit
+    # Try to extract actual retry delay from Gemini error
+    retry_match = re.search(r"retry in ([\d.]+)s", error_str.lower())
+    if retry_match:
+        try:
+            retry_seconds = float(retry_match.group(1))
+            # Add small buffer to avoid immediate retry
+            return int(retry_seconds) + random.randint(5, 10)
+        except (ValueError, IndexError):
+            pass
+    
+    # Try to extract from retry_delay field 
+    delay_match = re.search(r"retry_delay.*?seconds:\s*(\d+)", error_str)
+    if delay_match:
+        try:
+            delay_seconds = int(delay_match.group(1))
+            return delay_seconds + random.randint(5, 10)
+        except (ValueError, IndexError):
+            pass
+    
+    # For per-minute limits, default to longer wait
     if "per minute" in error_str.lower():
-        # Default to 1 minute + jitter for per-minute limits
         return 90 + random.randint(5, 15)
+    
     # Default fallback
     return 45 + random.randint(5, 15)
 
@@ -381,16 +422,20 @@ class GeminiLLM(LLMInterface):
         max_tokens: int = 1024,
         temperature: float = 0.3,
         max_context_tokens: int = 1000000,  # Gemini has 1M context by default
+        rotation_requests: int = 10,  # Rotate keys every N requests
         **backend_kwargs,
     ):
         super().__init__(**backend_kwargs)
         self.model = model
         self.max_context_tokens = max_context_tokens
+        self.rotation_requests = rotation_requests
         
         # Load multiple API keys with fallback strategy
         self.api_keys = self._load_api_keys(api_key)
         self.current_key_index = 0
         self.exhausted_keys = set()  # Keys that hit daily quota
+        self.failed_keys = set()     # Keys that are temporarily failing
+        self.request_count = 0       # Track requests for round-robin rotation
         
         try:
             import google.generativeai as genai
@@ -490,15 +535,55 @@ class GeminiLLM(LLMInterface):
     def _find_next_available_key(self) -> int | None:
         """Find the next non-exhausted key index."""
         for i in range(len(self.api_keys)):
-            if i not in self.exhausted_keys:
+            if i not in self.exhausted_keys and i not in self.failed_keys:
                 return i
         return None
+    
+    def _rotate_to_next_key(self) -> bool:
+        """Rotate to the next available key in round-robin fashion."""
+        if len(self.api_keys) <= 1:
+            return False
+            
+        available_keys = [i for i in range(len(self.api_keys)) 
+                         if i not in self.exhausted_keys and i not in self.failed_keys]
+        
+        if len(available_keys) <= 1:
+            return False
+            
+        # Find current index in available keys list
+        try:
+            current_pos = available_keys.index(self.current_key_index)
+            next_pos = (current_pos + 1) % len(available_keys)
+            next_key_index = available_keys[next_pos]
+        except ValueError:
+            # Current key not in available keys, pick first available
+            next_key_index = available_keys[0]
+        
+        if next_key_index != self.current_key_index:
+            return self._switch_to_key(next_key_index)
+        return False
+    
+    def _mark_key_failed(self, key_index: int, temporary: bool = True) -> None:
+        """Mark a key as failed. If temporary, it can be retried later."""
+        if temporary:
+            self.failed_keys.add(key_index)
+            # Remove from failed keys after some time (simple approach)
+            # In a real implementation, you might want a more sophisticated approach
+        else:
+            self.exhausted_keys.add(key_index)
+        print(f"🚫 Marked key #{key_index + 1} as {'temporarily failed' if temporary else 'exhausted'}")
+    
+    def _should_rotate_key(self) -> bool:
+        """Check if we should rotate to next key based on request count."""
+        return (len(self.api_keys) > 1 and 
+                self.request_count > 0 and 
+                self.request_count % self.rotation_requests == 0)
 
     def generate(self,
                  prompt: Union[str, List[Dict[str, str]]],
                  **kwargs) -> str:
         """
-        Enhanced generate method with multi-key support for RPD rate limit handling.
+        Enhanced generate method with round-robin rotation and smart error handling.
         
         Args
         ----
@@ -506,6 +591,12 @@ class GeminiLLM(LLMInterface):
             • str  – plain prompt
             • list – chat-style messages (converted to plain prompt)
         """
+        # Increment request counter and check for round-robin rotation
+        self.request_count += 1
+        if self._should_rotate_key():
+            if self._rotate_to_next_key():
+                print(f"🔁 Round-robin rotation to key #{self.current_key_index + 1} (request #{self.request_count})")
+        
         # Convert chat messages to plain text if needed
         if isinstance(prompt, list):
             prompt_text = "\n".join([f"{m['role']}: {m['content']}" for m in prompt])
@@ -523,11 +614,16 @@ class GeminiLLM(LLMInterface):
         if kwargs.get("temperature") is not None:
             gen_config.temperature = kwargs["temperature"]
 
-        # Enhanced retry logic with multi-key support
+        # Enhanced retry logic with multi-key support and resilient error handling
         max_retries_per_key = 3
         max_key_switches = len(self.api_keys) - 1  # Try all keys except current one
         key_switches_attempted = 0
         last_exception = None
+        
+        # Clear temporary failures periodically (simple approach)
+        if self.request_count % 50 == 0:  # Every 50 requests
+            self.failed_keys.clear()
+            print(f"🔄 Cleared temporary key failures (request #{self.request_count})")
         
         while key_switches_attempted <= max_key_switches:
             current_key_display = f"#{self.current_key_index + 1}"
