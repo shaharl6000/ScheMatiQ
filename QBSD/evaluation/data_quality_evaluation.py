@@ -1,595 +1,492 @@
 #!/usr/bin/env python3
 """
-Evaluation script for QBSD valueExtractor outputs against ground truth data.
-Dynamically aligns prediction and ground truth schemas using semantic similarity.
-Handles schema mismatches and provides comprehensive evaluation metrics.
+Data Quality Evaluation for QBSD Value Extraction
+
+Compares extracted data CSV against ground truth CSV by:
+1. Aligning rows based on protein name matching  
+2. Evaluating schema similarity (column name alignment)
+3. Evaluating value similarity for aligned fields
 
 Usage:
-    python data_quality_evaluation.py --gt_file path/to/groundtruth.csv --pred_file path/to/predictions.json [--output_path results.json]
+    python data_quality_evaluation.py --gt_file data/NesDB_all_CRM1_with_peptides.csv --pred_file data/orig_nes_27.csv [--output results.json]
 """
 
 import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional
-import re
+from typing import Dict, List, Tuple, Any, Optional, Set
 import argparse
-from difflib import SequenceMatcher
+from dataclasses import dataclass
 from sentence_transformers import SentenceTransformer
 import torch
+import re
 
-class ValueExtractorEvaluator:
-    """Evaluates valueExtractor outputs against ground truth data."""
+
+@dataclass
+class RowAlignment:
+    """Represents an aligned GT-prediction row pair."""
+    gt_row: pd.Series
+    pred_row: pd.Series
+    gt_id: str
+    pred_name: str
+    match_confidence: float
+
+
+@dataclass
+class FieldAlignment:
+    """Represents alignment between GT and prediction field names."""
+    gt_field: str
+    pred_field: str
+    similarity_score: float
+
+
+@dataclass
+class EvaluationResult:
+    """Complete evaluation results."""
+    schema_similarity: Dict[str, Any]
+    value_similarity: Dict[str, Any] 
+    row_alignments: List[RowAlignment]
+    field_alignments: List[FieldAlignment]
+    summary_metrics: Dict[str, float]
+
+
+class DataLoader:
+    """Handles loading and preprocessing CSV data files."""
     
-    def __init__(self, similarity_threshold: float = 0.7):
-        self.similarity_threshold = similarity_threshold
-        self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
-    
-    def load_ground_truth(self, csv_path: str) -> pd.DataFrame:
-        """Load ground truth data from CSV file."""
-        print(f"Loading ground truth from: {csv_path}")
+    @staticmethod
+    def load_csv(file_path: str) -> pd.DataFrame:
+        """Load CSV with encoding detection."""
+        print(f"Loading data from: {file_path}")
         
-        # Try to load the CSV with different encodings
-        try:
-            gt_df = pd.read_csv(csv_path, encoding='utf-8')
-        except UnicodeDecodeError:
+        # Try multiple encodings
+        for encoding in ['utf-8', 'latin-1', 'cp1252']:
             try:
-                gt_df = pd.read_csv(csv_path, encoding='latin-1')
-            except:
-                gt_df = pd.read_csv(csv_path, encoding='cp1252')
-        
-        print(f"Loaded {len(gt_df)} ground truth entries")
-        print(f"GT columns: {list(gt_df.columns)}")
-        
-        # Extract protein names for matching
-        if 'ID' in gt_df.columns:
-            gt_df['protein_name'] = gt_df['ID'].str.extract(r'([^(]+)')[0].str.strip()
-        elif 'Full Name' in gt_df.columns:
-            gt_df['protein_name'] = gt_df['Full Name']
-        else:
-            # Try to find any column that might contain protein names
-            name_candidates = [col for col in gt_df.columns if 'name' in col.lower() or 'id' in col.lower()]
-            if name_candidates:
-                gt_df['protein_name'] = gt_df[name_candidates[0]]
-            else:
-                gt_df['protein_name'] = gt_df.index.astype(str)
-        
-        return gt_df
-    
-    def load_predictions(self, json_path: str) -> List[Dict]:
-        """Load prediction data from JSON file."""
-        print(f"Loading predictions from: {json_path}")
-        
-        predictions = []
-        with open(json_path, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        pred = json.loads(line)
-                        predictions.append(pred)
-                    except json.JSONDecodeError as e:
-                        print(f"Error parsing line: {line[:100]}... Error: {e}")
-        
-        print(f"Loaded {len(predictions)} predictions")
-        
-        # Print sample prediction structure
-        if predictions:
-            sample = predictions[0]
-            print(f"Sample prediction keys: {list(sample.keys())}")
-            if '_row_name' in sample:
-                print(f"Sample _row_name: {sample['_row_name']}")
-        
-        return predictions
-    
-    def extract_protein_name(self, row_name: str) -> str:
-        """Extract clean protein name from _row_name field."""
-        # Remove common suffixes and clean up
-        name = row_name.strip()
-        name = re.sub(r'\s*\([^)]*\)', '', name)  # Remove parentheses
-        name = re.sub(r'\s*\[[^\]]*\]', '', name)  # Remove brackets
-        name = name.strip()
-        return name
-    
-    def match_proteins(self, gt_df: pd.DataFrame, predictions: List[Dict]) -> Dict[str, Tuple[Dict, pd.Series]]:
-        """Match predictions to ground truth entries by protein name."""
-        matches = {}
-        
-        # Create mapping from GT
-        gt_protein_map = {}
-        for idx, row in gt_df.iterrows():
-            protein_name = str(row.get('protein_name', '')).lower().strip()
-            gt_protein_map[protein_name] = row
-        
-        print(f"GT proteins: {list(gt_protein_map.keys())[:5]}...")
-        
-        # Match predictions
-        unmatched_predictions = []
-        for pred in predictions:
-            if '_row_name' not in pred:
+                df = pd.read_csv(file_path, encoding=encoding)
+                print(f"  ✓ Loaded {len(df)} rows using {encoding} encoding")
+                return df
+            except UnicodeDecodeError:
                 continue
-                
-            pred_name = self.extract_protein_name(pred['_row_name']).lower().strip()
-            
-            # Try exact match first
-            if pred_name in gt_protein_map:
-                matches[pred_name] = (pred, gt_protein_map[pred_name])
-            else:
-                # Try fuzzy matching
-                best_match = None
-                best_score = 0
-                for gt_name in gt_protein_map.keys():
-                    score = SequenceMatcher(None, pred_name, gt_name).ratio()
-                    if score > best_score and score > 0.8:  # High threshold for protein matching
-                        best_score = score
-                        best_match = gt_name
-                
-                if best_match:
-                    matches[pred_name] = (pred, gt_protein_map[best_match])
-                    print(f"Fuzzy match: '{pred_name}' -> '{best_match}' (score: {best_score:.3f})")
-                else:
-                    unmatched_predictions.append(pred_name)
         
-        print(f"Matched {len(matches)} proteins")
-        if unmatched_predictions:
-            print(f"Unmatched predictions: {unmatched_predictions[:5]}...")
-            
-        return matches
+        raise ValueError(f"Could not read {file_path} with any encoding")
+
+
+class RowMatcher:
+    """Handles matching rows between GT and prediction data."""
     
-    def align_fields(self, pred_fields: List[str], gt_fields: List[str]) -> Dict[str, str]:
-        """Align prediction fields to ground truth fields using dynamic similarity matching."""
-        field_alignment = {}
+    def __init__(self):
+        self.fuzzy_threshold = 0.8
+    
+    def match_rows(self, gt_df: pd.DataFrame, pred_df: pd.DataFrame) -> List[RowAlignment]:
+        """
+        Match prediction rows to GT rows based on protein name containment.
+        Logic: pred row_name should be contained in GT ID string.
+        """
+        alignments = []
         
-        # Use similarity matching for all fields (no hardcoded mappings)
-        for pred_field in pred_fields:
-            pred_field_clean = pred_field.lower().strip()
+        # Extract clean protein names from GT IDs
+        gt_proteins = {}
+        for idx, row in gt_df.iterrows():
+            gt_id = str(row.get('ID', ''))
+            # Extract main protein name before parentheses
+            clean_name = re.sub(r'\s*\([^)]*\)', '', gt_id).strip().lower()
+            gt_proteins[clean_name] = (gt_id, row)
+        
+        print(f"GT proteins extracted: {len(gt_proteins)}")
+        print(f"Sample GT names: {list(gt_proteins.keys())[:3]}")
+        
+        # Match prediction rows
+        matched_count = 0
+        for idx, pred_row in pred_df.iterrows():
+            pred_name = str(pred_row.get('row_name', '')).strip().lower()
+            
+            if not pred_name:
+                continue
+            
             best_match = None
-            best_score = 0
+            best_confidence = 0.0
             
-            # Find GT fields not already aligned
-            available_gt_fields = [f for f in gt_fields if f not in field_alignment.values()]
+            # Check if pred_name is contained in any GT protein name
+            for gt_clean_name, (gt_id, gt_row) in gt_proteins.items():
+                if pred_name in gt_clean_name or gt_clean_name in pred_name:
+                    # Calculate simple similarity as confidence
+                    confidence = min(len(pred_name), len(gt_clean_name)) / max(len(pred_name), len(gt_clean_name))
+                    
+                    if confidence > best_confidence:
+                        best_confidence = confidence
+                        best_match = (gt_id, gt_row)
             
-            for gt_field in available_gt_fields:
-                gt_field_clean = gt_field.lower().strip()
+            if best_match and best_confidence > 0.3:  # Minimum threshold
+                gt_id, gt_row = best_match
+                alignments.append(RowAlignment(
+                    gt_row=gt_row,
+                    pred_row=pred_row,
+                    gt_id=gt_id,
+                    pred_name=pred_name,
+                    match_confidence=best_confidence
+                ))
+                matched_count += 1
+        
+        print(f"Successfully matched {matched_count} proteins")
+        return alignments
+
+
+class FieldAligner:
+    """Handles alignment between GT and prediction field names."""
+    
+    def __init__(self):
+        self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.similarity_threshold = 0.6
+    
+    def align_fields(self, gt_columns: List[str], pred_columns: List[str]) -> List[FieldAlignment]:
+        """Align prediction fields to GT fields using semantic similarity."""
+        alignments = []
+        
+        # Filter out metadata columns
+        gt_fields = [col for col in gt_columns if not self._is_metadata_column(col)]
+        pred_fields = [col for col in pred_columns if not self._is_metadata_column(col)]
+        
+        print(f"Aligning {len(pred_fields)} prediction fields to {len(gt_fields)} GT fields")
+        
+        used_gt_fields = set()
+        
+        for pred_field in pred_fields:
+            best_match = None
+            best_score = 0.0
+            
+            for gt_field in gt_fields:
+                if gt_field in used_gt_fields:
+                    continue
                 
-                # String similarity
-                string_score = SequenceMatcher(None, pred_field_clean, gt_field_clean).ratio()
+                similarity = self._calculate_field_similarity(pred_field, gt_field)
                 
-                # Semantic similarity using sentence transformers
-                semantic_score = 0
-                try:
-                    embeddings = self.sentence_model.encode([pred_field_clean, gt_field_clean])
-                    semantic_score = torch.cosine_similarity(
-                        torch.tensor(embeddings[0]).unsqueeze(0),
-                        torch.tensor(embeddings[1]).unsqueeze(0)
-                    ).item()
-                except:
-                    pass
-                
-                # Combined score - give semantic similarity higher weight
-                combined_score = 0.3 * string_score + 0.7 * semantic_score
-                
-                if combined_score > best_score and combined_score > self.similarity_threshold:
-                    best_score = combined_score
+                if similarity > best_score and similarity > self.similarity_threshold:
+                    best_score = similarity
                     best_match = gt_field
             
             if best_match:
-                field_alignment[pred_field] = best_match
-                print(f"Field alignment: '{pred_field}' -> '{best_match}' (score: {best_score:.3f})")
+                alignments.append(FieldAlignment(
+                    gt_field=best_match,
+                    pred_field=pred_field,
+                    similarity_score=best_score
+                ))
+                used_gt_fields.add(best_match)
+                print(f"  {pred_field} → {best_match} (score: {best_score:.3f})")
         
-        return field_alignment
+        return alignments
     
-    def extract_value(self, pred_value: Any) -> str:
-        """Extract actual value from prediction structure."""
-        if pred_value is None:
-            return ""
-        
-        if isinstance(pred_value, dict):
-            # Handle {"answer": "...", "excerpts": ["..."]} structure
-            if 'answer' in pred_value:
-                return str(pred_value['answer']).strip()
-            elif 'value' in pred_value:
-                return str(pred_value['value']).strip()
-            else:
-                # Return the first non-empty value
-                for key, value in pred_value.items():
-                    if value and str(value).strip():
-                        return str(value).strip()
-        
-        return str(pred_value).strip()
+    def _is_metadata_column(self, column: str) -> bool:
+        """Check if column is metadata (should be excluded from alignment)."""
+        metadata_patterns = [
+            'id', 'row_name', 'protein_name', 'fasta', 'sequence', 'hash', 
+            'combined', 'gt_', '_id', 'index'
+        ]
+        column_lower = column.lower()
+        return any(pattern in column_lower for pattern in metadata_patterns)
     
-    def evaluate_field(self, gt_value: Any, pred_value: Any, field_name: str) -> Dict[str, float]:
-        """Evaluate a single field comparison."""
-        gt_str = str(gt_value).lower().strip() if gt_value and str(gt_value).strip() else ""
-        pred_str = self.extract_value(pred_value).lower().strip()
-        
-        if not gt_str or not pred_str:
-            return {
-                'exact_match': 0.0,
-                'substring_match': 0.0,
-                'semantic_similarity': 0.0,
-                'has_prediction': 1.0 if pred_str else 0.0
-            }
+    def _calculate_field_similarity(self, field1: str, field2: str) -> float:
+        """Calculate semantic similarity between two field names."""
+        # String similarity
+        field1_clean = field1.lower().strip()
+        field2_clean = field2.lower().strip()
         
         # Exact match
-        exact_match = 1.0 if gt_str == pred_str else 0.0
+        if field1_clean == field2_clean:
+            return 1.0
         
-        # Substring match (both directions)
-        substring_match = 0.0
-        if gt_str in pred_str or pred_str in gt_str:
-            substring_match = 1.0
-        elif len(gt_str) > 3 and len(pred_str) > 3:
-            # For longer strings, check for significant overlap
-            overlap = SequenceMatcher(None, gt_str, pred_str).ratio()
-            if overlap > 0.5:
-                substring_match = overlap
+        # Substring match
+        if field1_clean in field2_clean or field2_clean in field1_clean:
+            return 0.8
         
         # Semantic similarity
-        semantic_similarity = 0.0
         try:
-            if len(gt_str) > 2 and len(pred_str) > 2:
-                embeddings = self.sentence_model.encode([gt_str, pred_str])
-                semantic_similarity = torch.cosine_similarity(
+            embeddings = self.sentence_model.encode([field1_clean, field2_clean])
+            semantic_sim = torch.cosine_similarity(
+                torch.tensor(embeddings[0]).unsqueeze(0),
+                torch.tensor(embeddings[1]).unsqueeze(0)
+            ).item()
+            return max(0.0, semantic_sim)
+        except:
+            return 0.0
+
+
+class ValueEvaluator:
+    """Evaluates similarity between GT and prediction values."""
+    
+    def __init__(self):
+        self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+    
+    def evaluate_values(self, row_alignments: List[RowAlignment], 
+                       field_alignments: List[FieldAlignment]) -> Dict[str, Any]:
+        """Evaluate value similarity for aligned rows and fields."""
+        
+        if not row_alignments or not field_alignments:
+            return {'error': 'No alignments to evaluate'}
+        
+        # Create field mapping
+        field_map = {fa.pred_field: fa.gt_field for fa in field_alignments}
+        
+        all_scores = []
+        field_scores = {}
+        
+        for row_alignment in row_alignments:
+            gt_row = row_alignment.gt_row
+            pred_row = row_alignment.pred_row
+            
+            for pred_field, gt_field in field_map.items():
+                gt_value = self._extract_value(gt_row.get(gt_field, ''))
+                pred_value = self._extract_value(pred_row.get(pred_field, ''))
+                
+                if not gt_value or not pred_value:
+                    continue
+                
+                score = self._calculate_value_similarity(gt_value, pred_value)
+                all_scores.append(score)
+                
+                if pred_field not in field_scores:
+                    field_scores[pred_field] = []
+                field_scores[pred_field].append(score)
+        
+        # Calculate aggregate metrics
+        avg_field_scores = {field: np.mean(scores) for field, scores in field_scores.items()}
+        
+        return {
+            'overall_similarity': np.mean(all_scores) if all_scores else 0.0,
+            'median_similarity': np.median(all_scores) if all_scores else 0.0,
+            'field_similarities': avg_field_scores,
+            'total_comparisons': len(all_scores),
+            'best_fields': sorted(avg_field_scores.items(), key=lambda x: x[1], reverse=True)[:5],
+            'worst_fields': sorted(avg_field_scores.items(), key=lambda x: x[1])[:5]
+        }
+    
+    def _extract_value(self, value: Any) -> str:
+        """Extract clean string value from various data types."""
+        if pd.isna(value):
+            return ''
+        
+        value_str = str(value).strip()
+        
+        # Handle JSON-like structures from QBSD extraction
+        if value_str.startswith('[{') and 'value' in value_str:
+            try:
+                import ast
+                parsed = ast.literal_eval(value_str)
+                if isinstance(parsed, list) and parsed:
+                    if isinstance(parsed[0], dict) and 'value' in parsed[0]:
+                        return str(parsed[0]['value']).strip()
+            except:
+                pass
+        
+        return value_str.lower()
+    
+    def _calculate_value_similarity(self, val1: str, val2: str) -> float:
+        """Calculate similarity between two values."""
+        val1 = val1.lower().strip()
+        val2 = val2.lower().strip()
+        
+        if not val1 or not val2:
+            return 0.0
+        
+        # Exact match
+        if val1 == val2:
+            return 1.0
+        
+        # Substring match
+        if val1 in val2 or val2 in val1:
+            return 0.7
+        
+        # Semantic similarity for longer texts
+        if len(val1) > 10 and len(val2) > 10:
+            try:
+                embeddings = self.sentence_model.encode([val1, val2])
+                semantic_sim = torch.cosine_similarity(
                     torch.tensor(embeddings[0]).unsqueeze(0),
                     torch.tensor(embeddings[1]).unsqueeze(0)
                 ).item()
-                semantic_similarity = max(0.0, semantic_similarity)  # Ensure non-negative
-        except:
-            pass
+                return max(0.0, semantic_sim)
+            except:
+                pass
         
-        # Special handling for yes/no fields
-        if field_name.lower() in ['nes_presence', 'leucine_rich', 'crm1_dependency', 'exportin1_dependency', 'nes_masking']:
-            gt_bool = gt_str.lower() in ['yes', 'true', '1', 'positive', 'present']
-            pred_bool = pred_str.lower() in ['yes', 'true', '1', 'positive', 'present']
-            if gt_bool == pred_bool:
-                exact_match = 1.0
-                substring_match = 1.0
-                semantic_similarity = 1.0
-            else:
-                exact_match = substring_match = semantic_similarity = 0.0
-        
-        return {
-            'exact_match': exact_match,
-            'substring_match': substring_match,
-            'semantic_similarity': semantic_similarity,
-            'has_prediction': 1.0
-        }
+        return 0.0
+
+
+class DataQualityEvaluator:
+    """Main evaluator orchestrating the complete evaluation pipeline."""
     
-    def evaluate_protein(self, gt_row: pd.Series, pred_dict: Dict) -> Dict[str, Any]:
-        """Evaluate all fields for a single protein."""
-        
-        # Get all GT fields (exclude metadata columns)
-        metadata_cols = ['protein_name', 'ID', 'Full Name', 'Alternative Names', 'Organism', 'Fasta Header', 'Sequence', 'CRM1_hash', 'Peptide_hash', 'Negative_hash', 'combined']
-        gt_fields = [col for col in gt_row.index if col not in metadata_cols and pd.notna(gt_row[col]) and str(gt_row[col]).strip()]
-        
-        # Get prediction fields (exclude metadata and excerpt columns)
-        pred_fields = [key for key in pred_dict.keys() 
-                      if not key.startswith('_') 
-                      and not key.endswith('_excerpts')  # Exclude excerpt columns
-                      and key not in ['"name"', '"definition"', '"rationale"', 'name', 'definition', 'rationale']]
-        
-        # Align fields (pred_field -> gt_field)
-        field_alignment = self.align_fields(pred_fields, gt_fields)
-        
-        field_results = {}
-        total_pred_fields = len(pred_fields)
-        matched_fields = 0
-        total_scores = {'exact_match': 0, 'substring_match': 0, 'semantic_similarity': 0}
-        
-        # Evaluate each prediction field
-        for pred_field in pred_fields:
-            pred_value = pred_dict.get(pred_field, None)
-            
-            if pred_field in field_alignment:
-                gt_field = field_alignment[pred_field]
-                gt_value = gt_row[gt_field]
-                scores = self.evaluate_field(gt_value, pred_value, pred_field)
-                
-                field_results[pred_field] = {
-                    'gt_field': gt_field,
-                    'gt_value': str(gt_value),
-                    'pred_value': self.extract_value(pred_value),
-                    'scores': scores
-                }
-                
-                matched_fields += 1
-                for metric in total_scores:
-                    total_scores[metric] += scores[metric]
-            else:
-                field_results[pred_field] = {
-                    'gt_field': None,
-                    'gt_value': "",
-                    'pred_value': self.extract_value(pred_value),
-                    'scores': {'exact_match': 0, 'substring_match': 0, 'semantic_similarity': 0, 'has_prediction': 1}
-                }
-        
-        # Calculate aggregate metrics 
-        # Note: Using arxivDIGESTables-style recall = matched_gold_fields / total_gold_fields
-        # But we're evaluating from prediction perspective, so we use pred fields as base
-        field_recall = matched_fields / total_pred_fields if total_pred_fields > 0 else 0
-        
-        # Also calculate GT-style recall for comparison
-        gt_fields_matched = len(set(field_alignment.values()))  # Unique GT fields matched
-        gt_total_fields = len(gt_fields)  # Total GT fields available
-        gt_recall = gt_fields_matched / gt_total_fields if gt_total_fields > 0 else 0
-        
-        # Calculate average scores first (needed for precision calculation)
-        avg_scores = {metric: score / matched_fields if matched_fields > 0 else 0 
-                     for metric, score in total_scores.items()}
-        
-        # Calculate precision including value quality (like recall does)
-        # Schema precision: how many predicted fields matched GT fields
-        schema_precision = matched_fields / total_pred_fields if total_pred_fields > 0 else 0
-        
-        # Value-weighted precision: incorporate quality of matched values
-        # Use average semantic similarity of matched fields as value quality weight
-        value_quality_weight = avg_scores['semantic_similarity'] if matched_fields > 0 else 0
-        precision = schema_precision * value_quality_weight if value_quality_weight > 0 else schema_precision
-        
-        # Calculate F1 score using value-weighted precision and GT recall
-        f1_score = 2 * (precision * gt_recall) / (precision + gt_recall) if (precision + gt_recall) > 0 else 0
-        
-        # Also calculate schema-only F1 for comparison
-        schema_f1 = 2 * (schema_precision * gt_recall) / (schema_precision + gt_recall) if (schema_precision + gt_recall) > 0 else 0
-        
-        return {
-            'field_results': field_results,
-            'field_recall': field_recall,  # Prediction-based recall
-            'gt_recall': gt_recall,         # GT-based recall (arxivDIGESTables style)
-            'precision': precision,         # Value-weighted precision score
-            'schema_precision': schema_precision,  # Schema-only precision
-            'f1_score': f1_score,          # Value-weighted F1 score
-            'schema_f1': schema_f1,        # Schema-only F1 score
-            'matched_fields': matched_fields,
-            'total_pred_fields': total_pred_fields,
-            'total_gt_fields': gt_total_fields,
-            'avg_scores': avg_scores,
-            'alignment_matrix': field_alignment
-        }
+    def __init__(self):
+        self.data_loader = DataLoader()
+        self.row_matcher = RowMatcher()
+        self.field_aligner = FieldAligner()
+        self.value_evaluator = ValueEvaluator()
     
-    def calculate_comprehensive_metrics(self, protein_results: Dict[str, Any]) -> Dict[str, float]:
-        """Calculate comprehensive metrics including recall, precision, and F1 scores."""
-        
-        all_gt_recalls = []
-        all_field_recalls = []
-        all_precisions = []
-        all_schema_precisions = []
-        all_f1_scores = []
-        all_schema_f1_scores = []
-        all_exact_matches = []
-        all_semantic_similarities = []
-        
-        # Collect scores across all proteins
-        for protein_data in protein_results.values():
-            all_gt_recalls.append(protein_data['gt_recall'])
-            all_field_recalls.append(protein_data['field_recall'])
-            all_precisions.append(protein_data['precision'])
-            all_schema_precisions.append(protein_data['schema_precision'])
-            all_f1_scores.append(protein_data['f1_score'])
-            all_schema_f1_scores.append(protein_data['schema_f1'])
-            all_exact_matches.append(protein_data['avg_scores']['exact_match'])
-            all_semantic_similarities.append(protein_data['avg_scores']['semantic_similarity'])
-        
-        return {
-            'schema_recall': np.mean(all_gt_recalls),  # arxivDIGESTables style
-            'field_recall': np.mean(all_field_recalls),  # Prediction-based
-            'precision': np.mean(all_precisions),      # Value-weighted precision
-            'schema_precision': np.mean(all_schema_precisions),  # Schema-only precision
-            'f1_score': np.mean(all_f1_scores),        # Value-weighted F1 score
-            'schema_f1': np.mean(all_schema_f1_scores),  # Schema-only F1 score
-            'exact_match_score': np.mean(all_exact_matches),
-            'semantic_similarity_score': np.mean(all_semantic_similarities),
-            'median_schema_recall': np.median(all_gt_recalls),
-            'std_schema_recall': np.std(all_gt_recalls),
-            'median_precision': np.median(all_precisions),
-            'std_precision': np.std(all_precisions),
-            'median_schema_precision': np.median(all_schema_precisions),
-            'std_schema_precision': np.std(all_schema_precisions),
-            'median_f1_score': np.median(all_f1_scores),
-            'std_f1_score': np.std(all_f1_scores),
-            'median_schema_f1': np.median(all_schema_f1_scores),
-            'std_schema_f1': np.std(all_schema_f1_scores)
-        }
-    
-    def run_evaluation(self, gt_csv_path: str, pred_json_path: str, output_path: str = None) -> Dict[str, Any]:
-        """Run complete evaluation and return results."""
+    def evaluate(self, gt_csv_path: str, pred_csv_path: str) -> EvaluationResult:
+        """Run complete data quality evaluation."""
         
         # Load data
-        gt_df = self.load_ground_truth(gt_csv_path)
-        predictions = self.load_predictions(pred_json_path)
+        print("=== Loading Data ===")
+        gt_df = self.data_loader.load_csv(gt_csv_path)
+        pred_df = self.data_loader.load_csv(pred_csv_path)
         
-        # Match proteins
-        protein_matches = self.match_proteins(gt_df, predictions)
+        print(f"GT columns: {list(gt_df.columns)[:5]}...")
+        print(f"Prediction columns: {list(pred_df.columns)[:5]}...")
         
-        if not protein_matches:
-            print("ERROR: No protein matches found between GT and predictions!")
-            return {}
+        # Match rows
+        print("\n=== Matching Rows ===")
+        row_alignments = self.row_matcher.match_rows(gt_df, pred_df)
         
-        # Evaluate each protein
-        results = {}
-        print("\nEvaluating proteins...")
-        for protein_name, (pred_dict, gt_row) in protein_matches.items():
-            protein_result = self.evaluate_protein(gt_row, pred_dict)
-            results[protein_name] = protein_result
+        if not row_alignments:
+            raise ValueError("No rows could be aligned between GT and predictions")
         
-        # Calculate overall statistics using comprehensive metrics
-        comprehensive_metrics = self.calculate_comprehensive_metrics(results)
+        # Align fields
+        print("\n=== Aligning Fields ===")
+        field_alignments = self.field_aligner.align_fields(gt_df.columns.tolist(), pred_df.columns.tolist())
         
-        overall_stats = {
-            'total_proteins_evaluated': len(results),
-            # Organized metrics structure as requested
-            'schema': {
-                'recall': comprehensive_metrics['schema_recall'],
-                'precision': comprehensive_metrics['schema_precision'],
-                'f1': comprehensive_metrics['schema_f1']
-            },
-            'values': {
-                'recall': comprehensive_metrics['schema_recall'],  # Same as schema recall
-                'precision': comprehensive_metrics['precision'],   # Value-weighted precision
-                'f1': comprehensive_metrics['f1_score']          # Value-weighted F1
-            },
-            # Content quality metrics
-            'exact_match_score': comprehensive_metrics['exact_match_score'],
-            'semantic_similarity_score': comprehensive_metrics['semantic_similarity_score'],
-            # Statistical measures
-            'median_schema_recall': comprehensive_metrics['median_schema_recall'],
-            'std_schema_recall': comprehensive_metrics['std_schema_recall'],
-            'median_precision': comprehensive_metrics['median_precision'],
-            'std_precision': comprehensive_metrics['std_precision'],
-            'median_schema_precision': comprehensive_metrics['median_schema_precision'],
-            'std_schema_precision': comprehensive_metrics['std_schema_precision'],
-            'median_f1_score': comprehensive_metrics['median_f1_score'],
-            'std_f1_score': comprehensive_metrics['std_f1_score'],
-            'median_schema_f1': comprehensive_metrics['median_schema_f1'],
-            'std_schema_f1': comprehensive_metrics['std_schema_f1'],
-            # Legacy metrics for compatibility
-            'schema_recall': comprehensive_metrics['schema_recall'],
-            'field_recall': comprehensive_metrics['field_recall'],
-            'precision': comprehensive_metrics['precision'],
-            'f1_score': comprehensive_metrics['f1_score'],
-            'schema_precision': comprehensive_metrics['schema_precision'],
-            'schema_f1': comprehensive_metrics['schema_f1'],
-            'avg_field_recall': comprehensive_metrics['field_recall'],
-            'avg_exact_match': comprehensive_metrics['exact_match_score'], 
-            'avg_semantic_similarity': comprehensive_metrics['semantic_similarity_score']
+        # Evaluate schema similarity
+        schema_similarity = {
+            'total_gt_fields': len([col for col in gt_df.columns if not self.field_aligner._is_metadata_column(col)]),
+            'total_pred_fields': len([col for col in pred_df.columns if not self.field_aligner._is_metadata_column(col)]),
+            'aligned_fields': len(field_alignments),
+            'schema_recall': len(field_alignments) / len([col for col in gt_df.columns if not self.field_aligner._is_metadata_column(col)]) if len([col for col in gt_df.columns if not self.field_aligner._is_metadata_column(col)]) > 0 else 0,
+            'schema_precision': len(field_alignments) / len([col for col in pred_df.columns if not self.field_aligner._is_metadata_column(col)]) if len([col for col in pred_df.columns if not self.field_aligner._is_metadata_column(col)]) > 0 else 0,
+            'avg_field_similarity': np.mean([fa.similarity_score for fa in field_alignments]) if field_alignments else 0.0
         }
         
-        # Print summary
-        print(f"\n=== EVALUATION SUMMARY ===")
-        print(f"Total proteins evaluated: {overall_stats['total_proteins_evaluated']}")
-        print(f"\n--- Schema Metrics ---")
-        print(f"Schema recall: {overall_stats['schema']['recall']:.3f}")
-        print(f"Schema precision: {overall_stats['schema']['precision']:.3f}")
-        print(f"Schema F1: {overall_stats['schema']['f1']:.3f}")
-        print(f"\n--- Value Metrics ---")
-        print(f"Value recall: {overall_stats['values']['recall']:.3f}")
-        print(f"Value precision: {overall_stats['values']['precision']:.3f}")
-        print(f"Value F1: {overall_stats['values']['f1']:.3f}")
-        print(f"\n--- Content Quality Metrics ---")
-        print(f"Exact match score: {overall_stats['exact_match_score']:.3f}")
-        print(f"Semantic similarity score: {overall_stats['semantic_similarity_score']:.3f}")
-        print(f"\n--- Statistical Measures ---")
-        print(f"Median schema recall: {overall_stats['median_schema_recall']:.3f} (std: {overall_stats['std_schema_recall']:.3f})")
-        print(f"Median precision: {overall_stats['median_precision']:.3f} (std: {overall_stats['std_precision']:.3f})")
-        print(f"Median F1 score: {overall_stats['median_f1_score']:.3f} (std: {overall_stats['std_f1_score']:.3f})")
+        # Calculate schema F1
+        if schema_similarity['schema_recall'] + schema_similarity['schema_precision'] > 0:
+            schema_similarity['schema_f1'] = 2 * (schema_similarity['schema_recall'] * schema_similarity['schema_precision']) / (schema_similarity['schema_recall'] + schema_similarity['schema_precision'])
+        else:
+            schema_similarity['schema_f1'] = 0.0
         
-        # Save detailed results
-        if output_path:
-            output_data = {
-                'overall_stats': overall_stats,
-                'protein_results': results
-            }
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(output_data, f, indent=2, ensure_ascii=False)
-            print(f"\nDetailed results saved to: {output_path}")
+        # Evaluate value similarity
+        print("\n=== Evaluating Values ===")
+        value_similarity = self.value_evaluator.evaluate_values(row_alignments, field_alignments)
         
-        return {
-            'overall_stats': overall_stats,
-            'protein_results': results
+        # Summary metrics
+        summary_metrics = {
+            'rows_matched': len(row_alignments),
+            'total_gt_rows': len(gt_df),
+            'total_pred_rows': len(pred_df),
+            'row_match_rate': len(row_alignments) / min(len(gt_df), len(pred_df)),
+            'schema_recall': schema_similarity['schema_recall'],
+            'schema_precision': schema_similarity['schema_precision'], 
+            'schema_f1': schema_similarity['schema_f1'],
+            'avg_value_similarity': value_similarity.get('overall_similarity', 0.0),
+            'median_value_similarity': value_similarity.get('median_similarity', 0.0)
         }
+        
+        return EvaluationResult(
+            schema_similarity=schema_similarity,
+            value_similarity=value_similarity,
+            row_alignments=row_alignments,
+            field_alignments=field_alignments,
+            summary_metrics=summary_metrics
+        )
+    
+    def print_summary(self, result: EvaluationResult):
+        """Print evaluation summary to console."""
+        print("\n" + "="*50)
+        print("DATA QUALITY EVALUATION SUMMARY")
+        print("="*50)
+        
+        metrics = result.summary_metrics
+        
+        print(f"\n📊 ROW ALIGNMENT:")
+        print(f"  Matched rows: {metrics['rows_matched']} / {metrics['total_pred_rows']} predictions")
+        print(f"  Row match rate: {metrics['row_match_rate']:.3f}")
+        
+        print(f"\n🏗️  SCHEMA SIMILARITY:")
+        print(f"  Schema recall: {metrics['schema_recall']:.3f}")
+        print(f"  Schema precision: {metrics['schema_precision']:.3f}")
+        print(f"  Schema F1: {metrics['schema_f1']:.3f}")
+        print(f"  Avg field similarity: {result.schema_similarity['avg_field_similarity']:.3f}")
+        
+        print(f"\n💎 VALUE SIMILARITY:")
+        print(f"  Overall similarity: {metrics['avg_value_similarity']:.3f}")
+        print(f"  Median similarity: {metrics['median_value_similarity']:.3f}")
+        print(f"  Total comparisons: {result.value_similarity.get('total_comparisons', 0)}")
+        
+        # Show best/worst performing fields
+        if 'best_fields' in result.value_similarity:
+            print(f"\n🏆 BEST PERFORMING FIELDS:")
+            for field, score in result.value_similarity['best_fields']:
+                print(f"  {field}: {score:.3f}")
+        
+        if 'worst_fields' in result.value_similarity:
+            print(f"\n📉 WORST PERFORMING FIELDS:")
+            for field, score in result.value_similarity['worst_fields']:
+                print(f"  {field}: {score:.3f}")
+    
+    def save_results(self, result: EvaluationResult, output_path: str):
+        """Save detailed results to JSON file."""
+        # Convert dataclass and pandas objects to serializable format
+        output_data = {
+            'schema_similarity': result.schema_similarity,
+            'value_similarity': result.value_similarity,
+            'summary_metrics': result.summary_metrics,
+            'field_alignments': [
+                {
+                    'gt_field': fa.gt_field,
+                    'pred_field': fa.pred_field,
+                    'similarity_score': fa.similarity_score
+                } for fa in result.field_alignments
+            ],
+            'row_alignments': [
+                {
+                    'gt_id': ra.gt_id,
+                    'pred_name': ra.pred_name,
+                    'match_confidence': ra.match_confidence
+                } for ra in result.row_alignments
+            ]
+        }
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(output_data, f, indent=2, ensure_ascii=False)
+        
+        print(f"\n💾 Results saved to: {output_path}")
 
 
 def main():
     """Main execution function."""
-    
-    parser = argparse.ArgumentParser(description='Evaluate valueExtractor outputs against ground truth data')
+    parser = argparse.ArgumentParser(description='Evaluate data quality: GT CSV vs predictions CSV')
     parser.add_argument('--gt_file', required=True, help='Path to ground truth CSV file')
-    parser.add_argument('--pred_file', required=True, help='Path to predictions JSON file')
-    parser.add_argument('--output_path', help='Path for output results (optional, auto-generated if not provided)')
-    parser.add_argument('--similarity_threshold', type=float, default=0.3, help='Similarity threshold for field alignment (default: 0.7)')
+    parser.add_argument('--pred_file', required=True, help='Path to predictions CSV file')
+    parser.add_argument('--output', help='Path to save results JSON (optional)')
     
     args = parser.parse_args()
     
-    # Generate output path if not provided
-    if not args.output_path:
-        pred_path = Path(args.pred_file)
-        output_path = f"evaluation_results_{pred_path.stem}.json"
-    else:
-        output_path = args.output_path
-    
-    # Check if files exist
+    # Validate input files
     if not Path(args.gt_file).exists():
-        print(f"ERROR: Ground truth file not found: {args.gt_file}")
-        return
+        print(f"❌ Ground truth file not found: {args.gt_file}")
+        return 1
     
     if not Path(args.pred_file).exists():
-        print(f"ERROR: Predictions file not found: {args.pred_file}")
-        return
+        print(f"❌ Predictions file not found: {args.pred_file}")
+        return 1
     
-    # Run evaluation
-    evaluator = ValueExtractorEvaluator(similarity_threshold=args.similarity_threshold)
-    results = evaluator.run_evaluation(args.gt_file, args.pred_file, output_path)
+    # Generate output path if not provided
+    if not args.output:
+        pred_name = Path(args.pred_file).stem
+        args.output = f"data_quality_evaluation_{pred_name}.json"
     
-    # Print additional analysis
-    if results and 'protein_results' in results:
-        print(f"\n=== DETAILED ANALYSIS ===")
+    try:
+        # Run evaluation
+        evaluator = DataQualityEvaluator()
+        result = evaluator.evaluate(args.gt_file, args.pred_file)
         
-        # Best and worst performing proteins by F1 score
-        protein_scores = [(name, data['f1_score']) 
-                         for name, data in results['protein_results'].items()]
-        protein_scores.sort(key=lambda x: x[1], reverse=True)
+        # Display results
+        evaluator.print_summary(result)
         
-        print(f"Best performing proteins (F1 score):")
-        # Sort by F1 score instead of field recall
-        protein_f1_scores = [(name, data['f1_score']) for name, data in results['protein_results'].items()]
-        protein_f1_scores.sort(key=lambda x: x[1], reverse=True)
+        # Save results
+        evaluator.save_results(result, args.output)
         
-        for name, f1_score in protein_f1_scores[:3]:
-            data = results['protein_results'][name]
-            gt_recall = data['gt_recall']
-            precision = data['precision']
-            schema_precision = data['schema_precision']
-            matched = data['matched_fields']
-            total_pred = data['total_pred_fields']
-            total_gt = data['total_gt_fields']
-            print(f"  {name}: F1={f1_score:.3f} | R={gt_recall:.3f} | P={precision:.3f} | SP={schema_precision:.3f} | ({matched}/{total_pred} pred, {len(set(data['alignment_matrix'].values()))}/{total_gt} GT fields)")
+        return 0
         
-        print(f"Worst performing proteins (F1 score):")
-        for name, f1_score in protein_f1_scores[-3:]:
-            data = results['protein_results'][name]
-            gt_recall = data['gt_recall']
-            precision = data['precision']
-            schema_precision = data['schema_precision']
-            matched = data['matched_fields']
-            total_pred = data['total_pred_fields']
-            total_gt = data['total_gt_fields']
-            print(f"  {name}: F1={f1_score:.3f} | R={gt_recall:.3f} | P={precision:.3f} | SP={schema_precision:.3f} | ({matched}/{total_pred} pred, {len(set(data['alignment_matrix'].values()))}/{total_gt} GT fields)")
-        
-        # Field analysis - which prediction fields perform best
-        field_performance = {}
-        field_alignment_success = {}
-        
-        for protein_data in results['protein_results'].values():
-            for field_name, field_data in protein_data['field_results'].items():
-                if field_name not in field_performance:
-                    field_performance[field_name] = []
-                    field_alignment_success[field_name] = 0
-                
-                field_performance[field_name].append(field_data['scores']['semantic_similarity'])
-                if field_data['gt_field']:
-                    field_alignment_success[field_name] += 1
-        
-        print(f"\nPrediction field performance (avg semantic similarity):")
-        for field_name, scores in sorted(field_performance.items(), 
-                                       key=lambda x: np.mean(x[1]), reverse=True)[:10]:
-            avg_score = np.mean(scores)
-            success_rate = field_alignment_success[field_name] / len(scores)
-            print(f"  {field_name}: {avg_score:.3f} (aligned {success_rate:.1%} of the time)")
-        
-        # Show some successful alignments
-        print(f"\nSuccessful field alignments found:")
-        alignments_found = set()
-        for protein_data in results['protein_results'].values():
-            for field_name, field_data in protein_data['field_results'].items():
-                if field_data['gt_field'] and (field_name, field_data['gt_field']) not in alignments_found:
-                    alignments_found.add((field_name, field_data['gt_field']))
-                    print(f"  {field_name} -> {field_data['gt_field']}")
-                    if len(alignments_found) >= 10:  # Limit output
-                        break
-            if len(alignments_found) >= 10:
-                break
+    except Exception as e:
+        print(f"❌ Evaluation failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 if __name__ == "__main__":
-    main()
+    exit(main())
