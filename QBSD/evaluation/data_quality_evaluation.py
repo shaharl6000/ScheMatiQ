@@ -5,10 +5,16 @@ Data Quality Evaluation for QBSD Value Extraction
 Compares extracted data CSV against ground truth CSV by:
 1. Aligning rows based on protein name matching  
 2. Evaluating schema similarity (column name alignment)
-3. Evaluating value similarity for aligned fields
+3. Evaluating value similarity for aligned fields using:
+   - Semantic similarity (sentence transformers)
+   - Optional LLM-as-a-Judge evaluation (Gemini 1.5 Flash)
 
 Usage:
-    python data_quality_evaluation.py --gt_file data/NesDB_all_CRM1_with_peptides.csv --pred_file data/orig_nes_27.csv [--output results.json]
+    # Basic evaluation with semantic similarity
+    python data_quality_evaluation.py --gt_file data/NesDB_all_CRM1_with_peptides.csv --pred_file data/orig_nes_27.csv
+    
+    # Enhanced evaluation with LLM judge (requires GEMINI_API_KEY)
+    python data_quality_evaluation.py --gt_file data/gt.csv --pred_file data/pred.csv --llm_judge --llm_model gemini-1.5-flash
 """
 
 import json
@@ -42,6 +48,17 @@ class FieldAlignment:
 
 
 @dataclass
+class LLMJudgeResult:
+    """Results from LLM-based value evaluation."""
+    gt_value: str
+    pred_value: str 
+    field_name: str
+    judgment_score: float  # 0-1 scale (normalized from 0-10)
+    judgment_reasoning: str
+    confidence: str  # High/Medium/Low
+
+
+@dataclass
 class EvaluationResult:
     """Complete evaluation results."""
     schema_similarity: Dict[str, Any]
@@ -49,6 +66,7 @@ class EvaluationResult:
     row_alignments: List[RowAlignment]
     field_alignments: List[FieldAlignment]
     summary_metrics: Dict[str, float]
+    llm_judge_results: Optional[List[LLMJudgeResult]] = None
 
 
 class DataLoader:
@@ -210,25 +228,223 @@ class FieldAligner:
             return 0.0
 
 
+class LLMJudge:
+    """Uses Gemini 1.5 Flash to evaluate value similarity with domain expertise."""
+    
+    def __init__(self, model: str = "gemini-1.5-flash", temperature: float = 0.1):
+        """Initialize LLM judge with Gemini model."""
+        try:
+            import sys
+            from pathlib import Path
+            # Add parent directory to path to import llm_backends
+            sys.path.append(str(Path(__file__).parent.parent))
+            from llm_backends import GeminiLLM
+            
+            self.llm = GeminiLLM(model=model, temperature=temperature, max_tokens=8000)
+            print(f"✓ Initialized LLM Judge with {model}")
+        except ImportError as e:
+            raise ImportError(f"Could not import Gemini LLM backend: {e}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to initialize Gemini LLM: {e}")
+
+    def evaluate_value_pair(self, gt_value: str, pred_value: str, field_name: str) -> LLMJudgeResult:
+        """Evaluate similarity between GT and predicted values using LLM."""
+
+        # Create evaluation prompt
+        prompt = self._create_evaluation_prompt(gt_value, pred_value, field_name)
+
+        try:
+            # Get LLM judgment
+            response = self.llm.generate(prompt)
+
+            # Parse JSON response
+            judgment = self._parse_judgment(response)
+
+            # Normalize score from 0-10 to 0-1 scale
+            normalized_score = judgment.get('score', 0) / 10.0
+
+            return LLMJudgeResult(
+                gt_value=gt_value,
+                pred_value=pred_value,
+                field_name=field_name,
+                judgment_score=max(0.0, min(1.0, normalized_score)),
+                judgment_reasoning=judgment.get('reasoning', 'No reasoning provided'),
+                confidence=judgment.get('confidence', 'Medium')
+            )
+
+        except Exception as e:
+            print(f"⚠️ LLM judgment failed for {field_name}: {e}")
+            # Return default result on failure
+            return LLMJudgeResult(
+                gt_value=gt_value,
+                pred_value=pred_value,
+                field_name=field_name,
+                judgment_score=0.0,
+                judgment_reasoning=f"LLM evaluation failed: {str(e)}",
+                confidence="Low"
+            )
+
+    def _create_evaluation_prompt(self, gt_value: str, pred_value: str, field_name: str) -> str:
+        """Create evaluation prompt for the LLM judge."""
+
+        # Domain context for protein biology
+        context_info = {
+            'nes': 'nuclear export signals',
+            'crm1': 'nuclear export pathway',
+            'export': 'nuclear export mechanisms',
+            'mutation': 'protein mutations and variants',
+            'sequence': 'protein sequences and domains',
+            'organism': 'biological organisms and species',
+            'evidence': 'experimental evidence and methods'
+        }
+
+        # Get relevant context
+        context = "protein biology research"
+        field_lower = field_name.lower()
+        for key, desc in context_info.items():
+            if key in field_lower:
+                context = desc
+                break
+
+        return f"""You are a scientific expert evaluating whether two values for the field "{field_name}" are semantically equivalent in the context of {context}.
+
+Ground Truth: "{gt_value}"
+Prediction: "{pred_value}"
+
+Guidelines for evaluation:
+- Consider scientific synonyms and alternative names
+- Account for different formatting or notation styles  
+- Evaluate semantic meaning rather than exact text matching
+- For biological terms, consider standard nomenclature variations
+- For experimental evidence, consider methodological equivalence
+- For yes/no or boolean fields, focus on logical equivalence
+
+Evaluate on a scale of 0-10 where:
+- 10: Identical or semantically equivalent
+- 7-9: Very similar with minor differences (e.g., formatting, synonyms)
+- 4-6: Partially similar (some overlap but important differences)
+- 0-3: Different or contradictory
+
+IMPORTANT: Respond ONLY with valid JSON in exactly this format (no additional text, explanations, or markdown):
+
+{{"score": 8, "reasoning": "Brief explanation here", "confidence": "Medium"}}
+
+Replace the values but keep the exact JSON structure. Do not include any other text before or after the JSON."""
+    
+    def _parse_judgment(self, response: str) -> Dict[str, Any]:
+        """Parse LLM response into judgment dictionary with robust error handling."""
+        try:
+            # Clean response (remove any markdown formatting)
+            response = response.strip()
+            
+            # Handle markdown code blocks
+            if '```json' in response.lower():
+                # Extract JSON from markdown code block
+                start_idx = response.lower().find('```json') + 7
+                end_idx = response.find('```', start_idx)
+                if end_idx > start_idx:
+                    response = response[start_idx:end_idx].strip()
+            elif response.startswith('```'):
+                lines = response.split('\n')
+                response = '\n'.join(lines[1:-1]) if len(lines) > 2 else lines[1] if len(lines) > 1 else ""
+            
+            # Try to find JSON in the response if it's mixed with other text
+            if not response.startswith('{'):
+                import re
+                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', response)
+                if json_match:
+                    response = json_match.group(0)
+            
+            # Parse JSON
+            judgment = json.loads(response)
+            
+            # Validate and fix required fields
+            if 'score' not in judgment:
+                # Try to extract score from text if JSON is malformed
+                score_patterns = [r'"?score"?\s*:\s*(\d+)', r'score.*?(\d+)', r'(\d+)\s*(?:out of|/)\s*10']
+                for pattern in score_patterns:
+                    match = re.search(pattern, response.lower())
+                    if match:
+                        judgment['score'] = int(match.group(1))
+                        break
+                else:
+                    judgment['score'] = 5  # Default middle score if not found
+            
+            # Ensure reasoning exists
+            if 'reasoning' not in judgment:
+                judgment['reasoning'] = "Unable to parse reasoning from response"
+            
+            # Ensure confidence exists
+            if 'confidence' not in judgment:
+                judgment['confidence'] = "Medium"
+            
+            # Ensure score is valid
+            score = judgment['score']
+            if not isinstance(score, (int, float)):
+                try:
+                    score = float(score)
+                except:
+                    score = 5
+            score = max(0, min(10, score))  # Clamp to 0-10 range
+            judgment['score'] = score
+            
+            return judgment
+            
+        except json.JSONDecodeError as e:
+            # If JSON parsing completely fails, create a fallback judgment
+            print(f"⚠️ JSON parsing failed, creating fallback judgment. Response was: {response[:100]}...")
+            return {
+                'score': 5,  # Neutral score
+                'reasoning': f"Failed to parse LLM response as JSON: {str(e)}",
+                'confidence': 'Low'
+            }
+        except Exception as e:
+            print(f"⚠️ Unexpected parsing error: {str(e)}")
+            return {
+                'score': 0,
+                'reasoning': f"Unexpected error parsing judgment: {str(e)}",
+                'confidence': 'Low'
+            }
+
+
 class ValueEvaluator:
     """Evaluates similarity between GT and prediction values."""
     
-    def __init__(self):
+    def __init__(self, use_llm_judge: bool = False, llm_model: str = "gemini-1.5-flash"):
         self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.use_llm_judge = use_llm_judge
+        self.llm_judge = None
+        
+        if use_llm_judge:
+            try:
+                self.llm_judge = LLMJudge(model=llm_model)
+            except Exception as e:
+                print(f"⚠️ Failed to initialize LLM Judge: {e}")
+                print("   Falling back to semantic similarity only")
+                self.use_llm_judge = False
     
     def evaluate_values(self, row_alignments: List[RowAlignment], 
-                       field_alignments: List[FieldAlignment]) -> Dict[str, Any]:
+                       field_alignments: List[FieldAlignment]) -> Tuple[Dict[str, Any], Optional[List[LLMJudgeResult]]]:
         """Evaluate value similarity for aligned rows and fields."""
         
         if not row_alignments or not field_alignments:
-            return {'error': 'No alignments to evaluate'}
+            return {'error': 'No alignments to evaluate'}, None
         
         # Create field mapping
         field_map = {fa.pred_field: fa.gt_field for fa in field_alignments}
         
         all_scores = []
         field_scores = {}
+        llm_judge_results = []
+        llm_scores = []
         
+        print(f"\n=== Value Evaluation ===")
+        if self.use_llm_judge and self.llm_judge:
+            print(f"Using hybrid evaluation: Semantic similarity + LLM Judge")
+        else:
+            print(f"Using semantic similarity only")
+        
+        comparison_count = 0
         for row_alignment in row_alignments:
             gt_row = row_alignment.gt_row
             pred_row = row_alignment.pred_row
@@ -240,17 +456,33 @@ class ValueEvaluator:
                 if not gt_value or not pred_value:
                     continue
                 
-                score = self._calculate_value_similarity(gt_value, pred_value)
-                all_scores.append(score)
+                # Semantic similarity evaluation
+                semantic_score = self._calculate_value_similarity(gt_value, pred_value)
+                all_scores.append(semantic_score)
                 
                 if pred_field not in field_scores:
                     field_scores[pred_field] = []
-                field_scores[pred_field].append(score)
+                field_scores[pred_field].append(semantic_score)
+                
+                # LLM judge evaluation (if enabled)
+                if self.use_llm_judge and self.llm_judge:
+                    try:
+                        judge_result = self.llm_judge.evaluate_value_pair(gt_value, pred_value, pred_field)
+                        llm_judge_results.append(judge_result)
+                        llm_scores.append(judge_result.judgment_score)
+                        
+                        comparison_count += 1
+                        if comparison_count <= 3:  # Show first few examples
+                            print(f"  {pred_field}: {semantic_score:.3f} (semantic) vs {judge_result.judgment_score:.3f} (LLM)")
+                    
+                    except Exception as e:
+                        print(f"⚠️ LLM judgment failed for {pred_field}: {e}")
         
         # Calculate aggregate metrics
         avg_field_scores = {field: np.mean(scores) for field, scores in field_scores.items()}
         
-        return {
+        # Prepare results dictionary
+        results = {
             'overall_similarity': np.mean(all_scores) if all_scores else 0.0,
             'median_similarity': np.median(all_scores) if all_scores else 0.0,
             'field_similarities': avg_field_scores,
@@ -258,6 +490,17 @@ class ValueEvaluator:
             'best_fields': sorted(avg_field_scores.items(), key=lambda x: x[1], reverse=True)[:5],
             'worst_fields': sorted(avg_field_scores.items(), key=lambda x: x[1])[:5]
         }
+        
+        # Add LLM judge metrics if available
+        if llm_scores:
+            results.update({
+                'llm_judge_overall': np.mean(llm_scores),
+                'llm_judge_median': np.median(llm_scores),
+                'llm_judge_comparisons': len(llm_scores),
+                'llm_vs_semantic_correlation': np.corrcoef(all_scores[-len(llm_scores):], llm_scores)[0,1] if len(llm_scores) > 1 else 0.0
+            })
+        
+        return results, llm_judge_results if llm_judge_results else None
     
     def _extract_value(self, value: Any) -> str:
         """Extract clean string value from various data types."""
@@ -313,11 +556,11 @@ class ValueEvaluator:
 class DataQualityEvaluator:
     """Main evaluator orchestrating the complete evaluation pipeline."""
     
-    def __init__(self):
+    def __init__(self, use_llm_judge: bool = False, llm_model: str = "gemini-1.5-flash"):
         self.data_loader = DataLoader()
         self.row_matcher = RowMatcher()
         self.field_aligner = FieldAligner()
-        self.value_evaluator = ValueEvaluator()
+        self.value_evaluator = ValueEvaluator(use_llm_judge=use_llm_judge, llm_model=llm_model)
     
     def evaluate(self, gt_csv_path: str, pred_csv_path: str) -> EvaluationResult:
         """Run complete data quality evaluation."""
@@ -359,7 +602,7 @@ class DataQualityEvaluator:
         
         # Evaluate value similarity
         print("\n=== Evaluating Values ===")
-        value_similarity = self.value_evaluator.evaluate_values(row_alignments, field_alignments)
+        value_similarity, llm_judge_results = self.value_evaluator.evaluate_values(row_alignments, field_alignments)
         
         # Summary metrics
         summary_metrics = {
@@ -379,7 +622,8 @@ class DataQualityEvaluator:
             value_similarity=value_similarity,
             row_alignments=row_alignments,
             field_alignments=field_alignments,
-            summary_metrics=summary_metrics
+            summary_metrics=summary_metrics,
+            llm_judge_results=llm_judge_results
         )
     
     def print_summary(self, result: EvaluationResult):
@@ -401,9 +645,14 @@ class DataQualityEvaluator:
         print(f"  Avg field similarity: {result.schema_similarity['avg_field_similarity']:.3f}")
         
         print(f"\n💎 VALUE SIMILARITY:")
-        print(f"  Overall similarity: {metrics['avg_value_similarity']:.3f}")
+        print(f"  Semantic similarity: {metrics['avg_value_similarity']:.3f}")
         print(f"  Median similarity: {metrics['median_value_similarity']:.3f}")
         print(f"  Total comparisons: {result.value_similarity.get('total_comparisons', 0)}")
+        
+        # Show LLM judge results if available
+        if 'llm_judge_overall' in result.value_similarity:
+            print(f"  LLM judge similarity: {result.value_similarity['llm_judge_overall']:.3f}")
+            print(f"  LLM vs semantic correlation: {result.value_similarity['llm_vs_semantic_correlation']:.3f}")
         
         # Show best/worst performing fields
         if 'best_fields' in result.value_similarity:
@@ -415,6 +664,17 @@ class DataQualityEvaluator:
             print(f"\n📉 WORST PERFORMING FIELDS:")
             for field, score in result.value_similarity['worst_fields']:
                 print(f"  {field}: {score:.3f}")
+        
+        # Show LLM judge insights if available
+        if result.llm_judge_results:
+            print(f"\n🤖 LLM JUDGE INSIGHTS:")
+            high_conf_count = sum(1 for r in result.llm_judge_results if r.confidence == 'High')
+            print(f"  High confidence judgments: {high_conf_count}/{len(result.llm_judge_results)}")
+            
+            # Show a few example judgments
+            print(f"  Sample LLM judgments:")
+            for i, judge_result in enumerate(result.llm_judge_results[:3]):
+                print(f"    {judge_result.field_name}: {judge_result.judgment_score:.3f} - {judge_result.judgment_reasoning[:60]}...")
     
     def save_results(self, result: EvaluationResult, output_path: str):
         """Save detailed results to JSON file."""
@@ -439,6 +699,19 @@ class DataQualityEvaluator:
             ]
         }
         
+        # Add LLM judge results if available
+        if result.llm_judge_results:
+            output_data['llm_judge_results'] = [
+                {
+                    'gt_value': ljr.gt_value,
+                    'pred_value': ljr.pred_value,
+                    'field_name': ljr.field_name,
+                    'judgment_score': ljr.judgment_score,
+                    'judgment_reasoning': ljr.judgment_reasoning,
+                    'confidence': ljr.confidence
+                } for ljr in result.llm_judge_results
+            ]
+        
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
@@ -451,6 +724,8 @@ def main():
     parser.add_argument('--gt_file', required=True, help='Path to ground truth CSV file')
     parser.add_argument('--pred_file', required=True, help='Path to predictions CSV file')
     parser.add_argument('--output', help='Path to save results JSON (optional)')
+    parser.add_argument('--llm_judge', action='store_true', help='Enable LLM-based value evaluation (requires Gemini API key)')
+    parser.add_argument('--llm_model', default='gemini-2.5-flash', help='LLM model to use for judgment (default: gemini-1.5-flash)')
     
     args = parser.parse_args()
     
@@ -469,8 +744,17 @@ def main():
         args.output = f"data_quality_evaluation_{pred_name}.json"
     
     try:
+        # Check for LLM requirements
+        if args.llm_judge:
+            import os
+            if not os.getenv('GEMINI_API_KEY') and not os.getenv('GEMINI_API_KEYS'):
+                print("⚠️ LLM judge enabled but no Gemini API key found.")
+                print("   Set GEMINI_API_KEY or GEMINI_API_KEYS environment variable.")
+                print("   Continuing with semantic similarity only...")
+                args.llm_judge = False
+        
         # Run evaluation
-        evaluator = DataQualityEvaluator()
+        evaluator = DataQualityEvaluator(use_llm_judge=args.llm_judge, llm_model=args.llm_model)
         result = evaluator.evaluate(args.gt_file, args.pred_file)
         
         # Display results
