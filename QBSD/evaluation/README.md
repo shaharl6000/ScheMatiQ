@@ -50,13 +50,13 @@ Key configuration options:
 ```bash
 # Using default config
 cd QBSD
-python evaluation/run_evaluation.py
+python evaluation/query_answering_evaluation.py
 
 # Using custom config
-python evaluation/run_evaluation.py my_evaluation.json
+python evaluation/query_answering_evaluation.py my_evaluation.json
 
 # Specify output path
-python evaluation/run_evaluation.py my_evaluation.json results/my_results.json
+python evaluation/query_answering_evaluation.py my_evaluation.json results/my_results.json
 ```
 
 ### 3. View Results
@@ -167,7 +167,7 @@ Automatically detects answer type and applies appropriate comparison:
 Evaluate how well your discovered schema answers research queries:
 
 ```bash
-python evaluation/run_evaluation.py schema_eval.json
+python evaluation/query_answering_evaluation.py schema_eval.json
 ```
 
 ### 2. Schema Comparison

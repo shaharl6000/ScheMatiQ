@@ -6,17 +6,17 @@ This script runs the complete schema evaluation pipeline to assess how well
 extracted schemas enable answering research queries.
 
 Usage:
-    python evaluation/run_evaluation.py [config_path] [output_path]
+    python evaluation/query_answering_evaluation.py [config_path] [output_path]
     
 Examples:
     # Use default config
-    python evaluation/run_evaluation.py
+    python evaluation/query_answering_evaluation.py
     
     # Use custom config
-    python evaluation/run_evaluation.py evaluation/config/custom_eval.json
+    python evaluation/query_answering_evaluation.py evaluation/config/custom_eval.json
     
     # Specify output path
-    python evaluation/run_evaluation.py evaluation/config/evaluation_config.json results/eval_results.json
+    python evaluation/query_answering_evaluation.py evaluation/config/evaluation_config.json results/eval_results.json
 """
 
 import sys

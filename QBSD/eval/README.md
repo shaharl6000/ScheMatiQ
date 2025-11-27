@@ -4,14 +4,14 @@ This directory contains evaluation tools for QBSD valueExtractor outputs.
 
 ## Files
 
-- `evaluate_valueextractor.py` - Main evaluation script
+- `data_quality_evaluation.py` - Main evaluation script (moved to ../evaluation/)
 - `evaluation_results.json` - Detailed evaluation results (generated)
 
 ## Usage
 
 ```bash
-cd QBSD/eval
-python evaluate_valueextractor.py
+cd QBSD
+python evaluation/data_quality_evaluation.py --gt_file ../data/NesDB_all_CRM1_with_peptides.csv --pred_file outputs/values_nes_with_retriever_one_by_one3.json
 ```
 
 ## Metrics

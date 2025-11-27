@@ -18,7 +18,7 @@ python QBSD.py --config example_config.json
 python valueExtractor.py example_extraction_config.json
 
 # 3. Evaluate schema quality
-python evaluation/run_evaluation.py example_eval_config.json
+python evaluation/query_answering_evaluation.py example_eval_config.json
 ```
 
 ## 🏗️ Architecture
@@ -44,7 +44,7 @@ Research Query → Schema Discovery → Value Extraction → Evaluation
 - **Output**: JSONL file with extracted structured data
 - **Features**: Multi-directory support, resume capability, parallel processing
 
-### 3. Schema Evaluation (`evaluation/run_evaluation.py`)
+### 3. Schema Evaluation (`evaluation/query_answering_evaluation.py`)
 **Evaluates how well the schema answers the original query**
 
 - **Input**: Extracted data + ground truth labels

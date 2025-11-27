@@ -5,7 +5,7 @@ Dynamically aligns prediction and ground truth schemas using semantic similarity
 Handles schema mismatches and provides comprehensive evaluation metrics.
 
 Usage:
-    python evaluate_valueextractor.py --gt_file path/to/groundtruth.csv --pred_file path/to/predictions.json [--output_path results.json]
+    python data_quality_evaluation.py --gt_file path/to/groundtruth.csv --pred_file path/to/predictions.json [--output_path results.json]
 """
 
 import json
