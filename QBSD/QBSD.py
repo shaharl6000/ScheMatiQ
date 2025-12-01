@@ -19,12 +19,13 @@ Replace the two stubs:
 
 import utils
 # from __future__ import annotations
-from typing import List, Dict, Sequence, Tuple, Any
+from typing import List, Dict, Sequence, Tuple, Any, Union, Optional
 import itertools
 import argparse
 import json
 import logging, re
 import time
+import random
 from pathlib import Path
 from schema import Schema, Column
 
@@ -306,17 +307,43 @@ def discover_schema(
 # ------------------------------------------------------------------------ #
 # Helpers                                                                  #
 # ------------------------------------------------------------------------ #
-def load_documents(path: Path) -> tuple[List[str], List[str]]:
-    """Load documents and return (content_list, filename_list)"""
+def load_documents(paths: Union[Path, List[Path]], seed: Optional[int] = None) -> tuple[List[str], List[str]]:
+    """Load documents from single path or multiple paths and return (content_list, filename_list)"""
+    # Handle both single path and multiple paths
+    if isinstance(paths, (str, Path)):
+        paths = [Path(paths)]
+    else:
+        paths = [Path(p) for p in paths]
+    
     exts = {".txt", ".md", ".html", ".htm"}
     docs = []
     filenames = []
-    for p in path.rglob("*"):
-        if p.suffix.lower() in exts and p.is_file():
-            docs.append(p.read_text(encoding="utf-8", errors="ignore"))
-            filenames.append(p.name)  # Just the filename, not full path
+    
+    # Load from all paths
+    for path in paths:
+        logging.info(f"Loading documents from: {path}")
+        count_from_path = 0
+        for p in path.rglob("*"):
+            if p.suffix.lower() in exts and p.is_file():
+                docs.append(p.read_text(encoding="utf-8", errors="ignore"))
+                filenames.append(p.name)  # Just filename, not full path
+                count_from_path += 1
+        logging.info(f"Loaded {count_from_path} documents from {path}")
+    
     if not docs:
-        raise RuntimeError(f"No text files found under {path}")
+        paths_str = ", ".join(str(p) for p in paths)
+        raise RuntimeError(f"No text files found under {paths_str}")
+    
+    # Randomize order if seed provided
+    if seed is not None:
+        random.seed(seed)
+        combined = list(zip(docs, filenames))
+        random.shuffle(combined)
+        docs, filenames = zip(*combined)
+        docs, filenames = list(docs), list(filenames)
+        logging.info(f"Randomized {len(docs)} documents with seed {seed}")
+    
+    logging.info(f"Total documents loaded: {len(docs)}")
     return docs, filenames
 
 
@@ -325,18 +352,23 @@ def save_schema(
     query: str,
     retriever_cfg: Dict[str, Any],
     backend_cfg: Dict[str, Any],
-    docs_path: str,
+    docs_path: Union[str, List[str]],
     schema: Schema,
     contributing_files: List[str] = None,
     non_contributing_files: List[str] = None,
+    randomization_seed: Optional[int] = None,
 ) -> None:
-    artefact = {
+    artefact: Dict[str, Any] = {
         "query": query,
         "docs_path": docs_path,
         "backend": backend_cfg,
         "retriever": retriever_cfg,
         "schema": [col.to_dict() for col in schema],
     }
+    
+    # Add randomization metadata if seed was used
+    if randomization_seed is not None:
+        artefact["document_randomization_seed"] = randomization_seed
     
     # Add document contribution tracking if available
     if contributing_files is not None:
@@ -360,7 +392,17 @@ def main(cfg_path: Path) -> None:
     logging.info("Loaded config from %s", cfg_path)
 
     query = cfg["query"]
-    docs_path = Path(cfg["docs_path"])
+    
+    # Handle both single path and multiple paths for documents
+    docs_path_config = cfg["docs_path"]
+    if isinstance(docs_path_config, list):
+        docs_paths = [Path(p) for p in docs_path_config]
+    else:
+        docs_paths = Path(docs_path_config)
+    
+    # Extract randomization seed with default value of 42
+    randomization_seed = cfg.get("document_randomization_seed", 42)
+    
     backend_cfg = cfg.get("backend", {})
     documents_batch_size = cfg.get("documents_batch_size", 4)
     retriever_cfg = cfg.get("retriever", {})
@@ -385,8 +427,8 @@ def main(cfg_path: Path) -> None:
     else:
         logging.info("No retriever configured - will use whole documents")
 
-    # Load docs with filenames
-    docs, filenames = load_documents(docs_path)
+    # Load docs with filenames and potential randomization
+    docs, filenames = load_documents(docs_paths, seed=randomization_seed)
 
     # Run discovery with contribution tracking
     start_time = time.time()
@@ -404,9 +446,15 @@ def main(cfg_path: Path) -> None:
     total_docs = len(docs)
     logging.info("Schema discovery completed for %d documents in %.2f seconds (%.2f minutes)", total_docs, elapsed_time, elapsed_time / 60)
 
+    # Prepare docs_path for saving (convert paths to strings)
+    if isinstance(docs_paths, list):
+        docs_path_for_save = [str(p) for p in docs_paths]
+    else:
+        docs_path_for_save = str(docs_paths)
+    
     # Persist artefact with contribution tracking
-    save_schema(output_path, query, retriever_cfg, backend_cfg, str(docs_path), schema, 
-                contributing_files, non_contributing_files)
+    save_schema(output_path, query, retriever_cfg, backend_cfg, docs_path_for_save, schema, 
+                contributing_files, non_contributing_files, randomization_seed)
 
     # Print results
     print(f"\nSchema discovery completed for {total_docs} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")

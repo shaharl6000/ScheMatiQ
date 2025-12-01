@@ -570,8 +570,8 @@ class DataQualityEvaluator:
         gt_df = self.data_loader.load_csv(gt_csv_path)
         pred_df = self.data_loader.load_csv(pred_csv_path)
         
-        print(f"GT columns: {list(gt_df.columns)[:5]}...")
-        print(f"Prediction columns: {list(pred_df.columns)[:5]}...")
+        print(f"GT columns: {list(gt_df.columns)}")
+        print(f"Prediction columns: {list(pred_df.columns)}")
         
         # Match rows
         print("\n=== Matching Rows ===")

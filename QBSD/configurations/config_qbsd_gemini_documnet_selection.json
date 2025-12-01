@@ -1,0 +1,15 @@
+{
+  "query": "Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment??",
+  "docs_path": "../src/full_text",
+  "max_keys_schema" : 100,
+  "documents_batch_size": 4,
+  "initial_schema_path": "initial_schema.json",
+  "backend": {
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "max_tokens": 8192,
+    "temperature": 0.2,
+    "max_context_tokens": 1000000
+  },
+  "output_path": "outputs/nes_exp_gemini_flash_longcontext_new20_11_2025.json"
+}
