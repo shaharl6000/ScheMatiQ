@@ -1,0 +1,53 @@
+"""QBSD-specific models."""
+
+from typing import List, Optional, Dict, Any, Union
+from pydantic import BaseModel, Field
+
+class LLMConfig(BaseModel):
+    """LLM backend configuration."""
+    provider: str  # "openai", "together", "gemini"
+    model: str
+    max_tokens: int = 1024
+    temperature: float = 0.2
+    max_context_tokens: Optional[int] = None
+
+class RetrieverConfig(BaseModel):
+    """Retriever configuration."""
+    type: str = "embedding"
+    model_name: str = "all-MiniLM-L6-v2"
+    passage_chars: int = 512
+    overlap: int = 64
+    k: int = 15
+    enable_dynamic_k: bool = True
+    dynamic_k_threshold: float = 0.65
+    dynamic_k_minimum: int = 3
+
+class QBSDConfig(BaseModel):
+    """QBSD configuration matching the existing config format."""
+    query: str
+    docs_path: Union[str, List[str]]
+    max_keys_schema: int = 100
+    documents_batch_size: int = 4
+    initial_schema_path: Optional[str] = None
+    backend: LLMConfig
+    retriever: Optional[RetrieverConfig] = None
+    output_path: str
+    document_randomization_seed: int = 42
+
+class QBSDStatus(BaseModel):
+    """Status of QBSD execution."""
+    session_id: str
+    status: str  # "configuring", "processing", "completed", "error"
+    progress: float = Field(ge=0.0, le=1.0)
+    current_step: str
+    steps_completed: int = 0
+    total_steps: int = 0
+    error_message: Optional[str] = None
+    estimated_time_remaining: Optional[int] = None  # seconds
+
+class QBSDProgress(BaseModel):
+    """Detailed progress information."""
+    step_name: str
+    step_progress: float = Field(ge=0.0, le=1.0)
+    details: Dict[str, Any] = {}
+    timestamp: str
