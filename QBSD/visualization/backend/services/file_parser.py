@@ -2,6 +2,7 @@
 
 import csv
 import json
+import math
 import aiofiles
 import pandas as pd
 from typing import List, Dict, Any, Optional
@@ -147,19 +148,36 @@ class FileParser:
         # Extract columns info
         columns = []
         for col in df.columns:
+            non_null_count = int(df[col].notna().sum())
+            unique_count = int(df[col].nunique())
+            
+            # Ensure values are valid
+            if non_null_count < 0:
+                non_null_count = 0
+            if unique_count < 0:
+                unique_count = 0
+                
             col_info = ColumnInfo(
                 name=col,
                 data_type=str(df[col].dtype),
-                non_null_count=int(df[col].notna().sum()),
-                unique_count=int(df[col].nunique())
+                non_null_count=non_null_count,
+                unique_count=unique_count
             )
             columns.append(col_info)
         
-        # Calculate statistics
+        # Calculate statistics (handle NaN values)
+        total_cells = len(df) * len(df.columns)
+        non_null_cells = df.notna().sum().sum()
+        completeness = float(non_null_cells / total_cells * 100) if total_cells > 0 else 0.0
+        
+        # Ensure completeness is a valid number
+        if math.isnan(completeness) or math.isinf(completeness) or not (0 <= completeness <= 100):
+            completeness = 0.0
+            
         statistics = DataStatistics(
             total_rows=len(df),
             total_columns=len(df.columns),
-            completeness=float(df.notna().sum().sum() / (len(df) * len(df.columns)) * 100),
+            completeness=completeness,
             column_stats=columns
         )
         
@@ -167,7 +185,9 @@ class FileParser:
         data_file = file_path.parent / "data.jsonl"
         with open(data_file, 'w') as f:
             for _, row in df.iterrows():
-                row_data = DataRow(data=row.to_dict())
+                # Sanitize row data before saving
+                sanitized_data = self._sanitize_data_dict(row.to_dict())
+                row_data = DataRow(data=sanitized_data)
                 f.write(json.dumps(row_data.model_dump()) + '\n')
         
         return {"columns": columns, "statistics": statistics}
@@ -227,10 +247,17 @@ class FileParser:
         total_cells = len(data_rows) * len(columns)
         non_null_cells = sum(col.non_null_count for col in columns)
         
+        # Calculate completeness safely
+        completeness = float(non_null_cells / total_cells * 100) if total_cells > 0 else 0.0
+        
+        # Ensure completeness is a valid number
+        if math.isnan(completeness) or math.isinf(completeness) or not (0 <= completeness <= 100):
+            completeness = 0.0
+            
         statistics = DataStatistics(
             total_rows=len(data_rows),
             total_columns=len(columns),
-            completeness=float(non_null_cells / total_cells * 100) if total_cells > 0 else 0,
+            completeness=completeness,
             column_stats=columns
         )
         
@@ -253,6 +280,41 @@ class FileParser:
         
         return {"columns": columns, "statistics": statistics}
     
+    def _sanitize_value(self, value):
+        """Sanitize a value to ensure it's JSON serializable."""
+        if value is None:
+            return None
+        
+        # Handle pandas NaN, infinity values
+        if isinstance(value, float):
+            if math.isnan(value):
+                return None
+            elif math.isinf(value):
+                return "Infinity" if value > 0 else "-Infinity"
+        
+        # Handle string representations of NaN/inf
+        if isinstance(value, str):
+            if value.lower() in ['nan', 'null', '']:
+                return None
+            elif value.lower() in ['inf', 'infinity']:
+                return "Infinity"
+            elif value.lower() in ['-inf', '-infinity']:
+                return "-Infinity"
+        
+        return value
+    
+    def _sanitize_data_dict(self, data_dict: Dict[str, Any]) -> Dict[str, Any]:
+        """Sanitize all values in a data dictionary."""
+        sanitized = {}
+        for key, value in data_dict.items():
+            if isinstance(value, dict):
+                sanitized[key] = self._sanitize_data_dict(value)
+            elif isinstance(value, list):
+                sanitized[key] = [self._sanitize_value(v) for v in value]
+            else:
+                sanitized[key] = self._sanitize_value(value)
+        return sanitized
+
     async def get_paginated_data(self, session_id: str, page: int = 0, page_size: int = 50) -> PaginatedData:
         """Get paginated data for a session."""
         session_dir = self.data_dir / session_id
@@ -274,6 +336,11 @@ class FileParser:
             for i, line in enumerate(f):
                 if i >= start_line and i < end_line:
                     row_data = json.loads(line)
+                    
+                    # Sanitize the data before creating DataRow
+                    if 'data' in row_data:
+                        row_data['data'] = self._sanitize_data_dict(row_data['data'])
+                    
                     rows.append(DataRow(**row_data))
                 elif i >= end_line:
                     break

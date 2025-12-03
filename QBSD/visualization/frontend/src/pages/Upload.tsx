@@ -144,7 +144,7 @@ const Upload: React.FC = () => {
 
         <Step>
           <StepLabel 
-            error={validation && !validation.is_valid}
+            error={validation ? !validation.is_valid : false}
             icon={loading ? <CircularProgress size={24} /> : undefined}
           >
             Validate Data

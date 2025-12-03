@@ -64,8 +64,8 @@ echo -e "${BLUE}📦 Installing frontend dependencies...${NC}"
 cd ../frontend
 
 if [ ! -d "node_modules" ]; then
-    echo "Installing npm packages..."
-    npm install
+    echo "Installing npm packages (this may take a few minutes)..."
+    npm install --legacy-peer-deps
 fi
 
 echo -e "${BLUE}🌐 Starting frontend development server...${NC}"

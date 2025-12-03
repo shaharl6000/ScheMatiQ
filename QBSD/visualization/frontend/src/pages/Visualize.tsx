@@ -137,6 +137,16 @@ const Visualize: React.FC = () => {
 
   const isQBSDRunning = mode === 'qbsd' && session?.status === 'processing';
   const isCompleted = session?.status === 'completed';
+  
+  // Debug logging
+  console.log('DEBUG Frontend:', {
+    mode,
+    sessionStatus: session?.status,
+    isCompleted,
+    dataResponse: !!dataResponse,
+    dataLoading,
+    sessionId
+  });
 
   return (
     <Box>

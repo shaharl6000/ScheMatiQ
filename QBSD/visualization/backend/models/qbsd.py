@@ -13,6 +13,8 @@ class LLMConfig(BaseModel):
 
 class RetrieverConfig(BaseModel):
     """Retriever configuration."""
+    model_config = {"protected_namespaces": ()}
+    
     type: str = "embedding"
     model_name: str = "all-MiniLM-L6-v2"
     passage_chars: int = 512

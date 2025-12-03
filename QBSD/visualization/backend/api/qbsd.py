@@ -18,9 +18,13 @@ session_manager = SessionManager()
 async def configure_qbsd(config: QBSDConfig):
     """Configure a new QBSD session."""
     try:
+        print(f"DEBUG: Received QBSD config: {config}")
+        
         # Validate configuration
         runner = QBSDRunner()
         validation = await runner.validate_config(config)
+        
+        print(f"DEBUG: Validation result: {validation}")
         
         if not validation["is_valid"]:
             raise HTTPException(status_code=400, detail=validation["errors"])
@@ -46,6 +50,9 @@ async def configure_qbsd(config: QBSDConfig):
         }
         
     except Exception as e:
+        print(f"DEBUG: Exception in configure_qbsd: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/run/{session_id}")
