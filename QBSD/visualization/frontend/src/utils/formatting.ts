@@ -20,6 +20,11 @@ export const snakeCaseToTitleCase = (str: string): string => {
  * Format column name for display, handling special cases
  */
 export const formatColumnName = (columnName: string): string => {
+  // Handle null/undefined cases
+  if (!columnName || typeof columnName !== 'string') {
+    return 'Unknown Column';
+  }
+  
   // Handle special metadata columns
   if (columnName.startsWith('_')) {
     const cleanName = columnName.replace('_', '');

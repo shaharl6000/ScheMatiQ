@@ -105,7 +105,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         </Box>
 
         <Grid container spacing={2}>
-          {columns.map((column, index) => (
+          {columns.filter(column => column && column.name).map((column, index) => (
             <Grid item xs={12} sm={6} md={4} key={column.name}>
               <Card variant="outlined" sx={{ height: '100%' }}>
                 <CardContent>
@@ -182,7 +182,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           Detailed Schema
         </Typography>
 
-        {columns.map((column, index) => (
+        {columns.filter(column => column && column.name).map((column, index) => (
           <Accordion key={column.name}>
             <AccordionSummary expandIcon={<ExpandMore />}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
