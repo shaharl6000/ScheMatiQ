@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -16,7 +16,7 @@ import {
   InputAdornment,
 } from '@mui/material';
 import { Search, Visibility } from '@mui/icons-material';
-import { useQuery } from 'react-query';
+import { useQuery, useQueryClient } from 'react-query';
 
 import { PaginatedData } from '../../types';
 import { sessionAPI } from '../../services/api';
@@ -35,16 +35,37 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
   const [searchTerm, setSearchTerm] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState<{ title: string; content: any }>({ title: '', content: null });
+  const queryClient = useQueryClient();
 
-  // Fetch data with pagination
+  // Fetch data with pagination - auto-refresh during QBSD value extraction
   const { data = initialData } = useQuery(
     ['data', sessionId, sessionType, page, pageSize],
     () => sessionAPI.getData(sessionId, sessionType, page, pageSize),
     {
       keepPreviousData: true,
       initialData,
+      refetchInterval: sessionType === 'qbsd' ? 3000 : false, // Auto-refresh every 3 seconds for QBSD
     }
   );
+  
+  // Listen for row completion events via WebSocket (this would be handled by a WebSocket service)
+  useEffect(() => {
+    // This effect could listen to WebSocket messages and trigger data refresh
+    // For now, the refetchInterval above handles the updates
+    
+    // Optional: Listen to specific WebSocket events for more immediate updates
+    const handleRowCompleted = () => {
+      queryClient.invalidateQueries(['data', sessionId, sessionType]);
+    };
+    
+    // In a real implementation, you'd add WebSocket listener here
+    // webSocketService.addEventListener('row_completed', handleRowCompleted);
+    
+    return () => {
+      // Cleanup WebSocket listener
+      // webSocketService.removeEventListener('row_completed', handleRowCompleted);
+    };
+  }, [queryClient, sessionId, sessionType]);
 
   // Filter data based on search term
   const filteredRows = useMemo(() => {
@@ -174,6 +195,14 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6">
             Data Table ({data.total_count.toLocaleString()} rows)
+            {sessionType === 'qbsd' && (
+              <Chip 
+                label="Auto-refreshing" 
+                size="small" 
+                color="info" 
+                sx={{ ml: 1 }}
+              />
+            )}
           </Typography>
           
           <TextField

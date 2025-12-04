@@ -63,7 +63,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
         setIsConnected(true);
         addLog('info', 'Connected to real-time monitoring');
       } else if (message.type === 'progress') {
-        addLog('info', `Progress: ${message.data?.current_step || 'Processing...'}`, message.data);
+        addLog('info', message.data?.current_step || 'Processing...', message.data);
         // Invalidate queries to refresh data
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
       } else if (message.type === 'error') {
@@ -71,6 +71,13 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       } else if (message.type === 'completed') {
         addLog('success', 'QBSD execution completed successfully!', message.data);
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
+      } else if (message.type === 'schema_completed') {
+        addLog('success', `Schema discovery finished! Discovered ${message.data?.total_columns || 'several'} columns.`, message.data);
+        queryClient.invalidateQueries(['qbsd-status', sessionId]);
+        queryClient.invalidateQueries(['session', sessionId]);
+      } else if (message.type === 'row_completed') {
+        addLog('info', `Document ${message.data?.row_index}/${message.data?.total_rows} finished processing`, message.data);
+        queryClient.invalidateQueries(['data', sessionId]);
       } else if (message.type === 'log') {
         addLog(message.data?.level || 'info', message.data?.message || 'Log message', message.data);
       }
@@ -119,6 +126,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   const getStatusColor = (status?: string) => {
     switch (status) {
       case 'completed': return 'success';
+      case 'schema_ready': return 'info';
       case 'processing': return 'warning';
       case 'error': return 'error';
       default: return 'default';

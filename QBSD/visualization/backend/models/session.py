@@ -13,7 +13,8 @@ class SessionType(str, Enum):
 class SessionStatus(str, Enum):
     """Status of a visualization session."""
     CREATED = "created"
-    PROCESSING = "processing" 
+    PROCESSING = "processing"
+    SCHEMA_READY = "schema_ready"  # Schema discovery complete, value extraction in progress
     COMPLETED = "completed"
     ERROR = "error"
 
@@ -33,6 +34,9 @@ class SessionMetadata(BaseModel):
     last_modified: datetime = Field(default_factory=datetime.now)
     file_size: Optional[int] = None
     row_count: Optional[int] = None
+    schema_discovery_completed: bool = False
+    total_documents: Optional[int] = None
+    processed_documents: int = 0
 
 class DataStatistics(BaseModel):
     """Statistics about the dataset."""

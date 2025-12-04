@@ -276,14 +276,14 @@ class QBSDRunner:
         session_dir = self.work_dir / session_id
         session_dir.mkdir(exist_ok=True)
         
-        # Progress tracking
+        # Progress tracking - with user-friendly messages
         progress_steps = [
-            "Initializing",
+            "Initializing QBSD pipeline",
             "Loading documents", 
-            "Building LLM backend",
-            "Setting up retriever",
-            "Discovering schema",
-            "Extracting values",
+            "Setting up AI models",
+            "Configuring retrieval system",
+            "Schema Discovery: Analyzing documents",
+            "Value Extraction: Processing documents",
             "Finalizing results"
         ]
         
@@ -418,8 +418,35 @@ class QBSDRunner:
                     "schema": [col.to_dict() for col in discovered_schema.columns]
                 }, f, indent=2)
             
-            await update_progress("Discovering schema", 1.0, {
+            await update_progress("Schema Discovery: Complete", 1.0, {
                 "columns_discovered": len(discovered_schema.columns)
+            })
+            
+            # Update session status to SCHEMA_READY
+            session = self.session_manager.get_session(session_id)
+            session.status = SessionStatus.SCHEMA_READY
+            session.metadata.schema_discovery_completed = True
+            
+            # Update session with discovered schema
+            schema_columns = []
+            for col in discovered_schema.columns:
+                col_info = ColumnInfo(
+                    name=col.name,
+                    definition=col.definition if hasattr(col, 'definition') else None,
+                    rationale=col.rationale if hasattr(col, 'rationale') else None,
+                    data_type="object"
+                )
+                schema_columns.append(col_info)
+            
+            session.columns = schema_columns
+            session.schema_query = qbsd_config["query"]
+            self.session_manager.update_session(session)
+            
+            # Broadcast schema completion event
+            await self.websocket_manager.broadcast_schema_completed(session_id, {
+                "query": qbsd_config["query"],
+                "columns": [col.model_dump() for col in schema_columns],
+                "total_columns": len(discovered_schema.columns)
             })
             
             # Step 6: Value extraction
@@ -440,20 +467,6 @@ class QBSDRunner:
             # Update session as completed
             session = self.session_manager.get_session(session_id)
             session.status = SessionStatus.COMPLETED
-            
-            # Update session with discovered schema
-            schema_columns = []
-            for col in discovered_schema.columns:
-                col_info = ColumnInfo(
-                    name=col.name,
-                    definition=col.definition if hasattr(col, 'definition') else None,
-                    rationale=col.rationale if hasattr(col, 'rationale') else None,
-                    data_type="object"
-                )
-                schema_columns.append(col_info)
-            
-            session.columns = schema_columns
-            session.schema_query = qbsd_config["query"]
             self.session_manager.update_session(session)
             
             await update_progress("Finalizing results", 1.0)
@@ -512,7 +525,7 @@ class QBSDRunner:
         
         for iteration in range(max_iterations):
             print(f"🐛 DEBUG: Schema discovery iteration {iteration + 1}/{max_iterations}")
-            await progress_callback("Discovering schema", iteration / max_iterations, {
+            await progress_callback(f"Schema Discovery: Iteration {iteration + 1}/{max_iterations}", iteration / max_iterations, {
                 "iteration": iteration + 1,
                 "max_iterations": max_iterations,
                 "current_columns": len(current_schema.columns)
@@ -610,6 +623,19 @@ class QBSDRunner:
         docs_directories = [Path(path) for path in docs_paths]
         output_path = session_dir / "extracted_data.jsonl"
         
+        # Count total documents for progress tracking
+        total_documents = 0
+        for docs_dir in docs_directories:
+            if docs_dir.exists():
+                doc_files = list(docs_dir.glob("*.txt")) + list(docs_dir.glob("*.md"))
+                total_documents += len(doc_files)
+        
+        # Update session metadata
+        session = self.session_manager.get_session(session_id)
+        session.metadata.total_documents = total_documents
+        session.metadata.processed_documents = 0
+        self.session_manager.update_session(session)
+        
         # Run value extraction in a separate thread to avoid blocking
         loop = asyncio.get_event_loop()
         
@@ -632,20 +658,42 @@ class QBSDRunner:
         # Monitor progress while extraction runs
         start_time = time.time()
         last_line_count = 0
+        last_update_time = time.time()
         
         while not extraction_task.done():
             try:
+                current_time = time.time()
+                
                 # Check output file size for progress
                 if output_path.exists():
                     with open(output_path, 'r') as f:
                         current_line_count = sum(1 for _ in f)
                     
                     if current_line_count > last_line_count:
-                        await progress_callback("Extracting values", 0.5, {
+                        # Update session metadata
+                        session = self.session_manager.get_session(session_id)
+                        session.metadata.processed_documents = min(current_line_count, total_documents)
+                        self.session_manager.update_session(session)
+                        
+                        # Send progress update with meaningful message
+                        progress_msg = f"Value Extraction: Document {current_line_count}/{total_documents} completed"
+                        await progress_callback(progress_msg, 0.5 + (current_line_count / total_documents) * 0.5, {
                             "rows_extracted": current_line_count,
-                            "elapsed_time": int(time.time() - start_time)
+                            "total_documents": total_documents,
+                            "elapsed_time": int(current_time - start_time)
                         })
+                        
+                        # Broadcast row completion for each new row
+                        if current_line_count > last_line_count:
+                            for new_row_idx in range(last_line_count, current_line_count):
+                                await self.websocket_manager.broadcast_row_completed(session_id, {
+                                    "row_index": new_row_idx + 1,
+                                    "total_rows": total_documents,
+                                    "completed_at": datetime.now().isoformat()
+                                })
+                        
                         last_line_count = current_line_count
+                        last_update_time = current_time
                 
                 await asyncio.sleep(2)  # Check every 2 seconds
                 
@@ -665,8 +713,14 @@ class QBSDRunner:
             with open(output_path, 'r') as f:
                 final_line_count = sum(1 for _ in f)
         
-        await progress_callback("Extracting values", 1.0, {
+        # Update final session metadata
+        session = self.session_manager.get_session(session_id)
+        session.metadata.processed_documents = final_line_count
+        self.session_manager.update_session(session)
+        
+        await progress_callback("Value Extraction: Complete", 1.0, {
             "rows_extracted": final_line_count,
+            "total_documents": total_documents,
             "elapsed_time": int(time.time() - start_time)
         })
     

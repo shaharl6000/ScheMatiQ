@@ -107,6 +107,26 @@ class WebSocketManager:
         
         await self.broadcast_progress(session_id, completion_data)
     
+    async def broadcast_schema_completed(self, session_id: str, schema_data: Dict[str, Any]):
+        """Broadcast schema discovery completion."""
+        schema_completion_data = {
+            "type": "schema_completed",
+            "timestamp": datetime.now().isoformat(),
+            "schema": schema_data
+        }
+        
+        await self.broadcast_progress(session_id, schema_completion_data)
+    
+    async def broadcast_row_completed(self, session_id: str, row_data: Dict[str, Any]):
+        """Broadcast individual row completion during value extraction."""
+        row_completion_data = {
+            "type": "row_completed", 
+            "timestamp": datetime.now().isoformat(),
+            "row": row_data
+        }
+        
+        await self.broadcast_progress(session_id, row_completion_data)
+    
     def get_connection_count(self, session_id: str) -> int:
         """Get number of active connections for a session."""
         return len(self.connections.get(session_id, set()))

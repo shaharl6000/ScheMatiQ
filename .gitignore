@@ -84,3 +84,13 @@ cache/
 .env.production
 .env.development
 config/secrets.*
+/test/
+
+# Add visualization specific ignores
+QBSD/visualization/frontend/build/
+QBSD/visualization/frontend/node_modules/
+
+# Backend data and session directories
+QBSD/visualization/backend/data/
+QBSD/visualization/backend/sessions/
+QBSD/visualization/backend/qbsd_work/

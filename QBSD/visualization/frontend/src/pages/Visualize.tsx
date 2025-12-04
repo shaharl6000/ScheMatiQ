@@ -136,6 +136,7 @@ const Visualize: React.FC = () => {
   }
 
   const isQBSDRunning = mode === 'qbsd' && session?.status === 'processing';
+  const isSchemaReady = session?.status === 'schema_ready' || session?.status === 'completed';
   const isCompleted = session?.status === 'completed';
   
   // Debug logging
@@ -177,9 +178,10 @@ const Visualize: React.FC = () => {
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Chip 
-              label={session?.status || 'Unknown'}
+              label={session?.status === 'schema_ready' ? 'Schema Ready' : session?.status || 'Unknown'}
               color={
                 session?.status === 'completed' ? 'success' :
+                session?.status === 'schema_ready' ? 'info' :
                 session?.status === 'processing' ? 'warning' :
                 session?.status === 'error' ? 'error' : 'default'
               }
@@ -218,7 +220,7 @@ const Visualize: React.FC = () => {
           scrollButtons="auto"
         >
           <Tab icon={<TableView />} label="Data" disabled={!isCompleted} />
-          <Tab icon={<Schema />} label="Schema" disabled={!session?.columns?.length} />
+          <Tab icon={<Schema />} label="Schema" disabled={!isSchemaReady || !session?.columns?.length} />
           <Tab icon={<Analytics />} label="Statistics" disabled={!isCompleted} />
           {mode === 'qbsd' && (
             <Tab icon={<CircularProgress size={16} />} label="Monitor" />
