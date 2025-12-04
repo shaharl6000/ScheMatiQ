@@ -26,6 +26,7 @@ import {
 } from '@mui/icons-material';
 
 import { ColumnInfo } from '../../types';
+import { formatColumnName } from '../../utils/formatting';
 
 interface SchemaViewerProps {
   columns: ColumnInfo[];
@@ -110,7 +111,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                 <CardContent>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                     <Typography variant="h6" component="div" sx={{ fontSize: '1rem' }}>
-                      {column.name}
+                      {formatColumnName(column.name)}
                     </Typography>
                     
                     {!readonly && (
@@ -186,7 +187,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             <AccordionSummary expandIcon={<ExpandMore />}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%' }}>
                 <Typography variant="subtitle1" sx={{ fontWeight: 500 }}>
-                  {column.name}
+                  {formatColumnName(column.name)}
                 </Typography>
                 
                 {column.data_type && (

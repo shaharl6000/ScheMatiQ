@@ -20,6 +20,8 @@ import { useQuery } from 'react-query';
 
 import { PaginatedData } from '../../types';
 import { sessionAPI } from '../../services/api';
+import { formatColumnName, needsTruncation, truncateText } from '../../utils/formatting';
+import ContentModal from '../ContentModal/ContentModal';
 
 interface DataTableProps {
   data: PaginatedData;
@@ -31,6 +33,8 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [searchTerm, setSearchTerm] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalContent, setModalContent] = useState<{ title: string; content: any }>({ title: '', content: null });
 
   // Fetch data with pagination
   const { data = initialData } = useQuery(
@@ -89,12 +93,39 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
     setPage(0);
   };
 
-  const formatCellValue = (value: any): React.ReactNode => {
+  const handleViewContent = (columnName: string, content: any) => {
+    setModalContent({
+      title: `${formatColumnName(columnName)} - Full Content`,
+      content: content
+    });
+    setModalOpen(true);
+  };
+
+  const formatCellValue = (value: any, columnName: string): React.ReactNode => {
     if (value === null || value === undefined) {
       return <Chip label="null" size="small" variant="outlined" color="default" />;
     }
     
     if (Array.isArray(value)) {
+      if (value.length > 3) {
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            {value.slice(0, 2).map((item, index) => (
+              <Chip key={index} label={String(item)} size="small" sx={{ mr: 0.5 }} />
+            ))}
+            <Typography variant="caption">
+              +{value.length - 2} more
+            </Typography>
+            <IconButton 
+              size="small" 
+              title="View full array"
+              onClick={() => handleViewContent(columnName, value)}
+            >
+              <Visibility fontSize="small" />
+            </IconButton>
+          </Box>
+        );
+      }
       return (
         <Box>
           {value.map((item, index) => (
@@ -106,18 +137,28 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
     
     if (typeof value === 'object') {
       return (
-        <IconButton size="small" title="View object">
+        <IconButton 
+          size="small" 
+          title="View object"
+          onClick={() => handleViewContent(columnName, value)}
+        >
           <Visibility fontSize="small" />
         </IconButton>
       );
     }
     
     const stringValue = String(value);
-    if (stringValue.length > 100) {
+    if (needsTruncation(stringValue)) {
       return (
-        <Box>
-          {stringValue.substring(0, 100)}...
-          <IconButton size="small" title="View full content">
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Typography variant="body2" component="span">
+            {truncateText(stringValue)}
+          </Typography>
+          <IconButton 
+            size="small" 
+            title="View full content"
+            onClick={() => handleViewContent(columnName, value)}
+          >
             <Visibility fontSize="small" />
           </IconButton>
         </Box>
@@ -159,13 +200,13 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
                   <TableCell key={column} sx={{ fontWeight: 'bold', minWidth: 150 }}>
                     {column.startsWith('_') ? (
                       <Chip 
-                        label={column.replace('_', '')} 
+                        label={formatColumnName(column)} 
                         size="small" 
                         color="primary" 
                         variant="outlined" 
                       />
                     ) : (
-                      column
+                      formatColumnName(column)
                     )}
                   </TableCell>
                 ))}
@@ -187,7 +228,7 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
                     
                     return (
                       <TableCell key={column}>
-                        {formatCellValue(cellValue)}
+                        {formatCellValue(cellValue, column)}
                       </TableCell>
                     );
                   })}
@@ -207,6 +248,14 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
           onRowsPerPageChange={handleChangeRowsPerPage}
         />
       </Box>
+
+      {/* Content Modal */}
+      <ContentModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={modalContent.title}
+        content={modalContent.content}
+      />
     </Paper>
   );
 };
