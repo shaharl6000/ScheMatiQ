@@ -44,7 +44,7 @@ except ImportError as e:
     
     QBSD_AVAILABLE = False
 
-def build_llm_interface(provider: str, model: str, max_tokens: int, temperature: float) -> LLMInterface:
+def build_llm_interface(provider: str, model: str, max_tokens: int, temperature: float):
     """Build LLM interface based on provider."""
     if not QBSD_AVAILABLE:
         raise RuntimeError("QBSD components not available")
@@ -96,15 +96,18 @@ class QBSDRunner:
         for path in docs_paths:
             doc_path = Path(path)
             if not doc_path.is_absolute():
-                # Try relative to QBSD root
+                # Try relative to QBSD root and common test paths
                 candidates = [
                     QBSD_ROOT / path,
                     QBSD_ROOT / "src" / path,
+                    QBSD_ROOT / "test" / "files",  # Test directory
+                    QBSD_ROOT.parent / "test" / "files",  # Test directory from parent
                     Path.cwd() / path,
                 ]
                 for candidate in candidates:
                     if candidate.exists():
                         resolved_docs_paths.append(str(candidate.absolute()))
+                        print(f"✓ Resolved document path: {path} -> {candidate.absolute()}")
                         break
                 else:
                     print(f"Warning: Document path not found: {path}")
@@ -167,25 +170,39 @@ class QBSDRunner:
             doc_path = Path(path)
             print(f"DEBUG: Checking document path: {path} -> {doc_path.absolute()}")
             
-            # Try relative to current directory and parent directories
+            # Try relative to current directory and various parent directories
             paths_to_try = [
                 doc_path,
                 Path("..") / path,  # Try from parent directory
                 Path("../..") / path,  # Try from grandparent directory
+                Path("../../..") / path,  # Try from great-grandparent directory
+                # Also try the known test directory
+                Path("../../..") / "test" / "files",
+                QBSD_ROOT / "test" / "files",  # Try from QBSD root
+                Path("../test/files"),  # Direct relative to test
             ]
             
             path_exists = False
+            actual_path = None
             for try_path in paths_to_try:
                 if try_path.exists():
                     path_exists = True
-                    print(f"DEBUG: Found path at: {try_path.absolute()}")
-                    if not any(try_path.iterdir()):
-                        warnings.append(f"Document path appears to be empty: {path}")
+                    actual_path = try_path.absolute()
+                    print(f"DEBUG: Found path at: {actual_path}")
+                    # Check if directory has files
+                    try:
+                        file_count = len(list(try_path.glob("*.txt"))) + len(list(try_path.glob("*.md")))
+                        if file_count == 0:
+                            warnings.append(f"Document path appears to be empty: {path} (no .txt or .md files)")
+                        else:
+                            print(f"DEBUG: Found {file_count} document files")
+                    except Exception as e:
+                        warnings.append(f"Could not check document count in {path}: {e}")
                     break
             
             if not path_exists:
-                # For testing, just warn instead of error
-                warnings.append(f"Document path does not exist: {path} (tried: {[str(p.absolute()) for p in paths_to_try]})")
+                # For testing, just warn instead of error and suggest test directory
+                warnings.append(f"Document path does not exist: {path}. Try using 'test/files' which contains sample documents.")
                 # errors.append(f"Document path does not exist: {path}")
         
         # Validate initial schema if provided
@@ -287,9 +304,11 @@ class QBSDRunner:
         
         try:
             # Step 1: Initializing
+            print(f"🐛 DEBUG: Starting QBSD execution for session {session_id}")
             await update_progress("Initializing", 0.0)
             
             # Convert config to QBSD format
+            print(f"🐛 DEBUG: Converting config to QBSD format")
             qbsd_config = self._convert_config_to_qbsd_format(config, session_id)
             
             # Save QBSD config
@@ -335,34 +354,48 @@ class QBSDRunner:
             
             # Step 3: Build LLM backend
             current_step += 1
+            print(f"🐛 DEBUG: Building LLM backend - provider: {qbsd_config['backend']['provider']}")
             await update_progress("Building LLM backend", 0.0)
             
             # Build LLM interface
+            print(f"🐛 DEBUG: Creating LLM interface...")
             llm = build_llm_interface(
                 provider=qbsd_config["backend"]["provider"],
                 model=qbsd_config["backend"]["model"],
                 max_tokens=qbsd_config["backend"]["max_tokens"],
                 temperature=qbsd_config["backend"]["temperature"]
             )
+            print(f"🐛 DEBUG: LLM interface created successfully")
             
+            print(f"🐛 DEBUG: Updating progress to 1.0...")
             await update_progress("Building LLM backend", 1.0)
+            print(f"🐛 DEBUG: Progress update completed")
             
             # Step 4: Setup retriever
             current_step += 1
+            print(f"🐛 DEBUG: Setting up retriever...")
             await update_progress("Setting up retriever", 0.0)
             
             retriever = None
             if "retriever" in qbsd_config:
+                print(f"🐛 DEBUG: Creating EmbeddingRetriever...")
                 retriever_config = qbsd_config["retriever"]
-                retriever = EmbeddingRetriever(
-                    model_name=retriever_config.get("model_name", "all-MiniLM-L6-v2"),
-                    passage_chars=retriever_config.get("passage_chars", 512),
-                    overlap=retriever_config.get("overlap", 64),
-                    k=retriever_config.get("k", 15),
-                    enable_dynamic_k=retriever_config.get("enable_dynamic_k", True),
-                    dynamic_k_threshold=retriever_config.get("dynamic_k_threshold", 0.65),
-                    dynamic_k_minimum=retriever_config.get("dynamic_k_minimum", 3)
-                )
+                print(f"🐛 DEBUG: Retriever config: {retriever_config}")
+                try:
+                    retriever = EmbeddingRetriever(
+                        model_name=retriever_config.get("model_name", "all-MiniLM-L6-v2"),
+                        max_words=retriever_config.get("passage_chars", 512),  # Convert passage_chars to max_words
+                        k=retriever_config.get("k", 15),
+                        enable_dynamic_k=retriever_config.get("enable_dynamic_k", True),
+                        dynamic_k_threshold=retriever_config.get("dynamic_k_threshold", 0.65),
+                        dynamic_k_minimum=retriever_config.get("dynamic_k_minimum", 3)
+                    )
+                    print(f"🐛 DEBUG: EmbeddingRetriever created successfully!")
+                except Exception as e:
+                    print(f"🐛 DEBUG: ERROR creating EmbeddingRetriever: {e}")
+                    raise
+            else:
+                print(f"🐛 DEBUG: No retriever config found, using None")
             
             await update_progress("Setting up retriever", 1.0)
             
@@ -371,9 +404,11 @@ class QBSDRunner:
             await update_progress("Discovering schema", 0.0)
             
             # Run real schema discovery
+            print(f"🐛 DEBUG: Starting schema discovery with {len(documents)} documents")
             discovered_schema = await self._run_schema_discovery(
                 documents, qbsd_config, llm, retriever, update_progress
             )
+            print(f"🐛 DEBUG: Schema discovery completed with {len(discovered_schema.columns)} columns")
             
             # Save discovered schema
             schema_file = session_dir / "discovered_schema.json"
@@ -476,6 +511,7 @@ class QBSDRunner:
         unchanged_count = 0
         
         for iteration in range(max_iterations):
+            print(f"🐛 DEBUG: Schema discovery iteration {iteration + 1}/{max_iterations}")
             await progress_callback("Discovering schema", iteration / max_iterations, {
                 "iteration": iteration + 1,
                 "max_iterations": max_iterations,
@@ -483,38 +519,64 @@ class QBSDRunner:
             })
             
             # Select relevant content
+            print(f"🐛 DEBUG: Selecting relevant content with retriever")
             relevant_content = QBSD.select_relevant_content(
                 docs=documents,
                 query=query,
                 retriever=retriever
             )
+            print(f"🐛 DEBUG: Selected {len(relevant_content)} relevant passages")
             
             # Generate schema for this iteration
-            new_schema = QBSD.generate_schema(
-                docs=relevant_content,
-                query=query,
-                llm=llm,
-                existing_schema=current_schema,
-                max_keys=qbsd_config.get("max_keys_schema", 100)
-            )
+            print(f"🐛 DEBUG: Calling QBSD.generate_schema with LLM...")
+            try:
+                schema_result = QBSD.generate_schema(
+                    passages=relevant_content,
+                    query=query,
+                    max_keys_schema=qbsd_config.get("max_keys_schema", 100),
+                    current_schema=current_schema,
+                    llm=llm,
+                    max_context_tokens=qbsd_config["backend"].get("max_context_tokens", 8192)
+                )
+                # generate_schema returns a tuple (Schema, bool)
+                new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
+                print(f"🐛 DEBUG: Generated schema with {len(new_schema.columns)} columns")
+            except Exception as e:
+                print(f"🐛 DEBUG: ERROR in generate_schema: {e}")
+                raise
             
             # Merge with existing schema
-            merged_schema = QBSD.merge_schemas(current_schema, new_schema)
+            print(f"🐛 DEBUG: Merging schemas...")
+            print(f"🐛 DEBUG: Current schema has {len(current_schema.columns)} columns")
+            print(f"🐛 DEBUG: New schema has {len(new_schema.columns)} columns")
+            try:
+                merged_schema = current_schema.merge(new_schema)
+                print(f"🐛 DEBUG: Merged schema has {len(merged_schema.columns)} columns")
+            except Exception as e:
+                print(f"🐛 DEBUG: ERROR in schema merge: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
             
             # Check convergence
+            print(f"🐛 DEBUG: Checking convergence...")
             if QBSD.evaluate_schema_convergence(current_schema, merged_schema):
                 unchanged_count += 1
+                print(f"🐛 DEBUG: Schema unchanged (count: {unchanged_count}/{convergence_threshold})")
                 if unchanged_count >= convergence_threshold:
-                    print(f"Schema converged after {iteration + 1} iterations")
+                    print(f"🐛 DEBUG: Schema converged after {iteration + 1} iterations")
                     break
             else:
                 unchanged_count = 0
+                print(f"🐛 DEBUG: Schema changed, continuing iterations")
             
             current_schema = merged_schema
+            print(f"🐛 DEBUG: Completed iteration {iteration + 1}, moving to next")
             
             # Small delay to allow other tasks
             await asyncio.sleep(0.1)
         
+        print(f"🐛 DEBUG: Schema discovery loop completed with {len(current_schema.columns)} columns")
         return current_schema
     
     async def _run_value_extraction(

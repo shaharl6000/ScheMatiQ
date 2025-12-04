@@ -29,26 +29,16 @@ const QBSDConfigPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   
   const [config, setConfig] = useState<QBSDConfig>({
-    query: '',
-    docs_path: '',
+    query: 'What are the nuclear export signals (NES) and their characteristics in proteins?',
+    docs_path: '../test/files',
     max_keys_schema: 100,
-    documents_batch_size: 4,
+    documents_batch_size: 1,
     backend: {
       provider: 'gemini',
       model: 'gemini-2.5-flash',
       max_tokens: 8192,
       temperature: 0.2,
       max_context_tokens: 1000000,
-    },
-    retriever: {
-      type: 'embedding',
-      model_name: 'all-MiniLM-L6-v2',
-      passage_chars: 512,
-      overlap: 64,
-      k: 15,
-      enable_dynamic_k: true,
-      dynamic_k_threshold: 0.65,
-      dynamic_k_minimum: 3,
     },
     output_path: 'outputs/visualization_output.json',
     document_randomization_seed: 42,
