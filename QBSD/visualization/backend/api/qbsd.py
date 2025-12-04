@@ -9,10 +9,11 @@ from fastapi.responses import JSONResponse
 from models.session import VisualizationSession, SessionType, SessionMetadata
 from models.qbsd import QBSDConfig, QBSDStatus
 from services.qbsd_runner import QBSDRunner
-from services.session_manager import SessionManager
+from services import websocket_manager, session_manager
 
 router = APIRouter()
-session_manager = SessionManager()
+# Create shared QBSD runner instance with shared managers
+qbsd_runner = QBSDRunner(websocket_manager=websocket_manager, session_manager=session_manager)
 
 @router.post("/configure", response_model=dict)
 async def configure_qbsd(config: QBSDConfig):
@@ -21,8 +22,7 @@ async def configure_qbsd(config: QBSDConfig):
         print(f"DEBUG: Received QBSD config: {config}")
         
         # Validate configuration
-        runner = QBSDRunner()
-        validation = await runner.validate_config(config)
+        validation = await qbsd_runner.validate_config(config)
         
         print(f"DEBUG: Validation result: {validation}")
         
@@ -42,7 +42,7 @@ async def configure_qbsd(config: QBSDConfig):
         
         # Store session and config
         session_manager.create_session(session)
-        await runner.save_config(session_id, config)
+        await qbsd_runner.save_config(session_id, config)
         
         return {
             "session_id": session_id,
@@ -63,10 +63,8 @@ async def run_qbsd(session_id: str, background_tasks: BackgroundTasks):
         if not session or session.type != SessionType.QBSD:
             raise HTTPException(status_code=404, detail="QBSD session not found")
         
-        runner = QBSDRunner()
-        
         # Start QBSD in background
-        background_tasks.add_task(runner.run_qbsd, session_id)
+        background_tasks.add_task(qbsd_runner.run_qbsd, session_id)
         
         return {"message": "QBSD execution started", "session_id": session_id}
         
@@ -81,8 +79,7 @@ async def get_qbsd_status(session_id: str):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        runner = QBSDRunner()
-        status = await runner.get_status(session_id)
+        status = await qbsd_runner.get_status(session_id)
         
         return status
         
@@ -97,8 +94,7 @@ async def get_qbsd_schema(session_id: str):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        runner = QBSDRunner()
-        schema = await runner.get_schema(session_id)
+        schema = await qbsd_runner.get_schema(session_id)
         
         return schema
         
@@ -113,8 +109,7 @@ async def get_qbsd_data(session_id: str, page: int = 0, page_size: int = 50):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        runner = QBSDRunner()
-        data = await runner.get_data(session_id, page, page_size)
+        data = await qbsd_runner.get_data(session_id, page, page_size)
         
         return data
         
@@ -125,8 +120,7 @@ async def get_qbsd_data(session_id: str, page: int = 0, page_size: int = 50):
 async def stop_qbsd(session_id: str):
     """Stop QBSD execution."""
     try:
-        runner = QBSDRunner()
-        success = await runner.stop_execution(session_id)
+        success = await qbsd_runner.stop_execution(session_id)
         
         if not success:
             raise HTTPException(status_code=404, detail="No running QBSD session found")

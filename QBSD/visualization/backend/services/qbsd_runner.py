@@ -78,12 +78,21 @@ from services.session_manager import SessionManager
 class QBSDRunner:
     """Handles QBSD execution and integration."""
     
-    def __init__(self, work_dir: str = "./qbsd_work"):
+    def __init__(self, work_dir: str = "./qbsd_work", websocket_manager=None, session_manager=None):
         self.work_dir = Path(work_dir)
         self.work_dir.mkdir(exist_ok=True)
         self.running_sessions: Dict[str, asyncio.Task] = {}
-        self.websocket_manager = WebSocketManager()
-        self.session_manager = SessionManager()
+        
+        # Use provided managers or create new ones
+        if websocket_manager is not None:
+            self.websocket_manager = websocket_manager
+        else:
+            self.websocket_manager = WebSocketManager()
+            
+        if session_manager is not None:
+            self.session_manager = session_manager
+        else:
+            self.session_manager = SessionManager()
     
     def _convert_config_to_qbsd_format(self, config: QBSDConfig, session_id: str) -> Dict[str, Any]:
         """Convert visualization QBSDConfig to QBSD pipeline format."""

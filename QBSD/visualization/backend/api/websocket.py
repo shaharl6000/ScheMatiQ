@@ -4,10 +4,9 @@ from typing import Dict, Set
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import json
 import asyncio
-from services.websocket_manager import WebSocketManager
+from services import websocket_manager
 
 router = APIRouter()
-websocket_manager = WebSocketManager()
 
 @router.websocket("/progress/{session_id}")
 async def websocket_progress(websocket: WebSocket, session_id: str):
