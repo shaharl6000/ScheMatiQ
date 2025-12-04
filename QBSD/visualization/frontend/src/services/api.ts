@@ -63,6 +63,37 @@ export const uploadAPI = {
   deleteSession: async (sessionId: string): Promise<void> => {
     await api.delete(`/upload/sessions/${sessionId}`);
   },
+
+  // Dual-file upload
+  uploadDualFiles: async (schemaFile: File, dataFile: File): Promise<{
+    session_id: string;
+    schema_validation: any;
+    data_validation: FileValidationResult;
+    compatibility: any;
+    requires_column_mapping: boolean;
+  }> => {
+    const formData = new FormData();
+    formData.append('schema_file', schemaFile);
+    formData.append('data_file', dataFile);
+    
+    const response = await api.post('/upload/dual-file', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    
+    return response.data;
+  },
+
+  processDualFiles: async (sessionId: string, columnMappings?: Record<string, string>): Promise<void> => {
+    const payload = columnMappings ? {
+      session_id: sessionId,
+      column_mappings: columnMappings,
+      column_types: {}
+    } : null;
+
+    await api.post(`/upload/process-dual/${sessionId}`, payload);
+  },
 };
 
 // QBSD API

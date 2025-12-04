@@ -8,7 +8,10 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from fastapi.responses import JSONResponse
 
 from models.session import VisualizationSession, SessionType, SessionMetadata, PaginatedData, SessionStatus
-from models.upload import FileValidationResult, ColumnMappingRequest, DataPreviewRequest
+from models.upload import (
+    FileValidationResult, ColumnMappingRequest, DataPreviewRequest,
+    SchemaValidationResult, DualFileUploadResult, CompatibilityCheck
+)
 from services.file_parser import FileParser
 from services.session_manager import SessionManager
 
@@ -143,3 +146,144 @@ async def delete_session(session_id: str):
     if not success:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"message": "Session deleted successfully"}
+
+@router.post("/dual-file", response_model=dict)
+async def upload_dual_files(
+    schema_file: UploadFile = File(..., description="QBSD schema JSON file"),
+    data_file: UploadFile = File(..., description="Data file (CSV/JSON/JSONL)")
+):
+    """Upload and validate both schema and data files."""
+    try:
+        print(f"DEBUG: Received dual file upload - schema: {schema_file.filename}, data: {data_file.filename}")
+        
+        parser = FileParser()
+        
+        # Validate schema file
+        print("DEBUG: Validating schema file...")
+        schema_validation = await parser.validate_schema_file(schema_file)
+        print(f"DEBUG: Schema validation result: {schema_validation}")
+        
+        # Validate data file  
+        print("DEBUG: Validating data file...")
+        data_validation = await parser.validate_file(data_file)
+        print(f"DEBUG: Data validation result: {data_validation}")
+        
+        # Create session
+        session_id = str(uuid.uuid4())
+        metadata = SessionMetadata(
+            source=f"Dual Upload: {schema_file.filename} + {data_file.filename}"
+        )
+        
+        session = VisualizationSession(
+            id=session_id,
+            type=SessionType.UPLOAD,
+            metadata=metadata
+        )
+        
+        print(f"DEBUG: Created session: {session_id}")
+        
+        # Save files
+        await parser.save_schema_file(session_id, schema_file, schema_validation)
+        await parser.save_uploaded_file(session_id, data_file)
+        print(f"DEBUG: Files saved for session: {session_id}")
+        
+        # Check compatibility if both files are valid
+        compatibility = CompatibilityCheck(is_compatible=False)
+        if schema_validation.is_valid and data_validation.is_valid:
+            print("DEBUG: Checking schema-data compatibility...")
+            
+            # Get data columns from sample data or parse file preview
+            data_columns = []
+            if data_validation.sample_data:
+                # Extract columns from sample data
+                for sample in data_validation.sample_data:
+                    if isinstance(sample, dict):
+                        data_columns.extend(sample.keys())
+                        break
+            
+            # Remove duplicates and clean column names
+            data_columns = list(set(data_columns))
+            print(f"DEBUG: Data columns: {data_columns}")
+            print(f"DEBUG: Schema columns: {schema_validation.detected_columns}")
+            
+            compatibility = parser.check_schema_data_compatibility(
+                schema_validation, data_validation, data_columns
+            )
+            print(f"DEBUG: Compatibility result: {compatibility}")
+        
+        # Store session
+        session_manager.create_session(session)
+        print(f"DEBUG: Session stored")
+        
+        return {
+            "session_id": session_id,
+            "schema_validation": schema_validation.model_dump(),
+            "data_validation": data_validation.model_dump(),
+            "compatibility": compatibility.model_dump(),
+            "requires_column_mapping": data_validation.detected_format == "csv"
+        }
+        
+    except Exception as e:
+        print(f"DEBUG: Exception in upload_dual_files: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/process-dual/{session_id}", response_model=dict)
+async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingRequest] = None):
+    """Process dual uploaded files with optional column mapping."""
+    try:
+        print(f"DEBUG: Processing dual files for session: {session_id}")
+        
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        print(f"DEBUG: Found session: {session}")
+        
+        parser = FileParser()
+        
+        # Parse the data file (schema is already parsed during upload)
+        result = await parser.parse_file(session_id, mapping)
+        
+        # Load parsed schema
+        session_dir = Path("./data") / session_id
+        schema_file = session_dir / "parsed_schema.json"
+        
+        if schema_file.exists():
+            with open(schema_file) as f:
+                schema_data = json.load(f)
+                
+            # Convert schema to ColumnInfo format for session
+            from models.session import ColumnInfo
+            
+            schema_columns = []
+            for col in schema_data.get('schema', []):
+                col_info = ColumnInfo(
+                    name=col['name'],
+                    definition=col.get('definition'),
+                    rationale=col.get('rationale'),
+                    data_type="object"  # Will be updated from data analysis
+                )
+                schema_columns.append(col_info)
+            
+            # Update session with enhanced schema info and query
+            session.columns = schema_columns
+            session.schema_query = schema_data.get('query')
+        else:
+            # Fallback to basic column info from data
+            session.columns = result["columns"]
+            
+        session.statistics = result["statistics"]
+        session.status = SessionStatus.COMPLETED
+        session_manager.update_session(session)
+        
+        print(f"DEBUG: Dual file processing completed successfully")
+        
+        return {"status": "success", "message": "Files processed successfully"}
+        
+    except Exception as e:
+        print(f"DEBUG: Exception in process_dual_files: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

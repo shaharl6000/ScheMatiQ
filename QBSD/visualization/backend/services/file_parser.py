@@ -9,7 +9,10 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from fastapi import UploadFile
 
-from models.upload import FileValidationResult, ColumnMappingRequest
+from models.upload import (
+    FileValidationResult, ColumnMappingRequest, SchemaValidationResult,
+    QBSDSchemaFormat, SchemaColumn, CompatibilityCheck, DualFileUploadResult
+)
 from models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData
 
 class FileParser:
@@ -352,3 +355,250 @@ class FileParser:
             page_size=page_size,
             has_more=end_line < total_count
         )
+    
+    async def validate_schema_file(self, file: UploadFile) -> SchemaValidationResult:
+        """Validate QBSD schema file."""
+        errors = []
+        warnings = []
+        detected_columns = []
+        query = None
+        schema = None
+        
+        # Check file format
+        filename = file.filename.lower()
+        if not filename.endswith('.json'):
+            errors.append("Schema file must be a JSON file (.json)")
+            return SchemaValidationResult(
+                is_valid=False,
+                errors=errors,
+                warnings=warnings,
+                detected_columns=detected_columns,
+                query=query,
+                schema=schema
+            )
+        
+        try:
+            # Read and parse JSON content
+            content = await file.read()
+            await file.seek(0)  # Reset file position
+            
+            schema_data = json.loads(content.decode('utf-8'))
+            
+            # Validate QBSD schema format
+            if not isinstance(schema_data, dict):
+                errors.append("Schema file must contain a JSON object")
+                return SchemaValidationResult(
+                    is_valid=False,
+                    errors=errors,
+                    warnings=warnings,
+                    detected_columns=detected_columns,
+                    query=query,
+                    schema=schema
+                )
+            
+            # Check for required 'schema' field
+            if 'schema' not in schema_data:
+                errors.append("Schema file must contain a 'schema' field")
+                return SchemaValidationResult(
+                    is_valid=False,
+                    errors=errors,
+                    warnings=warnings,
+                    detected_columns=detected_columns,
+                    query=query,
+                    schema=schema
+                )
+            
+            # Validate schema structure
+            if not isinstance(schema_data['schema'], list):
+                errors.append("Schema field must be a list of column definitions")
+                return SchemaValidationResult(
+                    is_valid=False,
+                    errors=errors,
+                    warnings=warnings,
+                    detected_columns=detected_columns,
+                    query=query,
+                    schema=schema
+                )
+            
+            # Parse schema columns
+            schema_columns = []
+            for i, col_def in enumerate(schema_data['schema']):
+                if not isinstance(col_def, dict):
+                    errors.append(f"Column definition {i} must be an object")
+                    continue
+                
+                if 'name' not in col_def:
+                    errors.append(f"Column definition {i} must have a 'name' field")
+                    continue
+                
+                # Create schema column
+                try:
+                    col = SchemaColumn(
+                        name=col_def['name'],
+                        definition=col_def.get('definition'),
+                        rationale=col_def.get('rationale')
+                    )
+                    schema_columns.append(col)
+                    detected_columns.append(col.name)
+                except Exception as e:
+                    errors.append(f"Invalid column definition {i}: {str(e)}")
+            
+            # Extract query if present
+            query = schema_data.get('query')
+            
+            # Check for warnings
+            if not query:
+                warnings.append("No query field found in schema")
+            
+            if len(schema_columns) == 0:
+                errors.append("No valid column definitions found in schema")
+            
+            # Parse as QBSD schema format for validation
+            try:
+                qbsd_schema = QBSDSchemaFormat(**schema_data)
+                schema = schema_columns
+            except Exception as e:
+                warnings.append(f"Schema format validation warning: {str(e)}")
+                schema = schema_columns
+            
+        except json.JSONDecodeError as e:
+            errors.append(f"Invalid JSON format: {str(e)}")
+        except Exception as e:
+            errors.append(f"Error parsing schema file: {str(e)}")
+        
+        return SchemaValidationResult(
+            is_valid=len(errors) == 0,
+            errors=errors,
+            warnings=warnings,
+            detected_columns=detected_columns,
+            query=query,
+            schema=schema
+        )
+    
+    def _normalize_column_name(self, name: str) -> str:
+        """Normalize column name for comparison."""
+        return name.lower().replace('_', '').replace(' ', '').replace('-', '')
+    
+    def check_schema_data_compatibility(
+        self, 
+        schema_validation: SchemaValidationResult,
+        data_validation: FileValidationResult,
+        data_columns: List[str]
+    ) -> CompatibilityCheck:
+        """Check compatibility between schema and data columns."""
+        
+        if not schema_validation.is_valid or not data_validation.is_valid:
+            return CompatibilityCheck(
+                is_compatible=False,
+                detailed_errors=["Cannot check compatibility: schema or data validation failed"],
+                schema_count=len(schema_validation.detected_columns) if schema_validation.schema else 0,
+                data_count=len(data_columns)
+            )
+        
+        schema_columns = schema_validation.detected_columns
+        
+        # Normalize column names for comparison
+        normalized_schema = {self._normalize_column_name(col): col for col in schema_columns}
+        normalized_data = {self._normalize_column_name(col): col for col in data_columns}
+        
+        # Find matches
+        matching_columns = []
+        for norm_schema_col, orig_schema_col in normalized_schema.items():
+            if norm_schema_col in normalized_data:
+                matching_columns.append(orig_schema_col)
+        
+        # Find missing in data (in schema but not in data)
+        missing_in_data = []
+        for norm_schema_col, orig_schema_col in normalized_schema.items():
+            if norm_schema_col not in normalized_data:
+                missing_in_data.append(orig_schema_col)
+        
+        # Find extra in data (in data but not in schema)
+        extra_in_data = []
+        for norm_data_col, orig_data_col in normalized_data.items():
+            if norm_data_col not in normalized_schema:
+                extra_in_data.append(orig_data_col)
+        
+        # Calculate compatibility score
+        schema_count = len(schema_columns)
+        data_count = len(data_columns)
+        matching_count = len(matching_columns)
+        
+        if schema_count == 0:
+            compatibility_score = 0.0
+        else:
+            compatibility_score = (matching_count / schema_count) * 100.0
+        
+        # Determine if compatible
+        is_compatible = len(missing_in_data) == 0  # All schema columns must be present
+        
+        # Generate detailed error messages
+        detailed_errors = []
+        suggestions = []
+        
+        if missing_in_data:
+            detailed_errors.append(
+                f"Missing columns in data file: {', '.join(missing_in_data)}"
+            )
+            suggestions.append(
+                "Ensure your data file contains all columns defined in the schema."
+            )
+        
+        if extra_in_data:
+            if len(extra_in_data) <= 3:
+                detailed_errors.append(
+                    f"Extra columns in data file (not in schema): {', '.join(extra_in_data)}"
+                )
+            else:
+                detailed_errors.append(
+                    f"Extra columns in data file: {', '.join(extra_in_data[:3])} and {len(extra_in_data) - 3} more"
+                )
+            suggestions.append(
+                "Extra columns will be ignored during visualization, or update your schema to include them."
+            )
+        
+        if matching_count == 0:
+            detailed_errors.append(
+                "No columns match between schema and data file. Please check column names."
+            )
+            suggestions.append(
+                "Verify that column names in your data file match those in your schema (case-insensitive)."
+            )
+        
+        if is_compatible and extra_in_data:
+            suggestions.append(
+                f"Schema compatibility: {matching_count}/{schema_count} columns matched perfectly."
+            )
+        
+        return CompatibilityCheck(
+            is_compatible=is_compatible,
+            matching_columns=matching_columns,
+            missing_in_data=missing_in_data,
+            extra_in_data=extra_in_data,
+            schema_count=schema_count,
+            data_count=data_count,
+            compatibility_score=compatibility_score,
+            detailed_errors=detailed_errors,
+            suggestions=suggestions
+        )
+    
+    async def save_schema_file(self, session_id: str, file: UploadFile, validation: SchemaValidationResult):
+        """Save schema file to session directory."""
+        session_dir = self.data_dir / session_id
+        session_dir.mkdir(exist_ok=True)
+        
+        # Save original schema file
+        schema_path = session_dir / "schema.json"
+        async with aiofiles.open(schema_path, 'wb') as f:
+            content = await file.read()
+            await f.write(content)
+        
+        # Save parsed schema for easy access
+        if validation.schema:
+            parsed_schema = {
+                "query": validation.query,
+                "schema": [col.model_dump() for col in validation.schema]
+            }
+            parsed_path = session_dir / "parsed_schema.json"
+            with open(parsed_path, 'w') as f:
+                json.dump(parsed_schema, f, indent=2)

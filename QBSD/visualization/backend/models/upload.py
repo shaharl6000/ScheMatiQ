@@ -31,3 +31,46 @@ class DataPreviewRequest(BaseModel):
     page: int = Field(default=0, ge=0)
     page_size: int = Field(default=50, ge=1, le=1000)
     filters: Optional[Dict[str, Any]] = None
+
+class SchemaColumn(BaseModel):
+    """Schema column definition from QBSD schema."""
+    name: str
+    definition: Optional[str] = None
+    rationale: Optional[str] = None
+
+class QBSDSchemaFormat(BaseModel):
+    """QBSD schema file format."""
+    query: Optional[str] = None
+    docs_path: Optional[str] = None
+    backend: Optional[Dict[str, Any]] = None
+    retriever: Optional[Dict[str, Any]] = None
+    schema: List[SchemaColumn]
+
+class SchemaValidationResult(BaseModel):
+    """Result of schema file validation."""
+    is_valid: bool
+    errors: List[str] = []
+    warnings: List[str] = []
+    detected_columns: List[str] = []
+    query: Optional[str] = None
+    schema: Optional[List[SchemaColumn]] = None
+
+class CompatibilityCheck(BaseModel):
+    """Result of schema-data compatibility check."""
+    is_compatible: bool
+    matching_columns: List[str] = []
+    missing_in_data: List[str] = []  # Columns in schema but not in data
+    extra_in_data: List[str] = []    # Columns in data but not in schema
+    schema_count: int = 0
+    data_count: int = 0
+    compatibility_score: float = 0.0  # Percentage of matching columns
+    detailed_errors: List[str] = []
+    suggestions: List[str] = []
+
+class DualFileUploadResult(BaseModel):
+    """Result of dual file upload."""
+    session_id: str
+    schema_validation: SchemaValidationResult
+    data_validation: FileValidationResult
+    compatibility: CompatibilityCheck
+    requires_column_mapping: bool = False

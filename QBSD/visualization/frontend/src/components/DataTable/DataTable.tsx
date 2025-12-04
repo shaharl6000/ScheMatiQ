@@ -213,7 +213,7 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredRows.slice(0, pageSize).map((row, rowIndex) => (
+              {filteredRows.slice(page * pageSize, (page + 1) * pageSize).map((row, rowIndex) => (
                 <TableRow key={rowIndex} hover>
                   {columns.map(column => {
                     let cellValue;
@@ -241,7 +241,7 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
         <TablePagination
           rowsPerPageOptions={[25, 50, 100, 200]}
           component="div"
-          count={data.total_count}
+          count={searchTerm ? filteredRows.length : data.total_count}
           rowsPerPage={pageSize}
           page={page}
           onPageChange={handleChangePage}
