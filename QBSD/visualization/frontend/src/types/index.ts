@@ -27,7 +27,7 @@ export interface DataStatistics {
 export interface VisualizationSession {
   id: string;
   type: 'upload' | 'qbsd';
-  status: 'created' | 'processing' | 'completed' | 'error';
+  status: 'created' | 'processing' | 'schema_ready' | 'completed' | 'error';
   metadata: SessionMetadata;
   schema_query?: string;
   columns: ColumnInfo[];
@@ -102,7 +102,7 @@ export interface QBSDStatus {
 }
 
 export interface WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'pong';
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'pong' | 'schema_completed' | 'row_completed';
   timestamp: string;
   session_id?: string;
   message?: string;
