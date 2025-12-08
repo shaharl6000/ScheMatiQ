@@ -1,0 +1,1803 @@
+Intent-aware Schema Generation And Refinement
+For Literature Review Tables
+VishakhPadmakumar1* JosephCheeChang2 KyleLo2
+DougDowney2,3 AakankshaNaik2
+1NewYorkUniversity 2AI2 3NorthwesternUniversity
+vishakh@nyu.edu
+Abstract
+Table Intent:
+Theincreasingvolumeofacademicliterature Describe the datasets used in
+the experiments to evaluate
+makesitessentialforresearcherstoorganize, the performance?
+compare,andcontrastcollectionsofdocuments. Prompting
+Large language models (LLMs) can support Schema Generation
+Fine-tuning
+this process by generating schemas defining
+sharedaspectsalongwhichtocomparepapers. Papers Schema
+However,progressonschemagenerationhas <N A a s m p e e > ct 1:
+<Definition>
+been slow due to: (i) ambiguity in reference- <Output format>
+based evaluations, and (ii) lack of editing/re- Aspect 2 ...
+Aspect 3 ...
+finement methods. Our work is the first to
+address both issues. First, we present an ap- Schema Refinement
+proachforaugmentingunannotatedtablecor-
+pora with synthesized intents, and apply it to Candidate Schema Improved Schema
+Aspect 1: (Modified) Aspect 1:
+create a dataset for studying schema genera- <Name> <Name>
+<Definition> <Definition>
+tionconditionedonagiveninformationneed, <Output format> <Output format>
+thusreducingambiguity. Withthisdataset,we Aspect 2 ... Table Aspect 2 ...
+show how incorporating table intents signif- Aspect 3 ... Intent (New) Aspect 3 ...
+icantly improves baseline performance in re-
+Figure1: WebenchmarktheabilitiesofLLMstoper-
+constructing reference schemas. We start by
+form schema generation for literature review tables
+comprehensivelybenchmarkingseveralsingle-
+givenatableintentorinformationneed(§2)viaprompt-
+shot schema generation methods, including
+ing and fine-tuning (§3) as well as editing existing
+promptedLLMworkflowsandfine-tunedmod-
+schemacandidates(§4).
+els,showingthatsmaller,open-weightmodels
+canbefine-tunedtobecompetitivewithstate-
+Fok et al., 2025; Wang et al., 2024; Hashimoto
+of-the-artpromptedLLMs. Next,wepropose
+et al., 2017). Typically, generating a literature
+several LLM-based schema refinement tech-
+review table involves two subtasks: (1) schema
+niquesandshowthatthesecanfurtherimprove
+generation—identifyingarelevantsetofsharedas-
+schemasgeneratedbythesemethods.
+pectstocompareandcontrastpapers,whichcorre-
+1 Introduction
+spondtotable’scolumns,and(2)valuegeneration—
+A common use case of large language models determiningthecontentforeachaspect–paperpair,
+(LLMs) is synthesizing information from collec- i.e.,fillinginthetableentries. Whilevaluegenera-
+tionsofdocuments(Zhaoetal.,2024;Zhengetal., tioncanbeframedasquestion-answering,drawing
+2024; OpenAI, 2025; Google, 2024), a task that onrecentadvancesinretrieval-augmentedgenera-
+hasbecomeincreasinglyimportantinscientificdo- tion(RAG)(L’alaetal.,2023;Hilgertetal.,2024;
+mainsamidtherapidgrowthofpublishedliterature Singh et al., 2025), schema generation remains a
+(Bornmannetal.,2021). Oneimportantexample moreopenproblemwithoutanobviousreduction
+of this task is the generation of literature review tostandardtasks.
+tablesfromsetsofpapersthatcomparethemalong Identifyingappropriatedimensionsalongwhich
+sharedaspects—acommontargetofliteraturere- tocomparedocumentsisalongstandingproblemin
+view systems (Ought, 2024; Singh et al., 2025; informationorganizationandsensemaking(Russell
+etal.,1993). Twoissueshavehamperedprogress
+*WorkdoneduringsummerinternshipatAI2,nowatStan-
+fordUniversity on this problem: (1) ambiguity inherent in any
+5202
+tcO
+6
+]LC.sc[
+2v12591.7052:viXra
+Figure2: WhileCandidate1isavalidschematocomparetheresearchpapers,incorporatingatableintentyields
+Candidate2,whichbetteralignswiththeuser-writtenreferencereflectingtheiractualinformationneed. (§2)
+reference-based evaluation process, and (2) lack erationmethodsbycomprehensivelybenchmark-
+ofschemaediting/refinementapproachesgiventhe ingabroadrangeofpromptingschemesforschema
+open-endednatureofthetask. Ourworkisthefirst generation,varyingbothinhowtheyusedifferent
+toaddressboththeseissues. levelsofinformationfromthepapersbeingcom-
+pared and in how they incorporate table intents
+Anyreference-basedevaluationforschemagen-
+intothepipeline(Lametal.,2024;Newmanetal.,
+erationisinherentlyambiguousbecausetherecan
+exist multiple valid schemas for comparing the 2024; Wang et al., 2025). Unlike prior work, we
+also fine-tuned open-weight models for schema
+same set of papers. In fact, we argue the ideal
+choice of schema depends on the table’s intent— generation (§3.3) that are competitive to frontier
+LLMsalreadyusedinproducts,offeringhighvalue
+the specific communicative goal or information
+totheresearchcommunityatasignificantlylower
+needtheauthoraimstoaddresswithinthebroader
+inferencecost. Then,weexaminethreecategories
+narrativeofthepaper,anotionmissingfromexist-
+ofLLM-basedtechniquestorefineexistingschema
+ingbenchmarks(Newmanetal.,2024;Hsuetal.,
+candidatesthatsupportvaryinglevelsofusercon-
+2024). Toillustratethis,considerFigure2where
+trol: Unguidedediting,whereamodelistrainedto
+thepapersbeingcomparedconcerngraphtheory.
+Candidate1isavalidschemathatselectsaspects reviseschemaswithoutexplicitinstruction,(§4.1),
+Heuristic-guided editing, where models are fine-
+connectedwiththealgorithmsinbothpapers. How-
+tunedtoperformatomicoperationslikeaddingor
+ever, this fails to match the actual table intent,
+removingaspects,(§4.2),Critique-guidedediting,
+which is meant to discuss the differences in the
+wheremodelseditschemasbygeneratingandap-
+dataused. Explicitlyincorporatingthetableintent
+plyingnaturallanguagecritiques(§4.3). However,
+yieldsaschemamuchbetteralignedwiththisneed,
+suchasCandidate2. generatingreliablecritiquesischallenging,andthat
+thesmallheuristiceditsmostconsistentlyimproves
+Weaddressthisgapbyintroducinganapproach
+schemacandidates(§4.4).
+toaugmentunannotatedtablecorporawithinferred
+Inall,ourcontributionsare: (1)Anapproachfor
+intents in the form of open-ended research ques-
+augmentingunannotatedtablecorporawithintents,
+tionsreflectingdifferentaspectsalongwhichusers
+(2)Benchmarkingdiverseschemagenerationmeth-
+might compare papers. We demonstrate our ap-
+ods (various prompting workflows vs finetuning,
+proachonarecenttableschemadataset,ArxivDI-
+closedvsopenmodels)demonstratingthevalueof
+GESTables (Newman et al., 2024), showing that
+tableintentsaswellasidentifyingtrade-offsinper-
+adding our intents as additional input to guide
+formancebasedonhowvariousmethodsprocess
+schemagenerationhelpsalignmodeloutputswith
+papers,and(3)Proposingthreeapproachestoedit-
+specificinformationneeds,allowingformoreprin-
+ingtableschemasthatdemonstratewaystoconsis-
+cipledevaluationandincreasedmodelperformance
+tentlyimproveexistingcandidates. Wecontribute
+(§2). To address the lack of schema refinement
+a range of open-source artifacts, including Arx-
+methods and building on the observation that hu-
+ivDIGESTablesaugmentedwithtableintents,and
+man authors often iteratively revise literature re-
+a suite of open-weight LLMs trained for schema
+view tables, we evaluate a range of LLM-based
+generationandeditingtofurtherresearch.1
+techniquestoimprovetablesbyeditingthem(§4).
+Wefirstestablishastrongsetofsingle-shotgen- 1OpensourcedataandmodelsarelistedinSectionA;code
+2 InferringTableIntentsforBetterTask best one using an LLM-as-judge rubric provided
+Specification in§B.2. WeconfirmthevalidityoftheLLMjudge
+selectionswithhumanevaluationin§B.
+ToassessLLMcapabilitiesonschemageneration,
+weevaluatetheirperformanceonproducingliter- 2.3 Improvingtaskspecificationand
+aturereviewtables,ataskrecentlyformalizedby evaluation
+Newman et al. (2024) in the ArxivDIGESTables
+Taskformulation Withoursyntheticallygener-
+dataset. Thisdatasetisacollectionof2,228litera-
+atedtableintents,wedefinetheschemageneration
+turereviewtablesscrapedfromarXivpapers. Each
+taskasfollows: givenasetofM researchpapers
+instanceconsistsofatable,wheretherowsrepre-
+d andatableintentq,generateaschemawith
+1...M
+senteachpaperbeingcomparedandthecolumns
+N aspects(N ≥ 2),whereeachaspectcorresponds
+representtheaspectsofcomparison. Wetreatthe
+toacolumninaliteraturereviewtablecomparing
+setofcolumnsasthetargetschema.
+thepapers. Eachaspectconsistsof: (1)thename,
+(2) a definition explaining its relevance for com-
+2.1 Issueswithcurrenttaskspecification
+parison,and(3)anoutputformatdescribinghow
+Newman et al. (2024) observe that there are of-
+valuesforthecolumnshouldbeexpressed(see§C
+ten multiple valid schemas which can be used to
+foranexample). Wefocussolelyonthemorechal-
+compareafixedsetofpapers. Inpractice,authors
+lengingschemagenerationsub-task,differingfrom
+typically construct tables to satisfy a specific in-
+Newmanetal.(2024).
+formationneedorcommunicativegoalwithinthe
+narrative of the paper. We refer to this as the ta- Evaluation Tomatchgeneratedschemastoref-
+ble intent. Explicitly considering this intent is a erenceschemasforevaluation,weadoptthesame
+naturalwaytodisambiguatevariouscandidatesdur- schema alignment framework as Newman et al.
+ingschemageneration. However,theseintentsare (2024). Eachgeneratedaspectismatchedagainst
+not usually recorded. Newman et al. (2024) use eachreferenceaspectusingBERTScore(Zhang*
+table captions and references to the table within etal.,2020),computedovertheconcatenatedname,
+the paper’s text as proxies for table intent. But definition,andoutputformat. Anaspectpairiscon-
+captionsarewrittentobeconsumedalongsidethe sidered a match if the similarity exceeds a given
+table,andareoftenbriefandincompleterepresen- threshold,whichisahyperparameteroftheevalu-
+tationsoftableintent(Figure2). In-textreferences, ation. Toovercomethechallengeofselectingthe
+ontheotherhand,tendtohighlightspecificinfor- optimumthreshold,wecomputeprecision,recall,
+mation/trendsfromthetable,potentiallyrevealing and F1 over a range of thresholds and report the
+somecolumnsorvalues. Inthiswork,weinstead area under the curve (AUC), computed using the
+syntheticallygeneratetableintentsandaugmentall trapezoidalruleoverallthresholds,foreachmetric.
+examplesinArxivDIGESTables.2 Specifically,wecalculatemetricsateachthreshold
+value in increments of 0.01 from 0.4 to 1.00 and
+2.2 Howwecreatetableintents reportAUCwithinthatrange.3
+We aim to construct table intents that can guide
+2.4 Validatingimprovementsintask
+schemagenerationbyspecifyingtheinformation
+specification
+needbehindaliteraturereviewtable. Wesynthet-
+Weassesstheutilityofoursynthetictableintentsby
+ically generate these intents in the form of open-
+evaluatingwhethertheyimprovetheperformance
+endedquestionsthatthetableisintendedtoanswer,
+ofabaselineschemagenerationmethod. Forthese
+by prompting an LLM (GPT-4o) with the table
+experiments,weadopttheschemagenerationap-
+content,caption,in-textreferences,andtitlesand
+proachfromNewmanetal.(2024),whichprompts
+abstracts of papers being compared. We provide
+anLLMwithinformationfromallM papersgath-
+thepromptusedin§B.1,andhyperparametersfor
+ered into a single prompt. We evaluate schema
+promptingin§B.Tocuratehigh-qualityintents,we
+generation in three settings: (i) where the input
+generatefivecandidatesperexampleandselectthe
+containsonlypapertitlesandabstracts(§E.2),(ii)
+is available at https://github.com/vishakhpk/
+arxivdigestables-with-intent. 3Weselect0.4asthelowerboundasourinitialexperiments
+2WeacknowledgecontemporaryworkWangetal.(2025) showedthatmostschemacandidateshavearecallalignment
+thatalsonotesthislimitationintheformulationofNewman ofcloseto1atthatthresholdsolowervaluesdonotprovide
+etal.(2024)anddetailthedistinctiontoourworkin§5. distinguishingsignal.
+Model Input Recall Precision F1 Sincefilteringsuchinstancesautomaticallyisnon-
+trivial, we manually curate ArxivDIGESTables-
+T+A 0.1954 0.1791 0.1806
+GPT-4o T+A+C+IR 0.2409 0.2159 0.2214 Cleantobefreeoftheseissues. Wefirstfilterout
+T+A+TI 0.2811 0.2648 0.2666 all tables that have < 5 papers and < 4 columns,
+T+A 0.2118 0.1841 0.1903 leaving us with 370 instances. We manually go
+Sonnet-3.7 T+A+C+IR 0.2554 0.2360 0.2367 throughtheseinstances,anddiscardanyexamples
+T+A+TI 0.2655 0.2313 0.2407
+with>=50%ofgenericorunrecoverablecolumns,
+orleakageoftableinformationintothecaption,re-
+Table1: PerformanceofGPT-4oandClaudeSonnet-3.7
+sultingin170instances. Werandomlysample100
+on schema generation, given varying paper inputs (T:
+titles,A:abstracts,TI:tableintents,FT:full-texts,C:ta- ofthesetablestocreateArxivDIGESTables-Clean,
+blecaptions,IR:in-textreferences). Incorporatingtable whichwillbereleasedonpublication.
+intentsimprovesF1AUCconsistentlyacrossmodels.
+3.2 Promptingforschemageneration
+Schemagenerationisacomplextaskthatinvolves
+where we add table intents in addition to paper
+processingmultiplelonginputtexts. Toachieveop-
+titles and abstracts (§E.4), and (iii) where we al-
+timalLLMperformanceinsuchcases,researchers
+ternativelyaddthetablecaption,andin-textrefer-
+oftendecomposethetaskintoaworkflowofsev-
+ences as a means of directing schema generation
+eralmoremanageablesubtasks(Khotetal.). We
+(§E.3). §1presentstheresultsoftheseexperiments
+explore a spectrum of prompting workflows for
+usingGPT-4oandClaudeSonnet-3.7—ourtable
+schemageneration,rangingfromastraightforward
+intentsdemonstrateclearutility,improvingperfor-
+single-steppromptthatincludesallinputpapersat
+mance by ∼ 5 F1 AUC points on average across
+once (as in Newman et al., 2024), to multi-step
+thethreemodelswhilealsooutperformingcaptions
+workflows that decompose the task in different
+andin-textreferences.
+ways(sequentialorparallel).
+3 ImprovingSchemaGeneration:
+Joint prompting. The first class of prompting
+PromptingandFinetuning
+methods jointly provide the model with informa-
+tionfromallM paperstogenerateaschemaina
+Withthisimprovedtaskspecificationandevalua-
+singlestep,similartothebaselinesinNewmanetal.
+tionstrategy,weexploremethodsforbetterschema
+(2024). Wefirstexperimentwithtwovariantsthat
+generation. We assess two categories of meth-
+providedifferentkindsofinformationaboutinput
+ods: (i)prompting-basedmethodsthatdecompose
+papers, abstracts vs. full-texts. This investigates
+schema generation into atomic sub-tasks (§3.2),
+whetherincludingrichercontentfromthefulltexts
+and (ii) fine-tuning language models (§3.3). We
+improvesperformancegiventheincreasedcontext
+evaluateallmethodsonArxivDIGESTablesaswell
+length. Prompts for these setups are provided in
+asArxivDIGESTables-Clean,asubsetwecurateas
+§E.4and§E.6. Wealsocomparetoavariantthat
+describedin§3.1,andreportresultsin§3.4.
+includes in-context learning (ICL) examples for
+3.1 CuratingArxivDIGESTables-Clean the task. From the “medium quality” subset of
+examples released by Newman et al. (2024), we
+We observe that instances in ArxivDIGESTables
+randomly sample 5 examples and provide these
+sometimescontainoneofthefollowingissues:
+alongwiththepromptprovidedin§E.7.
+• Generic columns (e.g., year of publication, re-
+Parallelprompting. Incontrasttoprovidingall
+searchfocusetc.)
+papersatonce,wetestaworkflowthatconsiders
+• Unrecoverablecolumnscontaininginformation
+eachpaperindependently,inspiredbypriorwork
+thatcannotbeobtainedfromfull-textsofpapers
+on concept induction from documents. Specifi-
+inthetable(e.g.,datasetinstances)
+cally,weadapttheLloom(Lametal.,2024)sys-
+Generic columns are trivially easy to generate tem which isolates concepts relevant to the table
+(over-optimisticperformanceestimates),whileun- intentfromeachpaperthroughapipelinedetailed
+recoverable columns are impossible to generate in §F.4 We aggregate the final concepts from all
+(under-optimisticestimates). Therefore,evaluating papers and prompt the model to synthesize them
+onasubsetfreefromtheseissuesensuresthatwe
+4Here,aconceptreferstoasinglesentenceorphrasethat
+obtain a realistic estimate of model performance. discussesexperimentaldesignorfindingsfromthework.
+ArxivDIGESTables ArxivDIGESTables-Clean
+Method Model TaskDecomposition Input Recall Precision F1 Recall Precision F1
+Joint T+A+TI 0.2811 0.2648 0.2666 0.3015 0.3011 0.2965
+Joint T+FT+TI 0.2761 0.2518 0.2566 0.3003 0.2982 0.2948
+GPT-4o Joint T+A+TI+ICL 0.2941 0.2807 0.2811 0.3126 0.3152 0.3096
+Parallel T+FT+TI 0.2569 0.2407 0.2424 0.2925 0.2898 0.2885
+Sequential T+FT+TI 0.3122 0.2297 0.2541 0.3322 0.2505 0.2765
+Prompting
+Joint T+A+TI 0.2655 0.2313 0.2407 0.2808 0.2542 0.2628
+Joint T+FT+TI 0.2461 0.2299 0.2278 0.2686 0.2550 0.2544
+Sonnet-3.7 Joint T+A+TI+ICL 0.2903 0.2505 0.2617 0.2975 0.2742 0.2805
+Parallel T+FT+TI 0.2659 0.2064 0.2248 0.2775 0.2222 0.2419
+Sequential T+FT+TI 0.3138 0.2090 0.2386 0.3094 0.2075 0.2370
+Qwen-2.5-3B-Instruct Joint T+A+TI 0.2638 0.3143 0.2772 0.2550 0.3221 0.2751
+Fine-tuning
+Llama-3.2-3B-Instruct Joint T+A+TI 0.2684 0.3006 0.2747 0.2653 0.3054 0.2756
+Table2: SchemagenerationresultsonArxivDIGESTablesandArxivDIGESTables-Cleanforprompting(§3.2)andfine-tuning
+methods(§3.3).Inputreferstoinformationfromthepapersbeingcompared(T:titles,A:abstracts,TI:tableintents,FT:full-texts,
+ICL:in-contextlearningexamples).Taskdecompositionreferstowhetherthemethodseesinformationfromdifferentpapers
+jointly,inparallel,orinsequence.JointpromptingwithICLresultsinthehighestF1AUC.Promptingbaselinesachievehigher
+recall,whilefine-tunedmodelsaremoreprecise.Fine-tunedopen-weightmodelsarecompetitivewithblack-boxLLMs.
+intoasinglecoherentschemaofcomparison. This these experiments, we use the “medium-quality”
+decomposes schema generation into simpler sub- subset of 22k tables released by Newman et al.
+problems,enablingtheuseoffull-textinformation (2024), referred to as ArxivDIGESTables-Silver.
+without requiring the model to handle entire pa- Wefine-tuneopen-weightmodelsfromtheLlama-
+per(s) in context, thereby mitigating potential is- 3.2(Grattafiorietal.,2024)andQwen-2.5model
+suesrelatedtolong-contextprocessing(Liuetal., families(Qwenetal.,2025)togenerateschemas
+2024). We provide details of the whole pipeline giveninformationfromthepapersbeingcompared.
+includingthepromptsforeachstepin§F.5 Wetrainallmodelstoprocessinputpapersjointly,
+providingpapertitles,abstractsandtableintentsas
+Sequential prompting. Finally, we explore a
+input,andtogeneratetheschemainJSONformat.6
+prompting workflow that iteratively processes in-
+formation from papers in batches as proposed in 3.4 Results
+(Wang et al., 2025). We first prompt the model
+Wereportallpromptingandfine-tuningresultsfor
+to summarize the content of the papers from the
+schemagenerationinTable2.
+titles and full text. We then start with an empty
+schema and update it iteratively as each batch is Full paper texts don’t move the needle on
+introduced. At each step, we prompt the model schemageneration. OnbothArxivDIGESTables
+with the current schema, the table intent, and a andArxivDIGESTables-Clean,allmethodsusing
+batchofpapersummariestoupdatetheschemaby full-texts as input underperform joint prompting
+adding, removing, or modifying elements based withtitles,abstractsandtableintentsonF1AUC,
+onthenewinformation. Thisprocessisrepeated irrespective of the workflow used. This provides
+forfivepassesoverthesetofpapers,followingthe some evidence that connecting information from
+setupinWangetal.(2025). Thepromptsusedfor long context to provide accurate output for com-
+thispipelineareprovidedin§G. plex tasks remains challenging for contemporary
+LLMs(Gaoetal.,2024).
+3.3 Fine-tuningforschemageneration
+Sequential prompting promotes high recall,
+Besidesassessingawiderangeofpromptingtech-
+whilejointpromptingbalanceshighrecalland
+niques,wealsoexploretheviabilityoffine-tuning
+precision. BothLloomandsequentialprompting
+smallermodelsforthistask. Trainingsmallerlocal
+underperform joint prompting on F1 AUC. How-
+modelsoffersapotentiallyimprovedcost/accuracy
+ever, sequential prompting achieves the highest
+tradeoff, and can enable schema generation over
+recall of all methods on average. This suggests
+private or paywalled document collections. For
+thismethodtendstofavoraddingschemaelements,
+5Wealsoablatetheuseofthetableintentatvariousparts
+oftheLloompipelinein§F,withthehighest-scoringvariant’s 6Weprovideadditionaldetailsaboutthedatasetcreation,
+scoresreportedin§2. tokenization,fine-tuningandinferencein§H.
+Paper 1 Paper 2 Generated reflectstheopen-endednatureofthetask,wepro-
+Tit D le e : n G s r i a fi p c h at E io v n o l a u n t d ioTni:tle S : c A h d e v m an e c s e f d o r C G o r a a r p se h ning Schema poseLLM-basededitingtechniquestofurtherre-
+i o d A r e b e s n p v s t S t o a i r f r h l i a v s e c e r e d t l i o : y n s H v t s k r e o a u r i w m c n t t i p d g m u l o r e e a D d r ? l e p n i P a a a e r l- i t m t o w t w e r o o e r w r n r l t k o d s e s r i g , k n r b r A h s a s u b p a p t t a ss r h i . s a t t . sr i .c wc . a .t c i i d c t a : e l T l y a h n P u e d s a g e r t r d a h t p e a i h o n . t . r . d i p . e o . . a t s i n r t c t u a i i t d n l i i o a e g n p d i p n i l n g ic m p a r t a o io n b n y l s e . m Data D s a e t t a D se o t main fi th n e e m s s c e h l e v m es as to . T th h e es d e e t v e e c l h o n p i m qu e e n s t a o l f so in n t a e t r u a r c a t l i l v y e l s e y n s d -
+Algorithm Novelty
+Table Intent:
+Describe the datasets used for evaluation temsinwhichuserscouldinterveneandguideedits,
+providingfurthermotivationtoexplorethesetech-
+(1) Unguided (2) Heuristics- (3) Critique-
+niques. We evaluate three broad categories of re-
+Editing Guided Editing Guided Editing
+finementstrategies,basedonhoweditsarechosen
+andrepresented—unguided editingwithoutanyin-
+Refined Schema Add A Column Consider adding details
+about the examples in the termediatedescriptionorcontrol(§4.1);heuristics-
+Dataset Name Refined Schema dataset
+Dataset Domain D N a a ta m s e et D D a o t m as a e in t guided editing,whereeditscanonlybechosenby
+Algorithm Complexity Algorithm Example P P a a p p e e r r 1 2 G S e c n h e e ra m te a d a user from fixed set of operations like adding or
+Example Count Novelty Count
+Table Intent dropping a column from the schema (§4.2); and
+Or Drop A Column
+Refined Schema critique-guided editing, where free-form natural
+Refined Schema Dataset Dataset Algorithm
+Dataset Dataset Name Domain Novelty language critiques specify which edits to make
+Name Domain
+Example Node
+Count Count (§4.3). Figure3brieflysummarizestheseediting
+strategies.
+Figure3: Overviewofeditingtechniquesproposedto
+refineschemasin§4.
+4.1 Unguidedediting
+Wefirstevaluatewhethermodelscanrefineschema
+leadingtobroadercoverageatthecostofprecision. candidates without generating explicit intermedi-
+ICLexampleshelpperformanceatahighcost. ate feedback or instruction. The model receives
+Jointpromptingwithin-contextexamplesanduser asinputacandidateschemaandinformationfrom
+goals with GPT-4o achieves the highest F1 AUC the papers being compared, and is trained to di-
+acrossallmethods,highlightingthebenefitofpro- rectly generate a refinement (see Figure 3). To
+viding task demonstrations.7 Among the Claude constructfine-tuningdataforthis,weusetheout-
+prompting baselines as well, the highest perfor- puts from joint prompting with GPT-4o with the
+mance is with ICL examples. However, we note T+A+TIsetup(Section3.2andTable2)ascandi-
+thatthiscomesatahighcostascontextlengthsfor dateschemasonArxivDIGESTables-Silverexam-
+thismethodaresignificantlylongerthantheother ples. Thesearepairedwiththeircorrespondingta-
+joint prompting baselines—the prompt length is bleintents,papertitlesandabstracts,andthetarget
+14k tokensonaveragewhenusingICLexamples outputisthereferenceschema. Wefine-tuneLlama
+vs5.6k tokenswhennotusingthem. 3.2-3B-InstructandQwen-2.5-3B-Instructtogen-
+Fine-tuned smaller, open-weight models can eratethereferenceschematokens,conditionedon
+competewithblack-boxmodels. From§2,we thisinput.8
+see that fine-tuned models are competitive with
+4.2 Heuristics-guidedediting
+prompting-basedmethods,outperformingthecor-
+respondingGPT-4ovariant(jointpromptingwith Purely data-driven editing with no intermediate
+titles, abstracts, and table intents) on F1 AUC, feedbackislimitedinthatitoffersnocontrolover
+despite being an order of magnitude smaller in the editing process. To address this, we explore
+size. While prompting methods obtain higher re- whethermodelscanbetrainedtoperformfixedcat-
+call, fine-tuned models achieve higher precision egoriesofeditoperationsreliably,whichoffersthe
+thanrecall,withQwen-2.5-3Bobtainingthehigh- optiontointroduceuserinterventionintherefine-
+estprecisionAUConbothArxivDIGESTablesand mentprocess. Inourexperiments,wefocusontwo
+ArxivDIGESTables-Clean. basic operations—adding a column to a schema
+(AC)anddroppingacolumnfromaschema(DC).
+4 RefinementofSchemas
+To train models for AC, we create training in-
+stances by randomly dropping one column from
+Motivatedbytheiterativeprocesshumansfollow
+reference schemas in ArxivDIGESTables-Silver.
+while creating schemas (Fok et al., 2025), which
+The input includes the incomplete schema, table
+7Weconfirmthatthisresultholdswithsignificanceatthe
+5%levelofatwo-tailedt-testin§L. 8Weprovideadditionalfine-tuningdetailsin§I.
+ArxivDIGESTables ArxivDIGESTables-Clean
+Method Model Input
+Recall Precision F1 Recall Precision F1
+Baseline GPT-4o T+A+TI 0.2811 0.2648 0.2666 0.3015 0.3011 0.2965
+Unguided Llama3.23BInstruct T+A+TI 0.2736* 0.2979* 0.2764* 0.2747 0.3045 0.2803
+Editing
+Qwen2.53BInstruct T+A+TI 0.2680* 0.2855* 0.2643 0.2721 0.3252 0.2856
+T+A+TI+AC 0.2958* 0.2641 0.2723* 0.3051 0.2983 0.2976
+Heuristics Llama3.23BInstruct
+T+A+TI+DC 0.2763* 0.2765* 0.2688 0.2883 0.3065 0.2972
+Guided
+Editing T+A+TI+AC 0.3031* 0.2700 0.2792* 0.3113 0.3030 0.3021
+Qwen2.53BInstruct
+T+A+TI+DC 0.2844 0.2769* 0.2736* 0.2930 0.3071 0.2940
+T+A+TI+RS(Oracle) 0.3393* 0.2916* 0.3067* 0.3438 0.3201 0.3274
+Critique GPT-4o T+A+TI(Self-Refine) 0.2836 0.2558* 0.2627 0.2995 0.2880 0.2890
+Guided T+A+TI+ICL(Self-Refine) 0.2788 0.2436* 0.2533* 0.2934 0.2810 0.2829
+Editing
+Llama3.23BInstruct T+A+TI(Distilled) 0.2917* 0.2594* 0.2682 0.3041 0.2878 0.2991
+Qwen2.53BInstruct T+A+TI(Distilled) 0.2916* 0.2608 0.2690 0.2953 0.2876 0.2857
+Table3:Evaluatingdifferenteditingmethodsforrefiningcandidateschemas(§4)onArxivDIGESTablesandArxivDIGESTables-
+Clean(Recall,PrecisionandF1AUC).WeedittheT+A+TIjointpromptingbaselinewithGPT-4ofrom§3,eachsubsequentrow
+editsschemasfromitusingpaperinformation(T:papertitles,A:abstracts,TI:tableintents,ICL:in-contextlearningexamples,
+AC:AddColumn,DC:DropColumn).Cellsmarkedwithanasteriskdifferfromthebaselinerowwithstatisticalsignificanceat
+the5%levelofatwo-tailedt-test.Unguidededitingshowslimitedimprovements,heuristicsconsistentlyimproveschemasand
+critique-guidedediting,whilehelpfulintheoraclesetting,doesnotperformwellwithoutaccesstoreferenceschemas.
+intent,titles,andabstracts;thetargetistheoriginal withaccesstothereference,theyshouldleadto
+schema(Figure3). ForDC,weappendacolumn editsthatimproveperformance.
+fromaGPT-4ogenerationtothereferenceschema,
+• Self-Refine: We evaluate a self-refinement set-
+creatinginputwithapotentiallynoisyextraitem.
+ting inspired by Madaan et al. (2023). Starting
+The model sees the full context and learns to re-
+with a candidate schema and information from
+covertheoriginalschema. Wefine-tuneLlama3.2-
+compared papers, we prompt GPT-4o to pro-
+3B-InstructandQwen3.2-3B-Instructondatasets
+duce a single, atomic critique, without access
+forbothoperationstoserveasheuristic-guidededi-
+tothereference;thenpromptitagaintoupdate
+torsandreporttheresultsin§3.9
+the schema according to the critique. Prompts
+usedforeachstepareprovidedin(§K).Wealso
+4.3 Critique-guidedediting
+evaluateaself-refinementsettingwithin-context
+Lastly, we evaluate whether LLMs can refine
+examples of critiques. In-context critiques are
+schemacandidatesbasedongeneratednaturallan-
+chosen by retrieving the 5 most similar exam-
+guagecritiques. Acritiquetakestheformofasen-
+ples from ArxivDIGESTables-Silver based on
+tencedescribinganissuewiththecurrentschema
+BERTScoresimilaritybetweentheirtableintents
+and how it should be edited to better align with
+(Zhang*etal.,2020)andaddingoraclecritiques
+the table intent and input papers (e.g., “Add fine-
+fortheseexamplestothepromptprovidedin§K.
+grained detail about datasets such as number of
+examples”). Thisallowsformoreexpressiveedits • Distilled: We investigate whether critique gen-
+than the atomic operations explored in §4.2. We eration skills can be distilled into open-weight
+explorethreetypesofcritique-guidedapproaches models. We construct fine-tuning data using
+(summarizedbyFigure4in§K): oracle critiques for ArxivDIGESTables-Silver,
+wheretheinputisacandidateschemaandpaper
+• Oracle: Totestwhethermodelscangenerateand input (T+ A + TI), and the output is the corre-
+implementcritiqueseffectively,webeginwithan sponding oracle critique. We fine-tune Llama
+oraclesetting. Givenacandidateschema,refer- 3.2-3B-Instruct and Qwen 2.5-3B-Instruct for
+enceschema,andinformationfromthecompared critiquegenerationusingsupervisedfine-tuning,
+papers,wepromptGPT-4otogenerateasingle andpromptGPT-4otoreviseschemasusingcri-
+naturallanguagecritique,thenupdatetheschema tiquesgeneratedbythedistilledmodels.10
+usingthiscritique. Sincecritiquesaregenerated
+9Weprovideadditionalfine-tuningdetailsin§4.2. 10§Kprovidesadditionalfine-tuningdetails.
+4.4 Results ation specifically for research papers, using vari-
+ousstructures(e.g.,tables,outlines,etc.) torepre-
+Unguided editing offers limited improvement.
+sentschemas(Hashimotoetal.,2017;Guptaetal.,
+§3 shows that Llama 3.2-3B-Instruct trained for
+2023;Baietal.,2024;Zhuetal.,2023;Hsuetal.,
+unguidededitingimprovescandidateschemaslead-
+2024;Newmanetal.,2024). Givenrecentprogress
+ingtobetterF1AUConArxivDIGESTables,but
+ongeneratingtablesfromtext(Parikhetal.,2020;
+Qwen2.5-3B-Instructshowsnoimprovement. Ad-
+Wu et al., 2022; Tang et al., 2023; Sundar et al.,
+ditionally, both models show performance drops
+2024),weadoptthetable-basedschemarepresen-
+on ArxivDIGESTables-Clean, indicating that un-
+tationproposedbyNewmanetal.(2024).
+guided editing might be difficult for models to
+A common limitation in recent datasets is the
+learn.
+absence of an explicit input query or user intent,
+Heuristics-guidededitsimproveperformanceas identifiedasimportantbyearlierwork(Zhangand
+directed. From§3,wefindthatAdd (AC)opera- Balog,2018),whichdirectsschemagenerationand
+tionsincreaserecallwhileslightlyloweringpreci- helps disambiguate between multiple valid can-
+sion,asexpectedwhenanadditionalschemaitem didate schemas. In this work, we augment the
+isintroduced. Conversely, Drop(DC)operations datasetfromNewmanetal.(2024)withsynthetic
+raiseprecisionatthecostofrecall,showingthatthe table intents that serve this disambiguating func-
+modeleffectivelyremoveslessrelevantelements. tion. Concurrent work from Wang et al. (2025)
+Thishighlightsthepotentialofincorporatingcon- independentlymakeasimilarobservationandde-
+trollableatomiceditsinaninteractivesetup,allow- fineuserdemandstoguideschemageneration. Our
+ing users to specify different schema qualities to workdiffersinthatwealsobenchmarkarangeof
+prioritize,dependingontheirgoals. schemacreationandeditingmethods—including
+the prompting strategy proposed by Wang et al.
+Oraclecritiquesconsistentlyimproveschemas,
+(2025)—whereas their focus is primarily on im-
+but Self-Refine proves challenging. §3 shows
+proving task definition and evaluation by adding
+that critique-guided editing in the oracle setting
+userdemandsanddistractorpaperstothetask.
+improves performance on all metrics, indicating
+that LLMs can leverage good natural language SchemaGenerationMethods Theschemagen-
+feedbacktoproducemoreaccurateschemas. Self- eration methods we benchmark are motivated by
+refinement,however,leadstoaslightdropinper- findingsthatin-contextlearningcanimproveper-
+formancecomparedtotheoriginalschemas,even formance on complex tasks (Brown et al., 2020),
+whenICLexamplesareused. Amanualqualitative aswellasbyrecentworkthatleveragesmulti-step
+erroranalysis(§M)over25examplesofgenerated promptingworkflowstosupportbetterconceptin-
+critiquesshowsthatthisislargelyduetocritiques duction(Lametal.,2024)andschemaconstruction
+thatareoverlygeneric(24%)orcontainsmallfac- (Wangetal.,2025). Ourworkisthefirsttoevalu-
+tualerrors(20%)ormistakesinreasoning(20%), atemethodstoeditschemagenerationcandidates.
+whichleadtosub-optimaledits. Wenotethatourexperimentswithcritique-based
+revisions are informed by self-refinement litera-
+Distillingcritique-generationworksbetterwith ture (Madaan et al., 2023), as well as evidence
+room to improve. As shown in §3, critiques of strong performance from skill distillation into
+from distilled models improve recall and yield open-weight models (Hinton et al., 2015; Taori
+modest F1 AUC gains on ArxivDIGESTables etal.,2023;Wangetal.,2023).
+and ArxivDIGESTables-Clean. This highlights a
+promisingfutureresearchdirectiononusingLLMs 6 Conclusion
+forcritiquingchallengingreasoningoutputs.
+Largelanguagemodelshavethepotentialtoserve
+asvaluabletoolsforliteraturereviewbyautomati-
+5 RelatedWork
+callysynthesizingschemasforcomparingresearch
+SchemaGenerationasaTask Thetaskofcre- papers. Inthiswork,weshowthatexistingformu-
+ating schemas to compare multiple documents lations of the task miss an important component,
+hasbeenstudiedextensively(Shahafetal.,2012; anexplicitspecificationoftableintent. Weshow
+Zhang and Balog, 2018; Zhu et al., 2023). Sev- thataugmentingArxivDIGESTableswithsyntheti-
+eral efforts have also focused on schema gener- callygeneratedtableintentssignificantlyimproves
+schemagenerationperformancewhenprompting reliable, their proprietary nature introduces con-
+LLMs. Wealsodemonstratethatfine-tuningopen- cerns about reproducibility. To address this, we
+weightmodelsthatmatchtheperformanceofstate- alsoexplorefine-tuningopen-weightmodels.
+of-the-art black-box LLMs at a fraction of the
+modelsize. Wealsoexploremethodsforrefining
+References
+schema candidates—unguided, heuristic-guided,
+and critique-guided edits—and show that open- FanBai,JunmoKang,GabrielStanovsky,DayneFre-
+weightmodelscanbefine-tunedtofurtherimprove itag,MarkDredze,andAlanRitter.2024. Schema-
+driven information extraction from heterogeneous
+schemas. We note limitations in the abilities of
+tables. In Findings of the Association for Compu-
+LLMstocritiqueexistingcandidates,highlighting
+tational Linguistics: EMNLP 2024, pages 10252–
+animportantdirectionoffuturework. Tosupport 10273.
+futurework,wereleaseallfine-tunedmodels,our
+LutzBornmann,RobinHaunschild,andRüdigerMutz.
+augmentedArxivDIGESTables,andthemanually
+2021. Growth rates of modern science: a latent
+curatedArxivDIGESTables-Clean. piecewise growth curve approach to model publi-
+cationnumbersfromestablishedandnewliterature
+Acknowledgements databases. HumanitiesandSocialSciencesCommu-
+nications,8(1):1–15.
+We would like to thank Benjamin Newman, Nis-
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie
+hant Balepur, Nitish Joshi, Yoonjoo Lee, Nick
+Subbiah,JaredDKaplan,PrafullaDhariwal,Arvind
+Lourie,andmembersoftheSemanticScholarre-
+Neelakantan,PranavShyam,GirishSastry,Amanda
+search group for their feedback at various stages Askell,etal.2020. Languagemodelsarefew-shot
+of the project. This work was completed while learners. Advancesinneuralinformationprocessing
+systems,33:1877–1901.
+Vishakh was an intern at AI2. At NYU, Vishakh
+is supported by the National Science Foundation YanranChen,JonasBelouadi,andSteffenEger.2022.
+under Grant No. IIS-2340345 and Grant No. Reproducibilityissuesforbert-basedevaluationmet-
+rics. InProceedingsofthe2022ConferenceonEm-
+1922658.
+pirical Methods in Natural Language Processing,
+pages2965–2989.
+Limitations
+RaymondFok,JosephCheeChang,MarissaRadensky,
+Our experiments are conducted primarily on re- Pao Siangliulue, Jonathan Bragg, Amy X. Zhang,
+searchpapersfromarXiv. Whilethetopicscovered and Daniel S. Weld. 2025. Facets, taxonomies,
+arebroad,thisfocuslimitsthegeneralizabilityof and syntheses: Navigating structured representa-
+tions in llm-assisted literature review. Preprint,
+our findings to domains that commonly publish
+arXiv:2504.18496.
+ontheplatform. Additionalworkisneededtoas-
+sess whether the results extend to other types of MuhanGao,TaiMingLu,KuaiYu,AdamByerly,and
+Daniel Khashabi. 2024. Insights into LLM long-
+documents.
+contextfailures: Whentransformersknowbutdon‘t
+We evaluate schema generation using
+tell. In Findings of the Association for Computa-
+BERTScore to align predicted schema items tionalLinguistics: EMNLP2024,pages7611–7625,
+with references, following the setup in Newman Miami,Florida,USA.AssociationforComputational
+Linguistics.
+et al. (2024). However, string similarity metrics
+likeBERTScorehaveknownlimitations(Sunetal.,
+Google. 2024. Gemini deep research overview. Ac-
+2022;Chenetal.,2022),andmaynotfullycapture cessed: 2025-05-04.
+semanticalignment. Whilemorereliable,human
+AaronGrattafiori,AbhimanyuDubey,AbhinavJauhri,
+evaluationsarecostlyastheywouldrequireexpert
+Abhinav Pandey, Abhishek Kadian, Ahmad Al-
+annotators to be recruited for extended periods Dahle,AieshaLetman,AkhilMathur,AlanSchelten,
+of time making them infeasible for large-scale AlexVaughan,etal.2024. Thellama3herdofmod-
+els. arXivpreprintarXiv:2407.21783.
+experiments. Werecommendincorporatinghuman
+studiesindownstreamoruser-facingdeployments.
+Tanishq Gupta, Mohd Zaki, Devanshi Khatsuriya,
+OurexperimentsuseaJSON-basedschemafor- KausikHira,NMAnoopKrishnan,etal.2023. Dis-
+matforitsreadabilityandeaseofparsing,though comat: Distantlysupervisedcompositionextraction
+fromtablesinmaterialssciencearticles. InProceed-
+thismaynotbetheoptimalrepresentation. Lastly,
+ingsofthe61stAnnualMeetingoftheAssociationfor
+weuseblack-boxLLMs(GPT-4o,ClaudeSonnet)
+ComputationalLinguistics(Volume1: LongPapers),
+foranalysis. Althoughthesemodelsaregenerally pages13465–13483.
+HayatoHashimoto,KazutoshiShinoda,HikaruYokono, OpenAI.2025. Deepresearchsystemcard. Accessed:
+andAkikoAizawa.2017. Automaticgenerationof 2025-05-04.
+reviewmatricesasmulti-documentsummarizationof
+scientificpapers. InBIRNDL@SIGIR. Ought.2024. Elicit: Theairesearchassistant. https:
+//elicit.com. Accessed: 2025-05-13.
+LukasHilgert,DanniLiu,andJanNiehues.2024. Eval-
+uatingandtraininglong-contextlargelanguagemod- AnkurParikh,XuezhiWang,SebastianGehrmann,Man-
+els for question answering on scientific papers. In aal Faruqui, Bhuwan Dhingra, Diyi Yang, and Di-
+Proceedings of the 1st Workshop on Customizable panjanDas.2020. Totto: Acontrolledtable-to-text
+NLP:ProgressandChallengesinCustomizingNLP generationdataset. InProceedingsofthe2020Con-
+for a Domain, Application, Group, or Individual ferenceonEmpiricalMethodsinNaturalLanguage
+(CustomNLP4U), pages 220–236, Miami, Florida, Processing(EMNLP),pages1173–1186.
+USA.AssociationforComputationalLinguistics.
+Qwen, :, An Yang, Baosong Yang, Beichen Zhang,
+Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. 2015.
+BinyuanHui,BoZheng,BowenYu,ChengyuanLi,
+Distillingtheknowledgeinaneuralnetwork. arXiv
+Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin,
+preprintarXiv:1503.02531.
+JianYang,JianhongTu,JianweiZhang,JianxinYang,
+Jiaxi Yang, Jingren Zhou, Junyang Lin, Kai Dang,
+Chao-ChunHsu,ErinBransom,JennaSparks,Bailey
+KemingLu,KeqinBao,KexinYang,LeYu,MeiLi,
+Kuehl,ChenhaoTan,DavidWadden,LucyLuWang,
+MingfengXue,PeiZhang,QinZhu,RuiMen,Runji
+and Aakanksha Naik. 2024. Chime: Llm-assisted
+Lin,TianhaoLi,TianyiTang,TingyuXia,Xingzhang
+hierarchicalorganizationofscientificstudiesforliter-
+Ren,XuanchengRen,YangFan,YangSu,Yichang
+aturereviewsupport. InFindingsoftheAssociation
+Zhang, Yu Wan, Yuqiong Liu, Zeyu Cui, Zhenru
+forComputationalLinguisticsACL2024,pages118–
+Zhang, and Zihan Qiu. 2025. Qwen2.5 technical
+132.
+report. Preprint,arXiv:2412.15115.
+TusharKhot,HarshTrivedi,MatthewFinlayson,YaoFu,
+KyleRichardson,PeterClark,andAshishSabharwal. Daniel M. Russell, Mark J. Stefik, Peter Pirolli, and
+Decomposed prompting: A modular approach for Stuart K. Card. 1993. The cost structure of sense-
+solvingcomplextasks. InTheEleventhInternational making. InProceedingsoftheINTERACT’93and
+ConferenceonLearningRepresentations. CHI’93ConferenceonHumanFactorsinComput-
+ingSystems,CHI’93,page269–276,NewYork,NY,
+Jakub L’ala, Odhran O’Donoghue, Aleksandar Sht- USA.AssociationforComputingMachinery.
+edritski, Sam Cox, Samuel Rodriques, and An-
+drewD.White.2023. Paperqa: Retrieval-augmented DafnaShahaf,CarlosGuestrin,andEricHorvitz.2012.
+generative agent for scientific research. ArXiv, Metromapsofscience. InProceedingsofthe18th
+abs/2312.07559. ACMSIGKDDinternationalconferenceonKnowl-
+edgediscoveryanddatamining,pages1122–1130.
+MichelleSLam,JaniceTeoh,JamesALanday,Jeffrey
+Heer, and Michael S Bernstein. 2024. Concept in-
+AmanpreetSingh,JosephCheeChang,ChloeAnastasi-
+duction: Analyzingunstructuredtextwithhigh-level
+ades,DanyHaddad,AakankshaNaik,AmberTanaka,
+concepts using lloom. In Proceedings of the 2024
+Angele Zamarron, Cecile Nguyen, Jena D Hwang,
+CHI Conference on Human Factors in Computing
+JasonDunkleberger,etal.2025. Ai2scholarqa: Or-
+Systems,pages1–28.
+ganizedliteraturesynthesiswithattribution. arXiv
+preprintarXiv:2504.10861.
+NelsonFLiu,KevinLin,JohnHewitt,AshwinParan-
+jape,MicheleBevilacqua,FabioPetroni,andPercy
+Tianxiang Sun, Junliang He, Xipeng Qiu, and Xuan-
+Liang.2024. Lostinthemiddle: Howlanguagemod-
+JingHuang.2022. Bertscoreisunfair:Onsocialbias
+elsuselongcontexts. TransactionsoftheAssociation
+inlanguagemodel-basedmetricsfortextgeneration.
+forComputationalLinguistics,12.
+In Proceedings of the 2022 Conference on Empiri-
+AmanMadaan, NiketTandon,PrakharGupta,Skyler calMethodsinNaturalLanguageProcessing,pages
+Hallinan, Luyu Gao, Sarah Wiegreffe, Uri Alon, 3726–3739.
+Nouha Dziri, Shrimai Prabhumoye, Yiming Yang,
+et al. 2023. Self-refine: Iterative refinement with Anirudh Sundar, Christopher Richardson, and Larry
+self-feedback. AdvancesinNeuralInformationPro- Heck. 2024. gtbls: Generating tables from text
+cessingSystems,36:46534–46594. byconditionalquestionanswering. arXivpreprint
+arXiv:2403.14457.
+BenjaminNewman,YoonjooLee,AakankshaNaik,Pao
+Siangliulue,RaymondFok,JuhoKim,DanielSWeld, XiangruTang,YimingZong,JasonPhang,YilunZhao,
+JosephCheeChang, andKyleLo.2024. ArxivDI- WangchunshuZhou,ArmanCohan,andMarkGer-
+GESTables: Synthesizing scientific literature into stein.2023. Struc-bench: Arelargelanguagemodels
+tables using language models. In Proceedings of reallygoodatgeneratingcomplexstructureddata?
+the2024ConferenceonEmpiricalMethodsinNatu- arXivpreprintarXiv:2309.08963.
+ralLanguageProcessing,pages9612–9631,Miami,
+Florida, USA. Association for Computational Lin- Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann
+guistics. Dubois, Xuechen Li, Carlos Guestrin, Percy
+Liang, and Tatsunori B. Hashimoto. 2023. Stan- A OpenSourceResearchMaterials
+ford alpaca: An instruction-following llama
+model. https://github.com/tatsu-lab/ A.1 Data
+stanford_alpaca.
+We release an updated version of
+ArxivDIGESTables along with ta-
+Weiqi Wang, Jiefu Ou, Yangqiu Song, Benjamin
+ble intents as a HuggingFace Dataset -
+VanDurme,andDanielKhashabi.2025. Canllms
+generate tabular summaries of science papers? re- https://huggingface.co/datasets/
+thinking the evaluation protocol. arXiv preprint vishakhpk/ArxivDIGESTables-v0.1.
+arXiv:2504.10284.
+We also release the filtered, manually cu-
+rated subset ArxivDIGESTables-Clean on
+XingboWang,SamanthaLHuey,RuiSheng,Saurabh
+HuggingFace - https://huggingface.
+Mehta,andFeiWang.2024. Scidasynth: Interactive
+co/datasets/vishakhpk/
+structuredknowledgeextractionandsynthesisfrom
+scientificliteraturewithlargelanguagemodel. arXiv ArxivDIGESTables-Clean.
+preprintarXiv:2404.13765.
+A.2 Models
+YizhongWang,YeganehKordi,SwaroopMishra,Alisa
+Wealsothefine-tunedmodelslistedinTable4on
+Liu,NoahASmith,DanielKhashabi,andHannaneh
+HuggingFace.
+Hajishirzi. 2023. Self-instruct: Aligning language
+modelswithself-generatedinstructions. InProceed-
+ingsofthe61stAnnualMeetingoftheAssociationfor B Creatingtableintents
+ComputationalLinguistics(Volume1: LongPapers),
+pages13484–13508. The model we use to create table intents using
+gpt-4o-2024-08-06 accessed between Au-
+XueqingWu,JiachengZhang,andHangLi.2022. Text- gust 2024 and March 2025. We first prompt the
+to-table: A new way of information extraction. In modelwiththetable,captionandintextreferences
+Proceedings of the60th Annual Meeting of the As-
+to create table intents using the prompt in §B.1.
+sociationforComputationalLinguistics(Volume1:
+We sample 5 candidates at temperature 0.7. We
+LongPapers),pages2518–2533.
+thenscorethecandidatesandselectthebestoneus-
+ingLLM-as-judgewiththepromptin§B.2which
+ShuoZhangandKrisztianBalog.2018. On-the-flytable
+generation. In The 41st international ACM SIGIR acceptstheinformationaboutthetableaswellas
+conferenceonresearch&developmentininforma- allthecandidateintentsconcatenatedtogether. To
+tionretrieval,pages595–604.
+confirmthevalidityoftheLLM-as-judgestep,we
+perform a human annotation on a random subset
+TianyiZhang*,VarshaKishore*,FelixWu*,KilianQ.
+of 30 examples. We provide annotators with the
+Weinberger,andYoavArtzi.2020. Bertscore: Eval-
+uating text generation with bert. In International setof5candidateintentsaswellasthespecifica-
+ConferenceonLearningRepresentations. tion from §B.1. We ask these annotators to rank
+thesetofintents,collecting3differentannotations
+WentingZhao,XiangRen,JackHessel,ClaireCardie, perexample. WethencomputetheSpearmanrank
+YejinChoi,andYuntianDeng.2024. Wildchat: 1m
+correlationbetweentheLLM-as-judgeratingsand
+chatGPTinteractionlogsinthewild. InTheTwelfth
+theannotations. Weobserveanaveragecorrelation
+International Conference on Learning Representa-
+tions. of0.73withstandarddeviation0.08whichcorre-
+sponds to a medium to high correlation between
+LianminZheng,Wei-LinChiang,YingSheng,Tianle therankings,confirmingthevalidityofourcreated
+Li,SiyuanZhuang,ZhanghaoWu,YonghaoZhuang, intents.
+ZhuohanLi,ZiLin,EricXing,JosephE.Gonzalez,
+IonStoica,andHaoZhang.2024. LMSYS-chat-1m:
+B.1 Prompttocreateusergoals
+Alarge-scalereal-worldLLMconversationdataset.
+GENERATE_SYNTHETIC_GOALS_PAPERS_QUESTION = ’’’
+InTheTwelfthInternationalConferenceonLearning
+When writing a scientific research paper, we often include
+Representations. tables comparing different works to accomplish a variety
+of goals.
+The author has this goal in mind when they create the table
+for what they want to convey to the reader via the
+KunZhu,XiaochengFeng,XiachongFeng,Yingsheng objective comparison of papers. \
+Wu, and Bing Qin. 2023. Hierarchical catalogue For example, some potential goals might include: \
+1. Highlighting gaps in existing research: By comparing
+generation for literature review: A benchmark. In related studies, the table can show areas where there is
+limited research or unresolved questions, positioning the
+FindingsoftheAssociationforComputationalLin-
+current study as addressing those gaps. \
+guistics:EMNLP2023,pages6790–6804,Singapore. 2. Contextualizing the study: It helps place the current
+research within the broader scientific context, showing
+AssociationforComputationalLinguistics. how it builds upon or differs from previous work. \
+Task ModelName ModelonHF
+SchemaGeneration JointGeneration-T+A+TI LlamaandQwen
+SchemaEditing UnguidedEditing-T+A+TI LlamaandQwen
+SchemaEditing DropColumn-Heuristics-GuidedEditing-T+A+TI LlamaandQwen
+SchemaEditing AddColumn-Heuristics-GuidedEditing-T+A+TI LlamaandQwen
+SchemaEditing CritiqueGeneration-T+A+TI(Distilled) LlamaandQwen
+Table4: FinetunedSchemaGenerationandEditingLLMswithHuggingFacelinks.
+GAN Dataset #Examples Classes ClassBalance Accuracy Source
+3. Evaluating methodology differences: It allows for an
+easy comparison of the methodologies used in different BicycleGAN Edges2Shoes 300 2 45%/55% 94% {{cite:51b5159}}
+studies, illustrating why the chosen methods in the AttGAN CelebA 900 2 49%/51% 98% {{cite:dbd4855}}
+BigGAN ImageNet 1281167(train) 1000 Varying 75% {{cite:34ba2e5}}
+current paper are innovative, more robust, or better ShapeHDGAN ShapeNet 600 2 49%/51% 96% {{cite:ebfd324}}
+suited for the research problem. \ StyleGAN2 Style 540 2 49%/51% 98% {{cite:5aac1d6}}
+4. Demonstrating novelty: By showing what has already cGAN MNIST 9000 10 10%each 96% {{cite:49faa9e}}
+been done, a comparison table emphasizes the unique
+contribution or novelty of the present study. \
+5. Assessing the consistency of results: The table can Table5: ExampletableusedtodescribetheJSONfor-
+highlight differences or consistencies in findings across matofourschemasin§C.
+studies, helping the reader understand how results align
+or contrast with existing literature. \
+6. Simplifying complex information: It makes it easier for
+readers to quickly grasp how various studies relate to one
+another, especially when reviewing large bodies
+of literature. \ {
+7. Supporting the literature review: It strengthens the "GAN": {
+literature review by systematically summarizing relevant "definition": "The name of the
+research, which aids in the argument for why the current Generative Adversarial Network model
+study is needed. \ being evaluated.",
+Generally this goal can be written down as a simple "output_format": "string values"
+open-ended question that the author anticipates that },
+the reader will have and that can be answered with the table. \ "Dataset": {
+Your task is to generate this goal given a particular table "definition": "The name of the dataset
+from a research paper. You are also given the title used for training and evaluating
+and abstract of the paper, the description of the table the GAN model.",
+and additional information about how the table is "output_format": "string values"
+referenced in the text of the paper. \ },
+[Table] {table} "# Examples": {
+[Caption] {caption} \ "definition": "The total number of
+[In-text references] {in_text_refs} \ examples in the dataset used for
+We also provide information about the papers being discussed training and validation of the model.",
+in the table. You want the goal to be one that helps a "output_format": "string values
+future user actionably create the table given the information (may include numbers formatted
+in these papers: \ with commas)"
+{papers} },
+Return output in the following JSON format: "Classes": {
+{{’goal’:<your goal>, ’justification’:<justification of the "definition": "The number of distinct
+goal>}} classes present in the dataset.",
+’’’ "output_format": "integer values"
+},
+B.2 Prompttopickthebestusergoal "Class Balance": {
+"definition": "The distribution of
+EVALUATE_GOALS_TO_TABLE = ’’’ examples among the classes in the
+Imagine you are a co-author of a scientific paper and the dataset, expressed as a percentage
+first author has created a table comparing different split.",
+papers/methods. You are reading the table along with the "output_format": "string values,
+caption of the paper and references to the table in the usually in percentage format"
+text of the paper. You are trying to guess what is the },
+intent with which your co-author created this particular "Accuracy": {
+table. \ "definition": "The classification
+Given a set of candidate intents that you think they accuracy achieved by the model on
+might have had, your task is to select the best user a holdout set from the dataset.",
+intent out of them. Assign a score to each candidate on "output_format": "percentage
+a scale of 1 to 5 on how well it fits what they might have values as strings"
+thought. Prioritize selecting a user intent that is highly },
+specific to the particular information in the table. "Source": {
+The output format is a JSON with a string valued "definition": "A citation or
+justification containing the scores assigned to each reference to the source of the model
+candidate schema along with why that score was assigned. or data.",
+You should also provide your final choice of the best "output_format": "string values,
+schema. If you feel that none of them are good, then formatted as citation keys"
+reply with None here. \ }
+[Table] {table} \ }
+[Caption] {caption} \
+[In-text references] {in_text_refs} \
+[Candidate goals] {goal_text} \ D PromptingDetails
+Return the output in the following JSON format. The
+justification should include the reasoning for the
+score as a string, the best_goal should be the text of Forallpromptingexperiments,wesetthesystem
+the best candidate and nothing else: {{’justification’:
+<justification for the score>, ’best_goal’:<the best prompttotheoneprovidedin§E.1. Unlessstated
+candidate selected>}} \
+’’’ otherwise,wesampleoneoutputperexamplewith
+C ExampleofaschemaasJSON temperature 0.7. For all GPT-4o results, we use
+Considertheexampletablein§5. TheJSONver-
+gpt-4o-2024-08-06viatheAPIaccessedbe-
+sionofthisschemaisasfollows: tweenAugust2024andMay2025. ForClaude3.7
+Sonnet,weaccessthemodelviatheAPIbetween
+"output_format":<describe the range of output values that
+will be filled in, is it numbers, string values or another
+FebruaryandMay2025. WeaccessDeepSeekR1
+format>}} , ...}} """ \
+viatheTogetherAPIbetweenFebruaryandMay [Papers] {papers}
+’’’
+2025. Each prompt is provided in the following
+E.5 PromptforTitle+FullText
+sectionsandreferredtointhecorrespondingsec-
+FULL_TEXT_OPEN_LENGTH_SCHEMA = ’’’
+tionsfromthemaintext. Inputsintheseprompts Imagine the following scenario: A user is making a
+table for a scholarly paper that contains
+areenclosedwithin{and}andprogrammatically information about multiple papers and compares these
+papers. To compare and contrast the papers , the
+insertedfromeachexample. user provides the title and content of each paper. \
+Your task is the following: Given a list of papers ,
+you should find the appropriate number of attributes
+that are shared by the given research papers and can
+E Promptsusedin§3
+be used to compare them. So each attribute is a topic
+that would be covered in the Related Work section of
+the user’s paper. \
+E.1 SystemPromptforallexperiments Return a JSON object in the following format: \"""json
+{{"<attribute 1>": {{"definition":<your definition of
+SYSTEM_PROMPT = "You are an intelligent and precise why this attribute should be an axis of comparison>,
+assistant that can understand the contents of research "output_format":<describe the range of output values
+papers. You are knowledgable on different fields and that will be filled in, is it numbers, string values
+domains of science, in particular computer science. or another format>}} , ...}} """ \
+You are able to interpret research papers, create {full_text_papers} \
+questions and answers, and compare multiple ’’’
+papers."
+E.6 PromptforTitle+FullText+Intent
+E.2 PromptforTitle+Abstracts
+GOALS_FULL_TEXT_OPEN_LENGTH_SCHEMA = ’’’
+SCITABLES_OPEN_LENGTH_SCHEMA = ’’’ Imagine the following scenario: A user is making a
+Imagine the following scenario: A user is making a table table for a scholarly paper that contains
+for a scholarly paper that contains information about information about multiple papers and compares
+multiple papers and compares these papers. To compare them. To compare and contrast these papers , the
+and contrast the papers , the user provides the title user provides the title and content of each paper
+and content of each paper. \ below. To help you build the table , the user also
+Your task is the following: Given a list of papers , you provides you with the goal that they want to
+should find the appropriate number of attributes that are accomplish with this table in the form of an open
+shared by the given research papers and can be used to question. \
+compare them. So each attribute is a topic that would be [User Goal] {user_goal} \
+covered in the Related Work section of the user’s paper. \ Your task is the following: Given a list of papers ,
+Return a JSON object in the following format: \"""json {{" you should find the appropriate number of attributes
+<attribute 1>": {{"definition":<your definition of why this that are shared by the given research papers and
+attribute should be an axis of comparison>, "output_format": can be used to compare them. So each attribute is a
+<describe the range of output values that will be filled in, topic that would be covered in the Related Work
+is it numbers, string values or another format>}} , ...}} section of the user’s paper. Remember, the table
+""" \ should answer the question from the user goal. \
+{papers} \ Return a JSON object in the following format: \"""json
+’’’ {{"<attribute 1>": {{"definition":<your definition of
+why this attribute should be an axis of comparison>,
+"output_format":<describe the range of output values
+E.3 PromptforTitle+Caption+In-TextRefs that will be filled in, is it numbers, string values
+or another format>}} , ...}} """ \
+CAPTION_INTEXT_REFS_OPEN_LENGTH_SCHEMA = ’’’ {full_text_papers} \
+Imagine the following scenario: A user is making a table ’’’
+for a scholarly paper that contains information about
+multiple papers and compares these papers. To compare and E.7 PromptforICLexamples+Title+
+contrast the papers , the user provides the title and
+content of each paper. To help you build the table, the Abstract+Intnet
+user provides a caption of this table , which is referred
+to in the paper as additional information. \ ICL_GOALS_OPEN_LENGTH_SCHEMA = ’’’
+[Caption] {caption} \ Imagine the following scenario: A user is making a table for
+[In-text references] {in_text_refs} \ a scholarly paper that contains information about multiple
+[Papers] {papers} \ papers and compares them. To compare and contrast these
+Your task is the following: Given a list of papers, you papers , the user provides the title and content of each
+should find the appropriate number of attributes that are paper below. Here are some representative examples of the
+shared by the given research papers and can be used to schema of the table given the content of the papers
+compare them. So each attribute is a topic that would be being compared: \
+covered in the Related Work section of the user’s paper. \ [Representative Examples] {icl_text} \
+Return a JSON object in the following format: \"""json Your task is the following: Given a list of papers, you
+{{"<attribute 1>": {{"definition":<your definition of why should find the appropriate number of attributes that are
+this attribute should be an axis of comparison>, shared by the given research papers and can be used to
+"output_format":<describe the range of output values that compare them. So each attribute is a topic that would be
+will be filled in, is it numbers, string values or covered in the Related Work section of the user’s paper.
+another format>}} , ...}} """ \ Remember, the table should answer the question from the
+’’’ user goal. \
+Return a JSON object in the following format: \"""json
+E.4 PromptforTitle+Abstract+Table {{"<attribute 1>": {{"definition":<your definition of why
+this attribute should be an axis of comparison>,
+Intents "output_format":<describe the range of output values that
+will be filled in, is it numbers, string values or another
+GOALS_OPEN_LENGTH_SCHEMA = ’’’ format>}} , ...}} """ \
+Imagine the following scenario: A user is making a table To help you build the table , the user also provides you
+for a scholarly paper that contains information about with the goal that they want to accomplish with this table
+multiple papers and compares them. To compare and contrast in the form of an open question. \
+these papers , the user provides the title and content [User Goal] {user_goal} \
+of each paper below. To help you build the table , the user Here is the information about the papers being compared: \
+also provides you with the goal that they want to {papers}
+accomplish with this table in the form of an open question. \ ’’’
+[User Goal] {user_goal} \
+Your task is the following: Given a list of papers , you
+F LloomDetails
+should find the appropriate number of attributes that are
+shared by the given research papers and can be used to compare
+them. So each attribute is a topic that would be covered F.1 Pipelineofexecution
+in the Related Work section of the user’s paper. Remember,
+the table should answer the question from the user goal. \
+We adapt Lloom (Lam et al., 2024) for schema
+Return a JSON object in the following format: \"""json
+{{"<attribute 1>": {{"definition":<your definition of why
+generationasfollows:
+this attribute should be an axis of comparison>,
+• Thefirststepistosummarizethecontentof Recall Precision F1
+LloomLite 0.2552 0.2441 0.2417
+the full text of each individual paper being
+LloomLite-AllConcepts 0.2629 0.1206 0.1481
+LloomLite-Intent-OrientedConceptFiltering 0.2569 0.2407 0.2424
+compared into bullet points with the sum-
+LloomLite-Intent-OrientedConceptFiltering-AllConcepts 0.2631 0.1226 0.1506
+LloomLite-IntentOrientedConceptFilteringandSummarization 0.2363 0.2563 0.2399
+marize prompts provided in §F.3.1. We ex-
+periment with both the original prompt pro- Table6:VariantsofLloomwithGPT-4odetailedin§F.2
+videdinLametal.(2024)aswellasaintent-
+oriented modified version which affects per-
+• Lloom-Lite with filtering of concepts using
+formanceasshownin§F.2.
+thetableintent,butnootherfilteringordedu-
+• The bullet points obtained from all papers plication.
+are then converted to embeddings using
+• Lloom-Lite that includes the table intent in
+the text-embedding-ada-002 model.
+thefirstsummarizationstepinadditiontothe
+This is followed by clustering using HDB-
+conceptfilteringstep
+SCANwithEuclideandistanceasthemetric.
+Wesetthehyperparametersofthisstepfrom
+Results From§6,weseethatincorporatingthe
+Lametal.(2024).
+tableintentforconceptfilteringobtainsthehighest
+F1AUCscore—wereportthisvariantin§2in§3.
+• Eachclusteristhenconvertedtoaconceptlist
+Predictably,theall-conceptbaselineshavehigher
+usingthepromptfrom§F.3.2.
+recall,butverylowprecisionasthesehaveavery
+highnumberofpredictedschemaelements. Finally,
+• The obtained concepts are first filtered for
+weseethatincorporatingthetableintentearlierin
+genericortoospecificitemsusingtheprompt
+the Lloom pipeline, directly into the summariza-
+in §F.3.3 followed by a prompting step that
+tionstep,leadstolowerrecallwithslightlyhigher
+merges similar concepts. We also include a
+precision.
+filteringstepthatremovesconceptsnotrele-
+vanttothetableintent(promptsprovidedin
+F.3 Lloomprompts
+§F.3.4),ablatingthisin§F.2.
+F.3.1 Summarizeprompts
+summarize_prompt = """
+• Finally,weconvertthefilteredconceptsintoa I have the following TEXT EXAMPLE:
+{ex}
+schemaforcomparisonusingthepromptfrom
+Please summarize ALL the text in this EXAMPLE into
+§F.3.5.
+bullet points ensuring that you cover all of the
+content in the example. Each bullet point should
+be a single sentence. The example is a research paper
+Weablatethecontributionsofwheretointroduce so make sure you cover all aspects in the various
+bullet points including all specific details about
+thetableintentintotheLloompipelinein§F.2 the background, objective, method, experimental
+setups, names of datasets, results and takeaways.
+Make sure to be very detailed in writing bullet
+points--for example, don’t say ’other methods’,
+F.2 VariantsofLloom instead specify which are the methods mentioned in
+the text. We want as many details as possible such
+WecomparethreeversionsoftheLloompipeline that all the information in the paper is covered in
+at least one bullet point. Phrase each bullet point
+thatdifferbasedonhowthetableintentsareincor- such that it is understandable without needing
+external context. Please respond ONLY with a valid
+porated: JSON in the following format:
+{{
+"bullets": [ "<BULLET_1>", "<BULLET_2>", ... ]
+}}
+• Lloom-Lite,whichusesthetableintentonly """
+inthefinalstepforconvertingthefilteredcon- goal_oriented_summarize_prompt = """
+I have the following TEXT EXAMPLE:
+ceptsintoa. {ex}
+I also have an associated USER INTENT:
+• Lloom-Lite with all the concepts obtained {goal}
+from the filtering step i.e. we simply cre- Please summarize ALL the text in this EXAMPLE into
+bullet points in the context of the provided USER
+ate a schema with every concept from here INTENT. Make sure that you cover all of the content
+in the example, relevant to the particular USER
+asopposedtopromptinganLLMtocreatea INTENT. Each bullet point should be a single sentence.
+Tailor each bullet point in the context of providing
+coherentschemafromtheseconcepts information that would be informatinve and relevant to
+a user with that USER INTENT. The example is a
+research paper so make sure you cover all aspects in
+the various bullet points including all specific
+• Lloom-Lite that also uses the table intent to details about the background, objective, method,
+experimental setups, names of datasets, results and
+filterconceptsbeforeconvertingthemintothe
+takeaways. Make sure to be very detailed in writing
+bullet points--for example, don’t say ’other methods’,
+schema.
+instead specify which are the methods mentioned in
+the text. We want as many details as possible such {{
+that all the information in the paper is covered in at "original_themes": ["<THEME_NAME_A>", "
+least one bullet point. Phrase each bullet point such <THEME_NAME_B>"],
+that it is understandable without needing external "merged_theme_name": "<THEME_NAME_AB>",
+context. Please respond ONLY with a valid JSON in "merged_theme_prompt": "<THEME_PROMPT_AB>",
+the following format: }},
+{{ {{
+"bullets": [ "<BULLET_1>", "<BULLET_2>", ... ] "original_themes": ["<THEME_NAME_C>", "
+}} <THEME_NAME_D>"],
+"merged_theme_name": "<THEME_NAME_CD>",
+F.3.2 Synthesizeclustersintoconcepts "merged_theme_prompt": "<THEME_PROMPT_CD>",
+}}
+synthesize_prompt = """ ]
+I have this set of bullet points from a set of }}
+research papers: """
+{examples}
+F.3.5 Convertingconceptstoschema
+Please write a summary of {n_concepts} unifying
+patterns for these examples. {seeding_phrase} For synthesize_schema_from_concepts = ’’’
+each high-level pattern, write a 2-4 word NAME for Consider the task of a user writing a research paper
+the pattern and an associated 1-sentence ChatGPT and creating a table to compare and contrast a set of
+PROMPT that could take in a new text example and related papers. Given a list of concepts obtained
+determine whether the relevant pattern applies. Also from a set of papers, your task is to create the schema
+include 1-2 example_ids for items that BEST for this table. \
+exemplify the pattern. Please respond ONLY with [List of Concepts] {concepts} \
+a valid JSON in the following format: The goal of the schema is to answer the specific user
+{{ goal when creating the table as follows: \
+"patterns": [ [User Goal] {user_goal} \
+{{"name": "<PATTERN_NAME_1>", "prompt": " You should find the appropriate number of attributes
+<PATTERN_PROMPT_1>", "example_ids": ["<EXAMPLE_ID_1>", " from these concepts that are most useful for comparing
+<EXAMPLE_ID_2>"]}}, the papers in order to achieve the user goal. Each
+{{"name": "<PATTERN_NAME_2>", "prompt": " attribute you select to be a part of the schema is
+<PATTERN_PROMPT_2>", "example_ids": ["<EXAMPLE_ID_1>", " like a topic covered in the Related Work section of
+<EXAMPLE_ID_2>"]}}, the user’s paper. \
+] Return the schema as a JSON object in the following
+}} format: \"""json {"<attribute 1>": {"definition":
+""" <your definition of why this attribute should be an
+axis of comparison>, "output_format":<describe the
+range of output values that will be filled in, is it
+F.3.3 Filterprompt numbers, string values or another format>} , ...} """ \
+review_remove_prompt = """ ’’’
+I have this set of themes generated from text examples:
+{concepts} G SequentialPromptingDetails
+Please identify any themes that should be REMOVED G.1 SequentialPromptingPipeline
+because they are either:
+(1) Too specific/narrow and would only describe a few
+examples, or FollowingWangetal.(2025),wecreateapipeline
+(2) Too generic/broad and would describe nearly all
+examples. that sequentially uses information from the full-
+If there no such themes, please leave the list empty.
+Please respond ONLY with a valid JSON in the text of the research papers to iteratively update a
+following format:
+candidateschema:
+{{
+"remove": [
+"<THEME_NAME_5>", • Thefirststepinvolvessummarizingconcepts
+"<THEME_NAME_6>",
+] fromresearchpapers,similartothefirststep
+}}
+""" ofLloom(§F).Wereusethepromptin§F.3.1.
+Thefulltextofeachpaperissummarizedinto
+F.3.4 Mergeprompt
+a concise yet informative paragraph by con-
+review_remove_prompt_seed = """
+I have this dict of CONCEPTS (keys) and their catenatingthebulletpoints.
+corresponding inclusion criteria (values), as follows:
+{concepts}
+• WeinitializeanemptyJSONastheschemato
+I have the following THEME:
+{seed}
+begintheprocess.
+Please identify any CONCEPTS that DO NOT relate to
+the THEME and that should be removed. If there no
+such concepts, please leave the list empty. • Ineachiteration,wesampleparagraphssum-
+Please respond ONLY with a valid JSON in the following format:
+marizing papers in batches of 4 and prompt
+{{
+themodeltoupdatetheschemabasedonthis
+"remove": [
+"<CONCEPT_NAME_5>", set of papers.11 The prompt for this step is
+"<CONCEPT_NAME_6>",
+] provided in §G.2. The prompt explicitly in-
+}}
+""" cludes instructions to make add, edit or re-
+review_merge_prompt = """ moveoperationsontheexistingschema. The
+I have this set of themes generated from text examples:
+{concepts} expectation is that the edit from the current
+Please identify any PAIRS of themes that are batchofpapersalsoremainsfaithfultotheset
+similar or overlapping that should be MERGED together.
+Please respond ONLY with a valid JSON in the following of papers seen before by also providing the
+format with the original themes and a new name and
+prompt for the merged theme. Do NOT simply combine the titlesandabstractsofallpapersineachstep.
+prior theme names or prompts, but come up with a new
+2-3 word name and 1-sentence ChatGPT prompt. If there
+no similar themes, please leave the list empty. 11Unlike (Wang et al., 2025), we do not consider paper
+selectionaspartofthetask,soweomitthatstepfromtheir
+{{
+"merge": [ promptingpipeline.
+• Werepeatfor5setsofiterationsthroughall thechattemplateasduringtraining. Wesampleone
+papers with the order randomized between outputsettingthetemperatureto0.7andnucleus
+iterations. samplingtop_pas0.9.
+The results reported in §2 confirm that this I Trainingmodelsforunguidededitingof
+methodresultsinhighrecallschemaswithslightly schemas
+lowerprecisionthanjointlypromptingthemodel
+withinformationfromallpapersatonce. WetraintheQwen-2.5-3B-InstructandLlama-3.2-
+3B-Instructforunguidedschemaeditingusingthe
+G.2 Prompttoupdateschemafromanew followingsetup. First,wesampleoutputforeach
+batchofpapers example in ArxivDIGESTables-Silver using the
+UPDATE_SCHEMA_FROM_NEXT_PAPER = ’’’ GPT-4oprompting(T+A+TI)baselinein§E.We
+Imagine you are a co-author of a scientific paper and
+the first author is creating a table for comparing createatrainingdatasetforunguidededitingwhere
+different papers/methods. You are aware of the intent
+of the author about the information they want to theinputofeachexampleconsistsoftheaforemen-
+convey via the table. \
+You are considering papers one batch at a time and updating tionedgeneratedschema,tableintent,aswellasthe
+the schema every time you get a new paper. \
+Given the current schema, the original author intent concatenatedpapertitlesandabstractsbeingcom-
+for the table, the information from the batch of papers, and
+titles+abstracts of all papers, update the schema accordingly. pared. TheoutputisthereferenceJSONschema.
+To update the schema, you can add or remove columns
+as well as modify existing columns as appropriate. You Wewantthemodeltolearntheeditfromthegener-
+can also do nothing if the existing schema is good. If
+the current schema is empty, create one from scratch. atedcandidatetothereference. Wecreateatrain
+Every time you update the schema, make sure you cover
+all relevant information from all papers so far, and split(21168examples)andheld-outvalidationsplit
+keep the schema readable and meaningful. \
+[Intent] {intent} \ (1115examples)andapplytheHuggingfaceChat
+[Current Schema] {curr_schema} \
+[New Batch] {new_batch} \ Templatetothisdata. Thesystempromptforthe
+[Summaries Of All Papers] {past_papers} \
+Return a JSON object in the following format: \"""json chat template is the same as that of the prompt-
+{{"<attribute 1>": {{"definition":<your definition of
+ing experiments, provided in §E.1. We fine-tune
+why this attribute should be an axis of comparison>,
+"output_format":<describe the range of output values
+modelswithtraditionalsupervisedfine-tuning,re-
+that will be filled in, is it numbers, string values
+or another format>}} , ...}} """ \
+ducingthecrossentropylossonoutputtokens. We
+’’’
+train for 4 epochs with batch size 1 and perform
+H Fine-tuningopen-weightmodelsfor
+sweepsforthelearningratebetween1e−06and
+schemageneration
+1e−04, selecting the best checkpoint using vali-
+WetraintheQwen-2.5-3B-InstructandLlama-3.2-
+dationloss. OurtraininghappensonNvidiaA100
+3B-Instructforschemagenerationusingthefollow-
+GPUs. At inference time, we use standard Hug-
+ingsetup. First,wecreateatrainingdatasetfrom
+gingFacepipelinesaftertokenizingexampleswith
+the“mediumquality”examplesfromNewmanetal.
+thechattemplateasduringtraining. Wesampleone
+(2024)(ArxivDIGESTables-Silver)wheretheinput
+outputsettingthetemperatureto0.7andnucleus
+ofeachexampleconsistsofthetableintentaswell samplingtop_pas0.9.
+astheconcatenatedpapertitlesandabstractsbeing
+compared. Thesetablesarenotmanuallychecked J Trainingheuristics-guidedediting
+forparsingerrors,arefilteredlessstringently,and models
+do not have linked full-texts. The output is the
+WetraintheQwen-2.5-3B-InstructandLlama-3.2-
+JSON schema to be generated. We create a train
+3B-Instruct for heuristics-guided schema editing
+split(21168examples)andheldoutvalidationsplit
+usingthefollowingsetup. Wewanttotrainmodels
+(1115examples)andapplytheHuggingfaceChat
+that can add a column (AC) and drop a column
+Templatetothisdata. Thesystempromptforthe
+(DC)toacandidateschemagiventhetableintent
+chat template is the same as that of the prompt-
+andpaperinformation.
+ing experiments, provided in §E.1. We fine-tune
+modelswithtraditionalsupervisedfine-tuning,re- • Add Column (AC): We take the reference
+ducingthecrossentropylossonoutputtokens. We schemasfromArxivDIGESTables-Silverand
+train for 4 epochs with batch size 1 and perform randomlydroponeschemaitemperexample.
+sweepsforthelearningratebetween1e−06and This allows us to create pairs where the out-
+1e−04, selecting the best checkpoint using vali- put is the reference schema with all schema
+dationloss. OurtraininghappensonNvidiaA100 items, and our ’candidate’ schema with one
+GPUs. At inference time, we use standard Hug- itemmissing. Asaresult,whenwefine-tune
+gingFacepipelinesaftertokenizingexampleswith a model to generate the reference as output
+whengiventheinputofthiscandidateschema tents and paper information, we use prompt
+alongwiththetableintentandpapertitlesand §K.2.3. Wethenimplementthiscritiqueusing
+abstracts,welearntheAddColumnoperation. theprompt in§K.2.2to obtaintheresults in
+§3.
+• Drop Column (DC): First, we sample out-
+putforeachexampleinArxivDIGESTables- • For the two self-refine baselines, we gener-
+SilverusingtheGPT-4oprompting(T+A+TI) atecritiquesusingthetableintentandpaper
+baseline in §E. We then take the reference information (§K.2.1) and also by providing
+schemasfromArxivDIGESTables-Silverand ICL examples of critiques concatenated to-
+augment them with one randomly sampled gether (§K.2.4). We select ICL examples
+itemfromthecorrespondingGPT-4ogenera- by calculating the 5 most similar examples
+tion. Thisallowsustocreatepairswherethe in ArxivDIGESTables-Silver to the test ex-
+outputisthereferenceschemawithallschema ample, where similarity is calculated using
+items,andour’candidate’schemawithanex- BERTScoreontableintents. Wethengenerate
+traitemthathasbeenadded. Asaresult,when oraclecritiques(with§K.2.3andconcatenate
+wefine-tuneamodeltogeneratethereference thesetocreatetheprompt. Wethenupdatethe
+asoutputwhengiventheinputofthiscandi- schema based on the critiques generated us-
+date schema along with the table intent and ingthepromptin§K.2.2toobtaintheresults
+papertitlesandabstracts,welearntheDrop reportedin§3.
+Columnoperation.
+• For the distilled critiques, we obtain
+Foreachoperation,wecreateatrainsplit(21168
+oracle critiques for each example in
+examples) and held-out validation split (1115 ex-
+ArxivDIGESTables-Silver and split these
+amples)inthismannerandapplytheHuggingface
+randomly to create a training dataset of
+ChatTemplatetothisdata. Thesystempromptfor
+21168trainingexamplesand1115validating
+thechattemplateisthesameasthatoftheprompt-
+examples. We then fine-tune Llama-
+ing experiments, provided in §E.1. We fine-tune
+3.2-3B-Instruct, Llama-3.2-1B-Base and
+modelswithtraditionalsupervisedfine-tuning,re-
+Qwen-2.5-3B-Instruct. The input consists
+ducingthecrossentropylossonoutputtokens. We
+of the table intent, paper titles and abstracts
+train for 4 epochs with batch size 1 and perform
+and the schema generated and the expected
+sweepsforthelearningratebetween1e−06and
+outputistheoraclecritique. Fortheinstruct
+1e−04, selecting the best checkpoint using vali-
+models, we use the Chat Template on the
+dationloss. OurtraininghappensonNvidiaA100
+input along with the system prompt in §E.1,
+GPUs. At inference time, we use standard Hug-
+and for base models, we simply provide the
+gingFacepipelinesaftertokenizingexampleswith
+input. Wefine-tunethemodelstoreducethe
+thechattemplateasduringtraining. Wesampleone
+cross-entropy tokens in the output critique,
+outputsettingthetemperatureto0.7andnucleus
+sweeping learning rates from 1e − 4 to
+samplingtop_pas0.9.
+1e−6andselectingthebestcheckpointusing
+validationloss. Wethenruninferenceusing
+K Critique-GuidedEditingDetails
+thesameinputformatonArxivDIGESTables
+K.1 Promptingandfine-tuningmodelsfor and ArxivDIGESTables-Clean to obtain the
+generatingcritiques distilledcritiques. Weimplementthedistilled
+critiques using GPT-4o with the prompt
+Hereweprovidethedetailsforcritique-basedex-
+providedin§K.2.2toobtaintheresultsin§3.
+periments in §4.3. The model we use to create
+critiquesisgpt-4o-2024-08-06accessedbe-
+K.2 Promptsused
+tweenAugust2024andMay2025. Weaccessthe
+K.2.1 Promptforgeneratingacritiquetoa
+modelviatheAPIwiththesystempromptprovided
+schemawithrespecttothetableintent
+in§E.1. Wesampleoneoutputperexamplewith
+SINGLE_CRITIQUE_SCHEMA_TO_GOAL = ’’’
+temperature0.7. Thedifferentmethodsweusefor Imagine you are a co-author of a scientific paper
+and the first author is creating a table for
+critique-generationareshowninFigure4. comparing different papers/methods. You are aware
+of the intent of the author about the information
+they want to convey via the table. \
+• To create the oracle critiques of the gener-
+Given the author intent and the schema of the
+table with the papers being compared, you are
+atedschemagiventhereference,thetablein-
+giving them A SINGLE PIECE OF feedback on the
+Figure4: Methodsforgeneratingcritiquesfor§4.3.
+schema of the table based on various criteria. \ Your advisor has given you feedback on the
+1. You want the schema to be relevant to the user schema of this table that is to be incorporated
+goal. Are all the schema items relevant to the to improve the table. \
+goal? Is there any information missing in the Given the original schema, the feedback to be
+paper information which is relevant to the user incorporated, the original author intent for
+goal which is not included in the schema? \ the table and information about the papers
+2. You want the schemas to be non-redundant. If being compared, update the schema accordingly.
+there is some information shared in the different If the feedback tells you to drop irrelevant
+aspects of the schema, there is redundancy. If columns then remove them from the schema, or
+there is high redundancy, a user might find it if the feedback mentions to combine redundant
+hard to understand the table. Are there columns then remove the original ones after
+redundant schema items? \ you combine them, or if the schema asks you
+3. You want the schema to be readable in that to be more specific then update the column
+the amount of complexity in each of the columns name in the schema, and so on. Your goal is
+of the table to be roughly uniform. Are there to incorporate all the feedback and improve
+some columns that are on different complexity on the original schema: \
+levels to others which makes the schema less [Intent] {intent} \
+readable? \ [Original Schema] {org_schema} \
+4. You want the schema to generally be [Feedback to be used] {feedback} \
+informative to the reader. Would the user find [Compared Papers] {papers} \
+the table informative? Is there any missing Return a JSON object in the following format:
+information in the schema? \ \"""json {{"<attribute 1>": {{"definition":
+5. You want the schema to be highly specific <your definition of why this attribute should
+to the user goal. Can you improve the be an axis of comparison>, "output_format":
+specificity somehow? \ <describe the range of output values that will
+6. Are there other dimensions that you notice be filled in, is it numbers, string values or
+as issues with the schema? \ another format>}} , ...}} """ \
+Remember to be HIGHLY CRITICAL. You want the ’’’
+feedback to be actionable and you want to help
+them improve their work. You are only allowed K.2.3 Promptforgeneratinganoracle
+to give one SINGLE piece of feedback so make
+sure that you choose the most important piece critiquebasedonthereferenceschema
+of feedback and provide that.
+[Intent] {intent} \ andtableintent
+[Schema] {schema} \
+[Paper Information] {papers} LLM_SINGLE_CRITIQUE_TO_REFERENCE = ’’’
+Return the feedback in the following JSON Imagine you are a teacher and you want to teach
+format: {{’model_feedback’:<justification>}} \ your student how to write a related work table
+’’’ that compares different papers. You gave them
+an assignment of creating a table to compare a
+K.2.2 Promptforupdatingaschemabasedon set of papers. You have the schema of the table
+they created as well as a reference table and
+generatedcritique information about the papers being compared. \
+You are giving them feedback on the schema they
+UPDATE_SCHEMA_FROM_SINGLE_CRITIQUE = ’’’ created. But you also don’t want to give them
+Imagine you are a co-author of a scientific the answer. Generate a single critique. Here are
+paper and the first author is creating a table some example issues which you might want to
+for comparing different papers/methods. You critique in the created schema: \
+are aware of the intent of the author about the 1. You want the schema to match the reference.
+information they want to convey via the table. \ Are there items in the created schema that are
+• AseriesofeditsintheformofAdd/Remove/-
+not present in the reference, are there
+reference items which are missing in the
+Modifyoperationstobemadetothegenerated
+created schema? Remember to NOT MENTION THE
+REFERENCE. The student does not know the schemaitems
+reference exists. You need to frame each
+critique with respect to the paper information.
+Items in the reference are important from the
+• Asetofgeneral-purposerulestobeappliedto
+papers, so make sure that you discuss missing
+items in that way. Similarly extra items in
+makeeditstotheschema
+the created schema not in the reference are
+relatively unimportant in comparing the papers. \
+2. You want the schemas to be non-redundant.
+If there is some information shared in the • Inferringnaturallanguagecritiquesusingan
+different aspects of the schema, there is
+redundancy. If there is high redundancy, a user LLM(GPT-4o,o1-miniandDeepseekR1)to
+might find it hard to understand the table.
+identifypatternsoferrorsbetweenthegener-
+Are there redundant schema items? \
+3. You want the schema to be readable in that
+atedandreferenceschemas
+the amount of complexity in each of the columns
+of the table to be roughly uniform. Are there
+some columns that are on different complexity
+All of these different approaches obtained lower
+levels to others which makes the schema less
+readable? \
+performancethantheformatwereportinthepaper,
+4. You want the schema to generally be
+informative to the reader. Would the user find whichpromptsthemodeltoobtainasingleatomic
+the table informative? \
+5. Are there other dimensions that you notice edittobemadetotheschema,whichcorrectsthe
+as issues with the schema? \
+Remember to be HIGHLY CRITICAL. You want the largest error in the schema. The larger the edit
+feedback to be actionable, and you do not want
+to leak the reference so make sure that you recommendedbythecritique,thehighertheoracle
+always frame your critique in terms of the
+information from the papers and not the performancebutthelowerwastheperformanceon
+reference. \
+Most importantly you are only allowed to thetestexamples. Ourexperimentswereextensive
+suggest a SINGLE edit to the schema, so
+identify the most important issue wrong with but not exhaustive, so we provide this additional
+the schema and critique ONLY that one. \
+[Created Schema] {gen_schema} \ documentation to further research into methods
+[Reference Schema] {ref_schema} \
+[Paper Information] {papers} \ forappropriatelycritiquingtheschemageneration
+Return the feedback in the following JSON
+format: {{’critique’:<your critique>}} \ task.
+’’’
+L Statisticalsignificanceofschema
+K.2.4 Promptforgeneratingcritiquetoa
+generationresults
+schemawithrespecttotableintentand
+similarexamplesofcritiques
+Totestforthesignificanceoftheresultsobtained
+LLM_SINGLE_CRITIQUE_FROM_SIMILAR = ’’’
+Imagine you are a teacher and you want to teach in §2, we calculate the Recall, Precision, and F1
+your student how to write a related work table
+that compares different papers. You gave them AUCofeachexamplefromdifferentmethodsand
+an assignment of creating a table to compare a
+conductatwo-tailedt-testtoseeifthemeanAUC
+set of papers. You have the schema of the table
+they created, the intent that they wanted to
+values are different with significance at the 5%
+convey with the table and information about
+the papers being compared. \ level. Sinceitisdifficulttotestforthesignificance
+You are giving them feedback on the schema
+they created. But you also don’t want to give betweeneverybaselinein§3,wereportasubsetof
+them the answer. Generate a single critique.
+Here are some example critiques to use as a resultsforallthemaintakeawaysin§7.
+reference to understand the task of critique
+writing: \
+[Reference examples of critiques]
+• Incorporatingtableintentsintotheprompting
+{critique_text} \
+Remember to be HIGHLY CRITICAL. You want the pipelineincreasesthemeanrecall,precision,
+feedback to be actionable so make sure that
+you always frame your critique in terms of and F1 AUC for both GPT-4o and Claude-
+the information from the papers. \
+Most importantly you are only allowed to Sonnetwithsignificance(T+A+TIoverT
+suggest a SINGLE edit to the schema, so
+identify the most important issue wrong with +AandT+A+C+IR),confirmingtheirva-
+the schema and critique ONLY that one. \
+[Intent] {intent} \ lidityasahelpfulaugmentationtothedataset
+[Created Schema] {org_schema} \
+[Paper Information] {papers} \ (§2.1).
+Return the feedback in the following JSON
+format: {{’critique’:<your critique>}} \
+’’’ • Thehighestimprovementweseefromprompt-
+ingistheT+A+TI+ICLbaseline,andwe
+K.3 Settlingonaformatofthecritique
+confirm that the mean recall, precision, and
+We experimented extensively with the format of
+F1 AUC are higher than T + A + TI with
+the natural language critique to be used for the
+significance. Thisdemonstratesthevalueof
+experimentsin§4.3. Theseincluded:
+providing ICL examples to demonstrate the
+taskformat(§3.4).
+• Detailed paragrah-level critiques that listed
+outallpiecesoffeedbacktobeeditedinthe • SequentialpromptingwithT+FT+TIim-
+generatedschema provesrecallAUCbut,importantly,haslower
+Model Input Recall Precision F1 leads the model to make fairly generic and
+Baseline-T+A 0.1954 0.1791 0.1806 unhelpfuledits.
+GPT-4o Baseline-T+A+C+IR 0.2409 0.2159 0.2214
+T+A+TI 0.2811* 0.2648* 0.2666*
+Baseline-T+A+TI 0.2811 0.2648 0.2666 • Incorrectreasoning: Achallengingissueto
+T+A+TI+ICL 0.2941* 0.2807* 0.2811*
+automaticallydetectisonewherethemodel-
+Baseline-Joint-T+A+TI 0.2811 0.2648 0.2666
+Sequential-T+FT+TI 0.3122* 0.2297* 0.2541* generatedcritiquemightseemcorrectatfirst
+Baseline-T+A 0.2118 0.1841 0.1903 glance but does not hold up to fine-grained
+ClaudeSonnet Baseline-T+A+C+IR 0.2554 0.2360 0.2367
+T+A+TI 0.2655* 0.2313* 0.2407* scrutiny(5examples). Consider§9,wherethe
+Baseline-T+A+TI 0.2655 0.2313 0.2407 critiquepointsoutapotentialoverlapbetween
+T+A+TI+ICL 0.2903* 0.2505* 0.2617*
+twoschemaitemsandrecommendsthatthese
+Baseline-Joint-T+A+TI 0.2655 0.2313 0.2407
+Sequential-T+FT+TI 0.3138* 0.2090* 0.2386* be combined into one aspect. However the
+GPT-4o Baseline-T+A+TI 0.2811 0.2648 0.2666
+Qwen-3B-Instruct T+A+TI 0.2638* 0.3143* 0.2772* twoaspectsbeingspokenaboutspeakabout
+GPT-4o Baseline-T+A+TI 0.2811 0.2648 0.2666 the deployment in various applications and
+Llama-3B-Instruct T+A+TI 0.2684* 0.3006* 0.2747*
+openissues,whicharefairlybroadtobecom-
+Table7: StatisticalsignificancetestingofGPT-4oand binedintooneaspect.
+Claude-Sonnetschemagenerationresults,givenvarying
+inputs. HereTstandsforpapertitles,Aforabstracts,TI • Factual Errors: The third pattern of errors
+fortableintents,FTforfull-texts,Cfortablecaptions, was due to low level factual errors in the
+IRforin-textreferences,ICLforin-contextexamples. critique (5 examples). In §10, the model-
+Valuesmarkedwithanasteriskarecellswherethemean generatedcritiqueasksforaneditthatwould
+isdifferentfromthebaselinerowinthesamesection
+introduceanelementaboutthechallengesin
+withsignificanceatthe5%level,magnitudeindicating
+usingsmartsensorsinbuildingmanagement
+thedirectionofdifference. See§Lfordiscussion.
+systems. This is largely covered within the
+aspect“ChallengesandLimitationsinDeploy-
+precision and F1 AUC as compared to both ment”,thatexplicitlymentionssmartsensors
+joint prompting baselines of T + A + TI + in the definition. Training LLMs to avoid
+ICL and T + A + TI, each with statistical thesehallucinationswouldleadtomorehigh
+significance(§3.4). qualitycritiques.
+• Both fine-tuned Qwen-2.5-3B-Instruct and
+Llama-3.2-3B-Instruct achieve lower recall N UseofAIassistants
+buthigherprecisionandF1AUCthanGPT-4o
+The authors acknowledge that AI assistants were
+onthesameinputwithsignificanceconfirm-
+used to refine parts of the writing of this work in
+ingthatspecializedopen-weightmodelsare
+termsofframing,wordingandcoherenceofdiffer-
+competitivewithblackboxLLMs.
+entsections.
+M Qualitativeanalysisofcritiques
+Tounderstandwhymodel-generatedcritiquesare
+not as helpful as the oracle critiques in §4.3, one
+authorofthispapermanuallyexamined25exam-
+plesofcritiquestocategorizecommonpatternsof
+failure. These examples were randomly sampled
+fromtheSelf-Refinecritiquebaselinein§4.3. The
+mostprevalentcategoriesareasfollows:
+• Genericfeedback: Onecommonissue(6ex-
+amples)iswhenthemodelprovidesabroadly
+applicable critique without being specific to
+eitherthetableintentorthepapersbeingcom-
+pared. An example is provided in §8 where
+thecritiqueasksforanedittointroduceaTask
+aspectofcomparison,whichisnotveryrele-
+vanttotheparticularcandidateschema. This
+TableIntent GeneratedSchema Critique
+{
+"DatasetSize":{
+"definition":"Thesizeofadatasetisacrucialfactorfortraininglarge-scale
+languagemodels,aslargerdatasetscanpotentiallyprovidemorediverseand
+representativesamples,leadingtobettermodelgeneralizationand
+performance.",
+"output_format":"Numericvaluerepresentingthesizeofthedatasetin
+gigabytes(GB)orterabytes(TB)."
+},
+"DataDiversity":{
+"definition":"Thediversityofthedatainadatasetcanimpacthowwella
+languagemodeltrainedonitcangeneralizeacrossdifferentdomainsandtasks.
+Adiversedatasetcontainstextfromvarioussourcesanddomains.",
+"output_format":"Descriptivestringindicatingtherangeofdatasourcesand
+domainsincludedinthedataset."
+},
+"LanguageCoverage":{
+"definition":"Languagecoveragereferstothenumberandvarietyoflanguages
+Howdothe Theschemayou’ve
+representedinadataset.Multilingualdatasetshavethepotentialtotrain
+datasetsincludedin createdisquite
+modelsthatcanunderstandandgeneratetextinmultiplelanguages.",
+theGAIASearch comprehensivein
+"output_format":"Stringdescribingthenumberoflanguagesandanyspecific
+toolcomparein termsofdataset
+languagefocus(e.g.,monolingual,multilingualwithspecificlanguages)."
+termsofsizeand characteristicsand
+},
+availability,and ethical
+"DataAvailability":{
+whatimplications considerations,but
+"definition":"Theavailabilityofadatasetdetermineshowaccessibleitistothe
+doesthishavefor itmissesan
+researchcommunity,affectingwhocanuseitformodeltrainingand
+theirusein important
+experimentation.",
+large-scale dimensionthat
+"output_format":"Stringindicatingwhetherthedatasetispubliclyavailable,
+languagemodel couldsignificantly
+alongwithanyrestrictionsoraccessibilitynotes."
+training? aidin
+},
+understandingthe
+"EthicalConsiderations":{
+datasets:the’Task’
+"definition":"Ethicalconsiderationsinvolvethepotentialissuesrelatedtothe
+column.This
+contentofthedataset,suchasbiases,harmfulcontent,andgovernance,which
+columniscrucial
+canimpactthefairnessandsafetyofmodelstrainedonthedata.",
+becauseitspecifies
+"output_format":"Descriptivestringoutlininganyethicalconsiderationsor
+thetypeofmachine
+measurestakentoaddresstheminthedataset."}}
+learningtasksthat
+thedatasetsare
+intendedtosupport,
+suchas
+classification,
+translation,or
+grounding.
+Table8: Exampleofacritiquethatprovidesgenericfeedbackthatisnotveryactionable
+TableIntent GeneratedSchema Critique
+{
+"LatencyandReliability":{
+"definition":"LatencyandreliabilityarecriticalperformancemetricsforMEC
+systems,especiallyinapplicationslikevirtualrealityandvehicle-to-everything
+(V2X),wherequickresponsetimesanddependableservicearenecessary.
+TheseaspectsareessentialforunderstandinghowMECcanmeetthedemands
+ofreal-timeandmission-criticalapplications.",
+"output_format":"stringvalues,suchas’lowlatency’,’highreliability’,
+’ultra-reliable’,’mission-critical’"
+},
+"NetworkInfrastructureandArchitecture":{
+"definition":"Thedesignandarchitectureofthenetworkinfrastructureare
+fundamentaltothesuccessfuldeploymentofMECsystems.Thisattribute
+encompassesthedistributionofcomputingresources,proximitytoenddevices,
+andintegrationwithexistingnetworksystems,whichallaffecttheperformance
+andscalabilityofMEC.",
+"output_format":"stringvalues,suchas’distributed’,’centralized’,’integrated
+with5G’,’smallcellbasestations’"
+},
+"ApplicationsandUseCases":{
+"definition":"UnderstandingtheapplicationsandusecasesforMECisvitalto
+graspitspotentialandlimitations.Differentapplicationshavevarying
+Whatarethe Theschema
+requirements,suchasthoseinvirtualrealityorvehicularnetworks,whichdrive
+differentaspectsof currentlyincludes
+theneedforspecificMECfeaturesandenhancements.",
+MobileEdge ’Applicationsand
+"output_format":"listofstringvalues,suchas[’virtualreality’,’V2X’,’edge
+Computing(MEC) UseCases’and
+AI’,’vehicularapplications’]"
+performance ’Challengesand
+},
+exploredinrecent OpenIssues,’
+"ChallengesandOpenIssues":{
+academicsurveys, whichoverlapin
+"definition":"Identifyingandaddressingthechallengesandopenissuesin
+andhowdothese scope,asboth
+MECsystemsiscrucialfortheirimprovement.Thisincludesaspectslike
+aspectscontribute addressaspectsof
+scalability,security,andresourceallocation,whichneedtobetackledtoensure
+tothe MECperformance
+efficientandeffectiveMECdeployment.",
+understandingand andchallenges.
+"output_format":"listofstringvalues,suchas[’scalability’,’security’,
+improvementof Consider
+’resourceallocation’,’responsetime’]"
+MECsystems? consolidatingthese
+},
+columnsintoone
+"FutureResearchDirections":{
+thatdistinctly
+"definition":"Exploringfutureresearchdirectionshelpsinsettingaroadmap
+focuseson
+fortheevolutionofMECtechnologies.Itinvolvesinvestigatingemerging
+performance
+trends,technologicaladvancements,andpotentialinnovationsthatcanenhance
+characteristics,as
+MECperformance.",
+thesearecentral
+"output_format":"listofstringvalues,suchas[’5Gintegration’,’AIatthe
+themesinthe
+edge’,’enhancedVECapplications’]"
+papers.Thiswill
+}
+reduceredundancy
+}
+andimprovethe
+clarityand
+informativenessof
+yourcomparison
+table.
+Table9: Exampleofacritiquewithincorrectreasoningabouttheoverlapbetweenthetwoaspects, onewhich
+discussesweaknessesandtheotherdiscussesexamplesdeployment.
+TableIntent GeneratedSchema Critique
+{
+"RecommenderSystemsinEnergyManagement":{
+"definition":"Recommendersystemsareincreasinglyintegratedintoenergy
+managementsolutionsforbuildings,leveragingIoTandAItechnologiesto
+enhanceenergyefficiency.Thesesystemspromoteenergy-savingbehaviorand
+reducecarbonemissions,andthisattributeiscrucialtounderstandingtheirrole
+anddevelopmentinIEMS.",
+"output_format":"stringvaluesdescribingthepresence,type,androleof
+recommendersystemsinthestudy"
+},
+"ModelingApproachesforEnergyandComfortOptimization":{
+"definition":"Differentmodelingapproaches,suchaswhitebox,blackbox,
+andgrayboxmodels,areusedtooptimizebuildingenergymanagementand
+occupantcomfort.Understandingthesemodels’strengthsandweaknesses
+helpsevaluatetheireffectivenessinintelligentenergymanagementsystems.",
+"output_format":"stringvaluescategorizingthetypesofmodelsusedandtheir
+advantages/disadvantages"
+},
+"ChallengesandLimitationsinDeployment":{
+"definition":"Identifyingthechallengesandlimitationsfacedinthe
+deploymentofsmartsensorsinintelligentenergymanagementsystemsin
+Whatarethe Thecurrentschema
+buildings",
+existingresearch doesnotexplicitly
+"output_format":"stringvaluesdescribingidentifiedchallengesand
+trendsand addressthespecific
+limitations"
+methodologiesin challengesor
+},
+IntelligentEnergy limitationsrelated
+"EvaluationMetricsandIncentiveMeasures":{
+Management tospecific
+"definition":"Evaluationmetricsandincentivemeasuresareusedtoassessthe
+Systems(IEMS) technological
+performanceofIEMSandencouragetheiradoption.Thisattributeisnecessary
+forbuildings,and componentslike
+tocomparehowdifferentstudiesmeasuresuccessandpromotesystem
+howdoesthe smartsensorsand
+implementation.",
+currentstudy actuators,which
+"output_format":"stringvaluesdetailingtheevaluationmetricsandincentive
+addressthegapsor arementionedin
+measuresdiscussed"
+limitations thepapersas
+},
+identifiedinthese crucialforeffective
+"TechnologicalIntegrationandAdvancement":{
+previousworks? systemdeployment.
+"definition":"Theintegrationofadvancedtechnologies,suchasIoTandAI,
+Includingacolumn
+intoenergymanagementsystemsiscrucialforimprovingtheirfunctionality
+specificallyfocused
+andapplicability.Thisattributeoutlineshowtechnologicaladvancementsare
+on’Challengesand
+harnessedinthestudiestoachieveenergyefficiency.",
+LimitationsRelated
+"output_format":"stringvaluesexplainingthetechnologicalcomponentsand
+toSmartSensors
+theirintegration"
+andActuators’
+}
+wouldprovidea
+}
+more
+comprehensive
+viewofthe
+technicalobstacles
+indeploying
+intelligentsystems
+inbuildings.
+Table10: Exampleofacritiquewithafactualerrorasthe“ChallengesinDeployment”aspectcoverstheconcern
+mentionedinthecritiqueaboutsmartsensors

@@ -17,7 +17,6 @@ import {
 } from '@mui/material';
 import {
   PlayArrow,
-  Pause,
   Stop,
   CheckCircle,
   Error,
@@ -29,7 +28,7 @@ import { useQuery, useQueryClient } from 'react-query';
 
 import { qbsdAPI } from '../../services/api';
 import { webSocketService } from '../../services/websocket';
-import { QBSDStatus, WebSocketMessage } from '../../types';
+import { WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData, LogData } from '../../types';
 
 interface QBSDMonitorProps {
   sessionId: string;
@@ -63,7 +62,8 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
         setIsConnected(true);
         addLog('info', 'Connected to real-time monitoring');
       } else if (message.type === 'progress') {
-        addLog('info', message.data?.current_step || 'Processing...', message.data);
+        const progressData = message.data as ProgressData;
+        addLog('info', progressData?.current_step || 'Processing...', message.data);
         // Invalidate queries to refresh data
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
       } else if (message.type === 'error') {
@@ -72,14 +72,23 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
         addLog('success', 'QBSD execution completed successfully!', message.data);
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
       } else if (message.type === 'schema_completed') {
-        addLog('success', `Schema discovery finished! Discovered ${message.data?.total_columns || 'several'} columns.`, message.data);
+        const schemaData = message.data as SchemaCompletionData;
+        addLog('success', `Schema discovery finished! Discovered ${schemaData?.total_columns || 'several'} columns.`, message.data);
+        console.log('📨 Received schema_completed message, invalidating queries');
+        // Invalidate all relevant queries to refresh UI
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
-        queryClient.invalidateQueries(['session', sessionId]);
+        queryClient.invalidateQueries(['session', sessionId, 'qbsd']); // Match the exact query key
+        // Small delay then force refresh
+        setTimeout(() => {
+          queryClient.refetchQueries(['session', sessionId, 'qbsd']);
+        }, 500);
       } else if (message.type === 'row_completed') {
-        addLog('info', `Document ${message.data?.row_index}/${message.data?.total_rows} finished processing`, message.data);
+        const rowData = message.data as RowCompletionData;
+        addLog('info', `Document ${rowData?.row_index}/${rowData?.total_rows} finished processing`, message.data);
         queryClient.invalidateQueries(['data', sessionId]);
       } else if (message.type === 'log') {
-        addLog(message.data?.level || 'info', message.data?.message || 'Log message', message.data);
+        const logData = message.data as LogData;
+        addLog(logData?.level || 'info', logData?.message || 'Log message', message.data);
       }
     };
 

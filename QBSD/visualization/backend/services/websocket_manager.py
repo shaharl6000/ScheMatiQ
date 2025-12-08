@@ -1,8 +1,7 @@
 """WebSocket connection management."""
 
 import json
-import asyncio
-from typing import Dict, Set, List, Any
+from typing import Dict, Set, Any
 from fastapi import WebSocket
 from datetime import datetime
 
@@ -99,13 +98,75 @@ class WebSocketManager:
     
     async def broadcast_completion(self, session_id: str, result_data: Dict[str, Any]):
         """Broadcast completion message."""
-        completion_data = {
-            "type": "completed",
+        message = {
+            "type": "completion",
             "timestamp": datetime.now().isoformat(),
-            "result": result_data
+            "data": result_data
         }
         
-        await self.broadcast_progress(session_id, completion_data)
+        # Send to all connections for this session
+        if session_id in self.connections:
+            dead_connections = []
+            for websocket in self.connections[session_id]:
+                try:
+                    await websocket.send_json(message)
+                except Exception:
+                    dead_connections.append(websocket)
+            
+            # Remove dead connections
+            for websocket in dead_connections:
+                self.remove_connection(session_id, websocket)
+    
+    # Schema editing specific broadcast methods
+    async def broadcast_schema_updated(self, session_id: str, update_data: Dict[str, Any]):
+        """Broadcast schema update notification."""
+        message = {
+            "type": "schema_updated",
+            "timestamp": datetime.now().isoformat(),
+            "session_id": session_id,
+            "data": update_data
+        }
+        
+        await self.broadcast_to_session(session_id, message)
+    
+    async def broadcast_reprocessing_progress(self, session_id: str, progress_data: Dict[str, Any]):
+        """Broadcast reprocessing progress updates."""
+        message = {
+            "type": "reprocessing_progress",
+            "timestamp": datetime.now().isoformat(),
+            "session_id": session_id,
+            "data": progress_data
+        }
+        
+        await self.broadcast_to_session(session_id, message)
+    
+    async def broadcast_reprocessing_completed(self, session_id: str, completion_data: Dict[str, Any]):
+        """Broadcast reprocessing completion."""
+        message = {
+            "type": "reprocessing_completed",
+            "timestamp": datetime.now().isoformat(),
+            "session_id": session_id,
+            "data": completion_data
+        }
+        
+        await self.broadcast_to_session(session_id, message)
+    
+    async def broadcast_to_session(self, session_id: str, message: Dict[str, Any]):
+        """Generic method to broadcast a message to all connections for a session."""
+        if session_id not in self.connections:
+            return
+        
+        dead_connections = []
+        for websocket in self.connections[session_id]:
+            try:
+                await websocket.send_json(message)
+            except Exception as e:
+                print(f"Failed to send message to websocket: {e}")
+                dead_connections.append(websocket)
+        
+        # Remove dead connections
+        for websocket in dead_connections:
+            self.remove_connection(session_id, websocket)
     
     async def broadcast_schema_completed(self, session_id: str, schema_data: Dict[str, Any]):
         """Broadcast schema discovery completion."""
@@ -119,13 +180,24 @@ class WebSocketManager:
     
     async def broadcast_row_completed(self, session_id: str, row_data: Dict[str, Any]):
         """Broadcast individual row completion during value extraction."""
-        row_completion_data = {
+        message = {
             "type": "row_completed", 
             "timestamp": datetime.now().isoformat(),
-            "row": row_data
+            "data": row_data
         }
         
-        await self.broadcast_progress(session_id, row_completion_data)
+        # Send to all connections for this session
+        if session_id in self.connections:
+            dead_connections = []
+            for websocket in self.connections[session_id]:
+                try:
+                    await websocket.send_json(message)
+                except Exception:
+                    dead_connections.append(websocket)
+            
+            # Remove dead connections
+            for websocket in dead_connections:
+                self.remove_connection(session_id, websocket)
     
     def get_connection_count(self, session_id: str) -> int:
         """Get number of active connections for a session."""

@@ -38,13 +38,22 @@ class SchemaColumn(BaseModel):
     definition: Optional[str] = None
     rationale: Optional[str] = None
 
+class LLMBackendConfig(BaseModel):
+    """LLM backend configuration."""
+    provider: str
+    model: str
+    max_tokens: int
+    temperature: float
+    max_context_tokens: Optional[int] = None
+
 class QBSDSchemaFormat(BaseModel):
     """QBSD schema file format."""
     query: Optional[str] = None
     docs_path: Optional[str] = None
-    backend: Optional[Dict[str, Any]] = None
+    backend: Optional[Dict[str, Any]] = None  # Legacy single backend support
     retriever: Optional[Dict[str, Any]] = None
     schema: List[SchemaColumn]
+    llm_configuration: Optional[Dict[str, Any]] = None  # New dual LLM config
 
 class SchemaValidationResult(BaseModel):
     """Result of schema file validation."""

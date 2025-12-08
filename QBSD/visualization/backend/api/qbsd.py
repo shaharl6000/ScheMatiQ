@@ -2,9 +2,14 @@
 
 import uuid
 import asyncio
+import csv
+import io
+import json
+from datetime import datetime
+from pathlib import Path
 from typing import List
 from fastapi import APIRouter, HTTPException, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from models.session import VisualizationSession, SessionType, SessionMetadata
 from models.qbsd import QBSDConfig, QBSDStatus
@@ -134,3 +139,516 @@ async def stop_qbsd(session_id: str):
 async def list_qbsd_sessions():
     """List all QBSD sessions."""
     return session_manager.list_sessions(SessionType.QBSD)
+
+@router.get("/export/{session_id}")
+async def export_qbsd_data(session_id: str):
+    """Export QBSD data as CSV with excerpts in separate columns."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get all data
+        data = await qbsd_runner.get_data(session_id, page=0, page_size=10000)  # Get all data
+        
+        if not data.rows:
+            raise HTTPException(status_code=404, detail="No data to export")
+        
+        # Prepare CSV data with metadata
+        output = io.StringIO()
+        
+        # Add schema metadata as CSV comments
+        output.write("# QBSD Export with Schema Metadata\n")
+        output.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        output.write(f"# Session ID: {session_id}\n")
+        output.write(f"# Query: {session.schema_query or 'N/A'}\n")
+        
+        # Load and include LLM configuration if available
+        session_dir = Path("./data") / session_id
+        qbsd_config_file = session_dir / "qbsd_config.json"
+        
+        if qbsd_config_file.exists():
+            try:
+                with open(qbsd_config_file) as f:
+                    qbsd_config = json.load(f)
+                    if "schema_creation_backend" in qbsd_config:
+                        backend = qbsd_config["schema_creation_backend"]
+                        output.write(f"# Schema Creation: {backend.get('provider', 'unknown')} {backend.get('model', 'unknown')}\n")
+                    if "value_extraction_backend" in qbsd_config:
+                        backend = qbsd_config["value_extraction_backend"]
+                        output.write(f"# Value Extraction: {backend.get('provider', 'unknown')} {backend.get('model', 'unknown')}\n")
+                    elif "backend" in qbsd_config:  # Legacy support
+                        backend = qbsd_config["backend"]
+                        output.write(f"# AI Model: {backend.get('provider', 'unknown')} {backend.get('model', 'unknown')}\n")
+            except Exception as e:
+                output.write(f"# LLM Config: Error loading ({e})\n")
+        
+        output.write("#\n")
+        output.write("# Column Definitions:\n")
+        
+        # Add column metadata for each schema column
+        for col in session.columns:
+            if col.name and not col.name.lower().endswith('_excerpt'):
+                output.write(f"# {col.name}: {col.definition or 'No definition available'}\n")
+                if col.rationale:
+                    output.write(f"#   Rationale: {col.rationale}\n")
+        
+        # Add special column explanations
+        output.write("# row_name: Identifier for this data row\n")
+        output.write("# papers: Source documents used for extraction\n")
+        output.write("# {column}_excerpt: Supporting evidence from documents for {column}\n")
+        output.write("#\n")
+        
+        # Determine all column names including excerpt columns
+        all_columns = set()
+        for row in data.rows:
+            if row.row_name:
+                all_columns.add('row_name')
+            if row.papers:
+                all_columns.add('papers')
+            for col_name in row.data.keys():
+                all_columns.add(col_name)
+                # Add excerpt column for QBSD data
+                if isinstance(row.data[col_name], dict) and 'excerpts' in row.data[col_name]:
+                    all_columns.add(f"{col_name}_excerpt")
+        
+        column_names = sorted(list(all_columns))
+        
+        writer = csv.DictWriter(output, fieldnames=column_names)
+        writer.writeheader()
+        
+        # Write data rows
+        for row in data.rows:
+            csv_row = {}
+            
+            # Add standard columns
+            if row.row_name:
+                csv_row['row_name'] = row.row_name
+            if row.papers:
+                csv_row['papers'] = '; '.join(row.papers) if isinstance(row.papers, list) else str(row.papers)
+            
+            # Process data columns
+            for col_name, value in row.data.items():
+                if isinstance(value, dict) and 'answer' in value:
+                    # QBSD format: extract answer and excerpts
+                    csv_row[col_name] = value['answer']
+                    if 'excerpts' in value and value['excerpts']:
+                        excerpt_col = f"{col_name}_excerpt"
+                        if isinstance(value['excerpts'], list):
+                            csv_row[excerpt_col] = ' | '.join(str(ex) for ex in value['excerpts'])
+                        else:
+                            csv_row[excerpt_col] = str(value['excerpts'])
+                else:
+                    # Regular data
+                    if isinstance(value, (list, dict)):
+                        csv_row[col_name] = str(value)  # Convert complex types to string
+                    else:
+                        csv_row[col_name] = value
+            
+            writer.writerow(csv_row)
+        
+        # Prepare response
+        output.seek(0)
+        content = output.getvalue()
+        
+        # Generate filename with datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"QBSD_{timestamp}.csv"
+        
+        return StreamingResponse(
+            io.BytesIO(content.encode('utf-8')),
+            media_type='text/csv',
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/export-complete/{session_id}")
+async def export_complete_qbsd_data(session_id: str, format: str = "json"):
+    """Export complete QBSD data with schema metadata in multiple formats."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get schema and data
+        schema = await qbsd_runner.get_schema(session_id)
+        data = await qbsd_runner.get_data(session_id, page=0, page_size=10000)
+        
+        # Load QBSD configuration if available
+        session_dir = Path("./data") / session_id
+        qbsd_config_file = session_dir / "qbsd_config.json"
+        llm_configuration = None
+        
+        if qbsd_config_file.exists():
+            try:
+                with open(qbsd_config_file) as f:
+                    qbsd_config = json.load(f)
+                    llm_configuration = {
+                        "schema_creation_backend": qbsd_config.get("schema_creation_backend"),
+                        "value_extraction_backend": qbsd_config.get("value_extraction_backend")
+                    }
+            except Exception as e:
+                print(f"DEBUG: Could not load LLM configuration for complete export: {e}")
+        
+        # Prepare complete export data structure
+        export_data = {
+            "session_id": session_id,
+            "session_type": session.type.value,
+            "created": session.metadata.created.isoformat(),
+            "last_modified": session.metadata.last_modified.isoformat(),
+            "query": session.schema_query,
+            "schema": {
+                "columns": [
+                    {
+                        "name": col.name,
+                        "definition": col.definition or "",
+                        "rationale": col.rationale or "",
+                        "data_type": col.data_type
+                    }
+                    for col in session.columns
+                    if col.name and not col.name.lower().endswith('_excerpt')
+                ]
+            },
+            "metadata": {
+                "total_rows": data.total_count,
+                "total_columns": len([col for col in session.columns if not col.name.lower().endswith('_excerpt')]),
+                "source": session.metadata.source,
+                "schema_discovery_completed": session.metadata.schema_discovery_completed,
+                "total_documents": session.metadata.total_documents,
+                "processed_documents": session.metadata.processed_documents
+            },
+            "data": [
+                {
+                    "row_name": row.row_name,
+                    "papers": row.papers,
+                    "data": row.data
+                }
+                for row in data.rows
+            ]
+        }
+        
+        # Include LLM configuration if available
+        if llm_configuration and any(llm_configuration.values()):
+            export_data["llm_configuration"] = llm_configuration
+        
+        # Handle different export formats
+        if format.lower() == "json":
+            # JSON format with complete metadata
+            content = json.dumps(export_data, indent=2, ensure_ascii=False, default=str)
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            filename = f"QBSD_{timestamp}_complete.json"
+            
+            return StreamingResponse(
+                io.BytesIO(content.encode('utf-8')),
+                media_type='application/json',
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+            
+        elif format.lower() == "zip":
+            # ZIP package with separate files
+            import zipfile
+            import tempfile
+            
+            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                with zipfile.ZipFile(tmp_file.name, 'w') as zip_file:
+                    # Add schema file
+                    schema_data = {
+                        "query": export_data["query"],
+                        "schema": [
+                            {
+                                "name": col["name"],
+                                "definition": col["definition"],
+                                "rationale": col["rationale"]
+                            }
+                            for col in export_data["schema"]["columns"]
+                        ]
+                    }
+                    
+                    # Include LLM configuration if available
+                    if llm_configuration and any(llm_configuration.values()):
+                        schema_data["llm_configuration"] = llm_configuration
+                    
+                    zip_file.writestr("schema.json", json.dumps(schema_data, indent=2))
+                    
+                    # Add separate column metadata CSV for easy reference
+                    metadata_output = io.StringIO()
+                    metadata_writer = csv.writer(metadata_output)
+                    metadata_writer.writerow(["Column Name", "Definition", "Rationale", "Data Type"])
+                    
+                    for col in export_data["schema"]["columns"]:
+                        metadata_writer.writerow([
+                            col["name"],
+                            col["definition"],
+                            col["rationale"],
+                            col.get("data_type", "text")
+                        ])
+                    
+                    # Add special columns documentation
+                    metadata_writer.writerow(["row_name", "Identifier for this data row", "Standard QBSD metadata field", "text"])
+                    metadata_writer.writerow(["papers", "Source documents used for extraction", "Standard QBSD metadata field", "text"])
+                    metadata_writer.writerow(["{column}_excerpt", "Supporting evidence from documents", "Generated for each QBSD data column", "text"])
+                    
+                    zip_file.writestr("column_metadata.csv", metadata_output.getvalue())
+                    
+                    # Add data file as CSV with QBSD format handling
+                    if export_data["data"]:
+                        output = io.StringIO()
+                        
+                        # Determine all column names including excerpt columns
+                        all_columns = set()
+                        for row in export_data["data"]:
+                            if row["row_name"]:
+                                all_columns.add('row_name')
+                            if row["papers"]:
+                                all_columns.add('papers')
+                            for col_name in row["data"].keys():
+                                all_columns.add(col_name)
+                                # Add excerpt column for QBSD data
+                                if isinstance(row["data"][col_name], dict) and 'excerpts' in row["data"][col_name]:
+                                    all_columns.add(f"{col_name}_excerpt")
+                        
+                        column_names = sorted(list(all_columns))
+                        writer = csv.DictWriter(output, fieldnames=column_names)
+                        writer.writeheader()
+                        
+                        # Write data rows with QBSD format handling
+                        for row in export_data["data"]:
+                            csv_row = {}
+                            
+                            # Add standard columns
+                            if row["row_name"]:
+                                csv_row['row_name'] = row["row_name"]
+                            if row["papers"]:
+                                csv_row['papers'] = '; '.join(row["papers"]) if isinstance(row["papers"], list) else str(row["papers"])
+                            
+                            # Process data columns
+                            for col_name, value in row["data"].items():
+                                if isinstance(value, dict) and 'answer' in value:
+                                    # QBSD format: extract answer and excerpts
+                                    csv_row[col_name] = value['answer']
+                                    if 'excerpts' in value and value['excerpts']:
+                                        excerpt_col = f"{col_name}_excerpt"
+                                        if isinstance(value['excerpts'], list):
+                                            csv_row[excerpt_col] = ' | '.join(str(ex) for ex in value['excerpts'])
+                                        else:
+                                            csv_row[excerpt_col] = str(value['excerpts'])
+                                else:
+                                    # Regular data
+                                    if isinstance(value, (list, dict)):
+                                        csv_row[col_name] = str(value)
+                                    else:
+                                        csv_row[col_name] = value
+                            
+                            writer.writerow(csv_row)
+                        
+                        zip_file.writestr("data.csv", output.getvalue())
+                    
+                    # Add metadata file
+                    zip_file.writestr("metadata.json", json.dumps(export_data["metadata"], indent=2, default=str))
+                
+                # Read and return zip file
+                with open(tmp_file.name, 'rb') as f:
+                    zip_content = f.read()
+                
+                # Clean up temp file
+                Path(tmp_file.name).unlink()
+                
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                filename = f"QBSD_{timestamp}_complete.zip"
+                return StreamingResponse(
+                    io.BytesIO(zip_content),
+                    media_type='application/zip',
+                    headers={"Content-Disposition": f"attachment; filename={filename}"}
+                )
+                
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported format. Use 'json' or 'zip'")
+        
+    except Exception as e:
+        print(f"DEBUG: Exception in export_complete_qbsd_data: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/export-rich-csv/{session_id}")
+async def export_qbsd_rich_csv(session_id: str):
+    """Export QBSD data as metadata-rich CSV with definition and rationale columns."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Get all data
+        data = await qbsd_runner.get_data(session_id, page=0, page_size=10000)
+        
+        if not data.rows:
+            raise HTTPException(status_code=404, detail="No data to export")
+        
+        # Prepare metadata-rich CSV
+        output = io.StringIO()
+        
+        # Create extended column set with metadata
+        base_columns = set()
+        for row in data.rows:
+            if row.row_name:
+                base_columns.add('row_name')
+            if row.papers:
+                base_columns.add('papers')
+            for col_name in row.data.keys():
+                base_columns.add(col_name)
+                # Add excerpt column for QBSD data
+                if isinstance(row.data[col_name], dict) and 'excerpts' in row.data[col_name]:
+                    base_columns.add(f"{col_name}_excerpt")
+        
+        # Build enhanced column list with metadata columns
+        enhanced_columns = []
+        for col_name in sorted(base_columns):
+            enhanced_columns.append(col_name)
+            # Add metadata columns for schema columns (not for standard or excerpt columns)
+            if (col_name not in ['row_name', 'papers'] and 
+                not col_name.endswith('_excerpt')):
+                enhanced_columns.append(f"{col_name}_definition")
+                enhanced_columns.append(f"{col_name}_rationale")
+        
+        writer = csv.DictWriter(output, fieldnames=enhanced_columns)
+        
+        # Write metadata header rows first
+        output.write("# Metadata-Rich CSV Export\n")
+        output.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        output.write(f"# Session ID: {session_id}\n")
+        output.write(f"# Query: {session.schema_query or 'N/A'}\n")
+        output.write("# Format: Each data column has corresponding _definition and _rationale columns\n")
+        output.write("#\n")
+        
+        # Write CSV headers
+        writer.writeheader()
+        
+        # Create column metadata lookup
+        column_metadata = {}
+        for col in session.columns:
+            if col.name:
+                column_metadata[col.name] = {
+                    'definition': col.definition or '',
+                    'rationale': col.rationale or ''
+                }
+        
+        # Write data rows with metadata
+        for row in data.rows:
+            csv_row = {}
+            
+            # Add standard columns
+            if row.row_name:
+                csv_row['row_name'] = row.row_name
+            if row.papers:
+                csv_row['papers'] = '; '.join(row.papers) if isinstance(row.papers, list) else str(row.papers)
+            
+            # Process data columns with metadata
+            for col_name, value in row.data.items():
+                if isinstance(value, dict) and 'answer' in value:
+                    # QBSD format: extract answer and excerpts
+                    csv_row[col_name] = value['answer']
+                    if 'excerpts' in value and value['excerpts']:
+                        excerpt_col = f"{col_name}_excerpt"
+                        if isinstance(value['excerpts'], list):
+                            csv_row[excerpt_col] = ' | '.join(str(ex) for ex in value['excerpts'])
+                        else:
+                            csv_row[excerpt_col] = str(value['excerpts'])
+                else:
+                    # Regular data
+                    if isinstance(value, (list, dict)):
+                        csv_row[col_name] = str(value)
+                    else:
+                        csv_row[col_name] = value
+                
+                # Add metadata columns for this data column
+                if col_name in column_metadata:
+                    csv_row[f"{col_name}_definition"] = column_metadata[col_name]['definition']
+                    csv_row[f"{col_name}_rationale"] = column_metadata[col_name]['rationale']
+            
+            writer.writerow(csv_row)
+        
+        # Prepare response
+        output.seek(0)
+        content = output.getvalue()
+        
+        # Generate filename with datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"QBSD_{timestamp}_rich.csv"
+        
+        return StreamingResponse(
+            io.BytesIO(content.encode('utf-8')),
+            media_type='text/csv',
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/export-schema/{session_id}")
+async def export_qbsd_schema_only(session_id: str):
+    """Export only the QBSD schema metadata."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Load QBSD configuration if available
+        session_dir = Path("./data") / session_id
+        qbsd_config_file = session_dir / "qbsd_config.json"
+        llm_configuration = None
+        
+        if qbsd_config_file.exists():
+            try:
+                with open(qbsd_config_file) as f:
+                    qbsd_config = json.load(f)
+                    llm_configuration = {
+                        "schema_creation_backend": qbsd_config.get("schema_creation_backend"),
+                        "value_extraction_backend": qbsd_config.get("value_extraction_backend")
+                    }
+            except Exception as e:
+                print(f"DEBUG: Could not load LLM configuration: {e}")
+
+        # Create QBSD schema export
+        schema_export = {
+            "query": session.schema_query or "",
+            "schema": [
+                {
+                    "name": col.name,
+                    "definition": col.definition or "",
+                    "rationale": col.rationale or ""
+                }
+                for col in session.columns
+                if col.name and not col.name.lower().endswith('_excerpt')
+            ],
+            "metadata": {
+                "session_id": session_id,
+                "session_type": session.type.value,
+                "created": session.metadata.created.isoformat(),
+                "source": session.metadata.source,
+                "total_columns": len([col for col in session.columns if not col.name.lower().endswith('_excerpt')]),
+                "schema_discovery_completed": session.metadata.schema_discovery_completed,
+                "export_timestamp": datetime.now().isoformat()
+            }
+        }
+        
+        # Include LLM configuration if available
+        if llm_configuration and any(llm_configuration.values()):
+            schema_export["llm_configuration"] = llm_configuration
+        
+        content = json.dumps(schema_export, indent=2, ensure_ascii=False, default=str)
+        
+        # Generate filename with datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"QBSD_{timestamp}_schema.json"
+        
+        return StreamingResponse(
+            io.BytesIO(content.encode('utf-8')),
+            media_type='application/json',
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+        
+    except Exception as e:
+        print(f"DEBUG: Exception in export_qbsd_schema_only: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

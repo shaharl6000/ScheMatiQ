@@ -16,15 +16,14 @@ import {
   CheckCircle,
   Error,
   Warning,
-  Info,
   Schema as SchemaIcon,
   TableView,
 } from '@mui/icons-material';
 
-import { CompatibilityCheck, SchemaValidationResult, FileValidationResult } from '../../types';
+import { CompatibilityCheck, SchemaValidationResultBasic, FileValidationResult } from '../../types';
 
 interface CompatibilityDisplayProps {
-  schemaValidation: SchemaValidationResult;
+  schemaValidation: SchemaValidationResultBasic;
   dataValidation: FileValidationResult;
   compatibility: CompatibilityCheck;
 }

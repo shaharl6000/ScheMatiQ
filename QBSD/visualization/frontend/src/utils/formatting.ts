@@ -49,3 +49,56 @@ export const truncateText = (text: string, maxLength: number = 100): string => {
 export const needsTruncation = (text: string, maxLength: number = 100): boolean => {
   return text.length > maxLength;
 };
+
+/**
+ * Get preview text with smart truncation
+ */
+export const getPreviewText = (text: string, maxLength: number = 100): string => {
+  if (text.length <= maxLength) return text;
+  
+  // Try to truncate at word boundary
+  const truncated = text.substring(0, maxLength);
+  const lastSpaceIndex = truncated.lastIndexOf(' ');
+  
+  if (lastSpaceIndex > maxLength * 0.75) {
+    return truncated.substring(0, lastSpaceIndex) + '...';
+  }
+  
+  return truncated + '...';
+};
+
+/**
+ * Check if content appears to be excerpt-like
+ */
+export const isExcerptContent = (columnName: string, value: unknown): boolean => {
+  if (typeof value !== 'string') return false;
+  
+  const column = columnName.toLowerCase();
+  return column.includes('excerpt') || 
+         column.includes('evidence') || 
+         column.includes('source') || 
+         column.includes('citation');
+};
+
+/**
+ * Check if text is very long
+ */
+export const isVeryLongText = (text: string, threshold: number = 300): boolean => {
+  return text.length > threshold;
+};
+
+/**
+ * Check if text has multiple lines
+ */
+export const hasMultipleLines = (text: string, lineThreshold: number = 5): boolean => {
+  return text.split('\n').length > lineThreshold;
+};
+
+/**
+ * Format session status for display
+ */
+export const formatSessionStatus = (status: string): string => {
+  return status
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase());
+};

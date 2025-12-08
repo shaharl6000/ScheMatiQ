@@ -31,7 +31,8 @@ class QBSDConfig(BaseModel):
     max_keys_schema: int = 100
     documents_batch_size: int = 4
     initial_schema_path: Optional[str] = None
-    backend: LLMConfig
+    schema_creation_backend: LLMConfig
+    value_extraction_backend: LLMConfig
     retriever: Optional[RetrieverConfig] = None
     output_path: str
     document_randomization_seed: int = 42

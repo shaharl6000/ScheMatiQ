@@ -18,23 +18,46 @@ import {
 import { Search, Visibility } from '@mui/icons-material';
 import { useQuery, useQueryClient } from 'react-query';
 
-import { PaginatedData } from '../../types';
+import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { sessionAPI } from '../../services/api';
-import { formatColumnName, needsTruncation, truncateText } from '../../utils/formatting';
+import { 
+  formatColumnName, 
+  needsTruncation, 
+  truncateText,
+  isExcerptContent,
+  isVeryLongText,
+  hasMultipleLines,
+  getPreviewText
+} from '../../utils/formatting';
 import ContentModal from '../ContentModal/ContentModal';
+import {
+  QBSD_REFRESH_INTERVAL,
+  AVAILABLE_PAGE_SIZES,
+  LONG_TEXT_THRESHOLD,
+  MEDIUM_TEXT_THRESHOLD,
+  SHORT_TEXT_THRESHOLD,
+  MAX_CELL_LINES,
+  FROZEN_COLUMN_WIDTH,
+  REGULAR_COLUMN_WIDTH,
+  TABLE_MAX_HEIGHT,
+  TABLE_MIN_WIDTH,
+  SEARCH_FIELD_WIDTH,
+  TABLE_ROW_MAX_HEIGHT
+} from '../../constants/index';
 
 interface DataTableProps {
   data: PaginatedData;
   sessionId: string;
   sessionType: 'upload' | 'qbsd';
+  newlyAddedRows?: Set<number>;
 }
 
-const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, sessionType }) => {
+const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, sessionType, newlyAddedRows }) => {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [searchTerm, setSearchTerm] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
-  const [modalContent, setModalContent] = useState<{ title: string; content: any }>({ title: '', content: null });
+  const [modalContent, setModalContent] = useState<ModalContent>({ title: '', content: null });
   const queryClient = useQueryClient();
 
   // Fetch data with pagination - auto-refresh during QBSD value extraction
@@ -44,7 +67,7 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
     {
       keepPreviousData: true,
       initialData,
-      refetchInterval: sessionType === 'qbsd' ? 3000 : false, // Auto-refresh every 3 seconds for QBSD
+      refetchInterval: sessionType === 'qbsd' ? QBSD_REFRESH_INTERVAL : false, // Auto-refresh for QBSD
     }
   );
   
@@ -53,18 +76,8 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
     // This effect could listen to WebSocket messages and trigger data refresh
     // For now, the refetchInterval above handles the updates
     
-    // Optional: Listen to specific WebSocket events for more immediate updates
-    const handleRowCompleted = () => {
-      queryClient.invalidateQueries(['data', sessionId, sessionType]);
-    };
-    
-    // In a real implementation, you'd add WebSocket listener here
-    // webSocketService.addEventListener('row_completed', handleRowCompleted);
-    
-    return () => {
-      // Cleanup WebSocket listener
-      // webSocketService.removeEventListener('row_completed', handleRowCompleted);
-    };
+    // Note: WebSocket listeners could be added here for more immediate updates
+    // Currently using refetchInterval for auto-refresh
   }, [queryClient, sessionId, sessionType]);
 
   // Filter data based on search term
@@ -85,25 +98,63 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
     });
   }, [data.rows, searchTerm]);
 
-  // Get all column names
+  // Get all column names with proper ordering (row name first)
   const columns = useMemo(() => {
-    const columnSet = new Set<string>();
+    const priorityColumns: string[] = [];
+    const regularColumns: string[] = [];
     
     // Add standard columns
     if (data.rows.some(row => row.row_name)) {
-      columnSet.add('_row_name');
+      priorityColumns.push('_row_name');
     }
     if (data.rows.some(row => row.papers?.length)) {
-      columnSet.add('_papers');
+      regularColumns.push('_papers');
     }
     
-    // Add data columns
+    // Get all data columns and filter out excerpt columns
+    const allDataColumns = new Set<string>();
     data.rows.forEach(row => {
-      Object.keys(row.data).forEach(key => columnSet.add(key));
+      Object.keys(row.data).forEach(key => allDataColumns.add(key));
     });
     
-    return Array.from(columnSet);
+    // Filter out excerpt columns (_excerpt suffix) from display
+    const dataColumnArray = Array.from(allDataColumns).filter(col => !col.endsWith('_excerpt'));
+    
+    // First priority: exact matches for common row identifier names
+    const exactMatches = ['row_name', 'name', 'id', 'title', 'row', 'identifier'];
+    exactMatches.forEach(exactName => {
+      const found = dataColumnArray.find(col => col.toLowerCase() === exactName);
+      if (found && !priorityColumns.includes(found)) {
+        priorityColumns.push(found);
+      }
+    });
+    
+    // Second priority: columns that contain row identifier keywords
+    dataColumnArray.forEach(key => {
+      const keyLower = key.toLowerCase();
+      if (!priorityColumns.includes(key)) {
+        if (keyLower.includes('name') || keyLower.includes('id') || 
+            keyLower.includes('title') || keyLower.includes('label')) {
+          priorityColumns.push(key);
+        } else {
+          regularColumns.push(key);
+        }
+      }
+    });
+    
+    // Fallback: if no priority columns found, make the first column a priority
+    if (priorityColumns.length === 0 && regularColumns.length > 0) {
+      const firstColumn = regularColumns.shift();
+      if (firstColumn) priorityColumns.push(firstColumn);
+    }
+    
+    // Combine: priority columns first, then regular columns
+    return [...priorityColumns, ...regularColumns];
   }, [data.rows]);
+  
+  // Determine which columns should be frozen (first column)
+  const frozenColumn = columns[0];
+  const scrollableColumns = columns.slice(1);
 
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
@@ -114,7 +165,7 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
     setPage(0);
   };
 
-  const handleViewContent = (columnName: string, content: any) => {
+  const handleViewContent = (columnName: string, content: CellValue) => {
     setModalContent({
       title: `${formatColumnName(columnName)} - Full Content`,
       content: content
@@ -122,7 +173,39 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
     setModalOpen(true);
   };
 
-  const formatCellValue = (value: any, columnName: string): React.ReactNode => {
+  // Create mapping of main columns to their corresponding excerpt columns
+  const excerptMapping = useMemo(() => {
+    const mapping: Record<string, string> = {};
+    
+    // Get all data columns including excerpt columns
+    const allDataColumns = new Set<string>();
+    data.rows.forEach(row => {
+      Object.keys(row.data).forEach(key => allDataColumns.add(key));
+    });
+    
+    // Find excerpt columns and map them to their base columns
+    Array.from(allDataColumns).forEach(col => {
+      if (col.endsWith('_excerpt')) {
+        const baseColumn = col.replace('_excerpt', '');
+        if (allDataColumns.has(baseColumn)) {
+          mapping[baseColumn] = col;
+        }
+      }
+    });
+    
+    return mapping;
+  }, [data.rows]);
+
+  // Helper function to find excerpt value for a given row and column
+  const getExcerptForColumn = (row: DataRow, columnName: string): string | null => {
+    const excerptColumnName = excerptMapping[columnName];
+    if (excerptColumnName && row.data[excerptColumnName]) {
+      return String(row.data[excerptColumnName]);
+    }
+    return null;
+  };
+
+  const formatCellValue = (value: CellValue, columnName: string, rowData?: DataRow): React.ReactNode => {
     if (value === null || value === undefined) {
       return <Chip label="null" size="small" variant="outlined" color="default" />;
     }
@@ -156,7 +239,36 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
       );
     }
     
-    if (typeof value === 'object') {
+    if (typeof value === 'object' && value !== null) {
+      // Check if this is QBSD format: {answer: "...", excerpts: [...]}
+      if ('answer' in value && typeof (value as QBSDAnswerWithExcerpts).answer !== 'undefined') {
+        const qbsdValue = value as QBSDAnswerWithExcerpts;
+        const answer = qbsdValue.answer;
+        const excerpts = qbsdValue.excerpts || [];
+        
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant="body1" component="span" sx={{ fontSize: '1.1rem', lineHeight: 1.5 }}>
+              {String(answer)}
+            </Typography>
+            {excerpts.length > 0 && (
+              <IconButton 
+                size="small" 
+                title={`View excerpts (${excerpts.length} sources)`}
+                onClick={() => handleViewContent(columnName, {
+                  answer: answer,
+                  excerpts: excerpts
+                })}
+                sx={{ color: 'info.main' }}
+              >
+                <Visibility fontSize="small" />
+              </IconButton>
+            )}
+          </Box>
+        );
+      }
+      
+      // Regular object handling
       return (
         <IconButton 
           size="small" 
@@ -169,16 +281,56 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
     }
     
     const stringValue = String(value);
-    if (needsTruncation(stringValue)) {
+    
+    // Check if this column has associated excerpts in the uploaded data
+    const hasExcerpts = rowData && excerptMapping[columnName] && rowData.data[excerptMapping[columnName]];
+    
+    // Use utility functions for content detection
+    const isExplicitExcerpt = isExcerptContent(columnName, stringValue);
+    const isVeryLongContent = isVeryLongText(stringValue, LONG_TEXT_THRESHOLD);
+    const hasManyLines = hasMultipleLines(stringValue, MAX_CELL_LINES);
+    
+    // Show eye icon for: 1) columns with excerpts, 2) explicit excerpt columns, or 3) very long content
+    const shouldShowEyeIcon = hasExcerpts || isExplicitExcerpt || isVeryLongContent || 
+                             (hasManyLines && stringValue.length > MEDIUM_TEXT_THRESHOLD);
+    
+    if (shouldShowEyeIcon) {
+      // For excerpt-like content, show just a short preview with eye icon
+      const previewText = isExplicitExcerpt ? 
+        getPreviewText(stringValue, 50) :
+        getPreviewText(stringValue, SHORT_TEXT_THRESHOLD);
+      
       return (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Typography variant="body2" component="span">
-            {truncateText(stringValue)}
+          <Typography 
+            variant="body1" 
+            component="span"
+            sx={{ 
+              fontSize: '1.1rem',
+              lineHeight: 1.5,
+              fontStyle: isExplicitExcerpt ? 'italic' : 'normal',
+              color: isExplicitExcerpt ? 'text.secondary' : 'text.primary'
+            }}
+          >
+            {previewText}
           </Typography>
           <IconButton 
             size="small" 
-            title="View full content"
-            onClick={() => handleViewContent(columnName, value)}
+            title={hasExcerpts ? "View content with supporting excerpts" : 
+                   isExplicitExcerpt ? "View excerpt details" : "View full content"}
+            onClick={() => {
+              if (hasExcerpts) {
+                // Create combined content with main value and excerpts
+                const excerptText = getExcerptForColumn(rowData, columnName);
+                handleViewContent(columnName, {
+                  answer: stringValue,
+                  excerpts: excerptText ? [excerptText] : []
+                });
+              } else {
+                handleViewContent(columnName, value);
+              }
+            }}
+            sx={{ color: 'info.main' }}
           >
             <Visibility fontSize="small" />
           </IconButton>
@@ -186,7 +338,40 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
       );
     }
     
-    return stringValue;
+    // Regular content with truncation for readability (but no eye icon)
+    if (needsTruncation(stringValue)) {
+      return (
+        <Typography 
+          variant="body1" 
+          component="span"
+          sx={{ 
+            fontSize: '1.1rem',
+            lineHeight: 1.5,
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+            wordBreak: 'break-word'
+          }}
+        >
+          {truncateText(stringValue)}
+        </Typography>
+      );
+    }
+    
+    // Regular content with improved typography
+    return (
+      <Typography 
+        variant="body1" 
+        component="span"
+        sx={{ 
+          fontSize: '1.1rem',
+          lineHeight: 1.5
+        }}
+      >
+        {stringValue}
+      </Typography>
+    );
   };
 
   return (
@@ -217,16 +402,48 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
                 </InputAdornment>
               ),
             }}
-            sx={{ width: 300 }}
+            sx={{ width: SEARCH_FIELD_WIDTH }}
           />
         </Box>
 
-        <TableContainer sx={{ maxHeight: 600 }}>
-          <Table stickyHeader size="small">
+        <TableContainer sx={{ maxHeight: TABLE_MAX_HEIGHT, overflow: 'auto' }}>
+          <Table stickyHeader size="small" sx={{ minWidth: TABLE_MIN_WIDTH }}>
             <TableHead>
               <TableRow>
-                {columns.map(column => (
-                  <TableCell key={column} sx={{ fontWeight: 'bold', minWidth: 150 }}>
+                {/* Frozen first column */}
+                {frozenColumn && (
+                  <TableCell 
+                    key={frozenColumn} 
+                    sx={{ 
+                      fontWeight: 'bold', 
+                      fontSize: '1.1rem',
+                      minWidth: FROZEN_COLUMN_WIDTH,
+                      maxWidth: FROZEN_COLUMN_WIDTH,
+                      position: 'sticky',
+                      left: 0,
+                      backgroundColor: 'background.paper',
+                      zIndex: 3,
+                      borderRight: '2px solid',
+                      borderRightColor: 'primary.main',
+                      boxShadow: '2px 0 4px rgba(0,0,0,0.1)'
+                    }}
+                  >
+                    {frozenColumn.startsWith('_') ? (
+                      <Chip 
+                        label={formatColumnName(frozenColumn)} 
+                        size="small" 
+                        color="primary" 
+                        variant="outlined" 
+                      />
+                    ) : (
+                      formatColumnName(frozenColumn)
+                    )}
+                  </TableCell>
+                )}
+                
+                {/* Scrollable columns */}
+                {scrollableColumns.map(column => (
+                  <TableCell key={column} sx={{ fontWeight: 'bold', fontSize: '1.1rem', minWidth: REGULAR_COLUMN_WIDTH }}>
                     {column.startsWith('_') ? (
                       <Chip 
                         label={formatColumnName(column)} 
@@ -242,33 +459,82 @@ const DataTable: React.FC<DataTableProps> = ({ data: initialData, sessionId, ses
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredRows.slice(page * pageSize, (page + 1) * pageSize).map((row, rowIndex) => (
-                <TableRow key={rowIndex} hover>
-                  {columns.map(column => {
-                    let cellValue;
-                    
-                    if (column === '_row_name') {
-                      cellValue = row.row_name;
-                    } else if (column === '_papers') {
-                      cellValue = row.papers;
-                    } else {
-                      cellValue = row.data[column];
-                    }
-                    
-                    return (
-                      <TableCell key={column}>
-                        {formatCellValue(cellValue, column)}
+              {filteredRows.slice(page * pageSize, (page + 1) * pageSize).map((row, rowIndex) => {
+                const getFrozenCellValue = () => {
+                  if (frozenColumn === '_row_name') {
+                    return row.row_name;
+                  } else if (frozenColumn === '_papers') {
+                    return row.papers;
+                  } else {
+                    return row.data[frozenColumn];
+                  }
+                };
+                
+                // Calculate actual row index (accounting for pagination and total rows)
+                const actualRowIndex = page * pageSize + rowIndex + 1; // +1 because row indexes start from 1
+                const isNewlyAdded = newlyAddedRows?.has(actualRowIndex) || false;
+                
+                return (
+                  <TableRow 
+                    key={rowIndex} 
+                    hover
+                    sx={{
+                      backgroundColor: isNewlyAdded ? 'success.light' : 'inherit',
+                      animation: isNewlyAdded ? 'pulse 2s ease-in-out' : 'none',
+                      '@keyframes pulse': {
+                        '0%': { backgroundColor: 'success.light' },
+                        '50%': { backgroundColor: 'success.main' },
+                        '100%': { backgroundColor: 'success.light' }
+                      }
+                    }}
+                  >
+                    {/* Frozen first column */}
+                    {frozenColumn && (
+                      <TableCell 
+                        key={frozenColumn}
+                        sx={{
+                          minWidth: REGULAR_COLUMN_WIDTH,
+                          maxWidth: REGULAR_COLUMN_WIDTH,
+                          position: 'sticky',
+                          left: 0,
+                          backgroundColor: 'background.paper',
+                          zIndex: 2,
+                          borderRight: '2px solid',
+                          borderRightColor: 'divider',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
                       </TableCell>
-                    );
-                  })}
-                </TableRow>
-              ))}
+                    )}
+                    
+                    {/* Scrollable columns */}
+                    {scrollableColumns.map(column => {
+                      let cellValue;
+                      
+                      if (column === '_row_name') {
+                        cellValue = row.row_name;
+                      } else if (column === '_papers') {
+                        cellValue = row.papers;
+                      } else {
+                        cellValue = row.data[column];
+                      }
+                      
+                      return (
+                        <TableCell key={column} sx={{ minWidth: REGULAR_COLUMN_WIDTH, maxHeight: `${TABLE_ROW_MAX_HEIGHT}px`, overflow: 'hidden' }}>
+                          {formatCellValue(cellValue, column, row)}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>
 
         <TablePagination
-          rowsPerPageOptions={[25, 50, 100, 200]}
+          rowsPerPageOptions={AVAILABLE_PAGE_SIZES}
           component="div"
           count={searchTerm ? filteredRows.length : data.total_count}
           rowsPerPage={pageSize}

@@ -14,20 +14,36 @@ import {
   Grid,
   Card,
   CardContent,
-  Switch,
-  FormControlLabel,
+  TextField,
 } from '@mui/material';
 import { useDropzone } from 'react-dropzone';
 import { CloudUpload, CheckCircle, Error, Schema, TableView } from '@mui/icons-material';
 
 import { uploadAPI } from '../services/api';
-import { FileValidationResult, DualFileUploadResult, SchemaValidationResult, CompatibilityCheck } from '../types';
+import { 
+  FileValidationResult, 
+  DualFileUploadResult, 
+  SchemaExtractionResult,
+  DocumentUploadResult,
+  ProcessingStatus
+} from '../types';
 import CompatibilityDisplay from '../components/CompatibilityDisplay/CompatibilityDisplay';
+import DocumentUpload from '../components/DocumentUpload/DocumentUpload';
+import UploadProcessingMonitor from '../components/UploadProcessingMonitor/UploadProcessingMonitor';
+import LLMSelector from '../components/LLMSelector';
 
 const singleFileSteps = [
   'Upload File',
   'Validate Data',
   'Process & Preview',
+];
+
+const enhancedUploadSteps = [
+  'Upload & Process Data',
+  'Extract Schema', 
+  'Upload Documents',
+  'Process with AI',
+  'Review Results',
 ];
 
 const dualFileSteps = [
@@ -41,7 +57,7 @@ const Upload: React.FC = () => {
   const navigate = useNavigate();
   
   // Mode selection
-  const [dualFileMode, setDualFileMode] = useState(false);
+  const [mode, setMode] = useState<'single' | 'enhanced' | 'dual'>('single');
   
   // Common state
   const [activeStep, setActiveStep] = useState(0);
@@ -53,22 +69,203 @@ const Upload: React.FC = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [validation, setValidation] = useState<FileValidationResult | null>(null);
   
+  // Enhanced upload workflow state
+  const [enhancedQuery, setEnhancedQuery] = useState('');
+  const [extractedSchema, setExtractedSchema] = useState<SchemaExtractionResult | null>(null);
+  const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
+  const [documentUploadResult, setDocumentUploadResult] = useState<DocumentUploadResult | null>(null);
+  const [processingStatus, setProcessingStatus] = useState<ProcessingStatus | null>(null);
+  
   // Dual file mode state
   const [schemaFile, setSchemaFile] = useState<File | null>(null);
   const [dataFile, setDataFile] = useState<File | null>(null);
   const [dualResult, setDualResult] = useState<DualFileUploadResult | null>(null);
+  
+  // LLM selection state
+  const [showLLMSelector, setShowLLMSelector] = useState(false);
+  const [selectedLLMConfig, setSelectedLLMConfig] = useState<any>(null);
 
   // Reset state when mode changes
-  const handleModeChange = (isDualMode: boolean) => {
-    setDualFileMode(isDualMode);
+  const handleModeChange = (newMode: 'single' | 'enhanced' | 'dual') => {
+    setMode(newMode);
     setActiveStep(0);
     setError(null);
+    setSessionId(null);
+    
+    // Reset all mode-specific state
     setUploadedFile(null);
+    setValidation(null);
+    
+    setEnhancedQuery('');
+    setExtractedSchema(null);
+    setUploadedDocuments([]);
+    setDocumentUploadResult(null);
+    setProcessingStatus(null);
+    
     setSchemaFile(null);
     setDataFile(null);
-    setValidation(null);
     setDualResult(null);
-    setSessionId(null);
+  };
+
+  // Enhanced upload workflow handlers
+  const handleEnhancedFileUpload = async () => {
+    if (!uploadedFile) {
+      setError('Please select a file');
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+
+    try {
+      // Step 1: Upload and parse file
+      const uploadResult = await uploadAPI.uploadFile(uploadedFile);
+      setSessionId(uploadResult.session_id);
+      setValidation(uploadResult.validation);
+      
+      if (!uploadResult.validation.is_valid) {
+        setError('File validation failed: ' + uploadResult.validation.errors.join(', '));
+        return;
+      }
+
+      // Parse the file
+      await uploadAPI.parseFile(uploadResult.session_id);
+      setActiveStep(1); // Move to Extract Schema step
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to upload and process file');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSchemaExtraction = async () => {
+    if (!sessionId) {
+      setError('No session available for schema extraction');
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+
+    try {
+      const result = await uploadAPI.extractSchema(sessionId, enhancedQuery);
+      setExtractedSchema(result);
+      
+      // Auto-navigate to Data tab after schema extraction
+      setTimeout(() => {
+        navigate(`/visualize/${sessionId}?mode=upload`);
+      }, 1500);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to extract schema');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDocumentUpload = async () => {
+    if (!sessionId || uploadedDocuments.length === 0) {
+      setError('Please upload at least one document');
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+
+    try {
+      const result = await uploadAPI.addDocuments(sessionId, uploadedDocuments);
+      setDocumentUploadResult(result);
+      setActiveStep(3); // Move to Process step
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to upload documents');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDocumentProcessing = async () => {
+    if (!sessionId) {
+      setError('No session available for processing');
+      return;
+    }
+
+    // Show LLM selector first
+    setShowLLMSelector(true);
+  };
+
+  const handleLLMSelection = async (llmConfig: any) => {
+    setSelectedLLMConfig(llmConfig);
+    setShowLLMSelector(false);
+    setError(null);
+    setLoading(true);
+
+    try {
+      await uploadAPI.processDocuments(sessionId!, llmConfig);
+      setActiveStep(4); // Move to Review Results step
+      
+      // Start polling for progress
+      startProcessingStatusPolling();
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to start document processing');
+      setLoading(false);
+    }
+  };
+
+  const startProcessingStatusPolling = () => {
+    const pollStatus = async () => {
+      if (!sessionId) return;
+      
+      try {
+        const status = await uploadAPI.getProcessingStatus(sessionId);
+        setProcessingStatus(status);
+        
+        if (status.status === 'completed') {
+          setLoading(false);
+          // Don't auto-navigate, let user choose when to view results
+        } else if (status.status === 'error') {
+          setLoading(false);
+          setError('Document processing failed');
+        } else if (status.status === 'processing_documents') {
+          // Continue polling
+          setTimeout(pollStatus, 3000);
+        }
+      } catch (err: any) {
+        console.error('Error polling processing status:', err);
+        setTimeout(pollStatus, 5000); // Retry with longer delay
+      }
+    };
+
+    pollStatus();
+  };
+
+  // Single file upload handler (existing)
+  const handleSingleFileUpload = async () => {
+    if (!uploadedFile) {
+      setError('Please select a file');
+      return;
+    }
+
+    setError(null);
+    setLoading(true);
+
+    try {
+      const result = await uploadAPI.uploadFile(uploadedFile);
+      setSessionId(result.session_id);
+      setValidation(result.validation);
+      setActiveStep(1);
+
+      if (result.validation.is_valid) {
+        setActiveStep(2);
+        await uploadAPI.parseFile(result.session_id);
+        
+        setTimeout(() => {
+          navigate(`/visualize/${result.session_id}`);
+        }, 1000);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Failed to upload file');
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Dual file upload handlers
@@ -226,7 +423,8 @@ const Upload: React.FC = () => {
     },
   };
 
-  const currentSteps = dualFileMode ? dualFileSteps : singleFileSteps;
+  const currentSteps = mode === 'enhanced' ? enhancedUploadSteps : 
+                     mode === 'dual' ? dualFileSteps : singleFileSteps;
 
   return (
     <Box sx={{ maxWidth: 1000, mx: 'auto', mt: 4 }}>
@@ -240,29 +438,80 @@ const Upload: React.FC = () => {
 
       {/* Mode Selection */}
       <Paper sx={{ p: 3, mb: 4 }}>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={dualFileMode}
-              onChange={(e) => handleModeChange(e.target.checked)}
-              color="primary"
-            />
-          }
-          label={
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Typography variant="h6">
-                {dualFileMode ? 'Schema + Data Upload' : 'Single File Upload'}
-              </Typography>
-              {dualFileMode && <Schema color="primary" />}
-            </Box>
-          }
-        />
-        <Typography variant="body2" color="text.secondary">
-          {dualFileMode 
-            ? 'Upload both a QBSD schema JSON file and a data file for enhanced validation and visualization'
-            : 'Upload a single CSV or JSON file for basic visualization'
-          }
+        <Typography variant="h6" gutterBottom>
+          Upload Mode Selection
         </Typography>
+        
+        <Grid container spacing={2}>
+          <Grid item xs={12} sm={4}>
+            <Card 
+              variant={mode === 'single' ? 'outlined' : 'elevation'}
+              sx={{ 
+                cursor: 'pointer', 
+                border: mode === 'single' ? '2px solid' : 'none',
+                borderColor: 'primary.main',
+                backgroundColor: mode === 'single' ? 'primary.50' : 'background.paper'
+              }}
+              onClick={() => handleModeChange('single')}
+            >
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Single File Upload
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Upload a CSV or JSON file for basic visualization
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={12} sm={4}>
+            <Card 
+              variant={mode === 'enhanced' ? 'outlined' : 'elevation'}
+              sx={{ 
+                cursor: 'pointer', 
+                border: mode === 'enhanced' ? '2px solid' : 'none',
+                borderColor: 'primary.main',
+                backgroundColor: mode === 'enhanced' ? 'primary.50' : 'background.paper'
+              }}
+              onClick={() => handleModeChange('enhanced')}
+            >
+              <CardContent>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <Typography variant="h6">
+                    Enhanced Upload
+                  </Typography>
+                  <Schema color="primary" />
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Extract schema from data, then upload documents for AI processing
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          <Grid item xs={12} sm={4}>
+            <Card 
+              variant={mode === 'dual' ? 'outlined' : 'elevation'}
+              sx={{ 
+                cursor: 'pointer', 
+                border: mode === 'dual' ? '2px solid' : 'none',
+                borderColor: 'primary.main',
+                backgroundColor: mode === 'dual' ? 'primary.50' : 'background.paper'
+              }}
+              onClick={() => handleModeChange('dual')}
+            >
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Schema + Data Upload
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Upload separate schema and data files with validation
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
       </Paper>
 
       <Stepper activeStep={activeStep} orientation="vertical" sx={{ mt: 4 }}>
@@ -270,7 +519,45 @@ const Upload: React.FC = () => {
         <Step>
           <StepLabel>{currentSteps[0]}</StepLabel>
           <StepContent>
-            {dualFileMode ? (
+            {mode === 'enhanced' ? (
+              <>
+                {/* Enhanced Upload: Single File Upload */}
+                <Paper sx={dropzoneStyle} {...getRootProps()}>
+                  <input {...getInputProps()} />
+                  <CloudUpload sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
+                  {isDragActive ? (
+                    <Typography variant="h6">Drop the file here...</Typography>
+                  ) : (
+                    <>
+                      <Typography variant="h6" gutterBottom>
+                        Upload your data file
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        CSV, JSON, or JSONL files up to 100MB
+                      </Typography>
+                    </>
+                  )}
+                </Paper>
+                
+                {uploadedFile && (
+                  <Alert severity="info" sx={{ mt: 2 }}>
+                    Selected: {uploadedFile.name} ({(uploadedFile.size / 1024 / 1024).toFixed(2)} MB)
+                  </Alert>
+                )}
+                
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    onClick={handleEnhancedFileUpload}
+                    disabled={!uploadedFile || loading}
+                    startIcon={loading ? <CircularProgress size={20} /> : <CloudUpload />}
+                  >
+                    {loading ? 'Processing...' : 'Upload & Parse File'}
+                  </Button>
+                </Box>
+              </>
+            ) : mode === 'dual' ? (
               <Grid container spacing={3}>
                 {/* Schema File Upload */}
                 <Grid item xs={12} md={6}>
@@ -403,16 +690,59 @@ const Upload: React.FC = () => {
           </StepContent>
         </Step>
 
-        {/* Step 2: Validation */}
+        {/* Step 2: Extract Schema / Validation */}
         <Step>
           <StepLabel 
-            error={(dualFileMode && dualResult) ? (!dualResult.schema_validation.is_valid || !dualResult.data_validation.is_valid) : (validation ? !validation.is_valid : false)}
+            error={(mode === 'dual' && dualResult) ? (!dualResult.schema_validation.is_valid || !dualResult.data_validation.is_valid) : (validation ? !validation.is_valid : false)}
             icon={loading ? <CircularProgress size={24} /> : undefined}
           >
             {currentSteps[1]}
           </StepLabel>
           <StepContent>
-            {dualFileMode && dualResult ? (
+            {mode === 'enhanced' ? (
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Extract Schema from Data
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  Provide an optional research query to guide schema extraction, or leave blank for automatic discovery.
+                </Typography>
+                
+                <TextField
+                  fullWidth
+                  label="Research Query (Optional)"
+                  placeholder="e.g., What are the key properties of nuclear export signals?"
+                  value={enhancedQuery}
+                  onChange={(e) => setEnhancedQuery(e.target.value)}
+                  multiline
+                  rows={3}
+                  sx={{ mb: 3 }}
+                />
+                
+                {extractedSchema && (
+                  <Alert severity="success" sx={{ mb: 3 }}>
+                    <Typography variant="body1" gutterBottom>
+                      ✅ Schema extracted successfully!
+                    </Typography>
+                    <Typography variant="body2">
+                      Found {extractedSchema.total_columns} columns ready for document processing.
+                    </Typography>
+                  </Alert>
+                )}
+                
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    onClick={handleSchemaExtraction}
+                    disabled={!sessionId || loading || !!extractedSchema}
+                    startIcon={loading ? <CircularProgress size={20} /> : <Schema />}
+                  >
+                    {loading ? 'Extracting...' : 'Extract Schema'}
+                  </Button>
+                </Box>
+              </Box>
+            ) : mode === 'dual' && dualResult ? (
               <Box>
                 {/* Schema Validation */}
                 <Typography variant="h6" gutterBottom>Schema Validation</Typography>
@@ -448,7 +778,7 @@ const Upload: React.FC = () => {
                   </Alert>
                 )}
               </Box>
-            ) : validation && !dualFileMode ? (
+            ) : validation && mode === 'single' ? (
               <Box>
                 {validation.is_valid ? (
                   <Alert severity="success" icon={<CheckCircle />} sx={{ mb: 2 }}>
@@ -479,8 +809,22 @@ const Upload: React.FC = () => {
           </StepContent>
         </Step>
 
-        {/* Step 3: Compatibility (dual mode only) */}
-        {dualFileMode && (
+        {/* Step 3: Upload Documents (enhanced mode) or Compatibility (dual mode) */}
+        {mode === 'enhanced' ? (
+          <Step>
+            <StepLabel>{currentSteps[2]}</StepLabel>
+            <StepContent>
+              <DocumentUpload
+                onFilesChange={setUploadedDocuments}
+                uploadedFiles={uploadedDocuments}
+                loading={loading}
+                onUpload={handleDocumentUpload}
+                canUpload={extractedSchema !== null}
+                uploadResult={documentUploadResult}
+              />
+            </StepContent>
+          </Step>
+        ) : mode === 'dual' ? (
           <Step>
             <StepLabel
               error={dualResult ? !dualResult.compatibility.is_compatible : false}
@@ -511,30 +855,88 @@ const Upload: React.FC = () => {
               )}
             </StepContent>
           </Step>
+        ) : null}
+        
+        {/* Step 4: Process with AI (enhanced mode only) */}
+        {mode === 'enhanced' && (
+          <Step>
+            <StepLabel>{currentSteps[3]}</StepLabel>
+            <StepContent>
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Process Documents with AI
+                </Typography>
+                <Typography variant="body2" color="text.secondary" paragraph>
+                  The system will analyze your uploaded documents using the extracted schema to generate additional table rows.
+                </Typography>
+                
+                {documentUploadResult && (
+                  <Alert severity="success" sx={{ mb: 3 }}>
+                    <Typography variant="body1" gutterBottom>
+                      ✅ Documents uploaded successfully!
+                    </Typography>
+                    <Typography variant="body2">
+                      Ready to process {documentUploadResult.uploaded_files.length} documents.
+                    </Typography>
+                  </Alert>
+                )}
+                
+                <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    onClick={handleDocumentProcessing}
+                    disabled={!documentUploadResult || loading}
+                    startIcon={loading ? <CircularProgress size={20} /> : <TableView />}
+                  >
+                    {loading ? 'Starting Processing...' : 'Process Documents'}
+                  </Button>
+                </Box>
+              </Box>
+            </StepContent>
+          </Step>
+        )}
+        
+        {/* Step 5: Review Results (enhanced mode only) */}
+        {mode === 'enhanced' && (
+          <Step>
+            <StepLabel>{currentSteps[4]}</StepLabel>
+            <StepContent>
+              <UploadProcessingMonitor
+                sessionId={sessionId}
+                status={processingStatus}
+                loading={loading}
+                onNavigateToResults={() => navigate(`/visualize/${sessionId}?mode=upload`)}
+                llmConfig={selectedLLMConfig}
+              />
+            </StepContent>
+          </Step>
         )}
 
-        {/* Final Step: Process & Preview */}
-        <Step>
-          <StepLabel 
-            icon={loading ? <CircularProgress size={24} /> : undefined}
-          >
-            {currentSteps[currentSteps.length - 1]}
-          </StepLabel>
-          <StepContent>
-            <Alert severity="info">
-              Processing your data and preparing visualization...
-            </Alert>
-            
-            {loading && (
-              <Box sx={{ display: 'flex', alignItems: 'center', mt: 2 }}>
-                <CircularProgress size={20} sx={{ mr: 2 }} />
-                <Typography variant="body2">
-                  {dualFileMode ? 'Processing schema and data files...' : 'Parsing file and extracting schema...'}
-                </Typography>
-              </Box>
-            )}
-          </StepContent>
-        </Step>
+        {/* Final Step: Process & Preview (single and dual modes only) */}
+        {mode !== 'enhanced' && (
+          <Step>
+            <StepLabel 
+              icon={loading ? <CircularProgress size={24} /> : undefined}
+            >
+              {currentSteps[currentSteps.length - 1]}
+            </StepLabel>
+            <StepContent>
+              <Alert severity="info">
+                Processing your data and preparing visualization...
+              </Alert>
+              
+              {loading && (
+                <Box sx={{ display: 'flex', alignItems: 'center', mt: 2 }}>
+                  <CircularProgress size={20} sx={{ mr: 2 }} />
+                  <Typography variant="body2">
+                    {mode === 'dual' ? 'Processing schema and data files...' : 'Parsing file and extracting schema...'}
+                  </Typography>
+                </Box>
+              )}
+            </StepContent>
+          </Step>
+        )}
       </Stepper>
 
       {error && (
@@ -548,6 +950,17 @@ const Upload: React.FC = () => {
           Back to Home
         </Button>
       </Box>
+
+      {/* LLM Selection Dialog */}
+      <LLMSelector
+        open={showLLMSelector}
+        onClose={() => setShowLLMSelector(false)}
+        onConfirm={handleLLMSelection}
+        title="Select AI Model for Document Processing"
+        description="Choose the AI model that will extract information from your uploaded documents using the schema."
+        preservedConfig={extractedSchema?.extracted_metadata?.llm_config?.value_extraction_backend || null}
+        loading={loading}
+      />
     </Box>
   );
 };

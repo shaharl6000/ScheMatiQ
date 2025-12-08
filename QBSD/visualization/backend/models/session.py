@@ -17,6 +17,10 @@ class SessionStatus(str, Enum):
     SCHEMA_READY = "schema_ready"  # Schema discovery complete, value extraction in progress
     COMPLETED = "completed"
     ERROR = "error"
+    # Enhanced upload workflow states
+    SCHEMA_EXTRACTED = "schema_extracted"  # Schema extracted from uploaded data
+    DOCUMENTS_UPLOADED = "documents_uploaded"  # Documents uploaded for processing
+    PROCESSING_DOCUMENTS = "processing_documents"  # Processing documents with QBSD pipeline
 
 class ColumnInfo(BaseModel):
     """Information about a data column."""
@@ -37,6 +41,12 @@ class SessionMetadata(BaseModel):
     schema_discovery_completed: bool = False
     total_documents: Optional[int] = None
     processed_documents: int = 0
+    # Enhanced upload workflow metadata
+    extracted_schema: Optional[Dict[str, Any]] = None  # Extracted schema information
+    uploaded_documents: List[str] = Field(default_factory=list)  # List of uploaded document filenames
+    processing_stats: Dict[str, Any] = Field(default_factory=dict)  # Document processing statistics
+    original_row_count: Optional[int] = None  # Original uploaded data row count
+    additional_rows_added: int = 0  # Rows added through document processing
 
 class DataStatistics(BaseModel):
     """Statistics about the dataset."""
@@ -69,3 +79,66 @@ class PaginatedData(BaseModel):
     page: int
     page_size: int
     has_more: bool
+
+# Schema editing operation models
+class SchemaOperation(BaseModel):
+    """Base class for schema operations."""
+    operation_id: str
+    session_id: str
+    operation_type: str  # "edit", "delete", "add", "merge", "reprocess"
+    status: str  # "pending", "in_progress", "completed", "failed"
+    created_at: datetime = Field(default_factory=datetime.now)
+    completed_at: Optional[datetime] = None
+    error_message: Optional[str] = None
+
+class ColumnEdit(BaseModel):
+    """Details of a column edit operation."""
+    original_name: str
+    new_name: Optional[str] = None
+    original_definition: Optional[str] = None
+    new_definition: Optional[str] = None
+    original_rationale: Optional[str] = None
+    new_rationale: Optional[str] = None
+    requires_reprocessing: bool = False
+
+class ColumnMerge(BaseModel):
+    """Details of a column merge operation."""
+    source_columns: List[str]
+    target_column: str
+    merge_strategy: str  # "concatenate", "smart_merge", "first_non_empty"
+    separator: str = " | "
+    definition: Optional[str] = None
+    rationale: Optional[str] = None
+
+class ReprocessingStatus(BaseModel):
+    """Status of document reprocessing."""
+    session_id: str
+    operation_id: str
+    status: str  # "pending", "processing", "completed", "failed"
+    progress: float = Field(ge=0.0, le=1.0, default=0.0)
+    current_step: str = ""
+    affected_columns: List[str] = []
+    processed_documents: int = 0
+    total_documents: int = 0
+    estimated_completion: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+class SchemaBackup(BaseModel):
+    """Schema backup information."""
+    backup_id: str
+    session_id: str
+    created_at: datetime = Field(default_factory=datetime.now)
+    backup_path: str
+    includes_data: bool = False
+    column_count: int
+    description: Optional[str] = None
+    
+class SchemaValidation(BaseModel):
+    """Schema validation result."""
+    is_valid: bool
+    errors: List[str] = []
+    warnings: List[str] = []
+    suggestions: List[str] = []
+    column_consistency: Dict[str, bool] = {}
+    data_integrity: Dict[str, Any] = {}

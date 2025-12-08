@@ -29,13 +29,20 @@ const QBSDConfigPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   
   const [config, setConfig] = useState<QBSDConfig>({
-    query: 'What are the nuclear export signals (NES) and their characteristics in proteins?',
+    query: 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?',
     docs_path: '../test/files',
     max_keys_schema: 100,
     documents_batch_size: 1,
-    backend: {
+    schema_creation_backend: {
       provider: 'gemini',
       model: 'gemini-2.5-flash',
+      max_tokens: 8192,
+      temperature: 0.2,
+      max_context_tokens: 1000000,
+    },
+    value_extraction_backend: {
+      provider: 'gemini',
+      model: 'gemini-2.5-flash-lite',
       max_tokens: 8192,
       temperature: 0.2,
       max_context_tokens: 1000000,
@@ -51,11 +58,21 @@ const QBSDConfigPage: React.FC = () => {
     }));
   };
 
-  const handleBackendChange = (field: keyof LLMConfig, value: any) => {
+  const handleSchemaBackendChange = (field: keyof LLMConfig, value: any) => {
     setConfig(prev => ({
       ...prev,
-      backend: {
-        ...prev.backend,
+      schema_creation_backend: {
+        ...prev.schema_creation_backend,
+        [field]: value,
+      },
+    }));
+  };
+
+  const handleValueBackendChange = (field: keyof LLMConfig, value: any) => {
+    setConfig(prev => ({
+      ...prev,
+      value_extraction_backend: {
+        ...prev.value_extraction_backend,
         [field]: value,
       },
     }));
@@ -172,29 +189,38 @@ const QBSDConfigPage: React.FC = () => {
             />
           </Grid>
 
-          {/* LLM Backend Configuration */}
+          {/* Schema Creation LLM Configuration */}
           <Grid item xs={12}>
             <Accordion sx={{ mt: 2 }}>
               <AccordionSummary expandIcon={<ExpandMore />}>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
                   <Settings sx={{ mr: 1 }} />
-                  <Typography variant="h6">LLM Backend Settings</Typography>
+                  <Typography variant="h6">Schema Creation LLM</Typography>
                   <Chip 
-                    label={config.backend.provider.toUpperCase()} 
+                    label={config.schema_creation_backend.provider.toUpperCase()} 
                     size="small" 
                     color="primary" 
                     sx={{ ml: 2 }}
                   />
+                  <Chip 
+                    label={config.schema_creation_backend.model} 
+                    size="small" 
+                    variant="outlined"
+                    sx={{ ml: 1 }}
+                  />
                 </Box>
               </AccordionSummary>
               <AccordionDetails>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  LLM used for discovering schema structure and column definitions
+                </Typography>
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={4}>
                     <FormControl fullWidth>
                       <InputLabel>Provider</InputLabel>
                       <Select
-                        value={config.backend.provider}
-                        onChange={(e) => handleBackendChange('provider', e.target.value)}
+                        value={config.schema_creation_backend.provider}
+                        onChange={(e) => handleSchemaBackendChange('provider', e.target.value)}
                       >
                         <MenuItem value="gemini">Google Gemini</MenuItem>
                         <MenuItem value="openai">OpenAI</MenuItem>
@@ -207,8 +233,8 @@ const QBSDConfigPage: React.FC = () => {
                     <TextField
                       label="Model"
                       fullWidth
-                      value={config.backend.model}
-                      onChange={(e) => handleBackendChange('model', e.target.value)}
+                      value={config.schema_creation_backend.model}
+                      onChange={(e) => handleSchemaBackendChange('model', e.target.value)}
                       placeholder="e.g., gemini-2.5-flash, gpt-4, etc."
                     />
                   </Grid>
@@ -218,8 +244,8 @@ const QBSDConfigPage: React.FC = () => {
                       label="Max Tokens"
                       type="number"
                       fullWidth
-                      value={config.backend.max_tokens}
-                      onChange={(e) => handleBackendChange('max_tokens', parseInt(e.target.value))}
+                      value={config.schema_creation_backend.max_tokens}
+                      onChange={(e) => handleSchemaBackendChange('max_tokens', parseInt(e.target.value))}
                       inputProps={{ min: 512, max: 32768 }}
                     />
                   </Grid>
@@ -229,8 +255,8 @@ const QBSDConfigPage: React.FC = () => {
                       label="Temperature"
                       type="number"
                       fullWidth
-                      value={config.backend.temperature}
-                      onChange={(e) => handleBackendChange('temperature', parseFloat(e.target.value))}
+                      value={config.schema_creation_backend.temperature}
+                      onChange={(e) => handleSchemaBackendChange('temperature', parseFloat(e.target.value))}
                       inputProps={{ min: 0, max: 2, step: 0.1 }}
                     />
                   </Grid>
@@ -240,8 +266,95 @@ const QBSDConfigPage: React.FC = () => {
                       label="Max Context Tokens"
                       type="number"
                       fullWidth
-                      value={config.backend.max_context_tokens || ''}
-                      onChange={(e) => handleBackendChange('max_context_tokens', e.target.value ? parseInt(e.target.value) : undefined)}
+                      value={config.schema_creation_backend.max_context_tokens || ''}
+                      onChange={(e) => handleSchemaBackendChange('max_context_tokens', e.target.value ? parseInt(e.target.value) : undefined)}
+                      placeholder="Optional"
+                    />
+                  </Grid>
+                </Grid>
+              </AccordionDetails>
+            </Accordion>
+          </Grid>
+
+          {/* Value Extraction LLM Configuration */}
+          <Grid item xs={12}>
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMore />}>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <Settings sx={{ mr: 1 }} />
+                  <Typography variant="h6">Value Extraction LLM</Typography>
+                  <Chip 
+                    label={config.value_extraction_backend.provider.toUpperCase()} 
+                    size="small" 
+                    color="secondary" 
+                    sx={{ ml: 2 }}
+                  />
+                  <Chip 
+                    label={config.value_extraction_backend.model} 
+                    size="small" 
+                    variant="outlined"
+                    sx={{ ml: 1 }}
+                  />
+                </Box>
+              </AccordionSummary>
+              <AccordionDetails>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  LLM used for extracting actual data values from documents
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={4}>
+                    <FormControl fullWidth>
+                      <InputLabel>Provider</InputLabel>
+                      <Select
+                        value={config.value_extraction_backend.provider}
+                        onChange={(e) => handleValueBackendChange('provider', e.target.value)}
+                      >
+                        <MenuItem value="gemini">Google Gemini</MenuItem>
+                        <MenuItem value="openai">OpenAI</MenuItem>
+                        <MenuItem value="together">Together AI</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+
+                  <Grid item xs={12} md={8}>
+                    <TextField
+                      label="Model"
+                      fullWidth
+                      value={config.value_extraction_backend.model}
+                      onChange={(e) => handleValueBackendChange('model', e.target.value)}
+                      placeholder="e.g., gemini-2.5-flash-lite, gpt-4, etc."
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} md={4}>
+                    <TextField
+                      label="Max Tokens"
+                      type="number"
+                      fullWidth
+                      value={config.value_extraction_backend.max_tokens}
+                      onChange={(e) => handleValueBackendChange('max_tokens', parseInt(e.target.value))}
+                      inputProps={{ min: 512, max: 32768 }}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} md={4}>
+                    <TextField
+                      label="Temperature"
+                      type="number"
+                      fullWidth
+                      value={config.value_extraction_backend.temperature}
+                      onChange={(e) => handleValueBackendChange('temperature', parseFloat(e.target.value))}
+                      inputProps={{ min: 0, max: 2, step: 0.1 }}
+                    />
+                  </Grid>
+
+                  <Grid item xs={12} md={4}>
+                    <TextField
+                      label="Max Context Tokens"
+                      type="number"
+                      fullWidth
+                      value={config.value_extraction_backend.max_context_tokens || ''}
+                      onChange={(e) => handleValueBackendChange('max_context_tokens', e.target.value ? parseInt(e.target.value) : undefined)}
                       placeholder="Optional"
                     />
                   </Grid>

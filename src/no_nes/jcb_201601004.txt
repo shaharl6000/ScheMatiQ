@@ -1,0 +1,1366 @@
+JCB: Article
+Simple rules for passive diffusion through the
+nuclear pore complex
+Benjamin L. Timney,1* Barak Raveh,2,3* Roxana Mironska,1 Jill M. Trivedi,1 Seung Joong Kim,2,3 Daniel Russel,2,3
+Susan R. Wente,4 Andrej Sali,2,3 and Michael P. Rout1
+1Laboratory of Cellular and Structural Biology, The Rockefeller University, New York, NY 10065
+2Department of Bioengineering and Therapeutic Sciences and 3Department of Pharmaceutical Chemistry, California Institute for Quantitative Biosciences,
+University of California, San Francisco, San Francisco, CA 94158
+4Department of Cell and Developmental Biology, Vanderbilt University School of Medicine, Nashville, TN 37232
+Passive macromolecular diffusion through nuclear pore complexes (NPCs) is thought to decrease dramatically beyond a
+30–60-kD size threshold. Using thousands of independent time-resolved fluorescence microscopy measurements in vivo,
+we show that the NPC lacks such a firm size threshold; instead, it forms a soft barrier to passive diffusion that intensifies
+gradually with increasing molecular mass in both the wild-type and mutant strains with various subsets of phenylala-
+nine-glycine (FG) domains and different levels of baseline passive permeability. Brownian dynamics simulations repli-
+cate these findings and indicate that the soft barrier results from the highly dynamic FG repeat domains and the diffusing
+macromolecules mutually constraining and competing for available volume in the interior of the NPC, setting up entropic
+repulsion forces. We found that FG domains with exceptionally high net charge and low hydropathy near the cytoplas-
+mic end of the central channel contribute more strongly to obstruction of passive diffusion than to facilitated transport,
+revealing a compartmentalized functional arrangement within the NPC.
+Introduction
+The nuclear pore complex (NPC), residing in the nuclear en- undesirable access to the nucleus or compromise the cell’s anti-
+velope (NE), is the main mediator of transport between the nu- viral defenses (Simon and Rout, 2014; Mettenleiter, 2016).
+cleus and the cytoplasm in all eukaryotic cells (Christie et al., Macromolecules traverse the NPC through either facilitated
+2016; Knockenhauer and Schwartz, 2016; Musser and Grün- or passive diffusion. Facilitated diffusion is the rapid translocation
+wald, 2016). It also plays an important part in transcriptional of cargo-carrying nuclear transport receptors (NTRs) through in-
+regulation, signal transduction, cell growth, and the cell cycle teractions with FG domains, and it is generally but not necessarily
+(Strambio-De-Castillia et al., 2010; Schellhaus et al., 2016). coupled to energy input from the nuclear GTPase Ran (Quimby
+The NPC is one of the largest macromolecular complexes found and Dasso, 2003). Passive diffusion, in contrast, is the equilibration
+in eukaryotic cells. It is made of hundreds of copies of broadly of ions, small molecules, and small- to medium-sized macromole-
+conserved proteins, collectively referred to as nucleoporins, or cules between the cytoplasm and the nucleoplasm, independent of
+nups. Approximately one third of these are classed as FG nups, NTRs and GTP hydrolysis. FG domains obstruct the passive diffu-
+because they contain domains with long stretches of repeated sion of large macromolecules (Paine and Feldherr, 1972; Paine et
+phenylalanine-glycine (FG) motifs separated by hydrophilic al., 1975; Keminer and Peters, 1999; Ribbeck and Görlich, 2001;
+flexible linkers. FG nups play a key role in forming the selec- Mohr et al., 2009; Ma et al., 2012), restricting access to the nucleus
+tive barrier to transport. Although the NPC is remarkably robust and contributing to the retention of nuclear and cytoplasmic factors
+to extensive deletions of FG repeat domains in Saccharomyces in their appropriate subcellular compartments. Hence, whether a
+cerevisiae (Strawn et al., 2004; Terry and Wente, 2007), alter- given macromolecule can passively diffuse through the NPC on a
+ations to FG nups are associated with many defects, includ- physiologically relevant time scale has an important bearing on our
+ing the onset of numerous types of cancers (Simon and Rout, understanding of nuclear maintenance and regulation.
+2014), as well as with viral infection, in which they might allow
+A rigid or soft barrier to passive diffusion?
+A well-established determinant of passive diffusion rates is mo-
+*B.L. Timney and B. Raveh contributed equally to this paper.
+lecular mass, which was observed to affect passive permeability
+Correspondence to Andrej Sali: sali@salilab.org; or Michael P. Rout: rout@
+rockefeller.edu
+Abbreviations used: DLS, dynamic-light scattering; FG, phenylalanine-glycine;
+© 2016 Timney et al. This article is distributed under the terms of an Attribution–
+LAS SO, Least Absolute Shrinkage and Selection Operator; N/C, nucleus/
+Noncommercial–Share Alike–No Mirror Sites license for the first six months after the
+cytoplasm; NE, nuclear envelope; NPC, nuclear pore complex; NTR, nuclear publication date (see http: //www .rupress .org /terms). After six months it is available under a
+transport receptor; nup, nucleoporin; PCA, principal component analysis; PrA, Creative Commons License (Attribution–Noncommercial–Share Alike 3.0 Unported license,
+Protein A; SAXS, small-angle x-ray scattering; WT, wild type. as described at http ://creativecommons .org /licenses /by -nc -sa /3 .0 /).
+The Rockefeller University Press $30.00
+J. Cell Biol. Vol. 215 No. 1 57–76
+www.jcb.org/cgi/doi/10.1083/jcb.201601004 JCB 57
+YGOLOIB
+LLE
+C
+F
+O
+LA
+NRUOJ
+EHT
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+Figure 1. Characterizing the passive permeability barrier of yeast NPCs. (A) Expected decay in passive permeability rates with molecular mass in a
+rigid versus soft barrier to passive transport. (B) Permeability of yeast NPCs determined in vivo using a FRAP approach. From left to right: At time t = 0 s,
+the cytoplasmic pool of reporter macromolecules is photobleached with a spot-bleaching laser (cyan crosshair), and the nuclear fluorescence in a single
+cell is plotted over time, as the nuclear pool of reporters equilibrates with the cytoplasm through passive diffusion. Bars, 1 µm. Note, at steady state, the
+cytoplasm can appear ∼20% less bright than the nucleus because of vesicles and other structures below imaging resolution that do not contain GFP. We
+have not adjusted for this small deviance from the ideal N/C of 1, as the effect is small and consistent between strains. The mean transport time τ is the
+time constant of the exponential decay in nuclear fluorescence; the nuclear volume, cytoplasmic volumes, and number of NPCs are then quantified based
+on 3D reconstruction of the cell, using a complete image series through the z axis acquired after the time course. These data are integrated to compute
+the permeability coefficient in a single cell. The population mean of several such measurements from many cells is computed from multiple independent
+measurements, where each dot in the violin plot indicates a permeability coefficient from a single cell. AU, arbitrary units.
+in seminal studies by Paine et al. in the 1970s (Paine and Feld- models is generally indirect, because existing experimental
+herr, 1972; Paine et al., 1975) using state-of-the-art methods technologies are limited in their ability to probe FG repeats
+for that time, suggesting a molecular mass size threshold of within NPCs of living cells at sufficient spatial and temporal
+30–60 kD for permeation of the nucleus. Recent in vitro stud- resolutions and because of possible differences in the system
+ies over the last two decades also suggested a relatively sharp behavior under in vivo and in vitro conditions. Finally, al-
+threshold of 30–60 kD (Keminer and Peters, 1999; Ribbeck and though many of these models postulate a relatively homoge-
+Görlich, 2001; Mohr et al., 2009; Ma et al., 2012), although nous distribution of FG repeats in the NPC, it has also been
+such in vitro systems have recently been shown to be quite sen- suggested that FG nups in different regions of the NPC may
+sitive to the precise experimental conditions (e.g., the concen- play specific functional roles (Rout and Wente, 1994; Patel et
+tration of transport receptors and the nuclear factor Ran; Ma al., 2007; Yamada et al., 2010; Popken et al., 2015). The extent
+et al., 2012; Lowe et al., 2015). Larger molecules up to 230 of this functional partitioning and the precise roles of different
+kD in size have also been observed to permeate the NPCs in FG nups remain unclear.
+vivo on the time scale of many minutes to hours (Wang and To discern between the rigid barrier and soft barrier func-
+Brattain, 2007; Popken et al., 2015). Nonetheless, the prevailing tional models, we have used time-resolved fluorescence micros-
+functional model of passive transport, which we term the “rigid copy that allowed us to quantify the permeability of NPCs to
+barrier” model, is that of a barrier with a firm size threshold of macromolecules of varying molecular sizes, in living S. cerevi-
+40 kD for passive diffusion (Christie et al., 2016; Knockenhauer siae cells, resulting in a rigorous characterization of the relation
+and Schwartz, 2016; Musser and Grünwald, 2016; Schmidt and between molecular size and passive permeability. We also used
+Görlich, 2016). According to this prevailing view, the slow per- theoretical modeling and extensive coarse-grained computer
+meation of larger macromolecules across the NPC is regarded simulations to assess possible biophysical models that could ex-
+as residual leakage beyond such a firm threshold (Kirli et al., plain our empirical observations. To study the effect of various
+2015; Fig. 1 A, red curve). However, this supposed “leakage” FG domains on passive transport, we measured changes from
+may be also interpreted by an alternative “soft barrier” model of wild-type (WT) passive permeability in a set of combinatorially
+transport. In this model, passive transport rates are expected to deleted mutant S. cerevisiae strains, in which substantial sub-
+decrease much more gradually with increasing molecular mass sets of FG domains were deleted from the NPC. We compared
+than previously realized (Fig. 1 A, black curve). these measurements to simulations of NPCs with depleted FG
+Whether the barrier to passive transport is functionally domains. Finally, we used statistical data analyses to identify
+rigid or soft is also closely related to the biophysical mechanism the most prominent features of FG domains that form the bar-
+by which the NPC performs its function. Several biophysically rier to passive permeability.
+inspired models have attempted over the years to explain how
+the FG domains form the selective barrier to transport, stirring
+up lively debate in the literature about their biophysical form Results
+and behavior (Ribbeck and Görlich, 2002; Rout et al., 2003;
+Peters, 2005; Lim et al., 2006; Patel et al., 2007; Zilman et al., Quantification of NPC permeability in vivo
+2007, 2010; Jovanovic-Talisman et al., 2009; Tetenbaum-No- To characterize the in vivo function of the NPC as a barrier
+vatt and Rout, 2010; Yamada et al., 2010; Atkinson et al., 2013; to passive diffusion of macromolecules, we enhanced our
+Kapinos et al., 2014; Tran et al., 2014; Vovk et al., 2016; Zahn et FRAP (Reits and Neefjes, 2001) assay of transport rates of
+al., 2016). However, the evidence for these various mechanistic GFP fusion proteins (Timney et al., 2006; Lord et al., 2015),
+58 JCB • Volume 215 • NumBer 1 • 2016
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+making it substantially more automated and quantitative by GFP-PrA (Fig. 2 B) is negligible compared with the 27-fold
+integrating several cell biological measurements in a uni- difference in their ^ τ values. Therefore, we attribute most of
+fied pipeline (Fig. 1 B). the increase in ^ τ to changes in the translocation efficiencies of
+In each FRAP experiment, we expressed GFP-labeled the different substrates.
+substrates in live cells, photobleached the cytoplasmic pool at
+time t = 0, and measured the nuclear fluorescence over time. As Approximately cubic dependence extends
+expected of Fick’s law applied to porous membranes (Renkin, over a wide range of molecular masses
+1954), the levels of nuclear fluorescence decayed exponentially It was recently illustrated that passive nuclear permeability in
+over time, following first-order kinetics with a characteristic yeast is observed on the timescale of hours for substrates with
+time constant τ as the labeled substrate equilibrated between molecular masses of up to 230 kD (Popken et al., 2015), and
+the nuclear volume V and the cytoplasmic volume V through we were curious whether or not the approximately cubic size
+N C
+N NPCs (Fig. 1 B). At the microscopic level, τ is the mean time- dependence extends to these larger substrates. Although our
+span between two consecutive translocation events for a single time-resolved FRAP experiments were not practical over time
+substrate macromolecule. In bulk, τ is proportional to t , the t scales >10 min, as cellular growth and new GFP synthesis even-
+1/2 1/2
+time of nuclear fluorescence levels: τ = t /ln2. tually becomes significant, we could estimate the mean trans-
+1/2
+To remove cell-to-cell variability in τ caused by fluctu- port time ^ τ of these larger substrates based on the nuclear to
+ations in V , V , and N, we used our measurements of these cytoplasmic fluorescence ratio after equilibration reported in
+N C
+morphological features in each individual FRAP experiment to that study (Materials and methods). Importantly, our estimates
+compute the normalized time constant ^ τ , the hypothetical value were not scaled in any way to fit our own data and were the
+of τ in a typical cell with mean values of V = 4.8 fL, V = 60 fL, result of a straightforward and nonparameterized transforma-
+N C
+and n = 161 NPCs, as well as the inversely related permeability tion to estimate the exponential decay rate. We plotted the re-
+coefficient p of a single NPC, specified in units of molecules per sulting ^ τ values against the molecular masses of the combined
+second per NPC per micromole, equivalent to 1.86 × 10−6 cm/s, dataset of 14 substrates ranging in molecular mass from 27
+as explained in detail in Materials and methods and in Fig. 1 B to 230 kD. Strikingly, the same approximately cubic relation
+(Timney et al., 2006; Lord et al., 2015). We repeated each mea- that we observed in our own data applies over this combined
+surement between 13 and 59 times per condition and computed dataset, and with a much better confidence interval than if we
+the mean and 95% confidence intervals for both ^ τ and p. used either of the datasets alone (Fig. 3 B). Because passive
+diffusion rates may vary for macromolecules of similar molec-
+A gradual and approximately cubic ular mass, we also examined two fusion proteins in which GFP
+dependence on molecular mass was attached to either one or two domains of the completely
+With this time-resolved FRAP assay, we examined passively unrelated Protein G from Streptococcus (GFP-1PrG and GFP-
+diffusing proteins between 27 and 67 kD in mass, spanning the 2PrG), but their passive diffusion rates were consistent with the
+often-cited molecular mass size threshold to passive transport measurements of similarly sized GFP-xPrA molecules, within
+(Fig. 2 A). These substrates each comprised a GFP attached 7 kD (Fig. 3, A and B). We conclude that the barrier to passive
+by a short linker to between zero and six repeats of the 7-kD diffusion lacks any fixed molecular mass threshold and can be
+Protein A (PrA) domain and are termed GFP-xPrA in the re- predicted remarkably well based on molecular mass within the
+mainder of this paper (with x denoting the number of PrA size range from 27 to 230 kD, at least to first approximation.
+repeats). Measurements of permeability coefficients p and nor-
+malized time constants ^ τ were acquired from some 236 WT Molecular shape has limited effect on
+cells (Fig. 2, C–E; and Video 1), each expressing one of the six passive diffusion
+differently sized GFP-xPrA substrates. To assess the effects of molecular shape on passive transport
+Passive permeability decreased for substrates with in- rates, we first determined the level of molecular asymmetry for
+creasing molecular masses, as expected (Fig. 2 E). However, each of the labeled substrates in our 27–67 kD dataset and com-
+we did not observe any sharp cutoff in leakage at any specific puted their geometric shapes using three independent methods
+threshold. Rather, we observed a strikingly simple functional (Fig. 3 C and Fig. S1 A): (1) analytical centrifugation was used
+relationship, in which ^ τ increases with molecular mass [propor- to measure the sedimentation coefficient of each substrate, from
+tional to protein volume (Fischer et al., 2004)] to the power of which we calculated S /S values, which increase with increas-
+max
+3.8 ± 1.0 at the 95% confidence intervals (Fig. 3 A). Hence, ing molecular asymmetry (Erickson, 2009); (2) dynamic-light
+although the 27-kD GFP equilibrated in a matter of seconds scattering (DLS; Schmitz, 1990) was used to measure diffusion
+(^ τ = 15 ± 1.4 s), the 67-kD GFP-6PrA substrate equilibrated on coefficients and the inversely related Stokes radii to provide an
+the timescale of minutes (^ τ = 413 ± 92 s); a substantially slower independent validation of the measured sedimentation coeffi-
+rate, yet well within the time scale of biologically relevant pro- cients; and (3) small-angle x-ray scattering (SAXS) was used
+cesses, including the division time (1.25–2 h) of yeast cells. to most directly compute the shape of the enclosing envelope of
+each substrate. All three methods were in outstanding agreement
+Passive transport rates decrease because with each other (Fig. 3 C). Therefore, we could also rely on the
+of reduced translocation efficiency sedimentation coefficients for the 110–230 kD dataset (Popken
+The increase in the value of ^ τ for each substrate could be a result et al., 2015) to quantify the level of asymmetry of these larger
+of an increasing diffusion time between consecutive substrate substrates based on their S /S values (Fig. 3 D). The shapes
+max
+encounters with the NPC, a decreased translocation probability of all molecules in the dataset were computed based on either
+per each such encounter (the transport efficiency), or a com- their SAXS envelopes for the smaller substrates or their S /S
+max
+bination of both. However, the 1.6-fold decrease in the diffu- values for the larger ones (Fig. 3 D; and Materials and meth-
+sion coefficients in solution from the 27-kD GFP to the 67-kD ods). The GFP-xPrA and -xPrG molecules elongated gradually
+Simple rules for passive diffusion through the NPC • Timney et al. 59
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+Figure 2. The relationship between molecular size (and shape) and in vivo diffusion of free proteins. (A) Passively diffusing reporter macromolecules
+used in this study, showing their molecular mass, in vitro diffusion constants (D) measured using DLS, and sedimentation coefficients (S) measured from
+sucrose gradient centrifugation. (B) Measured diffusion constant (D) in solution plotted against molecular mass and sedimentation coefficients (inset), ±SEM.
+(C) Images of representative single cell’s FRAP experiments (bottom) of six different-sized substrates in WT yeast cells. Bars, 1 µm. The nucleus, cytoplasm,
+and vacuole of the top cell is indicated. Nuclear fluorescence is plotted after normalizing each exponential fit between 2 (at t = 0) and 1 (at t = ∞; top).
+(D) Diffusion curves from all such measurements of WT cells for the different-sized reporters, normalized as in C. (E) Population distributions of permeability
+coefficients for the different reporters as a function of their size. Each dot indicates the computed permeability coefficient for a single cell.
+from 27 to 67 kD with the addition of multiple PrA units, with molecular mass of a substrate determines its passive diffusion
+S /S values increasing from 1.15 to 1.35 (Fig. 3, C and D). rates, regardless of its particular shape geometry.
+max
+However, this trend did not persist for the larger substrates up
+to 230 kD, which had much lower S max /S values of 1.05–1.10, Compatibility of a soft barrier with
+indicating an estimated 1.5:1 ratio between their long and short previously proposed models of transport
+axes (Erickson, 2009) and a diameter of ∼10 nm for the 230-kD Several mechanistic models of the transport system assume that
+GFP-5MBP substrate. Hence, the substrates in the combined large macromolecules are excluded from the NPC due to lack of
+datasets have a wide variety of shapes, and the smallest and space. The “aqueous channel” model suggests that passive trans-
+largest substrates are also the most globular. If those shape dif- port is restricted to a relatively narrow aqueous channel with pore
+ferences affected passive transport to a significant degree, we radius r, with estimates of r ranging from 4.4 to 6.1 nm (Keminer
+0 0
+would expect that the measured sedimentation coefficient S, and Peters, 1999). Under this assumption, passive diffusion rates
+which is strongly affected by molecular shape, would be a bet- are expected to depend on molecular shape more strongly than
+ter predictor of passive transport rates than S , the theoretical we observe in this study (Fig. 3 E). Moreover, although the mole-
+max
+sedimentation coefficient of a perfect sphere of the same mo- cules in the combined dataset have different shapes, several of the
+lecular mass (Erickson, 2009), which completely lacks shape smallest and largest substrates in the full 27–230-kD range have
+information. However, S is in fact better correlated with the an exceptionally low S /S ratio and can be treated as roughly
+max max
+measured passive diffusion rates than S (Fig. 3 E; and see also spherical particles (Fig. 3, C and D). For such particles, the dif-
+Fig. S1 B regarding a similar analysis of the theoretical minimal fusion times through an aqueous pore would increase sharply
+radius, which also lacks shape information). Hence, the overall beyond a well-defined size threshold (Renkin, 1954), which is
+60 JCB • Volume 215 • NumBer 1 • 2016
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+Figure 3. Effect of molecular mass on the ex-
+ponential time constant ^ τ . (A) ^ τ Values plotted
+as a function of the substrate molecular masses
+in log-log or linear scale (inset), ±95% confi-
+dence intervals. The fit to a power function is
+shown in a solid bold line; the thin gray lines
+indicate the power function at the 95% con-
+fidence intervals of the fit. (B) ^ τ Values as a
+function of the reporter molecular masses in
+log-log or linear scale (inset) for the joint set
+that includes our measurements as in A (blue)
+and the normalized ^ τ values that we computed
+for larger cargos, based on the reported ratio
+between nuclear and cytoplasmic fluorescence
+after incubation (Popken et al., 2015; red). The
+fit to a power function is indicated as in A. (C,
+top) The ratio between S , the sedimenta-
+max
+tion coefficient of a perfect sphere, and S, the
+measured sedimentation coefficient, plotted
+against the SAXS measured shape asymmetry.
+(bottom) The ratio between the measured sed-
+imentation coefficient and the measured diffu-
+sion coefficient ± 95% confidence intervals,
+plotted against molecular mass. According to
+the theory of sedimentation, S/D ∼ molecu-
+lar mass (Erickson, 2009). (D) S /S ratios,
+max
+which are correlated with shape asymmetry
+plotted for reporter molecules of different
+molecular masses for the joint dataset as in B
+and C ± 95% confidence intervals. Enclosing
+envelopes (yellow surface representation) com-
+puted from either SAXS measurements for each
+substrate in our dataset, or modeled based on
+the S /S values in the Popken et al. (2015)
+max
+datasets, using the crystallographic models of
+each of their GFP, PrA, and MBP subunits (Ma-
+terials and methods). (E) Theoretical S and
+max
+measured S sedimentation coefficients plotted
+as a function of τ in log-log scale. The fits of
+S and S to a power function of τ are shown
+max
+in solid magenta and orange lines, respec-
+tively. (F) Same as inset of B, with a best fit to a
+theoretical model of an aqueous pore (Renkin,
+1954) shown in solid magenta line.
+inconsistent with the data (Fig. 3 F; complete analysis in Materi- Comparison to Brownian dynamics
+als and methods). The aqueous channel model is also inconsistent simulations of passive diffusion
+with microscopy studies in permeabilized cells (Ma et al., 2012). To test whether our observations can be explained by an entropy-
+Similarly, a sievelike hydrogel with a certain characteristic pore driven model of transport, we simulated the passive transport
+size (Ribbeck and Görlich, 2001; Frey and Görlich, 2007; Mohr system using Brownian dynamics simulations (Ermak and
+et al., 2009) or a collection of narrow pores (Mohr et al., 2009; McCammon, 1978), as described in detail in the Materials
+Eibauer et al., 2015) are expected to result in a more well-defined and methods. We modeled the major system components: the
+size threshold and be more sensitive to substrate shape, which NPC, the flexible FG repeats that are anchored to its scaffold,
+would affect the likelihood of permeating narrow pores. Other the passively diffusing substrates, the cytoplasmic volume,
+models of passive transport are expected to depend more strongly and the nuclear volume (Fig. 4 A). The chains of FG repeat
+on molecular mass (i.e., molecular volume; Fischer et al., 2004) domains were modeled as flexible strings of beads with each
+than on substrate geometry. Specifically, several models assume a bead representing a single repeat, based on increasing evi-
+“virtual gate” that depends on entropic exclusion rather than on a dence indicating that FG domains are highly disordered, lack
+geometric constriction (Rout et al., 2000, 2003; Lim et al., 2006; secondary structure, and have broad distributions of radii of
+Hough et al., 2015; Sakiyama et al., 2016; Zahn et al., 2016). In gyration and end-to-end distances; this representation is con-
+such an entropy-driven barrier, substrates with larger molecular sistent with many recent findings (Denning et al., 2003; Lim et
+mass or volume cause a strain on the system by restricting the al., 2006; Peleg et al., 2011; Hough et al., 2015; Milles et al.,
+conformational freedom of the disordered FG domains that are 2015; Lemke, 2016; Raveh et al., 2016; Sakiyama et al., 2016;
+anchored to the NPC scaffold, resulting in a size-dependent en- Vovk et al., 2016; Zahn et al., 2016) and the classic entro-
+tropic penalty on their passive diffusion. pic spring model of polymers (van der and Maarel, 2008). To
+Simple rules for passive diffusion through the NPC • Timney et al. 61
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+gather sufficient statistics about each substrate, we generated mutant strains that includes truncated FG domains from all 11
+20,000 independent trajectories on a Linux computer cluster yeast FG nups at least once, in various combinations (Fig. 5 A
+(Materials and methods). Video 2 shows a sample simulation and Table S2). As a positive control for elevated permeability,
+trajectory with substrate macromolecules of various molecu- we used the previously published Δnup170 strain (Shulga et
+lar masses and their occasional translocation between the cy- al., 2000). For practicality, we first narrowed our investiga-
+toplasm and the nucleus. tion to just the GFP-2PrA and GFP-4PrA substrates, which
+To directly compare our simulations with the empirical bracket the often-stated ∼40-kD diffusion limit. For these
+measurements of ^ τ , we also computed the simulated ^ τ values strains, single-cell FRAP measurements were combined, as
+for each of the different substrate macromolecules directly from before. These permeability measurements of 674 single-cell
+the simulations (Fig. 4 B). We used the microscopic definition of measurements are summarized in Fig. 5, B and C. Curiously,
+τ as the time interval between consecutive translocations across the permeability of most strains was not greatly increased with
+the NE (Fig. S2, A and B) and normalized this value to account respect to either substrate. This includes even the “maximally
+for differences in the cytoplasmic volume, the nuclear volume, deleted” mutants, NΔFGCΔFGnsp1ΔFG and NΔFGCΔFGnup100ΔFG-
+and the number of NPCs, as with the empirical ^ τ values (Mate- nup145ΔFG, which each lack roughly half of the FG mass of the
+rials and methods). As expected of a soft and stochastic filtering WT NPC (Fig. 5 B; Strawn et al., 2004). In sharp contrast, the
+mechanism, the interval times between consecutive transloca- nup116ΔFG strain was 2.7–3.8-fold leakier than the WT strain,
+tions were widely distributed (Fig. S2 B). Similar to the empir- even though Nup116 is a minimally deleted mutant for which
+ical data, the mean translocation time increased gradually with FG repeat domain contributes less than ∼10% of the NPC’s
+molecular mass, and remarkably, it could also be approximated FG mass. Similarly, truncation of the FG domain of Nup100
+by a cubic function of molecular mass, closely resembling the (a Nup116 paralog), either individually or in combination
+relationship that we observed experimentally after scaling the with other FG nups, resulted in 1.5–2.0-fold increase in per-
+⏞
+simulated τ by a uniform constant factor to account for model- meability to at least one of the substrates (Fig. 5 C). All other
+ing inaccuracies (Fig. 4 B). Significant changes to the density strains except the nup49ΔFGnup57ΔFG strain were only 1.0–1.5-
+of FG domains in the NPC (Fig. 4 C), in the cohesiveness of fold leakier than the WT strain to either the GFP-2PrA or the
+FG domains (Fig. 4 D), or to the dimensions of the NPC itself GFP-4PrA substrates. Hence, the NPC passive permeability
+(Fig. S2 D) had gradual effects on size-dependent filtering in barrier is remarkably resilient to some extensive deletions of
+our simulations, with a stronger effect over the baseline levels FG domains, whereas deletions of certain barrier-forming FG
+of passive diffusion rates of all substrates (i.e., the plot is verti- domains, such as those of Nup116 and Nup100 (and to a lesser
+cally shifted along the y axis) but a much more gradual tuning extent, Nup49 and Nup57) seem to play a disproportionate
+of the relative size selectivity of different substrates (i.e., the role on passive permeability.
+slope of the fitted power functions in Fig. 4, C and D, does not
+change significantly when plotted in log-log scale). Hence, al- Deletion of barrier-forming FG domains
+though cohesive interactions and precise optimizations of the has a uniform effect on substrates of
+density of FG domains and the pore size could serve to fine- different sizes
+tune the passive barrier, they are not required for recapitulating As barrier-forming FG domains are deleted from the NPC,
+the fundamental properties of its function. We conclude that a we may expect either that passive permeability would in-
+soft barrier to passive transport is consistent with an entropy- crease more significantly for larger substrates than for
+driven model of the NPC. smaller substrates or, alternatively, that the deletion of these
+domains may increase the diffusion rates of both small and
+Relating the kinetics and the free energy large substrates uniformly. To test the effect of FG domain
+barrier to passive diffusion deletion on substrates of different sizes, we chose a subset
+From the spatial density distributions of the different macro- of four mutant strains that covered truncated FG domains
+molecules in our simulations, we computed their free-energy from nine of the FG nups, including Nup116 and Nup100.
+landscapes as a function of their position along the NPC (Fig. 4, We collected single-cell FRAP measurements (Fig. 6 A)
+E and F; Materials and methods). As expected, the magnitude over the entire set of six labeled substrates (covering the
+of the free-energy barrier (ΔG
+passive
+) increased slowly (sublin- molecular mass range 27–67 for passive diffusion) and for
+early) with molecular mass (Fig. 4 F). In agreement with tran- each of these strains. This exploration resulted in 29 sub-
+^
+sition state theory, the simulated ^ o values are exponentially strate–strain combinations, comprising 792 individual cell
+related to ΔG (Fig. S2 C), fitting a slightly modified form of the measurements. Again, the leakiest strains for the full dataset
+Eyring-Polanyi equation with R2 = 0.999 (Eyring, 1935). of substrates had either the nup116ΔFG or nup100ΔFG trun-
+Hence, our simulations suggest that the kinetics of passive dif- cations, whereas the basal permeability of the maximally
+fusion may be modeled as an elementary chemical reaction with deleted NΔFGCΔFGnsp1ΔFG strain remained statistically indis-
+a single reaction step and a single transition state. tinguishable from the WT strain (Fig. 6 B). At any rate, dele-
+tions had a uniform effect on both small and large substrates
+Measurements in mutant strains reveal compared with the WT strain, regardless of the general level
+disproportionate role for different of leakiness; that is, the slope of the fitted power function
+FG domains for each of the strains is attenuated only slightly or not at all
+To investigate empirically how the composition of the FG do- in Fig. 6 B (within the statistical confidence intervals), and
+mains that comprise the permeability barrier affects the NPC’s these slopes describe the extent of size-dependent filtering
+permeability, we have used a comprehensive combinatorial across substrates of different molecular masses. Notably,
+FG domain deletion catalog (Strawn et al., 2004; Terry and this empirical result is again consistent with our simula-
+Wente, 2007; Adams et al., 2015). We selected a subset of 12 tion model, in which massive deletions of FG repeats had a
+62 JCB • Volume 215 • NumBer 1 • 2016
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+Figure 4. Thermodynamics and kinetics analysis of simulated passive diffusion. (A) Coarse-grained model of the passive diffusion through the NPC, with
+the NPC modeled as a cylindrical scaffold, with flexible FG repeats anchored to its walls. (B) Simulated and experimental exponential time constants of
+transport ± 95% confidence intervals, plotted as a function of molecular mass, with solid lines showing fits to power functions. The absolute values of the
+simulated time constants are scaled by a single constant value, to allow direct comparison with the experimental data, but without affecting the slope or
+the relative magnitude of the data points in any way. (C) As in B for simulated NPCs depleted in FG chains from 100% (top) to 50% (bottom). (D, top) As
+in B and C for FG domains with increasing cohesiveness. The legend indicates the interaction force k between pairs of FG motifs in units of kT/Å over a
+range of 6 Å. Results did not change significantly for k values in the range 0.0–1.7 kT/Å. (bottom) Energy for the same molecules and cohesiveness level
+as in the top panel; see also F. (E) The free energy barrier for diffusing macromolecules of different molecular masses in units of kT (color bar), along a
+cross section of the NPC going parallel to the NE through the NPC central axis (x axis) and from the nucleus to the cytoplasm (Z axis). (F) The free energy
+barrier projected along the z axis, by integrating over a tube of radius 12 nm about the NPC central axis. The top panel shows the free energy barrier
+as a function of Z for each substrate; the bottom panel shows the magnitude of the barrier as a function of molecular mass ± 95% confidence intervals.
+Simple rules for passive diffusion through the NPC • Timney et al. 63
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+Figure 5. Permeability of mutant strains. (A) Combinatorially deleted strains used in this study; deleted nups in each strain are indicated by white circles.
+Bottom left illustrates that each diagram represents the right half of a cross section of a diagrammatic NPC, where R is the radial distance from the pore
+radial axis, and the z axis denotes vertical proximity to the cytoplasm (positive values) or the nucleus (negative values). These approximate FG nup positions
+are drawn according to the localization map for the FG nup C termini used in Table S2 of reference (Alber et al., 2007a). FG nup diameters are estimated
+for visualization purposes using Eq. 6 in reference (Marsh and Forman-Kay, 2010). (B) Measured NPC permeability coefficients (p) in different strains for
+GFP-2PrA (molecular mass 40.7 kD) and GFP-4PrA (53.6 kD). Each black dot is from one single-cell FRAP measurement. Red dots are the mean for the
+GFP-2PrA or GFP-4PrA substrate in that strain. Δnup170 was measured as positive control for a previously published “leaky strain” (Shulga et al., 2000).
+(C) Permeability of GFP-2PrA versus GFP-4PrA in the different strains relative to the permeability of the WT strain (±SEM). Strains lacking Nup100 or
+Nup116 GLFG domains are marked red, the nup49ΔFGnup57ΔFG strain green, WT black, Δnup170 gray, and all others blue.
+relatively mild effect on the size-dependent filtering and a suggests that the density of certain FG repeats can be used
+stronger effect on their overall basal permeability (compare to fine-tune the passive barrier. This result enables us to
+with changes in slope and in the baseline of the transport more formally define the basal permeability of each mutant
+times in Fig. 5 F). This observation provides additional sup- strain as a strain-specific multiplier p /p relative to the
+strain WT
+port for the model of entropic exclusion from the NPC and WT, a quantity that applies uniformly to different substrates.
+64 JCB • Volume 215 • NumBer 1 • 2016
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+Figure 6. Size-dependent permeability in four FG deletion strains. (A) An example of NPC permeability assays from representative single cells expressing
+GFP-2PrA, from FG deletion and control strains. Bars, 1 µm. The permeability of Δnup170 was measured as positive control for a previously published
+leaky strain (Shulga et al., 2000). (B) Strains in which mean transport times (^ τ ) were calculated for all six different-sized substrates are plotted ± 95%
+confidence intervals as a function of the reporter molecular masses in log-log scale, these being 29 (GFP), 34 (GFP-1PrA), 41 (GFP-2PrA), 47 (GFP-3PrA),
+54 (GFP-4PrA), and 67 kD (GFP-6PrA). As GFP-xPrG data were only collected for WT cells, only GFP-xPrA data are included in this figure, for more direct
+comparisons. The solid line in each subplot indicates the fit to a power function. For the mutant strains, the WT fit is superimposed as a red line. The func-
+tional form of each power function is indicated along with the 95% confidence intervals for the power exponent.
+Changes in passive permeability cannot FG flavors, in which we tagged key transport receptors and FG
+be explained by indirect effects on the nups, to survey for global changes to the quantity or distribu-
+transport system tion of the machinery of nucleocytoplasmic transport. Namely,
+Many factors in the cellular biology of the mutant strains might these strains were WT, the leaky nup116ΔFG strain, and the mas-
+have influenced our measurements of passive permeability. We sively deleted, nonleaky nsp1ΔFG and NΔFGCΔFGnsp1ΔFG strains.
+first assessed whether passive permeability might be influenced In these strains, we tagged the genomic copy of the transport
+by changes in the following general properties of the transport receptors Kap95-mCherry, Crm1-GFP, Kap123-GFP, and Ntf2-
+system: (1) NPC quantities; (2) inefficient targeting of truncated GFP or the nups Nup116-GFP, Ndc1-GFP, and Nup170-GFP
+FG nups to the NPC; (3) increased pools of transport receptors and acquired images of the steady-state distributions of each,
+at the NPC; and (4) changes in the rates of facilitated transport. in all four strains (Fig. S3, bottom). Using assisted automated
+We selected key strains that covered a range of phenotypes and image analysis, measurements of nuclear, cytoplasmic, and
+Simple rules for passive diffusion through the NPC • Timney et al. 65
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+(where possible) nuclear rim fluorescence of 9,621 such cells FG domain features that may affect passive permeability (Table
+were obtained. The mean magnitude of change in each measure- S3). We included such features as the total mass and number of
+ment, relative to WT, is summarized in Fig. S3. Importantly, we deleted FG domains; sequence features that describe the flavor
+found that most strains changed minimally in their NPC abun- of deleted FG domains (GLFG/FXFG/other; i.e., their amino
+dance and that therefore these changes did not substantially acid composition, hydrophobicity levels, fraction of charged
+contribute to our permeability measurements. We also found residues, and net charge); and geometrical features that describe
+that Nup116-GFP targets efficiently to the NPC, even when the approximate spatial localization of different FG nups rel-
+truncated, suggesting that there are not overwhelming changes ative to the cytoplasmic and nuclear end of the NPC, despite
+in NPC stoichiometry in most FG deletion strains. Finally, we progress in mapping the vertebrate NPC (Eibauer et al., 2015;
+found no substantial changes in quantities of fluorescent trans- Kosinski et al., 2016), we cannot use these maps because of
+port receptors at the nuclear rim in any strain (other than for differences in scale and structure with the yeast NPC (Yang et
+Ntf2), and by surveying the most abundant transport receptors, al., 1998), and so instead, we used our previously reported map,
+we have sampled a significant fraction of facilitated transport. which is at a level of resolution sufficient for the purposes of the
+How facilitated transport has been perturbed in these current study (Alber et al., 2007b).
+strains is a matter of particular interest, at least insofar as we can From the entire list of 33 features, we were unable to iden-
+examine in this study, as well as how it contrasts with effects on tify a single feature that correlated well with the observed vari-
+passive transport. We did observe some changes in the nucleus/ ance in basal permeability among the different mutant strains
+cytoplasm (N/C) distributions of soluble transport receptors, (Fig. 7 A and Fig. S5). For example, consistent with previous
+illustrating that the cycles of facilitated transport are sensitive studies (Strawn et al., 2004; Terry and Wente, 2007; Popken et
+to the loss of particular FG domains more than others. Infer- al., 2015), the total FG mass deleted from the NPC did not cor-
+ring the meaning of some of these changes is beyond the scope relate with the change in passive transport rates (Fig. 7 A). To
+of this study, considering the complexity of the system. None- identify combinations of features that might better explain the
+theless, it is perhaps unsurprising that the distribution of Ntf2- observed interstrain variability in basal permeability while min-
+GFP would be affected by the loss of Nsp1 FG domains, as imizing the risk of data overfitting, we used the Least Absolute
+the interaction between and importance of these two proteins is Shrinkage and Selection Operator (LAS SO) method for multi-
+well characterized (Bayliss et al., 1999, 2002). Interestingly, the variate statistical regression (Tibshirani, 1996), combined with
+strain that showed the most notable effect on facilitated trans- principal component analysis (PCA; Jolliffe, 1982). To offset
+port of the fluorescent transport receptors was the maximally concerns that the regression analysis may produce a model
+deleted NΔFGCΔFGnsp1ΔFG strain, in spite of having little effect that overfits the specific data used for training the model, we
+on passive transport. Though technically more challenging (be- repeated the regression analysis over a smaller dataset, which
+cause of far faster equilibration rates), we therefore examined included only measurements with the GFP-2PrA and GFP-
+the dynamic rate of Kap123-GFP exchange between nucleus 4PrA constructs. Reassuringly, similar features and weights
+and cytoplasm, using FRAP, similar to the method we used to were selected by the model from the smaller dataset (Fig. S6
+assay passive transport. We found that nucleocytoplasmic ex- A), or when we removed either of the strains with the great-
+change of Kap123 decreased by 72% in NΔFGCΔFGnsp1ΔFG (Figs. est effect on basal permeability, nup116ΔFG and nup100ΔFG,
+S3 and S4). In strong contrast to the permeability results, ex- from the dataset (Fig. S6 B), or lastly, to account for potential
+change of Kap123 decreased only modestly in nup116ΔFG and uncertainty in the copy number of certain FG nups (Mi et al.,
+nsp1ΔFG and had little effect on nuclear rim fluorescence of 2015), when we assumed a uniform stoichiometry of FG nups
+transport receptors in these strains, even though nup116ΔFG has at the NPC (Fig. S6 C).
+the largest permeability to passive transport (compare Fig. 6 B). The combined PCA/LAS SO model explains the observed
+This discrepancy may be a result of loss of docking sites for variation in basal transport rates between strains with an R2
+Kap123, consistent with decreased rim intensity for Kap123 in value of 0.90 (compare Fig. 7 B with the fits of individual fea-
+that strain (Fig. S3) and with recent kinetic models that sug- tures in Fig. S5). Importantly, this statistical regression model
+gested that facilitated diffusion is rate-limited by the availability has a straightforward and intuitive interpretation, pointing at
+of docking sites rather than by transport efficiency (Kim and two groups of features of FG Nups that in combination have the
+Elbaum, 2013b). Overall, these results show that different FG greatest effect on passive transport (Fig. 7 C). The first group
+nups have a very different effect on passive and facilitated trans- consists of positional features of our medium-resolution model
+port, indicating distinct functions for different FG nups in pas- of the NPC (Alber et al., 2007b). The second group of features
+sive versus facilitated transport. is related to the ratio of net charge to hydropathy score in the FG
+domains that were deleted from the NPC. Specifically, we con-
+Direct effects on passive permeability clude from our model that FG domains that are both anchored
+as a result of FG nups positions, charge, close to the cytoplasmic end of the NPC (Fig. S7 A) and have
+and hydropathy a high ratio of net charge to hydropathy (Fig. S7 B) contribute
+Because changes in passive permeability among strains (Figs. most to the passive barrier, most notably Nup100, Nup116, and
+5 and 6) could not be explained by indirect effects such as possibly the adjacent Nup42, Nup49, and Nup57 (Fig. 7 D).
+changes in NPC quantities or the rates of facilitated transport
+(Figs. S3 and S4), we set out to identify the biochemical and
+geometrical properties of specific FG domains that might di- Discussion
+rectly affect passive permeability. For each strain, we computed
+its basal permeability to passive transport relative to the WT NPCs facilitate the retention of nuclear and cytoplasmic fac-
+strain (p /p ), averaging over all substrates for which mea- tors in their appropriate subcellular compartments while tightly
+strain WT
+surements were taken. We then collated an exhaustive list of 33 regulating their timely exchange. However, the precise relation
+66 JCB • Volume 215 • NumBer 1 • 2016
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+Figure 7. No single factor is a good predictor of NPC permeability. (A) Effect of select features on pore basal permeability (p/p ) relative to the WT strain.
+WT
+Shown are the four features with the highest absolute correlation. Plots for all 33 features are shown in Fig. S5. (B) Predicted basal permeability (p/p ) of
+WT
+combinatorial deletion strains (±SEM) relative to the WT strain according to the LASS O statistical regression model versus the experimental measurements
+for each strain. (C) Aggregate contribution of features related to either the ratio of net charge to hydropathy or position to the LAS SO regression model.
+(D) p/p of individual nups relative to the WT strain according to the regression model. The nups are positioned based on their proximity to the cytoplasm
+WT
+(z axis) and their distance from the NPC radial axis, as observed in immuno-EM maps (Alber et al., 2007b). The prediction for Nup159 should be assigned
+lower confidence because of the unusual negative charge and architecture of Nup159.
+between the size and shape of macromolecules and their passive be interpreted as residual leakage beyond a well-defined cut-
+translocation rates, as well as the role of different FG nups in off (Kirli et al., 2015) but rather as an intrinsic property of the
+establishing the barrier, is still poorly understood. In this study, NPC filtering mechanism.
+we provide the most rigorous quantitative characterization of
+in vivo size-dependent passive diffusion rates to date, based on Suitability of in vivo measurements and
+measurements in both WT and mutant yeast strains (Figs. 1, 2, labeled probes
+and 3). Our results clearly support the model of a soft barrier to Our measurements were performed in live yeast cells, for which
+passive diffusion (Fig. 1 A) and refute the prevailing paradigm we checked for changes in NPC quantity, composition, and po-
+of a rather firm barrier at any well-defined size threshold, in- tential clogging with soluble transport receptors (Figs. S3 and
+cluding the oft-cited 30–60-kD threshold (Keminer and Peters, S4). The measured permeability coefficient of the GFP sub-
+1999; Mohr et al., 2009; Ma et al., 2012; Christie et al., 2016; strate was 1.1 ± 0.04 molecules/s/NPC/µM (Fig. 2 E), which
+Knockenhauer and Schwartz, 2016; Musser and Grünwald, is comparable to results from in vitro studies of permeabilized
+2016; Schmidt and Görlich, 2016). Our results provide mecha- HeLa cells (Ribbeck and Görlich, 2001; Mohr et al., 2009; Ma
+nistic context to recent large-scale screens of nuclear compart- et al., 2012) and NPCs isolated from Xenopus oocytes (Kiskin
+mentalization, which indicated that relatively large proteins, et al., 2003). However, we prefer the use of in vivo measure-
+larger than the 30–60-kD cutoff, are often equally partitioned ments to quantify the operating parameters of the nucleocyto-
+between the nucleus and the cytoplasm, similar to smaller pro- plasmic system, considering that a range of variables in in vitro
+teins (Wühr et al., 2015). Alternatively, such proteins are re- systems, such as the lack of competition with other transport re-
+tained in just one compartment by either binding to even larger ceptors (Timney et al., 2006; Zilman et al., 2010), RanGTP (Ma
+molecular complexes, for which passive diffusion is expected et al., 2012, 2016; Lowe et al., 2015), and nonspecific interac-
+to be negligible even if we assume a soft barrier (Wühr et al., tions with the cellular milieu (Tetenbaum-Novatt et al., 2012;
+2015) or are actively removed from the other compartment by Hough et al., 2015), were clearly demonstrated to affect the bio-
+facilitated diffusion (Kirli et al., 2015). These results indicate physical state of NPCs in general and passive diffusion in par-
+that the slow diffusion of much larger substrates across the ticular. These variables have different effects on small and large
+NPC (Wang and Brattain, 2007; Popken et al., 2015) cannot macromolecules (Lowe et al., 2015) and are therefore likely to
+Simple rules for passive diffusion through the NPC • Timney et al. 67
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+introduce a significant bias for characterizing the size threshold of their disordered and dynamic nature, this environment, the
+for passive diffusion in vitro (Keminer and Peters, 1999; Mohr NPC’s central channel, is still permeable to macromolecules.
+et al., 2009). The labeled GFP-xPrA substrates are appropriate For these macromolecules to pass through the NPC, they must
+model substrates for passive diffusion in vivo because PrA and displace these domains, competing for the restricted available
+GFP are both understood to be functionally inert in yeast, lack volume and restraining the FG domains’ conformations. This
+nuclear localization and export signals, and do not interact with generates entropic repulsive forces shaping a free energy barrier
+native yeast proteins (Gavin et al., 2002; Keilhauer et al., 2015). to passive diffusion (Fig. 4, E and F); because these forces are
+Moreover, they are more representative of cellular proteins than caused by displacement, they therefore scale with the volume of
+dextran molecules (Keminer and Peters, 1999), because FG re- the diffusing macromolecules.
+peats are likely to form weak nonspecific interactions even with
+mixtures of inert proteins like GFP and PrA (Tetenbaum-Novatt Simulations of passive diffusion are robust
+et al., 2012; Hough et al., 2015; Raveh et al., 2016). to changes in the model details
+The NPC is a remarkably resilient machine that can withstand
+Substrate determinants of extensive deletions and maintain a similar function in a range of
+passive diffusion divergent eukaryotes. Although the NPCs of different organisms
+Our results indicate that passive diffusion rates depend most vary in their spatial architecture and in FG nup composition,
+strongly on the substrate molecular mass, that is, its volume we incorporated within our model only the basic properties that
+(Fischer et al., 2004; Fig. 3, A and B), and not so much on are sufficient to recapitulate the in vivo properties of the NPC,
+molecular shape asymmetry (Fig. 3 E). Various other substrate as observed in all eukaryotes. To avoid bias from uncertain
+features have been previously proposed to affect passive dif- model details, we have attempted to minimize the complexity
+fusion (Naim et al., 2009; Colwell et al., 2010; Tagliazucchi of our model. Our current model does not attempt to include
+et al., 2013; Goryaynov and Yang, 2014). Indeed, substrates of a high-resolution physical representation of the NPC, but it
+similar size and shape in our dataset did show relatively small includes all the major system components that are required to
+but statistically significant variation in their passive transport form an entropically driven gate to passive diffusion—namely,
+rates (compare GFP-xPrA and GFP-xPrG substrates in Fig. 3 A a cylindrical pore filled with highly flexible polymers. To verify
+and Table S3). Nonetheless, except in relatively extreme cases that this simplification did not skew our results, we tested the
+(such as the incorporation of many surface hydrophobic res- resilience of our model over a wide range of model parameters
+idues into diffusion substrates [Naim et al., 2009]), our data and showed that such changes, including substantial changes
+suggest that molecular volume is the most prominent determi- to the density of the FG domains (Fig. 4 C), their cohesiveness
+nant of passive diffusion. (Fig. 4 D), and the dimensions of the NPC (Fig. S2 D) had a
+limited effect on our results. Similarly, competition with trans-
+Simple biophysical principles underlying port receptors or the functional arrangement of different types
+size-selective passive diffusion of FG repeats may contribute to modulating this core function
+Several of the proposed mechanistic models of transport posit (Vovk et al., 2016; Zahn et al., 2016) or contribute to other func-
+that passively diffusing substrates are restricted by a well- tions such as facilitated diffusion, but are secondary to this en-
+defined geometric barrier, such as a narrow aqueous pore tropic effect in forming the passive barrier itself.
+(Keminer and Peters, 1999) or a sievelike saturated hydrogel Other approaches have been used to simulate the trans-
+(Ribbeck and Görlich, 2001; Frey and Görlich, 2007; Mohr et port system using a generally higher level of model complexity
+al., 2009). Therefore, passive diffusion is expected to be sensi- (Mincer and Simon, 2011; Moussavi-Baygi et al., 2011; Gha-
+tive to substrate geometry and plummet at a well-defined size vami et al., 2016) than our present simulations. In these studies,
+threshold as the substrate reaches the characteristic pore size, passive diffusion rates have been quantified only for a small
+which is inconsistent with our data (Fig. 3, E and F). In con- number of relevant substrate sizes (Mincer and Simon, 2011;
+trast, if the barrier to passive transport is formed because of Moussavi-Baygi et al., 2011) or they have focused on the sys-
+entropic exclusion (Rout et al., 2000, 2003; Lim et al., 2006; tem thermodynamics rather than kinetics (Ghavami et al., 2016),
+Sakiyama et al., 2016), the NPC is expected to sense the ex- prohibiting direct comparisons with our kinetic experimental
+cluded volume occupied by the substrate, which is a simple and computational data. Nonetheless, the free energy barrier to
+function of molecular mass/molecular volume (Fischer et al., passive diffusion inferred from our simulations increases to the
+2004) rather than its specific geometry. If passive diffusion de- power of 0.67 of molecular mass (Fig. 4 D), which is consistent
+pends on overall excluded volume, it is also expected to decay with the latter thermodynamic study, in spite of different model
+more gradually compared with a geometric barrier. Our sim- details (Ghavami et al., 2014, 2016). This robustness to changes
+ulation results confirm that such a soft virtual gate to passive in the model details is consistent both with the robustness of the
+transport is formed by the anchoring of flexible polymers to a NPC to substantial genetic deletions (Strawn et al., 2004; Terry
+cylindrical pore (Rout et al., 2000, 2003; Fig. 4 and Video 2), and Wente, 2007) and with how biomimetic nanopores contain-
+in agreement with the overall size-dependent filtering proper- ing end-grafted FG domains recapitulate major properties of the
+ties of the NPC observed in living cells (Fig. 4 B). Our experi- transport system (Jovanovic-Talisman et al., 2009).
+mental measurements of passive diffusion in mutant strains are
+remarkably consistent with our simulation results, showing that Properties of functional region for
+the deletion of FG domains may increase the overall leakiness passive permeability
+of a given strain, but it affects substrates of different sizes in Our results indicate that the passive barrier may be mainly
+a similar way, thereby maintaining the relative size selectivity formed by a subset of FG nups (Fig. 7 D)—Nup116, Nup100,
+of the NPC (Fig. 6 B). Simply put, the anchored FG domains Nup42, Nup49, and Nup57 (Fig. 7 D)—whereas facilitated
+form a highly crowded environment in the NPC, but because transport may be more affected by deletions of another subset
+68 JCB • Volume 215 • NumBer 1 • 2016
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+of FG nups (Figs. S3 and S4). These results strongly support elaborate approaches that account for the increased interaction
+the concept that the NPC has a higher-level arrangement of par- time of NTRs within the NPC, competition effects, availabil-
+ticular FG repeats with distinct functionalities distributed by a ity of docking sites and differences between import and export
+complex scaffold (Rout and Wente, 1994; Alber et al., 2007b; (Kopito and Elbaum, 2007; Zilman et al., 2007; Kim and El-
+Patel et al., 2007; Yamada et al., 2010; Tu et al., 2013; Popken baum, 2013a; Tu et al., 2013). Facilitated diffusion also depends
+et al., 2015). Indeed, truncating both Nup116 and Nup100 to- on unique properties of the interactions between NTRs and
+gether is lethal in yeast (Iovine and Wente, 1997), and these two FG Nups, which were suggested to exchange rapidly (Hough
+Nups were suggested to contribute to the passive barrier in the et al., 2015; Milles et al., 2015) through unique interaction
+past (Hülsmann et al., 2012; Popken et al., 2015). It has been mechanisms (Raveh et al., 2016). Nonetheless, if we assume
+recently suggested, based on simulation studies, that Nup116, that passive and facilitated diffusion proceed through the same
+Nup100, Nup42, Nup49, and Nup57 participate in forming a physical conduit, we expect the free energy gain from inter-
+dense region of FG domains within the central channel (Gha- actions between NTRs and FG Nups (ΔG
+interaction
+) to roughly
+vami et al., 2014) and that the truncation of their FG domains counter ΔG
+passive
+. Because the latter increases only slowly (sub-
+may affect the passive transport by disrupting this region, but linearly) with molecular mass (Fig. 4 F; see also Ghavami et al.,
+not the spatial organization and the functions of other FG nups 2016), a relatively small number of interactions are expected to
+that are projected out of the pore in these simulations (Popken facilitate the fast diffusion of relatively large cargo molecules.
+et al., 2015). By applying statistical regression methods to our For example, according to the approximately cubic relation be-
+^
+results, we concluded that the FG nups contributing to passive tween molecular mass and ^ o (Fig. 3 B), we estimate the mean
+permeability share two distinct properties: they are colocalized timespan between consecutive passive translocations of 4-MD
+at the cytoplasmic end of the NPC central channel, and they mRNP complexes (Grünwald and Singer, 2010) to be 107 times
+also all exhibit a high ratio of net charge to hydropathy score slower than for a 27-kD GFP molecule, an energy difference
+(Figs. 7, S6, and S7). Interestingly, all of these FG nups are of 12–16 kT according to the Eyring-Polanyi relation (Fig. S2
+also canonically GLFG nups, which were previously suggested C; Eyring, 1935). A barrier of this magnitude is not insignif-
+to be functionally distinct from other FG nups (Yamada et al., icant, but it could be readily overcome by the binding energy
+2010). However, our results indicate that their position near from a relatively small number of NTRs. Indeed, 4- to 5-MD
+the cytoplasmic end of the central channel also seems oblig- mRNP complexes translocate through the NPC in merely 200
+atory, as Nup145N, which also carries many GLFG motifs, ms (Grünwald and Singer, 2010; Lowe et al., 2015), and the fa-
+has little contribution to the passive permeability barrier in our cilitated diffusion rates of ∼10-MD complexes of quantum dots
+measurements. We note that despite this colocalization at the and NTRs crossed the NPC within a few seconds when bound
+cytoplasmic end, the effect on entry and exit rates from the nu- to 20 NTR molecules and in less than a second when bound to
+cleus seems to be identical, as the equilibrium ratio between 40 NTR molecules, respectively (Lowe et al., 2010). These data
+nuclear and cytoplasmic fluorescence levels is insignificant in are consistent with the gradual overcoming of a surmountable
+leaky strains (Fig. S8). energy barrier, as expected from both our empirical and compu-
+GLFG domains are depleted of charged residues (Patel et tational results. At the other end of the size spectrum, the rather
+al., 2007; Yamada et al., 2010; Adams et al., 2015; Schmidt and gradual decrease in the energy barrier with molecular mass also
+Görlich, 2015), yet their overall net charge is in fact strongly explains why specialized NTRs are used even for some small
+positive and their hydropathy score low compared with other macromolecules that are transported at high quantities, such as
+FG repeat flavors (i.e., they are overall exceptionally hydro- the 25-kD Ran (Smith et al., 1998; Ribbeck and Görlich, 2001),
+philic; Fig. S7, B and C). Moreover, although all FG repeats because the energy penalty for passive diffusion scales with the
+appear to be disordered (Denning et al., 2003; Yamada et al., total volume of passive diffusers according to our model.
+2010; Hough et al., 2015), high net charge and low hydropa- Understanding how the NPC forms such a soft barrier
+thy are hallmarks of extreme protein disorder (Tcherkasskaya while facilitating active transport over this wide range of mo-
+et al., 2003; Dunker et al., 2008; Fig. S4 B). This is surprising lecular sizes will be advanced significantly by the ongoing
+because GLFG domains are assumed to be rather sticky and structural characterization of the NPC and its FG domains, par-
+compact compared with other FG domains (Patel et al., 2007; ticularly those within critical locations of the NPC. Additional
+Yamada et al., 2010; Schmidt and Görlich, 2015). It has also measurements and simulations that use such refined data will
+been suggested that the high net charge of FG nups may con- illuminate the functional arrangement of the NPC that enables
+tribute to interaction with the mostly acidic transport receptors the cell to maintain the proper flow of nucleocytoplasmic traffic.
+(Tagliazucchi et al., 2013), perhaps helping to inhibit passive
+diffusion through competition. Therefore, the role of highly
+charged regions at the cytoplasmic end of the NPC in forming Materials and methods
+the passive barrier needs to be further characterized in future
+studies; for instance, by mutating charged residues or modulat- Plasmids
+ing the hydrophobicity levels of these domains and by nuclear Plasmids were constructed by standard molecular biological meth-
+magnetic resonance spectroscopy or SAXS. ods. DNA constructs were made for expression of eGFP C-terminally
+tagged with one, two, three, four, or six repeats of the PrA domain
+Implications of soft barrier on from Staphylococcus aureus. These GFP-xPrA genes were subcloned
+facilitated diffusion either into the yeast constitutive expression plasmid pYX242 (EMD
+In contrast to the relatively straightforward Eyring-Polanyi re- Millipore, discontinued) or as 6xHIS fusion genes into the bacterial
+^
+lation shown here between ^ o and ΔG
+passive
+(Eyring, 1935; Fig. expression plasmid pET28a (EMD Millipore). GFP-1PrG and -2PrG
+S2 C), accurately relating the energy landscape for diffus- constructs were made similarly, as yeast and bacterial expression con-
+ing through the NPC to transport kinetics may require more structs, by fusing to GFP either the C2 domain (for GFP-1PrG) or both
+Simple rules for passive diffusion through the NPC • Timney et al. 69
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+the C2 and C3 domains (for GFP-2PrG) from Streptococcus protein G based on edge detection of optimized images of the GFP channel (cy-
+(Goward et al., 1990). For details of each plasmid, see Table S1. toplasm) and the mCherry channel (nucleus). Background-corrected,
+mean fluorescence pixel intensities of the nucleus and cytoplasm over
+Yeast strains time were obtained from the segmented regions, normalized to constant
+FG deletion strains used in this study are derivatives of those described total cellular fluorescence to correct for photobleaching during image
+in Strawn et al. (2004) and Terry and Wente (2007). For NPC perme- acquisition. As we were using a nonconfocal imaging system, cyto-
+ability assays with these strains, their genomic copy of HTB2 was plasmic pixel measurements excluded the area near to the brighter nu-
+tagged with mCherry. In a subset of these strains, genomic copies of cleus to minimize the effect of out-of-focus light. Conversely, nuclear
+CRM1, KAP95, KAP123, NTF2, NUP116, NDC1, and NUP170 were measurements have negligible effect from cytoplasmic light intrusion,
+C-terminally tagged with either GFP(S65T) or mCherry. Genomic tag- which is considerably darker than the nucleus during the most import-
+ging cassettes were generated by PCR of either pKT355 (Sheff and ant part of the time course (and thus contributes very little signal). Note
+Thorn, 2004), in the case of mCherry, or pFA6-GFP(S65T)-HIS MX6, that for the reverse experiment, in which the nucleus is bleached, it
+for tagging with GFP (Longtine et al., 1998). Details of these strains is technically more challenging to target the smaller nucleus, and the
+can be found in Table S2. nuclear pixel measurements are more affected by light haze from the
+For all experiments, yeast strains were grown to early log phase bright surrounding cytoplasm.
+in synthetic complete media containing 2% glucose. For live-cell mi-
+croscopy, cells were attached to Con A–coated Matek dishes (Zenklu- Data integration for computing NPC permeability coefficients
+sen et al., 2007), in which they were allowed to grow for up to 2 h In the experiments, we directly measured the nuclear fluorescence
+before preparing a fresh plate. over time, the volume of the cytoplasm and the nucleus, and the
+surface area of the NE. We show how these measurements can
+FRAP assay of NPC permeability be combined to compute the permeability coefficient particular
+Single yeast cell measurements of permeability were obtained using to each strain–substrate pair in units of molecules per second per
+a substantially more quantitative adaption of a FRAP-based method NPC per micromole (or 1.86 × 10−6 cm/s; explained below in this
+described by us (Lord et al., 2015). section). In the analysis, we assumed that the diffusion of GFP-
+FRAP experiments were conducted on a DeltaVision deconvo- xPrA within the nucleus and cytoplasm is rapid, compared with
+lution epifluorescence microscope (Applied Precision Ltd.) fitted with its exchange across the NE, and that the rates of mass transport
+a spot-bleaching laser using a 100× 1.4 NA objective (Olympus). For across the envelope follow Fick’s first law. This approach is similar
+each assay, a point within the cell was targeted with the bleaching laser, to that described by Peters and colleagues for their ex vivo single-
+as far from the nucleus as possible. This point was illuminated for 1 s, channel experiments (Keminer and Peters, 1999; Kiskin et al., 2003).
+during which time much of the cytoplasmic pool diffuses through that The first assumption is supported by the empirical observation that
+illuminated area and is bleached, leaving a darkened cytoplasm and a equilibration times in each compartment are less than a second,
+brighter nucleus. Occasionally, a second bleach would be necessary. whereas equilibration across the membrane is approximately sev-
+Over the next 1–10 min, a time course of images of GFP and the Htb2- eral seconds to minutes. The second assumption is validated by the
+mCherry nuclear marker were acquired, during which time the visi- decay in nuclear fluorescence following single exponential kinetics
+ble nuclear and cytoplasmic GFP pools returned to a steady state of in the FRAP experiments.
+approximately equal fluorescence intensities. Subsequently, a stack of Based on these assumptions, the flux of GFP (J) at any time,
+GFP and Htb2-mCherry images were acquired in the z axis to obtain namely the net amount of substance flowing from the nucleus to the
+the subcellular size and shape measurements necessary for quantitative cytoplasm through NPCs per time unit per membrane surface area unit,
+analysis of the time course. is simply related to the nuclear (N) and cytoplasmic (C) concentrations
+Images of the 3D image stack were deconvolved for a pseudo- of GFP by Fick’s first law applied to porous membranes:
+confocal image series, and then the most focused image planes were
+combined by maximum intensity projection. Nuclear, cytoplasmic, and J = ( C − N) ⋅ p, (1)
+vacuolar regions were segmented by an automated process based on
+edge detection of this projection, with these subcellular objects fitted where C and N are given in micromoles, p is a coefficient of permea-
+to ellipses. Measurements of nuclear and cytoplasmic volumes and bility for the NE given in units of molecules per second per NPC per
+surface areas were obtained from these 2D ellipses by approximating micromole, particular to this strain and reporter. Note that these units
+each object as a 3D ellipsoid with a height derived from the mean of are equivalent to 1.86 × 10−6 cm/s, using the fact that NPCs are regu-
+the minor and major radii (or just using the minor radii for the height larly spaced throughout the NE at a conveniently constant density of
+approximation of the cell body, because they tend to sit flat on the slide, 11.2 NPCs/µm2 surface area throughout the cell cycle (Winey et al.,
+like a rugby ball). NPC count of each cell was estimated assuming 11.2 1997), consistently so among strains according to measurements of rim
+NPCs/µm2 (Winey et al., 1997). More direct 3D rendering of the cells intensity of nups (Fig. S3). We favor the use of molecules per second
+was not possible using this epifluorescence system, because deconvo- per NPC per micromole because these units are more intuitive in the
+lution algorithms generate artifacts near the top and bottom of the yeast context of the current study. The flux J, in molecules per second per
+cells, which tend to bend light like small lenses. In spite of the assump- NPC per micromole, can be also stated in terms of the net change in N
+tions required in this approach, the morphological values obtained by over time t in seconds, the nuclear volume Vn in liters, and the Avoga-
+this method were within 10% of those obtained by direct measurement dro constant Na, specified in µM−1:
+of a complete 3D rendering using confocal microscopy.
+Time course images were processed and segmented using an J =
+_ d_N_
+⋅
+_N_a_ _⋅ _V_n_
+. (2)
+dt NPCs
+automated but user-directed software. Images were corrected for flat-
+field illumination, and then a four-dimensional watershed split was per- By rearranging Eqs. 1 and 2, we get:
+formed to excise the data of the targeted cell. Time course images were
+_d_N_ _N_P_C__s_ ⋅_ p_
+segmented into nuclear and cytoplasmic regions using an algorithm = ⋅ (C − N) .
+dt Na ⋅ Vn
+70 JCB • Volume 215 • NumBer 1 • 2016
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+The cytoplasmic concentration C can be eliminated entirely if we as- Sedimentation constant measurement by sucrose
+sume that each cell has a constant amount of GFP substrate, T, and use gradient ultracentrifugation
+the cytoplasmic volume Vc. WT yeast, expressing each of the GFP-xPrA substrates were harvested
+then lysed by cryogenic grinding. Cell lysates were clarified by low-
+_ d
+d
+_N
+t
+_
+=
+_N
+N
+_P_
+a
+C_
+⋅
+_s
+V
+_ ⋅_
+n
+p_
+⋅ (
+_ T_ –_ _
+V
+N_
+c
+_⋅ _ V_n_
+−N ) . and then medium-speed centrifugation, first at 14,000 rpm in a bench-
+top mini-centrifuge for 15 min and then at 55,000 rpm in a benchtop
+After some simple rearrangements: ultracentrifuge in a TLA55 rotor (Beckman Coulter) for 30 min. Ly-
+sates for all substrates were combined, and then 100 µl combined ly-
+_d_N_ _N_P_C__s_ ⋅_ p_ _ [T_ _–_ N__ ⋅ _ (_V_c_ +__ V_n_)_ ]
+= ⋅ . sate was overlaid on 5–15 or 5–20% sucrose gradients. Overlaid on
+dt Na ⋅ Vn Vc
+the same gradients was a commercial mixture of low molecular mass
+This solution for the resulting simple ordinary differential equation globular protein standards, containing 100–200 µg each protein stan-
+(ODE) for N over time (t) is: dards, RNase, albumin, ovalbumin, and chymotrypsinogen A. Sucrose
+gradients were centrifuged for 19–24 h in an SW55 rotor (Beckman
+N = _ V _ c _ + T_ V _ n _ + α e −_ N_P__C_ N s_⋅ a _p_ ⋅ ⋅ V _t _⋅ c ( _ ⋅ V_ V c_ n _+ _V_n__) . Coulter) at 55,000 rpm. Gradients were unloaded into 1.5-mm fractions
+using a piston gradient fractionator. All methods were performed at 4°C
+Time course traces of nuclear GFP fluorescence (Nf) were therefore in solutions buffered with transport buffer with Tween (20 mM Hepes,
+fitted to a single exponential, pH 7.4, 110 mM KOAc, 0.1% Tween-20, and 2 mM MgCl) spiked
+2
+with a 1:200 mixture of both a commercial protease inhibitor cocktail
+Nf = a + c e −b t . (Sigma-Aldrich) and Solution P (0.5 mg/ml Pepstatin A and 20 mg/ml
+PMSF, in ethanol). Morris buffer concentrate (6×) was added to the gra-
+The time constant of exponential decay τ is the inverse of b, whereas p dient fractions for separation by SDS-PAGE. One set of gels was West-
+can be derived from τ, which we measure directly, provided morpho- ern blotted and then probed with anti-GFP (Roche), whereas another
+logical measurements of the cell, thus: set of gels was stained with Coomassie to detect the protein standards.
+Relative quantities and migration profiles of the GFP-xPrA substrates
+p = ____N__a_ ⋅ _ V_ c_ _⋅ _V_n_ ___ . and the globular standard proteins were measured from images of the
+τ ⋅ NPCs ⋅ ( Vc + Vn)
+Western blots or Coomassie-stained gels, respectively. Sedimentation
+We note that p is independent of the morphological measure- coefficients were calculated from the peak migration distance of each
+ments of the cell, which were only used to compute it from the raw protein using standard calculations (Griffith, 1983). Stated sedimen-
+measurements of τ. Thus, p is derived as the permeability of a partic- tation values are a mean of three to six such experiments. S values
+ular strain’s NPCs toward a particular GFP-xPrA variant, in units of of GFP-xPrA are compared with those of the globular commercial
+net molecules diffusing through a single NPC per second per 1 μM standards in Fig. S1 A.
+concentration differential across the NPC. For each strain–substrate
+condition, 14–58 single-cell measurements were made, and the mean Diffusion constant measurement by DLS
+value stated ± SEM. All image processing and analyses were handled Recombinant GFP-xPrA fusion proteins were expressed as HIS-tagged
+by MatLab scripts, coordinated by custom graphical user interfaces, versions from pET28 plasmids in BL21-DE3 Escherichia coli. Cells
+which facilitated the evaluation and refinement of multidimensional were lysed using a microfluidizer, clarified by centrifugation, and the
+image segmentation, side-by-side with the resultant fluorescence traces fusion proteins were purified from the lysate via their 6xHIS tags with
+and derived measurements. TAL ON resin using standard protein purification methods. Purifica-
+Similar measurements of the dynamics of Kap123-GFP were tions were performed in PBS in the presence of 0.1 mM EDTA and
+taken using this FRAP method. These measurements also fit well to a protease inhibitor cocktail. Diffusion constants of 1-mg/ml samples
+the basic form of the same single exponential relationship, as expected of the recombinantly purified fusion proteins were measured using a
+(Kopito and Elbaum, 2007; Kim and Elbaum, 2013b). However, in this DLS instrument (Wyatt Technology) using the manufacturer’s Dynam-
+case, the value of the exponential time constant τ includes the trans- ics software. Reported values are the averages of 5–10 measurements.
+port of Kap123 alone and in an unknown quantity of cargo and/or
+NTR complexes, each for which the time constant may be dominated SAXS
+by docking probabilities to the NPC rather than transport efficiency SAXS profiles of five constructs of GFP-PrAs and two constructs of
+(Kim and Elbaum, 2013b). GFP-PrGs (Fig. 3 D and Table S4) were collected at concentrations
+ranging from 0.5 to 2.0 mg/ml at temperatures of 15°C (beamline 4–2
+Estimation of transport time constant for proteins in the Popken et al. of the Stanford Synchrotron Radiation Lightsource, SLAC National
+dataset Accelerator Laboratory). All purified, His-tagged SAXS samples were
+Popken et al. (2015) reported the ratio of nuclear to cytoplasmic fluo- prepared as for the DLS experiments and directly dialyzed overnight at
+rescence of inert reporter macromolecules after 3 h of expression and 4°C against 20 mM Hepes, 300 mM NaCl, and 5% glycerol buffer. The
+1 h of equilibration. By assuming exponential decay of the normal- 5% glycerol protects proteins from radiation damage during x-ray ex-
+ized cytoplasmic pool (as observed in all of our FRAP experiments) posure (Kuwamoto et al., 2004). Up to 20 1-s exposures at SSRL beam-
+and that their yeast cells had similar mean NPC counts, cytoplasmic line 4–2 were used for each sample. The SAXS profile of each buffer
+volumes, and nuclear volumes to our own, we estimated the transport was obtained in the same manner and subtracted from a protein SAXS
+time constant (the exponential decay coefficient) ^ τ that would lead to profile. The buffer subtracted SAXS profiles were initially analyzed
+the same nuclear to cytoplasmic fluorescence ratio within an hour. We using the ATSA S package (Petoukhov et al., 2012) to calculate radius
+were able to apply this analysis only to the bulkier macromolecules in of gyration (R) and maximum particle size (D ; Table S4). The mean
+g max
+the size range 109–230 kD, which transport slowly enough to prevent of the smaller scattering angle regions (q < 0.15 Å-1) of the lower con-
+full equilibration within this time scale. centration profiles (∼0.5 mg/ml) and the mean of the wider scattering
+Simple rules for passive diffusion through the NPC • Timney et al. 71
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+angle regions (q > 0.12 Å-1) of the higher concentration (∼2.0 mg/ml) Brownian dynamics simulations
+profiles were merged to obtain the final experimental SAXS profiles. We modeled the transport system using our open-source Integrative
+Modeling Platform package (http: //integrativemodeling .org; Russel
+Shape modeling based on SAXS and ultracentrifugation data et al., 2012). The simulation model consists of the NE, the NPC, and
+The ab initio shape of each of the substrates in our dataset of GFP-PrA the diffusing substrates, all enclosed within a bounding box of 100 ×
+macromolecules (Fig. 3 D, substrates ≤68 kD) were generated from 100 × 100 nm (Fig. 4 A). The NPC central channel was modeled as
+their corresponding SAXS profiles by running DAMM IF (Franke and a 15-nm–high cylinder with the inner diameter of 27 nm, forming a
+Svergun, 2009) 20 times and then refined through an additional 40 cavity within the NE (control simulations on a slightly larger NPC that
+DAM MIN (Svergun, 1999) runs followed by superposition and aver- better reflects the known NPC geometry are described at the end of this
+aging with DAMA VER (Volkov and Svergun, 2003). Because S /S section). 32 chains of FG repeats were anchored to the NPC scaffold in
+max
+were highly correlated with the shape asymmetry measured by SAXS 4 layers of 8 chains each. Each chain was modeled as a flexible string
+(Fig. 3 C, top) and consistent with diffusion coefficient measurements of 45 beads of radius 0.6 nm each (Fig. 4 A, inset). Consecutive beads
+by DLS (Fig. 3 D, bottom), we modeled the shapes for the larger sub- were connected an equilibrium length of 1.8 nm between consecutive
+strates in the Popken et al. (2015) dataset based on their S /S ratios bead centers and using a linear potential, approximating the springlike
+max
+(Fig. 3 D). For illustration purposes, the crystallographic models of nature of flexible polymers in general (van der and Maarel, 2008) and
+GFP (accession no. 1EMA), PrA (accession no. 1ZXG), PrA (acces- FG repeat domains in particular (Denning et al., 2003; Lim et al., 2006;
+sion no. 1GB1), and maltose binding protein (accession no. 1ANF) Hough et al., 2015; Milles et al., 2015; Lemke, 2016; Raveh et al., 2016;
+subunits were fitted to the enclosing envelopes. Sakiyama et al., 2016), but using a constant force of 1.0 kcal/M/A as a
+first approximation. Substrate molecules were modeled as rigid spheres
+Comparison of aqueous channel model to experimental of molecular masses from 28 to 223 (radii of 2.0 to 4.0 nm, assuming
+measurements constant protein density of 1.38 g/cm2; Fig. 4 A, inset). 100 substrate
+The empirically tested theory of diffusion through porous aqueous molecules were included, resulting in the substrate concentration of
+membranes predicts that the permeability coefficient p of porous mem- ∼0.2 mM. Excluded volume interactions were approximated using
+branes depends on the particle probability to enter the pore (Eq. 3) mul- a constant repulsive force of 20.0 kcal/M/A, which was exerted on
+tiplied by the particle friction with the pore walls (Eq. 4; Renkin, 1954): overlapping spheres or on spheres that penetrated either the NE or the
+bounding box. To approximate the differences in the diffusion rates
+_r_ 2
+F 1 = ( 1 − r 0 ) , (3) of molecules of different sizes, we assume for simplicity that the
+Stokes radius of each sphere equals its actual radius R in angstroms
+and assign each sphere a translational diffusion coefficient using the
+_r_ _r_ 3 _r_ 5
+F 2 = 1 − 2.1 r 0 + 2.1 ( r 0 ) − 0.95 ( r 0 ) , (4) Stokes-Einstein equation:
+__kT__
+and p = F · F, where r is the particle radius and r is the pore radius. D =
+1 2 0 6πηR
+We show that this model of a narrow aqueous channel results in a rigid
+rather than soft barrier to passive transport that is incompatible with in A2/fs units, where η = 0.92 is the dynamic viscosity of water at 297.15
+the data (Fig. 3 F; using the approximation r ∼ M M 1/3 for globular K in mPa*s units and kT is given in femtojoules. Brownian dynamics
+proteins [Erickson, 2009]). More formally, when r << r, then F ≈ 1 simulations were implemented in Integrative Modeling Platform (Rus-
+0 1
+and so F dominates p, and in this case, it is easy to show by taking sel et al., 2012) in standard form (Ermak and McCammon, 1978) at
+2
+the first derivative of F that p decreases extremely slowly with respect 297.15 K. The force vector ⇀ f (t) acting on the i’th particle at time step
+2 i
+to either radius or molecular mass. In particular, in this radius range, t is computed from the gradient of the energy function. The particle
+it decreases more slowly than the cubic relation observed experimen- coordinates X are then updated using the discrete integration equation: i
+t w al h l i y c h (F s i h g a . r 3 p l F y ) . d C ro o p n s v t e o r s z e e ly r , o a a s t r t / h r a 0 t r e li a m ch it e , s a 1 s .0 ca , n p b is e d s o h m ow in n a t b e y d t b a y k i F n 1 g , X (t + 1) = X (t) + _Δ_t_ D f ⇀ ( t) + R ( √ _ D _ Δ __ t ) ,
+i i kT i
+the derivative of F. Specifically, it cannot be approximated by an in-
+1 ____
+verse-cubic relation between p and the molecular mass, except over an where R ( √ DΔt ) is a normally distributed random variable with zero
+extremely narrow range of radii or molecular masses: the derivative of mean and variance DΔt . Hydrodynamic interactions were neglected.
+an inverse-cubic function takes the value −3 on a log-log scale, so we The dynamics of the entire system were simulated for 20.0 µs
+can take the derivative of ln(F) with respect to ln(MW) and compare to with a time step of 470 fs. The first 10.0 µs of each simulation were
+1
+−3, again assuming r ∼ M M 1/3 : considered as equilibration time and discarded from the subsequent
+statistical analysis. The entire process was repeated 20,000 times
+_ d d_ L L_ n n_ (M (_ F_ M 1 _ )_ ) = _ − 3 _ 2_ _ r 0 _ r − _ r = _ − 3 _ 2_ _ M _ M __ 0 1 M / _ 3 − M_ _ M 1/_3 M __ 1/ _ 3 . (5) i e n a d c e h p s e u n b d s e t n ra tl t y e . t B y y p e c , o w lle e c t o i b n t g a i s n t e a d ti s d ti a c t s a f f r r o o m m e 1 a 0 ch .0 o s f o th f e s 1 im 00 u l c a o ti p o i n e s p o er f
+Eq. 5 takes the value −3 ± 0.5 (approximately cubic) only when r/r
+0
+particle type using a total computation time of ∼9,000 central processing
+is between 79 and 84%, or stated in terms of molecular masses, when unit days on our local Linux computer cluster. The simulations with
+MM/MM is between 49 and 59% of MM, the molecular mass of a modified FG repeat densities were conducted as described in the first
+0 0
+spherical molecule of radius r. Hence, a simple aqueous pore model paragraph of this section, but the number of chains of FG repeats was
+0
+cannot be used to approximate the cubic relation that we observed over decreased to either 28, 24, 20, or 16 chains, arranged in four layers as
+the wide range 27 to 230 kD, or for that matter, with any other soft grad- before. Control simulations were also performed on a larger system that
+ually decaying (long-tailed) size-dependent barrier (compare Fig. 1 A more closely approximates the known dimensions of the yeast NPC
+and Fig. 3 F). We conclude that passive transport cannot correspond to and the NE (Yang et al., 1998; Alber et al., 2007a; inner diameter of
+a translocation through a simple aqueous channel that obeys the clas- 38 nm and NE width of 30 nm), with seven layers of eight chains of
+sic models of porous membranes and that a more elaborate model is FG repeats each to maintain the same grafting density. These control
+needed to explain the observed transport rates. simulations produced the same overall trends as those of the smaller
+72 JCB • Volume 215 • NumBer 1 • 2016
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05 December
+2025
+systems (Fig. S2 D). Another control simulation used an eightfold ical user interfaces created in MatLab for this expressed purpose. Each
+larger box size (8.7-fold larger cytoplasmic and nuclear volumes) to image was corrected for flat field illumination, background subtracted,
+verify that we model the effect of changes in these volumes correctly, and then all images in the z axis were collapsed by maximum pro-
+resulting in a ninefold decrease in simulated transport rates. The smaller jection down to a single image for each field of cells. Using image
+systems were used for the rest of the analysis to obtain better-converged segmentation scripts, cell bodies were detected and then segmented
+statistics. Control simulations of cohesive FG domains were conducted into nuclear, cytoplasmic, and nuclear rim regions. These segmentation
+by introducing a binding site on a random surface point on each of algorithms followed the basic algorithmic structure of edge detection,
+the FG beads with an attractive range of 6 Å and an attractive force then edge completion, followed by automatic extraneous object exclu-
+constant of 2.5 kcal/M/Å (potential binding energy of 15 kcal/M per sion. Nuclear fluorescence measurements were derived simply as mean
+site), acting between pairs of FG beads. Each bead was also assigned nuclear pixel intensity, whereas cytoplasmic fluorescence was obtained
+a random rotational diffusion coefficient using the Einstein-Stokes from a k-means analysis of the extranuclear pixels (this analysis was
+equation. Torques between binding sites were integrated similarly to calibrated to exclude dark vacuolar regions and the bleed-through light
+the integration of translational forces described earlier in this section at perinuclear regions). Where possible, the scripts calculated nuclear
+for X(t + 1). The configuration files for all simulations are available at rim fluorescence by tracing the brightest pixels around the periphery of
+i
+https ://zenodo .org /record /154746# .V -WW -pMrJE6. the nuclear regions and then averaged this summed pixel intensity over
+perimeter distance. This analysis was performed to derive N/C fluores-
+Glossary cence ratios and nuclear rim intensity measurements for 98–1,401 indi-
+τ is the exponential time constant in seconds for the measured decay vidual cells from each of the 27 strain-reporter combinations; a total of
+in nuclear fluorescence after photobleaching in individual cells. At the 9,621 cells were thus measured using these methods.
+single-molecule level, τ is the mean timespan between two consecutive
+translocations through the NE. τ is a function of p, the cytoplasmic Statistical regression analysis
+volume Vc, the nuclear volume Vn, and the number of NPCs in the cell: Statistical regression analysis using LAS SO was done using the MatLab
+implementation of LAS SO. LAS SO is particularly suitable for finding
+τ = _ ___N__a_ ⋅ _ V_ c_ _⋅ V__n_ ___ , statistical correlations in small datasets, because it deploys a regular-
+p ⋅ NPCs ⋅ ( Vc + Vn)
+ization scheme that effectively penalizes solutions with a larger number
+where Na is Avogadro’s number in µmol−1 (Materials and methods). ^ τ of variables, thereby reducing the risk of overfitting (Tibshirani, 1996).
+is the hypothetical value of τ in a typical yeast cell with mean values Preprocessing. For each of 13 strains (WT plus 12 mutant strains
+of cytoplasmic volume, nuclear volume, and NE surface area. p is the with FG repeat deletions), 33 features (Fig. S5 and Tables S3 and
+permeability coefficient of the NE in molecules per second per NPC per S4) that quantitatively describe the NPC composition, geometry, and
+micromole (flux per concentration difference), or equivalently, 1.86 × biophysical properties of that strain were gathered. A 13 × 33 matrix
+10−6 cm/s, assuming a density of 11.2 NPCs/µm2; p is inversely propor- M was constructed, with M being the value of the j’th feature in the
+ij
+tional to ^τ . ΔG
+passive
+is the free energy penalty for the translocation of an i’th strain. The regression analysis aimed to create a predictor from
+inert macromolecule from the cytoplasm or the nucleus into the NPC. the rows of M (the vectors of features for each strain). The columns
+of M (the vectors of each feature) were centered by subtractions of
+Computation of free energy landscape from the simulations their mean and normalized by division with their standard errors. In
+The positional distribution of the simulated particles was computed addition, a 13-dimensional response vector Y was constructed with the
+over a 100 × 100 × 100 grid with voxel size of 1 × 1 × 1 nm in time WT relative permeability of each strain, formally defined as the ratio
+intervals of 10 ns over all simulations. The 2D energy landscape between the permeability of each strain and the WT permeability, av-
+(Fig. 5 E) spanned by the z axis (projected position along the NPC eraged across all cargo types for which a measurement was taken in
+central axis) and the x axis (arbitrary direction on the orthogonal plane that strain. The regression analysis aimed to create a predictor from
+parallel with the NE) was computed by averaging over all planes that the rows of M (the feature vector of each strain) to Y. Conversely, each
+lie on the central axis of the NPC and transformed to an energy land- feature was represented as a 13-dimensional feature vector f, in which
+scape with units of kT based on the Boltzmann distribution by taking each vector coordinate f represents the value of that feature in strain
+j
+the log of these densities. Similarly, the energy landscape across the j. The coordinates of f and s were normalized by subtracting the feature
+NPC (Fig. 5 F) was computed by obtaining the marginal distribution mean and dividing by the feature SD across all mutant strains.
+along the z axis (integrating over the x and y coordinates; Fig. 5 F). To remove strong statistical redundancies that obscure the re-
+gression analysis, we first clustered the 33 feature vectors using their
+Transport factor and nup distribution analysis mutual Pearson’s correlation values and randomly selected representa-
+The steady-state distributions of genomically tagged Kap95-mCherry, tive features from cliques of features in which all pairs of features had
+Kap123-GFP, Ntf2-GFP, Crm1-GFP, Nup116-GFP, Nup170-GFP, and Pearson’s correlation >0.9. We then applied PCA to further eliminate
+Ndc1-GFP were observed in each of the representative yeast strains, redundant degrees of freedom while maximizing the information con-
+nup116ΔFG, nsp1ΔFG, NΔFG CΔFG nsp1ΔFG, and WT. All images for each tent in each selected degree of freedom (Jolliffe, 1982). We applied the
+fluorescently tagged protein were acquired on the same day for each PCA/LAS SO method iteratively, removing features that were selected
+strain to avoid daily fluctuations in fluorescence measurements. For with extremely low weights until the process converged on a final list of
+each combination of fusion protein and strain, images of fields of live eight features from two highly correlated subgroups that are predicted
+cells were acquired at 100× magnification on an Axiovert 200 micro- to have the greatest effect on passive transport rates (features related
+scope (ZEI SS) fitted with an UltraView spinning disk confocal imaging to charge to hydrophobicity and features related to proximity to the
+head (PerkinElmer), using an iXon EMCC D camera (Andor Technol- cytoplasmic end of the pore).
+ogy), controlled by MetaMorph imaging software. A series of images
+through the complete z axis of each field was acquired. Online supplemental material
+Semiautomated image analysis was performed using a series of Fig. S1 shows supporting analyses of shape effects in relation to
+image segmentation, measurement and data-review scripts, and graph- Fig. 3. Fig. S2 shows the thermodynamics and kinetics of simulated
+Simple rules for passive diffusion through the NPC • Timney et al. 73
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+passive diffusion in relation to Fig. 4. Fig. S3 shows the general effect Christie, M., C.W. Chang, G. Rona, K.M. Smith, A.G. Stewart, A.A. Takeda,
+M.R. Fontes, M. Stewart, B.G. Vertessy, J.K. Forwood, and B. Kobe.
+on the transport machinery in FG deletion strains, providing controls
+2016. Structural biology and regulation of protein import into the
+for our measurements of passive diffusion. Fig. S4 shows Kap123 dy- nucleus. J. Mol. Biol. 428:2060–2090. http ://dx .doi .org /10 .1016 /j .jmb
+namics, which seem independent of passive NPC permeability, but are .2015 .10 .023
+greatly reduced upon deletion of particular FG regions. Fig. S5 shows Colwell, L.J., M.P. Brenner, and K. Ribbeck. 2010. Charge as a selection criterion
+for translocation through the nuclear pore complex. PLOS Comput. Biol.
+relative transport times plotted as a function of individual features of
+6:e1000747. http ://dx .doi .org /10 .1371 /journal .pcbi .1000747
+the mutant strains and the corresponding R2 correlation coefficients.
+Denning, D.P., S.S. Patel, V. Uversky, A.L. Fink, and M. Rexach. 2003. Disorder
+Fig. S6 shows an assessment of the robustness of positive and negative in the nuclear pore complex: the FG repeat regions of nucleoporins are
+contribution of various FG Nup features in the combined PCA/LAS natively unfolded. Proc. Natl. Acad. Sci. USA. 100:2450–2455. http ://dx
+.doi .org /10 .1073 /pnas .0437902100
+SO regression model of passive transport in different settings. Fig. S7
+Dunker, A.K., I. Silman, V.N. Uversky, and J.L. Sussman. 2008. Function and
+shows a sequence and spatial analysis of the different FG Nups and structure of inherently disordered proteins. Curr. Opin. Struct. Biol.
+mutant strains. Fig. S8 shows the change in the ratio between nuclear 18:756–764. http ://dx .doi .org /10 .1016 /j .sbi .2008 .10 .002
+and cytoplasmic fluorescence at equilibrium relative to the WT strain Eibauer, M., M. Pellanda, Y. Turgay, A. Dubrovsky, A. Wild, and O. Medalia.
+2015. Structure and gating of the nuclear pore complex. Nat. Commun.
+for the different GFP-xPrA substrates in the nup116ΔFG strain. Video 1
+6:7532. http ://dx .doi .org /10 .1038 /ncomms8532
+shows FRAP permeability assays of four representative WT cells,
+Erickson, H.P. 2009. Size and shape of protein molecules at the nanometer level
+each expressing a different-sized GFP-xPrA substrate. Video 2 shows determined by sedimentation, gel filtration, and electron microscopy.
+sample simulation trajectory of passive diffusion of macromolecules Biol. Proced. Online. 11:32–51. http ://dx .doi .org /10 .1007 /s12575 -009
+-9008 -x
+of different molecular masses/radii through the NPC, using the model
+Ermak, D.L., and J.A. McCammon. 1978. Brownian dynamics with
+described in the text and in Fig. 4 and Fig. S2. Table S1 shows the hydrodynamic interactions. J. Chem. Phys. 69:1352–1360. http ://dx .doi
+plasmids used in this study. Table S2 shows the strains used in this .org /10 .1063 /1 .436761
+study. Table S3 shows the features used to describe the NPCs of mutant Eyring, H. 1935. The activated complex in chemical reactions. J. Chem. Phys.
+3:107–115. http ://dx .doi .org /10 .1063 /1 .1749604
+strains and for the regression analysis. Table S4 shows the SAXS mea-
+Fischer, H., I. Polikarpov, and A.F. Craievich. 2004. Average protein density is a
+surements of maximal end-to-end distances and radii of gyration for
+molecular-weight-dependent function. Protein Sci. 13:2825–2828. http ://
+GFP-xPrA and GFP-xPrG molecules. dx .doi .org /10 .1110 /ps .04688204
+Franke, D., and D.I. Svergun. 2009. DAMM IF, a program for rapid ab-initio
+Acknowledgments shape determination in small-angle scattering. J. Appl. Cryst. 42:342–
+346. http ://dx .doi .org /10 .1107 /S0021889809000338
+Frey, S., and D. Görlich. 2007. A saturated FG-repeat hydrogel can reproduce the
+We thank Liesbeth Veenhoff and Patrick Onck for helpful discussion, permeability properties of nuclear pore complexes. Cell. 130:512–523.
+sharing of unpublished data, and critical reading of the manuscript; http ://dx .doi .org /10 .1016 /j .cell .2007 .06 .024
+and Laura Terry, who assisted in the assembly of strains for these studies. Gavin, A.C., M. Bösche, R. Krause, P. Grandi, M. Marzioch, A. Bauer,
+J. Schultz, J.M. Rick, A.M. Michon, C.M. Cruciat, et al. 2002. Functional
+organization of the yeast proteome by systematic analysis of protein
+This work was supported by National Institutes of Health grants P41 complexes. Nature. 415:141–147. http ://dx .doi .org /10 .1038 /415141a
+GM109824 (to M.P. Rout and A. Sali), R01 GM112108 (to M.P. Rout Ghavami, A., L.M. Veenhoff, E. van der Giessen, and P.R. Onck. 2014. Probing
+and A. Sali), U01 GM098256 (to M.P. Rout and A. Sali), and R01 the disordered domain of the nuclear pore complex through coarse-
+grained molecular dynamics simulations. Biophys. J. 107:1393–1402.
+GM071329 (to M.P. Rout).
+http ://dx .doi .org /10 .1016 /j .bpj .2014 .07 .060
+Ghavami, A., E. van der Giessen, and P.R. Onck. 2016. Energetics of transport
+The authors declare no competing financial interests. through the nuclear pore complex. PLoS One. 11:e0148876. http ://dx .doi
+.org /10 .1371 /journal .pone .0148876
+Submitted: 4 January 2016 Goryaynov, A., and W. Yang. 2014. Role of molecular charge in nucleocytoplasmic
+transport. PLoS One. 9:e88792. http ://dx .doi .org /10 .1371 /journal .pone
+Accepted: 6 September 2016 .0088792
+Goward, C.R., J.P. Murphy, T. Atkinson, and D.A. Barstow. 1990. Expression and
+purification of a truncated recombinant streptococcal protein G. Biochem.
+References
+J. 267:171–177. http ://dx .doi .org /10 .1042 /bj2670171
+Adams, R.L., L.J. Terry, and S.R. Wente. 2015. A novel Saccharomyces Griffith, O.M. 1983. Techniques of preparative, zonal, and continuous flow ul-
+cerevisiae FG nucleoporin mutant collection for use in nuclear pore tracentrifugation. Beckman Intruments Inc. Spinco Division, Palo Alto,
+complex functional experiments. G3 (Bethesda). 6:51–58. http ://dx .doi CA. 50 pp.
+.org /10 .1534 /g3 .115 .023002 Grünwald, D., and R.H. Singer. 2010. In vivo imaging of labelled endogenous
+Alber, F., S. Dokudovskaya, L.M. Veenhoff, W. Zhang, J. Kipper, D. Devos, β-actin mRNA during nucleocytoplasmic transport. Nature. 467:604–
+A. Suprapto, O. Karni-Schmidt, R. Williams, B.T. Chait, et al. 2007a. 607. http ://dx .doi .org /10 .1038 /nature09438
+Determining the architectures of macromolecular assemblies. Nature. Hough, L.E., K. Dutta, S. Sparks, D.B. Temel, A. Kamal, J. Tetenbaum-Novatt,
+450:683–694. http ://dx .doi .org /10 .1038/ nature06404 M.P. Rout, and D. Cowburn. 2015. The molecular mechanism of nuclear
+Alber, F., S. Dokudovskaya, L.M. Veenhoff, W. Zhang, J. Kipper, D. Devos, transport revealed by atomic-scale measurements. eLife. 4:4. http ://dx .doi
+A. Suprapto, O. Karni-Schmidt, R. Williams, B.T. Chait, et al. 2007b. The .org /10 .7554 /eLife .10027
+molecular architecture of the nuclear pore complex. Nature. 450:695– Hülsmann, B.B., A.A. Labokha, and D. Görlich. 2012. The permeability of
+701. http ://dx .doi .org /10 .1038 /nature06405 reconstituted nuclear pores provides direct evidence for the selective
+Atkinson, C.E., A.L. Mattheyses, M. Kampmann, and S.M. Simon. 2013. phase model. Cell. 150:738–751. http ://dx .doi .org /10 .1016 /j .cell .2012
+Conserved spatial organization of FG domains in the nuclear pore .07 .019
+complex. Biophys. J. 104:37–50. http ://dx .doi .org /10 .1016 /j .bpj .2012 .11 Iovine, M.K., and S.R. Wente. 1997. A nuclear export signal in Kap95p is
+.3823 required for both recycling the import factor and interaction with the
+Bayliss, R., K. Ribbeck, D. Akin, H.M. Kent, C.M. Feldherr, D. Görlich, and nucleoporin GLFG repeat regions of Nup116p and Nup100p. J. Cell Biol.
+M. Stewart. 1999. Interaction between NTF2 and xFxFG-containing 137:797–811. http ://dx .doi .org /10 .1083 /jcb .137 .4 .797
+nucleoporins is required to mediate nuclear import of RanGDP. J. Mol. Jolliffe, I.T. 1982. A note on the use of principal components in regression. Appl.
+Biol. 293:579–593. http ://dx .doi .org /10 .1006 /jmbi .1999 .3166 Stat. 31:300–303. http ://dx .doi .org /10 .2307 /2348005
+Bayliss, R., S.W. Leung, R.P. Baker, B.B. Quimby, A.H. Corbett, and M. Stewart. Jovanovic-Talisman, T., J. Tetenbaum-Novatt, A.S. McKenney, A. Zilman,
+2002. Structural basis for the interaction between NTF2 and nucleoporin R. Peters, M.P. Rout, and B.T. Chait. 2009. Artificial nanopores that
+FxFG repeats. EMBO J. 21:2843–2853. http ://dx .doi .org /10 .1093 /emboj mimic the transport selectivity of the nuclear pore complex. Nature.
+/cdf305 457:1023–1027. http ://dx .doi .org /10 .1038 /nature07600
+74 JCB • Volume 215 • NumBer 1 • 2016
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+Kapinos, L.E., R.L. Schoch, R.S. Wagner, K.D. Schleicher, and R.Y. Lim. Milles, S., D. Mercadante, I.V. Aramburu, M.R. Jensen, N. Banterle, C. Koehler,
+2014. Karyopherin-centric control of nuclear pores based on molecular S. Tyagi, J. Clarke, S.L. Shammas, M. Blackledge, et al. 2015. Plasticity
+occupancy and kinetic analysis of multivalent binding with FG of an ultrafast interaction between nucleoporins and nuclear transport
+nucleoporins. Biophys. J. 106:1751–1762. http ://dx .doi .org /10 .1016 /j .bpj receptors. Cell. 163:734–745. http ://dx .doi .org /10 .1016 /j .cell .2015 .09
+.2014 .02 .021 .047
+Keilhauer, E.C., M.Y. Hein, and M. Mann. 2015. Accurate protein complex Mincer, J.S., and S.M. Simon. 2011. Simulations of nuclear pore transport yield
+retrieval by affinity enrichment mass spectrometry (AE-MS) rather than mechanistic insights and quantitative predictions. Proc. Natl. Acad. Sci.
+affinity purification mass spectrometry (AP-MS). Mol. Cell. Proteomics. USA. 108:E351–E358. http ://dx .doi .org /10 .1073 /pnas .1104521108
+14:120–135. http ://dx .doi .org /10 .1074 /mcp .M114 .041012
+Mohr, D., S. Frey, T. Fischer, T. Güttler, and D. Görlich. 2009. Characterisation
+Keminer, O., and R. Peters. 1999. Permeability of single nuclear pores. Biophys. of the passive permeability barrier of nuclear pore complexes. EMBO
+J. 77:217–228. http ://dx .doi .org /10 .1016 /S0006 -3495(99)76883 -9 J. 28:2541–2553. http ://dx .doi .org /10 .1038 /emboj .2009 .200
+Kim, S., and M. Elbaum. 2013a. Enzymatically driven transport: a kinetic theory Moussavi-Baygi, R., Y. Jamali, R. Karimi, and M.R. Mofrad. 2011. Brownian
+for nuclear export. Biophys. J. 105:1997–2005. http ://dx .doi .org /10 .1016 dynamics simulation of nucleocytoplasmic transport: a coarse-grained
+/j .bpj .2013 .09 .011 model for the functional state of the nuclear pore complex. PLOS Comput.
+Kim, S., and M. Elbaum. 2013b. A simple kinetic model with explicit predictions Biol. 7:e1002049. http ://dx .doi .org /10 .1371 /journal .pcbi .1002049
+for nuclear transport. Biophys. J. 105:565–569. http ://dx .doi .org /10 .1016 Musser, S.M., and D. Grünwald. 2016. Deciphering the structure and function
+/j .bpj .2013 .04 .025 of nuclear pores using single-molecule fluorescence approaches. J. Mol.
+Kirli, K., S. Karaca, H.J. Dehne, M. Samwer, K.T. Pan, C. Lenz, H. Urlaub, Biol. 428:2091–2119. http ://dx .doi .org /10 .1016 /j .jmb .2016 .02 .023
+and D. Görlich. 2015. A deep proteomics perspective on CRM1-mediated Naim, B., D. Zbaida, S. Dagan, R. Kapon, and Z. Reich. 2009. Cargo surface
+nuclear export and nucleocytoplasmic partitioning. eLife. 4:4. http ://dx hydrophobicity is sufficient to overcome the nuclear pore complex
+.doi .org /10 .7554 /eLife .11466 selectivity barrier. EMBO J. 28:2697–2705. http ://dx .doi .org /10 .1038 /
+Kiskin, N.I., J.P. Siebrasse, and R. Peters. 2003. Optical microwell assay of emboj .2009 .225
+membrane transport kinetics. Biophys. J. 85:2311–2322. http ://dx .doi .org Paine, P.L., and C.M. Feldherr. 1972. Nucleocytoplasmic exchange of
+/10 .1016 /S0006 -3495(03)74655 -4 macromolecules. Exp. Cell Res. 74:81–98. http ://dx .doi .org /10 .1016
+Knockenhauer, K.E., and T.U. Schwartz. 2016. The nuclear pore complex as /0014 -4827(72)90483 -1
+a flexible and dynamic gate. Cell. 164:1162–1171. http ://dx .doi .org /10 Paine, P.L., L.C. Moore, and S.B. Horowitz. 1975. Nuclear envelope permeability.
+.1016 /j .cell .2016 .01 .034 Nature. 254:109–114. http ://dx .doi .org /10 .1038 /254109a0
+Kopito, R.B., and M. Elbaum. 2007. Reversibility in nucleocytoplasmic Patel, S.S., B.J. Belmont, J.M. Sante, and M.F. Rexach. 2007. Natively unfolded
+transport. Proc. Natl. Acad. Sci. USA. 104:12743–12748. http ://dx .doi nucleoporins gate protein diffusion across the nuclear pore complex. Cell.
+.org /10 .1073 /pnas .0702690104 129:83–96. http ://dx .doi .org /10 .1016 /j .cell .2007 .01 .044
+Kosinski, J., S. Mosalaganti, A. von Appen, R. Teimer, A.L. DiGuilio, W. Wan, Peleg, O., M. Tagliazucchi, M. Kröger, Y. Rabin, and I. Szleifer. 2011.
+K.H. Bui, W.J. Hagen, J.A. Briggs, J.S. Glavy, et al. 2016. Molecular Morphology control of hairy nanopores. ACS Nano. 5:4737–4747. http ://
+architecture of the inner ring scaffold of the human nuclear pore complex. dx .doi .org /10 .1021 /nn200702u
+Science. 352:363–365. http ://dx .doi .org/ 10 .1126 /science .aaf0643
+Peters, R. 2005. Translocation through the nuclear pore complex: selectivity and
+Kuwamoto, S., S. Akiyama, and T. Fujisawa. 2004. Radiation damage to a protein speed by reduction-of-dimensionality. Traffic. 6:421–427. http ://dx .doi
+solution, detected by synchrotron X-ray small-angle scattering: dose- .org /10 .1111 /j .1600 -0854 .2005 .00287 .x
+related considerations and suppression by cryoprotectants. J. Synchrotron
+Radiat. 11:462–468. http ://dx .doi .org /10 .1107 /S0909049504019272 Petoukhov, M.V., D. Franke, A.V. Shkumatov, G. Tria, A.G. Kikhney, M. Gajda,
+C. Gorba, H.D.T. Mertens, P.V. Konarev, and D.I. Svergun. 2012. New
+Lemke, E.A. 2016. The multiple faces of disordered nucleoporins. J. Mol. Biol. developments in the ATS AS program package for small-angle scattering
+428:2011–2024. http ://dx .doi .org /10 .1016 /j .jmb .2016 .01 .002 data analysis. J. Appl. Cryst. 45:342–350. http ://dx .doi .org /10 .1107 /
+Lim, R.Y., N.P. Huang, J. Köser, J. Deng, K.H. Lau, K. Schwarz-Herion, S0021889812007662
+B. Fahrenkrog, and U. Aebi. 2006. Flexible phenylalanine-glycine Popken, P., A. Ghavami, P.R. Onck, B. Poolman, and L.M. Veenhoff. 2015.
+nucleoporins as entropic barriers to nucleocytoplasmic transport. Proc. Size-dependent leak of soluble and membrane proteins through the yeast
+Natl. Acad. Sci. USA. 103:9512–9517. http ://dx .doi .org /10 .1073 /pnas nuclear pore complex. Mol. Biol. Cell. 26:1386–1394. http ://dx .doi .org
+.0603521103 /10 .1091 /mbc .E14 -07 -1175
+Longtine, M.S., A. McKenzie III, D.J. Demarini, N.G. Shah, A. Wach,
+Quimby, B.B., and M. Dasso. 2003. The small GTPase Ran: interpreting the
+A. Brachat, P. Philippsen, and J.R. Pringle. 1998. Additional modules for signs. Curr. Opin. Cell Biol. 15:338–344. http ://dx .doi .org /10 .1016 /
+versatile and economical PCR-based gene deletion and modification in S0955 -0674(03)00046 -2
+Saccharomyces cerevisiae. Yeast. 14:953–961. http ://dx .doi .org /10 .1002 /
+(SICI)1097 -0061(199807)14 :10<953::AID-YEA293>3.0.CO;2-U Raveh, B., J.M. Karp, S. Sparks, K. Dutta, M.P. Rout, A. Sali, and D. Cowburn.
+2016. Slide-and-exchange mechanism for rapid and selective transport Lord, C.L., B.L. Timney, M.P. Rout, and S.R. Wente. 2015. Altering nuclear
+through the nuclear pore complex. Proc. Natl. Acad. Sci. USA.
+pore complex function impacts longevity and mitochondrial function in
+113:E2489–E2497. http ://dx .doi .org /10 .1073 /pnas .1522663113
+S. cerevisiae. J. Cell Biol. 208:729–744. http ://dx .doi .org /10 .1083 /jcb
+.201412024 Reits, E.A., and J.J. Neefjes. 2001. From fixed to FRAP: measuring protein
+mobility and activity in living cells. Nat. Cell Biol. 3:E145–E147. http ://
+Lowe, A.R., J.J. Siegel, P. Kalab, M. Siu, K. Weis, and J.T. Liphardt. 2010. dx .doi .org /10 .1038 /35078615
+Selectivity mechanism of the nuclear pore complex characterized by
+single cargo tracking. Nature. 467:600–603. http ://dx .doi .org /10 .1038 / Renkin, E.M. 1954. Filtration, diffusion, and molecular sieving through porous
+nature09285 cellulose membranes. J. Gen. Physiol. 38:225–243.
+Lowe, A.R., J.H. Tang, J. Yassif, M. Graf, W.Y. Huang, J.T. Groves, K. Weis, and Ribbeck, K., and D. Görlich. 2001. Kinetic analysis of translocation through
+J.T. Liphardt. 2015. Importin-β modulates the permeability of the nuclear nuclear pore complexes. EMBO J. 20:1320–1330. http ://dx .doi .org /10
+pore complex in a Ran-dependent manner. eLife. 4:e04052. http ://dx .doi .1093 /emboj /20 .6 .1320
+.org /10 .7554 /eLife .04052 Ribbeck, K., and D. Görlich. 2002. The permeability barrier of nuclear pore
+Ma, J., A. Goryaynov, A. Sarma, and W. Yang. 2012. Self-regulated viscous complexes appears to operate via hydrophobic exclusion. EMBO
+channel in the nuclear pore complex. Proc. Natl. Acad. Sci. USA. J. 21:2664–2671. http ://dx .doi .org /10 .1093 /emboj /21 .11 .2664
+109:7326–7331. http ://dx .doi .org /10 .1073 /pnas .1201724109 Rout, M.P., and S.R. Wente. 1994. Pores for thought: nuclear pore complex
+Ma, J., A. Goryaynov, and W. Yang. 2016. Super-resolution 3D tomography of proteins. Trends Cell Biol. 4:357–365. http ://dx .doi .org /10 .1016 /0962
+interactions and competition in the nuclear pore complex. Nat. Struct. -8924(94)90085 -X
+Mol. Biol. 23:239–247. http ://dx .doi .org /10 .1038 /nsmb .3174 Rout, M.P., J.D. Aitchison, A. Suprapto, K. Hjertaas, Y. Zhao, and B.T. Chait.
+Marsh, J.A., and J.D. Forman-Kay. 2010. Sequence determinants of compaction 2000. The yeast nuclear pore complex: composition, architecture, and
+in intrinsically disordered proteins. Biophys. J. 98:2383–2390. http ://dx transport mechanism. J. Cell Biol. 148:635–651. http ://dx .doi .org /10
+.doi .org /10 .1016 /j .bpj .2010 .02 .006 .1083 /jcb .148 .4 .635
+Mettenleiter, T.C. 2016. Breaching the barrier—The nuclear envelope in virus Rout, M.P., J.D. Aitchison, M.O. Magnasco, and B.T. Chait. 2003. Virtual gating
+infection. J. Mol. Biol. 428:1949–1961. http ://dx .doi .org /10 .1016 /j .jmb and nuclear transport: the hole picture. Trends Cell Biol. 13:622–628. http
+.2015 .10 .001 ://dx .doi .org /10 .1016 /j .tcb .2003 .10 .007
+Mi, L., A. Goryaynov, A. Lindquist, M. Rexach, and W. Yang. 2015. Quantifying Russel, D., K. Lasker, B. Webb, J. Velázquez-Muriel, E. Tjioe, D. Schneidman-
+nucleoporin stoichiometry inside single nuclear pore complexes in vivo. Duhovny, B. Peterson, and A. Sali. 2012. Putting the pieces together:
+Sci. Rep. 5:9372. http ://dx .doi .org /10 .1038 /srep09372 integrative modeling platform software for structure determination of
+Simple rules for passive diffusion through the NPC • Timney et al. 75
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025
+macromolecular assemblies. PLoS Biol. 10:e1001244. http ://dx .doi .org Tibshirani, R. 1996. Regression shrinkage and selection via the lasso. J. R. Stat.
+/10 .1371 /journal .pbio .1001244 Soc. Ser. B. 58:267–288.
+Sakiyama, Y., A. Mazur, L.E. Kapinos, and R.Y. Lim. 2016. Spatiotemporal Timney, B.L., J. Tetenbaum-Novatt, D.S. Agate, R. Williams, W. Zhang,
+dynamics of the nuclear pore complex transport barrier resolved by high- B.T. Chait, and M.P. Rout. 2006. Simple kinetic relationships and
+speed atomic force microscopy. Nat. Nanotechnol. 11:719–723. http: //dx nonspecific competition govern nuclear import rates in vivo. J. Cell Biol.
+.doi .org /10 .1038 /nnano .2016 .62 175:579–593. http ://dx .doi .org /10 .1083 /jcb .200608141
+Schellhaus, A.K., P. De Magistris, and W. Antonin. 2016. Nuclear reformation Tran, E.J., M.C. King, and A.H. Corbett. 2014. Macromolecular transport
+at the end of mitosis. J. Mol. Biol. 428:1962–1985. http ://dx .doi .org /10 between the nucleus and the cytoplasm: Advances in mechanism and
+.1016 /j .jmb .2015 .09 .016 emerging links to disease. Biochim. Biophys. Acta. 1843:2784–2795. http
+Schmidt, H.B., and D. Görlich. 2015. Nup98 FG domains from diverse species ://dx .doi .org /10 .1016 /j .bbamcr .2014 .08 .003
+spontaneously phase-separate into particles with nuclear pore-like Tu, L.C., G. Fu, A. Zilman, and S.M. Musser. 2013. Large cargo transport
+permselectivity. eLife. 4:4. http ://dx .doi .org /10 .7554 /eLife .04251 by nuclear pores: implications for the spatial organization of FG-
+Schmidt, H.B., and D. Görlich. 2016. Transport selectivity of nuclear pores, nucleoporins. EMBO J. 32:3220–3230. http ://dx .doi .org /10 .1038 /emboj
+phase separation, and membraneless organelles. Trends Biochem. Sci. .2013 .239
+41:46–61. http ://dx .doi .org /10 .1016 /j .tibs .2015 .11 .001 van der Maarel, J.R.C. 2008. Introduction to Biopolymer Physics. World
+Schmitz, K.S. 1990. An Introduction to Dynamic Light Scattering by Scientific, Singapore. 247 pp.
+Macromolecules. Elsevier Science Publishing Co. Inc., New York. 470 Volkov, V.V., and D.I. Svergun. 2003. Uniqueness of ab initio shape determination
+pp. in small-angle scattering. J. Appl. Cryst. 36:860–864. http ://dx .doi .org /10
+.1107 /S0021889803000268
+Sheff, M.A., and K.S. Thorn. 2004. Optimized cassettes for fluorescent protein
+tagging in Saccharomyces cerevisiae. Yeast. 21:661–670. http ://dx .doi Vovk, A., C. Gu, M.G. Opferman, L.E. Kapinos, R.Y. Lim, R.D. Coalson,
+.org /10 .1002 /yea .1130 D. Jasnow, and A. Zilman. 2016. Simple biophysics underpins collective
+conformations of the intrinsically disordered proteins of the Nuclear Pore
+Shulga, N., N. Mosammaparast, R. Wozniak, and D.S. Goldfarb. 2000. Yeast
+Complex. eLife. 5:e10785. http ://dx .doi .org /10 .7554 /eLife .10785
+nucleoporins involved in passive nuclear envelope permeability. J. Cell
+Biol. 149:1027–1038. http ://dx .doi .org /10 .1083 /jcb .149 .5 .1027 Wang, R., and M.G. Brattain. 2007. The maximal size of protein to diffuse
+through the nuclear pore is larger than 60kDa. FEBS Lett. 581:3164–
+Simon, D.N., and M.P. Rout. 2014. Cancer and the nuclear pore complex. Adv.
+3170. http ://dx .doi .org /10 .1016 /j .febslet .2007 .05 .082 Exp. Med. Biol. 773:285–307. http ://dx .doi .org /10 .1007 /978 -1 -4899
+-8032 -8 _13 Winey, M., D. Yarar, T.H. Giddings Jr., and D.N. Mastronarde. 1997. Nuclear
+pore complex number and distribution throughout the Saccharomyces
+Smith, A., A. Brownawell, and I.G. Macara. 1998. Nuclear import of Ran is
+cerevisiae cell cycle by three-dimensional reconstruction from electron
+mediated by the transport factor NTF2. Curr. Biol. 8:1403–1406. http: //
+micrographs of nuclear envelopes. Mol. Biol. Cell. 8:2119–2132. http ://
+dx .doi .org /10 .1016 /S0960 -9822(98)00023 -2
+dx .doi .org /10 .1091 /mbc .8 .11 .2119
+Strambio-De-Castillia, C., M. Niepel, and M.P. Rout. 2010. The nuclear pore
+Wühr, M., T. Güttler, L. Peshkin, G.C. McAlister, M. Sonnett, K. Ishihara,
+complex: bridging nuclear transport and gene regulation. Nat. Rev. Mol.
+A.C. Groen, M. Presler, B.K. Erickson, T.J. Mitchison, et al. 2015. The
+Cell Biol. 11:490–501. http ://dx .doi .org /10 .1038 /nrm2928
+nuclear proteome of a vertebrate. Curr. Biol. 25:2663–2671. http ://dx .doi
+Strawn, L.A., T. Shen, N. Shulga, D.S. Goldfarb, and S.R. Wente. 2004. Minimal .org /10 .1016 /j .cub .2015 .08 .047
+nuclear pore complexes define FG repeat domains essential for transport.
+Yamada, J., J.L. Phillips, S. Patel, G. Goldfien, A. Calestagne-Morelli, H. Huang,
+Nat. Cell Biol. 6:197–206. http ://dx .doi .org /10 .1038 /ncb1097
+R. Reza, J. Acheson, V.V. Krishnan, S. Newsam, et al. 2010. A bimodal
+Svergun, D.I. 1999. Restoring low resolution structure of biological macromolecules distribution of two distinct categories of intrinsically disordered structures
+from solution scattering using simulated annealing. Biophys. J. 76:2879– with separate functions in FG nucleoporins. Mol. Cell. Proteomics.
+2886. http ://dx .doi .org /10 .1016 /S0006 -3495(99)77443 -6 9:2205–2224. http ://dx .doi .org /10 .1074 /mcp .M000035 -MCP201
+Tagliazucchi, M., O. Peleg, M. Kröger, Y. Rabin, and I. Szleifer. 2013. Effect of Yang, Q., M.P. Rout, and C.W. Akey. 1998. Three-dimensional architecture of
+charge, hydrophobicity, and sequence of nucleoporins on the translocation the isolated yeast nuclear pore complex: functional and evolutionary
+of model particles through the nuclear pore complex. Proc. Natl. Acad. implications. Mol. Cell. 1:223–234. http ://dx .doi .org /10 .1016 /S1097
+Sci. USA. 110:3363–3368. (published erratum appears in Proc. Natl. -2765(00)80023 -4
+Acad. Sci. USA. 2013. 110:10336–10337) http ://dx .doi .org /10 .1073 /pnas
+.1212909110
+Zahn, R., D. Osmanović, S. Ehret, C. Araya Callis, S. Frey, M. Stewart, C. You,
+D. Görlich, B.W. Hoogenboom, and R.P. Richter. 2016. A physical
+Tcherkasskaya, O., E.A. Davidson, and V.N. Uversky. 2003. Biophysical model describing the interaction of nuclear transport receptors with FG
+constraints for protein structure prediction. J. Proteome Res. 2:37–42. nucleoporin domain assemblies. eLife. 5:5. http ://dx .doi .org /10 .7554 /
+http ://dx .doi .org /10 .1021 /pr025552q eLife .14119
+Terry, L.J., and S.R. Wente. 2007. Nuclear mRNA export requires specific FG Zenklusen, D., A.L. Wells, J.S. Condeelis, and R.H. Singer. 2007. Imaging re-
+nucleoporins for translocation through the nuclear pore complex. J. Cell al-time gene expression in living yeast. CSH Prot. 2007:pdb.prot4870.
+Biol. 178:1121–1132. http ://dx .doi .org /10 .1083 /jcb .200704174
+Zilman, A., S. Di Talia, B.T. Chait, M.P. Rout, and M.O. Magnasco. 2007.
+Tetenbaum-Novatt, J., and M.P. Rout. 2010. The mechanism of nucleocytoplasmic Efficiency, selectivity, and robustness of nucleocytoplasmic transport.
+transport through the nuclear pore complex. Cold Spring Harb. Symp. PLOS Comput. Biol. 3:e125. http ://dx .doi .org /10 .1371 /journal .pcbi
+Quant. Biol. 75:567–584. http ://dx .doi .org /10 .1101 /sqb .2010 .75 .033 .0030125
+Tetenbaum-Novatt, J., L.E. Hough, R. Mironska, A.S. McKenney, and M.P. Rout. Zilman, A., S. Di Talia, T. Jovanovic-Talisman, B.T. Chait, M.P. Rout, and
+2012. Nucleocytoplasmic transport: a role for nonspecific competition in M.O. Magnasco. 2010. Enhancement of transport selectivity through
+karyopherin-nucleoporin interactions. Mol. Cell. Proteomics. 11:31–46. nano-channels by non-specific competition. PLOS Comput. Biol.
+http ://dx .doi .org /10 .1074 /mcp .M111 .013656 6:e1000804. http ://dx .doi .org /10 .1371 /journal .pcbi .1000804
+76 JCB • Volume 215 • NumBer 1 • 2016
+Downloaded
+from
+http://rupress.org/jcb/article-pdf/215/1/57/1596505/jcb_201601004.pdf
+by
+guest
+on
+05
+December
+2025

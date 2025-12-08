@@ -6,11 +6,12 @@ from pathlib import Path
 from datetime import datetime
 
 from models.session import VisualizationSession, SessionType
+from constants import DEFAULT_SESSIONS_DIR
 
 class SessionManager:
     """Manages visualization sessions."""
     
-    def __init__(self, storage_path: str = "./sessions"):
+    def __init__(self, storage_path: str = DEFAULT_SESSIONS_DIR):
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(exist_ok=True)
         self._sessions: Dict[str, VisualizationSession] = {}

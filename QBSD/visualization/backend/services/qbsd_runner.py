@@ -74,15 +74,12 @@ from models.qbsd import QBSDConfig, QBSDStatus, QBSDProgress
 from models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus
 from services.websocket_manager import WebSocketManager
 from services.session_manager import SessionManager
+from services.websocket_mixin import WebSocketBroadcasterMixin
 
-class QBSDRunner:
+class QBSDRunner(WebSocketBroadcasterMixin):
     """Handles QBSD execution and integration."""
     
     def __init__(self, work_dir: str = "./qbsd_work", websocket_manager=None, session_manager=None):
-        self.work_dir = Path(work_dir)
-        self.work_dir.mkdir(exist_ok=True)
-        self.running_sessions: Dict[str, asyncio.Task] = {}
-        
         # Use provided managers or create new ones
         if websocket_manager is not None:
             self.websocket_manager = websocket_manager
@@ -93,6 +90,13 @@ class QBSDRunner:
             self.session_manager = session_manager
         else:
             self.session_manager = SessionManager()
+        
+        # Initialize mixin
+        super().__init__(self.websocket_manager)
+        
+        self.work_dir = Path(work_dir)
+        self.work_dir.mkdir(exist_ok=True)
+        self.running_sessions: Dict[str, asyncio.Task] = {}
     
     def _convert_config_to_qbsd_format(self, config: QBSDConfig, session_id: str) -> Dict[str, Any]:
         """Convert visualization QBSDConfig to QBSD pipeline format."""
@@ -132,12 +136,19 @@ class QBSDRunner:
             "documents_batch_size": config.documents_batch_size,
             "output_path": str(session_dir / "discovered_schema.json"),
             "document_randomization_seed": config.document_randomization_seed,
-            "backend": {
-                "provider": config.backend.provider,
-                "model": config.backend.model,
-                "max_tokens": config.backend.max_tokens,
-                "temperature": config.backend.temperature,
-                "max_context_tokens": config.backend.max_context_tokens
+            "schema_creation_backend": {
+                "provider": config.schema_creation_backend.provider,
+                "model": config.schema_creation_backend.model,
+                "max_tokens": config.schema_creation_backend.max_tokens,
+                "temperature": config.schema_creation_backend.temperature,
+                "max_context_tokens": config.schema_creation_backend.max_context_tokens
+            },
+            "value_extraction_backend": {
+                "provider": config.value_extraction_backend.provider,
+                "model": config.value_extraction_backend.model,
+                "max_tokens": config.value_extraction_backend.max_tokens,
+                "temperature": config.value_extraction_backend.temperature,
+                "max_context_tokens": config.value_extraction_backend.max_context_tokens
             }
         }
         
@@ -220,12 +231,19 @@ class QBSDRunner:
             if not schema_path.exists():
                 errors.append(f"Initial schema file does not exist: {config.initial_schema_path}")
         
-        # Validate backend config
-        if not config.backend.provider:
-            errors.append("LLM provider must be specified")
+        # Validate schema creation backend config
+        if not config.schema_creation_backend.provider:
+            errors.append("Schema creation LLM provider must be specified")
         
-        if not config.backend.model:
-            errors.append("LLM model must be specified")
+        if not config.schema_creation_backend.model:
+            errors.append("Schema creation LLM model must be specified")
+            
+        # Validate value extraction backend config
+        if not config.value_extraction_backend.provider:
+            errors.append("Value extraction LLM provider must be specified")
+        
+        if not config.value_extraction_backend.model:
+            errors.append("Value extraction LLM model must be specified")
         
         return {
             "is_valid": len(errors) == 0,
@@ -270,7 +288,7 @@ class QBSDRunner:
             session.error_message = str(e)
             self.session_manager.update_session(session)
             
-            await self.websocket_manager.broadcast_error(session_id, str(e))
+            await self.broadcast_error(session_id, str(e))
         
         finally:
             # Clean up
@@ -301,15 +319,14 @@ class QBSDRunner:
         
         async def update_progress(step_name: str, step_progress: float = 0.0, details: Dict[str, Any] = None):
             nonlocal current_step
-            await self.websocket_manager.broadcast_progress(session_id, {
-                "session_id": session_id,
-                "status": "processing",
-                "progress": (current_step + step_progress) / total_steps,
-                "current_step": step_name,
-                "steps_completed": current_step,
-                "total_steps": total_steps,
-                "details": details or {}
-            })
+            await self.broadcast_step_progress(
+                session_id, 
+                step_name, 
+                current_step + 1, 
+                total_steps, 
+                step_progress, 
+                details.get("message") if details else None
+            )
         
         try:
             # Step 1: Initializing
@@ -324,6 +341,7 @@ class QBSDRunner:
             qbsd_config_file = session_dir / "qbsd_config.json"
             with open(qbsd_config_file, 'w') as f:
                 json.dump(qbsd_config, f, indent=2)
+            print(f"DEBUG: Saved QBSD config with keys: {list(qbsd_config.keys())}")
             
             await update_progress("Initializing", 1.0)
             
@@ -363,16 +381,16 @@ class QBSDRunner:
             
             # Step 3: Build LLM backend
             current_step += 1
-            print(f"🐛 DEBUG: Building LLM backend - provider: {qbsd_config['backend']['provider']}")
+            print(f"🐛 DEBUG: Building Schema Creation LLM backend - provider: {qbsd_config['schema_creation_backend']['provider']}")
             await update_progress("Building LLM backend", 0.0)
             
-            # Build LLM interface
-            print(f"🐛 DEBUG: Creating LLM interface...")
+            # Build Schema Creation LLM interface
+            print(f"🐛 DEBUG: Creating Schema Creation LLM interface...")
             llm = build_llm_interface(
-                provider=qbsd_config["backend"]["provider"],
-                model=qbsd_config["backend"]["model"],
-                max_tokens=qbsd_config["backend"]["max_tokens"],
-                temperature=qbsd_config["backend"]["temperature"]
+                provider=qbsd_config["schema_creation_backend"]["provider"],
+                model=qbsd_config["schema_creation_backend"]["model"],
+                max_tokens=qbsd_config["schema_creation_backend"]["max_tokens"],
+                temperature=qbsd_config["schema_creation_backend"]["temperature"]
             )
             print(f"🐛 DEBUG: LLM interface created successfully")
             
@@ -419,12 +437,23 @@ class QBSDRunner:
             )
             print(f"🐛 DEBUG: Schema discovery completed with {len(discovered_schema.columns)} columns")
             
-            # Save discovered schema
+            # Save discovered schema with frontend-compatible format
             schema_file = session_dir / "discovered_schema.json"
+            frontend_schema = []
+            for col in discovered_schema.columns:
+                col_dict = col.to_dict()
+                # Convert QBSD format to frontend format
+                frontend_col = {
+                    "name": col_dict.get("column", col.name),  # "column" -> "name"
+                    "definition": col_dict.get("definition", ""),
+                    "rationale": col_dict.get("explanation", col.rationale)  # "explanation" -> "rationale"
+                }
+                frontend_schema.append(frontend_col)
+            
             with open(schema_file, 'w') as f:
                 json.dump({
                     "query": qbsd_config["query"],
-                    "schema": [col.to_dict() for col in discovered_schema.columns]
+                    "schema": frontend_schema
                 }, f, indent=2)
             
             await update_progress("Schema Discovery: Complete", 1.0, {
@@ -435,14 +464,16 @@ class QBSDRunner:
             session = self.session_manager.get_session(session_id)
             session.status = SessionStatus.SCHEMA_READY
             session.metadata.schema_discovery_completed = True
+            print(f"🔄 DEBUG: Updated session {session_id} status to SCHEMA_READY with {len(discovered_schema.columns)} columns")
             
             # Update session with discovered schema
             schema_columns = []
             for col in discovered_schema.columns:
+                # QBSD Column objects have these fields directly
                 col_info = ColumnInfo(
                     name=col.name,
-                    definition=col.definition if hasattr(col, 'definition') else None,
-                    rationale=col.rationale if hasattr(col, 'rationale') else None,
+                    definition=col.definition,
+                    rationale=col.rationale,
                     data_type="object"
                 )
                 schema_columns.append(col_info)
@@ -450,9 +481,10 @@ class QBSDRunner:
             session.columns = schema_columns
             session.schema_query = qbsd_config["query"]
             self.session_manager.update_session(session)
+            print(f"💾 DEBUG: Session {session_id} saved with {len(schema_columns)} columns, status: {session.status}")
             
             # Broadcast schema completion event
-            await self.websocket_manager.broadcast_schema_completed(session_id, {
+            await self.broadcast_schema_completed(session_id, {
                 "query": qbsd_config["query"],
                 "columns": [col.model_dump() for col in schema_columns],
                 "total_columns": len(discovered_schema.columns)
@@ -462,9 +494,19 @@ class QBSDRunner:
             current_step += 1
             await update_progress("Extracting values", 0.0)
             
-            # Run real value extraction
+            # Build Value Extraction LLM interface (separate from schema creation)
+            print(f"🐛 DEBUG: Creating Value Extraction LLM interface...")
+            value_extraction_llm = build_llm_interface(
+                provider=qbsd_config["value_extraction_backend"]["provider"],
+                model=qbsd_config["value_extraction_backend"]["model"],
+                max_tokens=qbsd_config["value_extraction_backend"]["max_tokens"],
+                temperature=qbsd_config["value_extraction_backend"]["temperature"]
+            )
+            print(f"🐛 DEBUG: Value Extraction LLM interface created successfully")
+
+            # Run real value extraction with dedicated LLM
             await self._run_value_extraction(
-                session_id, qbsd_config, discovered_schema, llm, retriever, update_progress
+                session_id, qbsd_config, discovered_schema, value_extraction_llm, retriever, update_progress
             )
             
             await update_progress("Extracting values", 1.0)
@@ -481,8 +523,8 @@ class QBSDRunner:
             await update_progress("Finalizing results", 1.0)
             
             # Broadcast completion
-            await self.websocket_manager.broadcast_completion(session_id, {
-                "message": "QBSD execution completed successfully",
+            await self.broadcast_completion(session_id, 
+                "QBSD execution completed successfully", {
                 "total_documents": total_docs,
                 "schema_columns": len(discovered_schema.columns)
             })
@@ -494,7 +536,7 @@ class QBSDRunner:
             session.error_message = str(e)
             self.session_manager.update_session(session)
             
-            await self.websocket_manager.broadcast_error(session_id, str(e))
+            await self.broadcast_error(session_id, str(e))
             raise
     
     async def _run_schema_discovery(
@@ -558,7 +600,7 @@ class QBSDRunner:
                     max_keys_schema=qbsd_config.get("max_keys_schema", 100),
                     current_schema=current_schema,
                     llm=llm,
-                    max_context_tokens=qbsd_config["backend"].get("max_context_tokens", 8192)
+                    max_context_tokens=qbsd_config["schema_creation_backend"].get("max_context_tokens", 8192)
                 )
                 # generate_schema returns a tuple (Schema, bool)
                 new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
@@ -695,7 +737,7 @@ class QBSDRunner:
                         # Broadcast row completion for each new row
                         if current_line_count > last_line_count:
                             for new_row_idx in range(last_line_count, current_line_count):
-                                await self.websocket_manager.broadcast_row_completed(session_id, {
+                                await self.broadcast_row_completed(session_id, {
                                     "row_index": new_row_idx + 1,
                                     "total_rows": total_documents,
                                     "completed_at": datetime.now().isoformat()
@@ -842,7 +884,7 @@ class QBSDRunner:
             session.error_message = "Execution stopped by user"
             self.session_manager.update_session(session)
             
-            await self.websocket_manager.broadcast_error(session_id, "Execution stopped by user")
+            await self.broadcast_error(session_id, "Execution stopped by user")
             return True
         
         return False

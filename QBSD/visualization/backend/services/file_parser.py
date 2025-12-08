@@ -3,6 +3,7 @@
 import csv
 import json
 import math
+import io
 import aiofiles
 import pandas as pd
 from typing import List, Dict, Any, Optional
@@ -14,11 +15,12 @@ from models.upload import (
     QBSDSchemaFormat, SchemaColumn, CompatibilityCheck, DualFileUploadResult
 )
 from models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData
+from constants import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 class FileParser:
     """Handles file parsing and data processing."""
     
-    def __init__(self, data_dir: str = "./data"):
+    def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(exist_ok=True)
     
@@ -50,18 +52,30 @@ class FileParser:
             await file.seek(0)  # Reset file position
             
             if detected_format == "csv":
-                # Validate CSV structure
+                # Validate CSV structure, filtering out comment lines
                 lines = content.decode('utf-8').split('\n')
-                if len(lines) < 2:
+                
+                # Filter out comment lines for validation
+                data_lines = [line for line in lines if not line.strip().startswith('#') and line.strip()]
+                
+                if len(data_lines) < 2:
                     errors.append("CSV file must have at least a header row and one data row")
                 else:
-                    # Try to parse header
-                    dialect = csv.Sniffer().sniff(lines[0])
-                    reader = csv.DictReader([lines[0], lines[1]], dialect=dialect)
-                    sample_row = next(reader)
-                    estimated_columns = len(sample_row)
-                    estimated_rows = len(lines) - 1  # Rough estimate
-                    sample_data = [sample_row]
+                    # Try to parse header from non-comment lines
+                    try:
+                        dialect = csv.Sniffer().sniff(data_lines[0])
+                        reader = csv.DictReader([data_lines[0], data_lines[1]], dialect=dialect)
+                        sample_row = next(reader)
+                        estimated_columns = len(sample_row)
+                        estimated_rows = len(data_lines) - 1  # Rough estimate excluding comments
+                        sample_data = [sample_row]
+                        
+                        # Add warning if metadata comments are detected
+                        comment_lines = [line for line in lines if line.strip().startswith('#')]
+                        if comment_lines:
+                            warnings.append(f"Detected {len(comment_lines)} metadata comment lines - will be preserved during import")
+                    except Exception as e:
+                        errors.append(f"Error parsing CSV structure: {str(e)}")
                     
             elif detected_format == "json":
                 # Validate JSON structure
@@ -141,14 +155,32 @@ class FileParser:
             raise ValueError("Unsupported file format")
     
     async def _parse_csv(self, file_path: Path, mapping: Optional[ColumnMappingRequest] = None) -> Dict[str, Any]:
-        """Parse CSV file."""
-        df = pd.read_csv(file_path)
+        """Parse CSV file, handling metadata comments."""
+        
+        # First, extract metadata from comment lines and clean the CSV
+        metadata_info = self._extract_csv_metadata(file_path)
+        
+        # Read CSV with comment lines filtered out
+        if metadata_info['has_comments']:
+            # Create clean CSV content without comments
+            clean_lines = []
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if not line.strip().startswith('#') and line.strip():
+                        clean_lines.append(line)
+            
+            # Create temporary clean CSV content
+            clean_csv_content = ''.join(clean_lines)
+            df = pd.read_csv(io.StringIO(clean_csv_content))
+        else:
+            # Standard CSV without comments
+            df = pd.read_csv(file_path)
         
         # Apply column mapping if provided
         if mapping:
             df = df.rename(columns=mapping.column_mappings)
         
-        # Extract columns info
+        # Extract columns info, using metadata if available
         columns = []
         for col in df.columns:
             non_null_count = int(df[col].notna().sum())
@@ -159,12 +191,22 @@ class FileParser:
                 non_null_count = 0
             if unique_count < 0:
                 unique_count = 0
+            
+            # Use metadata if available, otherwise generate basic info
+            if col in metadata_info['column_definitions']:
+                definition = metadata_info['column_definitions'][col]['definition']
+                rationale = metadata_info['column_definitions'][col]['rationale']
+            else:
+                definition = f"Column containing {col.replace('_', ' ').lower()} data"
+                rationale = "Imported from CSV data"
                 
             col_info = ColumnInfo(
                 name=col,
                 data_type=str(df[col].dtype),
                 non_null_count=non_null_count,
-                unique_count=unique_count
+                unique_count=unique_count,
+                definition=definition,
+                rationale=rationale
             )
             columns.append(col_info)
         
@@ -193,7 +235,20 @@ class FileParser:
                 row_data = DataRow(data=sanitized_data)
                 f.write(json.dumps(row_data.model_dump()) + '\n')
         
-        return {"columns": columns, "statistics": statistics}
+        # Include extracted metadata in the result
+        result = {"columns": columns, "statistics": statistics}
+        
+        # Add metadata information if available
+        if metadata_info['has_comments']:
+            result["extracted_metadata"] = {
+                "query": metadata_info['query'],
+                "llm_config": metadata_info['llm_config'],
+                "original_session_id": metadata_info['session_id'],
+                "generated_timestamp": metadata_info['generated_timestamp'],
+                "column_count_with_metadata": len(metadata_info['column_definitions'])
+            }
+        
+        return result
     
     async def _parse_json(self, file_path: Path) -> Dict[str, Any]:
         """Parse JSON/JSONL file."""
@@ -318,7 +373,7 @@ class FileParser:
                 sanitized[key] = self._sanitize_value(value)
         return sanitized
 
-    async def get_paginated_data(self, session_id: str, page: int = 0, page_size: int = 50) -> PaginatedData:
+    async def get_paginated_data(self, session_id: str, page: int = 0, page_size: int = DEFAULT_PAGE_SIZE) -> PaginatedData:
         """Get paginated data for a session."""
         session_dir = self.data_dir / session_id
         data_file = session_dir / "data.jsonl"
@@ -599,6 +654,371 @@ class FileParser:
                 "query": validation.query,
                 "schema": [col.model_dump() for col in validation.schema]
             }
+            
+            # Include LLM configuration if available
+            try:
+                await file.seek(0)  # Reset file position
+                content = await file.read()
+                schema_data = json.loads(content.decode('utf-8'))
+                if "llm_configuration" in schema_data:
+                    parsed_schema["llm_configuration"] = schema_data["llm_configuration"]
+                    print(f"DEBUG: Preserved LLM configuration in parsed schema")
+            except Exception as e:
+                print(f"DEBUG: Could not extract LLM configuration: {e}")
+            
             parsed_path = session_dir / "parsed_schema.json"
             with open(parsed_path, 'w') as f:
                 json.dump(parsed_schema, f, indent=2)
+    
+    async def extract_schema_from_data(self, session_id: str, query: Optional[str] = None) -> Dict[str, Any]:
+        """Extract schema information from uploaded data and convert to QBSD format."""
+        session_dir = self.data_dir / session_id
+        data_file = session_dir / "data.jsonl"
+        
+        if not data_file.exists():
+            raise FileNotFoundError("No processed data found. Please parse the file first.")
+        
+        # Read sample rows to analyze schema
+        sample_rows = []
+        with open(data_file) as f:
+            for i, line in enumerate(f):
+                if i >= 10:  # Read first 10 rows for analysis
+                    break
+                row_data = json.loads(line)
+                sample_rows.append(row_data)
+        
+        if not sample_rows:
+            raise ValueError("No data found to extract schema from")
+        
+        # Extract column information from data
+        extracted_columns = []
+        
+        # Get all unique column names from the data
+        all_columns = set()
+        for row in sample_rows:
+            if 'data' in row:
+                all_columns.update(row['data'].keys())
+            else:
+                all_columns.update(row.keys())
+        
+        # Analyze each column
+        for col_name in sorted(all_columns):
+            if col_name.startswith('_'):  # Skip metadata columns
+                continue
+            
+            # Analyze column data types and patterns
+            column_info = self._analyze_column_data(col_name, sample_rows)
+            
+            # Create QBSD-compatible column definition
+            extracted_column = {
+                "name": col_name,
+                "definition": column_info["definition"],
+                "rationale": column_info["rationale"]
+            }
+            extracted_columns.append(extracted_column)
+        
+        # Create QBSD schema format
+        extracted_schema = {
+            "query": query or f"Analysis of uploaded data with {len(extracted_columns)} columns",
+            "schema": extracted_columns,
+            "extracted_from_upload": True,
+            "extraction_metadata": {
+                "total_rows_analyzed": len(sample_rows),
+                "extraction_timestamp": json.loads(json.dumps({"timestamp": str(pd.Timestamp.now())}, default=str))["timestamp"]
+            }
+        }
+        
+        # Save extracted schema
+        schema_file = session_dir / "extracted_schema.json"
+        with open(schema_file, 'w') as f:
+            json.dump(extracted_schema, f, indent=2)
+        
+        return extracted_schema
+    
+    def _analyze_column_data(self, col_name: str, sample_rows: List[Dict[str, Any]]) -> Dict[str, str]:
+        """Analyze column data to generate definition and rationale."""
+        values = []
+        
+        # Extract values for this column
+        for row in sample_rows:
+            if 'data' in row and col_name in row['data']:
+                values.append(row['data'][col_name])
+            elif col_name in row:
+                values.append(row[col_name])
+        
+        # Remove null values for analysis
+        non_null_values = [v for v in values if v is not None and v != ""]
+        
+        if not non_null_values:
+            return {
+                "definition": f"Column containing data about {self._format_column_name_for_definition(col_name)}",
+                "rationale": "Column contains mostly null or empty values in the sample data"
+            }
+        
+        # Analyze data patterns
+        data_analysis = self._perform_data_analysis(col_name, non_null_values)
+        
+        # Generate definition based on analysis
+        definition = self._generate_column_definition(col_name, data_analysis)
+        
+        # Generate rationale
+        rationale = self._generate_column_rationale(col_name, data_analysis)
+        
+        return {
+            "definition": definition,
+            "rationale": rationale
+        }
+    
+    def _format_column_name_for_definition(self, col_name: str) -> str:
+        """Convert column name to human-readable format for definitions."""
+        # Replace underscores and hyphens with spaces
+        formatted = col_name.replace('_', ' ').replace('-', ' ')
+        
+        # Title case
+        formatted = formatted.title()
+        
+        # Handle common abbreviations
+        replacements = {
+            'Id': 'ID',
+            'Url': 'URL',
+            'Api': 'API',
+            'Xml': 'XML',
+            'Json': 'JSON',
+            'Pdf': 'PDF',
+            'Csv': 'CSV'
+        }
+        
+        for old, new in replacements.items():
+            formatted = formatted.replace(old, new)
+        
+        return formatted.lower()
+    
+    def _perform_data_analysis(self, col_name: str, values: List[Any]) -> Dict[str, Any]:
+        """Perform detailed analysis of column values."""
+        analysis = {
+            "total_values": len(values),
+            "unique_values": len(set(str(v) for v in values)),
+            "data_types": {},
+            "patterns": {},
+            "sample_values": values[:5],  # First 5 values as examples
+        }
+        
+        # Analyze data types
+        type_counts = {}
+        for value in values:
+            value_type = type(value).__name__
+            if isinstance(value, str):
+                # Analyze string patterns
+                if value.lower() in ['true', 'false']:
+                    value_type = 'boolean_string'
+                elif value.replace('.', '').replace('-', '').isdigit():
+                    value_type = 'numeric_string'
+                elif '@' in value and '.' in value:
+                    value_type = 'email_string'
+                elif value.startswith('http'):
+                    value_type = 'url_string'
+            elif isinstance(value, dict):
+                # Check if it looks like QBSD format
+                if 'answer' in value or 'excerpts' in value:
+                    value_type = 'qbsd_format'
+            
+            type_counts[value_type] = type_counts.get(value_type, 0) + 1
+        
+        analysis["data_types"] = type_counts
+        
+        # Determine primary data type
+        primary_type = max(type_counts.keys(), key=lambda k: type_counts[k]) if type_counts else "unknown"
+        analysis["primary_type"] = primary_type
+        
+        # Analyze value patterns
+        if isinstance(values[0], str):
+            # String pattern analysis
+            avg_length = sum(len(str(v)) for v in values) / len(values)
+            max_length = max(len(str(v)) for v in values)
+            min_length = min(len(str(v)) for v in values)
+            
+            analysis["patterns"].update({
+                "avg_length": avg_length,
+                "max_length": max_length,
+                "min_length": min_length,
+                "has_long_text": max_length > 100
+            })
+        
+        return analysis
+    
+    def _generate_column_definition(self, col_name: str, analysis: Dict[str, Any]) -> str:
+        """Generate a human-readable definition for the column."""
+        formatted_name = self._format_column_name_for_definition(col_name)
+        primary_type = analysis.get("primary_type", "unknown")
+        unique_ratio = analysis["unique_values"] / analysis["total_values"]
+        
+        # Base definition
+        if unique_ratio > 0.9:
+            # Mostly unique values - likely identifiers or specific data
+            if "id" in col_name.lower() or "name" in col_name.lower():
+                definition = f"Unique identifier or name for {formatted_name}"
+            else:
+                definition = f"Specific {formatted_name} values, mostly unique across records"
+        elif unique_ratio < 0.1:
+            # Low uniqueness - likely categorical
+            definition = f"Categorical {formatted_name} data with limited distinct values"
+        else:
+            # Mixed uniqueness
+            definition = f"Data about {formatted_name}"
+        
+        # Add type-specific information
+        if primary_type == "qbsd_format":
+            definition += " (extracted from documents with supporting evidence)"
+        elif primary_type == "url_string":
+            definition += " (URL/link format)"
+        elif primary_type == "email_string":
+            definition += " (email address format)"
+        elif primary_type in ["int", "float", "numeric_string"]:
+            definition += " (numeric values)"
+        elif analysis.get("patterns", {}).get("has_long_text", False):
+            definition += " (detailed text content)"
+        
+        return definition
+    
+    def _generate_column_rationale(self, col_name: str, analysis: Dict[str, Any]) -> str:
+        """Generate rationale explaining why this column is useful."""
+        sample_values = analysis.get("sample_values", [])
+        primary_type = analysis.get("primary_type", "unknown")
+        unique_ratio = analysis["unique_values"] / analysis["total_values"]
+        
+        rationale_parts = []
+        
+        # Value distribution rationale
+        if unique_ratio > 0.9:
+            rationale_parts.append("High uniqueness suggests this field contains specific identifying information")
+        elif unique_ratio < 0.1:
+            rationale_parts.append("Low uniqueness indicates categorical classification useful for grouping and analysis")
+        else:
+            rationale_parts.append("Moderate uniqueness suggests semi-structured data suitable for detailed analysis")
+        
+        # Type-specific rationale
+        if primary_type == "qbsd_format":
+            rationale_parts.append("Contains extracted answers with supporting document excerpts for verification")
+        elif "id" in col_name.lower():
+            rationale_parts.append("Serves as a key identifier for linking and referencing records")
+        elif "name" in col_name.lower():
+            rationale_parts.append("Provides human-readable labels for identification and display")
+        elif primary_type in ["int", "float", "numeric_string"]:
+            rationale_parts.append("Numeric values enable quantitative analysis and comparisons")
+        elif analysis.get("patterns", {}).get("has_long_text", False):
+            rationale_parts.append("Long text content provides detailed information for comprehensive analysis")
+        
+        # Sample-based insights
+        if sample_values and len(str(sample_values[0])) > 50:
+            rationale_parts.append("Contains detailed content that may require summarization or excerpt viewing")
+        
+        return ". ".join(rationale_parts) + "."
+    
+    def convert_to_qbsd_format(self, extracted_schema: Dict[str, Any], docs_path: str = "documents/") -> Dict[str, Any]:
+        """Convert extracted schema to full QBSD configuration format."""
+        qbsd_config = {
+            "query": extracted_schema["query"],
+            "docs_path": docs_path,
+            "max_keys_schema": len(extracted_schema["schema"]),
+            "documents_batch_size": 1,
+            "document_randomization_seed": 42,
+            "backend": {
+                "provider": "gemini",
+                "model": "gemini-2.5-flash",
+                "max_tokens": 1024,
+                "temperature": 0.3
+            },
+            "retriever": {
+                "type": "embedding",
+                "model_name": "all-MiniLM-L6-v2",
+                "k": 8,
+                "max_words": 512,
+                "enable_dynamic_k": True,
+                "dynamic_k_threshold": 0.65,
+                "dynamic_k_minimum": 3
+            },
+            "schema": extracted_schema["schema"]
+        }
+        
+        return qbsd_config
+    
+    def _extract_csv_metadata(self, file_path: Path) -> Dict[str, Any]:
+        """Extract metadata from CSV comment lines."""
+        metadata_info = {
+            'has_comments': False,
+            'session_id': None,
+            'query': None,
+            'llm_config': {},
+            'column_definitions': {},
+            'generated_timestamp': None
+        }
+        
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('#'):
+                        metadata_info['has_comments'] = True
+                        
+                        # Remove the # and clean whitespace
+                        content = line[1:].strip()
+                        
+                        if content.startswith('Session ID:'):
+                            metadata_info['session_id'] = content.split(':', 1)[1].strip()
+                        elif content.startswith('Query:'):
+                            metadata_info['query'] = content.split(':', 1)[1].strip()
+                        elif content.startswith('Generated:'):
+                            metadata_info['generated_timestamp'] = content.split(':', 1)[1].strip()
+                        elif content.startswith('Schema Creation:'):
+                            config_str = content.split(':', 1)[1].strip()
+                            parts = config_str.split()
+                            if len(parts) >= 2:
+                                metadata_info['llm_config']['schema_creation_backend'] = {
+                                    'provider': parts[0],
+                                    'model': ' '.join(parts[1:])
+                                }
+                        elif content.startswith('Value Extraction:'):
+                            config_str = content.split(':', 1)[1].strip()
+                            parts = config_str.split()
+                            if len(parts) >= 2:
+                                metadata_info['llm_config']['value_extraction_backend'] = {
+                                    'provider': parts[0],
+                                    'model': ' '.join(parts[1:])
+                                }
+                        elif content.startswith('AI Model:'):
+                            config_str = content.split(':', 1)[1].strip()
+                            parts = config_str.split()
+                            if len(parts) >= 2:
+                                metadata_info['llm_config']['backend'] = {
+                                    'provider': parts[0],
+                                    'model': ' '.join(parts[1:])
+                                }
+                        elif ':' in content and not content.startswith(('Column Definitions', 'Metadata-Rich', 'Upload Data Export', 'QBSD Export')):
+                            # Parse column definitions
+                            if content.count(':') >= 1:
+                                col_name, definition = content.split(':', 1)
+                                col_name = col_name.strip()
+                                definition = definition.strip()
+                                
+                                # Skip standard columns and special format indicators
+                                if col_name not in ['row_name', 'papers', '{column}_excerpt', 'Format']:
+                                    if col_name not in metadata_info['column_definitions']:
+                                        metadata_info['column_definitions'][col_name] = {
+                                            'definition': definition,
+                                            'rationale': ''
+                                        }
+                        elif content.startswith('Rationale:'):
+                            # This is a rationale for the previous column
+                            rationale = content.split(':', 1)[1].strip()
+                            # Find the last column definition to add rationale to
+                            if metadata_info['column_definitions']:
+                                last_col = list(metadata_info['column_definitions'].keys())[-1]
+                                metadata_info['column_definitions'][last_col]['rationale'] = rationale
+                    else:
+                        # Stop processing when we reach actual CSV data
+                        break
+                        
+        except Exception as e:
+            print(f"DEBUG: Error extracting CSV metadata: {e}")
+        
+        return metadata_info

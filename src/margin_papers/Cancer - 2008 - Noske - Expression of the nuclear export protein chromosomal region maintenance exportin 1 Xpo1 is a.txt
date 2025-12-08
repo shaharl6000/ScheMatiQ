@@ -1,0 +1,933 @@
+1733
+Expression of the Nuclear Export Protein
+Chromosomal Region Maintenance/
+Exportin 1/Xpo1 Is a Prognostic Factor
+in Human Ovarian Cancer
+Aurelia Noske, MD 1 BACKGROUND. The human nuclear export protein chromosomal region mainte-
+Wilko Weichert, MD 1 nance/exportin1/Xpo1(CRM1)mediatesthenuclearexportofproteinsandmes-
+Silvia Niesporek, MD 1 senger RNAs and, thus, is an important regulator of subcellular distribution of
+Annika Röske, MD 1 key molecules. Whereas cell-biologic studies have suggested a fundamental role
+Ann-Christin Buckendahl, MD 1 for CRM1 in the regulation of mitosis, the expression of this protein in human
+Ines Koch1 tumortissuehasnotbeeninvestigatedtodate.
+Jalid Sehouli, MD 2 METHODS. In this study, the expression of CRM1 was analyzed in a cohort of
+Manfred Dietel, MD 1 88 ovarian tumors and 12 ovarian cell lines for the first time to the authors’
+Carsten Denkert, MD 1 knowledge.
+RESULTS. Immunohistochemistry revealed increased nuclear (52.7%) and cyto-
+1Institute of Pathology, Charit´e University Hospi- plasmic(56.8%)expressionofCRM1in74carcinomascomparedwiththeexpres-
+talBerlin,Berlin,Germany. sion revealed in borderline tumors and benign lesions. Similarly, CRM1
+2Department of Gynecology and Obstetrics, expressionwasincreasedinovariancancercelllinescomparedwithhumanovar-
+Charit´eUniversityHospital,Berlin,Germany. ian surface epithelial cells. Cytoplasmic CRM1 expression was related signifi-
+cantly to advanced tumor stage (P5.043), poorly differentiated carcinomas
+(P5.011), and higher mitotic rate (P5.008). Nuclear CRM1 was associated sig-
+nificantly with cyclooxygenase-2 (COX-2) expression (P5.002) and poor overall
+survival(P5.01).BecauseitwasdemonstratedpreviouslythatblockingofCRM1
+by leptomycin B (LMB) contributes to the inhibition of nuclear export, the
+authorsused a set of mechanisticassaysto study the effects of CRM1 inhibition
+in cancer cells. Treatment of OVCAR-3 cells with LMB revealed a significant
+reduction of cell proliferation and increased apoptosis as well as suppressed
+interleukin-1b-inducedCOX-2expression.
+CONCLUSIONS. The current results indicated that CRM1 is expressed in a subpo-
+pulation of ovarian carcinomas with aggressive behavior and is related to poor
+patientoutcome.AcorrelationalsowasdemonstratedbetweenCRM1andCOX-2
+expressioninovariancancertissue.Furthermore,thetreatmentofovariancancer
+cells with LMBrevealed a reduction in COX-2 expression. Therefore, the authors
+suggestthatCRM1maybeaninterestingbiomarkerfortheassessmentofpatient
+prognosis and a molecular target for anticancer treatment. Cancer 2008;112:
+We thank Martina Eickmann for editorial assis-
+1733–43.(cid:1)2008AmericanCancerSociety.
+tance.
+KEYWORDS: chromosomal region maintenance/exportin 1, ovarian cancer, lepto-
+Addressfor reprints:Aurelia Noske,MD, Institute
+ofPathology, University HospitalCharit(cid:1)e, Campus mycinB,cyclooxygenase-2.
+Mitte, Schumannstrasse 20/21, D-10117 Berlin,
+Germany; Fax: (011) 49-30-450536900; E-mail: O varian carcinoma is the fifth most common cause of cancer
+aurelia.noske@charite.de
+death in women, with an estimated 22,430 new cases and
+Received June 29, 2007; revision received 15,280 deaths in the U.S. expected in 2007, and it has the highest
+September24,2007;acceptedNovember6,2007. mortality rate among the gynecologic malignancies.1,2 In particular,
+ª2008AmericanCancerSociety
+DOI10.1002/cncr.23354
+Publishedonline27February2008inWileyInterScience(www.interscience.wiley.com).
+1734 CANCER April15,2008 / Volume112/Number 8
+60% of patients who have stage III/IV tumors have a (LMB),17 an unsaturated, branched-chain fatty acid
+5-year survival rate of only 28%. The main prognos- with a terminal d-lactone ring that binds covalently
+tic factors for the planning of therapy are Interna- to cysteine 529 in the NES binding region of human
+tional Federation of Gynecology and Obstetrics CRM1.18 LMB was discovered primarily as an anti-
+(FIGO) stage and residual tumor at surgery. Other fungal agent and has demonstrated antiproliferative
+factors, such as patient age, tumor grade, and histo- properties as well as in vivo antitumor activity. Block-
+logic tumor type, have some additional prognostic ing of CRM1 contributes to the inhibition of cargo
+impact. The identification of further molecularly loading and subsequent nuclear export.3 It is note-
+defined prognostic parameters, particularly for worthy that LMB inhibited the stabilization of COX-2
+patientswithadvanceddisease,wouldbeveryhelpful mRNA in human mammary cancer cells and sup-
+for planning and individualization of treatment. pressed interleukin 1b (IL-1b)-induced COX-2 ex-
+Furthermore, investigation of the molecular mechan- pression in a human colon cancer cell line.8
+isms that contribute to tumor progression will be With this cell-biologic background in mind, we
+relevant for the identification of new therapeutic have developed the hypothesis that CRM1 plays an
+strategies. important role in the regulation of cellular functions
+The coordinated transport of proteins and that are involved in the development and progression
+nucleic acids across the nuclear envelope between nu- of human tumors. In this study, for the first time to
+cleus and cytoplasm is essential for cellular integrity our knowledge, we analyzed the CRM1 expression in
+and gene expression. This transport is mediated by a cohort of primary human ovarian carcinomas and
+solubletransportfactors,thekaryopherins,whichinter- compared expression data with clinicopathologic
+act with their transport cargos through nuclear locali- characteristics, COX-2 expression, and patient sur-
+zation sequences and nuclear export sequences (NES), vival. We determined the expression of CRM1 in
+whichregulateentryintoand exitfromthenucleus. ovarian cancer cell lines and treated cells with LMB,
+Chromosomal region maintenance/exportin 1/ which is a specific CRM1 antagonist.
+Xpo1 (CRM1) originally was identified in the fission
+yeast Schizosaccharomyces pombe in a genetic screen,
+and investigators determined that it was involved in MATERIALS AND METHODS
+control of the chromosome structure.3 Several stud- Study Population and Tissue Samples
+ies have demonstrated that CRM1 is important in at Immunohistochemical examination of CRM1 was
+least 2 areas of cellular functions: nuclear-cytoplas- performed retrospectively on tissue samples that
+mic transport and control of mitosis. Regarding the were taken for routine diagnostic and therapeutic
+transport function, CRM1 is the main nuclear export purposes. Normal ovarian tissues and benign and
+receptor in humans. This transporter has a compar- malignant ovarian tumors from 98 patients who were
+ably broad substrate range and mediates the export diagnosed at the Institute of Pathology, Charite´ Hos-
+of leucine-rich NES-bearing proteins and the transfer pital Berlin between 1989 and 2003 were included in
+of messenger RNAs (mRNAs).4–8 Mechanistic studies the study. The tissue specimens consisted of 74 pri-
+have demonstrated an increasing number of NES- mary invasive ovarian carcinomas, 14 borderline
+containing signaling molecules that depend on the tumors, and 3 cystadenomas as well as 7 normal
+CRM1 nuclear export pathway, p53,9 histone deacety- ovaries. Tissue samples were fixed in 4% neutral buf-
+lase 5 (HDAC5),10 protein kinase 1 (Akt1),11 epider- fered formaldehyde and embedded in paraffin. Rou-
+mal growth factor receptor (EGFR),12 and others.13,14 tine hematoxylin and eosin sections were stained for
+Therefore, this shuttling process controls several ele- histopathologic evaluation. The stage of tumors was
+ments of pathways that have been identified as im- assessed according to the FIGO staging system. For
+portant in tumor biology. grading of tumors, the Silverberg grading system,
+It also has been demonstrated that CRM1 func- which is composed of architectural, nuclear, and
+tions in complex with ras-related nuclear protein- mitotic features, was used.19 The number of mitoses
+guaosine triphosphatase (RAN-GTPase) to control per 10 high-power fields (HPF) was evaluated and
+several processes during cellular mitosis. Thus, separated into 3 groups, <9 of 10 HPF, 10 to 23 of 10
+CRM1 associates with kinetochores as well as centro- HPF, and >24 of 10 HPF. For statistical evaluation
+meres during mitosis. In particular, this controls and survival analysis, only the patients with invasive
+chromosome segregation15 and prevents chromo- ovarian carcinomas were included. Data on intrao-
+some reduplication.16 perative residual tumor were available for 50 patients
+CRM1 has been identified in biochemical studies with FIGO stage II through IV disease. Of these, 30
+as the specific target molecule of leptomycin B patients (60%) had no residual tumor, 14 patients
+10970142,
+2008,
+8,
+Downloaded
+from
+https://acsjournals.onlinelibrary.wiley.com/doi/10.1002/cncr.23354
+by
+Cochrane
+Israel,
+Wiley
+Online
+Library
+on
+[05/12/2025].
+See
+the
+Terms
+and
+Conditions
+(https://onlinelibrary.wiley.com/terms-and-conditions)
+on
+Wiley
+Online
+Library
+for
+rules
+of
+use;
+OA
+articles
+are
+governed
+by the
+applicable
+Creative
+Commons
+License
+CRM1Expression in Ovarian Cancer/Noske et al. 1735
+(28%) had postoperative residual tumor that 1 (<10%), 2 (11%–50%), 3 (51%–80%), or 4 (>80%);
+measured <20 mm, and 6 patients (12%) postopera- and the staining intensity was scored as 0 (negative),
+tive residual tumor that measured >20 mm. Lymph- 1 (weak), 2 (moderate), or 3 (strong). For the immu-
+adenectomy was undergone by 81.1% of patients. noreactive score (IRS), the percentage of positive
+Most of patients (18.9%) who did not undergo cells and the staining intensity were multiplied,
+lymphadenectomy had high-stage disease with resulting in a value between 0 and 12. To separate
+known peritoneal or distant metastasis. Data regard- samples with weak or strong expression of CRM1 in
+ing postoperative chemotherapy were known for 68 tumor tissue, we combined samples that had an IRS
+patients; of these, 62 patients (91.2%) received a plat- from 0 to 6 into 1 group with negative to weak
+inum-based therapy, 2 patients (2.9%) received other expression (CRM1-negative) and samples that had
+nonplatinum regimens, and 4 patients (5.9%) did not an IRS from 7 to 12 into another group that was
+receive any chemotherapy. The median follow-up for considered CRM1-positive. The minimum require-
+all patients was 39 months. ments for a sample to be scored as positive were ei-
+ther moderate expression in >80% of cells or strong
+Immunohistochemistry expression in >50% of cells. Normal tissue and be-
+Immunohistochemical examination was performed nign lesions of the ovary served as negative controls.
+on tissue microarrays. Therefore, representative areas Expression of COX-2 was determined as described
+of the ovarian carcinomas as well as borderline previously20 by using the monoclonal COX-2 anti-
+tumors were marked on the routine hematoxylin and body (1:1000 dilution; Cayman Chemical, Ann Arbor,
+eosin-stained histologic sections. Four tissue cores Mich).
+that measured 1.5 mm in greatest dimension from
+different tumor parts of the donor blocks were Statistical Analysis
+punched by using a tissue microarrayer (Beecher The statistical significance of the association between
+Instruments, Woodland, Wis) and positioned in a re- CRM1 and COX-2 expression and clinicopathologic
+cipient paraffin array block. parameters was assessed by using the chi-square test
+Immunohistochemistry was performed accord- for trends or the Fisher exact test. The probability of
+ing to standard procedures. Briefly, slides were overall survival as a function of time was determined
+boiled in citrate buffer (pH 6.0) in a pressure cooker by using the Kaplan-Meier method. Differences in
+for 5 minutes and incubated with the rabbit polyclo- survival curves were compared by using the log-rank
+nal anti-CRM1 antibody (sc5595; Santa Cruz Bio- test. Multivariate survival analysis was performed by
+technology, Santa Cruz, Calif; 1:100 dilution) using the Cox model of proportional hazards. P
+overnight at 4 8C. This was followed by incubation values <.05 were considered significant. For statisti-
+with a biotinylated antimouse secondary antibody cal evaluations, the SPSS software version 13.0 (SPSS
+and the multilink biotin-streptavidin-amplified de- Inc, Chicago, Ill) was used.
+tection system (Biogenex, San Ramon, Calif). Stain-
+ing was visualized by using a Fast Red chromogen Cell Culture and Inhibitors
+system (Immunotech, Hamburg, Germany). The in- The human ovarian carcinoma cell lines (OVCAR-3,
+tensity of the CRM1 immunostaining in tumor cells SKOV-3, CAOV-3, ES-2, A2780, Mdah2744, and
+was evaluated independently by 2 pathologists (A.N. OAW42) that were investigated in this study have
+and C.D.) who were blinded to patient outcomes. In been described previously.21,22 EFO21, EFO27, and
+the event of disagreement, the cases were discussed FU-OV-1 were obtained from the German Collection
+at a multihead microscope. CRM1 expression was of Microorganisms and Cell Cultures (DSMZ, Heidel-
+evaluated according to the percentage of positive berg, Germany); and PA-1 cells, a human ovarian ter-
+cells and the intensity of staining. We analyzed a atocarcinoma cell line, was obtained from the
+complete tumor area of 4 tissue cores (each 1.5 in American Type Culture Collection (Rockville, Md).
+greatest dimension), approximately 20 HPF. For Cells were cultured in Dulbecco Modified Eagle Me-
+assessing the percentage of CRM1-expressing cells, dium (Bio Whittaker Europe, Verviers, Belgium) sup-
+the area that contained positive cells was compared plemented with 10% fetal bovine serum (PAA
+with the whole area that was covered by tumor cells. Laboratories, Linz, Austria). Human ovarian surface
+Staining intensity was estimated by comparison with epithelial (HOSE) cells,23 an immortalized human
+normal ovarian tissue on standard paraffin sections. ovarian surface epithelium cell line, were cultivated
+In addition, a separate scoring for nuclear and cyto- in a 1:1 mixture of medium 199 (Sigma Chemical
+plasmic CRM1 expression was performed. The per- Company, St. Louis, Mo) and moisture content, dry
+centage of positive cells was scored as 0 (0%), basis medium 105 (MCDB 105; Life Technologies,
+10970142,
+2008,
+8,
+Downloaded
+from
+https://acsjournals.onlinelibrary.wiley.com/doi/10.1002/cncr.23354
+by
+Cochrane
+Israel,
+Wiley
+Online
+Library
+on [05/12/2025].
+See
+the
+Terms
+and
+Conditions
+(https://onlinelibrary.wiley.com/terms-and-conditions)
+on
+Wiley
+Online
+Library
+for
+rules
+of
+use;
+OA
+articles
+are
+governed
+by
+the
+applicable
+Creative
+Commons
+License
+1736 CANCER April15,2008 / Volume112/Number 8
+Inc., Grand Island, NY) supplemented with 10% fetal Cell Cycle Analysis
+calf serum and 2 mM glutamine. All cell lines were OVCAR-3 cells were plated at 4 3 105 cells per well
+maintained at 37 8C in a humidified atmosphere of in 6-well plates. After 24 hours, cells were treated
+5% carbon dioxide/95% air. In some experiments with LMB at concentrations of 2.5 ng/mL, 5 ng/mL,
+COX-2 expression was induced with recombinant and 10 ng/mL for 48 hours. Next, cells were fixed in
+human IL-1b (10 ng/mL; R&D Systems, Minneapolis, 70% ice-cold ethanol at 220 8C for 30 minutes. The
+Minn) for 24 hours.20 percentages of cells in G /G , S, and G /M phase
+0 1 2
+The following inhibitory agents were used: the were quantified by using a propidium iodide (PI)-
+inhibitor LMB (L2913; Sigma Chemical Company), based cellular DNA flow cytometry analysis method.
+which has demonstrated the ability to inhibit CRM1 Briefly, cells were rinsed in PBS, and 500 lL diluent
+in other cellular systems at different concentrations buffer (50 lL 0.1% Triton X-100 and 250 mg 0.5% bo-
+(2.5 ng/mL, 5 ng/mL, and 10 ng/mL) for a maximum vine serum albumin in 50 mL PBS) were added.
+of 72 hours. Because COX-2 expression may be asso- RNAse digestion was performed by adding 4 lL
+ciated with other tumor signaling pathways, we also RNAse (10 mg/mL) for 1 hour at 37 8C. Then, cells
+used inhibitors of 2 important pathways, the phos- were centrifuged and diluted in 500 lL diluent buffer
+phoinositide-3 kinase (PI3K) inhibitor LY294002 containing 20 lL PI and were evaluated by fluores-
+(10 mM) and the mitogen-activated protein kinase cence-activated cell sorting (FACS) by using a FACS-
+inhibitor PD98059 (50 mM), to examine any effect of can flow cytometer (BD Biosciences, Heidelberg,
+these pathways on COX-2 expression. Both inhibitors Germany). Experiments were performed in 3 separate
+were dissolved in dimethyl sulfoxide (Sigma, Deisen- experiments. Analyses of cell cycle data were done
+hofen, Germany).24 with Cyclchred and WinMDI (Freeware).
+Immunoblot Analysis Apoptosis Assays
+For protein analysis, cells were lysed in 100 lL of We used different assays to evaluate apoptosis after
+62.5 mM Tris-HCl (pH 6.8) containing 2% sodium treatment of ovarian cancer cells with LMB. The cells
+dodecyl sulfate, 10% glycerol, 50 mM dithiothreitol, were incubated with LMB as described above. In the
+and 0.1% bromophenole blue. One hundred micro- first assay, OVCAR-3 cells were evaluated for evi-
+grams of protein per sample were separated on a dence of apoptosis by measuring the DNA content in
+10% polyacrylamide gel, blotted onto nitrocellulose a double-labeling system with PI and annexin V
+membranes (Schleicher&Schuell, Dassel, Germany), staining. Briefly, cells were seeded at a density of
+washed in phosphate-buffered saline (PBS), and 4 3 105 cells per well in 6-well plates and treated
+blocked in buffer (1 3 PBS, 0.1% Tween-20, 5% I- with LMB (2.5 mg/mL, 5 mg/mL, and 10 ng/mL) af-
+block; Tropix, Bedford, Mass) for 1 hour at room ter 24 hours. After 48 hours, cells and supernatant
+temperature. Membranes were incubated overnight fluids were collected together and were centrifuged
+at 4 8C with an anti-CRM1 antibody (Santa Cruz at 2000 revolutions per minute for 5 minutes. The
+Biotechnology) diluted 1:1000 in blocking buffer, fol- pellet was incubated with 100 lL binding buffer
+lowed by incubation with alkaline phosphatase-con- (10 mM N-2-hydroxyethyl piperazine-N0-ethane sul-
+jugated goat-antirabbit secondary antibody (Tropix). phonate/NaOH (pH 7.4), 140 mM NaCl, and 2.5 mM
+Bands were observed by using the CDP-Star RTU lu- CaCl in 50 mL of H O), 2.5 lL annexin V-fluorescein
+2 2
+minescence system (Tropix). Expression of COX-2 isothiocyanate (FITC) (Roche), and 5 lL PI. After 15
+was analyzed as described previously.20 minutes, binding buffer (300 lL) was added. Cells
+were measured immediately with the FACScan flow
+Cell Proliferation Assay cytometer (BD Biosciences). Differences were ana-
+To examine the effect of LMB on cell proliferation, lyzed by using the 2-tailed Student t test.
+we incubated OVCAR-3 cells (plated in 96-well In an additional set of experiments, apoptosis
+plates; 3000 cells per well) for 24 hours and 48 hours was examined by caspase-3 activity, a marker for
+with LMB (5 ng/mL). Cell numbers were determined cells undergoing apoptosis, by using the FITC-conju-
+by using an XTT (soldium 30-[1-phenylaminocarbo- gated monoclonal active caspase-3 antibody apopto-
+nyl)-3,4-tetrazolium]-bis(4-methoxy-6-nitro) benzene sis assay (BD Pharmingen). Briefly, OVCAR-3 cells
+sulfonic acid hydrate)-based colorimetric assay (per- (2 3 105 per well) were permeabilized, fixed, and
+formed in triplicate; Roche, Germany) according to stained for active caspase-3 for 30 minutes and ana-
+the manufacturer’s instructions. Differences in cell lyzed by flow cytometry (after 72 hours) according to
+proliferation were evaluated statistically by using the the manufacturer’s protocol. Campothecin, a potent
+2-sided Student t test. inhibitor of topoisomerase I, induces apoptosis and
+10970142,
+2008,
+8,
+Downloaded
+from
+https://acsjournals.onlinelibrary.wiley.com/doi/10.1002/cncr.23354
+by
+Cochrane
+Israel,
+Wiley
+Online
+Library
+on
+[05/12/2025].
+See
+the
+Terms
+and
+Conditions
+(https://onlinelibrary.wiley.com/terms-and-conditions)
+on
+Wiley
+Online
+Library
+for
+rules
+of
+use;
+OA
+articles
+are
+governed
+by
+the
+applicable
+Creative
+Commons
+License
+CRM1Expression in Ovarian Cancer/Noske et al. 1737
+TABLE1
+Characteristicsof74PatientsWithInvasiveOvarianCarcinomas
+Characteristic No.ofpatients(%)
+Histologictype
+Serous 45(60.8)
+Nonserous 23(31.1)
+Undifferentiated 6(8.1)
+FIGOstage
+I 15(20.3)
+II 9(12.2)
+III 45(60.7)
+IV 5(6.8)
+Pathologictumorclassification
+pT1 17(23)
+pT2 9(12.2)
+pT3 48(64.8)
+Pathologiclymphnodestatus,n560 FIGURE 1. Immunohistochemical expression analysis of chromosomal
+pN0 38(63.3) region maintenance/exportin 1/Xpo1 (CRM1) in ovarian carcinomas. (A) No
+pN1 22(36.7)
+immunoreaction of CRM1 is observed in normal ovarian surface epithelium.
+Pathologicmetastasisstatus
+(B) In contrast, intense nuclear expression of CRM1 is observed in the epi-
+pMX 69(93.2)
+pM1 5(6.8) thelium of a mucinous borderline tumor. (C,D) Strong nuclear and moderate
+Histologicgrade cytoplasmic immunostaining of CRM1 are observed in a high-grade serous
+1 9(12.2) ovariancancer.
+2 34(45.9)
+3 31(41.9)
+Ageatsurgery,y (12.2%) had stage II disease, 45 patients (60.8%) had
+(cid:1)60 42(56.8)
+stage III disease, and 5 patients (6.8%) had stage IV
+>60 32(43.2)
+Intraoperativeresidualtumor,n550 disease. Lymph nodes from 60 patients were exam-
+Residualtumor<2cm 44(88) ined; among them, 38 patients (63.3%) had patholo-
+Residualtumor(cid:2)2cm 6(12) gically negative lymph nodes (pN0), and 22 patients
+Chemotherapy,n568
+(36.7%) had pathologically positive lymph nodes
+Platinum-based 62(91.2)
+(pN1). Five patients had distant metastases at the
+Nonplatinum 2(2.9)
+time of diagnosis. Clinicopathologic parameters of
+Nochemotherapy 4(5.9)
+the patients with invasive carcinoma are summarized
+FIGOindicatesInternationalFederationofGynecologyandObstetrics. in Table 1. Among the 14 borderline tumors, 6
+tumors were serous, 7 tumors were mucinous, and 1
+tumor was composed of both serous and mucinous
+was used as a positive control at a concentration of parts.
+5 lM. Finally, the Apo-Direct Kit (BD Pharmingen),
+which measures the amount of DNA fragmentation,
+CRM1 and COX-2 Immunostaining in Ovarian
+was used according to the manufacturer’s instruc-
+Tumors and Normal Ovaries
+tions followed by flow cytometric analysis.
+An overview of CRM1 immunostaining is shown in
+Figure 1A-D. We observed both a nuclear expression
+RESULTS pattern and a cytoplasmic expression pattern of
+Clinical and Pathologic Characteristics of Ovarian Tumors CRM1 in the ovarian carcinomas; therefore, both pat-
+Ovarian carcinoma specimens from 74 patients were terns were evaluated separately. Nuclear expression
+investigated for immunoreactivity of CRM1 and of CRM1 was observed in 39 of 74 tumors (52.7%),
+COX-2. The mean age of patients at surgery was and cytoplasmic expression of CRM1 was observed
+57 years (range, 32–84 years). Among the invasive in 42 of 74 tumors (56.8%). In the majority of
+ovarian carcinomas, 45 tumors (60.8%) were serous, tumors, we observed both expression patterns simul-
+23 tumors (31.1%) were nonserous (4 mucinous, 10 taneously but with different intensities. Only a small
+endometroid, 4 clear cell, and 5 transitional cell), group of tumors had solely nuclear (14.9%) or cyto-
+and 6 tumors (8.1%) were undifferentiated carcino- plasmic (18.9%) expression. Ovarian surface epithe-
+mas. Of the patients with invasive carcinomas, 15 lium of normal ovaries and benign ovarian tumors
+patients (20.3%) had FIGO stage I disease, 9 patients showed only weak or no immunostaining of CRM1.
+10970142,
+2008,
+8,
+Downloaded
+from
+https://acsjournals.onlinelibrary.wiley.com/doi/10.1002/cncr.23354
+by
+Cochrane
+Israel,
+Wiley
+Online
+Library
+on [05/12/2025].
+See
+the
+Terms
+and
+Conditions
+(https://onlinelibrary.wiley.com/terms-and-conditions)
+on
+Wiley
+Online
+Library
+for
+rules
+of
+use;
+OA
+articles
+are
+governed
+by
+the
+applicable
+Creative
+Commons
+License
+1738 CANCER April15,2008 / Volume112/Number 8
+TABLE2
+IncreasedExpressionofChromosomalRegionMaintenance/Exportin1/Xpo1inInvasiveCarcinomas
+oftheOvary
+No.ofpatients(%)
+CRM1expression Invasivecarcinomas,n574 Borderlinetumors,n514 Benignlesions,n510 P*
+Nuclearandcytoplasmic .001
+Negative 22(29.7) 13(92.9) 10(100)
+Positive 52(70.3) 1(7.1) 0(0)
+Nuclearexpression .002
+Negative 35(47.3) 13(92.9) 10(100)
+Positive 39(52.7) 1(7.1) 0(0)
+Cytoplasmicexpression .000
+Negative 32(43.2) 14(100) 10(100)
+Positive 42(56.8) 0(0) 0(0)
+CRM1indicateschromosomalregionmaintenance/exportin1/Xpo1.
+*Chi-squaretest.
+TABLE3
+CorrelationBetweenNuclearChromosomalRegionMaintenance/Exportin1/Xpo1WithCyclooxygenase-2
+ExpressionandPathologicFactorsinPatientsWithInvasiveOvarianCarcinoma
+No.ofpatients(%)
+Characteristic Allpatients CRM1nuclearnegative CRM1nuclearpositive P
+Allcarcinomas 74(100) 35(47.3) 39(52.7)
+COX-2expression .002
+Negative 55(100) 32(58.2) 23(41.8)
+Positive 19(100) 3(15.8) 16(84.2)
+Pathologictumorclassification .982
+pT1 17(100) 8(47) 9(53)
+pT2/pT3 57(100) 27(47.4) 30(52.6)
+Histologicgrade .084
+1/2 43(100) 24(55.8) 19(44.2)
+3 31(100) 11(35.5) 20(64.5)
+CRM1indicateschromosomalregionmaintenance/exportin1/Xpo1;COX-2,cyclooxygenase-2.
+Only 1 of 14 borderline tumors exhibited moderate asillustratedin Figure2A. CytoplasmicCRM1expres-
+nuclear expression (IRS 5 9). According to a univari- sionwasrelatedsignificantlytoadvancedtumorstage
+ate correlation analysis, CRM1 expression levels were (P 5.043) and poorly differentiated carcinomas
+increased significantly in invasive carcinomas com- (P 5.011). Because the Silverberg grading system is
+pared with the levels in borderline tumors, benign based on 3 morphologic parameters (nuclear poly-
+lesions, and normal ovaries (Table 2). COX-2 expres- morphism,mitoticrate,andgrowthpattern),weeval-
+sion was observed in 19 of 74 ovarian carcinomas uated the association between CRM1 expression and
+(25.7%). each of those parameters separately. There was a sig-
+nificant correlation between cytoplasmic CRM1
+Correlation Between CRM1, COX-2, and expression and higher mitotic rate (P 5.008), but no
+Clinicopathologic Features correlation was observed between CRM1 and nuclear
+In univariate analysis, we investigated correlations polymorphismortumorgrowthpattern.
+among CRM1, COX-2, and clinicopathologic parame-
+ters(Tables3,4).Weobservedasignificantassociation Association of CRM1 With Patient Survival
+between nuclear and cytoplasmic CRM1 expression In univariate Kaplan-Meier analysis, nuclear CRM1
+(P 5.006). Nuclear CRM1 staining was correlated sig- expression was associated significantly with poor
+nificantlywithincreasedCOX-2expression(P 5.002), overall survival (P 5.010), as indicated in Figure 2B.
+10970142,
+2008,
+8,
+Downloaded
+from
+https://acsjournals.onlinelibrary.wiley.com/doi/10.1002/cncr.23354
+by
+Cochrane
+Israel,
+Wiley
+Online
+Library
+on
+[05/12/2025].
+See
+the
+Terms
+and
+Conditions
+(https://onlinelibrary.wiley.com/terms-and-conditions)
+on
+Wiley
+Online
+Library
+for
+rules
+of
+use;
+OA
+articles
+are
+governed
+by
+the
+applicable
+Creative
+Commons
+License
+CRM1Expression in Ovarian Cancer/Noske et al. 1739
+TABLE4
+CorrelationBetweenNuclearChromosomalRegionMaintenance/Exportin1/Xpo1WithCyclooxygenase-2
+ExpressionandPathologicFactorsinPatientsWithInvasiveOvarianCarcinoma
+No.ofpatients(%)
+Characteristic Allpatients CRM1cytoplasmicnegative CRM1cytoplasmicpositive P
+Allcarcinomas 74(100) 32(43.2) 42(56.8)
+COX-2expression .234
+Negative 55(100) 26(42.3) 29(57.7)
+Positive 19(100) 6(31.6) 13(68.4)
+Pathologictumorclassification .043
+pT1 17(100) 11(64.7) 6(35.3)
+pT2/pT3 57(100) 21(36.8) 36(63.2)
+Histologicgrade .011
+1/2 43(100) 24(55.8) 19(44.2)
+3 31(100) 8(25.8) 23(74.2)
+CRM1indicateschromosomalregionmaintenance/exportin1/Xpo1;COX-2,cyclooxygenase-2.
+No association with progression-free survival was OVCAR-3 cells. Treatment of OVCAR-3 cells with
+observed (data not shown). COX-2 expression was LMB (5 ng/mL) revealed a significant reduction in
+related significantly to poor overall survival for cell proliferation after 24 hours and 48 hours as
+patients with ovarian cancer (P 5.026). Other prog- measured by XTT assay (P < .05; Student t test)
+nostic factors were residual tumor (P 5.003) and his- (Fig. 4B).
+tologic grade, which had borderline significance
+(P 5.076). In an exploratory multivariate analysis
+that included histologic grade, tumor stage, post-
+operative residual tumor, age, and nuclear CRM1 Effects of LMB on Cell Cycle and Apoptosis
+expression, only residual tumor size had independent TodeterminewhethertheinhibitionofCRM1byLMB
+prognostic significance. affectscellcycleprogression,OVCAR-3cellswerecul-
+turedintheabsenceorpresenceofLMBat3concen-
+trations (2.5 ng/mL, 5 ng/mL, and 10 ng/mL) for
+Expression of CRM1 in Ovarian Cancer Cell Lines
+48 hours and were analyzed by flow cytometry. An
+We determined the expression of CRM1 in 11 ovarian
+exampleofahistogramisshowninFigure5A.Thein-
+cancer cell lines and in HOSE cells. Figure 3 demon-
+hibition of CRM1 decreased the percentage of cells in
+strates that CRM1 protein expression was detected in
+G phase. In addition, we observed an increased sub-
+various cancer cell lines (OVCAR-3, A2780, ES-2, 1
+G /G peakthatrepresentedapoptoticcells.Induction
+MDAH2744, CAOV-3, SKOV-3, OAW42, EFO27, EFO21, 0 1
+of apoptosis was confirmed by using different assays.
+and FU-OV-1). In contrast, HOSE cells and PA-1 cells
+First, OVCAR-3 cells were analyzed with a double-
+showedreducedproteinlevelsofCRM1. labeling technique using annexin V and PI staining
+and then flow cytometry (FACS). A representative
+Effects of LMB on COX-2 Expression and example is shown in Figure 5B. After 48 hours, LMB
+Cell Proliferation had induced apoptosis in approximately 15% of the
+COX-2 expression is associated with relevant tumor cell population. The percentage of apoptotic cells
+signaling pathways. Therefore, we incubated OVCAR- determined for 3 different inhibitor concentrations
+3 cells with inhibitors of 2 important pathways: and measured in 3 separate experiments is indicated
+LY294002, a PI3K-inhibitor, and PD98059, an MEK in- inFigure5C.Inductionofapoptosiswasconfirmedby
+hibitor, to examine any effect on COX-2 expression. measurementofcaspase-3activityafter72hours(Fig.
+In addition, we applied LMB, which is a specific in- 5D). The presence of apoptotic cells on the right in
+hibitor of CRM1. In Western blot analysis, as shown Figure 5D is demonstrated by increased fluorescence
+in Figure 4A, COX-2 expression was highly inducible intensity(M2gate)comparedwiththecontrol.Finally,
+by IL-1b. LY294002 and PD98059 did not influence wedetectedapoptoticcellsbylabelingofDNAbreaks
+COX-2 expression at the protein level. In contrast, with FITC-deoxyuridine triphosphate by using the
+LMB inhibited IL-1b-induced COX-2 expression in Apo-DirectKit(datanotshown).
+10970142,
+2008,
+8,
+Downloaded
+from
+https://acsjournals.onlinelibrary.wiley.com/doi/10.1002/cncr.23354
+by
+Cochrane
+Israel,
+Wiley
+Online
+Library
+on
+[05/12/2025].
+See
+the
+Terms
+and
+Conditions
+(https://onlinelibrary.wiley.com/terms-and-conditions)
+on
+Wiley
+Online
+Library
+for
+rules
+of
+use;
+OA
+articles
+are
+governed
+by the
+applicable
+Creative
+Commons
+License
+1740 CANCER April15,2008 / Volume112/Number 8
+FIGURE 3. Expression of chromosomal region maintenance/exportin 1/
+Xpo1 (CRM1) on protein levels in ovarian carcinoma cell lines and human
+ovariansurfaceepithelial(HOSE)cells.ExpressionofCRM1andb-actinwas
+investigatedbyimmunoblotting.Oneof3independentexperimentsisshown.
+FIGURE 4. Effects of leptomycin B (LMB) in OVCAR-3 cells. (A) Cyclooxy-
+genase-2(COX-2)proteinishighlyinducibleaftertreatmentwithinterleukin-
+1b (IL-1b) in OVCAR-3 cells. The phosphoinositide-3 kinase inhibitor
+LY294002 and the mitogen-activated protein kinase inhibitor PD98059 did
+not affect COX-2 expression. In contrast, incubation with LMB resulted in
+COX-2suppressionattheproteinlevel.Dimethylsulfoxide(DMSO)servedas
+FIGURE 2. (A) Correlation of cyclooxygenase-2 (COX-2) and chromosomal
+a solvent control. (B) OVCAR-3 cells were incubated with LMB (5 ng/mL),
+region maintenance/exportin 1/Xpo1 (CRM1) expression (P5.002; chi-square
+and cellproliferation was measuredby using anXTTassay. The meansand
+test).(B)UnivariateKaplan-Meiersurvivalanalysisaccordingtonuclearandcyto- standard deviations of 4 measurements after 24 hours (performed in tripli-
+plasmicexpressionofCRM1.Significantlyreducedoverallsurvivalwasobserved
+cate)areshown.Theasteriskindicatesastatisticallysignificantdifferencein
+inpatientswhohadovariancarcinomasthatexpressednuclearCRM1.
+cellproliferation(P<.05;2-sidedttest).
+10970142,
+2008,
+8,
+Downloaded
+from
+https://acsjournals.onlinelibrary.wiley.com/doi/10.1002/cncr.23354
+by
+Cochrane
+Israel,
+Wiley
+Online
+Library
+on
+[05/12/2025].
+See
+the
+Terms
+and
+Conditions
+(https://onlinelibrary.wiley.com/terms-and-conditions)
+on
+Wiley
+Online
+Library
+for
+rules
+of
+use;
+OA
+articles
+are
+governed
+by
+the
+applicable
+Creative
+Commons
+License
+CRM1Expression in Ovarian Cancer/Noske et al. 1741
+FIGURE 5. LeptomycinB (LMB) induces apoptosisin OVCAR-3 cells. (A) Cells were cultured in the absence (left) and presence (right) of LMB for 48 hours
+(10 ng/mL). Histograms display DNA content (x-axis; propidium iodide [PI] fluorescence) versus counts (y-axis). Treated cells showed an increased sub-G/G-
+0 1
+peakandandecreasedG-phasecomparedwithuntreatedcells.Datashownarefrom1of3independentexperiments.(B)Detectionofapoptosisusingdou-
+1
+ble-labeling system and flow cytometry. A representative dual-parameter dot plot of annexin V fluorescence (x-axis) versus PI fluorescence (y-axis) is shown.
+OVCAR-3cellsweretreatedwithLMBfor48hours(10ng/mL).(C)TheeffectsofdifferentconcentrationsofLMBonapoptosiswereanalyzedbyPI/annexinV
+staining. The mean and standard deviation of 3 separate experiments is indicated. A significant difference was observed in the percentage of apoptotic cells
+comparedwiththepercentageofuntreatedcells(P<.05;2-tailedStudentt test).(D)Flowcytometry wasusedtoanalyzecaspase-3activityincontrolcells
+and in LMB-treated cells. The apoptotic cell population increased, and there were detectable levels of active caspase-3 (represented by the M2 gate on the
+right;x-axis,activecaspase-3fluoresceinisothiocyanate;y-axis,counts).
+DISCUSSION these findings, CRM1 may be an interesting biomar-
+In this study, we investigated the expression of the ker for assessing the prognosis of patients with ovar-
+nuclear export protein CRM1 in primary ovarian car- ian cancer. However, it should be emphasized that
+cinomas and ovarian cancer cell lines. CRM1 demon- there are certain limitations of this study. For exam-
+strated both nuclear (52.7%) and cytoplasmic (56.8%) ple, all immunohistochemical-based studies have ob-
+expression patterns in ovarian cancer tissues. CRM1 server bias, because as the grade and type of tumors
+expression was increased significantly in malignant can be determined during the analysis and cannot
+tumors compared with the expression in borderline be blinded. Furthermore, the interpretation concern-
+tumors and benign lesions of the ovary. To our ing the prognostic role of CRM1 expression in ovar-
+knowledge, this is the first study investigating the im- ian carcinomas in this first study is preliminary.
+munohistochemical expression pattern of CRM1 in Additional large-scale prospective and retrospective
+human tumor tissue. Our data from Western blot studies will be needed to investigate whether it is
+analysis support the enhanced expression of CRM1 practical to use CRM1 expression as a prognostic
+in ovarian cancer cells compared with immortalized predictor.
+HOSE cells. We and others have demonstrated that LMB, a
+To our knowledge to date, there have been no specific inhibitor of CRM1, blocks COX-2 expression
+studies regarding the prognostic significance of in cancer cells.8,25 Several groups have demonstrated
+CRM1 in cancer patients. In the current study, we that cyclooxygenases such as COX-226 and also COX-
+observed that cytoplasmic CRM1-positive ovarian 127,28 are overexpressed in ovarian cancer, suggesting
+carcinomas were at a more advanced tumor stage, that these enzymes may be interesting therapeutic
+were poorly differentiated, and had a higher mitotic targets. In our study cohort, increased COX-2 expres-
+rate. Nuclear CRM1 expression was associated signif- sion in ovarian carcinomas was related significantly
+icantly with poor overall survival. On the basis of to poor overall survival. It is noteworthy that we
+10970142,
+2008,
+8,
+Downloaded
+from
+https://acsjournals.onlinelibrary.wiley.com/doi/10.1002/cncr.23354
+by
+Cochrane
+Israel,
+Wiley
+Online
+Library
+on
+[05/12/2025].
+See
+the
+Terms
+and
+Conditions
+(https://onlinelibrary.wiley.com/terms-and-conditions)
+on
+Wiley
+Online
+Library
+for
+rules
+of
+use;
+OA
+articles
+are
+governed
+by
+the
+applicable
+Creative
+Commons
+License
+1742 CANCER April15,2008 / Volume112/Number 8
+observed a significant association of the nuclear cells (eg, prostate cancer and leukemia cells) by nu-
+CRM1 expression with increased COX-2 expression. clear accumulation of NES-containing p53, BCR-ABL,
+The combination of functional data and in vivo data or the proapoptotic bcl2 member, BOK.13,31 Experi-
+suggests that CRM1 may play a role in the regulation ments with U937 leukemia cells indicated that the
+of COX-2 in ovarian cancer. Altered CRM1 seems to apoptosis by LMB seemed to be related to cyto-
+be responsible for COX-2 overexpression during the chrome c release, activation of caspases, and selec-
+nuclear export of COX-2 mRNA, which is an impor- tive down-regulation of myeloid cell leukemia 1 and
+tant control point of COX-2 gene expression. LMB X-linked inhibitor of apoptosis. Otherwise, it also is
+had no effect on COX-2 transcription, suggesting a conceivable that CRM1 overexpression inhibits or
+posttranscriptional inhibition. Furthermore, it was delays LMB apoptosis.31
+demonstrated previously that LMB inhibits the time- In fact, inhibiting the nuclear protein export of
+dependent COX-2 mRNA export into the membrane- elements of signaling pathways that are important
+bound polysomal compartment at the endoplasmic for tumor progression, such as p53, COX-2, and
+reticulum.8 others, may play an important role in anticancer
+Although our results indicate that COX-2 and treatment; and substances such as LMB appear to
+CRM1 are linked in ovarian cancer in vivo and in be promising candidates for therapeutic interfer-
+vitro, we cannot exclude the possibility that other ence with these cellular functions. Because strong
+proteins that are dependent on nuclear-cytoplasmic toxic side effects have been encountered with LMB
+transport are regulated by CRM1. In fact, this seems during clinical trials for cancer, many efforts have
+very likely considering the central role of nuclear- focused on novel CRM1 antagonists; and some
+cytoplasmic export in cell biology. In addition to agents, such as PKF050-638 or 5219668, recently
+COX-2 mRNA, CRM1 regulates nuclear-cytoplasmic have been identified.10
+transport of NES-bearing proteins, which play a role The results of the current study demonstrated
+in relevant tumor signaling pathways, such as p53, that CRM1 expression is associated with advanced
+AKT1, HDAC5, and EGFR. This raises the hypothesis ovarian carcinomas that have an aggressive behavior.
+that dysregulation of nuclear-cytoplasmic export may Thus, CRM1 expression is related to poor patient
+be crucial in malignant transformation and, thus, outcome. Furthermore, we demonstrated a correla-
+may be a promising field for future therapeutic tion between CRM1 and COX-2 expression that may
+approaches. explain the unfavorable prognosis of patients with
+The doses of LMB in our study were well in line ovarian cancer. Supporting this point, we demon-
+withthoseusedinotherstudiesthathaveinvestigated strated that treatment of ovarian cancer cells with
+nuclear-cytoplasmic transport. LMB is a specific in- LMB revealed a reduction of COX-2 expression.
+hibitor of CRM1 based on several observations17,29,30: Because it has been demonstrated that LMB acts as
+1)LMBcovalentlyandselectivelybindsthesulfhydryl a specific inhibitor of CRM1 in other cellular models,
+group of Cys-529 of CRM1; 2) LMB inhibits nuclear this finding suggests that CRM1 may be an interest-
+export by inhibition of the interaction of CRM1 with ing biomarker for assessing patients’ prognosis and a
+the nuclear export sequence; 3) CRM1 is the major molecular target for anticancer treatment.
+protein that binds LMB in vitro and in vivo; 4) to our
+knowledge, there are no reports on other targets of REFERENCES
+LMB.17,29 We cannot excludethe possibility that there 1. JemalA,SiegelR,WardE,MurrayT,XuJ,ThunM.Cancer
+may be other unknown cellular targets that may be statistics,2007.CACancerJClin.2007;57:43–66.
+2. Greenlee RT, Murray T, Bolden S, Wingo PA. Cancer statis-
+partly inhibited by LMB. However, although many
+tics.CACancerJClin.2000;50:7–33.
+researchgroupsareusingLMBasatooltoinvestigate
+3. AdachiY,YanagidaM.Higherorderchromosomestructure
+nuclear-cytoplasmicexport,todate,thesetargetshave is affected by cold sensitive mutations in Schizosaccharo-
+notbeenidentified. myces pombe gene crm11 which encodes a 115-kDA pro-
+It also has been reported that LMB has potent tein preferentially localized in the nucleus and its
+periphery.JCellBiol.1989;108:1195–1207.
+antiproliferative and antitumor properties in murine
+4. Kudo N, KhochbinS, Nishi K, et al. Molecularcloning and
+experimental tumors and in first clinical trials for
+cell-cycle dependent expression of mammalian CRM1, a
+anticancer therapy.3,8 LMB causes a G1 cell cycle proteininvolvedinnuclearexportofproteins.JBiolChem.
+arrest in mammalian cells,3 which is in line with our 1997;272:29742–29751.
+observation in ovarian cancer cells. Moreover, we 5. StadeK,FordCS,GuthrieC,WeisK.Exportin1(CRM1p)is
+anessentialnuclearexportfactor.Cell.1997;90:1041–1050.
+observed that LMB induces apoptosis in ovarian can- 6. Yoshida M, Horinouchi S. Trichostatin and leptomycin—
+cer cells as measured by different assays. Other stu-
+inhibition of histone deacetylation and signal-dependent
+dies have reported LMB-induced apoptosis in cancer nuclearexport.AnnNYAcadSci.1999;886:23–36.
+10970142,
+2008,
+8,
+Downloaded
+from
+https://acsjournals.onlinelibrary.wiley.com/doi/10.1002/cncr.23354
+by
+Cochrane
+Israel,
+Wiley
+Online
+Library
+on [05/12/2025].
+See
+the
+Terms
+and
+Conditions
+(https://onlinelibrary.wiley.com/terms-and-conditions)
+on
+Wiley
+Online
+Library
+for
+rules
+of
+use;
+OA
+articles
+are
+governed
+by
+the
+applicable
+Creative
+Commons
+License
+CRM1Expression in Ovarian Cancer/Noske et al. 1743
+7. Gallouzi IE, Steitz JA. Delineation of mRNA export path- 20. Denkert C, Kobel M, Pest S, et al. Expression of cyclooxy-
+ways by the use of cell-permeable peptides. Science. 2001; genase 2 is an independent prognostic factor in human
+294:1895–1901. ovariancarcinoma.AmJPathol.2002;160:893–903.
+8. Jang BC, Munoz-Najar U, Paik JH, Claffey K, Yoshida M, 21. Denkert C, Furstenberg A, Daniel PT, et al. Induction of
+HlaT.LeptomycinB,aninhibitorofthenuclearexportre- G0/G1 cell cycle arrest in ovarian carcinoma cells by the
+ceptor CRM1, inhibits COX-2 expression. J Biol Chem. 2003; anti-inflammatory drug NS398, but not by COX-2 specific
+278:2773–2776. RNAinterference.Oncogene.2003;22:8653–8661.
+9. Stommel JM, Marchenko ND, Jimenez GS, Moll UM, Hope 22. Noske A, Denkert C, Schober H, et al. Loss of Gelsolin
+TJ, Wahl GM. A leucine-rich nuclear export signal in the expression in human ovarian carcinomas. Eur J Cancer.
+p53tetramerizationdomain:regulationofsubcellularloca- 2005;41:461–469.
+lizationandp53activitybyNESmasking.EMBOJ.1999;18: 23. TsaoSW,MokSC,FeyEG,etal.Characterizationofhuman
+1660–1672. ovarian surface epithelial cells immortalized by human
+10. Harrison BC, Roberts CR, Hood DB, et al. The CRM1 nu- papilloma viral oncogenes (HPV-E6E7 ORFs). Exp Cell Res.
+clear export receptor controls pathological cardiac gene 1995;218:499–507.
+expression.MolCellBiol.2004;24:10636–10649. 24. Tchernitsa OI, Sers C, Zuber J, et al. Transcriptional basis
+11. Saji M, Vasko V, Kada F, et al. Akt1 contains a functional ofKRASoncogene-meiatedcellulartransformationinovar-
+leucine-richnuclearexportsequence.BiochemBiophysRes ianepithelialcells.Oncogene.2004;23:4536–4555.
+Commun.2005;332:167–173. 25. ErkinheimoTL,LassusH,SivulaA,etal.CytoplasmicHuR
+12. Lo HW, Seyed MA, Wu Y, et al. Nuclear-cytoplasmic trans- expressioncorrelateswithpooroutcomeandwithcycloox-
+port of EGFR involves receptor endocytosis, importin b1 ygenase 2 expression in serous ovarian carcinoma. Cancer
+andCRM1.JCellBiochem.2006;98:1570–1583. Res.2003;63:7591–7594.
+13. Bartholomeusz G, Wu Y, Seyed MA, et al. Nuclear Trans- 26. ErkinheimoTL,LassusH,FinneP,etal.Elevatedcyclooxy-
+location of the Pro-apoptotic Bcl-2 family member genase-2 expression is associated with altered expression
+Bok induces apoptosis. Mol Carcinogenesis. 2006;45:73– of p53 and SMAD4, amplification of HER-2/neu, and poor
+83. outcome in serous ovarian carcinoma. Clin Cancer Res.
+14. TooneWM,KugeS,SamuelsM,etal.Regulationofthefis- 2004;15:538–545.
+sion yeast transcription factor Pap1 by oxidative stress: 27. Gupta RA, Tejada LV, Tong BJ, et al. Cyclooxygenase-1 is
+requirement for the nuclear export Crm1 (exportin) and overexpressed and promotes angiogenic growth factor
+the stress-activated MAP kinase Sty1/Spc1. Genes Dev. production in ovarian cancer. Cancer Res. 2003;63:906–
+1998;12:1453–1463. 911.
+15. Arnaoutov A, Azuma Y, Ribbeck K, et al. Crm1 is a mitotic 28. Daikoku T, Tranguch S, Trofimova IN, et al. Cyclooxygen-
+effector of Ran-GTP in somatic cells. Nat Cell Biol. 2005; ase-1 is overexpressed in multiple genetically engineered
+7:626–632. mouse models of epithelial ovarian cancer. Cancer Res.
+16. Wang W, Budhu A, Forgues M, Wang XW. Temporal and 2006;66:2527–2531.
+spatial control of nucleophosmin by the Ran-CRM1 com- 29. KudoN,MatsumoriN,TaokaH,etal.LeptomycinBinacti-
+plex in centrosome duplication. Nat Cell Biol. 2005;7:823– vatesCRM1/exportin1bycovalentmodificationatacyste-
+830. ineresidueinthecentralconservedregion.ProcNatlAcad
+17. Kudo N, Wolff B, Sekimoto T, et al. Leptomycin B inhibi- SciUSA.1999;96:9112–9117.
+tionofsignal-mediatednuclearexportbydirectbindingto 30. Fukuda M, Asano S, Nakamura T, et al. CRM1 is responsi-
+CRM1.ExpCellRes.1998;242:540–547. ble for intracellular transport mediated by the nuclear
+18. Yashiroda Y. Yoshida M. Nucleo-cytoplasmic transport of exportsignal.Nature.1997;390:308–311.
+proteinsas atargetfortherapeuticdrugs.CurrMedChem. 31. Jang BC, Paik JH, Jeong HY, et al. Leptomycin B-induced
+2003;10:741–748. apoptosis is mediated through caspase activation and
+19. Shimizu Y, Kamoi S, Amada S, et al. Toward the develop- down regulation of Mcl-1 and XIAP expression but not
+ment of a universal grading system for ovarian epithelial throughthegenerationofROSinU937leukemiacells.Bio-
+carcinoma.GynecolOncol.1998;70:2–12. chemPharmacol.2004;68:263–274.
+10970142,
+2008,
+8,
+Downloaded
+from
+https://acsjournals.onlinelibrary.wiley.com/doi/10.1002/cncr.23354
+by
+Cochrane
+Israel,
+Wiley
+Online
+Library
+on
+[05/12/2025].
+See
+the
+Terms
+and
+Conditions
+(https://onlinelibrary.wiley.com/terms-and-conditions)
+on
+Wiley
+Online
+Library
+for
+rules
+of
+use;
+OA
+articles
+are
+governed
+by
+the
+applicable
+Creative
+Commons
+License

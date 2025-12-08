@@ -13,17 +13,23 @@ from fastapi.staticfiles import StaticFiles
 from api.upload import router as upload_router
 from api.qbsd import router as qbsd_router
 from api.websocket import router as websocket_router
+from api.schema import router as schema_router
+from constants import (
+    API_TITLE, API_DESCRIPTION, API_VERSION,
+    ALLOWED_ORIGINS, DEFAULT_HOST, DEFAULT_PORT,
+    HEALTH_CHECK_MESSAGE, API_ROOT_MESSAGE
+)
 
 app = FastAPI(
-    title="QBSD Visualization API",
-    description="Interactive visualization and schema editing for QBSD",
-    version="1.0.0"
+    title=API_TITLE,
+    description=API_DESCRIPTION,
+    version=API_VERSION
 )
 
 # CORS middleware for frontend communication
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -32,18 +38,19 @@ app.add_middleware(
 # Include routers
 app.include_router(upload_router, prefix="/api/upload", tags=["upload"])
 app.include_router(qbsd_router, prefix="/api/qbsd", tags=["qbsd"])
+app.include_router(schema_router, prefix="/api/schema", tags=["schema"])
 app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
 
 @app.get("/")
 async def root():
     """Root endpoint."""
-    return {"message": "QBSD Visualization API", "version": "1.0.0"}
+    return {"message": API_ROOT_MESSAGE, "version": API_VERSION}
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy"}
+    return {"status": HEALTH_CHECK_MESSAGE}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host=DEFAULT_HOST, port=DEFAULT_PORT, reload=True)

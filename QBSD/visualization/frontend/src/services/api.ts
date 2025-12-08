@@ -4,10 +4,25 @@ import {
   PaginatedData, 
   FileValidationResult,
   QBSDConfig,
-  QBSDStatus
+  QBSDStatus,
+  SchemaExtractionResult,
+  DocumentUploadResult,
+  DocumentProcessingResult,
+  ProcessingStatus,
+  SchemaValidationResultBasic,
+  CompatibilityCheck,
+  SchemaData,
+  EditColumnRequest,
+  AddColumnRequest,
+  MergeColumnsRequest,
+  ReprocessRequest,
+  SchemaEditResponse,
+  ReprocessingStatus,
+  SchemaBackup,
+  SchemaValidationResult as SchemaValidationResultType
 } from '../types';
 
-const API_BASE = process.env.REACT_APP_API_BASE || 'http://localhost:8000/api';
+const API_BASE = process.env.REACT_APP_API_BASE || '/api';
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -67,9 +82,9 @@ export const uploadAPI = {
   // Dual-file upload
   uploadDualFiles: async (schemaFile: File, dataFile: File): Promise<{
     session_id: string;
-    schema_validation: any;
+    schema_validation: SchemaValidationResultBasic;
     data_validation: FileValidationResult;
-    compatibility: any;
+    compatibility: CompatibilityCheck;
     requires_column_mapping: boolean;
   }> => {
     const formData = new FormData();
@@ -94,6 +109,47 @@ export const uploadAPI = {
 
     await api.post(`/upload/process-dual/${sessionId}`, payload);
   },
+
+  // Enhanced upload workflow methods
+  extractSchema: async (sessionId: string, query?: string): Promise<SchemaExtractionResult> => {
+    const response = await api.post(`/upload/extract-schema/${sessionId}`, null, {
+      params: { query: query || '' }
+    });
+    return response.data;
+  },
+
+  addDocuments: async (sessionId: string, files: File[]): Promise<DocumentUploadResult> => {
+    const formData = new FormData();
+    files.forEach(file => {
+      formData.append('files', file);
+    });
+    
+    const response = await api.post(`/upload/add-documents/${sessionId}`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    
+    return response.data;
+  },
+
+  processDocuments: async (sessionId: string, llmConfig?: any): Promise<DocumentProcessingResult> => {
+    const requestBody = llmConfig ? { llm_config: llmConfig } : {};
+    const response = await api.post(`/upload/process-documents/${sessionId}`, requestBody);
+    return response.data;
+  },
+
+  getProcessingStatus: async (sessionId: string): Promise<ProcessingStatus> => {
+    const response = await api.get(`/upload/processing-status/${sessionId}`);
+    return response.data;
+  },
+
+  exportData: async (sessionId: string): Promise<Blob> => {
+    const response = await api.get(`/upload/export/${sessionId}`, {
+      responseType: 'blob'
+    });
+    return response.data;
+  },
 };
 
 // QBSD API
@@ -112,7 +168,7 @@ export const qbsdAPI = {
     return response.data;
   },
 
-  getSchema: async (sessionId: string): Promise<any> => {
+  getSchema: async (sessionId: string): Promise<SchemaData> => {
     const response = await api.get(`/qbsd/schema/${sessionId}`);
     return response.data;
   },
@@ -131,6 +187,21 @@ export const qbsdAPI = {
   listSessions: async (): Promise<VisualizationSession[]> => {
     const response = await api.get('/qbsd/sessions');
     return response.data;
+  },
+
+  export: async (sessionId: string): Promise<void> => {
+    const response = await api.get(`/qbsd/export/${sessionId}`, { 
+      responseType: 'blob' 
+    });
+    
+    // Create download link
+    const blob = new Blob([response.data], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `qbsd_data_${sessionId.slice(0, 8)}.csv`;
+    link.click();
+    window.URL.revokeObjectURL(url);
   },
 };
 
@@ -153,6 +224,54 @@ export const sessionAPI = {
     } else {
       return qbsdAPI.getData(sessionId, page, pageSize);
     }
+  },
+};
+
+// Schema editing API
+export const schemaAPI = {
+  editColumn: async (sessionId: string, request: EditColumnRequest): Promise<SchemaEditResponse> => {
+    const response = await api.put(`/schema/edit-column/${sessionId}`, request);
+    return response.data;
+  },
+
+  deleteColumn: async (sessionId: string, columnName: string): Promise<SchemaEditResponse> => {
+    const response = await api.delete(`/schema/delete-column/${sessionId}/${encodeURIComponent(columnName)}`);
+    return response.data;
+  },
+
+  addColumn: async (sessionId: string, request: AddColumnRequest): Promise<SchemaEditResponse> => {
+    const response = await api.post(`/schema/add-column/${sessionId}`, request);
+    return response.data;
+  },
+
+  mergeColumns: async (sessionId: string, request: MergeColumnsRequest): Promise<SchemaEditResponse> => {
+    const response = await api.post(`/schema/merge-columns/${sessionId}`, request);
+    return response.data;
+  },
+
+  reprocessDocuments: async (sessionId: string, request: ReprocessRequest): Promise<{ success: boolean; message: string; session_id: string; }> => {
+    const response = await api.post(`/schema/reprocess/${sessionId}`, request);
+    return response.data;
+  },
+
+  getReprocessingStatus: async (sessionId: string): Promise<ReprocessingStatus> => {
+    const response = await api.get(`/schema/reprocessing-status/${sessionId}`);
+    return response.data;
+  },
+
+  validateSchema: async (sessionId: string): Promise<SchemaValidationResultType> => {
+    const response = await api.get(`/schema/validation/${sessionId}`);
+    return response.data;
+  },
+
+  backupSchema: async (sessionId: string): Promise<{ success: boolean; backup_id: string; backup_path: string; created_at: string; includes_data: boolean; }> => {
+    const response = await api.post(`/schema/backup/${sessionId}`);
+    return response.data;
+  },
+
+  restoreSchema: async (sessionId: string, backupId: string): Promise<SchemaEditResponse> => {
+    const response = await api.post(`/schema/restore/${sessionId}`, { backup_id: backupId });
+    return response.data;
   },
 };
 
