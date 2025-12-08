@@ -181,16 +181,20 @@ const Visualize: React.FC = () => {
                 
               case 'progress_update':
               case 'completion':
+                console.log('🎉 WebSocket: Processing completion received', message);
                 // Refresh session data for progress updates
                 queryClient.invalidateQueries(['session', sessionId]);
                 if (message.type === 'completion') {
+                  console.log('💾 WebSocket: Invalidating data queries to refresh table');
                   queryClient.invalidateQueries(['data', sessionId]);
+                  queryClient.invalidateQueries(['data', sessionId, mode]);
                   // Disconnect WebSocket after completion to avoid keeping it open unnecessarily
                   setTimeout(() => {
                     if (ws && ws.readyState === WebSocket.OPEN) {
+                      console.log('🔌 WebSocket: Closing connection after processing completion');
                       ws.close(1000, 'Processing completed');
                     }
-                  }, 1000); // Small delay to ensure data refresh completes
+                  }, 2000); // Increased delay to ensure data refresh completes
                 }
                 break;
             }

@@ -157,13 +157,39 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                 for row_data in current_new_rows:
                                     # Convert QBSD format to DataRow format if needed
                                     if 'data' not in row_data:
+                                        # Extract row metadata fields from QBSD data
+                                        row_name = row_data.get("_row_name", f"Doc_{last_processed_line + 1}")
+                                        papers_list = row_data.get("_papers", [])
+                                        
+                                        print(f"🔍 DEBUG: Converting QBSD row data: row_name={row_name}, papers={papers_list}, data_keys={list(row_data.keys())}")
+                                        
+                                        # Clean the data by removing metadata fields and ensuring proper types
+                                        clean_data = {}
+                                        for key, value in row_data.items():
+                                            if not key.startswith('_'):  # Skip metadata fields like _row_name, _papers
+                                                # Handle QBSD answer format vs direct values
+                                                if isinstance(value, dict) and 'answer' in value:
+                                                    clean_data[key] = value  # Keep QBSD format for display
+                                                elif isinstance(value, dict) and 'answer' not in value:
+                                                    # This might be a misplaced object, convert to string
+                                                    print(f"⚠️  DEBUG: Converting non-answer dict to string for key {key}: {value}")
+                                                    clean_data[key] = str(value)
+                                                else:
+                                                    clean_data[key] = value
+                                        
                                         converted_row = {
-                                            "data": row_data,
-                                            "row_name": row_data.get("_row_name", f"Doc_{last_processed_line + 1}"),
-                                            "papers": row_data.get("papers", [])
+                                            "data": clean_data,
+                                            "row_name": row_name,
+                                            "papers": papers_list if isinstance(papers_list, list) else [str(papers_list)] if papers_list else []
                                         }
+                                        
+                                        print(f"✅ DEBUG: Converted to DataRow format: {json.dumps(converted_row, indent=2)[:200]}...")
                                     else:
-                                        converted_row = row_data
+                                        # Already in DataRow format, but validate papers field
+                                        converted_row = row_data.copy()
+                                        papers = converted_row.get("papers", [])
+                                        if not isinstance(papers, list):
+                                            converted_row["papers"] = [str(papers)] if papers else []
                                     
                                     original_f.write(json.dumps(converted_row) + '\n')
                             
@@ -284,15 +310,36 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         row_data = json.loads(line)
                         # Ensure the row has proper structure for DataRow
                         if 'data' not in row_data:
-                            # Convert QBSD format to DataRow format
+                            # Convert QBSD format to DataRow format with proper data cleaning
+                            row_name = row_data.get("_row_name", f"Row_{len(original_rows) + new_rows_added + 1}")
+                            papers_list = row_data.get("_papers", [])
+                            
+                            # Clean the data by removing metadata fields and ensuring proper types
+                            clean_data = {}
+                            for key, value in row_data.items():
+                                if not key.startswith('_'):  # Skip metadata fields like _row_name, _papers
+                                    # Handle QBSD answer format vs direct values
+                                    if isinstance(value, dict) and 'answer' in value:
+                                        clean_data[key] = value  # Keep QBSD format for display
+                                    elif isinstance(value, dict) and 'answer' not in value:
+                                        # This might be a misplaced object, convert to string
+                                        clean_data[key] = str(value)
+                                    else:
+                                        clean_data[key] = value
+                            
                             converted_row = {
-                                "data": row_data,
-                                "row_name": row_data.get("_row_name", f"Row_{len(original_rows) + new_rows_added + 1}"),
-                                "papers": row_data.get("papers", [])
+                                "data": clean_data,
+                                "row_name": row_name,
+                                "papers": papers_list if isinstance(papers_list, list) else [str(papers_list)] if papers_list else []
                             }
                             original_f.write(json.dumps(converted_row) + '\n')
                         else:
-                            original_f.write(line)
+                            # Already in DataRow format, but validate papers field
+                            row_copy = row_data.copy()
+                            papers = row_copy.get("papers", [])
+                            if not isinstance(papers, list):
+                                row_copy["papers"] = [str(papers)] if papers else []
+                            original_f.write(json.dumps(row_copy) + '\n')
                         new_rows_added += 1
         
         print(f"Successfully appended {new_rows_added} new rows to session {session_id}. Total rows: {len(original_rows) + new_rows_added}")
