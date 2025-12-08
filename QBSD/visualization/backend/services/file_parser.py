@@ -685,6 +685,12 @@ class FileParser:
                 if i >= 10:  # Read first 10 rows for analysis
                     break
                 row_data = json.loads(line)
+                
+                # Skip system file rows (like .DS_Store)
+                if self._is_system_row(row_data):
+                    print(f"🧹 Skipping system row during schema extraction: {self._get_row_identifier(row_data)}")
+                    continue
+                    
                 sample_rows.append(row_data)
         
         if not sample_rows:
@@ -1022,3 +1028,65 @@ class FileParser:
             print(f"DEBUG: Error extracting CSV metadata: {e}")
         
         return metadata_info
+    
+    def _is_system_row(self, row_data: Dict[str, Any]) -> bool:
+        """Check if a data row represents a system file that should be ignored."""
+        # Check row_name field
+        row_name = row_data.get('row_name', '')
+        if isinstance(row_name, str) and self._is_system_filename(row_name):
+            return True
+            
+        # Check nested data.row_name
+        if 'data' in row_data:
+            nested_row_name = row_data['data'].get('row_name', '')
+            if isinstance(nested_row_name, str) and self._is_system_filename(nested_row_name):
+                return True
+        
+        # Check papers field for system files
+        papers = row_data.get('papers', '')
+        if isinstance(papers, str) and self._is_system_filename(papers):
+            return True
+            
+        # Check nested data.papers
+        if 'data' in row_data:
+            nested_papers = row_data['data'].get('papers', '')
+            if isinstance(nested_papers, str) and self._is_system_filename(nested_papers):
+                return True
+                
+        return False
+    
+    def _is_system_filename(self, filename: str) -> bool:
+        """Check if a filename is a system file."""
+        if not filename:
+            return False
+            
+        system_files = {'.DS_Store', '._.DS_Store', 'Thumbs.db', '.gitkeep', '.gitignore', '.DS'}
+        system_prefixes = ('._', '.tmp', '~$')
+        
+        # Check exact matches
+        if filename in system_files:
+            return True
+            
+        # Check prefixes
+        for prefix in system_prefixes:
+            if filename.startswith(prefix):
+                return True
+                
+        return False
+    
+    def _get_row_identifier(self, row_data: Dict[str, Any]) -> str:
+        """Get a string identifier for a row for debugging purposes."""
+        # Try different fields to identify the row
+        for field in ['row_name', 'papers']:
+            value = row_data.get(field, '')
+            if value:
+                return str(value)
+                
+        # Try nested data
+        if 'data' in row_data:
+            for field in ['row_name', 'papers']:
+                value = row_data['data'].get(field, '')
+                if value:
+                    return str(value)
+                    
+        return "Unknown row"

@@ -541,6 +541,11 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
         for i, file in enumerate(files):
             print(f"DEBUG: Processing file {i+1}/{len(files)}: {file.filename}")
             
+            # Skip system files that shouldn't be processed
+            if self._is_system_file(file.filename):
+                print(f"DEBUG: Skipping system file: {file.filename}")
+                continue
+            
             # Validate file size (10MB limit per file)
             if file.size > 10 * 1024 * 1024:
                 errors.append(f"File '{file.filename}' exceeds 10MB limit")
@@ -1066,3 +1071,27 @@ async def export_schema_only(session_id: str):
     except Exception as e:
         print(f"DEBUG: Exception in export_schema_only: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def _is_system_file(filename: str) -> bool:
+    """Check if a filename is a system file that should be ignored."""
+    if not filename:
+        return True
+        
+    system_files = {'.DS_Store', '._.DS_Store', 'Thumbs.db', '.gitkeep', '.gitignore'}
+    system_prefixes = ('._', '.tmp', '~$')
+    
+    # Check exact matches
+    if filename in system_files:
+        return True
+        
+    # Check prefixes
+    for prefix in system_prefixes:
+        if filename.startswith(prefix):
+            return True
+            
+    # Check for temporary Office files
+    if filename.startswith('~$') or filename.startswith('.~'):
+        return True
+        
+    return False

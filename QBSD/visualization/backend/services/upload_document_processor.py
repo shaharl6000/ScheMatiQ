@@ -65,6 +65,9 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             if not docs_dir.exists():
                 raise FileNotFoundError(f"Documents directory not found: {docs_dir}")
             
+            # Clean up any system files (like .DS_Store) that might have been created
+            self._clean_system_files(docs_dir)
+            
             # Get extracted schema
             extracted_schema = session.metadata.extracted_schema
             if not extracted_schema:
@@ -242,6 +245,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             await self.broadcast_progress(session_id, "Processing complete", 1.0, "processing_documents")
             
             session = self.session_manager.get_session(session_id)
+            print(f"🔍 DEBUG: Session before completion update: status={session.status}")
+            
             session.status = SessionStatus.COMPLETED
             session.metadata.last_modified = datetime.now()
             
@@ -254,16 +259,28 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             session.metadata.additional_rows_added = final_row_count
             session.metadata.processed_documents = len(session.metadata.uploaded_documents)
             
+            print(f"🔍 DEBUG: Session after completion update: status={session.status}, additional_rows={session.metadata.additional_rows_added}")
+            
             self.session_manager.update_session(session)
             
+            # Verify the update was successful
+            updated_session = self.session_manager.get_session(session_id)
+            print(f"🔍 DEBUG: Session after manager update: status={updated_session.status}, additional_rows={updated_session.metadata.additional_rows_added}")
+            
+            # Small delay to ensure session update is committed before broadcasting completion
+            await asyncio.sleep(0.5)
+            
             # Broadcast completion
-            await self.broadcast_completion(session_id, 
-                "Document processing completed successfully", {
+            completion_data = {
                 "additional_rows": final_row_count,
                 "total_documents": len(session.metadata.uploaded_documents)
-            })
+            }
             
-            print(f"✅ DEBUG: Document processing completed for session {session_id}")
+            print(f"🎯 DEBUG: Broadcasting completion for session {session_id} with data: {completion_data}")
+            await self.broadcast_completion(session_id, 
+                "Document processing completed successfully", completion_data)
+            
+            print(f"✅ DEBUG: Document processing completed and broadcast sent for session {session_id}")
             
         except Exception as e:
             # Update session with error
@@ -641,3 +658,18 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             "max_tokens": DEFAULT_MAX_TOKENS,
             "temperature": DEFAULT_TEMPERATURE
         }
+    
+    def _clean_system_files(self, directory: Path) -> None:
+        """Remove system files like .DS_Store that shouldn't be processed as documents."""
+        system_files = ['.DS_Store', '._.DS_Store', 'Thumbs.db', '.gitkeep']
+        
+        for system_file in system_files:
+            file_path = directory / system_file
+            if file_path.exists():
+                print(f"🧹 Removing system file: {file_path}")
+                file_path.unlink()
+                
+        # Also remove any hidden files starting with ._
+        for file_path in directory.glob('._*'):
+            print(f"🧹 Removing hidden system file: {file_path}")
+            file_path.unlink()

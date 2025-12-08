@@ -145,7 +145,7 @@ const Visualize: React.FC = () => {
     if (!sessionId || mode !== 'upload') return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}`;
+    const wsUrl = `${protocol}//${window.location.host}/ws/progress/${sessionId}`;
     
     let ws: WebSocket | null = null;
     let reconnectAttempts = 0;
@@ -156,14 +156,14 @@ const Visualize: React.FC = () => {
         ws = new WebSocket(wsUrl);
         
         ws.onopen = () => {
-          console.log('WebSocket connected for upload session:', sessionId);
+          console.log('🔌 WebSocket connected for upload session:', sessionId);
           reconnectAttempts = 0;
         };
         
         ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
-            console.log('WebSocket message received:', message);
+            console.log('📨 WebSocket message received:', message.type, message);
             
             switch (message.type) {
               case 'row_completed':
@@ -187,19 +187,26 @@ const Visualize: React.FC = () => {
               case 'progress_update':
               case 'completion':
                 console.log('🎉 WebSocket: Processing completion received', message);
-                // Refresh session data for progress updates
+                // Immediately refresh session and data queries
                 queryClient.invalidateQueries(['session', sessionId]);
+                queryClient.invalidateQueries(['session', sessionId, mode]);
+                
                 if (message.type === 'completion') {
-                  console.log('💾 WebSocket: Invalidating data queries to refresh table');
+                  console.log('💾 WebSocket: Completion message - forcing immediate data refresh');
                   queryClient.invalidateQueries(['data', sessionId]);
                   queryClient.invalidateQueries(['data', sessionId, mode]);
+                  
+                  // Force immediate refetch to ensure UI updates
+                  queryClient.refetchQueries(['session', sessionId]);
+                  queryClient.refetchQueries(['data', sessionId]);
+                  
                   // Disconnect WebSocket after completion to avoid keeping it open unnecessarily
                   setTimeout(() => {
                     if (ws && ws.readyState === WebSocket.OPEN) {
                       console.log('🔌 WebSocket: Closing connection after processing completion');
                       ws.close(1000, 'Processing completed');
                     }
-                  }, 2000); // Increased delay to ensure data refresh completes
+                  }, 3000); // Longer delay to ensure all refreshes complete
                 }
                 break;
             }
@@ -232,9 +239,34 @@ const Visualize: React.FC = () => {
       }
     };
     
-    // Connect during document processing and briefly after completion to catch final messages
-    if (session?.status === 'processing_documents' || session?.status === 'completed') {
+    // Connect during document processing and maintain connection for completed status to catch final messages
+    if (session?.status === 'processing_documents') {
+      console.log('🔌 Connecting WebSocket for document processing');
       connectWebSocket();
+    } else if (session?.status === 'completed' && (session?.metadata?.additional_rows_added || 0) > 0) {
+      // For recently completed sessions with added rows, maintain connection briefly to catch any late messages
+      console.log('🔌 Connecting WebSocket for recently completed session');
+      connectWebSocket();
+    }
+    
+    // Fallback refresh when session transitions to completed to ensure UI updates
+    if (session?.status === 'completed') {
+      const fallbackRefresh = setTimeout(() => {
+        console.log('🔄 Fallback refresh: Force refreshing queries for completed session');
+        queryClient.invalidateQueries(['session', sessionId]);
+        queryClient.invalidateQueries(['data', sessionId]);
+        queryClient.invalidateQueries(['data', sessionId, mode]);
+        // Also force immediate refetch
+        queryClient.refetchQueries(['session', sessionId]);
+        queryClient.refetchQueries(['data', sessionId]);
+      }, 500); // Shorter delay for faster UI update
+      
+      return () => {
+        clearTimeout(fallbackRefresh);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.close(1000, 'Component unmounting');
+        }
+      };
     }
     
     return () => {
@@ -504,7 +536,7 @@ const Visualize: React.FC = () => {
               size="small"
             />
             
-            {isCompleted && (
+            {(isCompleted || session?.status === 'processing_documents') && (
               <>
                 <Button
                   startIcon={<Refresh />}
