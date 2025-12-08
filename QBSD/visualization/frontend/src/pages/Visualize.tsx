@@ -371,22 +371,6 @@ const Visualize: React.FC = () => {
     }
   };
 
-  const handleDocumentProcessing = async () => {
-    if (!sessionId) return;
-
-    try {
-      await uploadAPI.processDocuments(sessionId);
-      // Refresh data to show processing status
-      queryClient.invalidateQueries(['session', sessionId]);
-      queryClient.invalidateQueries(['data', sessionId]);
-      
-      // Start monitoring processing progress
-      startDocumentProcessingMonitor();
-    } catch (err: any) {
-      console.error('Failed to start document processing:', err);
-      setDocumentUploadError(err.response?.data?.detail || 'Failed to start processing');
-    }
-  };
 
   const startDocumentProcessingMonitor = () => {
     const pollStatus = async () => {
