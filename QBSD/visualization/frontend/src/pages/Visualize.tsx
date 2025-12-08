@@ -44,6 +44,7 @@ import QBSDMonitor from '../components/QBSDMonitor/QBSDMonitor';
 import UploadProcessingMonitor from '../components/UploadProcessingMonitor/UploadProcessingMonitor';
 import DocumentUpload from '../components/DocumentUpload/DocumentUpload';
 import ConfigurationInfo from '../components/ConfigurationInfo';
+import LLMSelector from '../components/LLMSelector';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -72,6 +73,10 @@ const Visualize: React.FC = () => {
   const [documentUploadResult, setDocumentUploadResult] = useState<any>(null);
   const [documentUploadError, setDocumentUploadError] = useState<string | null>(null);
   const [newlyAddedRows, setNewlyAddedRows] = useState<Set<number>>(new Set());
+  
+  // LLM selection state for document processing
+  const [showLLMSelector, setShowLLMSelector] = useState(false);
+  const [selectedLLMConfig, setSelectedLLMConfig] = useState<any>(null);
   
   // Fetch session data
   const { data: session, isLoading: sessionLoading, error: sessionError } = useQuery(
@@ -307,6 +312,40 @@ const Visualize: React.FC = () => {
   };
 
   // Enhanced upload document handlers
+  const handleDocumentProcessing = async () => {
+    // Show LLM selector for document processing
+    setShowLLMSelector(true);
+  };
+
+  const handleLLMSelection = async (llmConfig: any) => {
+    setSelectedLLMConfig(llmConfig);
+    setShowLLMSelector(false);
+    
+    if (!sessionId) {
+      setDocumentUploadError('No session available for processing');
+      return;
+    }
+
+    setDocumentUploadLoading(true);
+    setDocumentUploadError(null);
+    
+    try {
+      // Call the process documents API with the selected LLM config
+      await uploadAPI.processDocuments(sessionId, llmConfig);
+      
+      // Refresh session data to show updated status
+      queryClient.invalidateQueries(['session', sessionId]);
+      
+      console.log('🤖 Document processing started with LLM config:', llmConfig);
+    } catch (err: any) {
+      console.error('Failed to start document processing:', err);
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to start document processing';
+      setDocumentUploadError(errorMessage);
+    } finally {
+      setDocumentUploadLoading(false);
+    }
+  };
+
   const handleDocumentUpload = async () => {
     if (!sessionId || uploadedDocuments.length === 0) {
       setDocumentUploadError('No session or documents to upload');
@@ -658,19 +697,31 @@ const Visualize: React.FC = () => {
                         
                         {/* Process button */}
                         {session?.status !== 'completed' && (
-                          <Button
-                            variant="contained"
-                            size="large"
-                            onClick={handleDocumentProcessing}
-                            disabled={session?.status?.includes('processing')}
-                          >
-                            {session?.status?.includes('processing') ? 'Processing...' : 'Process Documents with AI'}
-                          </Button>
+                          <Box>
+                            <Button
+                              variant="contained"
+                              size="large"
+                              onClick={handleDocumentProcessing}
+                              disabled={session?.status?.includes('processing') || documentUploadLoading}
+                              startIcon={documentUploadLoading ? <CircularProgress size={20} /> : undefined}
+                            >
+                              {documentUploadLoading ? 'Starting Processing...' : 
+                               session?.status?.includes('processing') ? 'Processing...' : 
+                               'Select AI Model & Process Documents'}
+                            </Button>
+                            
+                            {/* Show preserved LLM config if available */}
+                            {session?.metadata?.extracted_schema?.llm_configuration?.value_extraction_backend && (
+                              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                Previously used: {session.metadata.extracted_schema.llm_configuration.value_extraction_backend.provider} {session.metadata.extracted_schema.llm_configuration.value_extraction_backend.model}
+                              </Typography>
+                            )}
+                          </Box>
                         )}
                         
                         {session?.status !== 'processing_documents' && session?.status !== 'completed' && (
                           <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                            This will analyze your uploaded documents and extract data according to your schema.
+                            Choose an AI model and analyze your uploaded documents to extract data according to your schema.
                           </Typography>
                         )}
                       </Box>
@@ -821,6 +872,17 @@ const Visualize: React.FC = () => {
           </TabPanel>
         )}
       </Box>
+
+      {/* LLM Selection Dialog for Document Processing */}
+      <LLMSelector
+        open={showLLMSelector}
+        onClose={() => setShowLLMSelector(false)}
+        onConfirm={handleLLMSelection}
+        title="Select AI Model for Document Processing"
+        description="Choose the AI model that will extract information from your uploaded documents using the existing schema."
+        preservedConfig={session?.metadata?.extracted_schema?.llm_configuration?.value_extraction_backend || null}
+        loading={documentUploadLoading}
+      />
     </Box>
   );
 };
