@@ -187,19 +187,22 @@ const Visualize: React.FC = () => {
               case 'progress_update':
               case 'completion':
                 console.log('🎉 WebSocket: Processing completion received', message);
-                // Immediately refresh session and data queries
-                queryClient.invalidateQueries(['session', sessionId]);
+                // Immediately invalidate and refresh session and data queries
+                // Use exact query keys to ensure proper cache updates
                 queryClient.invalidateQueries(['session', sessionId, mode]);
-                
+                queryClient.invalidateQueries(['data', sessionId, mode]);
+
                 if (message.type === 'completion') {
                   console.log('💾 WebSocket: Completion message - forcing immediate data refresh');
-                  queryClient.invalidateQueries(['data', sessionId]);
-                  queryClient.invalidateQueries(['data', sessionId, mode]);
-                  
-                  // Force immediate refetch to ensure UI updates
+
+                  // Force immediate refetch with exact query keys to ensure UI updates
+                  queryClient.refetchQueries(['session', sessionId, mode]);
+                  queryClient.refetchQueries(['data', sessionId, mode]);
+
+                  // Also refetch with partial keys for backward compatibility
                   queryClient.refetchQueries(['session', sessionId]);
                   queryClient.refetchQueries(['data', sessionId]);
-                  
+
                   // Disconnect WebSocket after completion to avoid keeping it open unnecessarily
                   setTimeout(() => {
                     if (ws && ws.readyState === WebSocket.OPEN) {

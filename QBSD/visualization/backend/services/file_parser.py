@@ -1018,18 +1018,33 @@ class FileParser:
             'column_definitions': {},
             'generated_timestamp': None
         }
-        
+
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
+
+                    # Handle quoted comment lines (CSV may quote lines with special chars)
+                    # e.g., "# Query: ..." or "#   Rationale: ..."
+                    if line.startswith('"#') and line.endswith('"'):
+                        line = line[1:-1]  # Remove surrounding quotes
+
                     if line.startswith('#'):
                         metadata_info['has_comments'] = True
-                        
+
                         # Remove the # and clean whitespace
                         content = line[1:].strip()
-                        
-                        if content.startswith('Session ID:'):
+
+                        # Check for Rationale FIRST (before general column parsing)
+                        # Rationale lines start with "Rationale:" after stripping
+                        if content.startswith('Rationale:'):
+                            # This is a rationale for the previous column
+                            rationale = content.split(':', 1)[1].strip()
+                            # Find the last column definition to add rationale to
+                            if metadata_info['column_definitions']:
+                                last_col = list(metadata_info['column_definitions'].keys())[-1]
+                                metadata_info['column_definitions'][last_col]['rationale'] = rationale
+                        elif content.startswith('Session ID:'):
                             metadata_info['session_id'] = content.split(':', 1)[1].strip()
                         elif content.startswith('Query:'):
                             metadata_info['query'] = content.split(':', 1)[1].strip()
@@ -1065,7 +1080,7 @@ class FileParser:
                                 col_name, definition = content.split(':', 1)
                                 col_name = col_name.strip()
                                 definition = definition.strip()
-                                
+
                                 # Skip standard columns and special format indicators
                                 if col_name not in ['row_name', 'papers', '{column}_excerpt', 'Format']:
                                     if col_name not in metadata_info['column_definitions']:
@@ -1073,13 +1088,6 @@ class FileParser:
                                             'definition': definition,
                                             'rationale': ''
                                         }
-                        elif content.startswith('Rationale:'):
-                            # This is a rationale for the previous column
-                            rationale = content.split(':', 1)[1].strip()
-                            # Find the last column definition to add rationale to
-                            if metadata_info['column_definitions']:
-                                last_col = list(metadata_info['column_definitions'].keys())[-1]
-                                metadata_info['column_definitions'][last_col]['rationale'] = rationale
                     else:
                         # Stop processing when we reach actual CSV data
                         break
