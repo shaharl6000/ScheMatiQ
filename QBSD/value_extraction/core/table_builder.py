@@ -28,6 +28,16 @@ class TableBuilder:
         self.paper_processor = PaperProcessor(llm, self.cache, retriever)
         self.row_manager = RowDataManager()
     
+    def _is_system_file(self, filename: str) -> bool:
+        """Check if a filename is a system file that should be skipped."""
+        system_files = {'.DS_Store', '._.DS_Store', 'Thumbs.db', '.gitkeep', '.gitignore'}
+        if filename in system_files:
+            return True
+        # Skip hidden files (starting with .)
+        if filename.startswith('.'):
+            return True
+        return False
+
     def _load_schema(self, schema_path: Path) -> Schema:
         """Load schema from JSON file."""
         data = json.loads(schema_path.read_text(encoding="utf-8"))
@@ -183,7 +193,7 @@ class TableBuilder:
         for docs_directory in docs_directories:
             docs = sorted(docs_directory.glob("*"))
             for doc in docs:
-                if doc.is_file():
+                if doc.is_file() and not self._is_system_file(doc.name):
                     all_docs_with_source.append((doc, docs_directory))
         
         if not all_docs_with_source:
@@ -434,6 +444,8 @@ class TableBuilder:
         schema = self._load_schema(schema_path)
 
         docs = sorted(docs_directory.glob("*"))
+        # Filter out system/hidden files
+        docs = [d for d in docs if d.is_file() and not self._is_system_file(d.name)]
         if not docs:
             raise RuntimeError(f"No docs found under {docs_directory.resolve()}")
 

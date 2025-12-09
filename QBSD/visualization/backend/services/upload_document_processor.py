@@ -238,9 +238,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # Wait for completion
             await extraction_task
             
-            # Final data consistency check (data is already merged incrementally)
-            await self.broadcast_progress(session_id, "Finalizing data processing", 0.95, "processing_documents")
-            
+            # Merge additional extracted data into main data file
+            await self.broadcast_progress(session_id, "Merging extracted data", 0.95, "processing_documents")
+            await self._merge_extracted_data(session_id)
+
             # Update session as completed
             await self.broadcast_progress(session_id, "Processing complete", 1.0, "processing_documents")
             
