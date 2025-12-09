@@ -115,7 +115,13 @@ const Visualize: React.FC = () => {
     },
     {
       enabled: !!sessionId,
-      refetchInterval: mode === 'qbsd' ? PROCESSING_REFRESH_INTERVAL : false, // Auto-refresh for QBSD
+      // Auto-refresh for QBSD mode OR when processing documents in upload mode
+      refetchInterval: (data) => {
+        if (mode === 'qbsd') return PROCESSING_REFRESH_INTERVAL;
+        // For upload mode, poll during document processing to detect completion
+        if (data?.status === 'processing_documents') return PROCESSING_REFRESH_INTERVAL;
+        return false;
+      },
     }
   );
 

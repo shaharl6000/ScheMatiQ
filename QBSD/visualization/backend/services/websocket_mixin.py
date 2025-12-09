@@ -28,8 +28,8 @@ class WebSocketBroadcasterMixin:
         })
     
     async def broadcast_completion(
-        self, 
-        session_id: str, 
+        self,
+        session_id: str,
         message: str,
         result_data: Dict[str, Any] = None
     ):
@@ -41,7 +41,12 @@ class WebSocketBroadcasterMixin:
         }
         if result_data:
             data.update(result_data)
-        
+
+        # Debug: Log WebSocket connection status
+        conn_count = self.websocket_manager.get_connection_count(session_id)
+        print(f"🔌 DEBUG: WebSocket connections for {session_id}: {conn_count} active")
+        print(f"🔌 DEBUG: Broadcasting completion with data: {data}")
+
         await self.websocket_manager.broadcast_completion(session_id, data)
     
     async def broadcast_error(

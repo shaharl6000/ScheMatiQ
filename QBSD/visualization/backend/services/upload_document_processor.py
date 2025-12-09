@@ -169,16 +169,18 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                         # Clean the data by removing metadata fields and ensuring proper types
                                         clean_data = {}
                                         for key, value in row_data.items():
-                                            if not key.startswith('_'):  # Skip metadata fields like _row_name, _papers
-                                                # Handle QBSD answer format vs direct values
-                                                if isinstance(value, dict) and 'answer' in value:
-                                                    clean_data[key] = value  # Keep QBSD format for display
-                                                elif isinstance(value, dict) and 'answer' not in value:
-                                                    # This might be a misplaced object, convert to string
-                                                    print(f"⚠️  DEBUG: Converting non-answer dict to string for key {key}: {value}")
-                                                    clean_data[key] = str(value)
-                                                else:
-                                                    clean_data[key] = value
+                                            # Skip metadata fields (_row_name, _papers) and 'row_name' which is used for row identifier
+                                            if key.startswith('_') or key == 'row_name':
+                                                continue
+                                            # Handle QBSD answer format vs direct values
+                                            if isinstance(value, dict) and 'answer' in value:
+                                                clean_data[key] = value  # Keep QBSD format for display
+                                            elif isinstance(value, dict) and 'answer' not in value:
+                                                # This might be a misplaced object, convert to string
+                                                print(f"⚠️  DEBUG: Converting non-answer dict to string for key {key}: {value}")
+                                                clean_data[key] = str(value)
+                                            else:
+                                                clean_data[key] = value
                                         
                                         converted_row = {
                                             "data": clean_data,
@@ -240,40 +242,35 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             
             # Merge additional extracted data into main data file
             await self.broadcast_progress(session_id, "Merging extracted data", 0.95, "processing_documents")
-            await self._merge_extracted_data(session_id)
+            rows_added = await self._merge_extracted_data(session_id)
 
             # Update session as completed
             await self.broadcast_progress(session_id, "Processing complete", 1.0, "processing_documents")
-            
+
             session = self.session_manager.get_session(session_id)
             print(f"🔍 DEBUG: Session before completion update: status={session.status}")
-            
+
             session.status = SessionStatus.COMPLETED
             session.metadata.last_modified = datetime.now()
-            
-            # Update final statistics
-            final_row_count = 0
-            if output_path.exists():
-                with open(output_path, 'r') as f:
-                    final_row_count = sum(1 for _ in f)
-            
-            session.metadata.additional_rows_added = final_row_count
+
+            # Update final statistics using the count returned from merge
+            session.metadata.additional_rows_added = rows_added
             session.metadata.processed_documents = len(session.metadata.uploaded_documents)
-            
+
             print(f"🔍 DEBUG: Session after completion update: status={session.status}, additional_rows={session.metadata.additional_rows_added}")
-            
+
             self.session_manager.update_session(session)
-            
+
             # Verify the update was successful
             updated_session = self.session_manager.get_session(session_id)
             print(f"🔍 DEBUG: Session after manager update: status={updated_session.status}, additional_rows={updated_session.metadata.additional_rows_added}")
-            
+
             # Small delay to ensure session update is committed before broadcasting completion
             await asyncio.sleep(0.5)
-            
+
             # Broadcast completion
             completion_data = {
-                "additional_rows": final_row_count,
+                "additional_rows": rows_added,
                 "total_documents": len(session.metadata.uploaded_documents)
             }
             
@@ -301,15 +298,15 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 del self.running_sessions[session_id]
     
     
-    async def _merge_extracted_data(self, session_id: str):
-        """Merge newly extracted data with existing session data."""
+    async def _merge_extracted_data(self, session_id: str) -> int:
+        """Merge newly extracted data with existing session data. Returns number of rows added."""
         session_dir = Path("./data") / session_id
         original_data_file = session_dir / "data.jsonl"
         additional_data_file = session_dir / "additional_data.jsonl"
         
         if not additional_data_file.exists():
             print(f"No additional data to merge for session {session_id}")
-            return
+            return 0
         
         # Read original data to get the base row count
         original_rows = []
@@ -335,15 +332,17 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             # Clean the data by removing metadata fields and ensuring proper types
                             clean_data = {}
                             for key, value in row_data.items():
-                                if not key.startswith('_'):  # Skip metadata fields like _row_name, _papers
-                                    # Handle QBSD answer format vs direct values
-                                    if isinstance(value, dict) and 'answer' in value:
-                                        clean_data[key] = value  # Keep QBSD format for display
-                                    elif isinstance(value, dict) and 'answer' not in value:
-                                        # This might be a misplaced object, convert to string
-                                        clean_data[key] = str(value)
-                                    else:
-                                        clean_data[key] = value
+                                # Skip metadata fields (_row_name, _papers) and 'row_name' which is used for row identifier
+                                if key.startswith('_') or key == 'row_name':
+                                    continue
+                                # Handle QBSD answer format vs direct values
+                                if isinstance(value, dict) and 'answer' in value:
+                                    clean_data[key] = value  # Keep QBSD format for display
+                                elif isinstance(value, dict) and 'answer' not in value:
+                                    # This might be a misplaced object, convert to string
+                                    clean_data[key] = str(value)
+                                else:
+                                    clean_data[key] = value
                             
                             converted_row = {
                                 "data": clean_data,
@@ -361,10 +360,12 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         new_rows_added += 1
         
         print(f"Successfully appended {new_rows_added} new rows to session {session_id}. Total rows: {len(original_rows) + new_rows_added}")
-        
+
         # Clean up the additional data file
         additional_data_file.unlink(missing_ok=True)
-    
+
+        return new_rows_added
+
     def stop_processing(self, session_id: str) -> bool:
         """Stop document processing for a session."""
         if session_id in self.running_sessions:
