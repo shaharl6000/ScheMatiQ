@@ -46,38 +46,21 @@ class FileParser:
         else:
             errors.append("Unsupported file format. Please upload CSV or JSON files.")
         
-        # Try to read first few lines for validation
+        # Try to read and validate content
         try:
-            content = await file.read(8192)  # Read first 8KB
-            await file.seek(0)  # Reset file position
-            
             if detected_format == "csv":
-                # Validate CSV structure, filtering out comment lines
-                lines = content.decode('utf-8').split('\n')
-                
-                # Filter out comment lines for validation
-                data_lines = [line for line in lines if not line.strip().startswith('#') and line.strip()]
-                
-                if len(data_lines) < 2:
-                    errors.append("CSV file must have at least a header row and one data row")
-                else:
-                    # Try to parse header from non-comment lines
-                    try:
-                        dialect = csv.Sniffer().sniff(data_lines[0])
-                        reader = csv.DictReader([data_lines[0], data_lines[1]], dialect=dialect)
-                        sample_row = next(reader)
-                        estimated_columns = len(sample_row)
-                        estimated_rows = len(data_lines) - 1  # Rough estimate excluding comments
-                        sample_data = [sample_row]
-                        
-                        # Add warning if metadata comments are detected
-                        comment_lines = [line for line in lines if line.strip().startswith('#')]
-                        if comment_lines:
-                            warnings.append(f"Detected {len(comment_lines)} metadata comment lines - will be preserved during import")
-                    except Exception as e:
-                        errors.append(f"Error parsing CSV structure: {str(e)}")
-                    
+                # Use progressive reading for CSV to handle large metadata sections
+                # (QBSD exports can have extensive comment headers that exceed 8KB)
+                csv_result = await self._validate_csv_with_metadata(file)
+                errors.extend(csv_result.get("errors", []))
+                warnings.extend(csv_result.get("warnings", []))
+                estimated_rows = csv_result.get("estimated_rows")
+                estimated_columns = csv_result.get("estimated_columns")
+                sample_data = csv_result.get("sample_data")
+
             elif detected_format == "json":
+                content = await file.read(8192)  # Read first 8KB
+                await file.seek(0)  # Reset file position
                 # Validate JSON structure
                 try:
                     if filename.endswith('.jsonl'):
@@ -119,7 +102,84 @@ class FileParser:
             estimated_columns=estimated_columns,
             sample_data=sample_data
         )
-    
+
+    async def _validate_csv_with_metadata(self, file: UploadFile) -> dict:
+        """
+        Validate CSV file with progressive reading to handle large metadata sections.
+
+        QBSD-exported CSVs can have extensive metadata comments (session ID, query,
+        LLM config, column definitions with rationales) that may exceed 8KB. This
+        method reads in chunks until finding header + data row, up to 256KB max.
+        """
+        INITIAL_CHUNK = 8192      # 8KB initial read
+        MAX_CHUNK = 65536         # 64KB max single chunk
+        MAX_TOTAL = 262144        # 256KB max total read for validation
+
+        result = {
+            "errors": [],
+            "warnings": [],
+            "estimated_rows": None,
+            "estimated_columns": None,
+            "sample_data": None
+        }
+
+        accumulated = b""
+        total_read = 0
+        chunk_size = INITIAL_CHUNK
+
+        while total_read < MAX_TOTAL:
+            chunk = await file.read(chunk_size)
+            if not chunk:
+                break  # End of file
+
+            accumulated += chunk
+            total_read += len(chunk)
+
+            try:
+                lines = accumulated.decode('utf-8').split('\n')
+                data_lines = [l for l in lines if l.strip() and not l.strip().startswith('#')]
+                comment_count = len([l for l in lines if l.strip().startswith('#')])
+
+                if len(data_lines) >= 2:  # Found header + at least 1 data row
+                    await file.seek(0)  # Reset file position for subsequent processing
+
+                    if comment_count > 0:
+                        result["warnings"].append(
+                            f"Detected {comment_count} metadata comment lines - will be preserved during import"
+                        )
+
+                    # Parse CSV structure from data lines
+                    try:
+                        dialect = csv.Sniffer().sniff(data_lines[0])
+                        reader = csv.DictReader(data_lines[:2], dialect=dialect)
+                        sample = next(reader)
+                        result["estimated_columns"] = len(sample)
+                        result["estimated_rows"] = len(data_lines) - 1  # Exclude header
+                        result["sample_data"] = [sample]
+                    except Exception as e:
+                        result["errors"].append(f"Error parsing CSV structure: {str(e)}")
+
+                    return result
+
+            except UnicodeDecodeError:
+                pass  # Partial UTF-8 at chunk boundary, continue reading
+
+            # Double chunk size for next iteration (exponential backoff)
+            chunk_size = min(chunk_size * 2, MAX_CHUNK)
+
+        # Reset file position
+        await file.seek(0)
+
+        # Validation failed - generate appropriate error message
+        if total_read >= MAX_TOTAL:
+            result["errors"].append(
+                f"CSV metadata exceeds {MAX_TOTAL // 1024}KB - could not find data rows within validation limit"
+            )
+        else:
+            result["errors"].append("CSV file must have at least a header row and one data row")
+
+        return result
+
     async def save_uploaded_file(self, session_id: str, file: UploadFile):
         """Save uploaded file to data directory."""
         session_dir = self.data_dir / session_id

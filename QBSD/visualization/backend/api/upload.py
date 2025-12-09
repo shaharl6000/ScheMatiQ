@@ -542,7 +542,7 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
             print(f"DEBUG: Processing file {i+1}/{len(files)}: {file.filename}")
             
             # Skip system files that shouldn't be processed
-            if self._is_system_file(file.filename):
+            if _is_system_file(file.filename):
                 print(f"DEBUG: Skipping system file: {file.filename}")
                 continue
             
