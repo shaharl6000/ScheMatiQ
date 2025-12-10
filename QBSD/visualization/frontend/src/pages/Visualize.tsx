@@ -502,11 +502,13 @@ const Visualize: React.FC = () => {
   }
 
   const isQBSDRunning = mode === 'qbsd' && session?.status === 'processing';
-  const isSchemaReady = session?.status === 'schema_ready' || 
-                       session?.status === 'schema_extracted' || 
+  const isSchemaReady = session?.status === 'schema_ready' ||
+                       session?.status === 'schema_extracted' ||
                        session?.status === 'documents_uploaded' ||
                        session?.status === 'processing_documents' ||
-                       session?.status === 'completed';
+                       session?.status === 'completed' ||
+                       // For QBSD: schema is ready during processing if columns exist
+                       (mode === 'qbsd' && session?.status === 'processing' && (session?.columns?.length ?? 0) > 0);
   const isCompleted = session?.status === 'completed';
   const isEnhancedUploadProcessing = session?.status === 'processing_documents';
   

@@ -46,6 +46,20 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
 
+  // Phase tracking state
+  const [currentPhase, setCurrentPhase] = useState<'idle' | 'schema' | 'extraction' | 'completed'>('idle');
+  const [schemaProgress, setSchemaProgress] = useState({
+    iteration: 0,
+    maxIterations: 5,
+    columnsDiscovered: 0,
+    isComplete: false
+  });
+  const [extractionProgress, setExtractionProgress] = useState({
+    processedDocs: 0,
+    totalDocs: 0,
+    isComplete: false
+  });
+
   // Fetch QBSD status
   const { data: status, isLoading } = useQuery(
     ['qbsd-status', sessionId],
@@ -64,17 +78,53 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       } else if (message.type === 'progress') {
         const progressData = message.data as ProgressData;
         addLog('info', progressData?.current_step || 'Processing...', message.data);
+
+        // Detect phase from step name
+        const stepName = progressData?.current_step || '';
+        if (stepName.toLowerCase().includes('schema')) {
+          setCurrentPhase('schema');
+          // Extract iteration info from details if available
+          const details = progressData?.details as Record<string, unknown> | undefined;
+          if (details?.iteration) {
+            setSchemaProgress(prev => ({
+              ...prev,
+              iteration: details.iteration as number,
+              maxIterations: (details.max_iterations as number) || 5,
+              columnsDiscovered: (details.columns_discovered as number) || prev.columnsDiscovered
+            }));
+          }
+        } else if (stepName.toLowerCase().includes('value extraction') || stepName.toLowerCase().includes('extracting')) {
+          setCurrentPhase('extraction');
+        } else if (stepName.toLowerCase().includes('finaliz')) {
+          setCurrentPhase('completed');
+          setExtractionProgress(prev => ({ ...prev, isComplete: true }));
+        } else if (stepName.toLowerCase().includes('initializ') || stepName.toLowerCase().includes('loading') || stepName.toLowerCase().includes('setting up')) {
+          setCurrentPhase('idle');
+        }
+
         // Invalidate queries to refresh data
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
       } else if (message.type === 'error') {
         addLog('error', message.message || 'An error occurred', message.data);
       } else if (message.type === 'completed') {
         addLog('success', 'QBSD execution completed successfully!', message.data);
+        setCurrentPhase('completed');
+        setSchemaProgress(prev => ({ ...prev, isComplete: true }));
+        setExtractionProgress(prev => ({ ...prev, isComplete: true }));
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
       } else if (message.type === 'schema_completed') {
         const schemaData = message.data as SchemaCompletionData;
         addLog('success', `Schema discovery finished! Discovered ${schemaData?.total_columns || 'several'} columns.`, message.data);
         console.log('📨 Received schema_completed message, invalidating queries');
+
+        // Update schema progress
+        setSchemaProgress(prev => ({
+          ...prev,
+          columnsDiscovered: schemaData?.total_columns || prev.columnsDiscovered,
+          isComplete: true
+        }));
+        setCurrentPhase('extraction');
+
         // Invalidate all relevant queries to refresh UI
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
         queryClient.invalidateQueries(['session', sessionId, 'qbsd']); // Match the exact query key
@@ -85,6 +135,15 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       } else if (message.type === 'row_completed') {
         const rowData = message.data as RowCompletionData;
         addLog('info', `Document ${rowData?.row_index}/${rowData?.total_rows} finished processing`, message.data);
+
+        // Update extraction progress
+        setExtractionProgress(prev => ({
+          ...prev,
+          processedDocs: rowData?.row_index || prev.processedDocs,
+          totalDocs: rowData?.total_rows || prev.totalDocs,
+          isComplete: (rowData?.row_index || 0) >= (rowData?.total_rows || 1)
+        }));
+
         queryClient.invalidateQueries(['data', sessionId]);
       } else if (message.type === 'log') {
         const logData = message.data as LogData;
@@ -116,6 +175,20 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
 
   const handleStart = async () => {
     try {
+      // Reset progress state for new run
+      setCurrentPhase('idle');
+      setSchemaProgress({
+        iteration: 0,
+        maxIterations: 5,
+        columnsDiscovered: 0,
+        isComplete: false
+      });
+      setExtractionProgress({
+        processedDocs: 0,
+        totalDocs: 0,
+        isComplete: false
+      });
+
       await qbsdAPI.run(sessionId);
       addLog('info', 'QBSD execution started');
     } catch (error: any) {
@@ -174,29 +247,83 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
                 />
               </Box>
               
-              {status && (
-                <Box>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    {status.current_step} ({status.steps_completed}/{status.total_steps})
-                  </Typography>
-                  
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={status.progress * 100}
-                    sx={{ mb: 2 }}
-                  />
-                  
-                  <Typography variant="body2">
-                    Progress: {(status.progress * 100).toFixed(1)}%
-                  </Typography>
-
-                  {status.estimated_time_remaining && (
-                    <Typography variant="body2" color="text.secondary">
-                      Est. time remaining: {Math.ceil(status.estimated_time_remaining / 60)} minutes
+              {/* Two-Phase Progress Display */}
+              <Box sx={{ mb: 2 }}>
+                {/* Phase 1: Schema Discovery */}
+                <Box sx={{ mb: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontWeight: currentPhase === 'schema' ? 'bold' : 'normal',
+                        color: schemaProgress.isComplete ? 'success.main' : 'text.primary'
+                      }}
+                    >
+                      {schemaProgress.isComplete ? '\u2713 ' : ''}Phase 1: Schema Discovery
                     </Typography>
-                  )}
+                    <Typography variant="caption" color="text.secondary">
+                      {schemaProgress.isComplete
+                        ? `${schemaProgress.columnsDiscovered} columns`
+                        : currentPhase === 'idle'
+                          ? 'Waiting...'
+                          : 'Discovering...'}
+                    </Typography>
+                  </Box>
+                  <LinearProgress
+                    variant={currentPhase === 'schema' && !schemaProgress.isComplete ? 'indeterminate' : 'determinate'}
+                    value={schemaProgress.isComplete ? 100 : 0}
+                    color={schemaProgress.isComplete ? 'success' : 'primary'}
+                    sx={{ height: 8, borderRadius: 4 }}
+                  />
                 </Box>
-              )}
+
+                {/* Phase 2: Value Extraction */}
+                <Box sx={{ mb: 2 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                    <Typography
+                      variant="body2"
+                      sx={{
+                        fontWeight: currentPhase === 'extraction' ? 'bold' : 'normal',
+                        color: extractionProgress.isComplete ? 'success.main' :
+                               (currentPhase === 'idle' || currentPhase === 'schema') ? 'text.disabled' : 'text.primary'
+                      }}
+                    >
+                      {extractionProgress.isComplete ? '\u2713 ' : ''}Phase 2: Value Extraction
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {(currentPhase === 'idle' || currentPhase === 'schema')
+                        ? 'Waiting for schema...'
+                        : extractionProgress.totalDocs > 0
+                          ? `${extractionProgress.processedDocs}/${extractionProgress.totalDocs} documents`
+                          : 'Starting...'}
+                    </Typography>
+                  </Box>
+                  <LinearProgress
+                    variant={currentPhase === 'extraction' && extractionProgress.totalDocs === 0 ? 'indeterminate' : 'determinate'}
+                    value={extractionProgress.totalDocs > 0
+                      ? (extractionProgress.processedDocs / extractionProgress.totalDocs) * 100
+                      : 0}
+                    color={extractionProgress.isComplete ? 'success' :
+                           (currentPhase === 'idle' || currentPhase === 'schema') ? 'inherit' : 'primary'}
+                    sx={{
+                      height: 8,
+                      borderRadius: 4,
+                      opacity: (currentPhase === 'idle' || currentPhase === 'schema') ? 0.3 : 1
+                    }}
+                  />
+                </Box>
+
+                {/* Current Step Detail */}
+                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                  {status?.current_step || 'Ready to start...'}
+                </Typography>
+
+                {status?.estimated_time_remaining && (
+                  <Typography variant="caption" color="text.secondary">
+                    Est. time remaining: {Math.ceil(status.estimated_time_remaining / 60)} minutes
+                  </Typography>
+                )}
+              </Box>
             </CardContent>
           </Card>
         </Grid>
