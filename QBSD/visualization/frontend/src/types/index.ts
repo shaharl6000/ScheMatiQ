@@ -162,40 +162,11 @@ export interface WebSocketMessage {
   data?: ProgressData | LogData | ErrorData | CompletionData | SchemaCompletionData | RowCompletionData | SchemaUpdatedData | ReprocessingProgressData | ReprocessingCompletedData;
 }
 
-// Dual-file upload types
+// Schema types
 export interface SchemaColumn {
   name: string;
   definition?: string;
   rationale?: string;
-}
-
-export interface SchemaValidationResultBasic {
-  is_valid: boolean;
-  errors: string[];
-  warnings: string[];
-  detected_columns: string[];
-  query?: string;
-  schema?: SchemaColumn[];
-}
-
-export interface CompatibilityCheck {
-  is_compatible: boolean;
-  matching_columns: string[];
-  missing_in_data: string[];  // Columns in schema but not in data
-  extra_in_data: string[];    // Columns in data but not in schema
-  schema_count: number;
-  data_count: number;
-  compatibility_score: number;  // Percentage of matching columns
-  detailed_errors: string[];
-  suggestions: string[];
-}
-
-export interface DualFileUploadResult {
-  session_id: string;
-  schema_validation: SchemaValidationResultBasic;
-  data_validation: FileValidationResult;
-  compatibility: CompatibilityCheck;
-  requires_column_mapping: boolean;
 }
 
 // Enhanced upload workflow types

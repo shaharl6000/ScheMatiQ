@@ -7,7 +7,7 @@ import io
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -141,8 +141,13 @@ async def list_qbsd_sessions():
     return session_manager.list_sessions(SessionType.QBSD)
 
 @router.get("/export/{session_id}")
-async def export_qbsd_data(session_id: str):
-    """Export QBSD data as CSV with excerpts in separate columns."""
+async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
+    """Export QBSD data as CSV with excerpts in separate columns.
+
+    Args:
+        session_id: The session ID to export
+        column_order: Optional comma-separated list of column names in desired order
+    """
     try:
         session = session_manager.get_session(session_id)
         if not session:
@@ -212,8 +217,19 @@ async def export_qbsd_data(session_id: str):
                 if isinstance(row.data[col_name], dict) and 'excerpts' in row.data[col_name]:
                     all_columns.add(f"{col_name}_excerpt")
         
-        column_names = sorted(list(all_columns))
-        
+        # Determine column order - use user-specified order if provided
+        if column_order:
+            # Parse user-specified column order
+            requested_order = [col.strip() for col in column_order.split(',')]
+            # Filter to only include columns that exist, preserving requested order
+            column_names = [col for col in requested_order if col in all_columns]
+            # Add any remaining columns not in the requested order
+            remaining_columns = sorted([col for col in all_columns if col not in column_names])
+            column_names.extend(remaining_columns)
+        else:
+            # Default: sorted alphabetically
+            column_names = sorted(list(all_columns))
+
         writer = csv.DictWriter(output, fieldnames=column_names)
         writer.writeheader()
         

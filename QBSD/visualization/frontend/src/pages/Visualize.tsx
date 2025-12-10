@@ -77,7 +77,32 @@ const Visualize: React.FC = () => {
   // LLM selection state for document processing
   const [showLLMSelector, setShowLLMSelector] = useState(false);
   const [selectedLLMConfig, setSelectedLLMConfig] = useState<any>(null);
-  
+
+  // Column order state for drag-drop reordering
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
+
+  // Load column order from localStorage on mount
+  useEffect(() => {
+    if (sessionId) {
+      const savedOrder = localStorage.getItem(`columnOrder_${sessionId}`);
+      if (savedOrder) {
+        try {
+          setColumnOrder(JSON.parse(savedOrder));
+        } catch (e) {
+          console.error('Failed to parse saved column order:', e);
+        }
+      }
+    }
+  }, [sessionId]);
+
+  // Handler for column reorder - saves to localStorage
+  const handleColumnReorder = (newOrder: string[]) => {
+    setColumnOrder(newOrder);
+    if (sessionId) {
+      localStorage.setItem(`columnOrder_${sessionId}`, JSON.stringify(newOrder));
+    }
+  };
+
   // Fetch session data
   const { data: session, isLoading: sessionLoading, error: sessionError } = useQuery(
     ['session', sessionId, mode],
@@ -312,10 +337,17 @@ const Visualize: React.FC = () => {
 
   const handleExport = async () => {
     try {
-      const apiUrl = mode === 'upload' 
+      // Build URL with column order if user has reordered columns
+      let apiUrl = mode === 'upload'
         ? `/api/upload/export/${sessionId}`
         : `/api/qbsd/export/${sessionId}`;
-      
+
+      // Add column order as query parameter if available
+      if (columnOrder.length > 0) {
+        const orderParam = encodeURIComponent(columnOrder.join(','));
+        apiUrl += `?column_order=${orderParam}`;
+      }
+
       const response = await fetch(apiUrl);
       
       if (!response.ok) {
@@ -638,11 +670,13 @@ const Visualize: React.FC = () => {
                 </Box>
               )}
               
-              <DataTable 
+              <DataTable
                 data={dataResponse}
                 sessionId={sessionId}
                 sessionType={mode}
                 newlyAddedRows={newlyAddedRows}
+                columnOrder={columnOrder}
+                onColumnReorder={handleColumnReorder}
               />
               
               {/* Document Upload Section - only show below data table when data is loaded and not during initial processing */}

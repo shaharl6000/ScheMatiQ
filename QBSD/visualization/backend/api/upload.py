@@ -343,8 +343,13 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/export/{session_id}")
-async def export_upload_data(session_id: str):
-    """Export uploaded data as CSV."""
+async def export_upload_data(session_id: str, column_order: Optional[str] = None):
+    """Export uploaded data as CSV.
+
+    Args:
+        session_id: The session ID to export
+        column_order: Optional comma-separated list of column names in desired order
+    """
     try:
         session = session_manager.get_session(session_id)
         if not session:
@@ -352,15 +357,68 @@ async def export_upload_data(session_id: str):
         
         # Get the original parsed data
         parser = FileParser()
-        data_file = parser.data_dir / session_id / "data.json"
-        
+        data_file = parser.data_dir / session_id / "data.jsonl"
+
         if not data_file.exists():
             raise HTTPException(status_code=404, detail="No data found for export")
-        
+
+        # Helper function to flatten QBSD answer format to plain values
+        def flatten_cell_value(value):
+            """Convert QBSD answer format {'answer': ..., 'excerpts': [...]} to plain value."""
+            if isinstance(value, dict) and 'answer' in value:
+                return value['answer']
+            return value
+
+        # Read JSONL format and flatten DataRow objects
+        # First pass: collect all column names to ensure consistency
+        all_columns = set()
+        raw_rows = []
         with open(data_file, 'r', encoding='utf-8') as f:
-            data_dict = json.load(f)
-            
-        rows = data_dict.get('rows', [])
+            for line in f:
+                if line.strip():
+                    row_data = json.loads(line)
+                    raw_rows.append(row_data)
+                    if 'data' in row_data:
+                        all_columns.update(row_data['data'].keys())
+                    else:
+                        all_columns.update(row_data.keys())
+
+        # Check if the original data structure includes row_name or papers as data columns
+        # We only include these if they're part of the data schema to maintain consistency
+        has_row_name_column = 'row_name' in all_columns
+        has_papers_column = 'papers' in all_columns
+
+        # Second pass: flatten rows with consistent columns
+        rows = []
+        for row_data in raw_rows:
+            if 'data' in row_data:
+                # Flatten each cell value (convert QBSD format to plain values)
+                flat_row = {}
+                for key, value in row_data['data'].items():
+                    flat_row[key] = flatten_cell_value(value)
+                # Only add row_name/papers if they're already expected columns in the data schema
+                # This ensures new rows don't introduce extra columns that original rows don't have
+                if has_row_name_column:
+                    flat_row['row_name'] = row_data.get('row_name', '')
+                if has_papers_column:
+                    flat_row['papers'] = str(row_data.get('papers', ''))
+                rows.append(flat_row)
+            else:
+                # Flatten values for non-DataRow format too
+                flat_row = {}
+                for key, value in row_data.items():
+                    flat_row[key] = flatten_cell_value(value)
+                rows.append(flat_row)
+
+        # Ensure all rows have the same columns (fill missing with empty string)
+        if rows:
+            final_columns = set()
+            for row in rows:
+                final_columns.update(row.keys())
+            for row in rows:
+                for col in final_columns:
+                    if col not in row:
+                        row[col] = ''
         
         if not rows:
             raise HTTPException(status_code=404, detail="No data to export")
@@ -409,13 +467,25 @@ async def export_upload_data(session_id: str):
         
         output.write("#\n")
         
-        # Get column names from first row
+        # Get column names - use user-specified order if provided
         if rows:
-            column_names = list(rows[0].keys())
-            
+            available_columns = set(rows[0].keys())
+
+            if column_order:
+                # Parse user-specified column order
+                requested_order = [col.strip() for col in column_order.split(',')]
+                # Filter to only include columns that exist, preserving requested order
+                column_names = [col for col in requested_order if col in available_columns]
+                # Add any remaining columns not in the requested order
+                remaining_columns = [col for col in available_columns if col not in column_names]
+                column_names.extend(remaining_columns)
+            else:
+                # Default: use first row's column order
+                column_names = list(rows[0].keys())
+
             writer = csv.DictWriter(output, fieldnames=column_names)
             writer.writeheader()
-            
+
             for row in rows:
                 writer.writerow(row)
         
@@ -423,10 +493,11 @@ async def export_upload_data(session_id: str):
         output.seek(0)
         content = output.getvalue()
         
-        # Generate filename
+        # Generate filename with timestamp
         source_name = session.metadata.source or "uploaded_data"
         safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
-        filename = f"{safe_name}_{session_id[:8]}.csv"
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        filename = f"{safe_name}_{timestamp}.csv"
         
         return StreamingResponse(
             io.BytesIO(content.encode('utf-8')),
@@ -561,15 +632,26 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
                 warnings.append(f"File '{file.filename}' has unsupported extension '{file_ext}'. Supported: {', '.join(allowed_extensions)}")
                 # Continue processing - might still be text content
             
-            # Save file
+            # Save file with original filename (no prefix)
             try:
-                safe_filename = f"{i+1:03d}_{file.filename}"
+                # Use original filename - handle potential duplicates by checking existence
+                safe_filename = file.filename
                 file_path = docs_dir / safe_filename
-                
+
+                # If file already exists, add a numeric suffix
+                if file_path.exists():
+                    base_name = Path(file.filename).stem
+                    extension = Path(file.filename).suffix
+                    counter = 1
+                    while file_path.exists():
+                        safe_filename = f"{base_name}_{counter}{extension}"
+                        file_path = docs_dir / safe_filename
+                        counter += 1
+
                 with open(file_path, 'wb') as f:
                     content = await file.read()
                     f.write(content)
-                
+
                 uploaded_filenames.append(safe_filename)
                 print(f"DEBUG: Saved file: {file_path}")
                 
