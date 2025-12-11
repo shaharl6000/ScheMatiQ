@@ -584,14 +584,20 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        if session.type != SessionType.UPLOAD:
-            raise HTTPException(status_code=400, detail="Document upload only available for upload sessions")
-        
-        # Ensure schema has been extracted or session is completed (allowing additional documents)
-        if session.status not in [SessionStatus.SCHEMA_EXTRACTED, SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]:
+        # Allow both upload sessions (various states) and completed QBSD sessions
+        is_valid_upload_session = (
+            session.type == SessionType.UPLOAD and
+            session.status in [SessionStatus.SCHEMA_EXTRACTED, SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]
+        )
+        is_valid_qbsd_session = (
+            session.type == SessionType.QBSD and
+            session.status == SessionStatus.COMPLETED
+        )
+
+        if not (is_valid_upload_session or is_valid_qbsd_session):
             raise HTTPException(
-                status_code=400, 
-                detail=f"Cannot upload documents for session in status: {session.status}. Session must have schema extracted or be completed first."
+                status_code=400,
+                detail=f"Cannot upload documents for session type '{session.type}' in status '{session.status}'. Upload sessions need schema extracted/completed, QBSD sessions must be completed."
             )
         
         print(f"DEBUG: Session status: {session.status}, extracted schema available")
@@ -601,11 +607,14 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
         warnings = []
         uploaded_filenames = []
         
-        # Create documents directory for this session
+        # Create directories for this session
+        # New documents go to pending_documents/ first, then moved to documents/ after processing
         parser = FileParser()
         session_dir = parser.data_dir / session_id
+        pending_dir = session_dir / "pending_documents"
+        pending_dir.mkdir(parents=True, exist_ok=True)
         docs_dir = session_dir / "documents"
-        docs_dir.mkdir(exist_ok=True)
+        docs_dir.mkdir(parents=True, exist_ok=True)
         
         # Process each uploaded file
         total_size = 0
@@ -632,28 +641,43 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
                 warnings.append(f"File '{file.filename}' has unsupported extension '{file_ext}'. Supported: {', '.join(allowed_extensions)}")
                 # Continue processing - might still be text content
             
-            # Save file with original filename (no prefix)
+            # Save file to pending_documents/ (will be moved to documents/ after processing)
             try:
                 # Use original filename - handle potential duplicates by checking existence
                 safe_filename = file.filename
-                file_path = docs_dir / safe_filename
+                file_path = pending_dir / safe_filename
 
-                # If file already exists, add a numeric suffix
-                if file_path.exists():
+                # If file already exists in pending or documents, add a numeric suffix
+                docs_file_path = docs_dir / safe_filename
+                if file_path.exists() or docs_file_path.exists():
                     base_name = Path(file.filename).stem
                     extension = Path(file.filename).suffix
                     counter = 1
-                    while file_path.exists():
+                    while file_path.exists() or (docs_dir / safe_filename).exists():
                         safe_filename = f"{base_name}_{counter}{extension}"
-                        file_path = docs_dir / safe_filename
+                        file_path = pending_dir / safe_filename
                         counter += 1
 
                 with open(file_path, 'wb') as f:
                     content = await file.read()
                     f.write(content)
 
+                # If PDF, convert to text
+                if file_ext == '.pdf':
+                    from services.pdf_utils import convert_pdf_to_txt
+                    try:
+                        txt_path = convert_pdf_to_txt(file_path)
+                        # Remove original PDF after conversion
+                        file_path.unlink()
+                        file_path = txt_path
+                        safe_filename = txt_path.name
+                        print(f"DEBUG: Converted PDF to text: {txt_path}")
+                    except Exception as e:
+                        errors.append(f"Failed to convert PDF '{file.filename}': {str(e)}")
+                        continue
+
                 uploaded_filenames.append(safe_filename)
-                print(f"DEBUG: Saved file: {file_path}")
+                print(f"DEBUG: Saved file to pending: {file_path}")
                 
             except Exception as e:
                 errors.append(f"Failed to save file '{file.filename}': {str(e)}")
@@ -703,25 +727,33 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        if session.type != SessionType.UPLOAD:
-            raise HTTPException(status_code=400, detail="Document processing only available for upload sessions")
-        
-        # Ensure documents are uploaded and schema is available
-        if session.status not in [SessionStatus.DOCUMENTS_UPLOADED, SessionStatus.COMPLETED]:
+        # Allow both upload sessions (with documents) and QBSD sessions (completed or with documents uploaded)
+        is_valid_upload_session = (
+            session.type == SessionType.UPLOAD and
+            session.status in [SessionStatus.DOCUMENTS_UPLOADED, SessionStatus.COMPLETED]
+        )
+        is_valid_qbsd_session = (
+            session.type == SessionType.QBSD and
+            session.status in [SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]
+        )
+
+        if not (is_valid_upload_session or is_valid_qbsd_session):
             raise HTTPException(
-                status_code=400, 
-                detail="Documents must be uploaded and session must have schema before processing. Current status: " + session.status
+                status_code=400,
+                detail=f"Cannot process documents for session type '{session.type}' in status '{session.status}'. Sessions need documents uploaded or be completed."
             )
-        
-        # Check for schema - either extracted_schema (enhanced upload) or columns (regular upload)
+
+        # Check for schema - either extracted_schema (enhanced upload) or columns (regular upload/QBSD)
         if not session.metadata.extracted_schema and not session.columns:
             raise HTTPException(status_code=400, detail="No schema found for processing")
-        
-        # If regular upload session, create extracted_schema format from columns
+
+        # If session has columns but no extracted_schema, create it (for regular upload or QBSD sessions)
         if not session.metadata.extracted_schema and session.columns:
-            print(f"DEBUG: Converting regular upload session columns to extracted_schema format")
+            print(f"DEBUG: Converting session columns to extracted_schema format (type: {session.type})")
+            # Use schema_query for QBSD sessions, fallback for upload sessions
+            query = session.schema_query if session.schema_query else f"Data processing for {session.metadata.source}"
             extracted_schema = {
-                "query": f"Data processing for {session.metadata.source}",
+                "query": query,
                 "schema": []
             }
             

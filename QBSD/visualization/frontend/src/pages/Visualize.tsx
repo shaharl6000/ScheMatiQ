@@ -15,14 +15,17 @@ import {
   Link,
   Paper,
 } from '@mui/material';
-import { 
-  ArrowBack, 
-  TableView, 
-  Schema, 
-  Analytics, 
+import {
+  ArrowBack,
+  TableView,
+  Schema,
+  Analytics,
   Download,
   Refresh,
   Info,
+  CheckCircle,
+  PlayArrow,
+  Error as ErrorIcon,
 } from '@mui/icons-material';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -65,7 +68,7 @@ const Visualize: React.FC = () => {
   const queryClient = useQueryClient();
   
   const mode = searchParams.get('mode') as 'upload' | 'qbsd' || 'upload';
-  const [activeTab, setActiveTab] = useState(mode === 'qbsd' ? 3 : 0); // Start with monitor for QBSD
+  const [activeTab, setActiveTab] = useState(mode === 'qbsd' ? 4 : 0); // Start with QBSD Monitor (tab index 4) for QBSD mode
   
   // Enhanced upload document management state
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
@@ -110,31 +113,40 @@ const Visualize: React.FC = () => {
       if (mode === 'upload') {
         return uploadAPI.getSession(sessionId!);
       } else {
-        // For QBSD, we need to construct session info from status
-        const status = await qbsdAPI.getStatus(sessionId!);
-        const schema = await qbsdAPI.getSchema(sessionId!);
-        
+        // For QBSD, get full session from session manager (for metadata like uploaded_documents)
+        // plus status and schema from QBSD API
+        const [fullSession, status, schema] = await Promise.all([
+          uploadAPI.getSession(sessionId!).catch(() => null), // May fail if session doesn't exist in upload API
+          qbsdAPI.getStatus(sessionId!),
+          qbsdAPI.getSchema(sessionId!)
+        ]);
+
         const sessionData = {
           id: sessionId!,
           type: 'qbsd' as const,
           status: status.status as any,
           metadata: {
             source: `QBSD Query: ${schema.query || 'Unknown'}`,
-            created: new Date().toISOString(),
-            last_modified: new Date().toISOString(),
+            created: fullSession?.metadata?.created || new Date().toISOString(),
+            last_modified: fullSession?.metadata?.last_modified || new Date().toISOString(),
+            // Include document-related metadata from full session
+            uploaded_documents: fullSession?.metadata?.uploaded_documents,
+            processed_documents: fullSession?.metadata?.processed_documents,
+            additional_rows_added: fullSession?.metadata?.additional_rows_added,
           },
           schema_query: schema.query,
           columns: schema.schema || [],
-          statistics: undefined,
+          statistics: fullSession?.statistics,
         } as VisualizationSession;
-        
+
         // Debug logging
         console.log('🔍 Session Data Update:', {
           status: status.status,
           columnsCount: schema.schema?.length || 0,
-          hasColumns: !!(schema.schema && schema.schema.length > 0)
+          hasColumns: !!(schema.schema && schema.schema.length > 0),
+          uploadedDocuments: fullSession?.metadata?.uploaded_documents?.length || 0
         });
-        
+
         return sessionData;
       }
     },
@@ -615,7 +627,20 @@ const Visualize: React.FC = () => {
           <Tab icon={<Analytics />} label="Statistics" disabled={!isCompleted} />
           <Tab icon={<Info />} label="Session Info" />
           {mode === 'qbsd' && (
-            <Tab icon={<CircularProgress size={16} />} label="QBSD Monitor" />
+            <Tab
+              icon={
+                session?.status === 'processing' ? (
+                  <CircularProgress size={16} />
+                ) : session?.status === 'completed' ? (
+                  <CheckCircle color="success" fontSize="small" />
+                ) : session?.status === 'error' ? (
+                  <ErrorIcon color="error" fontSize="small" />
+                ) : (
+                  <PlayArrow fontSize="small" />
+                )
+              }
+              label="QBSD Monitor"
+            />
           )}
           {(mode === 'upload' && isEnhancedUploadProcessing) && (
             <Tab icon={<CircularProgress size={16} />} label="Processing Monitor" />
@@ -681,17 +706,25 @@ const Visualize: React.FC = () => {
                 onColumnReorder={handleColumnReorder}
               />
               
-              {/* Document Upload Section - only show below data table when data is loaded and not during initial processing */}
-              {mode === 'upload' && !sessionLoading && !dataLoading && dataResponse && (session?.status === 'documents_uploaded' || session?.status === 'processing_documents' || session?.status === 'completed') && (
+              {/* Document Upload Section - show for upload sessions with schema, or completed/documents_uploaded/processing QBSD sessions */}
+              {((mode === 'upload' && (session?.status === 'documents_uploaded' || session?.status === 'processing_documents' || session?.status === 'completed')) ||
+                (mode === 'qbsd' && (session?.status === 'completed' || session?.status === 'documents_uploaded' || session?.status === 'processing_documents'))) &&
+               !sessionLoading && !dataLoading && dataResponse && (
                 <Box sx={{ mt: 4 }}>
                   <Paper sx={{ p: 3 }}>
                     <Typography variant="h6" gutterBottom>
-                      {session?.status === 'documents_uploaded' ? 'Process Your Documents' : 'Add More Documents'}
+                      {mode === 'qbsd'
+                        ? 'Add More Documents'
+                        : session?.status === 'documents_uploaded'
+                          ? 'Process Your Documents'
+                          : 'Add More Documents'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" paragraph>
-                      {session?.status === 'documents_uploaded' 
-                        ? 'You have uploaded documents that are ready to be processed. Click the button below to extract data using your schema.'
-                        : 'Upload additional documents to extract more data using your existing schema.'
+                      {mode === 'qbsd'
+                        ? 'Upload additional documents to extract more data using your discovered schema.'
+                        : session?.status === 'documents_uploaded'
+                          ? 'You have uploaded documents that are ready to be processed. Click the button below to extract data using your schema.'
+                          : 'Upload additional documents to extract more data using your existing schema.'
                       }
                     </Typography>
                     

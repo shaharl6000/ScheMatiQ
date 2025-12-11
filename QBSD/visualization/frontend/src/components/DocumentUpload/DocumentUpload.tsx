@@ -45,11 +45,11 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
   canUpload,
   uploadResult,
 }) => {
-  const { 
-    getRootProps, 
-    getInputProps, 
-    isDragActive, 
-    dragError 
+  const {
+    getRootProps,
+    getInputProps,
+    isDragActive,
+    dragError
   } = useFileUpload({
     allowMultiple: true,
     acceptedTypes: {
@@ -61,7 +61,8 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
       'application/rtf': ['.rtf'],
     },
     maxSize: 10 * 1024 * 1024, // 10MB per file
-    onFilesSelected: onFilesChange
+    onFilesSelected: onFilesChange,
+    externalFiles: uploadedFiles,  // Sync with parent state to avoid file list accumulation
   });
 
   const removeFile = (index: number) => {

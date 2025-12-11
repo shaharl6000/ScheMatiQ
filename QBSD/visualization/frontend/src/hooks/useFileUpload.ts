@@ -11,6 +11,7 @@ export interface FileUploadOptions {
   maxSize?: number;
   onFilesSelected?: (files: File[]) => void;
   onError?: (error: string) => void;
+  externalFiles?: File[];  // Sync with parent state to avoid accumulation
 }
 
 export interface FileUploadResult {
@@ -29,7 +30,8 @@ export const useFileUpload = (options: FileUploadOptions = {}): FileUploadResult
     acceptedTypes = ALLOWED_FILE_TYPES,
     maxSize = MAX_FILE_SIZE,
     onFilesSelected,
-    onError
+    onError,
+    externalFiles
   } = options;
 
   const [files, setFiles] = useState<File[]>([]);
@@ -38,7 +40,7 @@ export const useFileUpload = (options: FileUploadOptions = {}): FileUploadResult
   const dropzoneOptions: DropzoneOptions = {
     onDrop: (acceptedFiles, rejectedFiles) => {
       setDragError(null);
-      
+
       if (rejectedFiles.length > 0) {
         const errorMessage = 'Some files were rejected. Please check file type and size requirements.';
         setDragError(errorMessage);
@@ -46,7 +48,9 @@ export const useFileUpload = (options: FileUploadOptions = {}): FileUploadResult
         return;
       }
 
-      const newFiles = allowMultiple ? [...files, ...acceptedFiles] : acceptedFiles;
+      // Use externalFiles if provided (syncs with parent state), otherwise use internal state
+      const currentFiles = externalFiles ?? files;
+      const newFiles = allowMultiple ? [...currentFiles, ...acceptedFiles] : acceptedFiles;
       setFiles(newFiles);
       onFilesSelected?.(newFiles);
     },

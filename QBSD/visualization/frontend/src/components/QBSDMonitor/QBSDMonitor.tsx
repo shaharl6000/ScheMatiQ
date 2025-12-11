@@ -45,6 +45,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   const queryClient = useQueryClient();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);  // Prevent multiple Start clicks
 
   // Phase tracking state
   const [currentPhase, setCurrentPhase] = useState<'idle' | 'schema' | 'extraction' | 'completed'>('idle');
@@ -174,6 +175,13 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   };
 
   const handleStart = async () => {
+    // Guard against multiple clicks
+    if (isStarting || status?.status === 'processing') {
+      return;
+    }
+
+    setIsStarting(true);
+
     try {
       // Reset progress state for new run
       setCurrentPhase('idle');
@@ -193,6 +201,8 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       addLog('info', 'QBSD execution started');
     } catch (error: any) {
       addLog('error', `Failed to start QBSD: ${error.message}`);
+    } finally {
+      setIsStarting(false);
     }
   };
 
@@ -340,10 +350,10 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
                   startIcon={<PlayArrow />}
                   variant="contained"
                   onClick={handleStart}
-                  disabled={status?.status === 'processing'}
+                  disabled={status?.status === 'processing' || isStarting}
                   size="small"
                 >
-                  Start
+                  {isStarting ? 'Starting...' : 'Start'}
                 </Button>
                 
                 <Button

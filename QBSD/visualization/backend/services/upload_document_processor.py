@@ -60,13 +60,14 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             
             # Get paths and configuration
             session_dir = Path("./data") / session_id
+            pending_dir = session_dir / "pending_documents"
             docs_dir = session_dir / "documents"
-            
-            if not docs_dir.exists():
-                raise FileNotFoundError(f"Documents directory not found: {docs_dir}")
-            
+
+            if not pending_dir.exists() or not any(pending_dir.iterdir()):
+                raise FileNotFoundError(f"No pending documents to process in: {pending_dir}")
+
             # Clean up any system files (like .DS_Store) that might have been created
-            self._clean_system_files(docs_dir)
+            self._clean_system_files(pending_dir)
             
             # Get extracted schema
             extracted_schema = session.metadata.extracted_schema
@@ -118,7 +119,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             def run_extraction():
                 return build_table_jsonl(
                     schema_path=schema_path,
-                    docs_directories=[docs_dir],
+                    docs_directories=[pending_dir],  # Only process new (pending) documents
                     output_path=output_path,
                     llm=llm,
                     retriever=retriever,
@@ -128,101 +129,57 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                     max_workers=1  # Single worker to avoid overwhelming API
                 )
             
-            # Monitor progress while extraction runs and append new rows immediately
+            # Monitor progress while extraction runs
+            # NOTE: We only track progress here - actual data writing happens in _merge_extracted_data()
+            # to avoid duplicate writes
             extraction_task = loop.run_in_executor(None, run_extraction)
-            
+
             start_time = time.time()
             total_docs = len(session.metadata.uploaded_documents)
-            processed_docs = 0
             last_processed_line = 0
-            
-            # Get original data file for incremental appending
-            original_data_file = session_dir / "data.jsonl"
-            
+
             while not extraction_task.done():
-                # Check output file for progress and new rows
+                # Check output file for progress tracking only
                 if output_path.exists():
                     try:
                         current_new_rows = []
                         current_line_count = 0
-                        
-                        # Read new rows since last check
+
+                        # Read new rows since last check (for progress tracking and broadcasting)
                         with open(output_path, 'r') as f:
                             for line_num, line in enumerate(f):
                                 current_line_count += 1
                                 if line_num >= last_processed_line and line.strip():
                                     row_data = json.loads(line)
                                     current_new_rows.append(row_data)
-                        
-                        # If we have new rows, append them to the original data file
+
+                        # If we have new rows, update progress (but DON'T write to data.jsonl - that happens in _merge_extracted_data)
                         if current_new_rows:
-                            with open(original_data_file, 'a') as original_f:
-                                for row_data in current_new_rows:
-                                    # Convert QBSD format to DataRow format if needed
-                                    if 'data' not in row_data:
-                                        # Extract row metadata fields from QBSD data
-                                        row_name = row_data.get("_row_name", f"Doc_{last_processed_line + 1}")
-                                        papers_list = row_data.get("_papers", [])
-                                        
-                                        print(f"🔍 DEBUG: Converting QBSD row data: row_name={row_name}, papers={papers_list}, data_keys={list(row_data.keys())}")
-                                        
-                                        # Clean the data by removing metadata fields and ensuring proper types
-                                        clean_data = {}
-                                        for key, value in row_data.items():
-                                            # Skip metadata fields (_row_name, _papers) and 'row_name' which is used for row identifier
-                                            if key.startswith('_') or key == 'row_name':
-                                                continue
-                                            # Handle QBSD answer format vs direct values
-                                            if isinstance(value, dict) and 'answer' in value:
-                                                clean_data[key] = value  # Keep QBSD format for display
-                                            elif isinstance(value, dict) and 'answer' not in value:
-                                                # This might be a misplaced object, convert to string
-                                                print(f"⚠️  DEBUG: Converting non-answer dict to string for key {key}: {value}")
-                                                clean_data[key] = str(value)
-                                            else:
-                                                clean_data[key] = value
-                                        
-                                        converted_row = {
-                                            "data": clean_data,
-                                            "row_name": row_name,
-                                            "papers": papers_list if isinstance(papers_list, list) else [str(papers_list)] if papers_list else []
-                                        }
-                                        
-                                        print(f"✅ DEBUG: Converted to DataRow format: {json.dumps(converted_row, indent=2)[:200]}...")
-                                    else:
-                                        # Already in DataRow format, but validate papers field
-                                        converted_row = row_data.copy()
-                                        papers = converted_row.get("papers", [])
-                                        if not isinstance(papers, list):
-                                            converted_row["papers"] = [str(papers)] if papers else []
-                                    
-                                    original_f.write(json.dumps(converted_row) + '\n')
-                            
                             # Update tracking
                             last_processed_line = current_line_count
-                            
+
                             # Update session metadata
                             session.metadata.processed_documents = min(current_line_count, total_docs)
                             session.metadata.additional_rows_added = current_line_count
                             self.session_manager.update_session(session)
-                            
+
                             # Broadcast progress
                             progress = 0.3 + (current_line_count / total_docs) * 0.6  # 30% to 90%
                             await self.broadcast_progress(
-                                session_id, 
-                                f"Processed {current_line_count} documents", 
+                                session_id,
+                                f"Processed {current_line_count} documents",
                                 progress,
                                 "processing_documents"
                             )
-                            
+
                             # Broadcast enhanced row completion for each new row with schema context
                             original_row_count = session.metadata.original_row_count or 0
                             for i, new_row_data in enumerate(current_new_rows):
                                 new_row_index = original_row_count + last_processed_line - len(current_new_rows) + i + 1
-                                
+
                                 # Analyze extraction quality for this row
                                 extraction_summary = self._analyze_extraction_quality(new_row_data, extracted_schema)
-                                
+
                                 await self.broadcast_row_completed(session_id, {
                                     "row_index": new_row_index,
                                     "total_rows": total_docs,
@@ -231,10 +188,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                     "extraction_quality": extraction_summary,
                                     "row_preview": self._create_row_preview(new_row_data, extracted_schema)
                                 })
-                    
+
                     except Exception as e:
                         print(f"Progress monitoring error: {e}")
-                
+
                 await asyncio.sleep(PROGRESS_CHECK_INTERVAL)  # Check every few seconds for faster updates
             
             # Wait for completion
@@ -363,6 +320,27 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
         # Clean up the additional data file
         additional_data_file.unlink(missing_ok=True)
+
+        # Move processed documents from pending_documents/ to documents/
+        pending_dir = session_dir / "pending_documents"
+        docs_dir = session_dir / "documents"
+        docs_dir.mkdir(exist_ok=True)
+
+        if pending_dir.exists():
+            import shutil
+            for file_path in pending_dir.iterdir():
+                if file_path.is_file():
+                    dest_path = docs_dir / file_path.name
+                    # Handle duplicate filenames
+                    if dest_path.exists():
+                        base_name = file_path.stem
+                        extension = file_path.suffix
+                        counter = 1
+                        while dest_path.exists():
+                            dest_path = docs_dir / f"{base_name}_{counter}{extension}"
+                            counter += 1
+                    shutil.move(str(file_path), str(dest_path))
+                    print(f"Moved {file_path.name} to documents/")
 
         return new_rows_added
 
