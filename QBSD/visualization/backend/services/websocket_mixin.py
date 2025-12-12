@@ -122,9 +122,36 @@ class WebSocketBroadcasterMixin:
         await self.websocket_manager.broadcast_schema_completed(session_id, schema_data)
     
     async def broadcast_row_completed(
-        self, 
-        session_id: str, 
+        self,
+        session_id: str,
         row_data: Dict[str, Any]
     ):
         """Broadcast row completion event via WebSocket."""
         await self.websocket_manager.broadcast_row_completed(session_id, row_data)
+
+    async def broadcast_cell_extracted(
+        self,
+        session_id: str,
+        cell_data: Dict[str, Any]
+    ):
+        """Broadcast individual cell value extraction via WebSocket.
+
+        Used for real-time streaming of values to the UI as they're extracted.
+        Uses buffering to handle race condition where extraction starts
+        before WebSocket connection is fully registered.
+
+        Args:
+            cell_data: Dict with row_name, column, and value keys
+        """
+        # Debug: Log WebSocket connection status
+        conn_count = self.websocket_manager.get_connection_count(session_id)
+        print(f"📡 CELL BROADCAST: {session_id} has {conn_count} connections")
+        print(f"📡 CELL BROADCAST: {cell_data.get('row_name')}/{cell_data.get('column')}")
+
+        # Use buffer_or_broadcast_cell to handle race condition
+        message = {
+            "type": "cell_extracted",
+            "timestamp": datetime.now().isoformat(),
+            "data": cell_data
+        }
+        await self.websocket_manager.buffer_or_broadcast_cell(session_id, message)

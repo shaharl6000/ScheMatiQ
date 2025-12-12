@@ -63,12 +63,13 @@ import {
 } from '../../constants/index';
 
 interface DataTableProps {
-  data: PaginatedData;
+  data?: PaginatedData;  // Optional - DataTable will fetch its own data if not provided
   sessionId: string;
   sessionType: 'upload' | 'qbsd';
   newlyAddedRows?: Set<number>;
   columnOrder?: string[];
   onColumnReorder?: (newOrder: string[]) => void;
+  streamingCells?: Map<string, Record<string, CellValue>>;  // Real-time cell values as they're extracted
 }
 
 // Sortable Header Cell Component
@@ -126,13 +127,23 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({ column, childre
   );
 };
 
+// Default empty data for loading state
+const EMPTY_DATA: PaginatedData = {
+  rows: [],
+  total_count: 0,
+  page: 0,
+  page_size: 50,
+  has_more: false
+};
+
 const DataTable: React.FC<DataTableProps> = ({
   data: initialData,
   sessionId,
   sessionType,
   newlyAddedRows,
   columnOrder: externalColumnOrder,
-  onColumnReorder
+  onColumnReorder,
+  streamingCells
 }) => {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
@@ -153,16 +164,68 @@ const DataTable: React.FC<DataTableProps> = ({
     })
   );
 
-  // Fetch data with pagination - auto-refresh during QBSD value extraction
-  const { data = initialData } = useQuery(
+  // Fetch data with pagination - DataTable owns its own data fetching
+  const { data: fetchedData } = useQuery(
     ['data', sessionId, sessionType, page, pageSize],
     () => sessionAPI.getData(sessionId, sessionType, page, pageSize),
     {
       keepPreviousData: true,
-      initialData,
+      enabled: !!sessionId,  // Always fetch when sessionId exists
       refetchInterval: sessionType === 'qbsd' ? QBSD_REFRESH_INTERVAL : false, // Auto-refresh for QBSD
     }
   );
+
+  // Use fetched data, fall back to initialData if provided, otherwise use empty data
+  const fetchedOrInitialData = fetchedData ?? initialData ?? EMPTY_DATA;
+
+  // Merge streaming cells into the data for display
+  // This allows real-time cell values to appear before the row is complete
+  const data = useMemo(() => {
+    if (!streamingCells || streamingCells.size === 0) {
+      return fetchedOrInitialData;
+    }
+
+    // Create a copy of rows and merge streaming data
+    const mergedRows = [...fetchedOrInitialData.rows];
+
+    // Track which streaming rows are already in the fetched data
+    const existingRowNames = new Set(mergedRows.map(r => r.row_name));
+
+    // Process streaming cells
+    streamingCells.forEach((cellData, rowName) => {
+      const existingRowIndex = mergedRows.findIndex(r => r.row_name === rowName);
+
+      if (existingRowIndex >= 0) {
+        // Update existing row with streaming values
+        const existingRow = mergedRows[existingRowIndex];
+        mergedRows[existingRowIndex] = {
+          ...existingRow,
+          data: { ...existingRow.data, ...cellData }
+        };
+      } else {
+        // Create new row placeholder for streaming data
+        mergedRows.push({
+          row_name: rowName,
+          papers: [],
+          data: cellData
+        });
+      }
+    });
+
+    // Count new streaming rows (not already in fetched data)
+    let newStreamingRows = 0;
+    streamingCells.forEach((_, rowName) => {
+      if (!existingRowNames.has(rowName)) {
+        newStreamingRows++;
+      }
+    });
+
+    return {
+      ...fetchedOrInitialData,
+      rows: mergedRows,
+      total_count: fetchedOrInitialData.total_count + newStreamingRows
+    };
+  }, [fetchedOrInitialData, streamingCells]);
 
   // Listen for row completion events via WebSocket (this would be handled by a WebSocket service)
   useEffect(() => {
@@ -612,7 +675,8 @@ const DataTable: React.FC<DataTableProps> = ({
                 </TableRow>
               </TableHead>
               <TableBody>
-                {filteredRows.slice(page * pageSize, (page + 1) * pageSize).map((row, rowIndex) => {
+                {/* Server handles pagination, so we don't slice here unless filtering locally by search */}
+                {(searchTerm ? filteredRows.slice(page * pageSize, (page + 1) * pageSize) : filteredRows).map((row, rowIndex) => {
                   const getFrozenCellValue = () => {
                     if (frozenColumn === '_row_name') {
                       return row.row_name;
@@ -626,18 +690,25 @@ const DataTable: React.FC<DataTableProps> = ({
                   // Calculate actual row index (accounting for pagination and total rows)
                   const actualRowIndex = page * pageSize + rowIndex + 1; // +1 because row indexes start from 1
                   const isNewlyAdded = newlyAddedRows?.has(actualRowIndex) || false;
+                  // Check if this row is currently streaming (has incomplete data being filled in)
+                  const isStreaming = row.row_name ? streamingCells?.has(row.row_name) : false;
 
                   return (
                     <TableRow
                       key={rowIndex}
                       hover
                       sx={{
-                        backgroundColor: isNewlyAdded ? 'success.light' : 'inherit',
-                        animation: isNewlyAdded ? 'pulse 2s ease-in-out' : 'none',
+                        backgroundColor: isNewlyAdded ? 'success.light' : isStreaming ? 'info.light' : 'inherit',
+                        animation: isNewlyAdded ? 'pulse 2s ease-in-out' : isStreaming ? 'streamPulse 1.5s ease-in-out infinite' : 'none',
                         '@keyframes pulse': {
                           '0%': { backgroundColor: 'success.light' },
                           '50%': { backgroundColor: 'success.main' },
                           '100%': { backgroundColor: 'success.light' }
+                        },
+                        '@keyframes streamPulse': {
+                          '0%': { backgroundColor: 'rgba(33, 150, 243, 0.1)' },
+                          '50%': { backgroundColor: 'rgba(33, 150, 243, 0.2)' },
+                          '100%': { backgroundColor: 'rgba(33, 150, 243, 0.1)' }
                         }
                       }}
                     >

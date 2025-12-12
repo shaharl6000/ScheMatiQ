@@ -717,6 +717,29 @@ class DocumentProcessingRequest(BaseModel):
     """Request model for document processing with optional LLM configuration."""
     llm_config: Optional[Dict[str, Any]] = None
 
+
+@router.post("/sessions/{session_id}/confirm-websocket")
+async def confirm_websocket_ready(session_id: str):
+    """Confirm WebSocket is connected before starting document processing.
+
+    Frontend calls this after WebSocket connects to verify the connection
+    is registered on the backend. This prevents race conditions where
+    cell extraction starts before WebSocket is ready.
+    """
+    from services import websocket_manager
+
+    conn_count = websocket_manager.get_connection_count(session_id)
+    print(f"🔍 WebSocket confirmation request for {session_id}: {conn_count} connections")
+
+    if conn_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No WebSocket connection found. Please ensure WebSocket is connected."
+        )
+
+    return {"status": "ready", "connections": conn_count, "session_id": session_id}
+
+
 @router.post("/process-documents/{session_id}", response_model=dict)
 async def process_documents(session_id: str, background_tasks: BackgroundTasks, request: Optional[DocumentProcessingRequest] = None):
     """Start processing uploaded documents with extracted schema using QBSD pipeline."""

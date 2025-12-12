@@ -97,7 +97,28 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         self.work_dir = Path(work_dir)
         self.work_dir.mkdir(exist_ok=True)
         self.running_sessions: Dict[str, asyncio.Task] = {}
-    
+
+    def _create_value_extracted_callback(self, session_id: str, loop: asyncio.AbstractEventLoop):
+        """Create a callback that streams extracted cell values via WebSocket.
+
+        The callback bridges sync extraction code to async WebSocket broadcasting.
+        """
+        def on_value_extracted(row_name: str, column_name: str, value: Any):
+            """Called for each cell value as it's extracted."""
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self.broadcast_cell_extracted(session_id, {
+                        "row_name": row_name,
+                        "column": column_name,
+                        "value": value
+                    }),
+                    loop
+                )
+            except Exception as e:
+                print(f"⚠️  Failed to broadcast cell {column_name} for {row_name}: {e}")
+
+        return on_value_extracted
+
     def _convert_config_to_qbsd_format(self, config: QBSDConfig, session_id: str) -> Dict[str, Any]:
         """Convert visualization QBSDConfig to QBSD pipeline format."""
         session_dir = self.work_dir / session_id
@@ -689,7 +710,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         
         # Run value extraction in a separate thread to avoid blocking
         loop = asyncio.get_event_loop()
-        
+
+        # Create callback to stream cell values as they're extracted
+        on_value_extracted = self._create_value_extracted_callback(session_id, loop)
+
         def run_value_extraction():
             return build_table_jsonl(
                 schema_path=value_extraction_schema_path,
@@ -700,7 +724,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 resume=False,
                 mode="all",  # Process all columns together
                 retrieval_k=8,
-                max_workers=1  # Single worker to avoid overwhelming API
+                max_workers=1,  # Single worker to avoid overwhelming API
+                on_value_extracted=on_value_extracted  # Stream values as extracted
             )
         
         # Track progress by monitoring output file

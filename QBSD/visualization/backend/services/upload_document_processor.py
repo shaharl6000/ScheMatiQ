@@ -35,11 +35,41 @@ from constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL
 
 class UploadDocumentProcessor(WebSocketBroadcasterMixin):
     """Handles document processing for upload sessions using QBSD pipeline."""
-    
+
     def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
         self.running_sessions: Dict[str, bool] = {}
+
+    def _create_value_extracted_callback(self, session_id: str, loop: asyncio.AbstractEventLoop):
+        """Create a callback that streams extracted cell values via WebSocket.
+
+        The callback bridges sync extraction code to async WebSocket broadcasting.
+        """
+        def on_value_extracted(row_name: str, column_name: str, value: Any):
+            """Called for each cell value as it's extracted."""
+            print(f"📤 CELL EXTRACTED: {row_name} / {column_name} = {str(value)[:50]}...")
+            try:
+                future = asyncio.run_coroutine_threadsafe(
+                    self.broadcast_cell_extracted(session_id, {
+                        "row_name": row_name,
+                        "column": column_name,
+                        "value": value
+                    }),
+                    loop
+                )
+                # Check if future completed (with short timeout to not block extraction)
+                try:
+                    future.result(timeout=0.1)
+                    print(f"✅ CELL BROADCAST SUCCESS: {row_name}/{column_name}")
+                except TimeoutError:
+                    pass  # Still running, that's fine - async broadcast in progress
+                except Exception as e:
+                    print(f"❌ CELL BROADCAST FAILED: {row_name}/{column_name}: {e}")
+            except Exception as e:
+                print(f"⚠️  Failed to schedule broadcast for {column_name}: {e}")
+
+        return on_value_extracted
     
     async def process_documents(self, session_id: str):
         """Process uploaded documents using QBSD pipeline."""
@@ -110,24 +140,41 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             
             # Run value extraction
             await self.broadcast_progress(session_id, "Processing documents with AI", 0.3, "processing_documents")
-            
+
             output_path = session_dir / "additional_data.jsonl"
-            
+
             # Run extraction in executor to avoid blocking
-            loop = asyncio.get_event_loop()
-            
+            # Use get_running_loop() to ensure we have the active event loop
+            loop = asyncio.get_running_loop()
+
+            # Create callback to stream cell values as they're extracted
+            on_value_extracted = self._create_value_extracted_callback(session_id, loop)
+
             def run_extraction():
-                return build_table_jsonl(
-                    schema_path=schema_path,
-                    docs_directories=[pending_dir],  # Only process new (pending) documents
-                    output_path=output_path,
-                    llm=llm,
-                    retriever=retriever,
-                    resume=False,
-                    mode="all",  # Process all columns together
-                    retrieval_k=DEFAULT_RETRIEVAL_K,
-                    max_workers=1  # Single worker to avoid overwhelming API
-                )
+                print(f"🚀 EXTRACTION STARTING for session {session_id}")
+                print(f"   Schema: {schema_path}")
+                print(f"   Docs: {pending_dir}")
+                print(f"   Output: {output_path}")
+                try:
+                    result = build_table_jsonl(
+                        schema_path=schema_path,
+                        docs_directories=[pending_dir],  # Only process new (pending) documents
+                        output_path=output_path,
+                        llm=llm,
+                        retriever=retriever,
+                        resume=False,
+                        mode="all",  # Process all columns together
+                        retrieval_k=DEFAULT_RETRIEVAL_K,
+                        max_workers=1,  # Single worker to avoid overwhelming API
+                        on_value_extracted=on_value_extracted  # Stream values as extracted
+                    )
+                    print(f"✅ EXTRACTION COMPLETED for session {session_id}")
+                    return result
+                except Exception as e:
+                    print(f"❌ EXTRACTION FAILED for session {session_id}: {type(e).__name__}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    raise
             
             # Monitor progress while extraction runs
             # NOTE: We only track progress here - actual data writing happens in _merge_extracted_data()

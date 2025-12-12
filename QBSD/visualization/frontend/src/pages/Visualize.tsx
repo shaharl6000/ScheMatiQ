@@ -14,6 +14,7 @@ import {
   Breadcrumbs,
   Link,
   Paper,
+  IconButton,
 } from '@mui/material';
 import {
   ArrowBack,
@@ -26,11 +27,13 @@ import {
   CheckCircle,
   PlayArrow,
   Error as ErrorIcon,
+  DragIndicator,
+  Close,
 } from '@mui/icons-material';
 import { useQuery, useQueryClient } from 'react-query';
 
 import { uploadAPI, qbsdAPI } from '../services/api';
-import { VisualizationSession } from '../types';
+import { VisualizationSession, CellValue, CellExtractedData } from '../types';
 import {
   PROCESSING_REFRESH_INTERVAL, 
   NEW_ROW_HIGHLIGHT_DURATION,
@@ -76,6 +79,10 @@ const Visualize: React.FC = () => {
   const [documentUploadResult, setDocumentUploadResult] = useState<any>(null);
   const [documentUploadError, setDocumentUploadError] = useState<string | null>(null);
   const [newlyAddedRows, setNewlyAddedRows] = useState<Set<number>>(new Set());
+
+  // Streaming cells state - stores cell values as they're extracted in real-time
+  // Map<row_name, Record<column_name, value>>
+  const [streamingCells, setStreamingCells] = useState<Map<string, Record<string, CellValue>>>(new Map());
   
   // LLM selection state for document processing
   const [showLLMSelector, setShowLLMSelector] = useState(false);
@@ -83,6 +90,17 @@ const Visualize: React.FC = () => {
 
   // Column order state for drag-drop reordering
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
+
+  // Draggable processing overlay state
+  const [overlayPosition, setOverlayPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+  // Force WebSocket connection when processing starts (before status poll catches up)
+  const [forceWebSocketConnect, setForceWebSocketConnect] = useState(false);
+
+  // WebSocket reference for direct connection control
+  const wsRef = React.useRef<WebSocket | null>(null);
 
   // Load column order from localStorage on mount
   useEffect(() => {
@@ -104,6 +122,147 @@ const Visualize: React.FC = () => {
     if (sessionId) {
       localStorage.setItem(`columnOrder_${sessionId}`, JSON.stringify(newOrder));
     }
+  };
+
+  // Handlers for draggable processing overlay
+  const handleOverlayMouseDown = (e: React.MouseEvent) => {
+    // Only start drag if clicking on the drag handle area
+    if ((e.target as HTMLElement).closest('.drag-handle')) {
+      setIsDragging(true);
+      setDragStart({
+        x: e.clientX - overlayPosition.x,
+        y: e.clientY - overlayPosition.y
+      });
+      e.preventDefault();
+    }
+  };
+
+  const handleOverlayMouseMove = (e: React.MouseEvent) => {
+    if (isDragging) {
+      setOverlayPosition({
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      });
+    }
+  };
+
+  const handleOverlayMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  // Function to establish WebSocket connection and return a Promise that resolves when connected
+  const connectWebSocketSync = (): Promise<WebSocket> => {
+    return new Promise((resolve, reject) => {
+      // WebSocket needs to connect directly to the backend server (port 8000)
+      // The CRA proxy only handles HTTP, not WebSocket connections
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const backendHost = process.env.REACT_APP_WS_HOST || 'localhost:8000';
+      const wsUrl = `${protocol}//${backendHost}/ws/progress/${sessionId}`;
+
+      console.log('🔌 Creating WebSocket connection to:', wsUrl);
+      const ws = new WebSocket(wsUrl);
+
+      const timeout = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          ws.close();
+          reject(new Error('WebSocket connection timeout'));
+        }
+      }, 5000); // 5 second timeout
+
+      ws.onopen = () => {
+        console.log('🔌 WebSocket CONNECTED (sync) for session:', sessionId);
+        clearTimeout(timeout);
+        wsRef.current = ws;
+        resolve(ws);
+      };
+
+      ws.onerror = (error) => {
+        console.error('🔌 WebSocket error (sync):', error);
+        clearTimeout(timeout);
+        reject(error);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          console.log('📨 WebSocket message received (sync):', message.type, message);
+
+          switch (message.type) {
+            case 'connected':
+              console.log('🔌 WebSocket confirmed connection:', message);
+              break;
+
+            case 'cell_extracted':
+              // Real-time cell value streaming - update streaming cells state
+              console.log('📦 CELL_EXTRACTED received:', message.data);
+              if (message.data?.row_name && message.data?.column) {
+                const cellData = message.data as CellExtractedData;
+                console.log(`📦 Updating streaming cells: ${cellData.row_name} / ${cellData.column} = ${JSON.stringify(cellData.value).substring(0, 50)}...`);
+                setStreamingCells(prev => {
+                  const updated = new Map(prev);
+                  const rowData = updated.get(cellData.row_name) || {};
+                  rowData[cellData.column] = cellData.value;
+                  updated.set(cellData.row_name, rowData);
+                  console.log(`📦 Streaming cells now has ${updated.size} rows`);
+                  return updated;
+                });
+              } else {
+                console.warn('⚠️ cell_extracted missing row_name or column:', message.data);
+              }
+              break;
+
+            case 'row_completed':
+              // Row is complete - clear streaming data for this row
+              if (message.data?.row_name) {
+                setStreamingCells(prev => {
+                  const updated = new Map(prev);
+                  updated.delete(message.data.row_name);
+                  return updated;
+                });
+              }
+              // Mark this row as newly added for visual highlighting
+              setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
+              // Refresh data to show the new row
+              queryClient.invalidateQueries(['data', sessionId]);
+              queryClient.invalidateQueries(['session', sessionId]);
+              // Remove highlight after delay
+              setTimeout(() => {
+                setNewlyAddedRows(prev => {
+                  const newSet = new Set(Array.from(prev));
+                  newSet.delete(message.data.row_index);
+                  return newSet;
+                });
+              }, NEW_ROW_HIGHLIGHT_DURATION);
+              break;
+
+            case 'completion':
+              console.log('🎉 WebSocket: Processing completion received (sync)', message);
+              setStreamingCells(new Map());
+              setForceWebSocketConnect(false);
+              queryClient.refetchQueries(['session', sessionId, mode]);
+              queryClient.refetchQueries(['data', sessionId, mode]);
+              // Close WebSocket after completion
+              setTimeout(() => {
+                if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                  console.log('🔌 Closing sync WebSocket after completion');
+                  wsRef.current.close(1000, 'Processing completed');
+                  wsRef.current = null;
+                }
+              }, 3000);
+              break;
+          }
+        } catch (err) {
+          console.error('Error parsing WebSocket message (sync):', err);
+        }
+      };
+
+      ws.onclose = (event) => {
+        console.log('🔌 WebSocket closed (sync):', event.code, event.reason);
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+        }
+      };
+    });
   };
 
   // Fetch session data
@@ -174,7 +333,7 @@ const Visualize: React.FC = () => {
     },
     {
       enabled: !!sessionId && (
-        session?.status === 'completed' || 
+        session?.status === 'completed' ||
         session?.status === 'processing_documents' ||
         session?.status === 'documents_uploaded'
       ),
@@ -183,12 +342,22 @@ const Visualize: React.FC = () => {
     }
   );
 
-  // WebSocket integration for real-time updates
+  // Reset overlay position when processing completes
   useEffect(() => {
-    if (!sessionId || mode !== 'upload') return;
+    if (session?.status !== 'processing_documents') {
+      setOverlayPosition({ x: 0, y: 0 });
+    }
+  }, [session?.status]);
 
+  // WebSocket integration for real-time updates (both upload and qbsd modes)
+  useEffect(() => {
+    if (!sessionId) return;
+
+    // WebSocket needs to connect directly to the backend server (port 8000)
+    // The CRA proxy only handles HTTP, not WebSocket connections
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws/progress/${sessionId}`;
+    const backendHost = process.env.REACT_APP_WS_HOST || 'localhost:8000';
+    const wsUrl = `${protocol}//${backendHost}/ws/progress/${sessionId}`;
     
     let ws: WebSocket | null = null;
     let reconnectAttempts = 0;
@@ -207,16 +376,39 @@ const Visualize: React.FC = () => {
           try {
             const message = JSON.parse(event.data);
             console.log('📨 WebSocket message received:', message.type, message);
-            
+
             switch (message.type) {
+              case 'cell_extracted':
+                // Real-time cell value streaming - update streaming cells state
+                if (message.data?.row_name && message.data?.column) {
+                  const cellData = message.data as CellExtractedData;
+                  setStreamingCells(prev => {
+                    const updated = new Map(prev);
+                    const rowData = updated.get(cellData.row_name) || {};
+                    rowData[cellData.column] = cellData.value;
+                    updated.set(cellData.row_name, rowData);
+                    return updated;
+                  });
+                }
+                break;
+
               case 'row_completed':
+                // Row is complete - clear streaming data for this row (now in database)
+                if (message.data?.row_name) {
+                  setStreamingCells(prev => {
+                    const updated = new Map(prev);
+                    updated.delete(message.data.row_name);
+                    return updated;
+                  });
+                }
+
                 // Mark this row as newly added for visual highlighting
                 setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
-                
+
                 // Refresh data to show the new row
                 queryClient.invalidateQueries(['data', sessionId]);
                 queryClient.invalidateQueries(['session', sessionId]);
-                
+
                 // Remove highlight after 5 seconds
                 setTimeout(() => {
                   setNewlyAddedRows(prev => {
@@ -237,6 +429,12 @@ const Visualize: React.FC = () => {
 
                 if (message.type === 'completion') {
                   console.log('💾 WebSocket: Completion message - forcing immediate data refresh');
+
+                  // Clear all streaming cells on completion - data is now in the database
+                  setStreamingCells(new Map());
+
+                  // Reset force WebSocket connect flag
+                  setForceWebSocketConnect(false);
 
                   // Force immediate refetch with exact query keys to ensure UI updates
                   queryClient.refetchQueries(['session', sessionId, mode]);
@@ -286,13 +484,29 @@ const Visualize: React.FC = () => {
     };
     
     // Connect during document processing and maintain connection for completed status to catch final messages
-    if (session?.status === 'processing_documents') {
-      console.log('🔌 Connecting WebSocket for document processing');
-      connectWebSocket();
+    // Also connect during QBSD processing to receive real-time cell updates
+    // IMPORTANT: Skip if wsRef.current is already connected (from handleLLMSelection)
+    const alreadyConnected = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
+
+    if (forceWebSocketConnect || session?.status === 'processing_documents') {
+      if (alreadyConnected) {
+        console.log('🔌 WebSocket already connected via sync method, skipping useEffect connection');
+      } else {
+        console.log('🔌 Connecting WebSocket for document processing (force:', forceWebSocketConnect, ', status:', session?.status, ')');
+        connectWebSocket();
+      }
+    } else if (mode === 'qbsd' && session?.status === 'processing') {
+      // QBSD mode: connect during processing to receive cell_extracted events
+      if (!alreadyConnected) {
+        console.log('🔌 Connecting WebSocket for QBSD processing');
+        connectWebSocket();
+      }
     } else if (session?.status === 'completed' && (session?.metadata?.additional_rows_added || 0) > 0) {
       // For recently completed sessions with added rows, maintain connection briefly to catch any late messages
-      console.log('🔌 Connecting WebSocket for recently completed session');
-      connectWebSocket();
+      if (!alreadyConnected) {
+        console.log('🔌 Connecting WebSocket for recently completed session');
+        connectWebSocket();
+      }
     }
     
     // Fallback refresh when session transitions to completed to ensure UI updates
@@ -320,7 +534,7 @@ const Visualize: React.FC = () => {
         ws.close(1000, 'Component unmounting');
       }
     };
-  }, [sessionId, mode, session?.status, queryClient]);
+  }, [sessionId, mode, session?.status, queryClient, forceWebSocketConnect]);
 
   // Listen for schema data update events from SchemaViewer
   useEffect(() => {
@@ -405,7 +619,7 @@ const Visualize: React.FC = () => {
   const handleLLMSelection = async (llmConfig: any) => {
     setSelectedLLMConfig(llmConfig);
     setShowLLMSelector(false);
-    
+
     if (!sessionId) {
       setDocumentUploadError('No session available for processing');
       return;
@@ -413,19 +627,53 @@ const Visualize: React.FC = () => {
 
     setDocumentUploadLoading(true);
     setDocumentUploadError(null);
-    
+
     try {
-      // Call the process documents API with the selected LLM config
+      // CRITICAL: Connect WebSocket FIRST and WAIT for it to be open
+      // This ensures we're connected before the first cell_extracted event
+      console.log('🔌 Establishing WebSocket connection BEFORE starting processing...');
+
+      // Close any existing connection first
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.close(1000, 'Reconnecting for new processing');
+        wsRef.current = null;
+      }
+
+      await connectWebSocketSync();
+      console.log('🔌 WebSocket connected locally!');
+
+      // Small delay for backend to fully register the connection
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      // Verify WebSocket is registered on backend before starting processing
+      try {
+        const wsConfirmation = await uploadAPI.confirmWebSocketReady(sessionId);
+        console.log('✅ WebSocket confirmed on backend:', wsConfirmation);
+      } catch (wsError) {
+        console.warn('⚠️ WebSocket confirmation failed, proceeding anyway (buffering will catch events):', wsError);
+        // Don't fail here - the buffering mechanism will catch any early events
+      }
+
+      setForceWebSocketConnect(true); // Keep flag for useEffect to not create duplicate
+
+      // NOW start document processing - WebSocket is confirmed ready
+      console.log('🚀 Starting document processing...');
       await uploadAPI.processDocuments(sessionId, llmConfig);
-      
+
       // Refresh session data to show updated status
       queryClient.invalidateQueries(['session', sessionId]);
-      
+
       console.log('🤖 Document processing started with LLM config:', llmConfig);
     } catch (err: any) {
       console.error('Failed to start document processing:', err);
       const errorMessage = err.response?.data?.detail || err.message || 'Failed to start document processing';
       setDocumentUploadError(errorMessage);
+      // Reset force connect and close WebSocket on error
+      setForceWebSocketConnect(false);
+      if (wsRef.current) {
+        wsRef.current.close(1000, 'Error occurred');
+        wsRef.current = null;
+      }
     } finally {
       setDocumentUploadLoading(false);
     }
@@ -654,43 +902,83 @@ const Visualize: React.FC = () => {
           {/* Data Table - show if data exists */}
           {(isCompleted || isEnhancedUploadProcessing || session?.status === 'documents_uploaded') && dataResponse ? (
             <Box sx={{ position: 'relative' }}>
-              {/* Processing Overlay */}
+              {/* Draggable Processing Overlay */}
               {session?.status === 'processing_documents' && (
                 <Box
+                  onMouseDown={handleOverlayMouseDown}
+                  onMouseMove={handleOverlayMouseMove}
+                  onMouseUp={handleOverlayMouseUp}
+                  onMouseLeave={handleOverlayMouseUp}
                   sx={{
                     position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
+                    top: overlayPosition.y,
+                    left: overlayPosition.x,
+                    right: overlayPosition.x === 0 ? 0 : 'auto',
+                    width: overlayPosition.x !== 0 ? 'auto' : undefined,
+                    minWidth: 300,
+                    maxWidth: '100%',
                     zIndex: 10,
-                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-                    backdropFilter: 'blur(2px)',
-                    padding: 3,
-                    borderRadius: 1,
+                    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+                    backdropFilter: 'blur(4px)',
+                    padding: 2,
+                    borderRadius: 2,
                     border: '2px solid',
                     borderColor: 'primary.main',
-                    mb: 2
+                    boxShadow: isDragging ? 8 : 4,
+                    cursor: isDragging ? 'grabbing' : 'default',
+                    userSelect: 'none',
+                    transition: isDragging ? 'none' : 'box-shadow 0.2s ease'
                   }}
                 >
-                  <Alert severity="info" sx={{ mb: 2 }}>
+                  {/* Drag Handle */}
+                  <Box
+                    className="drag-handle"
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      mb: 1,
+                      pb: 1,
+                      borderBottom: '1px solid',
+                      borderColor: 'divider',
+                      cursor: 'grab',
+                      '&:active': { cursor: 'grabbing' }
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <DragIndicator sx={{ color: 'text.secondary' }} />
+                      <Typography variant="subtitle2" color="text.secondary">
+                        Drag to move
+                      </Typography>
+                    </Box>
+                    <IconButton
+                      size="small"
+                      onClick={() => setOverlayPosition({ x: 0, y: 0 })}
+                      title="Reset position"
+                    >
+                      <Close fontSize="small" />
+                    </IconButton>
+                  </Box>
+
+                  <Alert severity="info" sx={{ mb: 1.5 }}>
                     <Typography variant="body1" gutterBottom sx={{ fontWeight: 'bold' }}>
                       🤖 Processing Documents with AI
                     </Typography>
                     <Typography variant="body2">
-                      Extracting data from your uploaded documents. New rows will appear as they are completed.
+                      Extracting data from your uploaded documents. Cells fill in as values are extracted.
                     </Typography>
                   </Alert>
-                  
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <CircularProgress size={24} />
+
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+                    <CircularProgress size={20} />
                     <Typography variant="body2">
                       {session.metadata?.processed_documents || 0} of {session.metadata?.uploaded_documents?.length || 0} documents processed
                     </Typography>
                     {session.metadata?.additional_rows_added && session.metadata.additional_rows_added > 0 && (
-                      <Chip 
-                        label={`+${session.metadata.additional_rows_added} new rows`} 
-                        color="success" 
-                        size="small" 
+                      <Chip
+                        label={`+${session.metadata.additional_rows_added} new rows`}
+                        color="success"
+                        size="small"
                       />
                     )}
                   </Box>
@@ -698,12 +986,12 @@ const Visualize: React.FC = () => {
               )}
               
               <DataTable
-                data={dataResponse}
-                sessionId={sessionId}
+                sessionId={sessionId!}
                 sessionType={mode}
                 newlyAddedRows={newlyAddedRows}
                 columnOrder={columnOrder}
                 onColumnReorder={handleColumnReorder}
+                streamingCells={streamingCells}
               />
               
               {/* Document Upload Section - show for upload sessions with schema, or completed/documents_uploaded/processing QBSD sessions */}

@@ -12,10 +12,12 @@ router = APIRouter()
 async def websocket_progress(websocket: WebSocket, session_id: str):
     """WebSocket endpoint for real-time progress updates."""
     await websocket.accept()
-    
+    print(f"🔌 WebSocket CONNECTED: {session_id}")
+
     try:
         # Add connection to manager
         websocket_manager.add_connection(session_id, websocket)
+        print(f"🔌 WebSocket REGISTERED: {session_id} (total: {websocket_manager.get_connection_count(session_id)})")
         
         # Send initial connection confirmation
         await websocket.send_json({
@@ -44,9 +46,10 @@ async def websocket_progress(websocket: WebSocket, session_id: str):
                 })
                 
     except WebSocketDisconnect:
-        pass
+        print(f"🔌 WebSocket DISCONNECTED: {session_id}")
     finally:
         websocket_manager.remove_connection(session_id, websocket)
+        print(f"🔌 WebSocket REMOVED: {session_id} (remaining: {websocket_manager.get_connection_count(session_id)})")
 
 @router.websocket("/logs/{session_id}")
 async def websocket_logs(websocket: WebSocket, session_id: str):

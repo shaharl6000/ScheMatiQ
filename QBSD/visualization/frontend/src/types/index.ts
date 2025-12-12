@@ -154,12 +154,19 @@ export interface RowCompletionData {
   additional_rows?: number;
 }
 
+export interface CellExtractedData {
+  row_name: string;
+  column: string;
+  value: CellValue;
+  row_index?: number;
+}
+
 export interface WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'pong' | 'schema_completed' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed';
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'pong' | 'schema_completed' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'cell_extracted';
   timestamp: string;
   session_id?: string;
   message?: string;
-  data?: ProgressData | LogData | ErrorData | CompletionData | SchemaCompletionData | RowCompletionData | SchemaUpdatedData | ReprocessingProgressData | ReprocessingCompletedData;
+  data?: ProgressData | LogData | ErrorData | CompletionData | SchemaCompletionData | RowCompletionData | SchemaUpdatedData | ReprocessingProgressData | ReprocessingCompletedData | CellExtractedData;
 }
 
 // Schema types
@@ -388,12 +395,12 @@ export interface ReprocessingCompletedData {
 
 // Update WebSocketMessage to include new types
 export interface WebSocketMessageExtended extends WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'pong' | 
-        'schema_completed' | 'row_completed' | 'schema_updated' | 
-        'reprocessing_progress' | 'reprocessing_completed';
-  data?: ProgressData | LogData | ErrorData | CompletionData | 
-         SchemaCompletionData | RowCompletionData | SchemaUpdatedData | 
-         ReprocessingProgressData | ReprocessingCompletedData;
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'pong' |
+        'schema_completed' | 'row_completed' | 'schema_updated' |
+        'reprocessing_progress' | 'reprocessing_completed' | 'cell_extracted';
+  data?: ProgressData | LogData | ErrorData | CompletionData |
+         SchemaCompletionData | RowCompletionData | SchemaUpdatedData |
+         ReprocessingProgressData | ReprocessingCompletedData | CellExtractedData;
 }
 
 // Dialog and UI state types

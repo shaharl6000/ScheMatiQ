@@ -1,23 +1,29 @@
 """WebSocket connection management."""
 
 import json
-from typing import Dict, Set, Any
+import asyncio
+from typing import Dict, Set, Any, List
 from fastapi import WebSocket
 from datetime import datetime
 
 class WebSocketManager:
     """Manages WebSocket connections for real-time updates."""
-    
+
     def __init__(self):
         # Session ID -> Set of WebSocket connections
         self.connections: Dict[str, Set[WebSocket]] = {}
         self.log_connections: Dict[str, Set[WebSocket]] = {}
+        # Buffer for cell events when no connections exist (handles race condition)
+        self.pending_cell_events: Dict[str, List[Dict[str, Any]]] = {}
     
     def add_connection(self, session_id: str, websocket: WebSocket):
-        """Add a WebSocket connection for a session."""
+        """Add a WebSocket connection for a session and flush any buffered events."""
         if session_id not in self.connections:
             self.connections[session_id] = set()
         self.connections[session_id].add(websocket)
+
+        # Schedule flush of any buffered cell events
+        asyncio.create_task(self._flush_buffered_events(session_id))
     
     def remove_connection(self, session_id: str, websocket: WebSocket):
         """Remove a WebSocket connection."""
@@ -154,6 +160,8 @@ class WebSocketManager:
     async def broadcast_to_session(self, session_id: str, message: Dict[str, Any]):
         """Generic method to broadcast a message to all connections for a session."""
         if session_id not in self.connections:
+            print(f"⚠️ NO CONNECTIONS for session {session_id}")
+            print(f"⚠️ Active sessions: {list(self.connections.keys())}")
             return
         
         dead_connections = []
@@ -202,7 +210,34 @@ class WebSocketManager:
     def get_connection_count(self, session_id: str) -> int:
         """Get number of active connections for a session."""
         return len(self.connections.get(session_id, set()))
-    
+
     def has_connections(self, session_id: str) -> bool:
         """Check if session has any active connections."""
         return session_id in self.connections and len(self.connections[session_id]) > 0
+
+    async def buffer_or_broadcast_cell(self, session_id: str, message: Dict[str, Any]):
+        """Broadcast cell event or buffer if no connections exist.
+
+        This handles the race condition where cell extraction starts
+        before the WebSocket connection is fully registered.
+        """
+        if session_id not in self.connections or len(self.connections[session_id]) == 0:
+            # Buffer the event for later delivery
+            if session_id not in self.pending_cell_events:
+                self.pending_cell_events[session_id] = []
+            self.pending_cell_events[session_id].append(message)
+            cell_info = message.get('data', {})
+            print(f"📥 BUFFERED cell event: {cell_info.get('row_name')}/{cell_info.get('column')} (will flush when connected)")
+            return
+
+        # Connection exists, broadcast immediately
+        await self.broadcast_to_session(session_id, message)
+
+    async def _flush_buffered_events(self, session_id: str):
+        """Send any buffered cell events to newly connected client."""
+        if session_id in self.pending_cell_events:
+            events = self.pending_cell_events.pop(session_id, [])
+            if events:
+                print(f"📤 Flushing {len(events)} buffered cell events for {session_id}")
+                for event in events:
+                    await self.broadcast_to_session(session_id, event)

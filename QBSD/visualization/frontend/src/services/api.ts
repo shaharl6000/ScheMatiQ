@@ -105,6 +105,11 @@ export const uploadAPI = {
     return response.data;
   },
 
+  confirmWebSocketReady: async (sessionId: string): Promise<{ status: string; connections: number; session_id: string }> => {
+    const response = await api.post(`/upload/sessions/${sessionId}/confirm-websocket`);
+    return response.data;
+  },
+
   getProcessingStatus: async (sessionId: string): Promise<ProcessingStatus> => {
     const response = await api.get(`/upload/processing-status/${sessionId}`);
     return response.data;
