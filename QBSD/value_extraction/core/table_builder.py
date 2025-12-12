@@ -4,7 +4,7 @@ import json
 import time
 import shutil
 from pathlib import Path
-from typing import Dict, Any, List, Set
+from typing import Dict, Any, List, Set, Callable, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
@@ -12,7 +12,7 @@ from schema import Schema, Column
 from llm_backends import LLMInterface
 import utils
 
-from .paper_processor import PaperProcessor
+from .paper_processor import PaperProcessor, OnValueExtractedCallback
 from .row_manager import RowDataManager
 from .llm_cache import LLMCache
 from ..config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
@@ -20,12 +20,14 @@ from ..config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
 
 class TableBuilder:
     """Orchestrates the table building process."""
-    
-    def __init__(self, llm: LLMInterface, retriever=None, cache: LLMCache = None):
+
+    def __init__(self, llm: LLMInterface, retriever=None, cache: LLMCache = None,
+                 on_value_extracted: Optional[OnValueExtractedCallback] = None):
         self.llm = llm
         self.retriever = retriever
         self.cache = cache or LLMCache()
-        self.paper_processor = PaperProcessor(llm, self.cache, retriever)
+        self.on_value_extracted = on_value_extracted
+        self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted)
         self.row_manager = RowDataManager()
     
     def _is_system_file(self, filename: str) -> bool:
@@ -327,36 +329,39 @@ class TableBuilder:
             except Exception as e:
                 print(f"❌ Failed to write row {row_name}: {e}")
     
-    def _process_row_one_by_one_multi_dirs(self, current_row: dict, papers: list[Path], 
-                                          doc_to_source: dict, schema: Schema, 
+    def _process_row_one_by_one_multi_dirs(self, current_row: dict, papers: list[Path],
+                                          doc_to_source: dict, schema: Schema,
                                           retrieval_k: int, max_new_tokens: int,
                                           existing_rows: dict, processed_papers: set) -> None:
         """Process row one column at a time (multi-directory version)."""
+        row_name = current_row.get("_row_name")
+
         for column in schema.columns:
             # Handle both dict and Column object formats
             if isinstance(column, dict):
                 column_name = column.get('column') or column.get('name')
             else:
                 column_name = column.name
-            
+
             if column_name in current_row:
                 continue
-                
+
             for paper in papers:
                 if paper in processed_papers:
                     continue
-                    
+
                 try:
                     paper_text = paper.read_text(encoding="utf-8", errors="ignore")
                     # Create a single-column schema for this extraction
                     single_column_schema = Schema(
-                        query=schema.query, 
-                        columns=[column], 
+                        query=schema.query,
+                        columns=[column],
                         max_keys=1
                     )
                     result = self.paper_processor.extract_values_for_paper(
-                        paper.stem, paper_text, single_column_schema, 
-                        max_new_tokens, mode="one_by_one", retrieval_k=retrieval_k
+                        paper.stem, paper_text, single_column_schema,
+                        max_new_tokens, mode="one_by_one", retrieval_k=retrieval_k,
+                        row_name=row_name
                     )
                     if result and column_name in result:
                         current_row.update(result)
@@ -372,7 +377,8 @@ class TableBuilder:
                                    processed_papers: set) -> None:
         """Process row with all columns at once (multi-directory version)."""
         unprocessed_papers = [p for p in papers if p not in processed_papers]
-        
+        row_name = current_row.get("_row_name")
+
         if max_workers > 1 and len(unprocessed_papers) > 1:
             # Parallel processing
             import concurrent.futures
@@ -380,10 +386,10 @@ class TableBuilder:
                 future_to_paper = {
                     executor.submit(
                         self._extract_values_from_paper_file,
-                        paper, schema, retrieval_k, max_new_tokens
+                        paper, schema, retrieval_k, max_new_tokens, row_name
                     ): paper for paper in unprocessed_papers
                 }
-                
+
                 for future in concurrent.futures.as_completed(future_to_paper):
                     paper = future_to_paper[future]
                     try:
@@ -401,7 +407,7 @@ class TableBuilder:
             for paper in unprocessed_papers:
                 try:
                     result = self._extract_values_from_paper_file(
-                        paper, schema, retrieval_k, max_new_tokens
+                        paper, schema, retrieval_k, max_new_tokens, row_name
                     )
                     if result:
                         # Merge result into current row
@@ -412,15 +418,20 @@ class TableBuilder:
                 except Exception as e:
                     print(f"⚠️  Error processing {paper.name}: {e}")
     
-    def _extract_values_from_paper_file(self, paper_path: Path, schema: Schema, 
-                                       retrieval_k: int, max_new_tokens: int) -> dict:
+    def _extract_values_from_paper_file(self, paper_path: Path, schema: Schema,
+                                       retrieval_k: int, max_new_tokens: int,
+                                       row_name: str = None) -> dict:
         """Helper method to extract values from a paper file."""
         try:
             paper_text = paper_path.read_text(encoding="utf-8", errors="ignore")
             paper_title = paper_path.stem
+            # Derive row_name if not provided
+            if row_name is None:
+                row_name = self.row_manager.extract_row_name_from_filename(paper_path.name)
             return self.paper_processor.extract_values_for_paper(
-                paper_title, paper_text, schema, max_new_tokens, 
-                mode="all", retrieval_k=retrieval_k
+                paper_title, paper_text, schema, max_new_tokens,
+                mode="all", retrieval_k=retrieval_k,
+                row_name=row_name
             )
         except Exception as e:
             print(f"⚠️  Error reading or processing {paper_path.name}: {e}")

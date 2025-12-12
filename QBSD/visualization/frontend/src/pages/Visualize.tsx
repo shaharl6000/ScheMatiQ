@@ -870,7 +870,7 @@ const Visualize: React.FC = () => {
           variant="scrollable"
           scrollButtons="auto"
         >
-          <Tab icon={<TableView />} label="Data" disabled={!isCompleted && !isEnhancedUploadProcessing} />
+          <Tab icon={<TableView />} label="Data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning} />
           <Tab icon={<Schema />} label="Schema" disabled={!isSchemaReady || !session?.columns?.length} />
           <Tab icon={<Analytics />} label="Statistics" disabled={!isCompleted} />
           <Tab icon={<Info />} label="Session Info" />
@@ -899,11 +899,11 @@ const Visualize: React.FC = () => {
       {/* Tab Panels */}
       <Box sx={{ p: 3 }}>
         <TabPanel value={activeTab} index={0}>
-          {/* Data Table - show if data exists */}
-          {(isCompleted || isEnhancedUploadProcessing || session?.status === 'documents_uploaded') && dataResponse ? (
+          {/* Data Table - show if data exists OR streaming cells during QBSD processing */}
+          {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
             <Box sx={{ position: 'relative' }}>
-              {/* Draggable Processing Overlay */}
-              {session?.status === 'processing_documents' && (
+              {/* Draggable Processing Overlay - show during document processing OR QBSD value extraction */}
+              {(session?.status === 'processing_documents' || isQBSDRunning) && (
                 <Box
                   onMouseDown={handleOverlayMouseDown}
                   onMouseMove={handleOverlayMouseMove}
@@ -962,19 +962,23 @@ const Visualize: React.FC = () => {
 
                   <Alert severity="info" sx={{ mb: 1.5 }}>
                     <Typography variant="body1" gutterBottom sx={{ fontWeight: 'bold' }}>
-                      🤖 Processing Documents with AI
+                      🤖 {isQBSDRunning ? 'Extracting Data from Documents' : 'Processing Documents with AI'}
                     </Typography>
                     <Typography variant="body2">
-                      Extracting data from your uploaded documents. Cells fill in as values are extracted.
+                      {isQBSDRunning
+                        ? 'Building table from discovered schema. Cells fill in as values are extracted.'
+                        : 'Extracting data from your uploaded documents. Cells fill in as values are extracted.'}
                     </Typography>
                   </Alert>
 
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
                     <CircularProgress size={20} />
                     <Typography variant="body2">
-                      {session.metadata?.processed_documents || 0} of {session.metadata?.uploaded_documents?.length || 0} documents processed
+                      {isQBSDRunning
+                        ? `${streamingCells.size} rows being processed`
+                        : `${session.metadata?.processed_documents || 0} of ${session.metadata?.uploaded_documents?.length || 0} documents processed`}
                     </Typography>
-                    {session.metadata?.additional_rows_added && session.metadata.additional_rows_added > 0 && (
+                    {(session.metadata?.additional_rows_added && session.metadata.additional_rows_added > 0) && (
                       <Chip
                         label={`+${session.metadata.additional_rows_added} new rows`}
                         color="success"

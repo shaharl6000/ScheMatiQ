@@ -1,7 +1,7 @@
 """Paper processing for value extraction."""
 
 from pathlib import Path
-from typing import Dict, Any, Set
+from typing import Dict, Any, Set, Callable, Optional
 from schema import Schema, Column
 from llm_backends import LLMInterface
 import utils
@@ -11,23 +11,39 @@ from .json_parser import JSONResponseParser
 from ..utils.text_processing import TextProcessor
 from ..utils.prompt_builder import PromptBuilder
 from ..config.constants import (
-    MIN_DOCUMENT_SIZE_FOR_SNIPPETS, 
-    SAFETY_MARGIN_ALL_MODE, 
+    MIN_DOCUMENT_SIZE_FOR_SNIPPETS,
+    SAFETY_MARGIN_ALL_MODE,
     SAFETY_MARGIN_SINGLE_MODE
 )
+
+# Type alias for value extracted callback: (row_name, column_name, value) -> None
+OnValueExtractedCallback = Callable[[str, str, Any], None]
 
 
 class PaperProcessor:
     """Handles value extraction from individual papers."""
-    
-    def __init__(self, llm: LLMInterface, cache: LLMCache = None, retriever=None):
+
+    def __init__(self, llm: LLMInterface, cache: LLMCache = None, retriever=None,
+                 on_value_extracted: Optional[OnValueExtractedCallback] = None):
         self.llm = llm
         self.cache = cache or LLMCache()
         self.retriever = retriever
         self.json_parser = JSONResponseParser()
         self.text_processor = TextProcessor()
         self.prompt_builder = PromptBuilder()
-    
+        self.on_value_extracted = on_value_extracted
+
+    def _notify_value_extracted(self, row_name: str, column_name: str, value: Any):
+        """Call the on_value_extracted callback if set."""
+        print(f"🔔 _notify_value_extracted called: row={row_name}, col={column_name}, callback={'set' if self.on_value_extracted else 'NOT SET'}")
+        if self.on_value_extracted:
+            try:
+                self.on_value_extracted(row_name, column_name, value)
+            except Exception as e:
+                print(f"⚠️  Callback error for {column_name}: {e}")
+        else:
+            print(f"⚠️  on_value_extracted callback is NOT SET - cell streaming disabled")
+
     def _should_skip_truncation(self) -> bool:
         """Check if this LLM supports long context and should skip truncation."""
         # Check for Gemini or other long-context models
@@ -131,8 +147,13 @@ class PaperProcessor:
                                 schema: Schema,
                                 max_new_tokens: int,
                                 mode: str = "all",
-                                retrieval_k: int = 8) -> Dict[str, Any]:
-        """Extract values from a single paper for the given schema."""
+                                retrieval_k: int = 8,
+                                row_name: Optional[str] = None) -> Dict[str, Any]:
+        """Extract values from a single paper for the given schema.
+
+        Args:
+            row_name: If provided, used for streaming callbacks to identify the row.
+        """
         if mode == "one":
             mode = "one_by_one"
 
@@ -218,6 +239,11 @@ class PaperProcessor:
             requested = [c.name for c in schema.columns]
             cleaned = self.json_parser.postprocess(parsed, requested)
 
+            # Notify callback for each extracted column (streaming to UI)
+            if row_name:
+                for col_name, col_value in cleaned.items():
+                    self._notify_value_extracted(row_name, col_name, col_value)
+
             # Fallback for missing columns: retry per-column, stricter + expanded retrieval
             missing = [c for c in schema.columns if c.name not in cleaned]
             if missing:
@@ -249,32 +275,40 @@ class PaperProcessor:
                         )
                     if col_res:
                         cleaned[col.name] = col_res
+                        # Notify callback for fallback-extracted column
+                        if row_name:
+                            self._notify_value_extracted(row_name, col.name, col_res)
 
             return cleaned
 
         # mode == "one_by_one" with optimized fallback logic
         row: Dict[str, Any] = {}
         for col in schema.columns:
+            col_value = None
+
             # Attempt 1: normal rules, per-column retrieval
             first = _single_column_attempt(col, strict=False, k_override=None, use_snippets=False)
 
             if first and first.get('answer', '').strip():
-                row[col.name] = first
-                continue
-
-            # Attempt 2: Only try expanded retrieval if we have a retriever and got empty result
-            if self.retriever is not None:
+                col_value = first
+            elif self.retriever is not None:
+                # Attempt 2: Only try expanded retrieval if we have a retriever and got empty result
                 expanded_k = self.text_processor.expand_k(retrieval_k)
                 second = _single_column_attempt(col, strict=True, k_override=expanded_k, use_snippets=False)
                 if second and second.get('answer', '').strip():
-                    row[col.name] = second
-                    continue
+                    col_value = second
 
             # Attempt 3: Only if previous attempts truly failed and we have substantial text
-            if len(paper_text) > MIN_DOCUMENT_SIZE_FOR_SNIPPETS:  # Only for reasonably sized documents
+            if col_value is None and len(paper_text) > MIN_DOCUMENT_SIZE_FOR_SNIPPETS:
                 third = _single_column_attempt(col, strict=True, k_override=None, use_snippets=True)
                 if third and third.get('answer', '').strip():
-                    row[col.name] = third
+                    col_value = third
+
+            # Store value and notify callback
+            if col_value:
+                row[col.name] = col_value
+                if row_name:
+                    self._notify_value_extracted(row_name, col.name, col_value)
 
         return row
     
@@ -303,9 +337,10 @@ class PaperProcessor:
             paper_text = doc_path.read_text(encoding="utf-8", errors="ignore")
             print(f"🔍 Extracting values for {paper_title} (row: {row_name})...")
 
-            # Extract values for this paper
+            # Extract values for this paper (pass row_name for streaming callbacks)
             paper_data = self.extract_values_for_paper(
-                paper_title, paper_text, schema, max_new_tokens, mode, retrieval_k
+                paper_title, paper_text, schema, max_new_tokens, mode, retrieval_k,
+                row_name=row_name
             )
             
             return row_name, paper_title, paper_data

@@ -3,9 +3,11 @@
 import json
 import time
 from pathlib import Path
+from typing import Callable, Any, Optional
 
 import utils
 from .core.table_builder import TableBuilder
+from .core.paper_processor import OnValueExtractedCallback
 from .config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
 
 
@@ -21,14 +23,20 @@ def build_table_jsonl(
     mode: str = "all",
     retrieval_k: int = 8,
     max_workers: int = DEFAULT_MAX_WORKERS,
+    on_value_extracted: Optional[OnValueExtractedCallback] = None,
 ) -> None:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
     Each row represents a unique row name with data from potentially multiple papers.
-    
+
+    Args:
+        on_value_extracted: Optional callback called when each column value is extracted.
+            Signature: (row_name: str, column_name: str, value: Any) -> None
+            Used for real-time streaming of values to UI.
+
     This is the main entry point that maintains backward compatibility with the original API.
     """
-    table_builder = TableBuilder(llm, retriever)
+    table_builder = TableBuilder(llm, retriever, on_value_extracted=on_value_extracted)
     table_builder.build_table_jsonl_multi_dirs(
         schema_path,
         docs_directories,
