@@ -3,8 +3,25 @@
  */
 
 // API Configuration
+// For Railway deployment: Set REACT_APP_API_URL to backend service URL (e.g., https://backend.up.railway.app)
 export const API_BASE_URL = process.env.REACT_APP_API_URL || '';
-export const WS_BASE_URL = (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host;
+
+// WebSocket Configuration - derives from API URL or uses current host
+// For Railway: Set REACT_APP_WS_URL to backend WebSocket URL (e.g., wss://backend.up.railway.app)
+const getWebSocketBaseUrl = (): string => {
+  // Explicit WS URL takes priority
+  if (process.env.REACT_APP_WS_URL) {
+    return process.env.REACT_APP_WS_URL;
+  }
+  // Derive from API URL if set
+  if (process.env.REACT_APP_API_URL) {
+    const apiUrl = process.env.REACT_APP_API_URL;
+    return apiUrl.replace(/^http/, 'ws');
+  }
+  // Default: use current host (works with proxy in development)
+  return (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host;
+};
+export const WS_BASE_URL = getWebSocketBaseUrl();
 
 // UI Configuration
 export const DEFAULT_PAGE_SIZE = 50;
@@ -67,7 +84,7 @@ export const STATUS_MESSAGES = {
   ERROR: 'An error occurred',
   SUCCESS: 'Operation completed successfully',
   PROCESSING: 'Processing...',
-  UPLOADING: 'Uploading files...',
+  LOADING_FILES: 'Loading files...',
   EXTRACTING: 'Extracting schema...',
   ANALYZING: 'Analyzing documents...'
 } as const;
@@ -75,7 +92,7 @@ export const STATUS_MESSAGES = {
 // Route Paths
 export const ROUTES = {
   HOME: '/',
-  UPLOAD: '/upload',
+  LOAD: '/load',
   QBSD: '/qbsd',
   VISUALIZE: '/visualize'
 } as const;

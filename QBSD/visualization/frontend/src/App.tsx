@@ -3,7 +3,7 @@ import { Routes, Route } from 'react-router-dom';
 import { Container, AppBar, Toolbar, Typography, Box } from '@mui/material';
 
 import Landing from './pages/Landing';
-import Upload from './pages/Upload';
+import Load from './pages/Load';
 import QBSDConfig from './pages/QBSDConfig';
 import Visualize from './pages/Visualize';
 
@@ -21,7 +21,7 @@ function App() {
       <Container maxWidth="xl" sx={{ mt: 3 }}>
         <Routes>
           <Route path="/" element={<Landing />} />
-          <Route path="/upload" element={<Upload />} />
+          <Route path="/load" element={<Load />} />
           <Route path="/qbsd" element={<QBSDConfig />} />
           <Route path="/visualize/:sessionId" element={<Visualize />} />
         </Routes>

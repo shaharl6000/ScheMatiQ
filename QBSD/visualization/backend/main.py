@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from api.upload import router as upload_router
+from api.load import router as load_router
 from api.qbsd import router as qbsd_router
 from api.websocket import router as websocket_router
 from api.schema import router as schema_router
@@ -36,7 +36,7 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(upload_router, prefix="/api/upload", tags=["upload"])
+app.include_router(load_router, prefix="/api/load", tags=["load"])
 app.include_router(qbsd_router, prefix="/api/qbsd", tags=["qbsd"])
 app.include_router(schema_router, prefix="/api/schema", tags=["schema"])
 app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
@@ -52,5 +52,8 @@ async def health_check():
     return {"status": HEALTH_CHECK_MESSAGE}
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    uvicorn.run("main:app", host=DEFAULT_HOST, port=DEFAULT_PORT, reload=True)
+    # Use reload only in development (when RAILWAY_ENVIRONMENT is not set)
+    is_production = os.environ.get("RAILWAY_ENVIRONMENT") is not None
+    uvicorn.run("main:app", host=DEFAULT_HOST, port=DEFAULT_PORT, reload=not is_production)

@@ -96,7 +96,7 @@ const ConfigurationInfo: React.FC<ConfigurationInfoProps> = ({
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap">
               <Chip 
-                label={`Type: ${session.type === 'upload' ? 'Enhanced Upload' : 'QBSD Pipeline'}`}
+                label={`Type: ${session.type === 'load' ? 'Load Existing' : 'QBSD Pipeline'}`}
                 size="small"
                 color="primary"
               />

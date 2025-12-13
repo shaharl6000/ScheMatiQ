@@ -33,7 +33,7 @@ export interface DataStatistics {
 
 export interface VisualizationSession {
   id: string;
-  type: 'upload' | 'qbsd';
+  type: 'load' | 'qbsd';
   status: 'created' | 'processing' | 'schema_ready' | 'completed' | 'error' | 
           'schema_extracted' | 'documents_uploaded' | 'processing_documents';
   metadata: SessionMetadata;
@@ -223,9 +223,19 @@ export interface ProcessingStatus {
 }
 
 // Content and display types
+
+// Excerpt with source information (new format)
+export interface ExcerptWithSource {
+  text: string;
+  source: string;  // Source filename
+}
+
+// Union type for backwards compatibility
+export type Excerpt = string | ExcerptWithSource;
+
 export interface QBSDAnswerWithExcerpts {
   answer: string;
-  excerpts: string[];
+  excerpts: Excerpt[];  // Supports both old (string) and new (object) formats
 }
 
 export type CellValue = string | number | boolean | null | undefined | QBSDAnswerWithExcerpts | unknown[] | Record<string, unknown>;

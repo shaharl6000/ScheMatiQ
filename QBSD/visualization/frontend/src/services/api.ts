@@ -19,15 +19,18 @@ import {
   SchemaValidationResult as SchemaValidationResultType
 } from '../types';
 
-const API_BASE = process.env.REACT_APP_API_BASE || '/api';
+// Use REACT_APP_API_URL for full URL (Railway), otherwise default to relative /api path
+const API_BASE = process.env.REACT_APP_API_URL
+  ? `${process.env.REACT_APP_API_URL}/api`
+  : '/api';
 
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 30000,
 });
 
-// Upload API
-export const uploadAPI = {
+// Load API (for loading existing QBSD data)
+export const loadAPI = {
   uploadFile: async (file: File): Promise<{
     session_id: string;
     validation: FileValidationResult;
@@ -35,13 +38,13 @@ export const uploadAPI = {
   }> => {
     const formData = new FormData();
     formData.append('file', file);
-    
-    const response = await api.post('/upload/file', formData, {
+
+    const response = await api.post('/load/file', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
     });
-    
+
     return response.data;
   },
 
@@ -52,33 +55,33 @@ export const uploadAPI = {
       column_types: {}
     } : null;
 
-    await api.post(`/upload/parse/${sessionId}`, payload);
+    await api.post(`/load/parse/${sessionId}`, payload);
   },
 
   getData: async (sessionId: string, page = 0, pageSize = 50): Promise<PaginatedData> => {
-    const response = await api.get(`/upload/data/${sessionId}`, {
+    const response = await api.get(`/load/data/${sessionId}`, {
       params: { page, page_size: pageSize }
     });
     return response.data;
   },
 
   getSession: async (sessionId: string): Promise<VisualizationSession> => {
-    const response = await api.get(`/upload/sessions/${sessionId}`);
+    const response = await api.get(`/load/sessions/${sessionId}`);
     return response.data;
   },
 
   listSessions: async (): Promise<VisualizationSession[]> => {
-    const response = await api.get('/upload/sessions');
+    const response = await api.get('/load/sessions');
     return response.data;
   },
 
   deleteSession: async (sessionId: string): Promise<void> => {
-    await api.delete(`/upload/sessions/${sessionId}`);
+    await api.delete(`/load/sessions/${sessionId}`);
   },
 
-  // Enhanced upload workflow methods
+  // Enhanced load workflow methods
   extractSchema: async (sessionId: string, query?: string): Promise<SchemaExtractionResult> => {
-    const response = await api.post(`/upload/extract-schema/${sessionId}`, null, {
+    const response = await api.post(`/load/extract-schema/${sessionId}`, null, {
       params: { query: query || '' }
     });
     return response.data;
@@ -89,34 +92,34 @@ export const uploadAPI = {
     files.forEach(file => {
       formData.append('files', file);
     });
-    
-    const response = await api.post(`/upload/add-documents/${sessionId}`, formData, {
+
+    const response = await api.post(`/load/add-documents/${sessionId}`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },
     });
-    
+
     return response.data;
   },
 
   processDocuments: async (sessionId: string, llmConfig?: any): Promise<DocumentProcessingResult> => {
     const requestBody = llmConfig ? { llm_config: llmConfig } : {};
-    const response = await api.post(`/upload/process-documents/${sessionId}`, requestBody);
+    const response = await api.post(`/load/process-documents/${sessionId}`, requestBody);
     return response.data;
   },
 
   confirmWebSocketReady: async (sessionId: string): Promise<{ status: string; connections: number; session_id: string }> => {
-    const response = await api.post(`/upload/sessions/${sessionId}/confirm-websocket`);
+    const response = await api.post(`/load/sessions/${sessionId}/confirm-websocket`);
     return response.data;
   },
 
   getProcessingStatus: async (sessionId: string): Promise<ProcessingStatus> => {
-    const response = await api.get(`/upload/processing-status/${sessionId}`);
+    const response = await api.get(`/load/processing-status/${sessionId}`);
     return response.data;
   },
 
   exportData: async (sessionId: string): Promise<Blob> => {
-    const response = await api.get(`/upload/export/${sessionId}`, {
+    const response = await api.get(`/load/export/${sessionId}`, {
       responseType: 'blob'
     });
     return response.data;
@@ -178,9 +181,9 @@ export const qbsdAPI = {
 
 // Common session API
 export const sessionAPI = {
-  getSession: async (sessionId: string, type: 'upload' | 'qbsd'): Promise<VisualizationSession> => {
-    if (type === 'upload') {
-      return uploadAPI.getSession(sessionId);
+  getSession: async (sessionId: string, type: 'load' | 'qbsd'): Promise<VisualizationSession> => {
+    if (type === 'load') {
+      return loadAPI.getSession(sessionId);
     } else {
       // For QBSD, we need to construct from multiple endpoints
       const status = await qbsdAPI.getStatus(sessionId);
@@ -189,9 +192,9 @@ export const sessionAPI = {
     }
   },
 
-  getData: async (sessionId: string, type: 'upload' | 'qbsd', page = 0, pageSize = 50): Promise<PaginatedData> => {
-    if (type === 'upload') {
-      return uploadAPI.getData(sessionId, page, pageSize);
+  getData: async (sessionId: string, type: 'load' | 'qbsd', page = 0, pageSize = 50): Promise<PaginatedData> => {
+    if (type === 'load') {
+      return loadAPI.getData(sessionId, page, pageSize);
     } else {
       return qbsdAPI.getData(sessionId, page, pageSize);
     }

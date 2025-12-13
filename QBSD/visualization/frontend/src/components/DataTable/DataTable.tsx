@@ -65,7 +65,7 @@ import {
 interface DataTableProps {
   data?: PaginatedData;  // Optional - DataTable will fetch its own data if not provided
   sessionId: string;
-  sessionType: 'upload' | 'qbsd';
+  sessionType: 'load' | 'qbsd';
   newlyAddedRows?: Set<number>;
   columnOrder?: string[];
   onColumnReorder?: (newOrder: string[]) => void;

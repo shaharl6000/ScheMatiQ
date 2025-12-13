@@ -69,7 +69,7 @@ interface SchemaViewerProps {
   columns: ColumnInfo[];
   query?: string;
   sessionId: string;
-  sessionType?: 'upload' | 'qbsd';
+  sessionType?: 'load' | 'qbsd';
   readonly?: boolean;
   onColumnsChange?: (columns: ColumnInfo[]) => void;
   websocketManager?: any;
@@ -378,10 +378,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             </Box>
             {/* Schema Source Indicator */}
             <Box sx={{ ml: 2, textAlign: 'right' }}>
-              <Chip 
-                icon={sessionType === 'upload' ? <Backup /> : <SchemaIcon />}
-                label={sessionType === 'upload' ? 'Imported Schema' : 'Generated Schema'}
-                color={sessionType === 'upload' ? 'secondary' : 'primary'}
+              <Chip
+                icon={sessionType === 'load' ? <Backup /> : <SchemaIcon />}
+                label={sessionType === 'load' ? 'Loaded Schema' : 'Generated Schema'}
+                color={sessionType === 'load' ? 'secondary' : 'primary'}
                 variant="outlined"
                 size="small"
               />
@@ -390,8 +390,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         </Paper>
       )}
 
-      {/* Schema Metadata for Enhanced Upload */}
-      {sessionType === 'upload' && displayColumns.length > 0 && (
+      {/* Schema Metadata for Load Sessions */}
+      {sessionType === 'load' && displayColumns.length > 0 && (
         <Paper sx={{ p: 3, mb: 3, bgcolor: 'action.hover' }}>
           <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
             <Verified sx={{ mr: 1, color: 'success.main' }} />
@@ -600,8 +600,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     </Box>
                   )}
 
-                  {/* Missing metadata warning for uploaded schemas */}
-                  {sessionType === 'upload' && (!column.definition || !column.rationale) && (
+                  {/* Missing metadata warning for loaded schemas */}
+                  {sessionType === 'load' && (!column.definition || !column.rationale) && (
                     <Box sx={{ mb: 1, p: 1.5, bgcolor: 'warning.light', borderRadius: 1, border: '1px solid', borderColor: 'warning.main', opacity: 0.8 }}>
                       <Typography variant="caption" color="warning.dark" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <Warning fontSize="small" />

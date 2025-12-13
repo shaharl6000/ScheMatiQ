@@ -32,7 +32,7 @@ import {
 } from '@mui/icons-material';
 import { useQuery, useQueryClient } from 'react-query';
 
-import { uploadAPI, qbsdAPI } from '../services/api';
+import { loadAPI, qbsdAPI } from '../services/api';
 import { VisualizationSession, CellValue, CellExtractedData } from '../types';
 import {
   PROCESSING_REFRESH_INTERVAL, 
@@ -70,7 +70,7 @@ const Visualize: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   
-  const mode = searchParams.get('mode') as 'upload' | 'qbsd' || 'upload';
+  const mode = searchParams.get('mode') as 'load' | 'qbsd' || 'load';
   const [activeTab, setActiveTab] = useState(mode === 'qbsd' ? 4 : 0); // Start with QBSD Monitor (tab index 4) for QBSD mode
   
   // Enhanced upload document management state
@@ -269,13 +269,13 @@ const Visualize: React.FC = () => {
   const { data: session, isLoading: sessionLoading, error: sessionError } = useQuery(
     ['session', sessionId, mode],
     async () => {
-      if (mode === 'upload') {
-        return uploadAPI.getSession(sessionId!);
+      if (mode === 'load') {
+        return loadAPI.getSession(sessionId!);
       } else {
         // For QBSD, get full session from session manager (for metadata like uploaded_documents)
         // plus status and schema from QBSD API
         const [fullSession, status, schema] = await Promise.all([
-          uploadAPI.getSession(sessionId!).catch(() => null), // May fail if session doesn't exist in upload API
+          loadAPI.getSession(sessionId!).catch(() => null), // May fail if session doesn't exist in load API
           qbsdAPI.getStatus(sessionId!),
           qbsdAPI.getSchema(sessionId!)
         ]);
@@ -325,8 +325,8 @@ const Visualize: React.FC = () => {
   const { data: dataResponse, isLoading: dataLoading } = useQuery(
     ['data', sessionId, mode],
     async () => {
-      if (mode === 'upload') {
-        return uploadAPI.getData(sessionId!, 0, 100);
+      if (mode === 'load') {
+        return loadAPI.getData(sessionId!, 0, 100);
       } else {
         return qbsdAPI.getData(sessionId!, 0, 100);
       }
@@ -564,8 +564,8 @@ const Visualize: React.FC = () => {
   const handleExport = async () => {
     try {
       // Build URL with column order if user has reordered columns
-      let apiUrl = mode === 'upload'
-        ? `/api/upload/export/${sessionId}`
+      let apiUrl = mode === 'load'
+        ? `/api/load/export/${sessionId}`
         : `/api/qbsd/export/${sessionId}`;
 
       // Add column order as query parameter if available
@@ -647,7 +647,7 @@ const Visualize: React.FC = () => {
 
       // Verify WebSocket is registered on backend before starting processing
       try {
-        const wsConfirmation = await uploadAPI.confirmWebSocketReady(sessionId);
+        const wsConfirmation = await loadAPI.confirmWebSocketReady(sessionId);
         console.log('✅ WebSocket confirmed on backend:', wsConfirmation);
       } catch (wsError) {
         console.warn('⚠️ WebSocket confirmation failed, proceeding anyway (buffering will catch events):', wsError);
@@ -658,7 +658,7 @@ const Visualize: React.FC = () => {
 
       // NOW start document processing - WebSocket is confirmed ready
       console.log('🚀 Starting document processing...');
-      await uploadAPI.processDocuments(sessionId, llmConfig);
+      await loadAPI.processDocuments(sessionId, llmConfig);
 
       // Refresh session data to show updated status
       queryClient.invalidateQueries(['session', sessionId]);
@@ -689,7 +689,7 @@ const Visualize: React.FC = () => {
     setDocumentUploadError(null);
     
     try {
-      const result = await uploadAPI.addDocuments(sessionId, uploadedDocuments);
+      const result = await loadAPI.addDocuments(sessionId, uploadedDocuments);
       setDocumentUploadResult(result);
       setUploadedDocuments([]); // Clear uploaded files
       
@@ -715,7 +715,7 @@ const Visualize: React.FC = () => {
         queryClient.invalidateQueries(['data', sessionId]);
         
         // Check session status
-        const session = await uploadAPI.getSession(sessionId);
+        const session = await loadAPI.getSession(sessionId);
         
         if (session.status === 'completed') {
           // Processing completed, stop polling
@@ -810,7 +810,7 @@ const Visualize: React.FC = () => {
                 Home
               </Link>
               <Typography color="text.primary">
-                {session?.type === 'upload' ? 'Upload Session' : 'QBSD Session'}
+                {session?.type === 'load' ? 'Load Session' : 'QBSD Session'}
               </Typography>
             </Breadcrumbs>
             <Typography variant="h6" sx={{ mt: 0.5 }}>
@@ -890,7 +890,7 @@ const Visualize: React.FC = () => {
               label="QBSD Monitor"
             />
           )}
-          {(mode === 'upload' && isEnhancedUploadProcessing) && (
+          {(mode === 'load' && isEnhancedUploadProcessing) && (
             <Tab icon={<CircularProgress size={16} />} label="Processing Monitor" />
           )}
         </Tabs>
@@ -999,7 +999,7 @@ const Visualize: React.FC = () => {
               />
               
               {/* Document Upload Section - show for upload sessions with schema, or completed/documents_uploaded/processing QBSD sessions */}
-              {((mode === 'upload' && (session?.status === 'documents_uploaded' || session?.status === 'processing_documents' || session?.status === 'completed')) ||
+              {((mode === 'load' && (session?.status === 'documents_uploaded' || session?.status === 'processing_documents' || session?.status === 'completed')) ||
                 (mode === 'qbsd' && (session?.status === 'completed' || session?.status === 'documents_uploaded' || session?.status === 'processing_documents'))) &&
                !sessionLoading && !dataLoading && dataResponse && (
                 <Box sx={{ mt: 4 }}>
@@ -1119,7 +1119,7 @@ const Visualize: React.FC = () => {
           ) : (
             <>
               {/* Show document upload for sessions without data but with schema (enhanced upload flow) */}
-              {mode === 'upload' && !sessionLoading && (session?.status === 'documents_uploaded' || session?.status === 'processing_documents') && !dataResponse && (
+              {mode === 'load' && !sessionLoading && (session?.status === 'documents_uploaded' || session?.status === 'processing_documents') && !dataResponse && (
                 <Box sx={{ mt: 4 }}>
                   <Alert severity="info" sx={{ mb: 3 }}>
                     {session?.status === 'documents_uploaded' 
@@ -1247,7 +1247,7 @@ const Visualize: React.FC = () => {
           </TabPanel>
         )}
 
-        {(mode === 'upload' && isEnhancedUploadProcessing) && (
+        {(mode === 'load' && isEnhancedUploadProcessing) && (
           <TabPanel value={activeTab} index={5}>
             <UploadProcessingMonitor 
               sessionId={sessionId} 
