@@ -1,0 +1,1380 @@
+p
+Summary
+CRM1 is the major nuclear export receptor. During translocation through the nuclear pore, transport complexes transiently interact with phenylalanine-glycine (FG) repeats of multiple nucleoporins. On the cytoplasmic side of the nuclear pore, CRM1 tightly interacts with the nucleoporin Nup214. Here, we present the crystal structure of a 117-amino-acid FG-repeat-containing fragment of Nup214, in complex with CRM1, Snurportin 1, and RanGTP at 2.85 Å resolution. The structure reveals eight binding sites for Nup214 FG motifs on CRM1, with intervening stretches that are loosely attached to the transport receptor. Nup214 binds to N- and C-terminal regions of CRM1, thereby clamping CRM1 in a closed conformation and stabilizing the export complex. The role of conserved hydrophobic pockets for the recognition of FG motifs was analyzed in biochemical and cell-based assays. Comparative studies with RanBP3 and Nup62 shed light on specificities of CRM1-nucleoporin binding, which serves as a paradigm for transport receptor-nucleoporin interactions.
+Graphical Abstract
+Introduction
+The nuclear pore complex (NPC) is a giant protein complex embedded between the inner and the outer nuclear membrane that allows transport of large proteins and ribonucleoprotein particles into and out of the nucleus. At the same time, it restricts translocation by diffusion of small proteins and, thus, functions as a selective gate (
+Cook et al., 2007; Wente and Rout, 2010
+8.
+Cook, A. ∙ Bono, F. ∙ Jinek, M. ...
+Structural biology of nucleocytoplasmic transport
+Annu. Rev. Biochem.
+2007;
+76
+:647-671
+Crossref
+Scopus (432)
+PubMed
+Google Scholar
+49.
+Wente, S.R. ∙ Rout, M.P.
+The nuclear pore complex and nuclear transport
+Cold Spring Harb. Perspect. Biol.
+2010;
+2
+:a000562
+Crossref
+Scopus (536)
+Google Scholar
+). The majority of actively translocated proteins interact with receptor proteins of the importin β superfamily, also referred to as karyopherins or importins/exportins. They mediate the translocation by binding to nucleoporins (Nups), the proteins forming the NPC. Another common binding partner of all karyopherins is the GTPase Ran. In nuclear import, binding of RanGTP to the importin results in dissociation of the import complex in the nucleus and to its release from a nucleoporin-binding site. In nuclear export, RanGTP is part of the export complex and accompanies it to the cytoplasmic side of the NPC. With RanGTP and nucleoporins as common binding partners, importins and exportins share many structural features. Generally, karyopherins are characterized by a modular architecture with a variable number of tandem HEAT repeats. Each HEAT repeat consists of two antiparallel α helices (A and B helix), connected by a short loop (
+Cook et al., 2007
+8.
+Cook, A. ∙ Bono, F. ∙ Jinek, M. ...
+Structural biology of nucleocytoplasmic transport
+Annu. Rev. Biochem.
+2007;
+76
+:647-671
+Crossref
+Scopus (432)
+PubMed
+Google Scholar
+).
+Common to all models for nuclear transport is the binding of importins/exportins to FG repeats found in about a third of the ∼30 nucleoporins, the so-called FG-Nups (
+Iovine et al., 1995; Rexach and Blobel, 1995
+24.
+Iovine, M.K. ∙ Watkins, J.L. ∙ Wente, S.R.
+The GLFG repetitive region of the nucleoporin Nup116p interacts with Kap95p, an essential yeast nuclear import factor
+J. Cell Biol.
+1995;
+131
+:1699-1713
+Crossref
+Scopus (170)
+PubMed
+Google Scholar
+41.
+Rexach, M. ∙ Blobel, G.
+Protein import into nuclei: association and dissociation reactions involving transport substrate, transport factors, and nucleoporins
+Cell.
+1995;
+83
+:683-692
+Abstract
+Full Text (PDF)
+Scopus (673)
+PubMed
+Google Scholar
+); for review, see
+Grossman et al. (2012)
+19.
+Grossman, E. ∙ Medalia, O. ∙ Zwerger, M.
+Functional architecture of the nuclear pore complex
+Annu. Rev. Biophys.
+2012;
+41
+:557-584
+Crossref
+Scopus (214)
+PubMed
+Google Scholar
+,
+Stewart (2007)
+44.
+Stewart, M.
+Molecular mechanism of the nuclear protein import cycle
+Nat. Rev. Mol. Cell Biol.
+2007;
+8
+:195-208
+Crossref
+Scopus (721)
+PubMed
+Google Scholar
+, and
+Terry and Wente (2009)
+46.
+Terry, L.J. ∙ Wente, S.R.
+Flexible gates: dynamic topologies and functions for FG nucleoporins in nucleocytoplasmic transport
+Eukaryot. Cell.
+2009;
+8
+:1814-1827
+Crossref
+Scopus (190)
+PubMed
+Google Scholar
+. FG-Nups in general are important for NPC function (
+Strawn et al., 2004
+45.
+Strawn, L.A. ∙ Shen, T. ∙ Shulga, N. ...
+Minimal nuclear pore complexes define FG repeat domains essential for transport
+Nat. Cell Biol.
+2004;
+6
+:197-206
+Crossref
+Scopus (314)
+PubMed
+Google Scholar
+), and FG-Nups that delineate the transport channel play important roles in the formation of the permeability barrier of the NPC (
+Hülsmann et al., 2012
+21.
+Hülsmann, B.B. ∙ Labokha, A.A. ∙ Görlich, D.
+The permeability of reconstituted nuclear pores provides direct evidence for the selective phase model
+Cell.
+2012;
+150
+:738-751
+Full Text
+Full Text (PDF)
+Scopus (231)
+PubMed
+Google Scholar
+). FG-Nups located at the cytoplasmic filaments of the NPC were suggested as initial or terminal binding sites for transport complexes (
+Kehlenbach et al., 1999; Yokoyama et al., 1995
+27.
+Kehlenbach, R.H. ∙ Dickmanns, A. ∙ Kehlenbach, A. ...
+A role for RanBP1 in the release of CRM1 from the nuclear pore complex in a terminal step of nuclear export
+J. Cell Biol.
+1999;
+145
+:645-657
+Crossref
+Scopus (182)
+PubMed
+Google Scholar
+50.
+Yokoyama, N. ∙ Hayashi, N. ∙ Seki, T. ...
+A giant nucleopore protein that binds Ran/TC4
+Nature.
+1995;
+376
+:184-188
+Crossref
+Scopus (426)
+PubMed
+Google Scholar
+).
+The best-characterized transport receptor with respect to FG-Nup binding is importin β (
+Chi et al., 1997; Kose et al., 1997; Kutay et al., 1997
+7.
+Chi, N.C. ∙ Adam, E.J.H. ∙ Adam, S.A.
+Different binding domains for Ran-GTP and Ran-GDP/RanBP1 on nuclear import factor p97
+J. Biol. Chem.
+1997;
+272
+:6818-6822
+Crossref
+Scopus (79)
+PubMed
+Google Scholar
+29.
+Kose, S. ∙ Imamoto, N. ∙ Tachibana, T. ...
+Ran-unassisted nuclear migration of a 97-kD component of nuclear pore-targeting complex
+J. Cell Biol.
+1997;
+139
+:841-849
+Crossref
+Scopus (149)
+PubMed
+Google Scholar
+31.
+Kutay, U. ∙ Izaurralde, E. ∙ Bischoff, F.R. ...
+Dominant-negative mutants of importin-beta block multiple pathways of import and export through the nuclear pore complex
+EMBO J.
+1997;
+16
+:1153-1163
+Crossref
+Scopus (312)
+PubMed
+Google Scholar
+). Crystal structures of an importin β fragment with FG peptides revealed a hydrophobic interaction of the peptides with the outer surface of the N-terminal region of importin β (
+Bayliss et al., 2000, 2002; Liu and Stewart, 2005
+3.
+Bayliss, R. ∙ Littlewood, T. ∙ Stewart, M.
+Structural basis for the interaction between FxFG nucleoporin repeats and importin-beta in nuclear trafficking
+Cell.
+2000;
+102
+:99-108
+Full Text
+Full Text (PDF)
+Scopus (405)
+PubMed
+Google Scholar
+4.
+Bayliss, R. ∙ Littlewood, T. ∙ Strawn, L.A. ...
+GLFG and FxFG nucleoporins bind to overlapping sites on importin-beta
+J. Biol. Chem.
+2002;
+277
+:50597-50606
+Crossref
+Scopus (190)
+PubMed
+Google Scholar
+33.
+Liu, S.M. ∙ Stewart, M.
+Structural basis for the high-affinity binding of nucleoporin Nup1p to the Saccharomyces cerevisiae importin-beta homologue, Kap95p
+J. Mol. Biol.
+2005;
+349
+:515-525
+Crossref
+Scopus (109)
+PubMed
+Google Scholar
+). A second nucleoporin-binding site was identified in the C-terminal half of importin β. Molecular dynamics simulations suggested that many more nucleoporin interaction sites are present in importin β (
+Isgro and Schulten, 2005
+25.
+Isgro, T.A. ∙ Schulten, K.
+Binding dynamics of isolated nucleoporin repeat regions to importin-beta
+Structure.
+2005;
+13
+:1869-1879
+Full Text
+Full Text (PDF)
+Scopus (138)
+PubMed
+Google Scholar
+) and probably in other transport receptors as well. Crystal structures of transport receptors showing multiple interactions with nucleoporins, however, are not available so far. FG-rich regions of nucleoporins are usually not resolved in crystal structures, most likely because they tend to be natively unfolded (
+Denning et al., 2003
+9.
+Denning, D.P. ∙ Patel, S.S. ∙ Uversky, V. ...
+Disorder in the nuclear pore complex: the FG repeat regions of nucleoporins are natively unfolded
+Proc. Natl. Acad. Sci. USA.
+2003;
+100
+:2450-2455
+Crossref
+Scopus (397)
+PubMed
+Google Scholar
+) and may only adopt a defined structure upon interaction with a binding partner.
+CRM1 is the most-prominent nuclear export receptor (
+Fornerod et al., 1997a; Fukuda et al., 1997; Kehlenbach et al., 1998; Ossareh-Nazari et al., 1997
+15.
+Fornerod, M. ∙ Ohno, M. ∙ Yoshida, M. ...
+CRM1 is an export receptor for leucine-rich nuclear export signals
+Cell.
+1997;
+90
+:1051-1060
+Full Text
+Full Text (PDF)
+Scopus (1779)
+PubMed
+Google Scholar
+17.
+Fukuda, M. ∙ Asano, S. ∙ Nakamura, T. ...
+CRM1 is responsible for intracellular transport mediated by the nuclear export signal
+Nature.
+1997;
+390
+:308-311
+Crossref
+Scopus (1054)
+PubMed
+Google Scholar
+26.
+Kehlenbach, R.H. ∙ Dickmanns, A. ∙ Gerace, L.
+Nucleocytoplasmic shuttling factors including Ran and CRM1 mediate nuclear export of NFAT In vitro
+J. Cell Biol.
+1998;
+141
+:863-874
+Crossref
+Scopus (144)
+PubMed
+Google Scholar
+38.
+Ossareh-Nazari, B. ∙ Bachelerie, F. ∙ Dargemont, C.
+Evidence for a role of CRM1 in signal-mediated nuclear protein export
+Science.
+1997;
+278
+:141-144
+Crossref
+Scopus (630)
+PubMed
+Google Scholar
+). It transports hundreds of different proteins harboring nuclear export signals (NESs) out of the nucleus and is also a major factor in RNA export (
+Hutten and Kehlenbach, 2007
+23.
+Hutten, S. ∙ Kehlenbach, R.H.
+CRM1-mediated nuclear export: to the pore and beyond
+Trends Cell Biol.
+2007;
+17
+:193-201
+Full Text
+Full Text (PDF)
+Scopus (309)
+PubMed
+Google Scholar
+). CRM1 consists of an array of 21 HEAT repeats and adopts an overall pitched and superhelical conformation in its free form (
+Monecke et al., 2013
+35.
+Monecke, T. ∙ Haselbach, D. ∙ Voß, B. ...
+Structural basis for cooperativity of CRM1 export complex formation
+Proc. Natl. Acad. Sci. USA.
+2013;
+110
+:960-965
+Crossref
+Scopus (59)
+PubMed
+Google Scholar
+). Cargo and/or RanGTP-bound CRM1 changes its conformation toward a closed ring-like or toroidal shape, where the N- and C-terminal arches interact (
+Dong et al., 2009a, b; Güttler et al., 2010; Monecke et al., 2009
+10.
+Dong, X. ∙ Biswas, A. ∙ Chook, Y.M.
+Structural basis for assembly and disassembly of the CRM1 nuclear export complex
+Nat. Struct. Mol. Biol.
+2009;
+16
+:558-560
+Crossref
+Scopus (81)
+PubMed
+Google Scholar
+11.
+Dong, X. ∙ Biswas, A. ∙ Süel, K.E. ...
+Structural basis for leucine-rich nuclear export signal recognition by CRM1
+Nature.
+2009;
+458
+:1136-1141
+Crossref
+Scopus (269)
+PubMed
+Google Scholar
+20.
+Güttler, T. ∙ Madl, T. ∙ Neumann, P. ...
+NES consensus redefined by structures of PKI-type and Rev-type nuclear export signals bound to CRM1
+Nat. Struct. Mol. Biol.
+2010;
+17
+:1367-1376
+Crossref
+Scopus (199)
+PubMed
+Google Scholar
+34.
+Monecke, T. ∙ Güttler, T. ∙ Neumann, P. ...
+Crystal structure of the nuclear export receptor CRM1 in complex with Snurportin1 and RanGTP
+Science.
+2009;
+324
+:1087-1091
+Crossref
+Scopus (178)
+PubMed
+Google Scholar
+). CRM1 binds RanGTP on the interior with major contributions of N-terminal HEAT repeats 1–6 (H1–6) in addition to residues of the acidic loop, a long β-hairpin in H9 (
+Monecke et al., 2009
+34.
+Monecke, T. ∙ Güttler, T. ∙ Neumann, P. ...
+Crystal structure of the nuclear export receptor CRM1 in complex with Snurportin1 and RanGTP
+Science.
+2009;
+324
+:1087-1091
+Crossref
+Scopus (178)
+PubMed
+Google Scholar
+). In contrast, the cargo SPN1 is bound on the outer surface and interacts with CRM1 via the N-terminal NES, the central cap-binding domain, and the C-terminal 12 residues (
+Dong et al., 2009b; Monecke et al., 2009
+11.
+Dong, X. ∙ Biswas, A. ∙ Süel, K.E. ...
+Structural basis for leucine-rich nuclear export signal recognition by CRM1
+Nature.
+2009;
+458
+:1136-1141
+Crossref
+Scopus (269)
+PubMed
+Google Scholar
+34.
+Monecke, T. ∙ Güttler, T. ∙ Neumann, P. ...
+Crystal structure of the nuclear export receptor CRM1 in complex with Snurportin1 and RanGTP
+Science.
+2009;
+324
+:1087-1091
+Crossref
+Scopus (178)
+PubMed
+Google Scholar
+).
+Formation of the export complex in the nucleus is a rate-limiting step in nuclear export (
+Kehlenbach et al., 2001
+28.
+Kehlenbach, R.H. ∙ Assheuer, R. ∙ Kehlenbach, A. ...
+Stimulation of nuclear export and inhibition of nuclear import by a Ran mutant deficient in binding to Ran-binding protein 1
+J. Biol. Chem.
+2001;
+276
+:14524-14531
+Crossref
+Scopus (31)
+PubMed
+Google Scholar
+), and several factors have been identified that promote the formation of CRM1-containing complexes. The best-characterized factor is the Ran-binding protein RanBP3 (Yrb2p in yeast), which binds directly to CRM1 and enhances its affinity for RanGTP and for NES cargoes (
+Englmeier et al., 2001; Lindsay et al., 2001
+12.
+Englmeier, L. ∙ Fornerod, M. ∙ Bischoff, F.R. ...
+RanBP3 influences interactions between CRM1 and its nuclear protein export substrates
+EMBO Rep.
+2001;
+2
+:926-932
+Crossref
+Scopus (98)
+PubMed
+Google Scholar
+32.
+Lindsay, M.E. ∙ Holaska, J.M. ∙ Welch, K. ...
+Ran-binding protein 3 is a cofactor for Crm1-mediated nuclear protein export
+J. Cell Biol.
+2001;
+153
+:1391-1402
+Crossref
+Scopus (120)
+PubMed
+Google Scholar
+). Similar effects have been suggested for the nucleoporins Nup98 (
+Oka et al., 2010
+37.
+Oka, M. ∙ Asally, M. ∙ Yasuda, Y. ...
+The mobile FG nucleoporin Nup98 is a cofactor for Crm1-dependent protein export
+Mol. Biol. Cell.
+2010;
+21
+:1885-1896
+Crossref
+Scopus (60)
+PubMed
+Google Scholar
+) and NLP1/hCG1 (
+Waldmann et al., 2012
+48.
+Waldmann, I. ∙ Spillner, C. ∙ Kehlenbach, R.H.
+The nucleoporin-like protein NLP1 (hCG1) promotes CRM1-dependent nuclear protein export
+J. Cell Sci.
+2012;
+125
+:144-154
+Crossref
+Scopus (21)
+PubMed
+Google Scholar
+). The nucleoporin with the highest affinity for CRM1 is Nup214 (
+von Lindern et al., 1990
+47.
+von Lindern, M. ∙ Poustka, A. ∙ Lerach, H. ...
+The (6;9) chromosome translocation, associated with a specific subtype of acute nonlymphocytic leukemia, leads to aberrant transcription of a target gene on 9q34
+Mol. Cell. Biol.
+1990;
+10
+:4016-4026
+Crossref
+Scopus (93)
+PubMed
+Google Scholar
+), which localizes to the cytoplasmic side of the NPC (
+Panté et al., 1994
+39.
+Panté, N. ∙ Bastos, R. ∙ McMorrow, I. ...
+Interactions and three-dimensional localization of a group of nuclear pore complex proteins
+J. Cell Biol.
+1994;
+126
+:603-617
+Crossref
+Scopus (179)
+PubMed
+Google Scholar
+). An FG repeat region within the C terminus of Nup214 is required for its interaction with CRM1 (
+Fornerod et al., 1996, 1997b
+14.
+Fornerod, M. ∙ Boer, J. ∙ van Baal, S. ...
+Interaction of cellular proteins with the leukemia specific fusion proteins DEK-CAN and SET-CAN and their normal counterpart, the nucleoporin CAN
+Oncogene.
+1996;
+13
+:1801-1808
+PubMed
+Google Scholar
+16.
+Fornerod, M. ∙ van Deursen, J. ∙ van Baal, S. ...
+The human homologue of yeast CRM1 is in a dynamic subcomplex with CAN/Nup214 and a novel nuclear pore component Nup88
+EMBO J.
+1997;
+16
+:807-816
+Crossref
+Scopus (406)
+PubMed
+Google Scholar
+), and several FG motifs contribute to efficient binding (
+Roloff et al., 2013
+43.
+Roloff, S. ∙ Spillner, C. ∙ Kehlenbach, R.H.
+Several phenylalanine-glycine motives in the nucleoporin Nup214 are essential for binding of the nuclear export receptor CRM1
+J. Biol. Chem.
+2013;
+288
+:3952-3963
+Crossref
+Scopus (26)
+PubMed
+Google Scholar
+).
+CRM1 binding to Nup214 is promoted by RanGTP (
+Kehlenbach et al., 1999
+27.
+Kehlenbach, R.H. ∙ Dickmanns, A. ∙ Kehlenbach, A. ...
+A role for RanBP1 in the release of CRM1 from the nuclear pore complex in a terminal step of nuclear export
+J. Cell Biol.
+1999;
+145
+:645-657
+Crossref
+Scopus (182)
+PubMed
+Google Scholar
+), suggesting that the nucleoporin is involved in a late step of nuclear export. Depletion of Nup214 resulted in inhibition of nuclear export of some, but not all, CRM1-dependent cargoes (
+Bernad et al., 2006; Hutten and Kehlenbach, 2006
+5.
+Bernad, R. ∙ Engelsma, D. ∙ Sanderson, H. ...
+Nup214-Nup88 nucleoporin subcomplex is required for CRM1-mediated 60 S preribosomal nuclear export
+J. Biol. Chem.
+2006;
+281
+:19378-19386
+Crossref
+Scopus (68)
+PubMed
+Google Scholar
+22.
+Hutten, S. ∙ Kehlenbach, R.H.
+Nup214 is required for CRM1-dependent nuclear protein export in vivo
+Mol. Cell. Biol.
+2006;
+26
+:6772-6785
+Crossref
+Scopus (124)
+PubMed
+Google Scholar
+). Nup214 stabilizes the interaction between the export receptor, RanGTP, and the transport cargo (
+Hutten and Kehlenbach, 2006
+22.
+Hutten, S. ∙ Kehlenbach, R.H.
+Nup214 is required for CRM1-dependent nuclear protein export in vivo
+Mol. Cell. Biol.
+2006;
+26
+:6772-6785
+Crossref
+Scopus (124)
+PubMed
+Google Scholar
+), although the significance of this effect of a cytoplasmic nucleoporin remains unclear.
+In this study, we solved the structure of the CRM1 export complex binding a 117-amino-acid fragment of the FG repeat region of Nup214 by X-ray crystallography. Structural data were corroborated by means of mass spectrometry, and site-directed mutagenesis studies unraveled the contribution of individual FG repeats to CRM1 binding in cell-based and in vitro assays. Our data provide insights into the interaction of karyopherins and nucleoporins during nucleocytoplasmic transport.
+Results
+Interaction of CRM1 and Nuclear Export Complexes with Nup214
+We showed that several FG repeats in the C-terminal region of Nup214 are involved in CRM1 binding (
+Roloff et al., 2013
+43.
+Roloff, S. ∙ Spillner, C. ∙ Kehlenbach, R.H.
+Several phenylalanine-glycine motives in the nucleoporin Nup214 are essential for binding of the nuclear export receptor CRM1
+J. Biol. Chem.
+2013;
+288
+:3952-3963
+Crossref
+Scopus (26)
+PubMed
+Google Scholar
+), confirming and extending previous results (
+Fornerod et al., 1997b
+16.
+Fornerod, M. ∙ van Deursen, J. ∙ van Baal, S. ...
+The human homologue of yeast CRM1 is in a dynamic subcomplex with CAN/Nup214 and a novel nuclear pore component Nup88
+EMBO J.
+1997;
+16
+:807-816
+Crossref
+Scopus (406)
+PubMed
+Google Scholar
+). To gain insight into binding specificities, we immobilized an FG-repeat-containing C-terminal fragment of Nup214
+1,859–2,090
+fused to GST and tested binding of CRM1, importin β, importin 5, importin 13, and transportin. Significant binding of CRM1 to Nup214 was observed in the presence, but not in the absence, of RanGTP (
+Figure 1
+A). Binding was increased by the addition of an NES peptide, as shown before (
+Hutten and Kehlenbach, 2006; Roloff et al., 2013
+22.
+Hutten, S. ∙ Kehlenbach, R.H.
+Nup214 is required for CRM1-dependent nuclear protein export in vivo
+Mol. Cell. Biol.
+2006;
+26
+:6772-6785
+Crossref
+Scopus (124)
+PubMed
+Google Scholar
+43.
+Roloff, S. ∙ Spillner, C. ∙ Kehlenbach, R.H.
+Several phenylalanine-glycine motives in the nucleoporin Nup214 are essential for binding of the nuclear export receptor CRM1
+J. Biol. Chem.
+2013;
+288
+:3952-3963
+Crossref
+Scopus (26)
+PubMed
+Google Scholar
+). Other transport receptors did not interact with Nup214 under these conditions.
+Figure 1
+Nup214 Stabilizes CRM1 Export Complexes
+Show full caption
+Figure viewer
+(A) 50 pmol GST-Nup214
+1,859–2,090
+was immobilized on glutathione beads and incubated with 50 pmol of CRM1, importin β, importin 5, importin 13, or transportin in the absence or presence of 375 nM RanGTP
+Q69L
+and, for CRM1, 2.5 μM NES peptide. Bound proteins were analyzed by SDS-PAGE, followed by Coomassie staining.
+(B) 500 pmol of GST-SPN1 or GST-HIV-1 Rev (GST-Rev) was immobilized on glutathione beads and incubated with or without 250 pmol CRM1, RanGTP
+Q69L
+, and His-Nup214
+1,916–2,033
+as indicated. Bound proteins were analyzed by SDS-PAGE, followed by Coomassie staining.
+(C) RanGAP assays were performed with increasing concentrations of SPN1 in the absence or presence of 3 μM MBP-Nup214
+1,930–2,021
+. All reactions contained 500 nM CRM1. The mean of three independent experiments is shown. Error bars are too small to be seen.
+In a complementary approach, we immobilized the CRM1 cargoes SPN1 and HIV-1 Rev and analyzed binding of CRM1 and RanGTP in the absence or presence of a Nup214 fragment. The addition of a Nup214 fragment enhanced binding of CRM1 and RanGTP to GST-SPN1 (
+Figure 1
+B). This effect was even more pronounced for GST-HIV-1 Rev, where CRM1- and Ran-binding was only observed in the presence of the Nup214 fragment (
+Figure 1
+B).
+Using RanGAP assays, we previously showed that CRM1 interacts with Nup214 fragments (
+Hutten and Kehlenbach, 2006; Roloff et al., 2013
+22.
+Hutten, S. ∙ Kehlenbach, R.H.
+Nup214 is required for CRM1-dependent nuclear protein export in vivo
+Mol. Cell. Biol.
+2006;
+26
+:6772-6785
+Crossref
+Scopus (124)
+PubMed
+Google Scholar
+43.
+Roloff, S. ∙ Spillner, C. ∙ Kehlenbach, R.H.
+Several phenylalanine-glycine motives in the nucleoporin Nup214 are essential for binding of the nuclear export receptor CRM1
+J. Biol. Chem.
+2013;
+288
+:3952-3963
+Crossref
+Scopus (26)
+PubMed
+Google Scholar
+). This assay is based on the observation that RanGTP in a complex with a transport receptor is largely insensitive to the GTPase-stimulating activity of RanGAP (
+Floer and Blobel, 1996; Görlich et al., 1996
+13.
+Floer, M. ∙ Blobel, G.
+The nuclear transport factor karyopherin beta binds stoichiometrically to Ran-GTP and inhibits the Ran GTPase activating protein
+J. Biol. Chem.
+1996;
+271
+:5313-5316
+Crossref
+Scopus (110)
+PubMed
+Google Scholar
+18.
+Görlich, D. ∙ Panté, N. ∙ Kutay, U. ...
+Identification of different roles for RanGDP and RanGTP in nuclear protein import
+EMBO J.
+1996;
+15
+:5584-5594
+Crossref
+Scopus (551)
+PubMed
+Google Scholar
+). We now used it for a quantitative analysis of the effect of Nup214 fragments on export complex formation. In the presence of a limiting concentration of a Nup214
+1,930–2,021
+fragment, which on its own resulted only in a moderate protection from RanGAP-induced GTP hydrolysis, the two CRM1 cargoes SPN1 (
+Figure 1
+C) and the NES peptide (data not shown) were much more efficient in reducing RanGTP hydrolysis and thus stable export complex formation. Strikingly, full protection of the export complex from GTP hydrolysis was only observed in the presence of the Nup214 fragment. In light of the tight and specific interaction of Nup214 and CRM1, this complex appeared particularly suitable for structural analysis.
+Complex Assembly, Crystallization, and Structure Determination
+To gain insight into the structural details of the Nup214-CRM1 interaction, we co-crystallized the CRM1-RanGTP-SPN1 complex with a Nup214 fragment comprising amino acids 1,916–2,033 (Nup214
+1,916–2,033
+). This fragment containing 12 FG motifs was fused to the C terminus of MBP. The C-terminal deletions RanGTP
+1–180, Q69L
+and SPN1
+1–291
+were used for complex formation. The purified components were mixed, and the resulting CRM1-SPN1-RanGTP-
+MBP
+Nup214 complex was purified by gel filtration (
+Figures S1
+A and S1B) and subjected to crystallization trials. The complex crystallized in PEG8000 conditions, yielding crystals belonging to space group
+C
+222
+1
+that contain one quaternary complex in the asymmetric unit (
+Table S1
+). The diffraction properties of initial crystals (
+Figure S1
+C) could be significantly improved by dehydration and post-mounting optimization steps. The crystal structure was solved by means of molecular replacement using the ternary CRM1-SPN1-RanGTP complex (PDB:
+3GJX
+) as search model and refined at a resolution of 2.85 Å. For the final model, residues 5–388 and 401–1,048 of CRM1; residues 1–28, 32–73, 93-162, and 166-287 of SPN1; residues 8–179 of RanGTP; and Nup214 residues 1,916–1,951, 1,980–1,988, and 2,009–2,027 were placed in the electron density map.
+Overall Structure of the CRM1-SPN1-RanGTP-
+MBP
+Nup214 Complex
+The overall conformation and interaction pattern of CRM1, RanGTP, and SPN1 in the complex is essentially unaltered compared to the crystal structure of the ternary complex (PDB:
+3GJX
+). CRM1, RanGTP, and SPN1 superpose with root-mean-square deviations (rmsds) of 0.68 Å (for 975 common C
+α
+atoms), 0.33 Å (for 171 common C
+α
+atoms), and 0.57 Å (for 248 common C
+α
+atoms), respectively. CRM1 adopts a closed, ring-like conformation and binds RanGTP via several regions including the N-terminal six HEAT repeats, the acidic loop, as well as H17 and 19 (
+Figure 2
+A). SPN1 binds to the outer surface of H11–14 via two epitopes: the NES and the cap-binding domain. Because truncated SPN1 lacking the C-terminal 69 amino acids was used, the C-terminal 12 residues of SPN1 representing the third CRM1-binding epitope, which are in contact with HEAT repeats 14–16 in the ternary complex structure (PDB:
+3GJX
+), are missing.
+Figure 2
+Architecture of the CRM1-SPN1-RanGTP-
+MBP
+Nup214 Complex
+Show full caption
+Figure viewer
+(A) Overall structure of the Nup214 export complex. Three FG regions of Nup214 (red, orange, and yellow) bind to three distinct, mainly hydrophobic FG-binding patches on CRM1 (gray-white-gradient-colored surface from N to C terminus). RanGTP (green) is engulfed by the N-terminal region, the acidic loop, and C-terminal HEAT repeats of CRM1. SPN1 (blue) binds to the outer surface of CRM1 via two epitopes: the NES residues and the cap-binding domain. MBP, which was fused to the N terminus of Nup214 for crystallization, was omitted for clarity. It is located in front of SPN1, preceding the FG region 1 (indicated by a red asterisk; compare
+Figure S2
+A).
+(B–D) Detailed views of FG region 1 (red), FG region 2 (orange), and FG region 3 (yellow) of Nup214 bound to the respective FG-binding patches of CRM1. HEAT repeats are labeled and colored alternately in gray and white. Nup214 is shown in cartoon mode and as sticks. Phenylalanines of the FG repeats are illustrated by transparent spheres and labeled.
+See also
+Figures S2–S4
+and
+Table S1
+.
+Electron density corresponding to the fused MBP was found between two symmetry-related CRM1 complexes. MBP contacts H15 of one CRM1 molecule and several HEAT repeats including H10–12 and H15–16 of another. The C-terminal amino acids of MBP, the connecting linker peptide, and the N-terminal residues of the Nup214 fragment are located next to H14A and 15A.
+The Nup214 fragment winds around the outer, convex surface of CRM1 (
+Figure 2
+A). FG motifs represent the prominent anchor points in the Nup214 chain, as they are well defined in the electron density (
+Figure S2
+). Conversely, the intervening sequences between FG motifs are only loosely attached to the CRM1 surface and thus show weaker densities and elevated B factors compared to the FG residues. In general, phenylalanine side chains of Nup214 FG motifs neatly dock into hydrophobic surface pockets of CRM1, which are formed by hydrophobic side chains of amino acid residues of neighboring HEAT helices. Some of these hydrophobic surface pockets have also been identified in CRM1 structures lacking FG-binding partners, as discussed later.
+Overall, three major FG-binding patches (1–3) are found on CRM1 that interact with defined FG regions of Nup214 (
+Figure 2
+A). Residues connecting these three Nup214 FG regions are not defined in the electron density map (indicated by dashed lines in
+Figure 2
+A). The linkers between the Nup214 fragments are long enough to connect the three regions, and thus, it is likely that all patches derive from the same Nup214 chain. However, we cannot completely exclude the possibility that symmetry-related Nup214 molecules are involved as well.
+FG region 1 contains four canonical FG motifs named F1–F4, whereas FG region 2 contains only two FG motifs (F5 and F6;
+Figures 2
+B and 2C). FG region 3 includes one FG motif (F7) and one FGFG motif (F8;
+Figure 2
+D). The FG-binding pockets on CRM1 are correspondingly termed P1–P8. FG-binding patch 1 on CRM1 is located on the surface of H14–19, corresponding to a total surface on CRM1 of 1,374 Å
+2
+(
+Figure 2
+B). In this region, 36 residues (Ser1916-Gly1951) of Nup214 are bound, including the FG motifs F1, F3, and F4. Ser1919
+Nup214
+forms a hydrogen bond to the side chain of Asn727
+CRM1
+, bridging a distance of 2.8 Å and anchoring the N-terminal portion of the Nup214 chain on CRM1. Phe1922
+Nup214
+, which belongs to F1, is buried in the hydrophobic pocket P1 formed by the CRM1 residues Ile669, Ala672, Thr673, Val676, and Leu679 of H14 as well as Asn719, Val720, and Cys723 of H15 (
+Figure 3
+). Interestingly, this interaction site overlaps with the binding site for the C-terminal residues of SPN1 as observed for the ternary CRM1-RanGTP-SPN1 complex (
+Figure S3
+). Cys356
+SPN1
+in the ternary complex, for example, partially occupies the space of Phe1922
+Nup214
+in this complex, suggesting that these two regions may bind to CRM1 in a mutually exclusive manner.
+Figure 3
+Schematic Representation of Interactions between Nup214 and CRM1
+Show full caption
+Figure viewer
+Nup214 is depicted in red (FG region 1), orange (FG region 2), or yellow (FG region 3). Interacting CRM1 residues are depicted as gray boxes representing individual HEAT repeats. Polar interactions are represented as dashed lines (≤3.5 Å), whereas hydrophobic and van-der-Waals interactions are depicted as solid lines (≤4 Å). FG motifs (F1–F8; for F2 see also
+Figure S4
+) are encircled in white and highlighted, and α-helical regions of Nup214 are labeled. See also
+Figures S4
+and
+S5
+and
+Tables S2
+and
+S3
+.
+Adjacent to Phe1922
+Nup214
+, amino acids 1,924–1,928 of Nup214 describe a helical turn, at the end of which Phe1930
+Nup214
+of F2 binds in a shallow hydrophobic groove (P2) formed by Asn30, Val31, Cys34, Gln42, Ala46, and Val49 of H1 and Ala12 of the N-terminal helix (Met5-Asp18) of a symmetry-related CRM1 molecule (
+Figure S4
+). Because F2 mediates crystal contacts, the local structure of Nup214 could be influenced by the interaction with the symmetry-related molecule. Interestingly, this N-terminal helix of CRM1 has so far only been defined in crystal structures where the N terminus is involved in crystal contacts. Consequently, this binding site at the N-terminal tip of CRM1 as well as the whole FG-binding patch 1 has not been observed in the recently described crystal structure of the yeast CRM1-RanGTP-RanBP3 complex (
+Koyama et al., 2014
+30.
+Koyama, M. ∙ Shirai, N. ∙ Matsuura, Y.
+Structural insights into how Yrb2p accelerates the assembly of the Xpo1p nuclear export complex
+Cell Rep.
+2014;
+9
+:983-995
+Full Text
+Full Text (PDF)
+Scopus (30)
+PubMed
+Google Scholar
+; PDB:
+3WYF
+). Next, Nup214 spans the outer helices 15A–17A. The four residues
+1,937
+SFGE
+1,940
+describe a pitched β turn, exhibiting two prominent kinks (
+Figure 2
+B). In this turn, Phe1938
+Nup214
+of F3 is located at one of the kinks, and this prominent position enables the phenyl group to insert deeply into a hydrophobic pocket (P3) located between helices 17A (Pro820, Phe823, Asp824, Phe827, and Glu828) and 18A (Ile866, Pro867, and Gln870;
+Figures 2
+B and
+3
+).
+The following Nup214 residues (1,941–1,944) cross the loop between HEAT repeat helices 18A and 18B (e.g., the base of H18). After an additional turn, the chain follows the groove between the A helices of H18 and 19. Here, Phe1947
+Nup214
+of F4 deeply inserts into P4 between these two HEAT repeats and closely interacts with CRM1 residues Pro868 and Phe871 (H18) and Ala910, Ser913, Phe914, Thr917, and Tyr918 (H19) that are part of the hydrophobic core formed by these four helices.
+FG-binding patch 2 involves H17–20 (
+Figures 2
+A and 2C). A stretch of nine Nup214 amino acids (residues Pro1980-Phe1988) containing F5 and F6 (FG region 2) buries a total surface of 481 Å
+2
+on CRM1 (
+Figure 2
+C). Phe1982
+Nup214
+is bound in a rather shallow groove between HEAT repeats 17 (Leu831) and 18 (Leu873, Asp876, Ser877, and Trp880;
+Figure 3
+). Binding of the Nup214 residues Phe1982 and Gly1983 (F5) to P5 of CRM1 results in a sharp kink representing a β turn, which is characterized by a hydrogen bond between the main chain carbonyl of Thr1981
+Nup214
+and the main chain amide of Gly1984
+Nup214
+. Phe1988
+Nup214
+of the adjacent F6 is positioned between H19 (Gln924, Phe927, Ser928, and Thr931) and H20, interacting with residues Leu981, Ala985, and Phe986.
+FG-binding patch 3 on CRM1 is formed by the N-terminal H2–4 (754 Å
+2
+buried surface on CRM1;
+Figures 2
+A and 2D). The corresponding FG region 3 on Nup214 encompasses 19 residues (Gly2009-Gly2027) and comprises F7 and F8. It contacts the groove between H2A and 3A with Phe2012
+Nup214
+sticking in a hydrophobic pocket (P7) formed by Trp60, Val63, and Asp64 of H2A as well as Gln98, Gly101, Ile102, and Tyr105 of H3A (
+Figures 2
+D and
+3
+). Usually, the hydrophobic pockets on the surface of CRM1 are formed by the A helices of the respective HEAT repeats. Interestingly, in P7, Leu83, located in helix H2B, also contributes to the pocket, reflecting its profound depth. Next, an adjacent α-helical segment, which orthogonally crosses H3, causes a 90° kink in the Nup214 chain (
+Figure 2
+D). After an additional kink, Phe2024
+Nup214
+(F8) inserts into FG-binding pocket P8 between H3 (Val107, Ile111 of helix 3A, and Leu134 of helix 3B) and H4 (Phe149, Asp152, and Ile153 of helix 4A and Ile134, Ile170, Asn167, and Leu163 of helix 4B).
+To determine whether the FG pockets on CRM1 are formed in the absence of Nup214 or induced by binding of FG motifs, we compared the crystal structure of CRM1-RanGTP-SPN1-Nup214 to those of the ternary CRM1-RanGTP-SPN1 (PDB:
+3GJX
+) complex and free CRM1 (PDB:
+4FGV
+). In the CRM1-RanGTP-SPN1 complex, all pockets are found as in the bound state and thus are preformed with the exception of P3, which is locked by the side chain of Gln870. In contrast, only two pockets (P5 and P8) are entirely present in free CRM1, whereas P1 and P4 are principally preformed, but amino acid stretches preceding or following the Nup214 FG motifs (Phe1947-Ser1948 for F4 and Ser1916-Asn1920 for F1) would clash with the CRM1 surface. P3 is occluded by Gln867, which protrudes deeply into the pocket. Furthermore, P6 is locked by Phe927, which is not conserved in metazoan CRM1. Finally, P7 is occluded by Trp40 in free CRM1 and narrower in the CRM1-RanGTP-SPN1 complex (Trp60). Together, adjustments within the CRM1 structure upon binding of RanGTP and cargo seem to prepare the export receptor for nucleoporin binding, which is further optimized upon first contact with an FG repeat.
+To confirm that the crystal structure is consistent with protein-protein interactions that occur in solution, we performed crosslinking experiments with the tetrameric CRM1-RanGTP-SPN1-Nup214
+1,916–2,033
+complex, using BS3 as a lysine-reactive reagent. Crosslinking sites were identified by mass spectrometry, and the intra- and intermolecular crosslinking distances were compared with the 3D structure of the C-terminal Nup214 fragment bound to the export complex. These analyses revealed 51 intramolecular and 28 intermolecular protein-protein crosslinks within the tetrameric complex (
+Tables S2
+and
+S3
+). The crosslinking distances are all in the expected range of ≤30 Å and are in agreement with the arrangement of Nup214, CRM1, SPN1, and RanGTP in the crystal structure (
+Figure S5
+). Importantly, we also identified two crosslinking sites between Nup214 and SPN1 (Nup214 K1928–SPN1 K223) and CRM1 (Nup214 K2010–CRM1 K22), respectively. Both sites are consistent with the location of the FG motifs of Nup214 on the trimeric export complex (
+Table S3
+;
+Figure S5
+). The in-solution crosslinking data verify the interactions observed in the crystal structure, specifically the interactions of FG region 1 that could be influenced by the close proximity of the MBP tag and the interaction of F2 with a symmetry-related CRM1 molecule.
+Functional Characterization of CRM1-Nup214 Interactions
+Our structural analysis revealed a large number of contacts between CRM1 and the Nup214 fragment, most of which are based on hydrophobic interactions. Thus, we analyzed the functional consequences of changing interacting residues, both in Nup214 fragments as well as in CRM1. Nup214 mutants were created with exchanges of phenylalanines to serines. A Nup214 mutant with all the phenylalanines that bound to the C-terminal arch of CRM1 in the crystal structure (F1–F6) mutated to serines was termed “Nup214-X1”. In the Nup214-X2 mutant, phenylalanines that bound to the N-terminal arch of CRM1 (F7 to F8) were mutated to serines. The Nup214-X3 mutant was a combination of X1 and X2 (
+Figure 4
+A).
+Figure 4
+Phenylalanines in Nup214 Are Important for CRM1 Binding
+Show full caption
+Figure viewer
+(A) Schematic representation of recombinant Nup214 fragments. FG motifs are marked in gray or colored as in
+Figures 2
+and
+3
+if visible in the crystal structure. F1–8 indicate the phenylalanines as specified in
+Figure 3
+.
+(B) 100 pmol GST-HIV-1 Rev was immobilized on glutathione beads and incubated with CRM1 and the respective His-Nup214
+1,916–2,033
+fragment in the absence or presence of 750 nM RanGTP
+Q69L
+. Bound proteins were analyzed by SDS-PAGE, followed by Coomassie staining or western blotting.
+(C) RanGAP-assays were performed with increasing concentrations of wild-type His-Nup214
+1,916–2,033
+or mutants X1, X2, or X3, as indicated. All reactions contained 500 nM CRM1. Error bars indicate the SD from the mean of three independent experiments.
+(D and E) HeLa cells were co-transfected with plasmids coding for GFP-SPN1 and RFP-cNLS or Nup214
+1,859–2,090
+fragments fused to RFP-cNLS. Cells were analyzed by fluorescence microscopy (D; bar, 20 μm) and the localization of GFP-SPN1 in 100 cells was categorized as predominantly cytoplasmic (C > N), equally distributed (C = N), and predominantly nuclear (C < N). (E) The mean and SD of at least three independent experiments are plotted.
+First, we compared the ability of Nup214
+1,916–2,033
+mutants to promote binding of CRM1 to immobilized HIV-1 Rev (compare
+Figure 1
+B). Nup214-X1 and -X2 were still able to stabilize the CRM1-RanGTP-HIV-1 Rev complex, although to a lower extent than the wild-type version (
+Figure 4
+B). For Nup214-X3, only very little CRM1 binding to HIV-1 Rev was observed, indicating a strongly reduced affinity of the Nup214 fragment for the export receptor. For a quantitative analysis, the ability of the mutant Nup214 fragments to interact with wild-type CRM1 was analyzed by RanGAP assays. The wild-type Nup214 fragment led to a strong reduction of RanGAP-induced GTP hydrolysis, indicating the formation of a RanGAP-resistant CRM1-RanGTP-Nup214 complex (
+Figure 4
+C). Mutants X1, X2, and X3, by contrast, had hardly any effect in this assay. Of note, mutation of only three residues within FG region 3 in the Nup214-X2 fragment almost completely abolished GTPase protection. These results indicate that, in the context of the Nup214
+1,916–2,033
+fragment, the identified phenylalanines play an important role in CRM1 binding.
+Next, we used a cell-based assay to test whether longer Nup214 fragments (aas 1,859–2,090), containing nine additional FG repeats, with the same mutations (X1, X2, and X3) affected CRM1 binding. In this system, the localization of GFP-SPN1, which normally resides in the cytoplasm due to CRM1-mediated nuclear export, is analyzed in cells that express Nup214 fragments fused to RFP-cNLS. In the nucleus, they can interact with CRM1 and thereby inhibit nuclear export. The wild-type Nup214 fragment led to a clear shift of GFP-SPN1 from the cytoplasm to the nucleus, indicating efficient interaction with CRM1 (
+Figures 4
+D and 4E). Nup214 mutants X1 and X2 had almost the same effect as the wild-type fragment, demonstrating that the exchange of phenylalanines that either bind to the C-terminal (X1) or the N-terminal (X2) arch of CRM1 did not prevent the Nup214-CRM1 interaction. Strikingly, when the two sets of mutations were combined in the X3 mutant, the resulting Nup214 fragment was far less efficient in inhibiting SPN1 export, suggesting reduced CRM1 binding. These results confirm the importance of the identified FG motifs in Nup214 for CRM1 interaction.
+Our results also suggest that mutations within individual FG-binding pockets of CRM1, which are expected to affect only one out of many Nup214 contacts, might not have strong effects on nucleoporin interactions in general. Nevertheless, we generated a set of CRM1 mutants with amino acid changes in the identified FG-binding pockets. Several CRM1 mutants containing only a single mutation were completely insoluble under conditions that yielded milligram quantities of the wild-type protein. For mutants that could be purified in sufficient quantities, we first performed binding assays using phenyl-Sepharose as an interaction matrix. Phenyl-Sepharose has previously been used to enrich transport receptors from cytosol (
+Ribbeck and Görlich, 2002
+42.
+Ribbeck, K. ∙ Görlich, D.
+The permeability barrier of nuclear pore complexes appears to operate via hydrophobic exclusion
+EMBO J.
+2002;
+21
+:2664-2671
+Crossref
+Scopus (462)
+PubMed
+Google Scholar
+) and also to monitor differences of CRM1 mutants (
+Koyama et al., 2014
+30.
+Koyama, M. ∙ Shirai, N. ∙ Matsuura, Y.
+Structural insights into how Yrb2p accelerates the assembly of the Xpo1p nuclear export complex
+Cell Rep.
+2014;
+9
+:983-995
+Full Text
+Full Text (PDF)
+Scopus (30)
+PubMed
+Google Scholar
+). No differences in binding to phenyl-Sepharose were observed for our tested CRM1 mutants in the absence or presence of RanGTP or NES peptide (data not shown). We therefore decided to more carefully analyze the CRM1-Nup214 interactions. Due to the allosteric character of CRM1, the mutation of an individual residue in a Nup214-binding site could affect the arrangements of the HEAT repeats, thereby influencing distant binding sites of Ran and cargo. To faithfully characterize CRM1 mutants with respect to nucleoporin binding, the mutations should not affect binding of either RanGTP or the export cargo. We used RanGAP assays to assess these parameters. Two of the CRM1 mutants, CRM1 (S928K) and CRM1 (A156F), showed clear differences in RanGTP/cargo binding compared to wild-type CRM1 (
+Figure 5
+A), even though the mutated residues are not necessarily in close proximity to the RanGTP- or cargo-binding regions. Four of the tested CRM1 mutants showed NES-titration profiles very similar to that of the wild-type protein, namely CRM1 (L679R), CRM1 (D824K), CRM1 (Y918W), and CRM1 (W880A), with mutations in P1, P3, P4, and P5, respectively (
+Figure 5
+A). Despite these shortcomings, we tested all of the CRM1 mutants in RanGAP assays with the Nup214
+1,916–2,033
+fragment that was used for crystallization. Remarkably, almost all of the CRM1 mutants showed reduced interaction with the Nup214 fragment. In particular, two CRM1 mutants (D824K and W880A) that were not affected with respect to RanGTP/NES interaction were less efficient than wild-type CRM1 in inhibiting RanGAP-induced GTP hydrolysis in the presence of increasing concentrations of the Nup214 fragment (
+Figure 5
+A).
+Figure 5
+CRM1 Mutations in FG-Binding Patches Affect Nucleoporin and NES Binding
+Show full caption
+Figure viewer
+(A–C) RanGAP assays were performed with 300 nM of wild-type CRM1 or CRM1 single mutants (A) or the CRM1 (D824K/W880A) mutant (B and C), respectively, in the presence of increasing concentrations of MBP-Nup214
+1,916–2,033
+(A, left panel, and C) or NES peptide (A, right panel, and B). The individual values and averages of two independent experiments (mutants, solid lines; wild-type, dashed lines) are shown.
+(D) 50 pmol GST-Rev was immobilized on glutathione beads and incubated with MBP-Nup214
+1,916–2,033
+and wild-type CRM1 (wt) or CRM1 mutants in the absence or presence of RanGTP. Bound proteins were analyzed by SDS-PAGE, followed by Coomassie staining and western blotting.
+(E) Permeabilized GFP-NFAT cells were incubated with 100 nM of wild-type CRM1, CRM1 (D824K/W880A), or CRM1 (A156F/D824K/W880A). After the export reaction, residual nuclear fluorescence was analyzed by flow cytometry. Values were normalized to fluorescence intensities at 0 min.
+See also
+Figure S6
+.
+To analyze the effect of a CRM1 variant containing mutations in multiple FG pockets, we combined the two mutations creating the double mutant CRM1 (D824K/W880A). Similar to the individual mutations, RanGTP/NES binding was not affected in this double mutant (
+Figure 5
+B). Strikingly, an interaction with the Nup214
+1,916–2,033
+fragment was hardly detected for this CRM1 mutant in RanGAP assays (
+Figure 5
+C). To corroborate these findings, we analyzed the Nup214-CRM1 interaction in direct binding assays. We immobilized the CRM1-cargo HIV-1 Rev (
+Figure 5
+D) and tested the ability of the Nup214
+1,916–2,033
+fragment to promote binding of mutant CRM1 to HIV-1 Rev. Less of the CRM1 single mutants D824K and W880A or of the double mutant CRM1 (D824K/W880A) was recovered in this binding assay in comparison to wild-type CRM1, confirming a reduced affinity of the export receptor for the Nup214 fragment. The defect of CRM1 mutants in Nup214 binding got more prominent when a shorter Nup214 fragment was used (
+Figure S6
+A). Binding of CRM1 to phenyl-Sepharose, by contrast, was not affected by either single or double mutations (
+Figure S6
+B), demonstrating that this approach is not suitable for the detection of subtle changes in binding affinities.
+Together, these results show that amino acid residue exchanges within most of the identified FG-binding pockets in CRM1 affect nucleoporin binding. As expected for a protein with multiple binding sites, the effects of mutating individual sites were rather mild.
+We next asked the question of whether the double mutant CRM1 (D824K/W880A) or the triple mutant CRM1 (A156F/D824K/W880A) with mutated FG-binding pockets on the C- and the N-terminal arch would support nuclear export to the same extent as the wild-type protein. In our well-established in vitro transport assay, wild-type and mutant CRM1 supported nuclear export of GFP-NFAT to very similar extents (
+Figure 5
+E). This result suggests that amino acid changes in CRM1 that clearly affect binding to isolated nucleoporins or regions of nucleoporins may not result in drastic changes of the overall avidity of the export receptor to the NPC and, hence, do not affect the kinetics of nuclear export.
+Interaction of CRM1 with Other Nucleoporins and Nucleoporin-like Proteins
+To determine whether the amino acids forming the individual FG-binding pockets on CRM1 are conserved, we performed a comprehensive alignment with 16 CRM1 orthologs comprising sequences from vertebrates, fungi, insects, and protozoa (
+Figure 6
+A). Besides known regions with high sequence conservation, namely the NES-binding cleft and surface patches involved in Ran binding (
+Monecke et al., 2014
+36.
+Monecke, T. ∙ Dickmanns, A. ∙ Ficner, R.
+Allosteric control of the exportin CRM1 unraveled by crystal structure analysis
+FEBS J.
+2014;
+281
+:4179-4194
+Crossref
+Scopus (28)
+PubMed
+Google Scholar
+), P7 and P8 within FG-binding patch 3 are highly conserved among those very distantly related species (
+Figure 6
+D). FG-binding patch 2, comprising P5 and P6, is equally conserved (
+Figure 6
+C), whereas P1, P3, and P4 of FG-binding patch 1 show less conservation (
+Figure 6
+B).
+Figure 6
+CRM1 Conservation and Nup214 Competition by RanBP3 and Nup62 FG Repeats
+Show full caption
+Figure viewer
+Sequence conservation of CRM1 FG-pockets in the structural context of the Nup214 export complex.
+(A–D) Overall view (A) and detailed views (B–D) of FG-binding regions 1–3 of CRM1 bound to FG motifs of Nup214. CRM1 is depicted as surface and colored according to sequence conservation from invariant or strictly conserved (dark red) to variable (cyan). Nup214 residues are depicted as sticks (carbon in white, nitrogen in blue, and oxygen in red). Note that the binding pockets for FG motifs 7 and 8 as well as FG-binding region 2 are strongly conserved among 16 aligned CRM1 orthologs, whereas FG-binding region 1 is less conserved.
+(E and F) 50 pmol GST-Nup214
+1,968–2,033
+(E) or 50 pmol GST-Nup62 (F) were immobilized on beads and incubated with Cy3-labeled CRM1, alone or in the presence of 9 μM RanGTP
+Q69L
+and 50 μM NES peptide and increasing amounts of Nup62 (0/50/100/150 pmol) or His-Nup214
+1,916–2,033
+(0/12.5/25/50 pmol), respectively. Bound Cy3-CRM1 was analyzed by flow cytometry.
+(G) 250 pmol GST or GST-Nup214
+1,930–2,021
+was immobilized on glutathione beads and incubated with purified CRM1-RanGTP
+Q69L
+-SPN1 export complex and increasing amounts of RanBP3 (50/250/500 pmol). Bound proteins were analyzed by SDS-PAGE, followed by Coomassie staining.
+Based on this conservation, we speculated that at least some of the identified FG-binding pockets on CRM1 are also involved in binding of other nucleoporins. Thus, we performed competition experiments to confirm that Nup214 and Nup62, another bona fide nucleoporin, bind to similar regions on CRM1. We used a semiquantitative assay to monitor RanGTP- and NES-peptide-dependent binding of fluorescently labeled CRM1 to an immobilized Nup214 fragment (
+Figure 6
+E). Nup62 and Nup214 competed for binding to CRM1, suggesting that they contact similar binding sites. Notably, much higher concentrations of Nup62 were required to reduce binding of CRM1 to immobilized Nup214 fragments than of soluble Nup214 in a reciprocal experiment, where Nup62 had been immobilized on beads (
+Figure 6
+F). This probably reflects the very high affinity of Nup214 for the CRM1 export complex (
+Hutten and Kehlenbach, 2006
+22.
+Hutten, S. ∙ Kehlenbach, R.H.
+Nup214 is required for CRM1-dependent nuclear protein export in vivo
+Mol. Cell. Biol.
+2006;
+26
+:6772-6785
+Crossref
+Scopus (124)
+PubMed
+Google Scholar
+).
+Similar results were obtained when we used RanBP3, an FG repeat containing nucleoporin-like protein in such a competition pull-down assay. Nup214
+1,930–2,021
+was immobilized and incubated with CRM1, SPN1, RanGTP, and increasing amounts of RanBP3. The addition of RanBP3 to the reaction strongly reduced the interaction of CRM1 with the nucleoporin fragment, suggesting that binding of the export receptor to Nup214 and RanBP3 is mutually exclusive (
+Figure 6
+G). This observation is perfectly in line with the structure of the yeast CRM1-RanGTP-RanBP3 complex (
+Koyama et al., 2014
+30.
+Koyama, M. ∙ Shirai, N. ∙ Matsuura, Y.
+Structural insights into how Yrb2p accelerates the assembly of the Xpo1p nuclear export complex
+Cell Rep.
+2014;
+9
+:983-995
+Full Text
+Full Text (PDF)
+Scopus (30)
+PubMed
+Google Scholar
+). Here, two FG repeat regions of RanBP3 bind to H17–20 as well as H2–4 of CRM1 overlapping with FG-binding patches 2 and 3 in our Nup214 export complex (
+Figure 7
+). Although the FG-binding patches on CRM1 largely overlap, the interaction details differ. For example, the second FG repeat region of RanBP3 binds to the N-terminal H2–4 of CRM1 and contains three FG motifs, which are bound by three distinct FG-binding pockets on CRM1 (
+Figure 7
+C). In contrast, the region of Nup214 binding to the same HEAT repeats harbors only two such FG motifs. In addition to two FG-binding patches on CRM1 in the CRM1-RanGTP-RanBP3 complex, a third major binding patch in the central region of CRM1 (H14–19) was observed for Nup214.
+Figure 7
+Comparison of the Crystal Structures of CRM1 in Complex with FG Motifs of Nup214 and RanBP3
+Show full caption
+Figure viewer
+(A) Overall superposition of CRM1 (light and dark gray) and FG repeats of Nup214 (red) and RanBP3 (PDB:
+3WYF
+; green). Note that the two FG regions of RanBP3 overlap with FG regions 2 and 3 of Nup214. FG region 1 of Nup214 has no counterpart in RanBP3.
+(B and C) Detailed views on the superposition at FG-binding patches 2 and 3 of CRM1. Although the FG-binding patches on CRM1 are identical for Nup214 and RanBP3, the interactions and details of binding (e.g., depth of the Phe-pocket and course of the peptide chain) differ in both structures.
+Together, these results indicate that highly conserved residues on CRM1 mediate the interaction with proteins of the NPC or with accessory factors like RanBP3 that contain appropriate binding motifs.
+Discussion
+Unraveling the molecular details of nucleoporin-karyopherin interactions, which have to be strong enough to promote transport but sufficiently weak to avoid stalling of transport complexes within the pore, is key to our understanding of the mechanisms of nucleocytoplasmic transport. The interactions of CRM1 and Nup214 can serve as a paradigm for karyopherin-nucleoporin interactions in general. In this study, we solved the structure of a CRM1 export complex bound to a 117-amino-acid fragment of Nup214 at multiple FG motifs. We identified three FG regions in the Nup214 fragment containing a total of seven characteristic FG motifs and a similar FS motif (F1–F8). The location of FG-binding patches 2 and 3 on the N-terminal and C-terminal arches of CRM1, respectively, is consistent with a recently reported crystal structure (PDB:
+3WYF
+) of yeast CRM1 (Xpo1p) bound to RanGTP (Gsp1p) and RanBP3 (Yrb2p;
+Figure 7
+). RanBP3, however, contains only five FG motifs in two FG regions, and binding to CRM1 occurs mainly via its Ran-binding domain. Almost all of the phenylalanine residues in the Nup214 fragment bind to corresponding hydrophobic pockets in CRM1 (P1–P8). In order to insert these large side chains between two HEAT helices and form intricate interactions with hydrophobic residues between them, a kink in the main chain of the nucleoporin is required. To enable such a large (∼180°) bending of the peptide chain, the phenylalanine is followed by an adjacent glycine residue forming a sharp β turn, resulting in hydrogen bonding between the main chain carbonyl of residue n and the main chain amine of residue n + 3. Similar arrangements were previously described for a fragment of importin β binding to an FxFG motif (
+Bayliss et al., 2000
+3.
+Bayliss, R. ∙ Littlewood, T. ∙ Stewart, M.
+Structural basis for the interaction between FxFG nucleoporin repeats and importin-beta in nuclear trafficking
+Cell.
+2000;
+102
+:99-108
+Full Text
+Full Text (PDF)
+Scopus (405)
+PubMed
+Google Scholar
+) and for the CRM1-RanBP3 interaction (
+Koyama et al., 2014
+30.
+Koyama, M. ∙ Shirai, N. ∙ Matsuura, Y.
+Structural insights into how Yrb2p accelerates the assembly of the Xpo1p nuclear export complex
+Cell Rep.
+2014;
+9
+:983-995
+Full Text
+Full Text (PDF)
+Scopus (30)
+PubMed
+Google Scholar
+).
+Strikingly, FG-binding pockets from the N- and C-terminal region of CRM1 bind to FG motifs on Nup214 that are separated by a rather short stretch of amino acids. This is possible because, in the context of an export complex, the CRM1 termini are in close proximity, allowing simultaneous binding of the extended Nup214 fragment to the FG-binding pockets in CRM1. CRM1 can also be held together in a closed conformation by the Nup214 fragment in the presence of RanGTP but in the absence of an export substrate (
+Figure 1
+A). Thus, Nup214 functions as a molecular clamp, leading to stabilization of the export complex. This function, which requires binding of the nucleoporin to multiple sites of the export receptor, becomes obvious when we compare the effects of mutations within the Nup214 sequence in different assays. The Nup214-X2 mutant, for example, where three phenylalanine residues are changed to serines, still bound the CRM1 export complex in pull-down experiments, similar to the wild-type protein (
+Figure 4
+B). However, in assays where we monitored the ability of the nucleoporin fragment to protect CRM1-bound RanGTP from RanGAP-induced GTP hydrolysis, the Nup214-X2 mutant, which according to the structure should only bind to the C-terminal arch of CRM1, showed only a very weak effect compared to the wild-type fragment (
+Figure 4
+C). Similar observations were made for the Nup214-X1 mutant, which should only bind to the N-terminal region of CRM1. Thus, simple binding is not sufficient to protect CRM1 from GTP hydrolysis. This effect rather requires the clamp function of Nup214 with simultaneous binding to both ends of the export receptor. Cooperative binding of all four components of the CRM1-RanGTP-cargo-Nup214 complex is further enhanced by subtle changes in FG pockets of CRM1 upon formation of the trimeric export complexes that initially lack the nucleoporin. For export substrate-containing complexes, the stabilizing effect of FG nucleoporins distinct from Nup214 should prevent premature loss of the cargo during transit.
+The NES-binding site in CRM1 is the most-conserved part of the export receptor (
+Monecke et al., 2014
+36.
+Monecke, T. ∙ Dickmanns, A. ∙ Ficner, R.
+Allosteric control of the exportin CRM1 unraveled by crystal structure analysis
+FEBS J.
+2014;
+281
+:4179-4194
+Crossref
+Scopus (28)
+PubMed
+Google Scholar
+). Our analysis reveals that regions containing several of the FG-binding pockets in CRM1 are also conserved among species (
+Figure 6
+A). Interestingly, mutations in these regions affected binding of RanGTP and/or an NES substrate underlining the allosteric nature of CRM1 and suggesting that the overall CRM1 structure is extremely sensitive with respect to amino acid changes. Thus, for all functional assays in intact cells or in permeabilized systems, possible side effects of even single point mutations in transport receptors must be considered. In light of our observation that binding of CRM1 to Nup214 and other nucleoporins (Nup62) or nucleoporin-like proteins (RanBP3) is mutually exclusive, we conclude that the CRM1 sequence has been optimized during evolution to interact via similar mechanisms with a multitude of FG-containing proteins, as they are encountered during passage of the NPC—without compromising the ability of CRM1 to bind its primary partners, RanGTP and NES cargo. Interestingly, we observed that the FG pocket for Phe1922
+Nup214
+(P1) partially overlaps with the binding site for the C-terminal 12 residues of SPN1, representing its third CRM1-binding epitope in the ternary export complex structure (PDB:
+3GJX
+;
+Figure S3
+). It has previously been reported that a truncated version of SPN1, lacking these C-terminal residues, binds CRM1 with a 60% lower affinity (
+Paraskeva et al., 1999
+40.
+Paraskeva, E. ∙ Izaurralde, E. ∙ Bischoff, F.R. ...
+CRM1-mediated recycling of snurportin 1 to the cytoplasm
+J. Cell Biol.
+1999;
+145
+:255-264
+Crossref
+Scopus (143)
+PubMed
+Google Scholar
+). Due to the cooperative binding of SPN1 and Nup214 to CRM1, it is difficult to distinguish between the respective contributions of SPN1 and Nup214 to complex stability. However, the electron density for Nup214 in this region was significantly weaker when crystals with full-length SPN1 and the same Nup214 fragment were used for structure determination (data not shown). This could indicate a rather dynamic and/or mutual exclusive binding of Nup214 and the SPN1 C terminus. Thus, the overlapping binding sites might function in the release of the export complex, as binding of Nup214 to that site probably lowers the affinity of SPN1 to CRM1.
+Other karyopherins besides CRM1 must bind to FG-Nups in a similar fashion. However, at an atomic resolution, only the interaction of importin β with isolated FG motifs has been analyzed (
+Bayliss et al., 2000, 2002; Liu and Stewart, 2005
+3.
+Bayliss, R. ∙ Littlewood, T. ∙ Stewart, M.
+Structural basis for the interaction between FxFG nucleoporin repeats and importin-beta in nuclear trafficking
+Cell.
+2000;
+102
+:99-108
+Full Text
+Full Text (PDF)
+Scopus (405)
+PubMed
+Google Scholar
+4.
+Bayliss, R. ∙ Littlewood, T. ∙ Strawn, L.A. ...
+GLFG and FxFG nucleoporins bind to overlapping sites on importin-beta
+J. Biol. Chem.
+2002;
+277
+:50597-50606
+Crossref
+Scopus (190)
+PubMed
+Google Scholar
+33.
+Liu, S.M. ∙ Stewart, M.
+Structural basis for the high-affinity binding of nucleoporin Nup1p to the Saccharomyces cerevisiae importin-beta homologue, Kap95p
+J. Mol. Biol.
+2005;
+349
+:515-525
+Crossref
+Scopus (109)
+PubMed
+Google Scholar
+). Despite similarities in the FG-binding pockets of CRM1 and other transport receptors, the export receptor has a particularly high affinity for Nup214 (
+Figure 1
+A).
+From the nucleoporin’s point of view, interactions with transport receptors have to fulfill two opposing functions: first, binding must be strong enough to discriminate between bona fide transport complexes (or empty transport receptors) and inert proteins, whose translocation through the pore should be obstructed. On the other hand, interactions at individual binding sites must be weak to allow release of transport complexes and their translocation within the time frame of milliseconds. Our results clearly show that there are many interaction sites between CRM1 and nucleoporins. Full-length Nup214 contains a total of 44 FG motifs, 32 of which are not present in the fragment that was used for crystallization. Hence, additional contacts between CRM1 and several of these FG sites are likely and may further contribute to a high-avidity interaction. Apart from a study that showed three interaction sites between a nucleoporin fragment and Kap95p (
+Liu and Stewart, 2005
+33.
+Liu, S.M. ∙ Stewart, M.
+Structural basis for the high-affinity binding of nucleoporin Nup1p to the Saccharomyces cerevisiae importin-beta homologue, Kap95p
+J. Mol. Biol.
+2005;
+349
+:515-525
+Crossref
+Scopus (109)
+PubMed
+Google Scholar
+), multiple binding sites on transport receptors for FG motifs have so far only been simulated (
+Isgro and Schulten, 2005
+25.
+Isgro, T.A. ∙ Schulten, K.
+Binding dynamics of isolated nucleoporin repeat regions to importin-beta
+Structure.
+2005;
+13
+:1869-1879
+Full Text
+Full Text (PDF)
+Scopus (138)
+PubMed
+Google Scholar
+). Importantly, each of the multiple FG-binding pockets, which contact FG motifs on a rather linear, initially unstructured stretch of amino acids of FG-Nups, is expected to contribute only weakly to the overall avidity of the complex. Our structure shows that intervening Nup sequences are hardly attached to the transport receptor and will therefore be flexible upon loosening a single FG contact. Rapid dissociation of single sites, followed by rebinding of the transport receptor to a close-by FG motif (possibly of another nucleoporin) should therefore be feasible. Such association/dissociation cycles should allow the transport complex to overcome the permeability barrier of the NPC. For CRM1 export complexes, GTP hydrolysis on Ran as promoted by cytoplasmic RanGAP ultimately leads to dissociation of the CRM1 export complex from a terminal binding site, e.g., at the cytoplasmic nucleoporin Nup214 (
+Kehlenbach et al., 1999
+27.
+Kehlenbach, R.H. ∙ Dickmanns, A. ∙ Kehlenbach, A. ...
+A role for RanBP1 in the release of CRM1 from the nuclear pore complex in a terminal step of nuclear export
+J. Cell Biol.
+1999;
+145
+:645-657
+Crossref
+Scopus (182)
+PubMed
+Google Scholar
+).
+With respect to the kinetics of nuclear export, we cannot expect drastic changes upon manipulation of individual FG pockets within the CRM1 molecule, because the overall avidity of the transport receptor for nucleoporins in general will hardly be affected. Indeed, our double mutant CRM1 (D824K/W880A), which showed reduced binding to Nup214 fragments (
+Figures 5
+C and 5D), and even the triple mutant CRM1 (A156F/D824K/W880A) were as efficient in promoting nuclear export of GFP-NFAT as the wild-type protein (
+Figure 5
+E). The functional assay integrates possible interactions of CRM1 with full-length Nup214 and with all other FG nucleoporins, which may contribute to efficient passage of export complexes through the nuclear pore.
+The mode of interaction of nuclear transport receptors with nucleoporins is of paramount importance for the mechanisms of nucleocytoplasmic transport. With CRM1 as an example, we are beginning to understand the molecular details of transport complexes passing through the permeability barrier of the NPC, a process that involves binding to local FG regions, but also rapid dissociation from such sites. Based on the principles described above, movement of transport complexes within the pore becomes feasible, without bringing translocation to a standstill due to slow off rates.
+Experimental Procedures
+Protein Expression and Purification
+Proteins were expressed in
+E. coli
+and purified as described in the
+Supplemental Experimental Procedures
+.
+Preparation, Crystallization, and Structure Determination of the Nup214 Export Complex
+The CRM1-SPN1-RanGTP-
+MBP
+Nup214 complex was purified using gel filtration chromatography and crystallized by vapor diffusion in PEG8000-containing conditions. Orthorhombic crystals were subjected to successive PEG-mediated crystal dehydration, treated using a crystal humidifier (HC1c), flash-cooled in liquid nitrogen, and measured. The crystal structure was solved and refined as described in
+Supplemental Experimental Procedures
+. See also
+Figure S1
+.
+Pull-Downs
+GST fusion proteins were immobilized on glutathione Sepharose (GE Healthcare) equilibrated in pull-down buffer (50 mM Tris [pH 7.4], 200 mM NaCl, 1 mM MgCl
+2
+, 5% glycerol, 1 mM DTT, and 20 mg/ml BSA). The beads were incubated with proteins of interest in a total volume of 400 μl for 1 hr at 4°C and washed three times with 500 μl pull-down buffer lacking BSA. Bound proteins were eluted in 2× SDS sample buffer and analyzed by SDS-PAGE followed by Coomassie staining or western blotting.
+Flow-Cytometry-Based Binding Assay
+CRM1 was labeled with Cy3 (Mono Reactive Dye Pack; GE Healthcare). 50 pmol GST fusion protein was immobilized on 2.5 μl glutathione Sepharose (GE Healthcare) equilibrated in transport buffer (20 mM HEPES [pH 7.3], 110 mM KOAc, 2 mM Mg(OAc)
+2
+, 1 mM EGTA, and 1 mM DTT) supplemented with 10 mg/ml BSA. The beads were washed and incubated with 7.3 pmol CRM1-Cy3, other proteins of interest, and 4× assay mix (500 mM NaCl, 40 mg/ml BSA, 1 mM DTT, and 2% 1,6-hexanediole) in a total volume of 20 μl transport buffer containing 10 mg/ml BSA for 1 hr at 4°C. The beads were washed with transport buffer and bound CRM1-Cy3 was analyzed by flow cytometry using a FACSCanto II (BD Biosciences) and FACS Diva 6.1.1 software. The median fluorescence of 10,000 beads was measured (585/42 bandwidth and 556LP filter).
+RanGAP Assays
+RanGAP assays were performed as described previously (
+Askjaer et al., 1999; Kehlenbach et al., 1999
+1.
+Askjaer, P. ∙ Bachi, A. ∙ Wilm, M. ...
+RanGTP-regulated interactions of CRM1 with nucleoporins and a shuttling DEAD-box helicase
+Mol. Cell. Biol.
+1999;
+19
+:6276-6285
+Crossref
+Scopus (180)
+PubMed
+Google Scholar
+27.
+Kehlenbach, R.H. ∙ Dickmanns, A. ∙ Kehlenbach, A. ...
+A role for RanBP1 in the release of CRM1 from the nuclear pore complex in a terminal step of nuclear export
+J. Cell Biol.
+1999;
+145
+:645-657
+Crossref
+Scopus (182)
+PubMed
+Google Scholar
+). Briefly, CRM1 wild-type or mutants were incubated with Ran loaded with
+32
+P-γ-GTP and increasing concentrations of Nup214 fragments or full-length SPN1 or the NES peptide of minute virus of mice (CVDEMTKKFGTLTIHDTEK) as export cargo. GTP hydrolysis was initiated by the addition of 10 nM RanGAP and analyzed by determining free radioactive phosphate. Results were normalized to a reaction without RanGAP and plotted as percent of maximal GTP hydrolysis.
+Transfection of Mammalian Cells
+HeLa p4 cells (
+Charneau et al., 1994
+6.
+Charneau, P. ∙ Mirambeau, G. ∙ Roux, P. ...
+HIV-1 reverse transcription. A termination step at the center of the genome
+J. Mol. Biol.
+1994;
+241
+:651-662
+Crossref
+Scopus (333)
+PubMed
+Google Scholar
+) were grown in 24-well plates. Plasmids coding for GFP-SPN1 and RFP-Nup214-cNLS fragments were co-transfected with the calcium phosphate method (
+Ausubel et al., 1994
+2.
+Ausubel, F.M. ∙ Brent, R. ∙ Kingston, R.E. ...
+Current Protocols in Molecular Biology
+Greene Publishing Associates and Wiley-Interscience, New York, 1994
+Google Scholar
+). The effect of Nup214 or CRM mutants on nuclear export was analyzed by quantifying the distribution of GFP-SPN1.
+In Vitro Export Assays
+Transport assays were adapted from
+Kehlenbach et al. (1998)
+26.
+Kehlenbach, R.H. ∙ Dickmanns, A. ∙ Gerace, L.
+Nucleocytoplasmic shuttling factors including Ran and CRM1 mediate nuclear export of NFAT In vitro
+J. Cell Biol.
+1998;
+141
+:863-874
+Crossref
+Scopus (144)
+PubMed
+Google Scholar
+. Permeabilized GFP-NFAT cells were pre-treated in transport buffer with an ATP-regenerating system (1 mM ATP, 4 mM creatine phosphate, and 10 U/ml creatine phosphokinase) and 100 nM LMB in a 30°C water bath for 15 min to remove soluble transport factors and block endogenous CRM1. Export reactions contained 100,000 pre-incubated cells, 2 μM Ran, an ATP-regenerating system, 1 μM oligonucleotides (5′AGAGGAAAATTTGTTTCATA and 5′ TATGAAACAAATTTTCCTCT), and wild-type CRM1 or CRM1 mutant and were incubated at 30°C. Reactions were stopped with ice-cold transport buffer, and the efficiency of export was analyzed by measuring the residual median fluorescence of GFP-NFAT in 5,000 cells using a FACSCanto II flow cytometer (BD Biosciences).
+Author Contributions
+S.A.P., T.M., A.D., R.H.K., and R.F. conceived the project, analyzed results, and wrote the manuscript. S.A.P. and T.M. purified proteins, and S.A.P. performed biochemical and cell biological analyses. S.A.P. and T.M. set up crystallization trials, and T.M. solved the structure. C.S. generated molecular biology reagents. R.H. and H.U. performed the MS analysis and interpreted the results.
+Acknowledgments
+We thank Uwe Plessmann and Monika Raabe for excellent technical assistance in LC-MSMS and Carolin Thüne for valuable assistance in protein purification. We are very grateful to Piotr Neumann for his strong crystallographic support as well as Andreas Schmitt for help with figures. We also wish to thank Imke Baade for purifying importin 13, Dirk Görlich for reagents, and Cara Jamieson for very helpful comments on the manuscript. This work was supported by the DFG, Sonderforschungsbereich 860 (to H.U., R.F., and R.H.K.). We also acknowledge support by the Open Access Publication Funds of the Göttingen University.
+Accession Numbers
+The accession number for the atomic coordinates and structure factors of the CRM1-RanGTP-SPN1-
+MBP
+Nup214 complex reported in this paper is PDB:
+5DIS
+.
+Supplemental Information (2)
+Download all
+PDF (1.53 MB)
+Document S1. Supplemental Experimental Procedures, Figures S1–S6, and Tables S1–S4
+PDF (5.50 MB)
+Document S2. Article plus Supplemental Information

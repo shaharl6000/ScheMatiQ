@@ -90,7 +90,31 @@ config/secrets.*
 QBSD/visualization/frontend/build/
 QBSD/visualization/frontend/node_modules/
 
-# Backend data and session directories
+# Backend data and session directories (legacy location)
 QBSD/visualization/backend/data/
 QBSD/visualization/backend/sessions/
 QBSD/visualization/backend/qbsd_work/
+
+# New structure ignores
+# Frontend
+frontend/build/
+frontend/node_modules/
+
+# Backend
+backend/app/data/
+backend/app/sessions/
+backend/app/qbsd_work/
+backend/venv/
+
+# Research data (large files)
+research/data/abstracts/
+research/data/full_text/
+research/data/manually/
+research/data/arxivDIGESTables/
+research/results/
+
+# qbsd-lib
+qbsd-lib/.eggs/
+qbsd-lib/*.egg-info/
+qbsd-lib/build/
+qbsd-lib/dist/

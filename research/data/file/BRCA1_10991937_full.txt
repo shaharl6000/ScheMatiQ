@@ -1,0 +1,1677 @@
+Abstract
+Germ-line mutations in the tumor suppressor gene
+Brca1
+confer increased susceptibility to breast and ovarian cancers. BRCA1 is a 1863-amino acid protein with roles in transcriptional regulation and the cellular responses to DNA damage. Given its function in these nuclear processes, the subcellular localization of BRCA1 is an important issue and has been the object of recent controversy. BRCA1 contains two nuclear localization signals and is most frequently detected in the cell nucleus by immunofluorescence microscopy. In this study, we show that BRCA1 is a nuclear-cytoplasmic shuttling protein, capable of both entering and exiting the nucleus. We identified a functional Rev-type nuclear export sequence (
+81
+QLVEELLKIICAFQLDTGL) near the amino terminus of BRCA1 that facilitates export
+via
+the CRM1/exportin pathway. Mutational inactivation of this nuclear export sequence, or treatment of cells with the CRM1-specific export inhibitor leptomycin B, induced nuclear accumulation of ectopic full-length BRCA1. Moreover, overexpression of the CRM1 export receptor resulted in decreased nuclear localization of endogenous BRCA1. The unexpected ability of BRCA1 to shuttle between nucleus and cytoplasm may have implications for the regulation and function of this tumor suppressor.
+NLS(s)
+nuclear localization signal(s)
+NES(s)
+nuclear export sequence(s)
+LMB
+leptomycin B
+YFP
+yellow fluorescent protein
+GFP
+green fluorescent protein, PCR, polymerase chain reaction
+PBS
+phosphate-buffered saline
+HIV
+human immunodeficiency virus
+DAPI
+4′,6-diamidino-2-phenylindole
+Approximately 50% of inherited breast cancers and up to 90% of the familial cases of breast and ovarian cancer are linked to germ-line mutations of the tumor suppressor gene
+Brca1
+, the first susceptibility gene linked to these malignancies (
+1
+1.
+Miki, Y. ∙ Swensen, J. ∙ Shattuck-Eidens, D. ...
+Science.
+1994;
+266
+:66-71
+Crossref
+Scopus (5390)
+PubMed
+Google Scholar
+,
+2
+2.
+Couch, F.J. ∙ Weber, B.L. ∙ Breast Cancer Information Core
+Hum. Mutat.
+1996;
+8
+:8-18
+Crossref
+Scopus (273)
+PubMed
+Google Scholar
+). Although the biological basis for its tumor suppressive function is not yet clearly understood, mounting evidence suggests that
+Brca1
+is a type of “caretaker” gene, whose inactivation renders cells prone to the accumulation of genetic abnormalities (reviewed in Ref.
+3
+3.
+Deng, C.-X. ∙ Scott, F.
+Oncogene.
+2000;
+19
+:1059-1064
+Crossref
+Scopus (138)
+PubMed
+Google Scholar
+). The increased mutation rate because of loss of BRCA1 may in turn induce alterations in other cancer-related genes and thereby lead to tumor formation.
+The human
+Brca1
+gene encodes a 1863-amino acid protein involved in a variety of cellular processes. These include transcriptional activation (
+4
+4.
+Chapman, M.S. ∙ Verma, I.M.
+Nature.
+1996;
+382
+:678-679
+Crossref
+Scopus (438)
+PubMed
+Google Scholar
+,
+5
+5.
+Monteiro, A.N.A. ∙ August, A. ∙ Hanafusa, H.
+Proc. Natl. Acad. Sci. U. S. A.
+1996;
+93
+:13595-13599
+Crossref
+Scopus (433)
+PubMed
+Google Scholar
+) and, supporting its proposed role as a caretaker, the cellular response to DNA damage (
+6
+6.
+Scully, R. ∙ Chen, J. ∙ Ochs, R.L. ...
+Cell.
+1997;
+90
+:425-435
+Full Text
+Full Text (PDF)
+Scopus (814)
+PubMed
+Google Scholar
+). BRCA1 contains a carboxyl-terminal tandem of BRCT
+BR
+CA1
+c
+arboxyl-
+t
+erminus repeats (
+7
+7.
+Koonin, E.V. ∙ Altschul, S.F. ∙ Bork, P.
+Nat. Genet.
+1996;
+13
+:266-268
+Crossref
+Scopus (364)
+PubMed
+Google Scholar
+), a motif shared by several proteins involved in DNA repair and cell cycle checkpoint regulation (
+8
+8.
+Bork, P. ∙ Hofmann, K. ∙ Bucher, P. ...
+FASEB J.
+1997;
+11
+:68-76
+Crossref
+Scopus (668)
+PubMed
+Google Scholar
+). Apart from the BRCT motifs, BRCA1 homology to other known proteins is limited to an amino-terminal RING finger domain (
+9
+9.
+Wu, L.C. ∙ Wang, Z.W. ∙ Tsou Tsan, J. ...
+Nat. Genet.
+1996;
+14
+:430-440
+Crossref
+Scopus (654)
+PubMed
+Google Scholar
+), which mediates protein-protein interactions, and two nuclear localization signals (NLSs),
+1
+which facilitate nuclear import of BRCA1 (
+10-12
+10.
+Chen, C.-F. ∙ Li, S. ∙ Chen, Y. ...
+J. Biol. Chem.
+1996;
+271
+:32863-32868
+Full Text
+Full Text (PDF)
+Scopus (193)
+PubMed
+Google Scholar
+11.
+Wilson, C.A. ∙ Payton, M.N. ∙ Elliott, G.S. ...
+Oncogene.
+1997;
+14
+:1-16
+Crossref
+Scopus (184)
+PubMed
+Google Scholar
+12.
+Thakur, S. ∙ Zhang, H.B. ∙ Peng, Y. ...
+Mol. Cell. Biol.
+1997;
+17
+:444-452
+Crossref
+Scopus (232)
+PubMed
+Google Scholar
+).
+Full-length BRCA1 is predominantly located within the nucleus (
+13-15
+13.
+Scully, R. ∙ Ganesan, S. ∙ Brown, M. ...
+Science.
+1996;
+272
+:123-125
+Crossref
+Scopus (71)
+PubMed
+Google Scholar
+14.
+Ruffner, H. ∙ Verma, I.M.
+Proc. Natl. Acad. Sci. U. S. A.
+1997;
+94
+:7138-7143
+Crossref
+Scopus (181)
+PubMed
+Google Scholar
+15.
+Wilson, C.A. ∙ Ramos, L. ∙ Villaseñor, M.R. ...
+Nat. Genet.
+1999;
+21
+:236-240
+Crossref
+Scopus (373)
+PubMed
+Google Scholar
+), but there are BRCA1 splice variants, such as the commonly expressed isoforms BRCA1Δ11b (
+11
+11.
+Wilson, C.A. ∙ Payton, M.N. ∙ Elliott, G.S. ...
+Oncogene.
+1997;
+14
+:1-16
+Crossref
+Scopus (184)
+PubMed
+Google Scholar
+) or BRCA1Δ672–4095 (
+12
+12.
+Thakur, S. ∙ Zhang, H.B. ∙ Peng, Y. ...
+Mol. Cell. Biol.
+1997;
+17
+:444-452
+Crossref
+Scopus (232)
+PubMed
+Google Scholar
+), that lack the NLSs and are localized to the cytoplasm. Given the role of BRCA1 in critical nuclear processes, its localization within the cell is an important issue. In this regard, a series of conflicting reports on BRCA1 mislocalization in the cytoplasm of breast cancer cells gave rise previously to some controversy regarding the nuclear-cytoplasmic distribution of BRCA1 (
+13
+13.
+Scully, R. ∙ Ganesan, S. ∙ Brown, M. ...
+Science.
+1996;
+272
+:123-125
+Crossref
+Scopus (71)
+PubMed
+Google Scholar
+,
+16-18
+16.
+Chen, Y. ∙ Chen, C.-F. ∙ Riley, D.J. ...
+Science.
+1995;
+270
+:789-791
+Crossref
+Scopus (311)
+PubMed
+Google Scholar
+17.
+Chen, Y. ∙ Chen, P.-L. ∙ Riley, D.J. ...
+Science.
+1996;
+272
+:125-126
+Crossref
+PubMed
+Google Scholar
+18.
+Wilson, C.A. ∙ Payton, M.N. ∙ Pekar, S.K. ...
+Nat. Genet.
+1996;
+13
+:264-265
+Crossref
+Scopus (58)
+PubMed
+Google Scholar
+).
+Several cancer-associated proteins, such as the tumor suppressor p53 and the oncoproteins c-ABL and hdm2, were recently shown to shuttle between the nucleus and the cytoplasm (
+19-21
+19.
+Stommel, J.M. ∙ Marchenko, N.D. ∙ Jimenez, G.S. ...
+EMBO J.
+1999;
+18
+:1660-1672
+Crossref
+Scopus (619)
+PubMed
+Google Scholar
+20.
+Taagepera, S. ∙ McDonald, D. ∙ Loeb, J.E. ...
+Proc. Natl. Acad. Sci. U. S. A.
+1998;
+95
+:7457-7462
+Crossref
+Scopus (269)
+PubMed
+Google Scholar
+21.
+Roth, J. ∙ Dobbelstein, M. ∙ Freedman, D.A. ...
+EMBO J.
+1998;
+17
+:554-564
+Crossref
+Scopus (542)
+PubMed
+Google Scholar
+). Prompted by these findings, and by the controversy regarding BRCA1 localization, we sought to determine whether BRCA1 is also capable of nuclear-cytoplasmic shuttling. In this study, we show that BRCA1 is able to exit the nucleus via the CRM1-dependent pathway. We also show that the NH
+2
+-terminal peptide
+81
+QLVEE
+L
+LKI
+I
+CA
+F
+Q
+L
+DTGL
+99
+constitutes an active Rev-type nuclear export sequence (NES) that mediates CRM1-dependent export of BRCA1.
+EXPERIMENTAL PROCEDURES
+Cell Culture, Transfection, and Leptomycin B (LMB) Treatment
+Human breast cancer cell lines T47D and MCF-7, the human breast epithelial cell line HBL-100, and mouse NIH3T3 fibroblasts were maintained in Dulbecco's modified Eagle's medium supplemented with 10% fetal calf serum. Cells were seeded onto sterile glass coverslips and transfected at 50–70% confluency with 0.5–2 μg of plasmid DNA by using the FuGene 6 transfection reagent (Roche Molecular Biochemicals), according to the manufacturer's instructions. At 48 h post-transfection, cells were fixed and processed for fluorescence microscopy. When required, LMB was added to the culture medium at a final concentration of 6 ng/ml for the indicated period of time.
+Plasmid Construction
+pF-BRCA1, encoding untagged BRCA1, was created by subcloning the full-length BRCA1 cDNA (provided by Dr. J. Holt, Nashville) into the pFlag-CMV2 vector (Eastman Kodak Co.) as a
+Not
+I/
+Cla
+I fragment. To generate pYFP-BRCA1, a DNA fragment encoding the yellow fluorescent protein (YFP) was amplified by polymerase chain reaction (PCR) from the pEYFP-C1 vector (CLONTECH) and inserted in frame at the 5′ end of the BRCA1 cDNA in pF-BRCA1, using the unique
+Not
+I restriction site. The plasmid pRev-GFP, encoding the HIV Rev protein fused to GFP, was described previously (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+). The YFP-BRCA1 deletion mutant Δ1–70 was created by replacing a 0.5-kb
+Not
+I/
+Aat
+II DNA fragment from the BRCA1 cDNA with a 330-bp PCR fragment generated with the primers BH9926 and BH9832 (see Table
+I
+for details of all PCR cloning primers) to re-initiate translation at the downstream site. The mutant Δ1–170 was created by deleting the same 0.5-kb
+Not
+I/
+Aat
+II fragment from BRCA1 and inserting a 29-bp bridging sequence made by annealing the complementary synthetic oligonucleotides BH9924 and BH9925. To make YFP-BRCA1Δ1–297, a 0.9-kb
+Not
+I/
+Eco
+RI DNA fragment from BRCA1 was replaced with a 30-bp bridging sequence made by annealing the synthetic oligonucleotides BH9879 and BH9880. The NLS-defective YFP-BRCA1Δ306–1312 deletion mutant was made by replacing a 3-kb
+Eco
+RI/
+Bam
+HI DNA fragment with a 21-bp bridging sequence created with the synthetic oligonucleotides JR3 and JR4. The NES-defective BRCA1 mutant BRCA1NESm1 was created by using a two-step PCR-based site-directed mutagenesis procedure. Wild-type BRCA1 cDNA was used as template, and the oligonucleotides BH986, BH9832, BH9848, and BH9849 were used as primers in the PCR reactions. The codons in
+bold
+in the oligo BH9848 (Table
+I
+) encode the alanine residues replacing BRCA1 NES amino acids Leu
+86
+and Ile
+90
+. The correct sequence of the mutant constructs was confirmed by DNA sequencing. To create the plasmid pYFP-CRM1, encoding the YFP-tagged CRM1 export receptor, CRM1 cDNA was excised from the pET16bHC1 plasmid (provided by Dr. M. Yoshida, Tokyo) and inserted into the pEYFP-C1 vector (CLONTECH) as a
+Xho
+I/
+Bam
+HI fragment.
+Figure viewer
+Figure 1
+Transiently expressed BRCA1 shuttles between the nucleus and cytoplasm in MCF-7 breast cancer cells.
+A,
+different patterns of nuclear and cytoplasmic distribution of untagged BRCA1 (detected by immunofluorescence using antibody Ab1) and YFP-tagged BRCA1 in transiently transfected MCF-7 cells.
+Arrowheads
+point to the cells expressing ectopic BRCA1 stained with DAPI to show the nucleus.
+N
+, nuclear;
+C
+,cytoplasmic;
+NC
+, nuclear/cytoplasmic.
+B
+, LMB treatment (16 h) induces the nuclear accumulation of ectopically expressed BRCA1.
+Graphs
+show the results (mean ± S.D.) of at least three independent experiments in which the proportion of transfected cells showing nuclear (
+N
+), nuclear/cytoplasmic (
+NC
+), or cytoplasmic (
+C
+) localization of BRCA1 was scored using an unbiased method. More than 200 transfected cells were counted per experiment.
+C
+, time dependence of the LMB-induced nuclear relocation of BRCA1. YFP-BRCA1-transfected MCF-7 cells were incubated in the presence of 6 ng/ml LMB for the indicated period of time. The percentage of cells displaying nuclear (
+black squares
+), nuclear/cytoplasmic (
+open squares
+), or cytoplasmic (
+open circles
+) BRCA1 at each time point is shown. The values represent the mean of two independent experiments with less than 10% variation between samples. A minimum of 250 cells were counted per sample.
+Oligonucleotide
+Sequence 5′–3′
+BH9926
+TGATCAATTGCGGCCGCAAAAAGGAGCCTACAAGAAAG
+BH9832
+ACCGGTATCTTCAGA
+BH9924
+GGCCGCACGGATACAACCTCAAAAGACGT
+BH9925
+CTTTTGAGGTTGTATCCGTGC
+BH9879
+GGCCGCAATGAATGTAGAAAAGGCT
+BH9880
+AATCAGCCTTTTCTACATTCATCGT
+JR3
+AATTCTGTAATACCCAG
+JR4
+GATCCTGGGTATTACAG
+BH986
+TCTGCAGCGGCCGCCTCGAGAATGGATTTATCTGCTCTT
+BH9848
+AGGAGCCTAGACGTCAGTACGCGTTTTAGTCAACTTGTTGA
+AGAG
+GCA
+TTGAAAATC
+GCT
+TGTGCTTTTCAGCTTGAC
+BH9849
+TTGACTAAAACGCGTACTTTCTTGTAG
+BH977
+CGGGCCCGGGATCCA
+BH994
+GTGGCG
+ACCGGT
+GGCTTCTGATTTAA
+TAA
+CTT
+TAA
+CATGCA
+GAA
+CTTGCAGAA
+GAT
+ATGATCGCACTTT
+GGATCC
+CGGGCCC
+G
+BH9720
+GTGGCG
+ACCGGT
+GGTAAGCCGGTATCTAACTGGAAAGCGC
+A
+GAT
+GATCTTTAA
+TAA
+CTCCTCGACTAACTGT
+GGATCC
+CGG
+GCCCG
+BH995
+GTGGCG
+ACCGGT
+GGGATATTTAACTC
+TAA
+CTC
+CAT
+ATTTGA
+GAT
+TGATGATGA
+GAT
+AGGCTCAGCCTTT
+GGATCC
+CGGGCCC
+G
+BH9927
+TGTATCCGGGATCCAATGGATTTATCTGCTCTT
+BH9929
+TACTAAGACCGGTCTTTTGGTTATATCAATCTTAC
+BH9930
+TGTATCCGGGATCCAAAGAATGATATAACCAAAAGG
+BH9931
+TACTAAGACCGGTATCCGCTGCTTTGTCCTCAGAG
+BH9825
+CGGGCCCG
+GGATCC
+ACAGTTAGTCGAGGAG
+GCA
+TTAAAGA
+TC
+GCC
+TGCGCTTTC
+BH9826
+ATCTGCGCT
+GCC
+CAG
+GCA
+GATACCGGCTTACC
+ACCGGT
+CG
+CCAC
+BH9828
+CGGGCCCG
+GGATCC
+ACAG
+GCA
+GTCGAGGAG
+BH9829
+GATACCGGC
+GCA
+CC
+ACCGGT
+CGCCAC
+Table I
+Sequence of the oligonucleotides used in plasmid construction
+Open table in a new tab
+Rev(1.4)-GFP Nuclear Export Assay
+The
+in vivo
+export assay used in this study has been recently described in detail (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+). This assay is based on the ability of functional export sequences to restore the nuclear export activity of the chimeric protein Rev(1.4)-GFP, a fusion of an NES-deficient mutant HIV Rev protein and GFP. DNA fragments encoding the different amino acid sequences to be tested for export activity were cloned into the
+Bam
+HI/
+Age
+I-digested pRev(1.4)-GFP plasmid as follows: double-stranded oligonucleotides encoding each of the three NES-like motifs of BRCA1 were generated by annealing the common primer BH977 to specific single-strand synthetic oligonucleotides encoding each sequence, followed by extension with Klenow DNA polymerase (Roche Molecular Biochemicals) and digestion with
+Bam
+HI and
+Age
+I. The oligonucleotides used were BH994 for the first NES-like motif, BH9920 for the second, and BH995 for the third (the codons encoding the conserved hydrophobic amino acids are in
+bold
+, and the
+Bam
+HI and
+Age
+I sites are
+underlined
+in Table
+I
+). DNA fragments encoding BRCA1 amino acids 1–70 and 65–170 were generated by PCR using BRCA1 cDNA as template, primers BH9927 and BH9929 for the 1–70 fragment, and BH9930 and BH9931 for the 65–170 fragment (the
+Bam
+HI and
+Age
+I restriction sites are
+underlined
+in Table
+I
+). The DNA fragments encoding mutant BRCA1 NES, harboring point mutations at specific hydrophobic residues as shown in Fig.
+5
+, were also created by PCR, using the wild-type BRCA1 NES sequence as template. The mutagenic primers used were BH9825 for the mutant m1, BH9826 for m2, and BH9828 and BH9829 for m3 (the codons encoding the mutant residues are in
+bold
+, and the
+Bam
+HI and
+Age
+I restriction sites are
+underlined
+in Table
+I
+). The PCR products were digested with
+Bam
+HI and
+Age
+I and inserted into the pRev(1.4)-GFP plasmid. The sequence of all the constructs was verified by DNA sequencing prior to testing in the export assay.
+Figure viewer
+Figure 5
+Conservation of the BRCA1 export sequence in different species and its relative activity compared with NESs in other cancer-related proteins.
+The BRCA1 NES contains a series of large hydrophobic amino acids with a 3:2:1 spacing (
+shaded areas
+) as previously observed in highly active NESs (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+,
+38
+38.
+Bogerd, H.P. ∙ Fridell, R.A. ∙ Benson, R.E. ...
+Mol. Cell. Biol.
+1996;
+16
+:4207-4214
+Crossref
+Scopus (323)
+PubMed
+Google Scholar
+). These BRCA1 NES residues are well conserved in different species. When tested in the
+in vivo
+export assay, the BRCA1 NES was weaker than the c-ABL NES but stronger than the p53 and hdm2 export sequences.
+NT
+, not tested.
+The assay was carried out in T47D cells as described (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+). Briefly, duplicate samples of cells were transfected with pRev(1.4)-GFP (negative control) and its derivative plasmids containing the Rev NES (positive control) or each of the candidate export sequences. At 48 h post-transfection, half of the cell samples were treated for 3 h with 5 μg/ml actinomycin D, which prevents nucleolar association and nuclear import of Rev by a mechanism yet to be defined. This treatment allows the detection of those weaker NESs that are normally unable to over-ride the Rev NLS-mediated nuclear import and thus would go undetected in the presence of an active Rev import pathway. At the same time, all cell samples were treated with 10 μg/ml cycloheximide to ensure that cytoplasmic GFP fusion proteins arise from nuclear export and not from new protein synthesis. Samples were then processed for fluorescence microscopy analysis, and the subcellular localization of the GFP fusion proteins was determined in at least 200 cells per sample. A scoring system based on the proportion of cells showing nuclear, nuclear/cytoplasmic, or cytoplasmic GFP was used to rate the activity of the functional NESs as detailed elsewhere (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+).
+Fluorescence Microscopy Analysis
+Cells expressing YFP- or GFP-tagged proteins were fixed with 3.7% formaldehyde in PBS for 15 min at room temperature, washed, and mounted for direct detection of the autofluorescent proteins. Untagged ectopic BRCA1 was detected by immunofluorescence using monoclonal antibodies Ab1 (Oncogene Research) or D9 (Santa Cruz), which recognize an amino- or carboxyl-terminal epitope of BRCA1, respectively. The immunostaining procedure was carried out at room temperature. Cells were fixed with 3.7% formaldehyde in PBS for 15 min, washed with PBS, permeabilized with 0.2% Triton in PBS for 10 min, and washed with PBS again. Following a blocking step with 3% bovine serum albumin in PBS for 45 min, the primary antibody was diluted 1:100 in blocking solution and applied for 50 min. After washing with PBS, cells were incubated with fluorescein isothiocyanate-conjugated goat anti-mouse secondary antibody (Sigma) for 45 min. Finally, the coverslips were rinsed three times with PBS and mounted onto microscope slides with Vectashield (Vector). Endogenous BRCA1 was detected with monoclonal antibodies Ab-1 and Ab-4 (Oncogene Research) diluted 1:100. p53 and c-Myc were detected with antibodies DO1 (Oncogene Research) diluted 1:300 and C19 (Santa Cruz) diluted 1:150 in blocking solution. The immunostaining procedure was as described for ectopic BRCA1 except that the incubation with the primary antibody was carried out overnight at 4 °C, and the detection of the bound antibody was accomplished with biotin-conjugated secondary antibodies (Santa Cruz) and Texas Red-avidin D (Vector). The chromosome stains 4′,6-diamidino-2-phenylindole (DAPI) and Hoechst 33285 (Sigma) were used to counterstain the cell nuclei. Slides were examined under UV light on an Olympus epifluorescence microscope, and the subcellular localization of the ectopic or endogenous proteins was determined. To ensure unbiased results, the slides were coded prior to examination.
+RESULTS
+The Export Inhibitor Leptomycin B Induces the Nuclear Accumulation of Ectopically Expressed BRCA1
+The best characterized pathway for the nuclear export of proteins involves the nuclear export receptor CRM1 (
+23-27
+23.
+Fornerod, M. ∙ Ohno, M. ∙ Yoshida, M. ...
+Cell.
+1997;
+90
+:1051-1060
+Full Text
+Full Text (PDF)
+Scopus (1779)
+PubMed
+Google Scholar
+24.
+Stade, K. ∙ Ford, C.S. ∙ Guthrie, C. ...
+Cell.
+1997;
+90
+:1041-1050
+Full Text
+Full Text (PDF)
+Scopus (971)
+PubMed
+Google Scholar
+25.
+Neville, M. ∙ Stutz, F. ∙ Lee, L. ...
+Curr. Biol.
+1997;
+7
+:767-775
+Full Text
+Full Text (PDF)
+Scopus (368)
+PubMed
+Google Scholar
+26.
+Ossareh-Nazari, B. ∙ Bachelerie, F. ∙ Dargemont, C.
+Science.
+1997;
+278
+:141-144
+Crossref
+Scopus (630)
+PubMed
+Google Scholar
+27.
+Fukuda, M. ∙ Asano, S. ∙ Nakamura, T. ...
+Nature.
+1997;
+390
+:308-311
+Crossref
+Scopus (1054)
+PubMed
+Google Scholar
+). CRM1 binds directly to specific NESs to translocate proteins through the nuclear pores to the cytoplasm (
+28
+28.
+Nakielny, S. ∙ Dreyfuss, G.
+Cell.
+1999;
+99
+:677-690
+Full Text
+Full Text (PDF)
+Scopus (663)
+PubMed
+Google Scholar
+). This process is specifically inhibited by the antifungal compound LMB, which prevents the CRM1-NES interaction (
+29
+29.
+Kudo, N. ∙ Wolff, B. ∙ Sekimoto, T. ...
+Exp. Cell. Res.
+1998;
+242
+:540-547
+Crossref
+Scopus (725)
+PubMed
+Google Scholar
+). Thus, LMB treatment results in the nuclear accumulation of those shuttling proteins that exit the nucleus via the CRM1-dependent export pathway. To test whether BRCA1 exits the nucleus by a CRM1-dependent mechanism, we first determined the effect of LMB on the subcellular distribution of ectopically expressed full-length BRCA1. MCF-7 breast cancer cells were transiently transfected with plasmids encoding BRCA1, either untagged or as a fusion with YFP. As a positive control, cells were transfected with a plasmid encoding the HIV Rev protein tagged with GFP (Rev-GFP), whose ability to shuttle has been previously characterized (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+,
+30
+30.
+Stauber, R. ∙ Gaitanaris, G. ∙ Pavlakis, G.N.
+Virology.
+1995;
+213
+:439-449
+Crossref
+Scopus (106)
+PubMed
+Google Scholar
+).
+Ectopic BRCA1 was detected by fluorescence microscopy in the nucleus (excluded from the nucleolus) of most transfected cells (Fig.
+1
+A
+), but variable degrees of cytoplasmic BRCA1 were also observed, including exclusive cytoplasmic accumulation in a minority of cells. A detailed quantitation of the cells expressing ectopic BRCA1 (Fig.
+1
+B
+) showed that treatment with LMB significantly increased the proportion of cells with nuclear BRCA1 (either untagged or YFP-tagged) and decreased the proportion of cells with cytoplasmic BRCA1. As shown in Fig.
+1
+C
+, the relocation of BRCA1 to the nucleus induced by LMB was already evident at the shortest incubation period tested (4 h) and reached its maximum at 8 h. The kinetics of this LMB response is comparable with that observed for other nuclear shuttling proteins, such as c-ABL (
+20
+20.
+Taagepera, S. ∙ McDonald, D. ∙ Loeb, J.E. ...
+Proc. Natl. Acad. Sci. U. S. A.
+1998;
+95
+:7457-7462
+Crossref
+Scopus (269)
+PubMed
+Google Scholar
+), and indicate that LMB has a direct effect on BRCA1 localization. In line with previous observations (
+11
+11.
+Wilson, C.A. ∙ Payton, M.N. ∙ Elliott, G.S. ...
+Oncogene.
+1997;
+14
+:1-16
+Crossref
+Scopus (184)
+PubMed
+Google Scholar
+,
+12
+12.
+Thakur, S. ∙ Zhang, H.B. ∙ Peng, Y. ...
+Mol. Cell. Biol.
+1997;
+17
+:444-452
+Crossref
+Scopus (232)
+PubMed
+Google Scholar
+), a BRCA1 deletion mutant lacking the NLSs (YFP-BRCA1Δ306–1312) was exclusively cytoplasmic in MCF-7 cells, and, in contrast to the full-length protein, its localization was not affected by LMB (data not shown). The fact that full-length BRCA1 accumulates in the cell nucleus upon treatment with the export inhibitor LMB suggests that BRCA1 is able to exit the nucleus via the CRM1-mediated pathway in MCF-7 cells.
+We next compared the LMB response of Rev-GFP and YFP-BRCA1 in different cell lines (Table
+II
+). As expected, LMB treatment had a dramatic effect on the subcellular distribution of Rev-GFP. In comparison, the effect of the export inhibitor was less pronounced on YFP-BRCA1 localization, which may reflect a lower shuttling (import or export) rate for BRCA1. Importantly, the cellular distribution of YFP alone did not change with LMB treatment (not shown). It is interesting to note that the LMB effect on GFP-Rev was similar in every cell line tested but that the degree of LMB-induced nuclear accumulation of BRCA1 varied among different cell lines, suggesting that the shuttling activity of BRCA1 may be regulated in a cell line-specific fashion.
+Cell line
+LMB effect
+2-a
+YFP-BRCA1
+Rev-GFP
+MCF-7
+49.3
+189
+NIH3T3
+45.3
+171
+T47D
+25.7
+158.5
+HBL100
+none
+166
+Table II
+Comparison of the effect of LMB treatment on the localization of Rev-GFP and YFP-BRCA1 in different cell lines
+2-a
+The degree of nuclear accumulation of Rev-GFP or YFP-BRCA1 after 16 h of LMB treatment (LMB effect) is expressed as a value calculated according to the following formula: LMB effect = (
+N
++LMB
+−
+N
+−LMB
++
+C
+−LMB
+−
+C
++LMB
+), where
+N
+and
+C
+represent the percentage of nuclear or cytoplasmic cellular localization, respectively, in the presence or absence of LMB. The maximal LMB effect value is 200.
+Open table in a new tab
+Overexpression of the CRM1 Export Receptor Regulates Localization of Endogenous BRCA1
+It is conceivable that the high levels of BRCA1 achieved in transient transfection experiments might influence its subcellular distribution. Therefore, we designed a complementary strategy in which we tested whether overexpressing the CRM1 export receptor could alter the localization of endogenous BRCA1. This approach was previously used to assess the role of CRM1 in nuclear export of the shuttling transcription factor NF-AT4 (
+31
+31.
+Zhu, J. ∙ McKeon, F.
+Nature.
+1999;
+398
+:256-259
+Crossref
+Scopus (162)
+PubMed
+Google Scholar
+).
+T47D breast cancer cells were transfected with plasmids encoding YFP or YFP-CRM1, and cells were immunostained with antibodies against BRCA1, p53, or c-Myc (see Fig.
+2
+). In line with previous observations (
+32
+32.
+Kudo, N. ∙ Khochbin, S. ∙ Nishi, K. ...
+J. Biol. Chem.
+1997;
+272
+:29742-29751
+Crossref
+Scopus (183)
+PubMed
+Google Scholar
+), YFP-tagged CRM1 stained both the nucleus and cytoplasm of transfected cells, with frequent concentration at the nuclear envelope (Fig.
+2
+). YFP alone was diffusely distributed throughout the cell. The anti-BRCA1 monoclonal antibodies Ab-1 (MS110) and Ab-4 (SD118) recognize different BRCA1 epitopes and were recently found to be highly suited for immunocytochemical detection of cellular BRCA1 (
+15
+15.
+Wilson, C.A. ∙ Ramos, L. ∙ Villaseñor, M.R. ...
+Nat. Genet.
+1999;
+21
+:236-240
+Crossref
+Scopus (373)
+PubMed
+Google Scholar
+). A characteristic BRCA1 staining pattern with “nuclear dots” was observed in untransfected T47D cells with Ab-1 (Fig.
+2
+) and Ab-4 (not shown). This pattern did not change following the transient expression of YFP (see Fig.
+2
+and Table
+III
+). In striking contrast, however, cells transfected with YFP-CRM1 showed a consistent decrease in BRCA1 nuclear staining and a corresponding increase in cytoplasmic signal (see Fig.
+2
+and Table
+III
+), highly consistent with nuclear export.
+Figure viewer
+Figure 2
+Effect of CRM1 overexpression on the localization of endogenous BRCA1, p53, and c-MYC.
+A
+, the subcellular localization of endogenous BRCA1, p53, and c-Myc was determined by immunofluorescence microscopy in transfected T47D breast cancer cells expressing YFP or YFP-CRM1.
+Upper panels
+(
+green
+) show the distribution of ectopic YFP and YFP-CRM1 in transfected cells.
+Middle panels
+(
+red
+) show the localization of endogenous BRCA1 (antibody Ab-1), p53 (antibody DO1), and c-Myc (antibody C19) in cells expressing the ectopic fluorescent protein (
+arrowheads
+). Cells were counterstained with Hoechst 33258 to show the nuclei (
+lower panels
+,
+blue
+). Note the decreased levels of nuclear BRCA1 and the nuclear/cytoplasmic staining for p53 in YFP-CRM1-expressing cells.
+B
+, CRM1 overexpression caused a consistent shift toward cytoplasmic staining of p53 and BRCA1 but not c-Myc.
+Graphs
+show mean ± S.D. of at least two independent experiments, in which the localization of endogenous BRCA1, p53, or c-Myc was scored in YFP or YFP-CRM-expressing cells.
+Endogenous
+Ectopic
+n
+3-b
+Subcellular distribution
+3-a
+%N
+%NC
+%C
+BRCA1 (Ab-1)
+YFP
+800 (4)
+32.5 ± 7.2
+54 ± 8.7
+13.5 ± 5.6
+YFP-CRM1
+790 (4)
+18.8 ± 0.9
+43.9 ± 5.7
+37.3 ± 6.4
+BRCA1 (Ab-4)
+YFP
+600 (3)
+44.3 ± 6.0
+55.3 ± 6.0
+0.4 ± 0.3
+YFP-CRM1
+600 (3)
+25.8 ± 6.7
+70.7 ± 2.7
+3.5 ± 4.4
+p53
+YFP
+400 (2)
+85.8 ± 1.0
+13.2 ± 0.8
+1 ± 1.4
+YFP-CRM1
+400 (2)
+44.8 ± 0.2
+50.2 ± 2.3
+5 ± 2.1
+c-Myc
+YFP
+395 (2)
+5.3 ± 3.1
+84 ± 2.2
+10.7 ± 0.9
+YFP-CRM1
+265 (2)
+5.8 ± 2.6
+82 ± 0.7
+12.2 ± 1.9
+Table III
+Subcellular distribution of endogenous BRCA1, p53, and c-Myc in T47D breast cancer cells expressing YFP or YFP-CRM1
+3-a
+The proportion of YFP or YFP-CRM1-expressing cells showing nuclear (N), nuclear/cytoplasmic (NC), or cytoplasmic (C) localization of each endogenous protein is indicated as the mean ± S.D. of several independent experiments.
+3-b
+Total number of transfected cells scored for the subcellular localization of each endogenous protein. The number of independent experiments performed is indicated in parentheses.
+Open table in a new tab
+As a positive control, we analyzed the effect of CRM1 overexpression on the localization of p53, a tumor suppressor protein known to undergo CRM1-mediated nuclear export (
+19
+19.
+Stommel, J.M. ∙ Marchenko, N.D. ∙ Jimenez, G.S. ...
+EMBO J.
+1999;
+18
+:1660-1672
+Crossref
+Scopus (619)
+PubMed
+Google Scholar
+). Endogenous p53 was detected exclusively within the nucleus in more than 85% of cells expressing YFP alone, whereas most YFP-CRM1-expressing cells displayed a partial shift of p53 to the cytoplasm (see Fig.
+2
+,
+graphs
+and Table
+III
+). c-Myc provided a negative control as it did not respond to LMB treatment in these cells (data not shown). Indeed, unlike p53 and BRCA1, c-Myc was not affected by CRM1 overexpression and exhibited an even nuclear-cytoplasmic distribution in ∼80% of cells expressing either YFP or YFP-CRM1 (Fig.
+2
+). These findings demonstrate that BRCA1 subcellular localization is regulated by the CRM1 nuclear export receptor.
+A Functional Rev-type NES in BRCA1
+The above results showed that when CRM1 activity is inhibited by LMB or increased by overexpression the BRCA1 subcellular distribution shifted in a manner consistent with nuclear export. This prompted us to search for potential BRCA1 NESs such as that first identified in HIV Rev (
+33
+33.
+Fisher, U. ∙ Huber, J. ∙ Boelens, W.C. ...
+Cell.
+1995;
+82
+:475-483
+Abstract
+Full Text (PDF)
+Scopus (1002)
+PubMed
+Google Scholar
+,
+34
+34.
+Wen, W. ∙ Meinkoth, J.L. ∙ Tsien, R.Y. ...
+Cell.
+1995;
+82
+:463-473
+Abstract
+Full Text (PDF)
+Scopus (1024)
+PubMed
+Google Scholar
+). The Rev-type NESs are short peptides containing a series of closely spaced large hydrophobic residues, often leucines (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+,
+37
+37.
+Taylor, J. ∙ Lymboura, M. ∙ Pace, P.E. ...
+Int. J. Cancer.
+1998;
+79
+:334-342
+Crossref
+Scopus (100)
+PubMed
+Google Scholar
+). We identified three conserved motifs (
+38
+KCDH
+I
+FCK
+F
+CM
+L
+K
+L
+LNQK
+55
+,
+81
+QLVEE
+L
+LKI
+I
+CA
+F
+Q
+L
+DTGL
+99
+, and
+583
+KAEP
+I
+SSS
+I
+SN
+M
+E
+L
+ELNI
+600
+) in BRCA1 that are similar to previously identified Rev-type NESs.
+To investigate the functional relevance of these NES-like motifs, we tested the subcellular localization of a series of BRCA1 deletion mutants (Fig.
+3
+). YFP-BRCA1Δ1–70 lacks the first NES-like motif and localized predominantly in the cytoplasm of transfected T47D and NIH3T3 cells (Fig.
+3
+). Further deletion of the next 100 amino acids (YFP-BRCA1Δ1–170) caused a dramatic relocation of the protein to the nucleus, a shift not significantly affected by further deletion of the BRCA1 sequence (YFP-BRCA1Δ1–297). These results indicate that the BRCA1 sequence 70 to 170, which contains the second Rev NES-like motif, is important for the cytoplasmic localization of BRCA1.
+Figure viewer
+Figure 3
+Sequences between amino acids 70 and 170 are important for BRCA1 cytoplasmic localization.
+Schematic representation of the full-length YFP-BRCA1 protein and a series of YFP-BRCA1 deletion mutants lacking amino-terminal sequences. The locations of the two previously reported NLSs (
+black boxes
+) and the three NES-like motifs identified in this study (
+arrowheads
+) are indicated.
+Graphs
+show the effect of the amino-terminal deletions on subcellular localization of YFP-BRCA1 in T47D and NIH3T3 cells. The proportion of cells showing predominantly nuclear (
+N
+) or cytoplasmic (
+C
+) YFP-BRCA1 was determined as described for Fig.
+1
+(the remainder of cells, not shown, contained nuclear/cytoplasmic YFP-BRCA1). Deletion of amino acids 70 to 170, which include the second NES-like motif
+81
+QLVEE
+L
+LKI
+I
+CA
+F
+Q
+L
+DTGL
+99
+(depicted as NES in the figure), results in the nuclear accumulation of BRCA1.
+We next tested BRCA1 amino acid fragments 1–70 and 65–170 for export activity, using a new assay that enables identification of active NESs (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+). Rev(1.4)-GFP is an export-defective GFP fusion protein that contains an HIV Rev mutant bearing an active NLS and an inactive NES (
+35
+35.
+Henderson, B.R. ∙ Percipalle, P.
+J. Mol. Biol.
+1997;
+274
+:693-707
+Crossref
+Scopus (209)
+PubMed
+Google Scholar
+). Rev(1.4)-GFP locates to the nucleus of T47D cells and remains nuclear after blocking Rev NLS-mediated nuclear import with actinomycin D (see Fig.
+4
+). Active NESs (such as the wild-type Rev NES used as positive control in this assay) are identified by their ability to promote export of the chimeric protein when inserted between the GFP and Rev(1.4) moieties.
+Figure viewer
+Figure 4
+A functional Rev-type NES in BRCA1.
+In vivo
+export assay demonstrating that the
+81
+QLVEE
+L
+LKI
+I
+CA
+F
+Q
+L
+DTGL
+99
+motif is a functional NES. Insertion of an active NES (such as the Rev NES, positive control) promoted the nuclear exit of the otherwise export-deficient chimeric protein Rev(1.4)-GFP. Both the sequence BRCA1(65–170) and a 19-amino acid peptide containing the NES-like motif (BRCA1 NES) produced a similar cytoplasmic relocalization of Rev(1.4)-GFP when the Rev NLS-mediated import was blocked with actinomycin D (see “Experimental Procedures” for further details).
+Consistent with the results from the deletion analysis, BRCA1(1–70) was negative in the export assay. In contrast, insertion of BRCA1(65–170) readily promoted cytoplasmic relocation of the chimeric protein upon actinomycin D treatment, indicating the presence of an active NES within this fragment. Next, three shorter BRCA1 fragments (19 amino acids in length) containing the putative NESs were similarly tested. Only the
+81
+QLVEE
+L
+LKI
+I
+CA
+F
+Q
+L
+DTGL
+99
+motif induced the cytoplasmic relocation of Rev(1.4)-GFP after actinomycin D treatment (see BRCA1 NES in Fig.
+4
+), a shift that was fully blocked by LMB (data not shown). These results confirmed that this sequence motif constitutes a functional NES, whereas the other two NES-like sequences in BRCA1 do not function as export signals.
+Characterization of the BRCA1 NES
+The nuclear export assay was used to determine the relative strength of the BRCA1 NES in comparison to export sequences from other cancer-related proteins recently tested using the same assay (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+). In the 1+ to 9+ scoring system for NES activity, the BRCA1 NES was rated as 5+. Thus, the BRCA1 NES is weaker than the c-ABL NES (rated as 8+) but significantly stronger than the p53 and hdm2 export sequences (rated as 1+) (Fig.
+5
+).
+The large hydrophobic amino acids in the BRCA1 export sequence that conform to the consensus NES spacing are well conserved between species (Fig.
+5
+). Using the export assay, we confirmed that these residues are essential for BRCA1 NES activity (Fig.
+6
+). Mutation of Leu
+86
+and Ile
+90
+(mutant m1) or Phe
+93
+and Leu
+95
+(mutant m2) to alanine completely abrogated export activity, whereas mutation of leucines outside the “core” NES (mutant m3) had only a minor effect (Fig.
+6
+).
+Figure viewer
+Figure 6
+The conserved hydrophobic amino acids are essential for BRCA1 NES activity.
+The activity of a series of BRCA1 NES mutants was tested using the Rev(1.4)-GFP export assay. Alanine substitutions of the hydrophobic residues that conform to the consensus Rev-type NES sequence (
+m1
+and
+m2
+) abrogate the ability of BRCA1 NES to promote export of Rev(1.4)-GFP. In contrast, mutation of flanking hydrophobic residues (
+m3
+) does not inactivate the NES.
+wt
+, wild type.
+Site-directed Mutagenesis of the NES Blocks Nuclear Export of Full-length BRCA1
+To assess the role of the NES in exporting full-length BRCA1, we determined the effect of mutating this export sequence on BRCA1 localization. We used site-directed mutagenesis to create an NES-defective version of BRCA1 (BRCA1NESm1) by introducing the NES-inactivating alanine substitutions of Leu
+86
+and Ile
+90
+into the full-length BRCA1 cDNA (Fig.
+7
+A
+). By transiently transfecting BRCA1 expression vectors into MCF-7, NIH3T3 (Fig.
+7
+B
+), and T47D cells (data not shown), the subcellular distribution of the NES-defective YFP-BRCA1 was compared with that of the wild-type protein. Inactivation of the BRCA1 NES increased the nuclear localization of the fusion protein in all cell lines. Similar results were observed for untagged BRCA1 (data not shown). LMB treatment of transfected cells revealed that BRCA1 shuttling was completely abolished by the NES mutation in T47D cells and greatly reduced in MCF-7 and NIH3T3 cells (data not shown). In the latter two cell lines, a residual LMB effect on the localization of the BRCA1 NES mutant (a nuclear shift of about 20%) was noted, which raises the possibility that an NES-independent pathway may be partially responsible for BRCA1 export in these cells. These results further confirm the ability of BRCA1 to shuttle between the nucleus and cytoplasm and demonstrate that the Rev-type NES reported here mediates BRCA1 nuclear export.
+Figure viewer
+Figure 7
+Mutational inactivation of the NES induces nuclear accumulation of full-length BRCA1.
+A
+, schematic representation of wild-type (
+wt
+) and NES-defective (
+NESm1
+) full-length YFP-BRCA1.
+B
+,
+graphs
+showing the proportion of cells with predominantly nuclear (
+N
+) or cytoplasmic (
+C
+) localization of wild-type or NES-defective YFP-BRCA1. At least 200 cells per experiment were counted using an unbiased method, and the results of three independent experiments (mean ± S.D.) are shown. Remaining cells showed both nuclear and cytoplasmic staining.
+DISCUSSION
+BRCA1 is most often described as a nuclear phosphoprotein (
+3
+3.
+Deng, C.-X. ∙ Scott, F.
+Oncogene.
+2000;
+19
+:1059-1064
+Crossref
+Scopus (138)
+PubMed
+Google Scholar
+,
+14
+14.
+Ruffner, H. ∙ Verma, I.M.
+Proc. Natl. Acad. Sci. U. S. A.
+1997;
+94
+:7138-7143
+Crossref
+Scopus (181)
+PubMed
+Google Scholar
+,
+15
+15.
+Wilson, C.A. ∙ Ramos, L. ∙ Villaseñor, M.R. ...
+Nat. Genet.
+1999;
+21
+:236-240
+Crossref
+Scopus (373)
+PubMed
+Google Scholar
+) and as a caretaker class of tumor suppressor that plays an integral role in protecting integrity of the genome (
+3
+3.
+Deng, C.-X. ∙ Scott, F.
+Oncogene.
+2000;
+19
+:1059-1064
+Crossref
+Scopus (138)
+PubMed
+Google Scholar
+,
+6
+6.
+Scully, R. ∙ Chen, J. ∙ Ochs, R.L. ...
+Cell.
+1997;
+90
+:425-435
+Full Text
+Full Text (PDF)
+Scopus (814)
+PubMed
+Google Scholar
+). Indeed, despite some previous controversy (
+15-18
+15.
+Wilson, C.A. ∙ Ramos, L. ∙ Villaseñor, M.R. ...
+Nat. Genet.
+1999;
+21
+:236-240
+Crossref
+Scopus (373)
+PubMed
+Google Scholar
+16.
+Chen, Y. ∙ Chen, C.-F. ∙ Riley, D.J. ...
+Science.
+1995;
+270
+:789-791
+Crossref
+Scopus (311)
+PubMed
+Google Scholar
+17.
+Chen, Y. ∙ Chen, P.-L. ∙ Riley, D.J. ...
+Science.
+1996;
+272
+:125-126
+Crossref
+PubMed
+Google Scholar
+18.
+Wilson, C.A. ∙ Payton, M.N. ∙ Pekar, S.K. ...
+Nat. Genet.
+1996;
+13
+:264-265
+Crossref
+Scopus (58)
+PubMed
+Google Scholar
+), there is now strong evidence that BRCA1 is predominantly localized to the nucleus of cells (
+15
+15.
+Wilson, C.A. ∙ Ramos, L. ∙ Villaseñor, M.R. ...
+Nat. Genet.
+1999;
+21
+:236-240
+Crossref
+Scopus (373)
+PubMed
+Google Scholar
+), and this is consistent with its proposed nuclear roles in transcriptional regulation (
+4
+4.
+Chapman, M.S. ∙ Verma, I.M.
+Nature.
+1996;
+382
+:678-679
+Crossref
+Scopus (438)
+PubMed
+Google Scholar
+,
+5
+5.
+Monteiro, A.N.A. ∙ August, A. ∙ Hanafusa, H.
+Proc. Natl. Acad. Sci. U. S. A.
+1996;
+93
+:13595-13599
+Crossref
+Scopus (433)
+PubMed
+Google Scholar
+) and for cell survival in response to DNA damage (
+36
+36.
+Zhong, Q. ∙ Chen, C.F. ∙ Li, S. ...
+Science.
+1999;
+285
+:747-750
+Crossref
+Scopus (532)
+PubMed
+Google Scholar
+). BRCA1 gains nuclear entry by two previously defined nuclear localization signals (
+10-12
+10.
+Chen, C.-F. ∙ Li, S. ∙ Chen, Y. ...
+J. Biol. Chem.
+1996;
+271
+:32863-32868
+Full Text
+Full Text (PDF)
+Scopus (193)
+PubMed
+Google Scholar
+11.
+Wilson, C.A. ∙ Payton, M.N. ∙ Elliott, G.S. ...
+Oncogene.
+1997;
+14
+:1-16
+Crossref
+Scopus (184)
+PubMed
+Google Scholar
+12.
+Thakur, S. ∙ Zhang, H.B. ∙ Peng, Y. ...
+Mol. Cell. Biol.
+1997;
+17
+:444-452
+Crossref
+Scopus (232)
+PubMed
+Google Scholar
+). Despite the strong nuclear staining of BRCA1 observed by immunofluorescence microscopy, however, we now present several lines of evidence to suggest that BRCA1 is not restricted to the nucleus but is in fact able to cycle back and forth between nucleus and cytoplasm. This nuclear-cytoplasmic shuttling ability is mediated by the combined action of the NLSs (
+10-12
+10.
+Chen, C.-F. ∙ Li, S. ∙ Chen, Y. ...
+J. Biol. Chem.
+1996;
+271
+:32863-32868
+Full Text
+Full Text (PDF)
+Scopus (193)
+PubMed
+Google Scholar
+11.
+Wilson, C.A. ∙ Payton, M.N. ∙ Elliott, G.S. ...
+Oncogene.
+1997;
+14
+:1-16
+Crossref
+Scopus (184)
+PubMed
+Google Scholar
+12.
+Thakur, S. ∙ Zhang, H.B. ∙ Peng, Y. ...
+Mol. Cell. Biol.
+1997;
+17
+:444-452
+Crossref
+Scopus (232)
+PubMed
+Google Scholar
+) and an amino-terminal NES identified in this report. Moreover, we show that the NES mediates CRM1-dependent nuclear export of BRCA1, revealing a new regulatory pathway for BRCA1 localization.
+Shuttling proteins that use the CRM1-mediated export pathway accumulate within the nucleus in the presence of the export inhibitor, LMB. However, the use of LMB to determine the export ability of endogenous cellular BRCA1 is complicated by the presence of different BRCA1 splicing variants, some of which lack the nuclear localization sequences required for nuclear import (
+11
+11.
+Wilson, C.A. ∙ Payton, M.N. ∙ Elliott, G.S. ...
+Oncogene.
+1997;
+14
+:1-16
+Crossref
+Scopus (184)
+PubMed
+Google Scholar
+,
+12
+12.
+Thakur, S. ∙ Zhang, H.B. ∙ Peng, Y. ...
+Mol. Cell. Biol.
+1997;
+17
+:444-452
+Crossref
+Scopus (232)
+PubMed
+Google Scholar
+). We confirmed that cytoplasmic localization of an NLS-defective BRCA1Δ306–1312 deletion mutant is not affected by LMB in MCF-7 cells (data not shown). In line with previous reports (
+11
+11.
+Wilson, C.A. ∙ Payton, M.N. ∙ Elliott, G.S. ...
+Oncogene.
+1997;
+14
+:1-16
+Crossref
+Scopus (184)
+PubMed
+Google Scholar
+,
+37
+37.
+Taylor, J. ∙ Lymboura, M. ∙ Pace, P.E. ...
+Int. J. Cancer.
+1998;
+79
+:334-342
+Crossref
+Scopus (100)
+PubMed
+Google Scholar
+), we found that ectopically expressed BRCA1 was predominantly nuclear in transfected cells but also detected cytoplasmic staining in some cells. Full-length BRCA1 displayed a consistent shift toward the nucleus when CRM1-dependent nuclear export was blocked by LMB. The LMB response was observed within 4 h of treatment, suggesting that BRCA1 cytoplasmic localization resulted from active nuclear export. This conclusion is supported by the positive effect of CRM1 overexpression on BRCA1 cytoplasmic localization (Fig.
+2
+).
+Further evidence for CRM1-dependent export of BRCA1 comes from the presence of a highly conserved Rev-type NES located near the amino terminus. The BRCA1 sequence
+81
+QLVEE
+L
+LKI
+I
+CA
+F
+Q
+L
+DTGL
+99
+was identified as a functional NES by using a combination of deletion analysis and a recently developed nuclear export assay (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+). Moreover, the 3:2:1 spacing of the critical hydrophobic residues is analogous to that seen in other highly active export sequences (
+22
+22.
+Henderson, B.R. ∙ Eleftheriou, A.
+Exp. Cell. Res.
+2000;
+256
+:213-224
+Crossref
+Scopus (355)
+PubMed
+Google Scholar
+,
+34
+34.
+Wen, W. ∙ Meinkoth, J.L. ∙ Tsien, R.Y. ...
+Cell.
+1995;
+82
+:463-473
+Abstract
+Full Text (PDF)
+Scopus (1024)
+PubMed
+Google Scholar
+,
+38
+38.
+Bogerd, H.P. ∙ Fridell, R.A. ∙ Benson, R.E. ...
+Mol. Cell. Biol.
+1996;
+16
+:4207-4214
+Crossref
+Scopus (323)
+PubMed
+Google Scholar
+). The point mutation of two such hydrophobic amino acids (Leu
+86
+and Ile
+90
+to alanine) abrogated export activity of the BRCA1 NES and when introduced into the BRCA1 cDNA, resulted in the accumulation of full-length BRCA1 in the nucleus.
+The above results demonstrate that full-length BRCA1 has the capacity to shuttle between the nucleus and the cytoplasm but do not necessarily imply that BRCA1 continuously traffics between both cellular compartments. The potential export activity conferred to BRCA1 by its relatively strong NES might be somewhat limited in the context of the full-length protein. In support of this possibility, we found that BRCA1 was affected by CRM1 overexpression to a lesser degree than p53, despite the BRCA1 NES being significantly stronger than the p53 NES when tested in isolation using the export assay (5+
+versus
+1+). This finding, combined with the cell line-specific differences in the effect of LMB on BRCA1 localization that we observed (Table
+II
+), suggests that BRCA1 export is a regulated process. In this regard, the activity of the NES might be altered by post-translational modifications such as phosphorylation, which BRCA1 undergoes in a cell cycle-dependent fashion (
+14
+14.
+Ruffner, H. ∙ Verma, I.M.
+Proc. Natl. Acad. Sci. U. S. A.
+1997;
+94
+:7138-7143
+Crossref
+Scopus (181)
+PubMed
+Google Scholar
+,
+39
+39.
+Chen, Y. ∙ Farmer, A.A. ∙ Chen, C.-F. ...
+Cancer Res.
+1996;
+56
+:3168-3172
+PubMed
+Google Scholar
+), or after DNA damage (
+6
+6.
+Scully, R. ∙ Chen, J. ∙ Ochs, R.L. ...
+Cell.
+1997;
+90
+:425-435
+Full Text
+Full Text (PDF)
+Scopus (814)
+PubMed
+Google Scholar
+). On the other hand, the proximity of the NES to the BRCA1 RING finger motif (
+9
+9.
+Wu, L.C. ∙ Wang, Z.W. ∙ Tsou Tsan, J. ...
+Nat. Genet.
+1996;
+14
+:430-440
+Crossref
+Scopus (654)
+PubMed
+Google Scholar
+), a prominent site for protein-protein interactions, points to the possibility that the NES could become masked upon binding of BRCA1 to other proteins.
+Our findings raise several issues that are potentially relevant in relation to BRCA1 tumor suppressive function. BRCA1 has been reported to form complexes with a number of other cellular proteins, and we are currently testing the possibility that BRCA1 may act as a carrier for one or more associated binding proteins. Alternatively, nuclear export might constitute a regulatory mechanism for BRCA1 as indeed was recently observed for p53. The p53 protein is, like BRCA1, normally detected in the nucleus, and its cellular localization and stability are regulated by CRM1-dependent nuclear export (
+19
+19.
+Stommel, J.M. ∙ Marchenko, N.D. ∙ Jimenez, G.S. ...
+EMBO J.
+1999;
+18
+:1660-1672
+Crossref
+Scopus (619)
+PubMed
+Google Scholar
+,
+21
+21.
+Roth, J. ∙ Dobbelstein, M. ∙ Freedman, D.A. ...
+EMBO J.
+1998;
+17
+:554-564
+Crossref
+Scopus (542)
+PubMed
+Google Scholar
+,
+40
+40.
+Freedman, D.A. ∙ Levine, A.J.
+Mol. Cell. Biol.
+1998;
+18
+:7288-7293
+Crossref
+Scopus (464)
+PubMed
+Google Scholar
+). The ability of BRCA1 to function in nuclear processes, such as transcriptional regulation, will depend on its accumulation in the nucleus. The nuclear levels of BRCA1 would be ultimately determined by the following factors: the relative rates of BRCA1 import and export and, presumably, the retention of the protein within each cell compartment. Each of these factors are probably subject to independent regulation. According to this model, the predominantly nuclear localization of BRCA1 would result from enhanced retention in the nucleus and a higher rate of nuclear import relative to nuclear export. Although no known
+Brca1
+mutations directly target the NES sequence, it is conceivable that other genetic or epigenetic alterations may de-regulate BRCA1 export and thereby contribute to breast and ovarian tumorigenesis.
+ACKNOWLEDGEMENTS
+We are very grateful to Prof. Jeffrey Holt (Nashville) for supplying the full-length wild-type BRCA1 cDNA and to Dr. Minoru Yoshida (Tokyo) for providing the plasmid pET16bHC1 and LMB. We also thank Prof. Richard Kefford for support and encouragement.

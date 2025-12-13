@@ -1,0 +1,372 @@
+"""Paper processing for value extraction."""
+
+from pathlib import Path
+from typing import Dict, Any, Set, Callable, Optional
+from qbsd.core.schema import Schema, Column
+from qbsd.core.llm_backends import LLMInterface
+from qbsd.core import utils
+
+from .llm_cache import LLMCache
+from .json_parser import JSONResponseParser
+from ..utils.text_processing import TextProcessor
+from ..utils.prompt_builder import PromptBuilder
+from ..config.constants import (
+    MIN_DOCUMENT_SIZE_FOR_SNIPPETS,
+    SAFETY_MARGIN_ALL_MODE,
+    SAFETY_MARGIN_SINGLE_MODE
+)
+
+# Type alias for value extracted callback: (row_name, column_name, value) -> None
+OnValueExtractedCallback = Callable[[str, str, Any], None]
+
+
+class PaperProcessor:
+    """Handles value extraction from individual papers."""
+
+    def __init__(self, llm: LLMInterface, cache: LLMCache = None, retriever=None,
+                 on_value_extracted: Optional[OnValueExtractedCallback] = None):
+        self.llm = llm
+        self.cache = cache or LLMCache()
+        self.retriever = retriever
+        self.json_parser = JSONResponseParser()
+        self.text_processor = TextProcessor()
+        self.prompt_builder = PromptBuilder()
+        self.on_value_extracted = on_value_extracted
+
+    def _notify_value_extracted(self, row_name: str, column_name: str, value: Any):
+        """Call the on_value_extracted callback if set."""
+        print(f"🔔 _notify_value_extracted called: row={row_name}, col={column_name}, callback={'set' if self.on_value_extracted else 'NOT SET'}")
+        if self.on_value_extracted:
+            try:
+                self.on_value_extracted(row_name, column_name, value)
+            except Exception as e:
+                print(f"⚠️  Callback error for {column_name}: {e}")
+        else:
+            print(f"⚠️  on_value_extracted callback is NOT SET - cell streaming disabled")
+
+    def _attach_source_to_excerpts(self, data: Dict[str, Any], source_filename: str) -> Dict[str, Any]:
+        """Attach source filename to each excerpt in the extracted data.
+
+        Converts plain excerpt strings to objects with source info:
+        {"text": "excerpt text", "source": "filename.txt"}
+        """
+        for col_name, col_value in data.items():
+            if isinstance(col_value, dict) and 'excerpts' in col_value:
+                excerpts = col_value.get('excerpts', [])
+                col_value['excerpts'] = [
+                    {"text": exc, "source": source_filename} if isinstance(exc, str) else exc
+                    for exc in excerpts
+                ]
+        return data
+
+    def _should_skip_truncation(self) -> bool:
+        """Check if this LLM supports long context and should skip truncation."""
+        # Check for Gemini or other long-context models
+        model_name = getattr(self.llm, 'model', '').lower()
+        provider = getattr(self.llm, '__class__', None)
+        
+        # Skip truncation for Gemini models or models with "long" in the name
+        if provider and 'gemini' in provider.__name__.lower():
+            return True
+        if 'gemini' in model_name or 'long' in model_name:
+            return True
+        
+        # Check if no retriever is used (indicating long context mode)
+        if self.retriever is None:
+            return True
+            
+        return False
+    
+    def _create_fallback_retriever(self):
+        """Create a default retriever for fallback when in long context mode."""
+        try:
+            # Use default retriever configuration for fallback
+            fallback_config = {
+                "type": "embedding",
+                "model_name": "all-MiniLM-L6-v2",  # Fast, lightweight model
+                "k": 8,  # Default retrieval count
+                "max_words": 512,
+                "batch_size": 32,
+                "enable_dynamic_k": True,
+                "dynamic_k_threshold": 0.65,
+                "dynamic_k_minimum": 2
+            }
+            return utils.build_retriever(fallback_config)
+        except Exception as e:
+            print(f"⚠️  Failed to create fallback retriever: {e}")
+            return None
+    
+    def _single_column_attempt_with_retriever(self, 
+                                            col: Column,
+                                            strict: bool,
+                                            k_override: int | None,
+                                            retriever,
+                                            paper_text: str,
+                                            schema: Schema,
+                                            paper_title: str,
+                                            use_snippets: bool = False) -> Dict[str, Any]:
+        """Single column extraction attempt with explicit retriever control."""
+        # Prepare text based on retriever availability
+        if retriever is not None:
+            try:
+                retrieval_query = self.text_processor.build_retrieval_query(schema, [col])
+                passages = retriever.query([paper_text], retrieval_query, k=(k_override or 8))
+                if passages:
+                    eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(passages)
+                else:
+                    eff = paper_text
+            except Exception as e:
+                print(f"⚠️  Fallback retrieval failed for {col.name}: {e}, using full text")
+                eff = paper_text
+        else:
+            if use_snippets:
+                keywords = self.text_processor.keywords_for_column(col)
+                eff = self.text_processor.heuristic_snippets(paper_text, keywords)
+            else:
+                eff = paper_text
+
+        # Check cache first
+        cache_key = self.cache.get_cache_key(eff, col.name, "fallback", strict)
+        cached_result = self.cache.get(cache_key)
+        if cached_result is not None:
+            return cached_result
+
+        # Build and execute LLM call
+        msgs = self.prompt_builder.build_val_messages(
+            schema.query, paper_title, eff, [col.to_dict()],
+            mode="one_by_one", strict=strict
+        )
+        
+        # Skip truncation for long context models
+        should_truncate = not self._should_skip_truncation()
+        max_ctx = getattr(self.llm, 'max_context_tokens', 8192) if hasattr(self.llm, 'max_context_tokens') else 8192
+        trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=512, 
+                                 safety_margins=SAFETY_MARGIN_SINGLE_MODE,
+                                 max_context_tokens=max_ctx)
+        raw = self.llm.generate(trimmed)
+        try:
+            parsed = self.json_parser.parse_response(raw)
+            cleaned = self.json_parser.postprocess(parsed, [col.name])
+            result = cleaned.get(col.name, {})
+            
+            # Cache the result
+            self.cache.put(cache_key, result)
+            return result
+        except Exception as e:
+            print(f"⚠️  parse failure for column {col.name}: {e}")
+            return {}
+    
+    def extract_values_for_paper(self,
+                                paper_title: str,
+                                paper_text: str,
+                                schema: Schema,
+                                max_new_tokens: int,
+                                mode: str = "all",
+                                retrieval_k: int = 8,
+                                row_name: Optional[str] = None) -> Dict[str, Any]:
+        """Extract values from a single paper for the given schema.
+
+        Args:
+            row_name: If provided, used for streaming callbacks to identify the row.
+        """
+        if mode == "one":
+            mode = "one_by_one"
+
+        def _retrieve_effective_text(columns_for_query=None, k=None) -> str:
+            if self.retriever is None:
+                return paper_text
+            try:
+                retrieval_query = self.text_processor.build_retrieval_query(schema, columns_for_query)
+                passages = self.retriever.query([paper_text], retrieval_query, k=(k or retrieval_k))
+                if passages:
+                    print(f"📖 Retrieved {len(passages)} relevant passages for {paper_title}")
+                    return "\n\n--- RELEVANT PASSAGE ---\n\n".join(passages)
+                else:
+                    print(f"⚠️  No relevant passages found for {paper_title}, using full text")
+                    return paper_text
+            except Exception as e:
+                print(f"⚠️  Retrieval failed for {paper_title}: {e}, using full text")
+                return paper_text
+
+        def _single_column_attempt(col: Column,
+                                  strict: bool,
+                                  k_override: int | None,
+                                  use_snippets: bool = False) -> Dict[str, Any]:
+            # prepare text
+            if self.retriever is not None:
+                eff = _retrieve_effective_text([col], k=k_override)
+            else:
+                if use_snippets:
+                    keywords = self.text_processor.keywords_for_column(col)
+                    eff = self.text_processor.heuristic_snippets(paper_text, keywords)
+                else:
+                    eff = paper_text
+
+            # Check cache first
+            cache_key = self.cache.get_cache_key(eff, col.name, "one_by_one", strict)
+            cached_result = self.cache.get(cache_key)
+            if cached_result is not None:
+                return cached_result
+
+            msgs = self.prompt_builder.build_val_messages(
+                schema.query, paper_title, eff, [col.to_dict()],
+                mode="one_by_one", strict=strict
+            )
+            # Skip truncation for long context models
+            should_truncate = not self._should_skip_truncation()
+            max_ctx = getattr(self.llm, 'max_context_tokens', 8192) if hasattr(self.llm, 'max_context_tokens') else 8192
+            trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens, 
+                                     safety_margins=SAFETY_MARGIN_SINGLE_MODE,
+                                     max_context_tokens=max_ctx)
+            raw = self.llm.generate(trimmed)
+            try:
+                parsed = self.json_parser.parse_response(raw)
+                cleaned = self.json_parser.postprocess(parsed, [col.name])
+                result = cleaned.get(col.name, {})
+                
+                # Cache the result
+                self.cache.put(cache_key, result)
+                return result
+            except Exception as e:
+                print(f"⚠️  parse failure for column {col.name} in {paper_title}: {e}")
+                return {}
+
+        if mode == "all":
+            # joint retrieval + one call
+            eff = _retrieve_effective_text(list(schema.columns))
+            msgs = self.prompt_builder.build_val_messages(
+                schema.query, paper_title, eff, [c.to_dict() for c in schema.columns],
+                mode="all", strict=False
+            )
+            # Skip truncation for long context models
+            should_truncate = not self._should_skip_truncation()
+            max_ctx = getattr(self.llm, 'max_context_tokens', 8192) if hasattr(self.llm, 'max_context_tokens') else 8192
+            trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens, 
+                                     safety_margins=SAFETY_MARGIN_ALL_MODE,
+                                     max_context_tokens=max_ctx)
+            raw = self.llm.generate(trimmed)
+            try:
+                parsed = self.json_parser.parse_response(raw)
+            except Exception as e:
+                print(f"⚠️  parse failure for {paper_title}: {e}")
+                parsed = {}
+
+            requested = [c.name for c in schema.columns]
+            cleaned = self.json_parser.postprocess(parsed, requested)
+
+            # Attach source filename to excerpts
+            cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
+
+            # Notify callback for each extracted column (streaming to UI)
+            if row_name:
+                for col_name, col_value in cleaned.items():
+                    self._notify_value_extracted(row_name, col_name, col_value)
+
+            # Fallback for missing columns: retry per-column, stricter + expanded retrieval
+            missing = [c for c in schema.columns if c.name not in cleaned]
+            if missing:
+                print(f"↻ Fallback per-column for {len(missing)} missing: {[c.name for c in missing]}")
+                
+                # Create fallback retriever if we don't have one (long context mode)
+                fallback_retriever = self.retriever
+                if self.retriever is None:
+                    print(f"📡 Creating fallback retriever for missing columns in long context mode")
+                    fallback_retriever = self._create_fallback_retriever()
+                
+                for col in missing:
+                    # First fallback: expanded k + strict prompt with retrieval
+                    expanded_k = self.text_processor.expand_k(retrieval_k)
+                    col_res = {}
+                    
+                    # Only try retrieval fallback if we have a working fallback retriever
+                    if fallback_retriever is not None:
+                        col_res = self._single_column_attempt_with_retriever(
+                            col, strict=True, k_override=expanded_k, retriever=fallback_retriever, 
+                            paper_text=paper_text, schema=schema, paper_title=paper_title, use_snippets=False
+                        )
+                    
+                    if not col_res:
+                        # Second fallback: heuristic snippets (no retriever) or even stricter evidence demand
+                        col_res = self._single_column_attempt_with_retriever(
+                            col, strict=True, k_override=None, retriever=None,
+                            paper_text=paper_text, schema=schema, paper_title=paper_title, use_snippets=True
+                        )
+                    if col_res:
+                        # Attach source to fallback-extracted excerpts
+                        col_res = self._attach_source_to_excerpts({col.name: col_res}, paper_title).get(col.name, col_res)
+                        cleaned[col.name] = col_res
+                        # Notify callback for fallback-extracted column
+                        if row_name:
+                            self._notify_value_extracted(row_name, col.name, col_res)
+
+            return cleaned
+
+        # mode == "one_by_one" with optimized fallback logic
+        row: Dict[str, Any] = {}
+        for col in schema.columns:
+            col_value = None
+
+            # Attempt 1: normal rules, per-column retrieval
+            first = _single_column_attempt(col, strict=False, k_override=None, use_snippets=False)
+
+            if first and first.get('answer', '').strip():
+                col_value = first
+            elif self.retriever is not None:
+                # Attempt 2: Only try expanded retrieval if we have a retriever and got empty result
+                expanded_k = self.text_processor.expand_k(retrieval_k)
+                second = _single_column_attempt(col, strict=True, k_override=expanded_k, use_snippets=False)
+                if second and second.get('answer', '').strip():
+                    col_value = second
+
+            # Attempt 3: Only if previous attempts truly failed and we have substantial text
+            if col_value is None and len(paper_text) > MIN_DOCUMENT_SIZE_FOR_SNIPPETS:
+                third = _single_column_attempt(col, strict=True, k_override=None, use_snippets=True)
+                if third and third.get('answer', '').strip():
+                    col_value = third
+
+            # Store value and notify callback
+            if col_value:
+                # Attach source filename to excerpts
+                col_value = self._attach_source_to_excerpts({col.name: col_value}, paper_title).get(col.name, col_value)
+                row[col.name] = col_value
+                if row_name:
+                    self._notify_value_extracted(row_name, col.name, col_value)
+
+        return row
+    
+    def process_single_paper(self,
+                            doc_path: Path,
+                            schema: Schema,
+                            max_new_tokens: int,
+                            mode: str,
+                            retrieval_k: int,
+                            processed_papers: Set[str]) -> tuple[str, str, Dict[str, Any] | None]:
+        """
+        Process a single paper and return (row_name, paper_title, extracted_data).
+        Returns None for extracted_data if paper should be skipped or fails.
+        """
+        from .row_manager import RowDataManager
+        row_manager = RowDataManager()
+        
+        paper_title = doc_path.stem
+        row_name = row_manager.extract_row_name_from_filename(doc_path.name)
+        
+        # Skip if already processed
+        if paper_title in processed_papers:
+            return row_name, paper_title, None
+        
+        try:
+            paper_text = doc_path.read_text(encoding="utf-8", errors="ignore")
+            print(f"🔍 Extracting values for {paper_title} (row: {row_name})...")
+
+            # Extract values for this paper (pass row_name for streaming callbacks)
+            paper_data = self.extract_values_for_paper(
+                paper_title, paper_text, schema, max_new_tokens, mode, retrieval_k,
+                row_name=row_name
+            )
+            
+            return row_name, paper_title, paper_data
+            
+        except Exception as e:
+            print(f"⚠️  Error processing {paper_title}: {e}")
+            return row_name, paper_title, None

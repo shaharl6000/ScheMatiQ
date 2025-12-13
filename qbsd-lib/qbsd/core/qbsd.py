@@ -1,0 +1,489 @@
+"""
+Query-Based Schema Discovery
+============================
+Given a user *query* and a list of *documents*, iteratively discover a table
+schema (column headers + short rationales) that best captures information
+needed to answer the query.
+
+Key pipeline steps
+------------------
+1. select_relevant_content – find passages likely to inform the schema.
+2. generate_schema          – ask the LLM to propose / refine a schema.
+3. merge_schemas            – unify schemas across iterations.
+4. evaluate_schema_convergence – decide when the schema is “good enough”.
+
+Replace the two stubs:
+    • EmbeddingRetriever          (for passage selection)
+    • LLMInterface.generate(...)  (for prompt → completion)
+"""
+
+from qbsd.core import utils
+# from __future__ import annotations
+from typing import List, Dict, Sequence, Tuple, Any, Union, Optional
+import itertools
+import argparse
+import json
+import logging, re
+import time
+import random
+from pathlib import Path
+from qbsd.core.schema import Schema, Column
+
+
+##############################################################################
+# Core pipeline                                                           #
+##############################################################################
+
+def select_relevant_content(
+    docs: Sequence[str],
+    query: str,
+    retriever,
+) -> List[str]:
+    """Return a flat list of passages drawn from all docs, or whole docs if no retriever."""
+    if retriever is None:
+        # No retriever configured - return whole documents
+        return list(docs)
+    
+    # Use retriever to select relevant passages
+    passages = []
+    for doc in docs:
+        passages.extend(retriever.query([doc], question=query))
+    return passages
+
+
+_CODE_FENCE = re.compile(r"```(?:\s*json)?\s*(.*?)\s*```", re.DOTALL)
+
+def _extract_json(text: str) -> str:
+    """
+    Return the JSON payload inside a Markdown code-block if one exists,
+    otherwise return the original string (stripped of leading/trailing space).
+    """
+    match = _CODE_FENCE.search(text)
+    return match.group(1) if match else text.strip()
+
+def _parse_schema_from_llm(raw_text: str,
+                           query: str,
+                           max_keys_schema: int,
+                           ) -> tuple[Schema, bool]:
+    """
+    Parse schema from LLM response, now including document helpfulness assessment.
+    Returns (Schema, document_helpful_flag)
+    """
+    cleaned = _extract_json(raw_text)
+    document_helpful = True  # Default assumption
+    columns = []
+    
+    try:
+        payload = json.loads(cleaned)
+        
+        # Handle new format with document_helpful field
+        if isinstance(payload, dict) and "columns" in payload:
+            document_helpful = payload.get("document_helpful", True)
+            columns_data = payload["columns"]
+            if columns_data:
+                columns = [Column(**c) for c in columns_data]
+        # Handle legacy format (direct list of columns)
+        elif isinstance(payload, list):
+            columns = [Column(**c) for c in payload]
+        else:
+            raise ValueError("Unexpected payload format")
+            
+    except (json.JSONDecodeError, TypeError, KeyError, ValueError) as e:
+        # ← fallback: lenient parsing for old models / bad outputs
+        print(f"❌ JSON parsing failed ({e}). Cleaned text: '{cleaned}'")
+        print(f"📝 Original raw text (first 500 chars): '{raw_text[:500]}'")
+        columns = []
+        for line in raw_text.splitlines():
+            if ":" in line:
+                name, rationale = [s.strip() for s in line.split(":", 1)]
+                if name:
+                    columns.append(Column(
+                        name=name,
+                        definition="",
+                        rationale=rationale
+                    ))
+        print(f"📊 Extracted {len(columns)} columns from fallback parsing")
+    
+    return Schema(query=query, max_keys=max_keys_schema, columns=columns), document_helpful
+
+
+SYSTEM_PROMPT = """
+You are *SchemaLLM*, a senior data analyst who discovers NEW table columns to extend existing schemas.
+
+### Task
+1. **First, evaluate document relevance**: Determine if the provided passages contain information relevant to the query and schema creation.
+2. **If passages are NOT relevant or helpful**:
+   - The documents may be noise, off-topic, or lack useful information for schema creation
+   - Return: {{"document_helpful": false, "columns": []}}
+3. **If passages ARE relevant and helpful**:
+   - Silently reason about the user's query and the supplied passages
+   - **If an existing schema is provided:**
+     - Review the existing columns to understand what is already covered
+     - Identify NEW aspects not covered by existing columns
+     - Do NOT repeat or include existing columns in your output
+     - Return ONLY genuinely novel columns that are critical for answering the query
+   - **If no existing schema is provided:**
+     - Create initial columns based on the query and passages
+   - Return: {{"document_helpful": true, "columns": [...]}}
+4. Identify only those aspects whose answers can be found in the provided
+   passages — do **not** invent information that is absent from the text.
+   
+### Output JSON spec
+{{
+  "document_helpful": <true|false>,
+  "columns": [
+    {{
+      "name":        "<snake_case_column_name>",
+      "definition":  "<one‑sentence definition of what data belongs here>",
+      "rationale":   "<one‑sentence on why this column helps answer the query>"
+    }},
+    ...
+  ]
+}}
+
+### Critical Guidelines - BE VERY RESTRICTIVE
+* Honestly assess if documents contribute meaningful information for the query
+* Return ONLY new columns that are missing from the existing schema AND are essential
+* Keep `name` concise (3–5 words, snake_case)
+* Avoid creating near-duplicates of existing columns
+* Do not write markdown, comments, or any text outside the JSON
+* If no new essential columns are needed, return {{"document_helpful": true, "columns": []}}
+* QUALITY over QUANTITY - fewer, well-justified columns are better than many marginal ones
+""".strip()
+
+USER_PROMPT_TMPL = """
+<QUERY>
+{query}
+</QUERY>
+
+<PASSAGES>
+{joined_passages}
+</PASSAGES>
+""".strip()
+
+DRAFT_SCHEMA_TMPL = """
+A draft schema already exists. Review it first – then append columns as needed.
+
+<DRAFT_SCHEMA>
+{json_schema}
+</DRAFT_SCHEMA>
+""".strip()
+
+def build_messages(query: str,
+                   passages: list[str],
+                   draft_schema=None):
+    user_parts = [USER_PROMPT_TMPL.format(
+        query=query.strip(),
+        joined_passages="\n\n".join(p.strip() for p in passages)
+    )]
+
+    if draft_schema:
+        serialisable = draft_schema.to_llm_dict()
+        user_parts.append(
+            DRAFT_SCHEMA_TMPL.format(
+                json_schema=json.dumps(serialisable,
+                                       indent=2,
+                                       ensure_ascii=False)
+            )
+        )
+
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user",   "content": "\n\n".join(user_parts).strip()},
+    ]
+
+
+def generate_schema(
+    passages: List[str],
+    query: str,
+    max_keys_schema: int,
+    current_schema: Schema | None,
+    llm,
+    max_context_tokens: int = 8192,
+) -> tuple[Schema, bool]:
+    """
+    Feed passages + (optional) current schema to the LLM, ask for additions.
+    Returns (Schema, document_helpful_flag)
+    """
+    prompt = build_messages(query, passages, current_schema)
+    trimmed = utils.fit_prompt(prompt, truncate=True, max_context_tokens=max_context_tokens)
+    llm_response = llm.generate(trimmed)
+    return _parse_schema_from_llm(llm_response, query=query, max_keys_schema=max_keys_schema)
+
+
+def evaluate_schema_convergence(prev: Schema, new: Schema, thresh: float = 0.9) -> bool:
+    """
+    Stop when Jaccard similarity ≥ thresh AND no new columns were added.
+    """
+    overlap = prev.jaccard(new)
+    no_growth = len(new) == len(prev)
+    return overlap >= thresh and no_growth
+
+
+def load_initial_schema(initial_schema_path: Path, query: str, max_keys_schema: int) -> Schema:
+    """Load initial schema from JSON file."""
+    if not initial_schema_path.exists():
+        logging.info("No initial schema file found at %s, starting with empty schema", initial_schema_path)
+        return Schema(query=query, max_keys=max_keys_schema)
+    
+    try:
+        data = json.loads(initial_schema_path.read_text(encoding="utf-8"))
+        columns = [Column(**col) for col in data]
+        logging.info("Loaded initial schema with %d columns from %s", len(columns), initial_schema_path)
+        return Schema(query=query, columns=columns, max_keys=max_keys_schema)
+    except Exception as e:
+        logging.warning("Failed to load initial schema from %s: %s. Starting with empty schema.", initial_schema_path, e)
+        return Schema(query=query, max_keys=max_keys_schema)
+
+
+def discover_schema(
+    query: str,
+    documents: List[str],
+    filenames: List[str],
+    max_keys_schema : int,
+    llm,
+    retriever,
+    documents_batch_size,
+    max_context_tokens,
+    initial_schema: Schema | None = None,
+    max_iters: int = 6
+) -> tuple[Schema, List[str], List[str]]:
+    """
+    Main orchestration loop with document contribution tracking.
+    Returns (Schema, contributing_files, non_contributing_files)
+    """
+    logging.info("Starting schema discovery…")
+    schema = initial_schema or Schema(query=query, max_keys=max_keys_schema)
+    logging.info("Starting with schema containing %d columns", len(schema))
+    
+    # Track document contributions
+    contributing_files = []
+    non_contributing_files = []
+    
+    # Simple batching; one doc may be chunked if > batch_size
+    doc_iter = iter(list(zip(documents, filenames)))
+    batches = [list(itertools.islice(doc_iter, documents_batch_size))
+               for _ in range((len(documents)+documents_batch_size-1)//documents_batch_size)]
+
+    for it, batch_docs_with_names in enumerate(batches[:max_iters], start=1):
+        batch_docs = [doc for doc, _ in batch_docs_with_names]
+        batch_filenames = [fname for _, fname in batch_docs_with_names]
+        
+        try:
+            passages = select_relevant_content(batch_docs, query, retriever)
+        except Exception as exc:
+            print(f"Failed to retrieve {exc}")
+            # Mark these documents as non-contributing due to retrieval failure
+            non_contributing_files.extend(batch_filenames)
+            continue
+
+        proposed, document_helpful = generate_schema(passages, query, max_keys_schema, schema, llm, max_context_tokens)
+        
+        # Track document contributions
+        if document_helpful and len(proposed.columns) > 0:
+            contributing_files.extend(batch_filenames)
+            logging.info("Iteration %d — Helpful documents: %s", it, batch_filenames)
+        else:
+            non_contributing_files.extend(batch_filenames)
+            if not document_helpful:
+                logging.info("Iteration %d — Non-helpful documents (LLM assessed): %s", it, batch_filenames)
+            else:
+                logging.info("Iteration %d — No new columns from: %s", it, batch_filenames)
+        
+        merged = schema.merge(proposed)
+
+        logging.info("Iteration %d — columns: %d → %d (J=%.2f)",
+                     it, len(schema), len(merged), schema.jaccard(merged))
+
+        if evaluate_schema_convergence(schema, merged):
+            logging.info("Converged at iteration %d", it)
+            return merged, contributing_files, non_contributing_files
+
+        schema = merged  # update and continue
+
+    return schema, contributing_files, non_contributing_files
+
+
+# ------------------------------------------------------------------------ #
+# Helpers                                                                  #
+# ------------------------------------------------------------------------ #
+def load_documents(paths: Union[Path, List[Path]], seed: Optional[int] = None) -> tuple[List[str], List[str]]:
+    """Load documents from single path or multiple paths and return (content_list, filename_list)"""
+    # Handle both single path and multiple paths
+    if isinstance(paths, (str, Path)):
+        paths = [Path(paths)]
+    else:
+        paths = [Path(p) for p in paths]
+    
+    exts = {".txt", ".md", ".html", ".htm"}
+    docs = []
+    filenames = []
+    
+    # Load from all paths
+    for path in paths:
+        logging.info(f"Loading documents from: {path}")
+        count_from_path = 0
+        for p in path.rglob("*"):
+            if p.suffix.lower() in exts and p.is_file():
+                docs.append(p.read_text(encoding="utf-8", errors="ignore"))
+                filenames.append(p.name)  # Just filename, not full path
+                count_from_path += 1
+        logging.info(f"Loaded {count_from_path} documents from {path}")
+    
+    if not docs:
+        paths_str = ", ".join(str(p) for p in paths)
+        raise RuntimeError(f"No text files found under {paths_str}")
+    
+    # Randomize order if seed provided
+    if seed is not None:
+        random.seed(seed)
+        combined = list(zip(docs, filenames))
+        random.shuffle(combined)
+        docs, filenames = zip(*combined)
+        docs, filenames = list(docs), list(filenames)
+        logging.info(f"Randomized {len(docs)} documents with seed {seed}")
+    
+    logging.info(f"Total documents loaded: {len(docs)}")
+    return docs, filenames
+
+
+def save_schema(
+    out_path: Path,
+    query: str,
+    retriever_cfg: Dict[str, Any],
+    backend_cfg: Dict[str, Any],
+    docs_path: Union[str, List[str]],
+    schema: Schema,
+    contributing_files: List[str] = None,
+    non_contributing_files: List[str] = None,
+    randomization_seed: Optional[int] = None,
+) -> None:
+    artefact: Dict[str, Any] = {
+        "query": query,
+        "docs_path": docs_path,
+        "backend": backend_cfg,
+        "retriever": retriever_cfg,
+        "schema": [col.to_dict() for col in schema],
+    }
+    
+    # Add randomization metadata if seed was used
+    if randomization_seed is not None:
+        artefact["document_randomization_seed"] = randomization_seed
+    
+    # Add document contribution tracking if available
+    if contributing_files is not None:
+        artefact["document_contributions"] = {
+            "contributing_files": contributing_files,
+            "non_contributing_files": non_contributing_files or [],
+            "total_files": len(contributing_files) + len(non_contributing_files or []),
+            "contribution_rate": len(contributing_files) / (len(contributing_files) + len(non_contributing_files or [])) if (contributing_files or non_contributing_files) else 0.0
+        }
+    
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(artefact, indent=2, ensure_ascii=False))
+    logging.info("Saved schema JSON to %s", out_path.resolve())
+
+
+# ------------------------------------------------------------------------ #
+# Main                                                                     #
+# ------------------------------------------------------------------------ #
+def main(cfg_path: Path) -> None:
+    cfg = json.loads(Path(cfg_path).read_text(encoding="utf-8"))
+    logging.info("Loaded config from %s", cfg_path)
+
+    query = cfg["query"]
+    
+    # Handle both single path and multiple paths for documents
+    docs_path_config = cfg["docs_path"]
+    if isinstance(docs_path_config, list):
+        docs_paths = [Path(p) for p in docs_path_config]
+    else:
+        docs_paths = Path(docs_path_config)
+    
+    # Extract randomization seed with default value of 42
+    randomization_seed = cfg.get("document_randomization_seed", 42)
+    
+    backend_cfg = cfg.get("backend", {})
+    documents_batch_size = cfg.get("documents_batch_size", 4)
+    retriever_cfg = cfg.get("retriever", {})
+    max_keys_schema = cfg["max_keys_schema"]
+    output_path = Path(cfg.get("output_path", "schema_output.json"))
+    
+    # Load initial schema if specified
+    initial_schema = None
+    if "initial_schema_path" in cfg:
+        initial_schema_path = Path(cfg["initial_schema_path"])
+        # Make path relative to config file directory if not absolute
+        if not initial_schema_path.is_absolute():
+            initial_schema_path = cfg_path.parent / initial_schema_path
+        initial_schema = load_initial_schema(initial_schema_path, query, max_keys_schema)
+
+    # Set up components
+    llm_for_schema = utils.build_llm(backend_cfg)
+    retriever = None
+    if retriever_cfg:  # Only build retriever if configuration exists
+        retriever = utils.build_retriever(retriever_cfg, llm_for_schema)
+        logging.info("Using retriever: %s", retriever_cfg.get("type", "unknown"))
+    else:
+        logging.info("No retriever configured - will use whole documents")
+
+    # Load docs with filenames and potential randomization
+    docs, filenames = load_documents(docs_paths, seed=randomization_seed)
+
+    # Run discovery with contribution tracking
+    start_time = time.time()
+    max_context_tokens = backend_cfg.get("max_context_tokens", 8192)
+    schema, contributing_files, non_contributing_files = discover_schema(
+        query=query, documents=docs, filenames=filenames,
+        max_keys_schema=max_keys_schema, llm=llm_for_schema, retriever=retriever,
+        max_context_tokens=max_context_tokens,
+        documents_batch_size=documents_batch_size,
+        initial_schema=initial_schema
+    )
+    elapsed_time = time.time() - start_time
+
+    # Log timing results
+    total_docs = len(docs)
+    logging.info("Schema discovery completed for %d documents in %.2f seconds (%.2f minutes)", total_docs, elapsed_time, elapsed_time / 60)
+
+    # Prepare docs_path for saving (convert paths to strings)
+    if isinstance(docs_paths, list):
+        docs_path_for_save = [str(p) for p in docs_paths]
+    else:
+        docs_path_for_save = str(docs_paths)
+    
+    # Persist artefact with contribution tracking
+    save_schema(output_path, query, retriever_cfg, backend_cfg, docs_path_for_save, schema, 
+                contributing_files, non_contributing_files, randomization_seed)
+
+    # Print results
+    print(f"\nSchema discovery completed for {total_docs} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
+    print(f"\n📊 Document Contributions:")
+    print(f"  • Contributing files: {len(contributing_files)}")
+    print(f"  • Non-contributing files: {len(non_contributing_files)}")
+    if total_docs > 0:
+        contribution_rate = len(contributing_files) / total_docs * 100
+        print(f"  • Contribution rate: {contribution_rate:.1f}%")
+    
+    if contributing_files:
+        print(f"\n✅ Files that contributed to schema:")
+        for filename in contributing_files:
+            print(f"  • {filename}")
+    
+    if non_contributing_files:
+        print(f"\n❌ Files that did not contribute:")
+        for filename in non_contributing_files:
+            print(f"  • {filename}")
+
+    print(f"\nFinal schema ({len(schema)} columns)\n------------")
+    for col in schema:
+        print(f"• {col.name}: {col.rationale}")
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    parser = argparse.ArgumentParser(description="Query-Based Schema Discovery runner")
+    parser.add_argument("--config", required=True, type=Path, help="Path to JSON config")
+
+    main(parser.parse_args().config)
+
