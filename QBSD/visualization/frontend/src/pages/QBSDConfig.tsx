@@ -1,33 +1,36 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Sparkles, Settings, ArrowLeft, Loader2 } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import {
-  Box,
-  Typography,
-  Paper,
-  TextField,
-  Button,
-  Grid,
-  FormControl,
-  InputLabel,
   Select,
-  MenuItem,
-  Chip,
-  Alert,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  CircularProgress,
-} from '@mui/material';
-import { ExpandMore, AutoAwesome, Settings } from '@mui/icons-material';
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 
 import { qbsdAPI } from '../services/api';
 import { QBSDConfig, LLMConfig, RetrieverConfig } from '../types';
 
-const QBSDConfigPage: React.FC = () => {
+const QBSDConfigPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const [config, setConfig] = useState<QBSDConfig>({
     query: 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?',
     docs_path: '../test/files',
@@ -94,8 +97,6 @@ const QBSDConfigPage: React.FC = () => {
 
     try {
       const result = await qbsdAPI.configure(config);
-      
-      // Navigate to monitoring page
       navigate(`/visualize/${result.session_id}?mode=qbsd`);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to configure QBSD');
@@ -107,360 +108,353 @@ const QBSDConfigPage: React.FC = () => {
   const isFormValid = config.query.trim() !== '' && config.docs_path.toString().trim() !== '';
 
   return (
-    <Box sx={{ maxWidth: 1000, mx: 'auto', mt: 4 }}>
-      <Typography variant="h4" gutterBottom>
+    <div className="max-w-4xl mx-auto">
+      <h1 className="text-3xl font-bold tracking-tight mb-2">
         Configure QBSD
-      </Typography>
-      <Typography variant="body1" color="text.secondary" paragraph>
+      </h1>
+      <p className="text-muted-foreground mb-6">
         Set up your Query-Based Schema Discovery parameters to run AI-powered data extraction.
-      </Typography>
+      </p>
 
-      <Paper sx={{ p: 4, mt: 4 }}>
-        <Grid container spacing={3}>
-          {/* Basic Configuration */}
-          <Grid item xs={12}>
-            <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-              <AutoAwesome sx={{ mr: 1 }} />
-              Basic Configuration
-            </Typography>
-          </Grid>
-
-          <Grid item xs={12}>
-            <TextField
-              label="Research Query"
-              multiline
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            Basic Configuration
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Research Query */}
+          <div className="space-y-2">
+            <Label htmlFor="query">
+              Research Query <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="query"
               rows={3}
-              fullWidth
-              required
               value={config.query}
               onChange={(e) => handleConfigChange('query', e.target.value)}
               placeholder="e.g., Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)?"
-              helperText="The research question that will guide schema discovery"
+              className="resize-none"
             />
-          </Grid>
+            <p className="text-sm text-muted-foreground">
+              The research question that will guide schema discovery
+            </p>
+          </div>
 
-          <Grid item xs={12} md={8}>
-            <TextField
-              label="Document Paths"
-              fullWidth
-              required
-              value={Array.isArray(config.docs_path) ? config.docs_path.join(', ') : config.docs_path}
-              onChange={(e) => {
-                const paths = e.target.value.split(',').map(p => p.trim()).filter(p => p);
-                handleConfigChange('docs_path', paths.length === 1 ? paths[0] : paths);
-              }}
-              placeholder="../src/full_text, ../src/abstracts"
-              helperText="Comma-separated paths to document directories"
-            />
-          </Grid>
+          {/* Document Paths and Max Keys */}
+          <div className="grid md:grid-cols-3 gap-4">
+            <div className="md:col-span-2 space-y-2">
+              <Label htmlFor="docs_path">
+                Document Paths <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="docs_path"
+                value={Array.isArray(config.docs_path) ? config.docs_path.join(', ') : config.docs_path}
+                onChange={(e) => {
+                  const paths = e.target.value.split(',').map(p => p.trim()).filter(p => p);
+                  handleConfigChange('docs_path', paths.length === 1 ? paths[0] : paths);
+                }}
+                placeholder="../src/full_text, ../src/abstracts"
+              />
+              <p className="text-sm text-muted-foreground">
+                Comma-separated paths to document directories
+              </p>
+            </div>
 
-          <Grid item xs={12} md={4}>
-            <TextField
-              label="Max Schema Keys"
-              type="number"
-              fullWidth
-              value={config.max_keys_schema}
-              onChange={(e) => handleConfigChange('max_keys_schema', parseInt(e.target.value))}
-              inputProps={{ min: 1, max: 500 }}
-              helperText="Maximum number of columns"
-            />
-          </Grid>
+            <div className="space-y-2">
+              <Label htmlFor="max_keys">Max Schema Keys</Label>
+              <Input
+                id="max_keys"
+                type="number"
+                value={config.max_keys_schema}
+                onChange={(e) => handleConfigChange('max_keys_schema', parseInt(e.target.value))}
+                min={1}
+                max={500}
+              />
+              <p className="text-sm text-muted-foreground">Maximum columns</p>
+            </div>
+          </div>
 
-          <Grid item xs={12} md={6}>
-            <TextField
-              label="Document Batch Size"
-              type="number"
-              fullWidth
-              value={config.documents_batch_size}
-              onChange={(e) => handleConfigChange('documents_batch_size', parseInt(e.target.value))}
-              inputProps={{ min: 1, max: 20 }}
-              helperText="Documents processed per iteration"
-            />
-          </Grid>
+          {/* Batch Size and Seed */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="batch_size">Document Batch Size</Label>
+              <Input
+                id="batch_size"
+                type="number"
+                value={config.documents_batch_size}
+                onChange={(e) => handleConfigChange('documents_batch_size', parseInt(e.target.value))}
+                min={1}
+                max={20}
+              />
+              <p className="text-sm text-muted-foreground">Documents per iteration</p>
+            </div>
 
-          <Grid item xs={12} md={6}>
-            <TextField
-              label="Randomization Seed"
-              type="number"
-              fullWidth
-              value={config.document_randomization_seed}
-              onChange={(e) => handleConfigChange('document_randomization_seed', parseInt(e.target.value))}
-              helperText="For reproducible document ordering"
-            />
-          </Grid>
+            <div className="space-y-2">
+              <Label htmlFor="seed">Randomization Seed</Label>
+              <Input
+                id="seed"
+                type="number"
+                value={config.document_randomization_seed}
+                onChange={(e) => handleConfigChange('document_randomization_seed', parseInt(e.target.value))}
+              />
+              <p className="text-sm text-muted-foreground">For reproducible ordering</p>
+            </div>
+          </div>
 
-          {/* Schema Creation LLM Configuration */}
-          <Grid item xs={12}>
-            <Accordion sx={{ mt: 2 }}>
-              <AccordionSummary expandIcon={<ExpandMore />}>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Settings sx={{ mr: 1 }} />
-                  <Typography variant="h6">Schema Creation LLM</Typography>
-                  <Chip 
-                    label={config.schema_creation_backend.provider.toUpperCase()} 
-                    size="small" 
-                    color="primary" 
-                    sx={{ ml: 2 }}
-                  />
-                  <Chip 
-                    label={config.schema_creation_backend.model} 
-                    size="small" 
-                    variant="outlined"
-                    sx={{ ml: 1 }}
-                  />
-                </Box>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          {/* LLM Configuration Accordions */}
+          <Accordion type="multiple" className="mt-6">
+            {/* Schema Creation LLM */}
+            <AccordionItem value="schema-llm">
+              <AccordionTrigger className="hover:no-underline">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  <span className="font-semibold">Schema Creation LLM</span>
+                  <Badge className="ml-2">{config.schema_creation_backend.provider.toUpperCase()}</Badge>
+                  <Badge variant="outline">{config.schema_creation_backend.model}</Badge>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <p className="text-sm text-muted-foreground mb-4">
                   LLM used for discovering schema structure and column definitions
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={4}>
-                    <FormControl fullWidth>
-                      <InputLabel>Provider</InputLabel>
-                      <Select
-                        value={config.schema_creation_backend.provider}
-                        onChange={(e) => handleSchemaBackendChange('provider', e.target.value)}
-                      >
-                        <MenuItem value="gemini">Google Gemini</MenuItem>
-                        <MenuItem value="openai">OpenAI</MenuItem>
-                        <MenuItem value="together">Together AI</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
+                </p>
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Provider</Label>
+                    <Select
+                      value={config.schema_creation_backend.provider}
+                      onValueChange={(value) => handleSchemaBackendChange('provider', value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="gemini">Google Gemini</SelectItem>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="together">Together AI</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                  <Grid item xs={12} md={8}>
-                    <TextField
-                      label="Model"
-                      fullWidth
+                  <div className="md:col-span-2 space-y-2">
+                    <Label>Model</Label>
+                    <Input
                       value={config.schema_creation_backend.model}
                       onChange={(e) => handleSchemaBackendChange('model', e.target.value)}
-                      placeholder="e.g., gemini-2.5-flash, gpt-4, etc."
+                      placeholder="e.g., gemini-2.5-flash, gpt-4"
                     />
-                  </Grid>
+                  </div>
 
-                  <Grid item xs={12} md={4}>
-                    <TextField
-                      label="Max Tokens"
+                  <div className="space-y-2">
+                    <Label>Max Tokens</Label>
+                    <Input
                       type="number"
-                      fullWidth
                       value={config.schema_creation_backend.max_tokens}
                       onChange={(e) => handleSchemaBackendChange('max_tokens', parseInt(e.target.value))}
-                      inputProps={{ min: 512, max: 32768 }}
+                      min={512}
+                      max={32768}
                     />
-                  </Grid>
+                  </div>
 
-                  <Grid item xs={12} md={4}>
-                    <TextField
-                      label="Temperature"
+                  <div className="space-y-2">
+                    <Label>Temperature</Label>
+                    <Input
                       type="number"
-                      fullWidth
                       value={config.schema_creation_backend.temperature}
                       onChange={(e) => handleSchemaBackendChange('temperature', parseFloat(e.target.value))}
-                      inputProps={{ min: 0, max: 2, step: 0.1 }}
+                      min={0}
+                      max={2}
+                      step={0.1}
                     />
-                  </Grid>
+                  </div>
 
-                  <Grid item xs={12} md={4}>
-                    <TextField
-                      label="Max Context Tokens"
+                  <div className="space-y-2">
+                    <Label>Max Context Tokens</Label>
+                    <Input
                       type="number"
-                      fullWidth
                       value={config.schema_creation_backend.max_context_tokens || ''}
                       onChange={(e) => handleSchemaBackendChange('max_context_tokens', e.target.value ? parseInt(e.target.value) : undefined)}
                       placeholder="Optional"
                     />
-                  </Grid>
-                </Grid>
-              </AccordionDetails>
-            </Accordion>
-          </Grid>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
 
-          {/* Value Extraction LLM Configuration */}
-          <Grid item xs={12}>
-            <Accordion>
-              <AccordionSummary expandIcon={<ExpandMore />}>
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Settings sx={{ mr: 1 }} />
-                  <Typography variant="h6">Value Extraction LLM</Typography>
-                  <Chip 
-                    label={config.value_extraction_backend.provider.toUpperCase()} 
-                    size="small" 
-                    color="secondary" 
-                    sx={{ ml: 2 }}
-                  />
-                  <Chip 
-                    label={config.value_extraction_backend.model} 
-                    size="small" 
-                    variant="outlined"
-                    sx={{ ml: 1 }}
-                  />
-                </Box>
-              </AccordionSummary>
-              <AccordionDetails>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {/* Value Extraction LLM */}
+            <AccordionItem value="value-llm">
+              <AccordionTrigger className="hover:no-underline">
+                <div className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  <span className="font-semibold">Value Extraction LLM</span>
+                  <Badge variant="secondary" className="ml-2">{config.value_extraction_backend.provider.toUpperCase()}</Badge>
+                  <Badge variant="outline">{config.value_extraction_backend.model}</Badge>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <p className="text-sm text-muted-foreground mb-4">
                   LLM used for extracting actual data values from documents
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={4}>
-                    <FormControl fullWidth>
-                      <InputLabel>Provider</InputLabel>
-                      <Select
-                        value={config.value_extraction_backend.provider}
-                        onChange={(e) => handleValueBackendChange('provider', e.target.value)}
-                      >
-                        <MenuItem value="gemini">Google Gemini</MenuItem>
-                        <MenuItem value="openai">OpenAI</MenuItem>
-                        <MenuItem value="together">Together AI</MenuItem>
-                      </Select>
-                    </FormControl>
-                  </Grid>
+                </p>
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Provider</Label>
+                    <Select
+                      value={config.value_extraction_backend.provider}
+                      onValueChange={(value) => handleValueBackendChange('provider', value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="gemini">Google Gemini</SelectItem>
+                        <SelectItem value="openai">OpenAI</SelectItem>
+                        <SelectItem value="together">Together AI</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                  <Grid item xs={12} md={8}>
-                    <TextField
-                      label="Model"
-                      fullWidth
+                  <div className="md:col-span-2 space-y-2">
+                    <Label>Model</Label>
+                    <Input
                       value={config.value_extraction_backend.model}
                       onChange={(e) => handleValueBackendChange('model', e.target.value)}
-                      placeholder="e.g., gemini-2.5-flash-lite, gpt-4, etc."
+                      placeholder="e.g., gemini-2.5-flash-lite, gpt-4"
                     />
-                  </Grid>
+                  </div>
 
-                  <Grid item xs={12} md={4}>
-                    <TextField
-                      label="Max Tokens"
+                  <div className="space-y-2">
+                    <Label>Max Tokens</Label>
+                    <Input
                       type="number"
-                      fullWidth
                       value={config.value_extraction_backend.max_tokens}
                       onChange={(e) => handleValueBackendChange('max_tokens', parseInt(e.target.value))}
-                      inputProps={{ min: 512, max: 32768 }}
+                      min={512}
+                      max={32768}
                     />
-                  </Grid>
+                  </div>
 
-                  <Grid item xs={12} md={4}>
-                    <TextField
-                      label="Temperature"
+                  <div className="space-y-2">
+                    <Label>Temperature</Label>
+                    <Input
                       type="number"
-                      fullWidth
                       value={config.value_extraction_backend.temperature}
                       onChange={(e) => handleValueBackendChange('temperature', parseFloat(e.target.value))}
-                      inputProps={{ min: 0, max: 2, step: 0.1 }}
+                      min={0}
+                      max={2}
+                      step={0.1}
                     />
-                  </Grid>
+                  </div>
 
-                  <Grid item xs={12} md={4}>
-                    <TextField
-                      label="Max Context Tokens"
+                  <div className="space-y-2">
+                    <Label>Max Context Tokens</Label>
+                    <Input
                       type="number"
-                      fullWidth
                       value={config.value_extraction_backend.max_context_tokens || ''}
                       onChange={(e) => handleValueBackendChange('max_context_tokens', e.target.value ? parseInt(e.target.value) : undefined)}
                       placeholder="Optional"
                     />
-                  </Grid>
-                </Grid>
-              </AccordionDetails>
-            </Accordion>
-          </Grid>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
 
-          {/* Retriever Configuration */}
-          <Grid item xs={12}>
-            <Accordion>
-              <AccordionSummary expandIcon={<ExpandMore />}>
-                <Typography variant="h6">Retriever Settings</Typography>
-                <Chip 
-                  label={config.retriever?.model_name || 'Default'} 
-                  size="small" 
-                  color="secondary" 
-                  sx={{ ml: 2 }}
-                />
-              </AccordionSummary>
-              <AccordionDetails>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      label="Model Name"
-                      fullWidth
+            {/* Retriever Settings */}
+            <AccordionItem value="retriever">
+              <AccordionTrigger className="hover:no-underline">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold">Retriever Settings</span>
+                  <Badge variant="secondary" className="ml-2">{config.retriever?.model_name || 'Default'}</Badge>
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="md:col-span-2 space-y-2">
+                    <Label>Model Name</Label>
+                    <Input
                       value={config.retriever?.model_name || ''}
                       onChange={(e) => handleRetrieverChange('model_name', e.target.value)}
                     />
-                  </Grid>
+                  </div>
 
-                  <Grid item xs={12} md={6}>
-                    <TextField
-                      label="Passage Characters"
+                  <div className="space-y-2">
+                    <Label>Passage Characters</Label>
+                    <Input
                       type="number"
-                      fullWidth
                       value={config.retriever?.passage_chars || 512}
                       onChange={(e) => handleRetrieverChange('passage_chars', parseInt(e.target.value))}
-                      inputProps={{ min: 128, max: 2048 }}
+                      min={128}
+                      max={2048}
                     />
-                  </Grid>
+                  </div>
 
-                  <Grid item xs={12} md={4}>
-                    <TextField
-                      label="Overlap"
+                  <div className="space-y-2">
+                    <Label>Overlap</Label>
+                    <Input
                       type="number"
-                      fullWidth
                       value={config.retriever?.overlap || 64}
                       onChange={(e) => handleRetrieverChange('overlap', parseInt(e.target.value))}
-                      inputProps={{ min: 0, max: 256 }}
+                      min={0}
+                      max={256}
                     />
-                  </Grid>
+                  </div>
 
-                  <Grid item xs={12} md={4}>
-                    <TextField
-                      label="Retrieval K"
+                  <div className="space-y-2">
+                    <Label>Retrieval K</Label>
+                    <Input
                       type="number"
-                      fullWidth
                       value={config.retriever?.k || 15}
                       onChange={(e) => handleRetrieverChange('k', parseInt(e.target.value))}
-                      inputProps={{ min: 1, max: 50 }}
+                      min={1}
+                      max={50}
                     />
-                  </Grid>
+                  </div>
 
-                  <Grid item xs={12} md={4}>
-                    <TextField
-                      label="Dynamic K Threshold"
+                  <div className="space-y-2">
+                    <Label>Dynamic K Threshold</Label>
+                    <Input
                       type="number"
-                      fullWidth
                       value={config.retriever?.dynamic_k_threshold || 0.65}
                       onChange={(e) => handleRetrieverChange('dynamic_k_threshold', parseFloat(e.target.value))}
-                      inputProps={{ min: 0, max: 1, step: 0.05 }}
+                      min={0}
+                      max={1}
+                      step={0.05}
                     />
-                  </Grid>
-                </Grid>
-              </AccordionDetails>
-            </Accordion>
-          </Grid>
+                  </div>
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
 
-          {/* Submit */}
-          <Grid item xs={12}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 3 }}>
-              <Button onClick={() => navigate('/')} variant="outlined">
-                Back to Home
-              </Button>
-              
-              <Button
-                variant="contained"
-                size="large"
-                onClick={handleSubmit}
-                disabled={!isFormValid || loading}
-                startIcon={loading ? <CircularProgress size={20} /> : <AutoAwesome />}
-              >
-                {loading ? 'Starting QBSD...' : 'Start QBSD'}
-              </Button>
-            </Box>
-          </Grid>
-        </Grid>
-      </Paper>
+          {/* Actions */}
+          <div className="flex justify-between items-center pt-4 border-t">
+            <Button variant="outline" onClick={() => navigate('/')}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Home
+            </Button>
+
+            <Button
+              size="lg"
+              onClick={handleSubmit}
+              disabled={!isFormValid || loading}
+            >
+              {loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              {loading ? 'Starting QBSD...' : 'Start QBSD'}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {error && (
-        <Alert severity="error" sx={{ mt: 3 }}>
-          {error}
+        <Alert variant="destructive" className="mt-6">
+          <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-    </Box>
+    </div>
   );
 };
 

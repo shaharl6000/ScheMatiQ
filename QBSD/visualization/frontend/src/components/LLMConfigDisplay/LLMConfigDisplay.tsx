@@ -1,14 +1,13 @@
 import React from 'react';
+import { Brain, Zap, HardDrive, Thermometer } from 'lucide-react';
+
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import {
-  Box,
-  Typography,
-  Chip,
   Tooltip,
-  Card,
-  CardContent,
-  Stack,
-} from '@mui/material';
-import { Psychology, Speed, Memory, Thermostat } from '@mui/icons-material';
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 interface LLMConfigDisplayProps {
   config: {
@@ -35,11 +34,11 @@ const LLMConfigDisplay: React.FC<LLMConfigDisplayProps> = ({
   const getProviderIcon = (provider: string) => {
     switch (provider?.toLowerCase()) {
       case 'gemini':
-        return <Psychology color="primary" />;
+        return <Brain className="h-5 w-5 text-primary" />;
       case 'openai':
-        return <Psychology color="secondary" />;
+        return <Brain className="h-5 w-5 text-green-500" />;
       default:
-        return <Psychology />;
+        return <Brain className="h-5 w-5 text-muted-foreground" />;
     }
   };
 
@@ -56,80 +55,79 @@ const LLMConfigDisplay: React.FC<LLMConfigDisplayProps> = ({
     return 'Medium';
   };
 
-  const getCostColor = (level: string) => {
+  const getCostVariant = (level: string): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" => {
     switch (level.toLowerCase()) {
       case 'low': return 'success';
       case 'medium': return 'warning';
-      case 'high': return 'error';
-      default: return 'default';
+      case 'high': return 'destructive';
+      default: return 'secondary';
     }
   };
 
   const renderContent = () => (
-    <Stack spacing={showDetails ? 2 : 1}>
-      <Box display="flex" alignItems="center" gap={1}>
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
         {getProviderIcon(config.provider || '')}
-        <Typography variant={variant === 'compact' ? 'body2' : 'subtitle1'} fontWeight="medium">
+        <span className={variant === 'compact' ? 'text-sm font-medium' : 'font-semibold'}>
           {getModelDisplayName(config.provider || '', config.model || 'Unknown Model')}
-        </Typography>
-      </Box>
+        </span>
+      </div>
 
       {showDetails && (
-        <Stack direction="row" spacing={1} flexWrap="wrap">
-          <Chip
-            size="small"
-            icon={<Psychology />}
-            label={`Provider: ${config.provider || 'Unknown'}`}
-            variant="outlined"
-          />
-          
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline" className="gap-1">
+            <Brain className="h-3 w-3" />
+            {config.provider || 'Unknown'}
+          </Badge>
+
           {config.max_tokens && (
-            <Tooltip title="Maximum tokens per request">
-              <Chip
-                size="small"
-                icon={<Memory />}
-                label={`${config.max_tokens} tokens`}
-                variant="outlined"
-              />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className="gap-1 cursor-help">
+                  <HardDrive className="h-3 w-3" />
+                  {config.max_tokens} tokens
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                Maximum tokens per request
+              </TooltipContent>
             </Tooltip>
           )}
-          
+
           {config.temperature !== undefined && (
-            <Tooltip title="Temperature controls randomness (0.0 = deterministic, 1.0 = very random)">
-              <Chip
-                size="small"
-                icon={<Thermostat />}
-                label={`Temp: ${config.temperature}`}
-                variant="outlined"
-              />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className="gap-1 cursor-help">
+                  <Thermometer className="h-3 w-3" />
+                  Temp: {config.temperature}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                Temperature controls randomness (0.0 = deterministic, 1.0 = very random)
+              </TooltipContent>
             </Tooltip>
           )}
-          
-          <Chip
-            size="small"
-            icon={<Speed />}
-            label={`Cost: ${getCostLevel(config.model || '')}`}
-            color={getCostColor(getCostLevel(config.model || ''))}
-            variant="outlined"
-          />
-        </Stack>
+
+          <Badge variant={getCostVariant(getCostLevel(config.model || ''))} className="gap-1">
+            <Zap className="h-3 w-3" />
+            Cost: {getCostLevel(config.model || '')}
+          </Badge>
+        </div>
       )}
-      
+
       {!showDetails && variant === 'compact' && (
-        <Typography variant="caption" color="text.secondary">
+        <p className="text-xs text-muted-foreground">
           {config.provider} • {getCostLevel(config.model || '')} Cost
-        </Typography>
+        </p>
       )}
-    </Stack>
+    </div>
   );
 
   if (variant === 'card') {
     return (
-      <Card variant="outlined">
-        <CardContent>
-          <Typography variant="h6" gutterBottom>
-            {title}
-          </Typography>
+      <Card>
+        <CardContent className="pt-6">
+          <h4 className="font-semibold mb-3">{title}</h4>
           {renderContent()}
         </CardContent>
       </Card>
@@ -138,21 +136,15 @@ const LLMConfigDisplay: React.FC<LLMConfigDisplayProps> = ({
 
   if (variant === 'inline') {
     return (
-      <Box>
-        <Typography variant="subtitle2" gutterBottom color="text.secondary">
-          {title}
-        </Typography>
+      <div>
+        <p className="text-sm text-muted-foreground mb-2">{title}</p>
         {renderContent()}
-      </Box>
+      </div>
     );
   }
 
   // Compact variant
-  return (
-    <Box>
-      {renderContent()}
-    </Box>
-  );
+  return <div>{renderContent()}</div>;
 };
 
 export default LLMConfigDisplay;

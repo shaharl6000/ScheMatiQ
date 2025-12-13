@@ -1,48 +1,40 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import {
-  Box,
-  Typography,
-  AppBar,
-  Toolbar,
-  Tabs,
-  Tab,
-  Button,
-  Chip,
-  Alert,
-  CircularProgress,
-  Breadcrumbs,
-  Link,
-  Paper,
-  IconButton,
-} from '@mui/material';
-import {
-  ArrowBack,
-  TableView,
-  Schema,
-  Analytics,
+  ArrowLeft,
+  Table2,
+  Database,
+  BarChart3,
   Download,
-  Refresh,
+  RefreshCw,
   Info,
-  CheckCircle,
-  PlayArrow,
-  Error as ErrorIcon,
-  DragIndicator,
-  Close,
-} from '@mui/icons-material';
+  CheckCircle2,
+  Play,
+  XCircle,
+  GripVertical,
+  X,
+  Loader2,
+} from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
+
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 import { loadAPI, qbsdAPI } from '../services/api';
 import { VisualizationSession, CellValue, CellExtractedData } from '../types';
 import {
-  PROCESSING_REFRESH_INTERVAL, 
+  PROCESSING_REFRESH_INTERVAL,
   NEW_ROW_HIGHLIGHT_DURATION,
   WS_RECONNECT_ATTEMPTS,
   WS_RECONNECT_DELAY_BASE,
   WS_RECONNECT_MAX_DELAY
 } from '../constants/index';
 
-// Component imports (will be created next)
+// Component imports
 import DataTable from '../components/DataTable/DataTable';
 import SchemaViewer from '../components/SchemaViewer/SchemaViewer';
 import StatsDashboard from '../components/StatsDashboard/StatsDashboard';
@@ -52,27 +44,15 @@ import DocumentUpload from '../components/DocumentUpload/DocumentUpload';
 import ConfigurationInfo from '../components/ConfigurationInfo';
 import LLMSelector from '../components/LLMSelector';
 
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => (
-  <div hidden={value !== index} style={{ paddingTop: 16 }}>
-    {value === index && children}
-  </div>
-);
-
-const Visualize: React.FC = () => {
+const Visualize = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  
+
   const mode = searchParams.get('mode') as 'load' | 'qbsd' || 'load';
-  const [activeTab, setActiveTab] = useState(mode === 'qbsd' ? 4 : 0); // Start with QBSD Monitor (tab index 4) for QBSD mode
-  
+  const [activeTab, setActiveTab] = useState(mode === 'qbsd' ? 'monitor' : 'data');
+
   // Enhanced upload document management state
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
   const [documentUploadLoading, setDocumentUploadLoading] = useState(false);
@@ -80,29 +60,25 @@ const Visualize: React.FC = () => {
   const [documentUploadError, setDocumentUploadError] = useState<string | null>(null);
   const [newlyAddedRows, setNewlyAddedRows] = useState<Set<number>>(new Set());
 
-  // Streaming cells state - stores cell values as they're extracted in real-time
-  // Map<row_name, Record<column_name, value>>
+  // Streaming cells state
   const [streamingCells, setStreamingCells] = useState<Map<string, Record<string, CellValue>>>(new Map());
-  
-  // LLM selection state for document processing
-  const [showLLMSelector, setShowLLMSelector] = useState(false);
-  const [selectedLLMConfig, setSelectedLLMConfig] = useState<any>(null);
 
-  // Column order state for drag-drop reordering
+  // LLM selection state
+  const [showLLMSelector, setShowLLMSelector] = useState(false);
+
+  // Column order state
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
 
-  // Draggable processing overlay state
+  // Draggable overlay state
   const [overlayPosition, setOverlayPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // Force WebSocket connection when processing starts (before status poll catches up)
+  // WebSocket state
   const [forceWebSocketConnect, setForceWebSocketConnect] = useState(false);
-
-  // WebSocket reference for direct connection control
   const wsRef = React.useRef<WebSocket | null>(null);
 
-  // Load column order from localStorage on mount
+  // Load column order from localStorage
   useEffect(() => {
     if (sessionId) {
       const savedOrder = localStorage.getItem(`columnOrder_${sessionId}`);
@@ -116,7 +92,6 @@ const Visualize: React.FC = () => {
     }
   }, [sessionId]);
 
-  // Handler for column reorder - saves to localStorage
   const handleColumnReorder = (newOrder: string[]) => {
     setColumnOrder(newOrder);
     if (sessionId) {
@@ -124,9 +99,8 @@ const Visualize: React.FC = () => {
     }
   };
 
-  // Handlers for draggable processing overlay
+  // Drag handlers
   const handleOverlayMouseDown = (e: React.MouseEvent) => {
-    // Only start drag if clicking on the drag handle area
     if ((e.target as HTMLElement).closest('.drag-handle')) {
       setIsDragging(true);
       setDragStart({
@@ -150,16 +124,13 @@ const Visualize: React.FC = () => {
     setIsDragging(false);
   };
 
-  // Function to establish WebSocket connection and return a Promise that resolves when connected
+  // WebSocket connection
   const connectWebSocketSync = (): Promise<WebSocket> => {
     return new Promise((resolve, reject) => {
-      // WebSocket needs to connect directly to the backend server (port 8000)
-      // The CRA proxy only handles HTTP, not WebSocket connections
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const backendHost = process.env.REACT_APP_WS_HOST || 'localhost:8000';
       const wsUrl = `${protocol}//${backendHost}/ws/progress/${sessionId}`;
 
-      console.log('🔌 Creating WebSocket connection to:', wsUrl);
       const ws = new WebSocket(wsUrl);
 
       const timeout = setTimeout(() => {
@@ -167,17 +138,15 @@ const Visualize: React.FC = () => {
           ws.close();
           reject(new Error('WebSocket connection timeout'));
         }
-      }, 5000); // 5 second timeout
+      }, 5000);
 
       ws.onopen = () => {
-        console.log('🔌 WebSocket CONNECTED (sync) for session:', sessionId);
         clearTimeout(timeout);
         wsRef.current = ws;
         resolve(ws);
       };
 
       ws.onerror = (error) => {
-        console.error('🔌 WebSocket error (sync):', error);
         clearTimeout(timeout);
         reject(error);
       };
@@ -185,34 +154,20 @@ const Visualize: React.FC = () => {
       ws.onmessage = (event) => {
         try {
           const message = JSON.parse(event.data);
-          console.log('📨 WebSocket message received (sync):', message.type, message);
-
           switch (message.type) {
-            case 'connected':
-              console.log('🔌 WebSocket confirmed connection:', message);
-              break;
-
             case 'cell_extracted':
-              // Real-time cell value streaming - update streaming cells state
-              console.log('📦 CELL_EXTRACTED received:', message.data);
               if (message.data?.row_name && message.data?.column) {
                 const cellData = message.data as CellExtractedData;
-                console.log(`📦 Updating streaming cells: ${cellData.row_name} / ${cellData.column} = ${JSON.stringify(cellData.value).substring(0, 50)}...`);
                 setStreamingCells(prev => {
                   const updated = new Map(prev);
                   const rowData = updated.get(cellData.row_name) || {};
                   rowData[cellData.column] = cellData.value;
                   updated.set(cellData.row_name, rowData);
-                  console.log(`📦 Streaming cells now has ${updated.size} rows`);
                   return updated;
                 });
-              } else {
-                console.warn('⚠️ cell_extracted missing row_name or column:', message.data);
               }
               break;
-
             case 'row_completed':
-              // Row is complete - clear streaming data for this row
               if (message.data?.row_name) {
                 setStreamingCells(prev => {
                   const updated = new Map(prev);
@@ -220,12 +175,9 @@ const Visualize: React.FC = () => {
                   return updated;
                 });
               }
-              // Mark this row as newly added for visual highlighting
               setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
-              // Refresh data to show the new row
               queryClient.invalidateQueries(['data', sessionId]);
               queryClient.invalidateQueries(['session', sessionId]);
-              // Remove highlight after delay
               setTimeout(() => {
                 setNewlyAddedRows(prev => {
                   const newSet = new Set(Array.from(prev));
@@ -234,17 +186,13 @@ const Visualize: React.FC = () => {
                 });
               }, NEW_ROW_HIGHLIGHT_DURATION);
               break;
-
             case 'completion':
-              console.log('🎉 WebSocket: Processing completion received (sync)', message);
               setStreamingCells(new Map());
               setForceWebSocketConnect(false);
               queryClient.refetchQueries(['session', sessionId, mode]);
               queryClient.refetchQueries(['data', sessionId, mode]);
-              // Close WebSocket after completion
               setTimeout(() => {
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-                  console.log('🔌 Closing sync WebSocket after completion');
                   wsRef.current.close(1000, 'Processing completed');
                   wsRef.current = null;
                 }
@@ -252,12 +200,11 @@ const Visualize: React.FC = () => {
               break;
           }
         } catch (err) {
-          console.error('Error parsing WebSocket message (sync):', err);
+          console.error('Error parsing WebSocket message:', err);
         }
       };
 
       ws.onclose = (event) => {
-        console.log('🔌 WebSocket closed (sync):', event.code, event.reason);
         if (wsRef.current === ws) {
           wsRef.current = null;
         }
@@ -272,15 +219,13 @@ const Visualize: React.FC = () => {
       if (mode === 'load') {
         return loadAPI.getSession(sessionId!);
       } else {
-        // For QBSD, get full session from session manager (for metadata like uploaded_documents)
-        // plus status and schema from QBSD API
         const [fullSession, status, schema] = await Promise.all([
-          loadAPI.getSession(sessionId!).catch(() => null), // May fail if session doesn't exist in load API
+          loadAPI.getSession(sessionId!).catch(() => null),
           qbsdAPI.getStatus(sessionId!),
           qbsdAPI.getSchema(sessionId!)
         ]);
 
-        const sessionData = {
+        return {
           id: sessionId!,
           type: 'qbsd' as const,
           status: status.status as any,
@@ -288,7 +233,6 @@ const Visualize: React.FC = () => {
             source: `QBSD Query: ${schema.query || 'Unknown'}`,
             created: fullSession?.metadata?.created || new Date().toISOString(),
             last_modified: fullSession?.metadata?.last_modified || new Date().toISOString(),
-            // Include document-related metadata from full session
             uploaded_documents: fullSession?.metadata?.uploaded_documents,
             processed_documents: fullSession?.metadata?.processed_documents,
             additional_rows_added: fullSession?.metadata?.additional_rows_added,
@@ -297,24 +241,12 @@ const Visualize: React.FC = () => {
           columns: schema.schema || [],
           statistics: fullSession?.statistics,
         } as VisualizationSession;
-
-        // Debug logging
-        console.log('🔍 Session Data Update:', {
-          status: status.status,
-          columnsCount: schema.schema?.length || 0,
-          hasColumns: !!(schema.schema && schema.schema.length > 0),
-          uploadedDocuments: fullSession?.metadata?.uploaded_documents?.length || 0
-        });
-
-        return sessionData;
       }
     },
     {
       enabled: !!sessionId,
-      // Auto-refresh for QBSD mode OR when processing documents in upload mode
       refetchInterval: (data) => {
         if (mode === 'qbsd') return PROCESSING_REFRESH_INTERVAL;
-        // For upload mode, poll during document processing to detect completion
         if (data?.status === 'processing_documents') return PROCESSING_REFRESH_INTERVAL;
         return false;
       },
@@ -337,8 +269,8 @@ const Visualize: React.FC = () => {
         session?.status === 'processing_documents' ||
         session?.status === 'documents_uploaded'
       ),
-      refetchInterval: session?.status === 'processing_documents' ? PROCESSING_REFRESH_INTERVAL : false, // Auto-refresh during processing for faster updates
-      keepPreviousData: true, // Keep previous data while fetching new data to prevent disappearing
+      refetchInterval: session?.status === 'processing_documents' ? PROCESSING_REFRESH_INTERVAL : false,
+      keepPreviousData: true,
     }
   );
 
@@ -349,37 +281,27 @@ const Visualize: React.FC = () => {
     }
   }, [session?.status]);
 
-  // WebSocket integration for real-time updates (both upload and qbsd modes)
+  // WebSocket effect
   useEffect(() => {
     if (!sessionId) return;
 
-    // WebSocket needs to connect directly to the backend server (port 8000)
-    // The CRA proxy only handles HTTP, not WebSocket connections
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const backendHost = process.env.REACT_APP_WS_HOST || 'localhost:8000';
     const wsUrl = `${protocol}//${backendHost}/ws/progress/${sessionId}`;
-    
+
     let ws: WebSocket | null = null;
     let reconnectAttempts = 0;
-    const maxReconnectAttempts = WS_RECONNECT_ATTEMPTS;
-    
+
     const connectWebSocket = () => {
       try {
         ws = new WebSocket(wsUrl);
-        
-        ws.onopen = () => {
-          console.log('🔌 WebSocket connected for upload session:', sessionId);
-          reconnectAttempts = 0;
-        };
-        
+        ws.onopen = () => { reconnectAttempts = 0; };
+
         ws.onmessage = (event) => {
           try {
             const message = JSON.parse(event.data);
-            console.log('📨 WebSocket message received:', message.type, message);
-
             switch (message.type) {
               case 'cell_extracted':
-                // Real-time cell value streaming - update streaming cells state
                 if (message.data?.row_name && message.data?.column) {
                   const cellData = message.data as CellExtractedData;
                   setStreamingCells(prev => {
@@ -391,9 +313,7 @@ const Visualize: React.FC = () => {
                   });
                 }
                 break;
-
               case 'row_completed':
-                // Row is complete - clear streaming data for this row (now in database)
                 if (message.data?.row_name) {
                   setStreamingCells(prev => {
                     const updated = new Map(prev);
@@ -401,15 +321,9 @@ const Visualize: React.FC = () => {
                     return updated;
                   });
                 }
-
-                // Mark this row as newly added for visual highlighting
                 setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
-
-                // Refresh data to show the new row
                 queryClient.invalidateQueries(['data', sessionId]);
                 queryClient.invalidateQueries(['session', sessionId]);
-
-                // Remove highlight after 5 seconds
                 setTimeout(() => {
                   setNewlyAddedRows(prev => {
                     const newSet = new Set(Array.from(prev));
@@ -418,60 +332,27 @@ const Visualize: React.FC = () => {
                   });
                 }, NEW_ROW_HIGHLIGHT_DURATION);
                 break;
-                
-              case 'progress_update':
               case 'completion':
-                console.log('🎉 WebSocket: Processing completion received', message);
-                // Immediately invalidate and refresh session and data queries
-                // Use exact query keys to ensure proper cache updates
-                queryClient.invalidateQueries(['session', sessionId, mode]);
-                queryClient.invalidateQueries(['data', sessionId, mode]);
-
-                if (message.type === 'completion') {
-                  console.log('💾 WebSocket: Completion message - forcing immediate data refresh');
-
-                  // Clear all streaming cells on completion - data is now in the database
-                  setStreamingCells(new Map());
-
-                  // Reset force WebSocket connect flag
-                  setForceWebSocketConnect(false);
-
-                  // Force immediate refetch with exact query keys to ensure UI updates
-                  queryClient.refetchQueries(['session', sessionId, mode]);
-                  queryClient.refetchQueries(['data', sessionId, mode]);
-
-                  // Also refetch with partial keys for backward compatibility
-                  queryClient.refetchQueries(['session', sessionId]);
-                  queryClient.refetchQueries(['data', sessionId]);
-
-                  // Disconnect WebSocket after completion to avoid keeping it open unnecessarily
-                  setTimeout(() => {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                      console.log('🔌 WebSocket: Closing connection after processing completion');
-                      ws.close(1000, 'Processing completed');
-                    }
-                  }, 3000); // Longer delay to ensure all refreshes complete
-                }
+                setStreamingCells(new Map());
+                setForceWebSocketConnect(false);
+                queryClient.refetchQueries(['session', sessionId, mode]);
+                queryClient.refetchQueries(['data', sessionId, mode]);
+                setTimeout(() => {
+                  if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.close(1000, 'Processing completed');
+                  }
+                }, 3000);
                 break;
             }
           } catch (err) {
             console.error('Error parsing WebSocket message:', err);
           }
         };
-        
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-        };
-        
+
         ws.onclose = (event) => {
-          console.log('WebSocket closed:', event.code, event.reason);
           ws = null;
-          
-          // Attempt to reconnect if not a manual close
-          if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+          if (event.code !== 1000 && reconnectAttempts < WS_RECONNECT_ATTEMPTS) {
             const delay = Math.min(WS_RECONNECT_DELAY_BASE * Math.pow(2, reconnectAttempts), WS_RECONNECT_MAX_DELAY);
-            console.log(`Attempting to reconnect in ${delay}ms (attempt ${reconnectAttempts + 1}/${maxReconnectAttempts})`);
-            
             setTimeout(() => {
               reconnectAttempts++;
               connectWebSocket();
@@ -479,56 +360,18 @@ const Visualize: React.FC = () => {
           }
         };
       } catch (error) {
-        console.error('Error creating WebSocket connection:', error);
+        console.error('Error creating WebSocket:', error);
       }
     };
-    
-    // Connect during document processing and maintain connection for completed status to catch final messages
-    // Also connect during QBSD processing to receive real-time cell updates
-    // IMPORTANT: Skip if wsRef.current is already connected (from handleLLMSelection)
+
     const alreadyConnected = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
 
-    if (forceWebSocketConnect || session?.status === 'processing_documents') {
-      if (alreadyConnected) {
-        console.log('🔌 WebSocket already connected via sync method, skipping useEffect connection');
-      } else {
-        console.log('🔌 Connecting WebSocket for document processing (force:', forceWebSocketConnect, ', status:', session?.status, ')');
-        connectWebSocket();
-      }
-    } else if (mode === 'qbsd' && session?.status === 'processing') {
-      // QBSD mode: connect during processing to receive cell_extracted events
-      if (!alreadyConnected) {
-        console.log('🔌 Connecting WebSocket for QBSD processing');
-        connectWebSocket();
-      }
-    } else if (session?.status === 'completed' && (session?.metadata?.additional_rows_added || 0) > 0) {
-      // For recently completed sessions with added rows, maintain connection briefly to catch any late messages
-      if (!alreadyConnected) {
-        console.log('🔌 Connecting WebSocket for recently completed session');
-        connectWebSocket();
-      }
+    if ((forceWebSocketConnect || session?.status === 'processing_documents') && !alreadyConnected) {
+      connectWebSocket();
+    } else if (mode === 'qbsd' && session?.status === 'processing' && !alreadyConnected) {
+      connectWebSocket();
     }
-    
-    // Fallback refresh when session transitions to completed to ensure UI updates
-    if (session?.status === 'completed') {
-      const fallbackRefresh = setTimeout(() => {
-        console.log('🔄 Fallback refresh: Force refreshing queries for completed session');
-        queryClient.invalidateQueries(['session', sessionId]);
-        queryClient.invalidateQueries(['data', sessionId]);
-        queryClient.invalidateQueries(['data', sessionId, mode]);
-        // Also force immediate refetch
-        queryClient.refetchQueries(['session', sessionId]);
-        queryClient.refetchQueries(['data', sessionId]);
-      }, 500); // Shorter delay for faster UI update
-      
-      return () => {
-        clearTimeout(fallbackRefresh);
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.close(1000, 'Component unmounting');
-        }
-      };
-    }
-    
+
     return () => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close(1000, 'Component unmounting');
@@ -536,21 +379,17 @@ const Visualize: React.FC = () => {
     };
   }, [sessionId, mode, session?.status, queryClient, forceWebSocketConnect]);
 
-  // Listen for schema data update events from SchemaViewer
+  // Schema data update listener
   useEffect(() => {
     const handleSchemaDataUpdate = (event: CustomEvent) => {
-      const { sessionId: eventSessionId, operation } = event.detail;
+      const { sessionId: eventSessionId } = event.detail;
       if (eventSessionId === sessionId) {
-        console.log('🔄 Handling schema data update:', operation);
-        // Invalidate all relevant queries to force refresh
         queryClient.invalidateQueries(['session', sessionId, mode]);
         queryClient.invalidateQueries(['data', sessionId, mode]);
-        queryClient.invalidateQueries(['data', sessionId]);
       }
     };
 
     window.addEventListener('schema-data-updated', handleSchemaDataUpdate as EventListener);
-    
     return () => {
       window.removeEventListener('schema-data-updated', handleSchemaDataUpdate as EventListener);
     };
@@ -563,34 +402,25 @@ const Visualize: React.FC = () => {
 
   const handleExport = async () => {
     try {
-      // Build URL with column order if user has reordered columns
       let apiUrl = mode === 'load'
         ? `/api/load/export/${sessionId}`
         : `/api/qbsd/export/${sessionId}`;
 
-      // Add column order as query parameter if available
       if (columnOrder.length > 0) {
         const orderParam = encodeURIComponent(columnOrder.join(','));
         apiUrl += `?column_order=${orderParam}`;
       }
 
       const response = await fetch(apiUrl);
-      
-      if (!response.ok) {
-        throw new Error('Export failed');
-      }
-      
-      // Get filename from response headers or create default
+      if (!response.ok) throw new Error('Export failed');
+
       const contentDisposition = response.headers.get('Content-Disposition');
       let filename = 'exported_data.csv';
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
+        if (filenameMatch) filename = filenameMatch[1];
       }
-      
-      // Download the file
+
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -598,30 +428,22 @@ const Visualize: React.FC = () => {
       link.download = filename;
       document.body.appendChild(link);
       link.click();
-      
-      // Cleanup
       window.URL.revokeObjectURL(url);
       document.body.removeChild(link);
-      
     } catch (error) {
       console.error('Export error:', error);
-      // You could show a toast/snackbar here for better UX
       alert('Export failed. Please try again.');
     }
   };
 
-  // Enhanced upload document handlers
   const handleDocumentProcessing = async () => {
-    // Show LLM selector for document processing
     setShowLLMSelector(true);
   };
 
   const handleLLMSelection = async (llmConfig: any) => {
-    setSelectedLLMConfig(llmConfig);
     setShowLLMSelector(false);
-
     if (!sessionId) {
-      setDocumentUploadError('No session available for processing');
+      setDocumentUploadError('No session available');
       return;
     }
 
@@ -629,46 +451,25 @@ const Visualize: React.FC = () => {
     setDocumentUploadError(null);
 
     try {
-      // CRITICAL: Connect WebSocket FIRST and WAIT for it to be open
-      // This ensures we're connected before the first cell_extracted event
-      console.log('🔌 Establishing WebSocket connection BEFORE starting processing...');
-
-      // Close any existing connection first
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.close(1000, 'Reconnecting for new processing');
+        wsRef.current.close(1000, 'Reconnecting');
         wsRef.current = null;
       }
-
       await connectWebSocketSync();
-      console.log('🔌 WebSocket connected locally!');
-
-      // Small delay for backend to fully register the connection
       await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Verify WebSocket is registered on backend before starting processing
       try {
-        const wsConfirmation = await loadAPI.confirmWebSocketReady(sessionId);
-        console.log('✅ WebSocket confirmed on backend:', wsConfirmation);
+        await loadAPI.confirmWebSocketReady(sessionId);
       } catch (wsError) {
-        console.warn('⚠️ WebSocket confirmation failed, proceeding anyway (buffering will catch events):', wsError);
-        // Don't fail here - the buffering mechanism will catch any early events
+        console.warn('WebSocket confirmation failed:', wsError);
       }
 
-      setForceWebSocketConnect(true); // Keep flag for useEffect to not create duplicate
-
-      // NOW start document processing - WebSocket is confirmed ready
-      console.log('🚀 Starting document processing...');
+      setForceWebSocketConnect(true);
       await loadAPI.processDocuments(sessionId, llmConfig);
-
-      // Refresh session data to show updated status
       queryClient.invalidateQueries(['session', sessionId]);
-
-      console.log('🤖 Document processing started with LLM config:', llmConfig);
     } catch (err: any) {
-      console.error('Failed to start document processing:', err);
-      const errorMessage = err.response?.data?.detail || err.message || 'Failed to start document processing';
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to start processing';
       setDocumentUploadError(errorMessage);
-      // Reset force connect and close WebSocket on error
       setForceWebSocketConnect(false);
       if (wsRef.current) {
         wsRef.current.close(1000, 'Error occurred');
@@ -681,314 +482,213 @@ const Visualize: React.FC = () => {
 
   const handleDocumentUpload = async () => {
     if (!sessionId || uploadedDocuments.length === 0) {
-      setDocumentUploadError('No session or documents to upload');
+      setDocumentUploadError('No session or documents');
       return;
     }
 
     setDocumentUploadLoading(true);
     setDocumentUploadError(null);
-    
+
     try {
       const result = await loadAPI.addDocuments(sessionId, uploadedDocuments);
       setDocumentUploadResult(result);
-      setUploadedDocuments([]); // Clear uploaded files
-      
-      // Refresh session data to show updated status
+      setUploadedDocuments([]);
       queryClient.invalidateQueries(['session', sessionId]);
     } catch (err: any) {
-      console.error('Failed to upload documents:', err);
-      const errorMessage = err.response?.data?.detail || err.message || 'Failed to upload documents';
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to upload';
       setDocumentUploadError(errorMessage);
     } finally {
       setDocumentUploadLoading(false);
     }
   };
 
-
-  const startDocumentProcessingMonitor = () => {
-    const pollStatus = async () => {
-      if (!sessionId) return;
-      
-      try {
-        // Refresh both session and data
-        queryClient.invalidateQueries(['session', sessionId]);
-        queryClient.invalidateQueries(['data', sessionId]);
-        
-        // Check session status
-        const session = await loadAPI.getSession(sessionId);
-        
-        if (session.status === 'completed') {
-          // Processing completed, stop polling
-          return;
-        } else if (session.status === 'processing_documents') {
-          // Continue polling
-          setTimeout(pollStatus, 2000); // Poll every 2 seconds
-        } else if (session.status === 'error') {
-          setDocumentUploadError('Document processing failed');
-          return;
-        }
-      } catch (err: any) {
-        console.error('Error monitoring processing:', err);
-        // Retry with longer delay
-        setTimeout(pollStatus, 5000);
-      }
-    };
-
-    pollStatus();
-  };
-
   if (!sessionId) {
     return (
-      <Alert severity="error">
-        Invalid session ID
+      <Alert variant="destructive">
+        <AlertDescription>Invalid session ID</AlertDescription>
       </Alert>
     );
   }
 
   if (sessionLoading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 8 }}>
-        <CircularProgress />
-      </Box>
+      <div className="flex justify-center items-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
     );
   }
 
   if (sessionError) {
     return (
-      <Alert severity="error" sx={{ mt: 4 }}>
-        Failed to load session data
+      <Alert variant="destructive" className="mt-4">
+        <AlertDescription>Failed to load session data</AlertDescription>
       </Alert>
     );
   }
 
   const isQBSDRunning = mode === 'qbsd' && session?.status === 'processing';
-  const isSchemaReady = session?.status === 'schema_ready' ||
-                       session?.status === 'schema_extracted' ||
-                       session?.status === 'documents_uploaded' ||
-                       session?.status === 'processing_documents' ||
-                       session?.status === 'completed' ||
-                       // For QBSD: schema is ready during processing if columns exist
-                       (mode === 'qbsd' && session?.status === 'processing' && (session?.columns?.length ?? 0) > 0);
+  const isSchemaReady = ['schema_ready', 'schema_extracted', 'documents_uploaded', 'processing_documents', 'completed'].includes(session?.status || '') ||
+    (mode === 'qbsd' && session?.status === 'processing' && (session?.columns?.length ?? 0) > 0);
   const isCompleted = session?.status === 'completed';
   const isEnhancedUploadProcessing = session?.status === 'processing_documents';
-  
-  // Debug logging for tab enablement
-  console.log('🎯 Tab Enablement Debug:', {
-    sessionStatus: session?.status,
-    isSchemaReady,
-    hasColumns: !!(session?.columns?.length),
-    columnsCount: session?.columns?.length || 0,
-    tabWillBeEnabled: isSchemaReady && !!(session?.columns?.length)
-  });
-  
-  // Debug logging
-  console.log('DEBUG Frontend:', {
-    mode,
-    sessionStatus: session?.status,
-    isCompleted,
-    dataResponse: !!dataResponse,
-    dataLoading,
-    sessionId
-  });
+
+  const getStatusBadge = () => {
+    const status = session?.status;
+    const variants: Record<string, 'default' | 'success' | 'warning' | 'destructive' | 'info'> = {
+      completed: 'success',
+      schema_ready: 'info',
+      schema_extracted: 'info',
+      documents_uploaded: 'warning',
+      processing_documents: 'warning',
+      processing: 'warning',
+      error: 'destructive',
+    };
+    const labels: Record<string, string> = {
+      schema_ready: 'Schema Ready',
+      schema_extracted: 'Schema Extracted',
+      documents_uploaded: 'Documents Ready',
+      processing_documents: 'Processing Documents',
+    };
+    return (
+      <Badge variant={variants[status || ''] || 'default'}>
+        {labels[status || ''] || status || 'Unknown'}
+      </Badge>
+    );
+  };
 
   return (
-    <Box>
+    <div className="space-y-4">
       {/* Header */}
-      <AppBar position="static" color="default" elevation={1}>
-        <Toolbar>
-          <Button
-            startIcon={<ArrowBack />}
-            onClick={() => navigate('/')}
-            sx={{ mr: 2 }}
-          >
+      <div className="flex items-center justify-between border-b pb-4">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
-          
-          <Box sx={{ flexGrow: 1 }}>
-            <Breadcrumbs>
-              <Link underline="hover" color="inherit" onClick={() => navigate('/')}>
-                Home
-              </Link>
-              <Typography color="text.primary">
-                {session?.type === 'load' ? 'Load Session' : 'QBSD Session'}
-              </Typography>
-            </Breadcrumbs>
-            <Typography variant="h6" sx={{ mt: 0.5 }}>
-              {session?.metadata.source}
-            </Typography>
-          </Box>
+          <div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Link to="/" className="hover:text-foreground">Home</Link>
+              <span>/</span>
+              <span>{session?.type === 'load' ? 'Load Session' : 'QBSD Session'}</span>
+            </div>
+            <h1 className="text-lg font-semibold">{session?.metadata.source}</h1>
+          </div>
+        </div>
 
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Chip 
-              label={
-                session?.status === 'schema_ready' ? 'Schema Ready' :
-                session?.status === 'schema_extracted' ? 'Schema Extracted' :
-                session?.status === 'documents_uploaded' ? 'Documents Ready' :
-                session?.status === 'processing_documents' ? 'Processing Documents' :
-                session?.status || 'Unknown'
-              }
-              color={
-                session?.status === 'completed' ? 'success' :
-                session?.status === 'schema_ready' ? 'info' :
-                session?.status === 'schema_extracted' ? 'info' :
-                session?.status === 'documents_uploaded' ? 'warning' :
-                session?.status === 'processing_documents' ? 'warning' :
-                session?.status === 'processing' ? 'warning' :
-                session?.status === 'error' ? 'error' : 'default'
-              }
-              size="small"
-            />
-            
-            {(isCompleted || session?.status === 'processing_documents') && (
-              <>
-                <Button
-                  startIcon={<Refresh />}
-                  onClick={handleRefresh}
-                  size="small"
-                >
-                  Refresh
-                </Button>
-                <Button
-                  startIcon={<Download />}
-                  onClick={handleExport}
-                  size="small"
-                  variant="outlined"
-                >
-                  Export
-                </Button>
-              </>
-            )}
-          </Box>
-        </Toolbar>
-      </AppBar>
+        <div className="flex items-center gap-2">
+          {getStatusBadge()}
+          {(isCompleted || isEnhancedUploadProcessing) && (
+            <>
+              <Button variant="ghost" size="sm" onClick={handleRefresh}>
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Refresh
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleExport}>
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
 
       {/* Tabs */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs 
-          value={activeTab} 
-          onChange={(_, newValue) => setActiveTab(newValue)}
-          variant="scrollable"
-          scrollButtons="auto"
-        >
-          <Tab icon={<TableView />} label="Data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning} />
-          <Tab icon={<Schema />} label="Schema" disabled={!isSchemaReady || !session?.columns?.length} />
-          <Tab icon={<Analytics />} label="Statistics" disabled={!isCompleted} />
-          <Tab icon={<Info />} label="Session Info" />
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList>
+          <TabsTrigger value="data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning} className="gap-2">
+            <Table2 className="h-4 w-4" />
+            Data
+          </TabsTrigger>
+          <TabsTrigger value="schema" disabled={!isSchemaReady || !session?.columns?.length} className="gap-2">
+            <Database className="h-4 w-4" />
+            Schema
+          </TabsTrigger>
+          <TabsTrigger value="stats" disabled={!isCompleted} className="gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Statistics
+          </TabsTrigger>
+          <TabsTrigger value="info" className="gap-2">
+            <Info className="h-4 w-4" />
+            Session Info
+          </TabsTrigger>
           {mode === 'qbsd' && (
-            <Tab
-              icon={
-                session?.status === 'processing' ? (
-                  <CircularProgress size={16} />
-                ) : session?.status === 'completed' ? (
-                  <CheckCircle color="success" fontSize="small" />
-                ) : session?.status === 'error' ? (
-                  <ErrorIcon color="error" fontSize="small" />
-                ) : (
-                  <PlayArrow fontSize="small" />
-                )
-              }
-              label="QBSD Monitor"
-            />
+            <TabsTrigger value="monitor" className="gap-2">
+              {session?.status === 'processing' ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : session?.status === 'completed' ? (
+                <CheckCircle2 className="h-4 w-4 text-green-500" />
+              ) : session?.status === 'error' ? (
+                <XCircle className="h-4 w-4 text-red-500" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              QBSD Monitor
+            </TabsTrigger>
           )}
-          {(mode === 'load' && isEnhancedUploadProcessing) && (
-            <Tab icon={<CircularProgress size={16} />} label="Processing Monitor" />
+          {mode === 'load' && isEnhancedUploadProcessing && (
+            <TabsTrigger value="processing" className="gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Processing Monitor
+            </TabsTrigger>
           )}
-        </Tabs>
-      </Box>
+        </TabsList>
 
-      {/* Tab Panels */}
-      <Box sx={{ p: 3 }}>
-        <TabPanel value={activeTab} index={0}>
-          {/* Data Table - show if data exists OR streaming cells during QBSD processing */}
+        {/* Data Tab */}
+        <TabsContent value="data" className="mt-4">
           {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
-            <Box sx={{ position: 'relative' }}>
-              {/* Draggable Processing Overlay - show during document processing OR QBSD value extraction */}
+            <div className="relative">
+              {/* Processing Overlay */}
               {(session?.status === 'processing_documents' || isQBSDRunning) && (
-                <Box
+                <div
                   onMouseDown={handleOverlayMouseDown}
                   onMouseMove={handleOverlayMouseMove}
                   onMouseUp={handleOverlayMouseUp}
                   onMouseLeave={handleOverlayMouseUp}
-                  sx={{
-                    position: 'absolute',
-                    top: overlayPosition.y,
-                    left: overlayPosition.x,
-                    right: overlayPosition.x === 0 ? 0 : 'auto',
-                    width: overlayPosition.x !== 0 ? 'auto' : undefined,
-                    minWidth: 300,
-                    maxWidth: '100%',
-                    zIndex: 10,
-                    backgroundColor: 'rgba(255, 255, 255, 0.98)',
-                    backdropFilter: 'blur(4px)',
-                    padding: 2,
-                    borderRadius: 2,
-                    border: '2px solid',
-                    borderColor: 'primary.main',
-                    boxShadow: isDragging ? 8 : 4,
-                    cursor: isDragging ? 'grabbing' : 'default',
-                    userSelect: 'none',
-                    transition: isDragging ? 'none' : 'box-shadow 0.2s ease'
+                  style={{
+                    transform: `translate(${overlayPosition.x}px, ${overlayPosition.y}px)`,
                   }}
+                  className={cn(
+                    "absolute top-0 right-0 z-10 min-w-[300px] max-w-full p-4 rounded-lg border-2 border-primary bg-background/98 backdrop-blur shadow-lg",
+                    isDragging ? "cursor-grabbing shadow-xl" : ""
+                  )}
                 >
-                  {/* Drag Handle */}
-                  <Box
-                    className="drag-handle"
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      mb: 1,
-                      pb: 1,
-                      borderBottom: '1px solid',
-                      borderColor: 'divider',
-                      cursor: 'grab',
-                      '&:active': { cursor: 'grabbing' }
-                    }}
-                  >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <DragIndicator sx={{ color: 'text.secondary' }} />
-                      <Typography variant="subtitle2" color="text.secondary">
-                        Drag to move
-                      </Typography>
-                    </Box>
-                    <IconButton
-                      size="small"
-                      onClick={() => setOverlayPosition({ x: 0, y: 0 })}
-                      title="Reset position"
-                    >
-                      <Close fontSize="small" />
-                    </IconButton>
-                  </Box>
+                  <div className="drag-handle flex items-center justify-between pb-2 mb-2 border-b cursor-grab active:cursor-grabbing">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <GripVertical className="h-4 w-4" />
+                      <span className="text-sm">Drag to move</span>
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setOverlayPosition({ x: 0, y: 0 })}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
 
-                  <Alert severity="info" sx={{ mb: 1.5 }}>
-                    <Typography variant="body1" gutterBottom sx={{ fontWeight: 'bold' }}>
-                      🤖 {isQBSDRunning ? 'Extracting Data from Documents' : 'Processing Documents with AI'}
-                    </Typography>
-                    <Typography variant="body2">
-                      {isQBSDRunning
-                        ? 'Building table from discovered schema. Cells fill in as values are extracted.'
-                        : 'Extracting data from your uploaded documents. Cells fill in as values are extracted.'}
-                    </Typography>
+                  <Alert variant="info" className="mb-3">
+                    <AlertDescription>
+                      <p className="font-bold mb-1">
+                        {isQBSDRunning ? 'Extracting Data from Documents' : 'Processing Documents with AI'}
+                      </p>
+                      <p className="text-sm">
+                        {isQBSDRunning
+                          ? 'Building table from discovered schema. Cells fill in as values are extracted.'
+                          : 'Extracting data from your uploaded documents. Cells fill in as values are extracted.'}
+                      </p>
+                    </AlertDescription>
                   </Alert>
 
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
-                    <CircularProgress size={20} />
-                    <Typography variant="body2">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    <span className="text-sm">
                       {isQBSDRunning
                         ? `${streamingCells.size} rows being processed`
-                        : `${session.metadata?.processed_documents || 0} of ${session.metadata?.uploaded_documents?.length || 0} documents processed`}
-                    </Typography>
-                    {(session.metadata?.additional_rows_added && session.metadata.additional_rows_added > 0) && (
-                      <Chip
-                        label={`+${session.metadata.additional_rows_added} new rows`}
-                        color="success"
-                        size="small"
-                      />
+                        : `${session?.metadata?.processed_documents || 0} of ${session?.metadata?.uploaded_documents?.length || 0} documents processed`}
+                    </span>
+                    {(session?.metadata?.additional_rows_added && session.metadata.additional_rows_added > 0) && (
+                      <Badge variant="success">+{session.metadata.additional_rows_added} new rows</Badge>
                     )}
-                  </Box>
-                </Box>
+                  </div>
+                </div>
               )}
-              
+
               <DataTable
                 sessionId={sessionId!}
                 sessionType={mode}
@@ -997,279 +697,171 @@ const Visualize: React.FC = () => {
                 onColumnReorder={handleColumnReorder}
                 streamingCells={streamingCells}
               />
-              
-              {/* Document Upload Section - show for upload sessions with schema, or completed/documents_uploaded/processing QBSD sessions */}
-              {((mode === 'load' && (session?.status === 'documents_uploaded' || session?.status === 'processing_documents' || session?.status === 'completed')) ||
-                (mode === 'qbsd' && (session?.status === 'completed' || session?.status === 'documents_uploaded' || session?.status === 'processing_documents'))) &&
-               !sessionLoading && !dataLoading && dataResponse && (
-                <Box sx={{ mt: 4 }}>
-                  <Paper sx={{ p: 3 }}>
-                    <Typography variant="h6" gutterBottom>
-                      {mode === 'qbsd'
-                        ? 'Add More Documents'
-                        : session?.status === 'documents_uploaded'
-                          ? 'Process Your Documents'
-                          : 'Add More Documents'}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" paragraph>
-                      {mode === 'qbsd'
-                        ? 'Upload additional documents to extract more data using your discovered schema.'
-                        : session?.status === 'documents_uploaded'
-                          ? 'You have uploaded documents that are ready to be processed. Click the button below to extract data using your schema.'
-                          : 'Upload additional documents to extract more data using your existing schema.'
-                      }
-                    </Typography>
-                    
-                    {/* Show current uploaded documents status */}
-                    {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
-                      <Alert severity="info" sx={{ mb: 2 }}>
-                        <Typography variant="body2">
-                          <strong>Uploaded documents:</strong> {session.metadata.uploaded_documents.join(', ')}
-                        </Typography>
-                      </Alert>
-                    )}
-                    
-                    {documentUploadError && (
-                      <Alert severity="error" sx={{ mb: 2 }}>
-                        {documentUploadError}
-                      </Alert>
-                    )}
-                    
-                    {/* Document upload interface */}
-                    <DocumentUpload
-                      onFilesChange={setUploadedDocuments}
-                      uploadedFiles={uploadedDocuments}
-                      loading={documentUploadLoading}
-                      onUpload={handleDocumentUpload}
-                      canUpload={true}
-                      uploadResult={documentUploadResult}
-                    />
-                    
-                    {/* Process documents section */}
-                    {((session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0) || (documentUploadResult && documentUploadResult.uploaded_files.length > 0)) && (
-                      <Box sx={{ mt: 3 }}>
-                        {/* Processing progress bar */}
-                        {session?.status === 'processing_documents' && (
-                          <Box sx={{ mb: 3 }}>
-                            <Alert severity="info" sx={{ mb: 2 }}>
-                              <Typography variant="body2" gutterBottom>
-                                🤖 Processing documents with AI...
-                              </Typography>
-                              <Typography variant="body2">
-                                Extracting data from your uploaded documents using the schema. This may take a few minutes.
-                              </Typography>
+
+              {/* Document Upload Section */}
+              {((mode === 'load' && ['documents_uploaded', 'processing_documents', 'completed'].includes(session?.status || '')) ||
+                (mode === 'qbsd' && ['completed', 'documents_uploaded', 'processing_documents'].includes(session?.status || ''))) &&
+                !sessionLoading && !dataLoading && dataResponse && (
+                  <Card className="mt-6">
+                    <CardHeader>
+                      <CardTitle>
+                        {mode === 'qbsd'
+                          ? 'Add More Documents'
+                          : session?.status === 'documents_uploaded'
+                            ? 'Process Your Documents'
+                            : 'Add More Documents'}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <p className="text-sm text-muted-foreground">
+                        {mode === 'qbsd'
+                          ? 'Upload additional documents to extract more data using your discovered schema.'
+                          : session?.status === 'documents_uploaded'
+                            ? 'You have uploaded documents that are ready to be processed.'
+                            : 'Upload additional documents to extract more data using your existing schema.'}
+                      </p>
+
+                      {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
+                        <Alert variant="info">
+                          <AlertDescription>
+                            <strong>Uploaded documents:</strong> {session.metadata.uploaded_documents.join(', ')}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
+                      {documentUploadError && (
+                        <Alert variant="destructive">
+                          <AlertDescription>{documentUploadError}</AlertDescription>
+                        </Alert>
+                      )}
+
+                      <DocumentUpload
+                        onFilesChange={setUploadedDocuments}
+                        uploadedFiles={uploadedDocuments}
+                        loading={documentUploadLoading}
+                        onUpload={handleDocumentUpload}
+                        canUpload={true}
+                        uploadResult={documentUploadResult}
+                      />
+
+                      {((session?.metadata?.uploaded_documents?.length || 0) > 0 || documentUploadResult?.uploaded_files?.length > 0) && (
+                        <div className="pt-4 border-t">
+                          {session?.status === 'processing_documents' && (
+                            <div className="flex items-center gap-2 mb-4">
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                              <span>Processing in progress...</span>
+                            </div>
+                          )}
+
+                          {session?.status === 'completed' && (session?.metadata?.additional_rows_added ?? 0) > 0 && (
+                            <Alert variant="success" className="mb-4">
+                              <AlertDescription>
+                                Processing completed! Added {session.metadata.additional_rows_added} new rows.
+                              </AlertDescription>
                             </Alert>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                              <CircularProgress size={20} />
-                              <Typography variant="body2">
-                                Processing in progress...
-                              </Typography>
-                            </Box>
-                          </Box>
-                        )}
-                        
-                        {/* Processing completion message */}
-                        {session?.status === 'completed' && session?.metadata?.additional_rows_added && session.metadata.additional_rows_added > 0 && (
-                          <Alert severity="success" sx={{ mb: 3 }}>
-                            <Typography variant="body2" gutterBottom>
-                              ✅ Processing completed successfully!
-                            </Typography>
-                            <Typography variant="body2">
-                              Added {session.metadata.additional_rows_added} new rows from your uploaded documents.
-                              The data table above now includes the extracted information.
-                            </Typography>
-                          </Alert>
-                        )}
-                        
-                        {/* Process button */}
-                        {session?.status !== 'completed' && (
-                          <Box>
+                          )}
+
+                          {session?.status !== 'completed' && (
                             <Button
-                              variant="contained"
-                              size="large"
                               onClick={handleDocumentProcessing}
                               disabled={session?.status?.includes('processing') || documentUploadLoading}
-                              startIcon={documentUploadLoading ? <CircularProgress size={20} /> : undefined}
                             >
-                              {documentUploadLoading ? 'Starting Processing...' : 
-                               session?.status?.includes('processing') ? 'Processing...' : 
-                               'Select AI Model & Process Documents'}
+                              {documentUploadLoading ? (
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                              ) : null}
+                              {documentUploadLoading ? 'Starting...' :
+                                session?.status?.includes('processing') ? 'Processing...' :
+                                  'Select AI Model & Process Documents'}
                             </Button>
-                            
-                            {/* Show preserved LLM config if available */}
-                            {session?.metadata?.extracted_schema?.llm_configuration?.value_extraction_backend && (
-                              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                                Previously used: {session.metadata.extracted_schema.llm_configuration.value_extraction_backend.provider} {session.metadata.extracted_schema.llm_configuration.value_extraction_backend.model}
-                              </Typography>
-                            )}
-                          </Box>
-                        )}
-                        
-                        {session?.status !== 'processing_documents' && session?.status !== 'completed' && (
-                          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                            Choose an AI model and analyze your uploaded documents to extract data according to your schema.
-                          </Typography>
-                        )}
-                      </Box>
-                    )}
-                  </Paper>
-                </Box>
-              )}
-            </Box>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )}
+            </div>
           ) : (
-            <>
-              {/* Show document upload for sessions without data but with schema (enhanced upload flow) */}
-              {mode === 'load' && !sessionLoading && (session?.status === 'documents_uploaded' || session?.status === 'processing_documents') && !dataResponse && (
-                <Box sx={{ mt: 4 }}>
-                  <Alert severity="info" sx={{ mb: 3 }}>
-                    {session?.status === 'documents_uploaded' 
-                      ? 'You have uploaded documents that are ready to be processed. Click the button below to start extracting data.'
-                      : 'Document processing is in progress. Please wait while we extract data from your uploaded documents.'
-                    }
-                  </Alert>
-                  
-                  <Paper sx={{ p: 3 }}>
-                    <Typography variant="h6" gutterBottom>
-                      {session?.status === 'documents_uploaded' ? 'Process Your Documents' : 'Processing Your Documents'}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" paragraph>
-                      {session?.status === 'documents_uploaded'
-                        ? 'You have uploaded documents that are ready to be processed. Click the button below to extract data using your schema.'
-                        : 'Your documents are being analyzed using the extracted schema. This may take a few minutes depending on the number of documents and their complexity.'
-                      }
-                    </Typography>
-                    
-                    {/* Show current uploaded documents status */}
-                    {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
-                      <Alert severity="info" sx={{ mb: 2 }}>
-                        <Typography variant="body2">
-                          <strong>Uploaded documents:</strong> {session.metadata.uploaded_documents.join(', ')}
-                        </Typography>
-                      </Alert>
-                    )}
-                    
-                    {documentUploadError && (
-                      <Alert severity="error" sx={{ mb: 2 }}>
-                        {documentUploadError}
-                      </Alert>
-                    )}
-                    
-                    {/* Processing progress bar */}
-                    {session?.status === 'processing_documents' && (
-                      <Box sx={{ mb: 3 }}>
-                        <Alert severity="info" sx={{ mb: 2 }}>
-                          <Typography variant="body2" gutterBottom>
-                            🤖 Processing documents with AI...
-                          </Typography>
-                          <Typography variant="body2">
-                            Extracting data from your uploaded documents using the schema. This may take a few minutes.
-                          </Typography>
-                        </Alert>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                          <CircularProgress size={20} />
-                          <Typography variant="body2">
-                            Processing in progress...
-                          </Typography>
-                        </Box>
-                      </Box>
-                    )}
-                    
-                    {/* Process button */}
-                    <Button
-                      variant="contained"
-                      size="large"
-                      onClick={handleDocumentProcessing}
-                      disabled={session?.status?.includes('processing')}
-                    >
-                      {session?.status?.includes('processing') ? 'Processing...' : 'Process Documents with AI'}
-                    </Button>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                      This will analyze your uploaded documents and extract data according to your schema.
-                    </Typography>
-                  </Paper>
-                </Box>
-              )}
-              
-              {/* No data message - only show if no data AND no document capabilities AND not loading */}
-              {!sessionLoading && !(isCompleted || isEnhancedUploadProcessing || session?.status === 'documents_uploaded') && !dataResponse && (
-                <Alert severity="info">
-                  {isQBSDRunning ? 'Data will be available when QBSD processing completes' : 'No data available'}
-                </Alert>
-              )}
-            </>
+            <Alert variant="info">
+              <AlertDescription>
+                {isQBSDRunning ? 'Data will be available when QBSD processing completes' : 'No data available'}
+              </AlertDescription>
+            </Alert>
           )}
-        </TabPanel>
+        </TabsContent>
 
-        <TabPanel value={activeTab} index={1}>
+        {/* Schema Tab */}
+        <TabsContent value="schema" className="mt-4">
           {session?.columns?.length ? (
-            <SchemaViewer 
+            <SchemaViewer
               columns={session.columns}
               query={session.schema_query}
               sessionId={sessionId}
               sessionType={session.type}
               readonly={false}
               onColumnsChange={() => {
-                // Refetch session data when schema changes
                 queryClient.invalidateQueries(['session', sessionId, mode]);
-                // Also invalidate data queries to refresh the data table
                 queryClient.invalidateQueries(['data', sessionId]);
               }}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}
             />
           ) : (
-            <Alert severity="info">
-              No schema available
+            <Alert variant="info">
+              <AlertDescription>No schema available</AlertDescription>
             </Alert>
           )}
-        </TabPanel>
+        </TabsContent>
 
-        <TabPanel value={activeTab} index={2}>
+        {/* Statistics Tab */}
+        <TabsContent value="stats" className="mt-4">
           {session?.statistics ? (
             <StatsDashboard statistics={session.statistics} />
           ) : isCompleted ? (
-            <Alert severity="warning">
-              Statistics not available
+            <Alert variant="warning">
+              <AlertDescription>Statistics not available</AlertDescription>
             </Alert>
           ) : (
-            <Alert severity="info">
-              Statistics will be available when processing completes
+            <Alert variant="info">
+              <AlertDescription>Statistics will be available when processing completes</AlertDescription>
             </Alert>
           )}
-        </TabPanel>
+        </TabsContent>
 
-        <TabPanel value={activeTab} index={3}>
+        {/* Session Info Tab */}
+        <TabsContent value="info" className="mt-4">
           <ConfigurationInfo session={session} compact={false} />
-        </TabPanel>
+        </TabsContent>
 
+        {/* QBSD Monitor Tab */}
         {mode === 'qbsd' && (
-          <TabPanel value={activeTab} index={4}>
+          <TabsContent value="monitor" className="mt-4">
             <QBSDMonitor sessionId={sessionId} />
-          </TabPanel>
+          </TabsContent>
         )}
 
-        {(mode === 'load' && isEnhancedUploadProcessing) && (
-          <TabPanel value={activeTab} index={5}>
-            <UploadProcessingMonitor 
-              sessionId={sessionId} 
+        {/* Processing Monitor Tab */}
+        {mode === 'load' && isEnhancedUploadProcessing && (
+          <TabsContent value="processing" className="mt-4">
+            <UploadProcessingMonitor
+              sessionId={sessionId}
               status={null}
               loading={false}
               llmConfig={session?.metadata?.extracted_schema?.llm_configuration?.value_extraction_backend || null}
             />
-          </TabPanel>
+          </TabsContent>
         )}
-      </Box>
+      </Tabs>
 
-      {/* LLM Selection Dialog for Document Processing */}
+      {/* LLM Selection Dialog */}
       <LLMSelector
         open={showLLMSelector}
         onClose={() => setShowLLMSelector(false)}
         onConfirm={handleLLMSelection}
         title="Select AI Model for Document Processing"
-        description="Choose the AI model that will extract information from your uploaded documents using the existing schema."
+        description="Choose the AI model that will extract information from your uploaded documents."
         preservedConfig={session?.metadata?.extracted_schema?.llm_configuration?.value_extraction_backend || null}
         loading={documentUploadLoading}
       />
-    </Box>
+    </div>
   );
 };
 

@@ -1,22 +1,26 @@
 import React, { useState, useEffect } from 'react';
+import { Brain, Sparkles, Zap } from 'lucide-react';
+
 import {
   Dialog,
-  DialogTitle,
   DialogContent,
-  DialogActions,
-  Button,
-  FormControl,
-  InputLabel,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Label } from '@/components/ui/label';
+import {
   Select,
-  MenuItem,
-  Typography,
-  Box,
-  Alert,
-  Chip,
-  FormHelperText,
-  Divider,
-} from '@mui/material';
-import { AutoFixHigh, Psychology, Speed } from '@mui/icons-material';
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { LLMConfig } from '../../types';
 
 interface LLMSelectorProps {
@@ -35,7 +39,7 @@ const LLM_OPTIONS = [
     model: 'gemini-2.5-flash',
     label: 'Gemini 2.5 Flash',
     description: 'Balanced performance and accuracy',
-    icon: <Psychology />,
+    icon: <Brain className="h-4 w-4" />,
     recommended: 'schema_creation',
     cost: 'medium',
     speed: 'fast',
@@ -45,7 +49,7 @@ const LLM_OPTIONS = [
     model: 'gemini-2.5-flash-lite',
     label: 'Gemini 2.5 Flash Lite',
     description: 'Fast and cost-effective',
-    icon: <Speed />,
+    icon: <Zap className="h-4 w-4" />,
     recommended: 'value_extraction',
     cost: 'low',
     speed: 'very_fast',
@@ -55,7 +59,7 @@ const LLM_OPTIONS = [
     model: 'gemini-1.5-pro',
     label: 'Gemini 1.5 Pro',
     description: 'High accuracy for complex tasks',
-    icon: <AutoFixHigh />,
+    icon: <Sparkles className="h-4 w-4" />,
     recommended: 'complex_extraction',
     cost: 'high',
     speed: 'moderate',
@@ -91,7 +95,9 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
     }
   }, [preservedConfig]);
 
-  const handleModelChange = (provider: string, model: string) => {
+  const handleModelChange = (value: string) => {
+    const [provider, ...modelParts] = value.split('-');
+    const model = modelParts.join('-');
     const option = LLM_OPTIONS.find(opt => opt.provider === provider && opt.model === model);
     if (option) {
       setSelectedConfig({
@@ -114,158 +120,125 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
     );
   };
 
-  const getCostColor = (cost: string) => {
+  const getCostVariant = (cost: string): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" => {
     switch (cost) {
       case 'low': return 'success';
       case 'medium': return 'warning';
-      case 'high': return 'error';
-      default: return 'default';
+      case 'high': return 'destructive';
+      default: return 'secondary';
     }
   };
 
-  const getSpeedColor = (speed: string) => {
+  const getSpeedVariant = (speed: string): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" => {
     switch (speed) {
       case 'very_fast': return 'success';
       case 'fast': return 'info';
       case 'moderate': return 'warning';
-      default: return 'default';
+      default: return 'secondary';
     }
   };
 
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
-      <DialogTitle>
-        <Box display="flex" alignItems="center" gap={1}>
-          <Psychology color="primary" />
-          {title}
-        </Box>
-      </DialogTitle>
-      
-      <DialogContent>
-        <Typography variant="body2" color="text.secondary" gutterBottom>
-          {description}
-        </Typography>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Brain className="h-5 w-5 text-primary" />
+            {title}
+          </DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
 
-        {preservedConfig && (
-          <Alert 
-            severity="info" 
-            sx={{ mb: 2 }}
-            action={
-              <Button 
-                size="small" 
-                onClick={() => setUsePreservedConfig(!usePreservedConfig)}
-              >
-                {usePreservedConfig ? 'Change Model' : 'Use Original'}
-              </Button>
-            }
-          >
-            <Typography variant="body2">
-              <strong>Original Configuration Detected:</strong> This schema was created using{' '}
-              {preservedConfig.provider} {preservedConfig.model}. 
-              {usePreservedConfig ? ' Using original model for consistency.' : ''}
-            </Typography>
-          </Alert>
-        )}
-
-        <FormControl fullWidth margin="normal">
-          <InputLabel>AI Model</InputLabel>
-          <Select
-            value={`${selectedConfig.provider}-${selectedConfig.model}`}
-            label="AI Model"
-            disabled={usePreservedConfig}
-            onChange={(e) => {
-              const [provider, ...modelParts] = e.target.value.split('-');
-              const model = modelParts.join('-');
-              handleModelChange(provider, model);
-            }}
-          >
-            {LLM_OPTIONS.map((option) => (
-              <MenuItem 
-                key={`${option.provider}-${option.model}`} 
-                value={`${option.provider}-${option.model}`}
-              >
-                <Box display="flex" alignItems="center" gap={2} width="100%">
-                  {option.icon}
-                  <Box flex={1}>
-                    <Typography variant="body1">{option.label}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {option.description}
-                    </Typography>
-                  </Box>
-                  <Box display="flex" gap={0.5}>
-                    <Chip 
-                      label={option.cost} 
-                      size="small" 
-                      color={getCostColor(option.cost)}
-                      variant="outlined" 
-                    />
-                    <Chip 
-                      label={option.speed} 
-                      size="small" 
-                      color={getSpeedColor(option.speed)}
-                      variant="outlined" 
-                    />
-                  </Box>
-                </Box>
-              </MenuItem>
-            ))}
-          </Select>
-          {!usePreservedConfig && (
-            <FormHelperText>
-              {getSelectedOption()?.description}
-            </FormHelperText>
+        <div className="space-y-4 py-4">
+          {preservedConfig && (
+            <Alert variant="info">
+              <AlertDescription className="flex items-center justify-between">
+                <span>
+                  <strong>Original Configuration:</strong> {preservedConfig.provider} {preservedConfig.model}
+                  {usePreservedConfig && ' (using for consistency)'}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setUsePreservedConfig(!usePreservedConfig)}
+                >
+                  {usePreservedConfig ? 'Change Model' : 'Use Original'}
+                </Button>
+              </AlertDescription>
+            </Alert>
           )}
-        </FormControl>
 
-        {getSelectedOption() && (
-          <>
-            <Divider sx={{ my: 2 }} />
-            <Box>
-              <Typography variant="subtitle2" gutterBottom>Model Details:</Typography>
-              <Box display="flex" gap={2} alignItems="center" mb={1}>
-                <Typography variant="body2">
-                  <strong>Provider:</strong> {selectedConfig.provider}
-                </Typography>
-                <Typography variant="body2">
-                  <strong>Model:</strong> {selectedConfig.model}
-                </Typography>
-              </Box>
-              <Box display="flex" gap={1} mb={2}>
-                <Chip 
-                  label={`Cost: ${getSelectedOption()?.cost}`} 
-                  size="small" 
-                  color={getCostColor(getSelectedOption()?.cost || 'medium')}
-                />
-                <Chip 
-                  label={`Speed: ${getSelectedOption()?.speed}`} 
-                  size="small" 
-                  color={getSpeedColor(getSelectedOption()?.speed || 'moderate')}
-                />
-              </Box>
-              
-              {preservedConfig && !usePreservedConfig && (
-                <Alert severity="warning" sx={{ mt: 2 }}>
-                  You're choosing a different model than originally used. Results may vary from the original extraction.
-                </Alert>
-              )}
-            </Box>
-          </>
-        )}
+          <div className="space-y-2">
+            <Label>AI Model</Label>
+            <Select
+              value={`${selectedConfig.provider}-${selectedConfig.model}`}
+              onValueChange={handleModelChange}
+              disabled={usePreservedConfig}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a model" />
+              </SelectTrigger>
+              <SelectContent>
+                {LLM_OPTIONS.map((option) => (
+                  <SelectItem
+                    key={`${option.provider}-${option.model}`}
+                    value={`${option.provider}-${option.model}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {option.icon}
+                      <span>{option.label}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {!usePreservedConfig && getSelectedOption() && (
+              <p className="text-sm text-muted-foreground">
+                {getSelectedOption()?.description}
+              </p>
+            )}
+          </div>
+
+          {getSelectedOption() && (
+            <>
+              <Separator />
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium">Model Details</h4>
+                <div className="flex gap-4 text-sm">
+                  <span><strong>Provider:</strong> {selectedConfig.provider}</span>
+                  <span><strong>Model:</strong> {selectedConfig.model}</span>
+                </div>
+                <div className="flex gap-2">
+                  <Badge variant={getCostVariant(getSelectedOption()?.cost || 'medium')}>
+                    Cost: {getSelectedOption()?.cost}
+                  </Badge>
+                  <Badge variant={getSpeedVariant(getSelectedOption()?.speed || 'moderate')}>
+                    Speed: {getSelectedOption()?.speed}
+                  </Badge>
+                </div>
+
+                {preservedConfig && !usePreservedConfig && (
+                  <Alert variant="warning">
+                    <AlertDescription>
+                      You're choosing a different model than originally used. Results may vary from the original extraction.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button onClick={handleConfirm} disabled={loading}>
+            {getSelectedOption()?.icon}
+            <span className="ml-2">{loading ? 'Starting...' : 'Start Processing'}</span>
+          </Button>
+        </DialogFooter>
       </DialogContent>
-
-      <DialogActions>
-        <Button onClick={onClose} disabled={loading}>
-          Cancel
-        </Button>
-        <Button 
-          onClick={handleConfirm} 
-          variant="contained" 
-          disabled={loading}
-          startIcon={getSelectedOption()?.icon}
-        >
-          {loading ? 'Starting...' : 'Start Processing'}
-        </Button>
-      </DialogActions>
     </Dialog>
   );
 };

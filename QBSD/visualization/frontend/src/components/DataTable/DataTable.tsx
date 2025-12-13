@@ -1,21 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import {
-  Box,
-  Typography,
-  Paper,
-  TableContainer,
-  Table,
-  TableHead,
-  TableRow,
-  TableCell,
-  TableBody,
-  TablePagination,
-  Chip,
-  IconButton,
-  TextField,
-  InputAdornment,
-} from '@mui/material';
-import { Search, Visibility, DragIndicator } from '@mui/icons-material';
+import { Search, Eye, GripVertical } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 import {
   DndContext,
@@ -34,6 +18,19 @@ import {
   useSortable,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 
 import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { sessionAPI } from '../../services/api';
@@ -54,22 +51,16 @@ import {
   MEDIUM_TEXT_THRESHOLD,
   SHORT_TEXT_THRESHOLD,
   MAX_CELL_LINES,
-  FROZEN_COLUMN_WIDTH,
-  REGULAR_COLUMN_WIDTH,
-  TABLE_MAX_HEIGHT,
-  TABLE_MIN_WIDTH,
-  SEARCH_FIELD_WIDTH,
-  TABLE_ROW_MAX_HEIGHT
 } from '../../constants/index';
 
 interface DataTableProps {
-  data?: PaginatedData;  // Optional - DataTable will fetch its own data if not provided
+  data?: PaginatedData;
   sessionId: string;
   sessionType: 'load' | 'qbsd';
   newlyAddedRows?: Set<number>;
   columnOrder?: string[];
   onColumnReorder?: (newOrder: string[]) => void;
-  streamingCells?: Map<string, Record<string, CellValue>>;  // Real-time cell values as they're extracted
+  streamingCells?: Map<string, Record<string, CellValue>>;
 }
 
 // Sortable Header Cell Component
@@ -97,33 +88,21 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({ column, childre
   };
 
   return (
-    <TableCell
+    <th
       ref={setNodeRef}
       style={style}
-      sx={{
-        fontWeight: 'bold',
-        fontSize: '1.1rem',
-        minWidth: REGULAR_COLUMN_WIDTH,
-        backgroundColor: isDragging ? 'action.hover' : 'background.paper',
-        '&:hover': {
-          backgroundColor: 'action.hover',
-        },
-      }}
+      className={cn(
+        "px-4 py-3 text-left font-bold text-base min-w-[200px] bg-background",
+        isDragging && "bg-muted"
+      )}
       {...attributes}
       {...listeners}
     >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <DragIndicator
-          fontSize="small"
-          sx={{
-            color: 'text.secondary',
-            opacity: 0.5,
-            '&:hover': { opacity: 1 }
-          }}
-        />
+      <div className="flex items-center gap-1">
+        <GripVertical className="h-4 w-4 text-muted-foreground opacity-50 hover:opacity-100" />
         {children}
-      </Box>
-    </TableCell>
+      </div>
+    </th>
   );
 };
 
@@ -156,7 +135,7 @@ const DataTable: React.FC<DataTableProps> = ({
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8, // Require 8px of movement before starting drag
+        distance: 8,
       },
     }),
     useSensor(KeyboardSensor, {
@@ -164,46 +143,38 @@ const DataTable: React.FC<DataTableProps> = ({
     })
   );
 
-  // Fetch data with pagination - DataTable owns its own data fetching
+  // Fetch data with pagination
   const { data: fetchedData } = useQuery(
     ['data', sessionId, sessionType, page, pageSize],
     () => sessionAPI.getData(sessionId, sessionType, page, pageSize),
     {
       keepPreviousData: true,
-      enabled: !!sessionId,  // Always fetch when sessionId exists
-      refetchInterval: sessionType === 'qbsd' ? QBSD_REFRESH_INTERVAL : false, // Auto-refresh for QBSD
+      enabled: !!sessionId,
+      refetchInterval: sessionType === 'qbsd' ? QBSD_REFRESH_INTERVAL : false,
     }
   );
 
-  // Use fetched data, fall back to initialData if provided, otherwise use empty data
   const fetchedOrInitialData = fetchedData ?? initialData ?? EMPTY_DATA;
 
   // Merge streaming cells into the data for display
-  // This allows real-time cell values to appear before the row is complete
   const data = useMemo(() => {
     if (!streamingCells || streamingCells.size === 0) {
       return fetchedOrInitialData;
     }
 
-    // Create a copy of rows and merge streaming data
     const mergedRows = [...fetchedOrInitialData.rows];
-
-    // Track which streaming rows are already in the fetched data
     const existingRowNames = new Set(mergedRows.map(r => r.row_name));
 
-    // Process streaming cells
     streamingCells.forEach((cellData, rowName) => {
       const existingRowIndex = mergedRows.findIndex(r => r.row_name === rowName);
 
       if (existingRowIndex >= 0) {
-        // Update existing row with streaming values
         const existingRow = mergedRows[existingRowIndex];
         mergedRows[existingRowIndex] = {
           ...existingRow,
           data: { ...existingRow.data, ...cellData }
         };
       } else {
-        // Create new row placeholder for streaming data
         mergedRows.push({
           row_name: rowName,
           papers: [],
@@ -212,7 +183,6 @@ const DataTable: React.FC<DataTableProps> = ({
       }
     });
 
-    // Count new streaming rows (not already in fetched data)
     let newStreamingRows = 0;
     streamingCells.forEach((_, rowName) => {
       if (!existingRowNames.has(rowName)) {
@@ -227,13 +197,8 @@ const DataTable: React.FC<DataTableProps> = ({
     };
   }, [fetchedOrInitialData, streamingCells]);
 
-  // Listen for row completion events via WebSocket (this would be handled by a WebSocket service)
   useEffect(() => {
-    // This effect could listen to WebSocket messages and trigger data refresh
-    // For now, the refetchInterval above handles the updates
-
-    // Note: WebSocket listeners could be added here for more immediate updates
-    // Currently using refetchInterval for auto-refresh
+    // WebSocket listeners could be added here for more immediate updates
   }, [queryClient, sessionId, sessionType]);
 
   // Filter data based on search term
@@ -243,10 +208,8 @@ const DataTable: React.FC<DataTableProps> = ({
     return data.rows.filter(row => {
       const searchLower = searchTerm.toLowerCase();
 
-      // Search in row name
       if (row.row_name?.toLowerCase().includes(searchLower)) return true;
 
-      // Search in data values
       return Object.values(row.data).some(value => {
         if (value === null || value === undefined) return false;
         return String(value).toLowerCase().includes(searchLower);
@@ -254,12 +217,11 @@ const DataTable: React.FC<DataTableProps> = ({
     });
   }, [data.rows, searchTerm]);
 
-  // Get all column names with proper ordering (row name first)
+  // Get all column names with proper ordering
   const defaultColumns = useMemo(() => {
     const priorityColumns: string[] = [];
     const regularColumns: string[] = [];
 
-    // Add standard columns
     if (data.rows.some(row => row.row_name)) {
       priorityColumns.push('_row_name');
     }
@@ -267,16 +229,13 @@ const DataTable: React.FC<DataTableProps> = ({
       regularColumns.push('_papers');
     }
 
-    // Get all data columns and filter out excerpt columns
     const allDataColumns = new Set<string>();
     data.rows.forEach(row => {
       Object.keys(row.data).forEach(key => allDataColumns.add(key));
     });
 
-    // Filter out excerpt columns (_excerpt suffix) from display
     const dataColumnArray = Array.from(allDataColumns).filter(col => !col.endsWith('_excerpt'));
 
-    // First priority: exact matches for common row identifier names
     const exactMatches = ['row_name', 'name', 'id', 'title', 'row', 'identifier'];
     exactMatches.forEach(exactName => {
       const found = dataColumnArray.find(col => col.toLowerCase() === exactName);
@@ -285,7 +244,6 @@ const DataTable: React.FC<DataTableProps> = ({
       }
     });
 
-    // Second priority: columns that contain row identifier keywords
     dataColumnArray.forEach(key => {
       const keyLower = key.toLowerCase();
       if (!priorityColumns.includes(key)) {
@@ -298,33 +256,26 @@ const DataTable: React.FC<DataTableProps> = ({
       }
     });
 
-    // Fallback: if no priority columns found, make the first column a priority
     if (priorityColumns.length === 0 && regularColumns.length > 0) {
       const firstColumn = regularColumns.shift();
       if (firstColumn) priorityColumns.push(firstColumn);
     }
 
-    // Combine: priority columns first, then regular columns
     return [...priorityColumns, ...regularColumns];
   }, [data.rows]);
 
-  // Use external column order if provided, otherwise use default
   const columns = useMemo(() => {
     if (externalColumnOrder && externalColumnOrder.length > 0) {
-      // Validate that all columns in externalColumnOrder still exist
       const validExternalOrder = externalColumnOrder.filter(col => defaultColumns.includes(col));
-      // Add any new columns that aren't in the external order
       const newColumns = defaultColumns.filter(col => !externalColumnOrder.includes(col));
       return [...validExternalOrder, ...newColumns];
     }
     return defaultColumns;
   }, [defaultColumns, externalColumnOrder]);
 
-  // Determine which columns should be frozen (first column)
   const frozenColumn = columns[0];
   const scrollableColumns = columns.slice(1);
 
-  // Handle drag end for column reordering
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
@@ -335,19 +286,18 @@ const DataTable: React.FC<DataTableProps> = ({
       const newScrollableColumns = arrayMove(scrollableColumns, oldIndex, newIndex);
       const newOrder = [frozenColumn, ...newScrollableColumns];
 
-      // Notify parent component of the new order
       if (onColumnReorder) {
         onColumnReorder(newOrder);
       }
     }
   };
 
-  const handleChangePage = (event: unknown, newPage: number) => {
+  const handleChangePage = (newPage: number) => {
     setPage(newPage);
   };
 
-  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setPageSize(parseInt(event.target.value, 10));
+  const handleChangeRowsPerPage = (value: string) => {
+    setPageSize(parseInt(value, 10));
     setPage(0);
   };
 
@@ -363,13 +313,11 @@ const DataTable: React.FC<DataTableProps> = ({
   const excerptMapping = useMemo(() => {
     const mapping: Record<string, string> = {};
 
-    // Get all data columns including excerpt columns
     const allDataColumns = new Set<string>();
     data.rows.forEach(row => {
       Object.keys(row.data).forEach(key => allDataColumns.add(key));
     });
 
-    // Find excerpt columns and map them to their base columns
     Array.from(allDataColumns).forEach(col => {
       if (col.endsWith('_excerpt')) {
         const baseColumn = col.replace('_excerpt', '');
@@ -382,7 +330,6 @@ const DataTable: React.FC<DataTableProps> = ({
     return mapping;
   }, [data.rows]);
 
-  // Helper function to find excerpt value for a given row and column
   const getExcerptForColumn = (row: DataRow, columnName: string): string | null => {
     const excerptColumnName = excerptMapping[columnName];
     if (excerptColumnName && row.data[excerptColumnName]) {
@@ -393,131 +340,110 @@ const DataTable: React.FC<DataTableProps> = ({
 
   const formatCellValue = (value: CellValue, columnName: string, rowData?: DataRow): React.ReactNode => {
     if (value === null || value === undefined) {
-      return <Chip label="null" size="small" variant="outlined" color="default" />;
+      return <Badge variant="outline">null</Badge>;
     }
 
     if (Array.isArray(value)) {
       if (value.length > 3) {
         return (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <div className="flex items-center gap-1">
             {value.slice(0, 2).map((item, index) => (
-              <Chip key={index} label={String(item)} size="small" sx={{ mr: 0.5 }} />
+              <Badge key={index} variant="secondary">{String(item)}</Badge>
             ))}
-            <Typography variant="caption">
-              +{value.length - 2} more
-            </Typography>
-            <IconButton
-              size="small"
-              title="View full array"
+            <span className="text-xs text-muted-foreground">+{value.length - 2} more</span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
               onClick={() => handleViewContent(columnName, value)}
             >
-              <Visibility fontSize="small" />
-            </IconButton>
-          </Box>
+              <Eye className="h-4 w-4" />
+            </Button>
+          </div>
         );
       }
       return (
-        <Box>
+        <div className="flex flex-wrap gap-1">
           {value.map((item, index) => (
-            <Chip key={index} label={String(item)} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
+            <Badge key={index} variant="secondary">{String(item)}</Badge>
           ))}
-        </Box>
+        </div>
       );
     }
 
     if (typeof value === 'object' && value !== null) {
-      // Check if this is QBSD format: {answer: "...", excerpts: [...]}
       if ('answer' in value && typeof (value as QBSDAnswerWithExcerpts).answer !== 'undefined') {
         const qbsdValue = value as QBSDAnswerWithExcerpts;
         const answer = qbsdValue.answer;
         const excerpts = qbsdValue.excerpts || [];
 
         return (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-            <Typography variant="body1" component="span" sx={{
-              fontSize: '1.1rem',
-              lineHeight: 1.5,
-              display: '-webkit-box',
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden'
-            }}>
+          <div className="flex items-center gap-1">
+            <span className="text-base leading-relaxed line-clamp-3">
               {String(answer)}
-            </Typography>
+            </span>
             {excerpts.length > 0 && (
-              <IconButton
-                size="small"
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-blue-500"
                 title={`View excerpts (${excerpts.length} sources)`}
                 onClick={() => handleViewContent(columnName, {
                   answer: answer,
                   excerpts: excerpts
                 })}
-                sx={{ color: 'info.main' }}
               >
-                <Visibility fontSize="small" />
-              </IconButton>
+                <Eye className="h-4 w-4" />
+              </Button>
             )}
-          </Box>
+          </div>
         );
       }
 
-      // Regular object handling
       return (
-        <IconButton
-          size="small"
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
           title="View object"
           onClick={() => handleViewContent(columnName, value)}
         >
-          <Visibility fontSize="small" />
-        </IconButton>
+          <Eye className="h-4 w-4" />
+        </Button>
       );
     }
 
     const stringValue = String(value);
 
-    // Check if this column has associated excerpts in the uploaded data
     const hasExcerpts = rowData && excerptMapping[columnName] && rowData.data[excerptMapping[columnName]];
-
-    // Use utility functions for content detection
     const isExplicitExcerpt = isExcerptContent(columnName, stringValue);
     const isVeryLongContent = isVeryLongText(stringValue, LONG_TEXT_THRESHOLD);
     const hasManyLines = hasMultipleLines(stringValue, MAX_CELL_LINES);
 
-    // Show eye icon for: 1) columns with excerpts, 2) explicit excerpt columns, or 3) very long content
     const shouldShowEyeIcon = hasExcerpts || isExplicitExcerpt || isVeryLongContent ||
                              (hasManyLines && stringValue.length > MEDIUM_TEXT_THRESHOLD);
 
     if (shouldShowEyeIcon) {
-      // For excerpt-like content, show just a short preview with eye icon
       const previewText = isExplicitExcerpt ?
         getPreviewText(stringValue, 50) :
         getPreviewText(stringValue, SHORT_TEXT_THRESHOLD);
 
       return (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Typography
-            variant="body1"
-            component="span"
-            sx={{
-              fontSize: '1.1rem',
-              lineHeight: 1.5,
-              fontStyle: isExplicitExcerpt ? 'italic' : 'normal',
-              color: isExplicitExcerpt ? 'text.secondary' : 'text.primary',
-              display: '-webkit-box',
-              WebkitLineClamp: 3,
-              WebkitBoxOrient: 'vertical',
-              overflow: 'hidden'
-            }}
-          >
+        <div className="flex items-center gap-1">
+          <span className={cn(
+            "text-base leading-relaxed line-clamp-3",
+            isExplicitExcerpt && "italic text-muted-foreground"
+          )}>
             {previewText}
-          </Typography>
-          <IconButton
-            size="small"
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 text-blue-500 shrink-0"
             title={hasExcerpts ? "View content with supporting excerpts" :
                    isExplicitExcerpt ? "View excerpt details" : "View full content"}
             onClick={() => {
-              if (hasExcerpts) {
-                // Create combined content with main value and excerpts
+              if (hasExcerpts && rowData) {
                 const excerptText = getExcerptForColumn(rowData, columnName);
                 handleViewContent(columnName, {
                   answer: stringValue,
@@ -527,132 +453,78 @@ const DataTable: React.FC<DataTableProps> = ({
                 handleViewContent(columnName, value);
               }
             }}
-            sx={{ color: 'info.main' }}
           >
-            <Visibility fontSize="small" />
-          </IconButton>
-        </Box>
+            <Eye className="h-4 w-4" />
+          </Button>
+        </div>
       );
     }
 
-    // Regular content with truncation for readability (but no eye icon)
     if (needsTruncation(stringValue)) {
       return (
-        <Typography
-          variant="body1"
-          component="span"
-          sx={{
-            fontSize: '1.1rem',
-            lineHeight: 1.5,
-            display: '-webkit-box',
-            WebkitLineClamp: 3,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            wordBreak: 'break-word'
-          }}
-        >
+        <span className="text-base leading-relaxed line-clamp-3 break-words">
           {truncateText(stringValue)}
-        </Typography>
+        </span>
       );
     }
 
-    // Regular content with improved typography
     return (
-      <Typography
-        variant="body1"
-        component="span"
-        sx={{
-          fontSize: '1.1rem',
-          lineHeight: 1.5,
-          display: '-webkit-box',
-          WebkitLineClamp: 3,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden'
-        }}
-      >
+      <span className="text-base leading-relaxed line-clamp-3">
         {stringValue}
-      </Typography>
+      </span>
     );
   };
 
+  const totalPages = Math.ceil((searchTerm ? filteredRows.length : data.total_count) / pageSize);
+
   return (
-    <Paper>
-      <Box sx={{ p: 2 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Box>
-            <Typography variant="h6">
+    <Card>
+      <div className="p-4">
+        <div className="flex justify-between items-center mb-4">
+          <div>
+            <h3 className="font-semibold text-lg flex items-center gap-2">
               Data Table ({data.total_count.toLocaleString()} rows)
               {sessionType === 'qbsd' && (
-                <Chip
-                  label="Auto-refreshing"
-                  size="small"
-                  color="info"
-                  sx={{ ml: 1 }}
-                />
+                <Badge variant="info">Auto-refreshing</Badge>
               )}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
+            </h3>
+            <p className="text-xs text-muted-foreground">
               Drag column headers to reorder
-            </Typography>
-          </Box>
+            </p>
+          </div>
 
-          <TextField
-            size="small"
-            placeholder="Search data..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <Search />
-                </InputAdornment>
-              ),
-            }}
-            sx={{ width: SEARCH_FIELD_WIDTH }}
-          />
-        </Box>
+          <div className="relative w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search data..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        </div>
 
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}
         >
-          <TableContainer sx={{ maxHeight: TABLE_MAX_HEIGHT, overflow: 'auto' }}>
-            <Table stickyHeader size="small" sx={{ minWidth: TABLE_MIN_WIDTH }}>
-              <TableHead>
-                <TableRow>
-                  {/* Frozen first column (not draggable) */}
+          <div className="overflow-auto max-h-[600px] border rounded-md">
+            <table className="w-full min-w-[1000px] border-collapse">
+              <thead className="sticky top-0 z-10 bg-background border-b">
+                <tr>
+                  {/* Frozen first column */}
                   {frozenColumn && (
-                    <TableCell
-                      key={frozenColumn}
-                      sx={{
-                        fontWeight: 'bold',
-                        fontSize: '1.1rem',
-                        minWidth: FROZEN_COLUMN_WIDTH,
-                        maxWidth: FROZEN_COLUMN_WIDTH,
-                        position: 'sticky',
-                        left: 0,
-                        backgroundColor: 'background.paper',
-                        zIndex: 3,
-                        borderRight: '2px solid',
-                        borderRightColor: 'primary.main',
-                        boxShadow: '2px 0 4px rgba(0,0,0,0.1)'
-                      }}
-                    >
+                    <th className="px-4 py-3 text-left font-bold text-base min-w-[200px] max-w-[200px] sticky left-0 bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                       {frozenColumn.startsWith('_') ? (
-                        <Chip
-                          label={formatColumnName(frozenColumn)}
-                          size="small"
-                          color="primary"
-                          variant="outlined"
-                        />
+                        <Badge variant="outline">{formatColumnName(frozenColumn)}</Badge>
                       ) : (
                         formatColumnName(frozenColumn)
                       )}
-                    </TableCell>
+                    </th>
                   )}
 
-                  {/* Sortable (draggable) columns */}
+                  {/* Sortable columns */}
                   <SortableContext
                     items={scrollableColumns}
                     strategy={horizontalListSortingStrategy}
@@ -660,22 +532,16 @@ const DataTable: React.FC<DataTableProps> = ({
                     {scrollableColumns.map(column => (
                       <SortableHeaderCell key={column} column={column}>
                         {column.startsWith('_') ? (
-                          <Chip
-                            label={formatColumnName(column)}
-                            size="small"
-                            color="primary"
-                            variant="outlined"
-                          />
+                          <Badge variant="outline">{formatColumnName(column)}</Badge>
                         ) : (
                           formatColumnName(column)
                         )}
                       </SortableHeaderCell>
                     ))}
                   </SortableContext>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {/* Server handles pagination, so we don't slice here unless filtering locally by search */}
+                </tr>
+              </thead>
+              <tbody>
                 {(searchTerm ? filteredRows.slice(page * pageSize, (page + 1) * pageSize) : filteredRows).map((row, rowIndex) => {
                   const getFrozenCellValue = () => {
                     if (frozenColumn === '_row_name') {
@@ -687,49 +553,24 @@ const DataTable: React.FC<DataTableProps> = ({
                     }
                   };
 
-                  // Calculate actual row index (accounting for pagination and total rows)
-                  const actualRowIndex = page * pageSize + rowIndex + 1; // +1 because row indexes start from 1
+                  const actualRowIndex = page * pageSize + rowIndex + 1;
                   const isNewlyAdded = newlyAddedRows?.has(actualRowIndex) || false;
-                  // Check if this row is currently streaming (has incomplete data being filled in)
                   const isStreaming = row.row_name ? streamingCells?.has(row.row_name) : false;
 
                   return (
-                    <TableRow
+                    <tr
                       key={rowIndex}
-                      hover
-                      sx={{
-                        backgroundColor: isNewlyAdded ? 'success.light' : isStreaming ? 'info.light' : 'inherit',
-                        animation: isNewlyAdded ? 'pulse 2s ease-in-out' : isStreaming ? 'streamPulse 1.5s ease-in-out infinite' : 'none',
-                        '@keyframes pulse': {
-                          '0%': { backgroundColor: 'success.light' },
-                          '50%': { backgroundColor: 'success.main' },
-                          '100%': { backgroundColor: 'success.light' }
-                        },
-                        '@keyframes streamPulse': {
-                          '0%': { backgroundColor: 'rgba(33, 150, 243, 0.1)' },
-                          '50%': { backgroundColor: 'rgba(33, 150, 243, 0.2)' },
-                          '100%': { backgroundColor: 'rgba(33, 150, 243, 0.1)' }
-                        }
-                      }}
+                      className={cn(
+                        "border-b hover:bg-muted/50 transition-colors",
+                        isNewlyAdded && "bg-green-100 dark:bg-green-950 animate-pulse",
+                        isStreaming && "bg-blue-50 dark:bg-blue-950"
+                      )}
                     >
                       {/* Frozen first column */}
                       {frozenColumn && (
-                        <TableCell
-                          key={frozenColumn}
-                          sx={{
-                            minWidth: REGULAR_COLUMN_WIDTH,
-                            maxWidth: REGULAR_COLUMN_WIDTH,
-                            position: 'sticky',
-                            left: 0,
-                            backgroundColor: 'background.paper',
-                            zIndex: 2,
-                            borderRight: '2px solid',
-                            borderRightColor: 'divider',
-                            overflow: 'hidden'
-                          }}
-                        >
+                        <td className="px-4 py-3 min-w-[200px] max-w-[200px] sticky left-0 bg-background border-r overflow-hidden">
                           {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
-                        </TableCell>
+                        </td>
                       )}
 
                       {/* Scrollable columns */}
@@ -745,29 +586,58 @@ const DataTable: React.FC<DataTableProps> = ({
                         }
 
                         return (
-                          <TableCell key={column} sx={{ minWidth: REGULAR_COLUMN_WIDTH, maxHeight: `${TABLE_ROW_MAX_HEIGHT}px`, overflow: 'hidden' }}>
+                          <td key={column} className="px-4 py-3 min-w-[200px] max-h-[100px] overflow-hidden">
                             {formatCellValue(cellValue, column, row)}
-                          </TableCell>
+                          </td>
                         );
                       })}
-                    </TableRow>
+                    </tr>
                   );
                 })}
-              </TableBody>
-            </Table>
-          </TableContainer>
+              </tbody>
+            </table>
+          </div>
         </DndContext>
 
-        <TablePagination
-          rowsPerPageOptions={AVAILABLE_PAGE_SIZES}
-          component="div"
-          count={searchTerm ? filteredRows.length : data.total_count}
-          rowsPerPage={pageSize}
-          page={page}
-          onPageChange={handleChangePage}
-          onRowsPerPageChange={handleChangeRowsPerPage}
-        />
-      </Box>
+        {/* Pagination */}
+        <div className="flex items-center justify-between mt-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Rows per page:</span>
+            <Select value={String(pageSize)} onValueChange={handleChangeRowsPerPage}>
+              <SelectTrigger className="w-20">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {AVAILABLE_PAGE_SIZES.map(size => (
+                  <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">
+              {page * pageSize + 1}-{Math.min((page + 1) * pageSize, searchTerm ? filteredRows.length : data.total_count)} of {searchTerm ? filteredRows.length : data.total_count}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleChangePage(page - 1)}
+              disabled={page === 0}
+            >
+              Previous
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleChangePage(page + 1)}
+              disabled={page >= totalPages - 1}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
+      </div>
 
       {/* Content Modal */}
       <ContentModal
@@ -776,7 +646,7 @@ const DataTable: React.FC<DataTableProps> = ({
         title={modalContent.title}
         content={modalContent.content}
       />
-    </Paper>
+    </Card>
   );
 };
 

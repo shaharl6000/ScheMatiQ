@@ -1,29 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Card,
-  CardContent,
-  Typography,
-  LinearProgress,
-  Box,
-  Chip,
-  IconButton,
-  Collapse,
-  Alert,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  CircularProgress,
-} from '@mui/material';
-import {
-  ExpandMore,
-  ExpandLess,
-  Refresh,
-  CheckCircle,
-  Error as ErrorIcon,
+  ChevronDown,
+  ChevronUp,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
   Info,
-  Cancel,
-} from '@mui/icons-material';
+  Loader2,
+} from 'lucide-react';
+
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { cn } from '@/lib/utils';
 
 import { ReprocessingStatus } from '../../types';
 import { schemaAPI } from '../../services/api';
@@ -88,24 +84,24 @@ const ReprocessingMonitor: React.FC<ReprocessingMonitorProps> = ({
   const getStatusIcon = () => {
     switch (localStatus.status) {
       case 'processing':
-        return <CircularProgress size={16} />;
+        return <Loader2 className="h-4 w-4 animate-spin" />;
       case 'completed':
-        return <CheckCircle color="success" />;
+        return <CheckCircle2 className="h-4 w-4 text-green-500" />;
       case 'failed':
-        return <ErrorIcon color="error" />;
+        return <AlertCircle className="h-4 w-4 text-destructive" />;
       default:
-        return <Info />;
+        return <Info className="h-4 w-4" />;
     }
   };
 
-  const getStatusColor = (): 'default' | 'primary' | 'secondary' | 'error' | 'info' | 'success' | 'warning' => {
+  const getStatusVariant = (): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" => {
     switch (localStatus.status) {
       case 'processing':
-        return 'primary';
+        return 'default';
       case 'completed':
         return 'success';
       case 'failed':
-        return 'error';
+        return 'destructive';
       default:
         return 'info';
     }
@@ -113,17 +109,17 @@ const ReprocessingMonitor: React.FC<ReprocessingMonitorProps> = ({
 
   const formatEstimatedTime = (estimated?: string): string => {
     if (!estimated) return 'Unknown';
-    
+
     try {
       const estimatedDate = new Date(estimated);
       const now = new Date();
       const diffMs = estimatedDate.getTime() - now.getTime();
-      
+
       if (diffMs <= 0) return 'Soon';
-      
+
       const diffMinutes = Math.ceil(diffMs / (1000 * 60));
       if (diffMinutes < 60) return `~${diffMinutes}m`;
-      
+
       const diffHours = Math.ceil(diffMinutes / 60);
       return `~${diffHours}h`;
     } catch {
@@ -132,136 +128,117 @@ const ReprocessingMonitor: React.FC<ReprocessingMonitorProps> = ({
   };
 
   return (
-    <Card 
-      variant="outlined" 
-      sx={{ 
-        mb: 2,
-        border: localStatus.status === 'processing' ? 2 : 1,
-        borderColor: localStatus.status === 'processing' ? 'primary.main' : 'divider'
-      }}
-    >
-      <CardContent sx={{ pb: 1 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
-            {getStatusIcon()}
-            <Typography variant="h6" sx={{ fontWeight: 500 }}>
-              Document Reprocessing
-            </Typography>
-            <Chip 
-              label={localStatus.status.charAt(0).toUpperCase() + localStatus.status.slice(1)}
-              color={getStatusColor()}
-              size="small"
-            />
-          </Box>
-          
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <IconButton 
-              size="small"
-              onClick={handleRefresh}
-              disabled={refreshing}
-              title="Refresh status"
-            >
-              {refreshing ? <CircularProgress size={16} /> : <Refresh />}
-            </IconButton>
-            
-            <IconButton
-              size="small"
-              onClick={() => setExpanded(!expanded)}
-              title={expanded ? "Collapse" : "Expand"}
-            >
-              {expanded ? <ExpandLess /> : <ExpandMore />}
-            </IconButton>
-          </Box>
-        </Box>
+    <Card className={cn(
+      "mb-4",
+      localStatus.status === 'processing' && "border-2 border-primary"
+    )}>
+      <Collapsible open={expanded} onOpenChange={setExpanded}>
+        <CardContent className="pt-4">
+          <div className="flex justify-between items-start">
+            <div className="flex items-center gap-2 flex-1">
+              {getStatusIcon()}
+              <h4 className="font-semibold">Document Reprocessing</h4>
+              <Badge variant={getStatusVariant()}>
+                {localStatus.status.charAt(0).toUpperCase() + localStatus.status.slice(1)}
+              </Badge>
+            </div>
 
-        <Collapse in={expanded}>
-          <Box sx={{ mt: 2 }}>
-            {/* Progress Bar */}
-            {localStatus.status === 'processing' && (
-              <>
-                <Typography variant="body2" color="text.secondary" gutterBottom>
-                  {localStatus.current_step}
-                </Typography>
-                
-                <LinearProgress 
-                  variant="determinate" 
-                  value={localStatus.progress * 100}
-                  sx={{ mb: 1, height: 8, borderRadius: 4 }}
-                />
-                
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {Math.round(localStatus.progress * 100)}% complete
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    ETA: {formatEstimatedTime(localStatus.estimated_completion)}
-                  </Typography>
-                </Box>
-              </>
-            )}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8"
+                onClick={handleRefresh}
+                disabled={refreshing}
+              >
+                {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              </Button>
 
-            {/* Document Progress */}
-            <Box sx={{ mb: 2 }}>
-              <Typography variant="body2" gutterBottom>
-                <strong>Progress:</strong> {localStatus.processed_documents} of {localStatus.total_documents} documents
-              </Typography>
-              
-              {localStatus.total_documents > 0 && (
-                <LinearProgress 
-                  variant="determinate"
-                  value={(localStatus.processed_documents / localStatus.total_documents) * 100}
-                  sx={{ height: 4, borderRadius: 2 }}
-                />
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8">
+                  {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                </Button>
+              </CollapsibleTrigger>
+            </div>
+          </div>
+
+          <CollapsibleContent>
+            <div className="mt-4 space-y-4">
+              {/* Progress Bar */}
+              {localStatus.status === 'processing' && (
+                <div className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    {localStatus.current_step}
+                  </p>
+
+                  <Progress value={localStatus.progress * 100} className="h-2" />
+
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{Math.round(localStatus.progress * 100)}% complete</span>
+                    <span>ETA: {formatEstimatedTime(localStatus.estimated_completion)}</span>
+                  </div>
+                </div>
               )}
-            </Box>
 
-            {/* Affected Columns */}
-            {localStatus.affected_columns.length > 0 && (
-              <Box sx={{ mb: 2 }}>
-                <Typography variant="body2" gutterBottom>
-                  <strong>Affected Columns:</strong>
-                </Typography>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-                  {localStatus.affected_columns.map((column, index) => (
-                    <Chip
-                      key={index}
-                      label={column}
-                      size="small"
-                      variant="outlined"
-                      color="primary"
-                    />
-                  ))}
-                </Box>
-              </Box>
-            )}
+              {/* Document Progress */}
+              <div>
+                <p className="text-sm mb-2">
+                  <strong>Progress:</strong> {localStatus.processed_documents} of {localStatus.total_documents} documents
+                </p>
 
-            {/* Status Messages */}
-            {localStatus.status === 'completed' && (
-              <Alert severity="success" sx={{ mt: 1 }}>
-                <Typography variant="body2">
-                  Reprocessing completed successfully! All documents have been processed with the updated schema.
-                </Typography>
-              </Alert>
-            )}
+                {localStatus.total_documents > 0 && (
+                  <Progress
+                    value={(localStatus.processed_documents / localStatus.total_documents) * 100}
+                    className="h-1"
+                  />
+                )}
+              </div>
 
-            {localStatus.status === 'failed' && (
-              <Alert severity="error" sx={{ mt: 1 }}>
-                <Typography variant="body2">
-                  Reprocessing failed. Please check the system logs for more details or try again.
-                </Typography>
-              </Alert>
-            )}
+              {/* Affected Columns */}
+              {localStatus.affected_columns.length > 0 && (
+                <div>
+                  <p className="text-sm mb-2"><strong>Affected Columns:</strong></p>
+                  <div className="flex flex-wrap gap-1">
+                    {localStatus.affected_columns.map((column, index) => (
+                      <Badge key={index} variant="outline">
+                        {column}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-            {localStatus.status === 'processing' && (
-              <Alert severity="info" sx={{ mt: 1 }}>
-                <Typography variant="body2">
-                  Reprocessing is in progress. You can continue using other parts of the application while this completes in the background.
-                </Typography>
-              </Alert>
-            )}
-          </Box>
-        </Collapse>
-      </CardContent>
+              {/* Status Messages */}
+              {localStatus.status === 'completed' && (
+                <Alert variant="success">
+                  <CheckCircle2 className="h-4 w-4" />
+                  <AlertDescription>
+                    Reprocessing completed successfully! All documents have been processed with the updated schema.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {localStatus.status === 'failed' && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    Reprocessing failed. Please check the system logs for more details or try again.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {localStatus.status === 'processing' && (
+                <Alert variant="info">
+                  <Info className="h-4 w-4" />
+                  <AlertDescription>
+                    Reprocessing is in progress. You can continue using other parts of the application while this completes in the background.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+          </CollapsibleContent>
+        </CardContent>
+      </Collapsible>
     </Card>
   );
 };

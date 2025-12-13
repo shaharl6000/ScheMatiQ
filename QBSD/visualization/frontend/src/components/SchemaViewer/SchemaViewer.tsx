@@ -1,59 +1,55 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box,
-  Typography,
-  Paper,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
-  Chip,
-  IconButton,
-  TextField,
-  Button,
-  Alert,
-  Grid,
-  Card,
-  CardContent,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogContentText,
-  DialogTitle,
-  CircularProgress,
-  Snackbar,
-  Checkbox,
-  FormControlLabel,
-  Menu,
-  MenuItem,
-  ListItemIcon,
-  ListItemText,
-  Divider,
-  Tooltip,
-  LinearProgress,
-  Badge,
-} from '@mui/material';
-import {
-  ExpandMore,
-  Edit,
+  ChevronDown,
+  Pencil,
+  Plus,
+  Trash2,
+  Database,
+  MoreVertical,
+  GitMerge,
   Save,
-  Cancel,
-  Add,
-  Delete,
-  Schema as SchemaIcon,
-  MoreVert,
-  Merge,
-  Backup,
-  Restore,
-  Verified,
-  Refresh,
-  Warning,
-  CheckCircle,
-  Error as ErrorIcon,
+  RotateCcw,
+  ShieldCheck,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2,
+  AlertCircle,
   Info,
-} from '@mui/icons-material';
+  Loader2,
+} from 'lucide-react';
 
-import { 
-  ColumnInfo, 
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import { useToast } from '@/components/ui/use-toast';
+import { cn } from '@/lib/utils';
+
+import {
+  ColumnInfo,
   ColumnDialogState,
   ReprocessingStatus,
   SchemaValidationResult as SchemaValidationResultType,
@@ -73,19 +69,21 @@ interface SchemaViewerProps {
   readonly?: boolean;
   onColumnsChange?: (columns: ColumnInfo[]) => void;
   websocketManager?: any;
-  llmConfig?: any; // LLM configuration for display
+  llmConfig?: any;
 }
 
-const SchemaViewer: React.FC<SchemaViewerProps> = ({ 
-  columns, 
-  query, 
-  sessionId, 
+const SchemaViewer: React.FC<SchemaViewerProps> = ({
+  columns,
+  query,
+  sessionId,
   sessionType = 'qbsd',
   readonly = false,
   onColumnsChange,
   websocketManager,
   llmConfig
 }) => {
+  const { toast } = useToast();
+
   // State management
   const [localColumns, setLocalColumns] = useState<ColumnInfo[]>(columns || []);
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
@@ -96,11 +94,9 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [columnToDelete, setColumnToDelete] = useState<string>('');
-  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
   const [reprocessingStatus, setReprocessingStatus] = useState<ReprocessingStatus | null>(null);
   const [validationResult, setValidationResult] = useState<SchemaValidationResultType | null>(null);
   const [loading, setLoading] = useState(false);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'warning' | 'info' });
 
   // Update local columns when props change
   useEffect(() => {
@@ -134,7 +130,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     };
 
     websocketManager.addMessageHandler(handleMessage);
-    
+
     return () => {
       websocketManager.removeMessageHandler(handleMessage);
     };
@@ -150,21 +146,21 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   // WebSocket event handlers
   const handleSchemaUpdate = (data: any) => {
-    showSnackbar(`Schema ${data.operation.replace('_', ' ')} completed successfully`, 'success');
-    
-    // Trigger parent component refresh for both schema and data
+    toast({
+      title: 'Schema Updated',
+      description: `Schema ${data.operation.replace('_', ' ')} completed successfully`,
+    });
+
     if (onColumnsChange) {
       onColumnsChange(data.columns || []);
     }
-    
-    // If data was updated (like in column deletion), trigger a broader refresh
+
     if (data.data_updated || data.refresh_data) {
-      // Force a complete refresh of the visualization
-      window.dispatchEvent(new CustomEvent('schema-data-updated', { 
-        detail: { 
-          sessionId, 
+      window.dispatchEvent(new CustomEvent('schema-data-updated', {
+        detail: {
+          sessionId,
           operation: data.operation,
-          columns: data.columns 
+          columns: data.columns
         }
       }));
     }
@@ -184,12 +180,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   const handleReprocessingCompleted = (data: any) => {
     setReprocessingStatus(null);
-    showSnackbar(`Reprocessing completed for ${data.affected_columns?.length || 0} columns`, 'success');
-  };
-
-  // Utility functions
-  const showSnackbar = (message: string, severity: 'success' | 'error' | 'warning' | 'info') => {
-    setSnackbar({ open: true, message, severity });
+    toast({
+      title: 'Reprocessing Complete',
+      description: `Completed for ${data.affected_columns?.length || 0} columns`,
+    });
   };
 
   const loadValidationResult = async () => {
@@ -235,21 +229,27 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   const confirmDelete = async () => {
     if (!columnToDelete) return;
-    
+
     setLoading(true);
     try {
       await schemaAPI.deleteColumn(sessionId, columnToDelete);
-      showSnackbar(`Column "${columnToDelete}" deleted successfully`, 'success');
+      toast({
+        title: 'Column Deleted',
+        description: `Column "${columnToDelete}" deleted successfully`,
+      });
       setDeleteDialogOpen(false);
       setColumnToDelete('');
-      // Trigger parent to reload data
       if (onColumnsChange) {
         const updatedColumns = localColumns.filter(col => col.name !== columnToDelete);
         setLocalColumns(updatedColumns);
         onColumnsChange(updatedColumns);
       }
     } catch (error: any) {
-      showSnackbar(error.response?.data?.detail || 'Failed to delete column', 'error');
+      toast({
+        title: 'Error',
+        description: error.response?.data?.detail || 'Failed to delete column',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
@@ -257,7 +257,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   const handleMergeColumns = () => {
     if (selectedColumns.length < 2) {
-      showSnackbar('Select at least 2 columns to merge', 'warning');
+      toast({
+        title: 'Selection Required',
+        description: 'Select at least 2 columns to merge',
+        variant: 'destructive',
+      });
       return;
     }
     setMergeDialogOpen(true);
@@ -283,28 +287,30 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   };
 
   const handleDialogSuccess = (message: string) => {
-    showSnackbar(message, 'success');
-    // Clear selection and close dialogs
+    toast({ title: 'Success', description: message });
     setSelectedColumns([]);
     setDialogState({ open: false, mode: 'add' });
     setMergeDialogOpen(false);
-    // Trigger parent to reload data
-    if (onColumnsChange) {
-      // Parent should refetch the data
-    }
   };
 
   const handleDialogError = (message: string) => {
-    showSnackbar(message, 'error');
+    toast({ title: 'Error', description: message, variant: 'destructive' });
   };
 
   const handleBackup = async () => {
     setLoading(true);
     try {
       const result = await schemaAPI.backupSchema(sessionId);
-      showSnackbar(`Schema backup created: ${result.backup_id}`, 'success');
+      toast({
+        title: 'Backup Created',
+        description: `Schema backup created: ${result.backup_id}`,
+      });
     } catch (error: any) {
-      showSnackbar(error.response?.data?.detail || 'Failed to create backup', 'error');
+      toast({
+        title: 'Error',
+        description: error.response?.data?.detail || 'Failed to create backup',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
@@ -315,9 +321,13 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     try {
       const result = await schemaAPI.validateSchema(sessionId);
       setValidationResult(result);
-      showSnackbar('Schema validation completed', 'info');
+      toast({ title: 'Validation Complete', description: 'Schema validation completed' });
     } catch (error: any) {
-      showSnackbar(error.response?.data?.detail || 'Failed to validate schema', 'error');
+      toast({
+        title: 'Error',
+        description: error.response?.data?.detail || 'Failed to validate schema',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
@@ -326,12 +336,14 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const handleReprocess = async () => {
     setLoading(true);
     try {
-      await schemaAPI.reprocessDocuments(sessionId, { 
-        incremental: true 
-      });
-      showSnackbar('Document reprocessing started', 'info');
+      await schemaAPI.reprocessDocuments(sessionId, { incremental: true });
+      toast({ title: 'Reprocessing Started', description: 'Document reprocessing started' });
     } catch (error: any) {
-      showSnackbar(error.response?.data?.detail || 'Failed to start reprocessing', 'error');
+      toast({
+        title: 'Error',
+        description: error.response?.data?.detail || 'Failed to start reprocessing',
+        variant: 'destructive',
+      });
     } finally {
       setLoading(false);
     }
@@ -339,15 +351,15 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   // Filter out excerpt columns for display
   const displayColumns = (localColumns || []).filter(column => {
-    return column && 
-           column.name && 
-           !column.name.toLowerCase().includes('excerpt') &&
-           !column.name.toLowerCase().endsWith('_excerpt');
+    return column &&
+      column.name &&
+      !column.name.toLowerCase().includes('excerpt') &&
+      !column.name.toLowerCase().endsWith('_excerpt');
   });
 
-  const getValidationSeverity = (): 'success' | 'warning' | 'error' => {
+  const getValidationSeverity = (): 'success' | 'warning' | 'destructive' => {
     if (!validationResult) return 'success';
-    if (validationResult.errors && validationResult.errors.length > 0) return 'error';
+    if (validationResult.errors && validationResult.errors.length > 0) return 'destructive';
     if (validationResult.warnings && validationResult.warnings.length > 0) return 'warning';
     return 'success';
   };
@@ -355,355 +367,310 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const getValidationIcon = () => {
     const severity = getValidationSeverity();
     switch (severity) {
-      case 'error': return <ErrorIcon />;
-      case 'warning': return <Warning />;
-      default: return <CheckCircle />;
+      case 'destructive': return <AlertCircle className="h-4 w-4" />;
+      case 'warning': return <AlertTriangle className="h-4 w-4" />;
+      default: return <CheckCircle2 className="h-4 w-4" />;
     }
   };
 
   return (
-    <Box>
+    <div className="space-y-6">
       {/* Query and Schema Source Display */}
       {query && (
-        <Paper sx={{ p: 3, mb: 3 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                <SchemaIcon sx={{ mr: 1 }} />
-                Research Query
-              </Typography>
-              <Typography variant="body1" color="text.secondary">
-                {query}
-              </Typography>
-            </Box>
-            {/* Schema Source Indicator */}
-            <Box sx={{ ml: 2, textAlign: 'right' }}>
-              <Chip
-                icon={sessionType === 'load' ? <Backup /> : <SchemaIcon />}
-                label={sessionType === 'load' ? 'Loaded Schema' : 'Generated Schema'}
-                color={sessionType === 'load' ? 'secondary' : 'primary'}
-                variant="outlined"
-                size="small"
-              />
-            </Box>
-          </Box>
-        </Paper>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex justify-between items-start">
+              <div className="flex-1">
+                <h3 className="font-semibold flex items-center gap-2 mb-2">
+                  <Database className="h-5 w-5" />
+                  Research Query
+                </h3>
+                <p className="text-muted-foreground">{query}</p>
+              </div>
+              <Badge variant={sessionType === 'load' ? 'secondary' : 'default'}>
+                {sessionType === 'load' ? 'Loaded Schema' : 'Generated Schema'}
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Schema Metadata for Load Sessions */}
       {sessionType === 'load' && displayColumns.length > 0 && (
-        <Paper sx={{ p: 3, mb: 3, bgcolor: 'action.hover' }}>
-          <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-            <Verified sx={{ mr: 1, color: 'success.main' }} />
-            Schema Information
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', mb: llmConfig ? 2 : 0 }}>
-            <Chip 
-              label={`${displayColumns.length} columns defined`}
-              color="primary"
-              size="small"
-            />
-            <Chip 
-              label={`${displayColumns.filter(col => col.definition).length} with definitions`}
-              color={displayColumns.every(col => col.definition) ? 'success' : 'warning'}
-              size="small"
-            />
-            <Chip 
-              label={`${displayColumns.filter(col => col.rationale).length} with rationales`}
-              color={displayColumns.every(col => col.rationale) ? 'success' : 'warning'}
-              size="small"
-            />
-          </Box>
-          
-          {/* LLM Configuration Display */}
-          {llmConfig && (
-            <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
-              <LLMConfigDisplay
-                config={llmConfig}
-                title="Schema Creation Model"
-                variant="inline"
-                showDetails={true}
-              />
-            </Box>
-          )}
-        </Paper>
+        <Card className="bg-muted/50">
+          <CardContent className="pt-6">
+            <h3 className="font-semibold flex items-center gap-2 mb-3">
+              <ShieldCheck className="h-5 w-5 text-green-500" />
+              Schema Information
+            </h3>
+            <div className="flex flex-wrap gap-2 mb-3">
+              <Badge>{displayColumns.length} columns defined</Badge>
+              <Badge variant={displayColumns.every(col => col.definition) ? 'success' : 'warning'}>
+                {displayColumns.filter(col => col.definition).length} with definitions
+              </Badge>
+              <Badge variant={displayColumns.every(col => col.rationale) ? 'success' : 'warning'}>
+                {displayColumns.filter(col => col.rationale).length} with rationales
+              </Badge>
+            </div>
+
+            {llmConfig && (
+              <div className="pt-3 border-t">
+                <LLMConfigDisplay
+                  config={llmConfig}
+                  title="Schema Creation Model"
+                  variant="inline"
+                  showDetails={true}
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Reprocessing Progress */}
       {reprocessingStatus && (
-        <Paper sx={{ p: 3, mb: 3 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-            <CircularProgress size={20} />
-            <Typography variant="h6">
-              Reprocessing Documents
-            </Typography>
-          </Box>
-          <Typography variant="body2" color="text.secondary" gutterBottom>
-            {reprocessingStatus.current_step}
-          </Typography>
-          <LinearProgress 
-            variant="determinate" 
-            value={reprocessingStatus.progress * 100} 
-            sx={{ mb: 1 }}
-          />
-          <Typography variant="caption" color="text.secondary">
-            {reprocessingStatus.processed_documents} of {reprocessingStatus.total_documents} documents processed
-            {reprocessingStatus.affected_columns && reprocessingStatus.affected_columns.length > 0 && 
-              ` (${reprocessingStatus.affected_columns.join(', ')})`
-            }
-          </Typography>
-        </Paper>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-2 mb-3">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <h3 className="font-semibold">Reprocessing Documents</h3>
+            </div>
+            <p className="text-sm text-muted-foreground mb-2">
+              {reprocessingStatus.current_step}
+            </p>
+            <Progress value={reprocessingStatus.progress * 100} className="mb-2" />
+            <p className="text-xs text-muted-foreground">
+              {reprocessingStatus.processed_documents} of {reprocessingStatus.total_documents} documents processed
+              {reprocessingStatus.affected_columns && reprocessingStatus.affected_columns.length > 0 &&
+                ` (${reprocessingStatus.affected_columns.join(', ')})`
+              }
+            </p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Schema Overview */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <Typography variant="h6">
-              Schema Overview ({displayColumns.length} columns)
-            </Typography>
-            
-            {/* Validation Status Badge */}
-            {validationResult && (
-              <Tooltip title={`${validationResult.errors?.length || 0} errors, ${validationResult.warnings?.length || 0} warnings`}>
-                <Badge 
-                  badgeContent={(validationResult.errors?.length || 0) + (validationResult.warnings?.length || 0)}
-                  color={getValidationSeverity() as 'error' | 'warning' | 'success'}
-                  max={99}
-                >
-                  {getValidationIcon()}
-                </Badge>
-              </Tooltip>
-            )}
-          </Box>
-          
-          {!readonly && (
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              {/* Selection Controls */}
-              {selectedColumns.length > 0 && (
-                <Box sx={{ display: 'flex', gap: 1, mr: 2 }}>
-                  <Button
-                    size="small"
-                    onClick={handleClearSelection}
-                  >
-                    Clear ({selectedColumns.length})
-                  </Button>
-                  
-                  <Button
-                    size="small"
-                    startIcon={<Merge />}
-                    disabled={selectedColumns.length < 2}
-                    onClick={handleMergeColumns}
-                  >
-                    Merge
-                  </Button>
-                </Box>
-              )}
-              
-              <Button
-                size="small"
-                onClick={selectedColumns.length === 0 ? handleSelectAll : handleClearSelection}
-              >
-                {selectedColumns.length === 0 ? 'Select All' : 'Clear All'}
-              </Button>
-              
-              <Button
-                startIcon={<Add />}
-                variant="outlined"
-                onClick={handleAddColumn}
-              >
-                Add Column
-              </Button>
-              
-              <IconButton
-                onClick={(e) => setMenuAnchor(e.currentTarget)}
-                disabled={loading}
-              >
-                <MoreVert />
-              </IconButton>
-            </Box>
-          )}
-        </Box>
+      <Card>
+        <CardContent className="pt-6">
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center gap-3">
+              <h3 className="font-semibold">
+                Schema Overview ({displayColumns.length} columns)
+              </h3>
 
-        {/* Column Grid */}
-        <Grid container spacing={2}>
-          {displayColumns.map((column, index) => (
-            <Grid item xs={12} sm={6} md={4} key={column.name}>
-              <Card 
-                variant="outlined" 
-                sx={{ 
-                  height: '100%',
-                  position: 'relative',
-                  border: selectedColumns.includes(column.name) ? 2 : 1,
-                  borderColor: selectedColumns.includes(column.name) ? 'primary.main' : 'divider'
-                }}
+              {/* Validation Status Badge */}
+              {validationResult && (
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Badge variant={getValidationSeverity()} className="gap-1">
+                      {getValidationIcon()}
+                      {(validationResult.errors?.length || 0) + (validationResult.warnings?.length || 0)}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {validationResult.errors?.length || 0} errors, {validationResult.warnings?.length || 0} warnings
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+
+            {!readonly && (
+              <div className="flex items-center gap-2">
+                {/* Selection Controls */}
+                {selectedColumns.length > 0 && (
+                  <div className="flex gap-2 mr-2">
+                    <Button variant="ghost" size="sm" onClick={handleClearSelection}>
+                      Clear ({selectedColumns.length})
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={selectedColumns.length < 2}
+                      onClick={handleMergeColumns}
+                    >
+                      <GitMerge className="h-4 w-4 mr-1" />
+                      Merge
+                    </Button>
+                  </div>
+                )}
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={selectedColumns.length === 0 ? handleSelectAll : handleClearSelection}
+                >
+                  {selectedColumns.length === 0 ? 'Select All' : 'Clear All'}
+                </Button>
+
+                <Button variant="outline" size="sm" onClick={handleAddColumn}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Column
+                </Button>
+
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" disabled={loading}>
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={handleValidate} disabled={loading}>
+                      <ShieldCheck className="h-4 w-4 mr-2" />
+                      Validate Schema
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleBackup} disabled={loading}>
+                      <Save className="h-4 w-4 mr-2" />
+                      Create Backup
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleReprocess} disabled={loading || Boolean(reprocessingStatus)}>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Reprocess All
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+          </div>
+
+          {/* Column Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayColumns.map((column) => (
+              <Card
+                key={column.name}
+                className={cn(
+                  "relative",
+                  selectedColumns.includes(column.name) && "ring-2 ring-primary"
+                )}
               >
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CardContent className="pt-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2">
                       {!readonly && (
                         <Checkbox
-                          size="small"
                           checked={selectedColumns.includes(column.name)}
-                          onChange={(e) => handleColumnSelection(column.name, e.target.checked)}
+                          onCheckedChange={(checked) =>
+                            handleColumnSelection(column.name, checked as boolean)
+                          }
                         />
                       )}
-                      <Typography variant="h6" component="div" sx={{ fontSize: '1rem' }}>
+                      <h4 className="font-semibold text-sm">
                         {formatColumnName(column.name)}
-                      </Typography>
-                    </Box>
-                    
+                      </h4>
+                    </div>
+
                     {!readonly && (
-                      <Box>
-                        <IconButton 
-                          size="small" 
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
                           onClick={() => handleEditColumn(column)}
-                          title="Edit column"
                         >
-                          <Edit fontSize="small" />
-                        </IconButton>
-                        <IconButton 
-                          size="small" 
-                          color="error"
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:text-destructive"
                           onClick={() => handleDeleteColumn(column.name)}
-                          title="Delete column"
                         >
-                          <Delete fontSize="small" />
-                        </IconButton>
-                      </Box>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     )}
-                  </Box>
+                  </div>
 
                   {column.data_type && (
-                    <Chip label={column.data_type} size="small" color="primary" sx={{ mb: 1 }} />
+                    <Badge className="mb-2">{column.data_type}</Badge>
                   )}
 
                   {column.definition && (
-                    <Box sx={{ mb: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.200' }}>
-                      <Typography variant="subtitle2" color="primary" sx={{ fontWeight: 600, mb: 1 }}>
-                        Definition
-                      </Typography>
-                      <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.5 }}>
-                        {column.definition}
-                      </Typography>
-                    </Box>
+                    <div className="mb-3 p-3 bg-muted rounded-md">
+                      <p className="text-xs font-semibold text-primary mb-1">Definition</p>
+                      <p className="text-sm">{column.definition}</p>
+                    </div>
                   )}
 
                   {column.rationale && (
-                    <Box sx={{ mb: 2, p: 2, bgcolor: 'info.light', borderRadius: 1, border: '1px solid', borderColor: 'info.main', opacity: 0.9 }}>
-                      <Typography variant="subtitle2" color="info.dark" sx={{ fontWeight: 600, mb: 1 }}>
-                        Rationale
-                      </Typography>
-                      <Typography variant="body2" color="text.primary" sx={{ lineHeight: 1.5 }}>
-                        {column.rationale}
-                      </Typography>
-                    </Box>
+                    <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
+                      <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">Rationale</p>
+                      <p className="text-sm">{column.rationale}</p>
+                    </div>
                   )}
 
                   {/* Missing metadata warning for loaded schemas */}
                   {sessionType === 'load' && (!column.definition || !column.rationale) && (
-                    <Box sx={{ mb: 1, p: 1.5, bgcolor: 'warning.light', borderRadius: 1, border: '1px solid', borderColor: 'warning.main', opacity: 0.8 }}>
-                      <Typography variant="caption" color="warning.dark" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Warning fontSize="small" />
-                        {!column.definition && !column.rationale 
-                          ? 'Missing definition and rationale' 
-                          : !column.definition 
-                          ? 'Missing definition' 
-                          : 'Missing rationale'}
-                      </Typography>
-                    </Box>
+                    <div className="mb-2 p-2 bg-yellow-50 dark:bg-yellow-950 rounded-md border border-yellow-200 dark:border-yellow-800">
+                      <p className="text-xs text-yellow-700 dark:text-yellow-300 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        {!column.definition && !column.rationale
+                          ? 'Missing definition and rationale'
+                          : !column.definition
+                            ? 'Missing definition'
+                            : 'Missing rationale'}
+                      </p>
+                    </div>
                   )}
 
                   {(column.non_null_count !== undefined || column.unique_count !== undefined) && (
-                    <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+                    <div className="flex gap-2 mt-2">
                       {column.non_null_count !== undefined && (
-                        <Chip 
-                          label={`${column.non_null_count} non-null`} 
-                          size="small" 
-                          variant="outlined" 
-                        />
+                        <Badge variant="outline">{column.non_null_count} non-null</Badge>
                       )}
                       {column.unique_count !== undefined && (
-                        <Chip 
-                          label={`${column.unique_count} unique`} 
-                          size="small" 
-                          variant="outlined" 
-                        />
+                        <Badge variant="outline">{column.unique_count} unique</Badge>
                       )}
-                    </Box>
+                    </div>
                   )}
                 </CardContent>
               </Card>
-            </Grid>
-          ))}
-        </Grid>
-      </Paper>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Validation Results */}
       {validationResult && ((validationResult.errors && validationResult.errors.length > 0) || (validationResult.warnings && validationResult.warnings.length > 0)) && (
-        <Paper sx={{ p: 3, mb: 3 }}>
-          <Typography variant="h6" gutterBottom>
-            Schema Validation
-          </Typography>
-          
-          {validationResult.errors && validationResult.errors.length > 0 && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>Errors:</Typography>
-              {validationResult.errors.map((error, index) => (
-                <Typography key={index} variant="body2">• {error}</Typography>
-              ))}
-            </Alert>
-          )}
-          
-          {validationResult.warnings && validationResult.warnings.length > 0 && (
-            <Alert severity="warning" sx={{ mb: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>Warnings:</Typography>
-              {validationResult.warnings.map((warning, index) => (
-                <Typography key={index} variant="body2">• {warning}</Typography>
-              ))}
-            </Alert>
-          )}
-          
-          {validationResult.suggestions && validationResult.suggestions.length > 0 && (
-            <Alert severity="info">
-              <Typography variant="subtitle2" gutterBottom>Suggestions:</Typography>
-              {validationResult.suggestions.map((suggestion, index) => (
-                <Typography key={index} variant="body2">• {suggestion}</Typography>
-              ))}
-            </Alert>
-          )}
-        </Paper>
-      )}
+        <Card>
+          <CardContent className="pt-6 space-y-4">
+            <h3 className="font-semibold">Schema Validation</h3>
 
-      {/* Actions Menu */}
-      <Menu
-        anchorEl={menuAnchor}
-        open={Boolean(menuAnchor)}
-        onClose={() => setMenuAnchor(null)}
-      >
-        <MenuItem onClick={handleValidate} disabled={loading}>
-          <ListItemIcon>
-            <Verified />
-          </ListItemIcon>
-          <ListItemText>Validate Schema</ListItemText>
-        </MenuItem>
-        
-        <MenuItem onClick={handleBackup} disabled={loading}>
-          <ListItemIcon>
-            <Backup />
-          </ListItemIcon>
-          <ListItemText>Create Backup</ListItemText>
-        </MenuItem>
-        
-        <Divider />
-        
-        <MenuItem onClick={handleReprocess} disabled={loading || Boolean(reprocessingStatus)}>
-          <ListItemIcon>
-            <Refresh />
-          </ListItemIcon>
-          <ListItemText>Reprocess All</ListItemText>
-        </MenuItem>
-      </Menu>
+            {validationResult.errors && validationResult.errors.length > 0 && (
+              <Alert variant="destructive">
+                <AlertDescription>
+                  <p className="font-semibold mb-1">Errors:</p>
+                  {validationResult.errors.map((error, index) => (
+                    <p key={index} className="text-sm">• {error}</p>
+                  ))}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {validationResult.warnings && validationResult.warnings.length > 0 && (
+              <Alert variant="warning">
+                <AlertDescription>
+                  <p className="font-semibold mb-1">Warnings:</p>
+                  {validationResult.warnings.map((warning, index) => (
+                    <p key={index} className="text-sm">• {warning}</p>
+                  ))}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {validationResult.suggestions && validationResult.suggestions.length > 0 && (
+              <Alert variant="info">
+                <AlertDescription>
+                  <p className="font-semibold mb-1">Suggestions:</p>
+                  {validationResult.suggestions.map((suggestion, index) => (
+                    <p key={index} className="text-sm">• {suggestion}</p>
+                  ))}
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Dialogs */}
       <ColumnDialog
@@ -728,57 +695,42 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       />
 
       {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
-      >
-        <DialogTitle>Delete Column</DialogTitle>
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
-          <DialogContentText>
-            Are you sure you want to delete the column "{columnToDelete}"? 
-            This action will remove the column from the schema and delete all associated data. 
-            This cannot be undone.
-          </DialogContentText>
+          <DialogHeader>
+            <DialogTitle>Delete Column</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete the column "{columnToDelete}"?
+              This action will remove the column from the schema and delete all associated data.
+              This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDelete}
+              disabled={loading}
+            >
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {loading ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>
-            Cancel
-          </Button>
-          <Button 
-            onClick={confirmDelete} 
-            color="error" 
-            variant="contained"
-            disabled={loading}
-            startIcon={loading ? <CircularProgress size={16} /> : <Delete />}
-          >
-            {loading ? 'Deleting...' : 'Delete'}
-          </Button>
-        </DialogActions>
       </Dialog>
 
-      {/* Snackbar */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={6000}
-        onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
-      >
-        <Alert 
-          onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
-          severity={snackbar.severity}
-        >
-          {snackbar.message}
-        </Alert>
-      </Snackbar>
-      
       {readonly && (
-        <Alert severity="info" sx={{ mt: 2 }}>
-          <Typography variant="body2">
-            <strong>Read-only mode:</strong> Schema editing features are disabled. 
+        <Alert variant="info">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Read-only mode:</strong> Schema editing features are disabled.
             To enable editing, ensure you have proper permissions and the session supports schema modifications.
-          </Typography>
+          </AlertDescription>
         </Alert>
       )}
-    </Box>
+    </div>
   );
 };
 

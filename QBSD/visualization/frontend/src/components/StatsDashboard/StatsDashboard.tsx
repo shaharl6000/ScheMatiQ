@@ -1,14 +1,5 @@
 import React from 'react';
 import {
-  Box,
-  Typography,
-  Paper,
-  Grid,
-  Card,
-  CardContent,
-  LinearProgress,
-} from '@mui/material';
-import {
   BarChart,
   Bar,
   XAxis,
@@ -21,6 +12,9 @@ import {
   Cell,
 } from 'recharts';
 
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+
 import { DataStatistics } from '../../types';
 
 interface StatsDashboardProps {
@@ -31,8 +25,8 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({ statistics }) => {
   // Prepare data for charts
   const completenessData = statistics.column_stats.map(col => ({
     name: col.name,
-    completeness: col.non_null_count && statistics.total_rows 
-      ? (col.non_null_count / statistics.total_rows) * 100 
+    completeness: col.non_null_count && statistics.total_rows
+      ? (col.non_null_count / statistics.total_rows) * 100
       : 0,
     non_null_count: col.non_null_count || 0,
     unique_count: col.unique_count || 0,
@@ -49,187 +43,174 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({ statistics }) => {
     value: count,
   }));
 
-  const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#8dd1e1', '#d084d0'];
+  const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
 
   return (
-    <Box>
+    <div className="space-y-6">
       {/* Overview Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Total Rows
-              </Typography>
-              <Typography variant="h4">
-                {statistics.total_rows.toLocaleString()}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Total Columns
-              </Typography>
-              <Typography variant="h4">
-                {statistics.total_columns}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Overall Completeness
-              </Typography>
-              <Typography variant="h4">
-                {statistics.completeness.toFixed(1)}%
-              </Typography>
-              <LinearProgress 
-                variant="determinate" 
-                value={statistics.completeness} 
-                sx={{ mt: 1 }}
-              />
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Typography color="text.secondary" gutterBottom>
-                Data Types
-              </Typography>
-              <Typography variant="h4">
-                {Object.keys(dataTypeDistribution).length}
-              </Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground mb-1">Total Rows</p>
+            <p className="text-3xl font-bold">
+              {statistics.total_rows.toLocaleString()}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground mb-1">Total Columns</p>
+            <p className="text-3xl font-bold">
+              {statistics.total_columns}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground mb-1">Overall Completeness</p>
+            <p className="text-3xl font-bold">
+              {statistics.completeness.toFixed(1)}%
+            </p>
+            <Progress value={statistics.completeness} className="mt-2" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground mb-1">Data Types</p>
+            <p className="text-3xl font-bold">
+              {Object.keys(dataTypeDistribution).length}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Charts */}
-      <Grid container spacing={3}>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Column Completeness Chart */}
-        <Grid item xs={12} lg={8}>
-          <Paper sx={{ p: 3, height: 400 }}>
-            <Typography variant="h6" gutterBottom>
-              Column Completeness
-            </Typography>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={completenessData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="name" 
-                  angle={-45}
-                  textAnchor="end"
-                  height={80}
-                />
-                <YAxis />
-                <Tooltip 
-                  formatter={(value: number, name: string) => [
-                    `${value.toFixed(1)}%`,
-                    'Completeness'
-                  ]}
-                  labelFormatter={(label) => `Column: ${label}`}
-                />
-                <Bar dataKey="completeness" fill="#8884d8" />
-              </BarChart>
-            </ResponsiveContainer>
-          </Paper>
-        </Grid>
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle>Column Completeness</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[350px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={completenessData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis
+                    dataKey="name"
+                    angle={-45}
+                    textAnchor="end"
+                    height={80}
+                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                  />
+                  <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
+                  <Tooltip
+                    formatter={(value: number) => [`${value.toFixed(1)}%`, 'Completeness']}
+                    labelFormatter={(label) => `Column: ${label}`}
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                    }}
+                  />
+                  <Bar dataKey="completeness" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Data Type Distribution */}
-        <Grid item xs={12} lg={4}>
-          <Paper sx={{ p: 3, height: 400 }}>
-            <Typography variant="h6" gutterBottom>
-              Data Type Distribution
-            </Typography>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => 
-                    `${name}: ${(percent * 100).toFixed(0)}%`
-                  }
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </Paper>
-        </Grid>
+        <Card>
+          <CardHeader>
+            <CardTitle>Data Type Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[350px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) =>
+                      `${name}: ${(percent * 100).toFixed(0)}%`
+                    }
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {pieData.map((_, index) => (
+                      <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--background))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-        {/* Column Details Table */}
-        <Grid item xs={12}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Column Statistics
-            </Typography>
-            <Box sx={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid #ddd' }}>
-                    <th style={{ padding: '12px', textAlign: 'left' }}>Column Name</th>
-                    <th style={{ padding: '12px', textAlign: 'left' }}>Data Type</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>Non-Null Count</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>Unique Count</th>
-                    <th style={{ padding: '12px', textAlign: 'right' }}>Completeness</th>
+      {/* Column Details Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Column Statistics</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b-2 border-border">
+                  <th className="p-3 text-left font-semibold">Column Name</th>
+                  <th className="p-3 text-left font-semibold">Data Type</th>
+                  <th className="p-3 text-right font-semibold">Non-Null Count</th>
+                  <th className="p-3 text-right font-semibold">Unique Count</th>
+                  <th className="p-3 text-right font-semibold">Completeness</th>
+                </tr>
+              </thead>
+              <tbody>
+                {completenessData.map((col, index) => (
+                  <tr
+                    key={col.name}
+                    className="border-b border-border odd:bg-muted/50"
+                  >
+                    <td className="p-3 font-medium">{col.name}</td>
+                    <td className="p-3 text-muted-foreground">
+                      {statistics.column_stats[index]?.data_type || 'unknown'}
+                    </td>
+                    <td className="p-3 text-right">
+                      {col.non_null_count.toLocaleString()}
+                    </td>
+                    <td className="p-3 text-right">
+                      {col.unique_count.toLocaleString()}
+                    </td>
+                    <td className="p-3">
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="text-sm min-w-[45px] text-right">
+                          {col.completeness.toFixed(1)}%
+                        </span>
+                        <Progress value={col.completeness} className="w-24" />
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {completenessData.map((col, index) => (
-                    <tr key={col.name} style={{ 
-                      borderBottom: '1px solid #eee',
-                      backgroundColor: index % 2 === 0 ? '#f9f9f9' : 'white'
-                    }}>
-                      <td style={{ padding: '12px' }}>
-                        <strong>{col.name}</strong>
-                      </td>
-                      <td style={{ padding: '12px' }}>
-                        {statistics.column_stats[index]?.data_type || 'unknown'}
-                      </td>
-                      <td style={{ padding: '12px', textAlign: 'right' }}>
-                        {col.non_null_count.toLocaleString()}
-                      </td>
-                      <td style={{ padding: '12px', textAlign: 'right' }}>
-                        {col.unique_count.toLocaleString()}
-                      </td>
-                      <td style={{ padding: '12px', textAlign: 'right' }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-                          <Typography variant="body2" sx={{ mr: 1, minWidth: 45 }}>
-                            {col.completeness.toFixed(1)}%
-                          </Typography>
-                          <LinearProgress 
-                            variant="determinate" 
-                            value={col.completeness} 
-                            sx={{ width: 100 }}
-                          />
-                        </Box>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Box>
-          </Paper>
-        </Grid>
-      </Grid>
-    </Box>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 };
 

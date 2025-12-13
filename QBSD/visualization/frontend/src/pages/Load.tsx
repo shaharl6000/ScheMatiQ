@@ -1,19 +1,15 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Box,
-  Typography,
-  Paper,
-  Button,
-  Alert,
-  CircularProgress,
-} from '@mui/material';
 import { useDropzone } from 'react-dropzone';
-import { CloudUpload } from '@mui/icons-material';
+import { Upload, ArrowLeft, Loader2 } from 'lucide-react';
 
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card } from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 import { loadAPI } from '../services/api';
 
-const Load: React.FC = () => {
+const Load = () => {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
@@ -65,83 +61,86 @@ const Load: React.FC = () => {
     disabled: loading,
   });
 
-  const dropzoneStyle = {
-    border: '2px dashed',
-    borderColor: isDragActive ? 'primary.main' : 'grey.300',
-    borderRadius: 2,
-    p: 6,
-    textAlign: 'center',
-    cursor: loading ? 'not-allowed' : 'pointer',
-    bgcolor: isDragActive ? 'primary.light' : 'background.paper',
-    opacity: loading ? 0.7 : 1,
-    transition: 'all 0.2s ease',
-    '&:hover': {
-      borderColor: loading ? 'grey.300' : 'primary.main',
-      bgcolor: loading ? 'background.paper' : 'action.hover',
-    },
-  };
-
   return (
-    <Box sx={{ maxWidth: 800, mx: 'auto', mt: 4, px: 2 }}>
+    <div className="max-w-3xl mx-auto">
       {/* Header */}
-      <Typography variant="h4" gutterBottom>
+      <h1 className="text-3xl font-bold tracking-tight mb-2">
         Load Existing QBSD
-      </Typography>
+      </h1>
 
       {/* Explanation */}
-      <Typography variant="body1" color="text.secondary" paragraph>
+      <p className="text-muted-foreground mb-2">
         Load an existing QBSD data file to visualize and edit your research data.
         The system will extract the schema from your data, allowing you to explore
         and add documents for AI-powered information extraction.
-      </Typography>
+      </p>
 
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+      <p className="text-sm text-muted-foreground mb-6">
         Supported formats: CSV, JSON, JSONL (up to 100MB)
-      </Typography>
+      </p>
 
       {/* Load Dropzone */}
-      <Paper sx={dropzoneStyle} {...getRootProps()}>
+      <Card
+        {...getRootProps()}
+        className={cn(
+          "border-2 border-dashed p-12 text-center cursor-pointer transition-all",
+          isDragActive
+            ? "border-primary bg-primary/5"
+            : "border-muted-foreground/25 hover:border-primary hover:bg-muted/50",
+          loading && "opacity-50 cursor-not-allowed"
+        )}
+      >
         <input {...getInputProps()} />
-        <CloudUpload sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
+        <Upload className={cn(
+          "mx-auto h-12 w-12 mb-4",
+          isDragActive ? "text-primary" : "text-muted-foreground"
+        )} />
 
         {loading ? (
-          <Box>
-            <CircularProgress size={24} sx={{ mb: 1 }} />
-            <Typography variant="h6">
+          <div className="space-y-2">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
+            <h3 className="text-lg font-semibold">
               Processing file...
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
+            </h3>
+            <p className="text-sm text-muted-foreground">
               Please wait while we validate and parse your data
-            </Typography>
-          </Box>
+            </p>
+          </div>
         ) : isDragActive ? (
-          <Typography variant="h6">Drop the file here...</Typography>
+          <h3 className="text-lg font-semibold text-primary">
+            Drop the file here...
+          </h3>
         ) : (
           <>
-            <Typography variant="h6" gutterBottom>
+            <h3 className="text-lg font-semibold mb-1">
               Drop your data file here or click to browse
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
+            </h3>
+            <p className="text-sm text-muted-foreground">
               CSV, JSON, or JSONL files
-            </Typography>
+            </p>
           </>
         )}
-      </Paper>
+      </Card>
 
       {/* Error Display */}
       {error && (
-        <Alert severity="error" sx={{ mt: 3 }}>
-          {error}
+        <Alert variant="destructive" className="mt-6">
+          <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
       {/* Back Button */}
-      <Box sx={{ mt: 4 }}>
-        <Button onClick={() => navigate('/')} variant="outlined" disabled={loading}>
+      <div className="mt-6">
+        <Button
+          variant="outline"
+          onClick={() => navigate('/')}
+          disabled={loading}
+        >
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Home
         </Button>
-      </Box>
-    </Box>
+      </div>
+    </div>
   );
 };
 

@@ -1,34 +1,25 @@
 import React, { useState, useEffect } from 'react';
+import { Plus, Pencil, Loader2 } from 'lucide-react';
+
 import {
   Dialog,
-  DialogTitle,
   DialogContent,
-  DialogActions,
-  TextField,
-  Button,
-  Box,
-  Alert,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Chip,
-  Typography,
-  Divider,
-  CircularProgress,
-} from '@mui/material';
-import {
-  Save,
-  Cancel,
-  Add,
-  Edit,
-} from '@mui/icons-material';
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
 
-import { 
-  ColumnInfo, 
-  AddColumnRequest, 
+import {
+  ColumnInfo,
+  AddColumnRequest,
   EditColumnRequest,
-  ColumnDialogState 
 } from '../../types';
 import { schemaAPI } from '../../services/api';
 
@@ -58,7 +49,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
     name: '',
     definition: '',
     rationale: '',
-    new_name: '' // For rename operations
+    new_name: ''
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -87,14 +78,12 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    // Validate name
     const nameToCheck = mode === 'edit' ? formData.new_name : formData.name;
     if (!nameToCheck.trim()) {
       newErrors.name = 'Column name is required';
     } else {
-      // Check for duplicates (excluding current column in edit mode)
-      const isDuplicate = existingColumns.some(col => 
-        col.name === nameToCheck && 
+      const isDuplicate = existingColumns.some(col =>
+        col.name === nameToCheck &&
         (mode === 'add' || (mode === 'edit' && col.name !== formData.name))
       );
       if (isDuplicate) {
@@ -102,12 +91,10 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
       }
     }
 
-    // Validate definition
     if (!formData.definition.trim()) {
       newErrors.definition = 'Definition is required';
     }
 
-    // Validate rationale
     if (!formData.rationale.trim()) {
       newErrors.rationale = 'Rationale is required';
     }
@@ -129,22 +116,21 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           definition: formData.definition.trim(),
           rationale: formData.rationale.trim(),
         };
-        
+
         const response = await schemaAPI.addColumn(sessionId, request);
         onSuccess(`Column "${request.name}" added successfully${response.reprocessing_required ? ' - processing started' : ''}`);
       } else {
-        // Edit mode
         const request: EditColumnRequest = {
           name: formData.name,
           definition: formData.definition.trim(),
           rationale: formData.rationale.trim(),
           new_name: formData.new_name.trim() !== formData.name ? formData.new_name.trim() : undefined,
         };
-        
+
         const response = await schemaAPI.editColumn(sessionId, request);
         onSuccess(`Column updated successfully${response.reprocessing_required ? ' - reprocessing started' : ''}`);
       }
-      
+
       onClose();
     } catch (error: any) {
       console.error('Column operation failed:', error);
@@ -154,13 +140,12 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
     }
   };
 
-  const handleChange = (field: string) => (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (field: string, value: string) => {
     setFormData(prev => ({
       ...prev,
-      [field]: event.target.value
+      [field]: value
     }));
-    
-    // Clear error when user starts typing
+
     if (errors[field]) {
       setErrors(prev => ({
         ...prev,
@@ -170,116 +155,130 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
   };
 
   const dialogTitle = mode === 'add' ? 'Add New Column' : 'Edit Column';
-  const submitIcon = mode === 'add' ? <Add /> : <Edit />;
+  const submitIcon = mode === 'add' ? <Plus className="h-4 w-4" /> : <Pencil className="h-4 w-4" />;
   const submitText = mode === 'add' ? 'Add Column' : 'Save Changes';
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={onClose} 
-      maxWidth="md" 
-      fullWidth
-      disableEscapeKeyDown={loading}
-    >
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        {submitIcon}
-        {dialogTitle}
-      </DialogTitle>
-      
-      <DialogContent dividers>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && !loading && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {submitIcon}
+            {dialogTitle}
+          </DialogTitle>
+          <DialogDescription>
+            {mode === 'add'
+              ? 'Add a new column to the schema'
+              : 'Edit column properties'}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-4">
           {/* Column Name */}
-          <TextField
-            label={mode === 'edit' ? 'Current Name' : 'Column Name'}
-            value={mode === 'edit' ? formData.name : formData.name}
-            onChange={mode === 'edit' ? undefined : handleChange('name')}
-            error={!!errors.name}
-            helperText={errors.name}
-            fullWidth
-            required
-            disabled={mode === 'edit' || loading}
-            variant={mode === 'edit' ? 'filled' : 'outlined'}
-          />
+          <div className="space-y-2">
+            <Label htmlFor="name">
+              {mode === 'edit' ? 'Current Name' : 'Column Name'} <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="name"
+              value={mode === 'edit' ? formData.name : formData.name}
+              onChange={(e) => mode !== 'edit' && handleChange('name', e.target.value)}
+              disabled={mode === 'edit' || loading}
+              className={mode === 'edit' ? 'bg-muted' : ''}
+            />
+            {errors.name && <p className="text-sm text-destructive">{errors.name}</p>}
+          </div>
 
           {/* New Name (for edit mode) */}
           {mode === 'edit' && (
-            <TextField
-              label="New Name (leave unchanged to keep current name)"
-              value={formData.new_name}
-              onChange={handleChange('new_name')}
-              error={!!errors.name}
-              helperText={errors.name || 'Leave empty to keep the current name'}
-              fullWidth
-              disabled={loading}
-            />
+            <div className="space-y-2">
+              <Label htmlFor="new_name">New Name</Label>
+              <Input
+                id="new_name"
+                value={formData.new_name}
+                onChange={(e) => handleChange('new_name', e.target.value)}
+                disabled={loading}
+              />
+              <p className="text-sm text-muted-foreground">
+                Leave unchanged to keep the current name
+              </p>
+            </div>
           )}
 
-          <Divider />
+          <Separator />
 
           {/* Definition */}
-          <TextField
-            label="Definition"
-            value={formData.definition}
-            onChange={handleChange('definition')}
-            error={!!errors.definition}
-            helperText={errors.definition || 'Describe what this column represents and what type of information it should contain'}
-            multiline
-            rows={3}
-            fullWidth
-            required
-            disabled={loading}
-          />
+          <div className="space-y-2">
+            <Label htmlFor="definition">
+              Definition <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="definition"
+              value={formData.definition}
+              onChange={(e) => handleChange('definition', e.target.value)}
+              rows={3}
+              disabled={loading}
+            />
+            {errors.definition && <p className="text-sm text-destructive">{errors.definition}</p>}
+            <p className="text-sm text-muted-foreground">
+              Describe what this column represents and what type of information it should contain
+            </p>
+          </div>
 
           {/* Rationale */}
-          <TextField
-            label="Rationale"
-            value={formData.rationale}
-            onChange={handleChange('rationale')}
-            error={!!errors.rationale}
-            helperText={errors.rationale || 'Explain why this column is important for answering the research query'}
-            multiline
-            rows={4}
-            fullWidth
-            required
-            disabled={loading}
-          />
+          <div className="space-y-2">
+            <Label htmlFor="rationale">
+              Rationale <span className="text-destructive">*</span>
+            </Label>
+            <Textarea
+              id="rationale"
+              value={formData.rationale}
+              onChange={(e) => handleChange('rationale', e.target.value)}
+              rows={4}
+              disabled={loading}
+            />
+            {errors.rationale && <p className="text-sm text-destructive">{errors.rationale}</p>}
+            <p className="text-sm text-muted-foreground">
+              Explain why this column is important for answering the research query
+            </p>
+          </div>
 
           {mode === 'add' && (
-            <Alert severity="info">
-              <Typography variant="body2">
+            <Alert variant="info">
+              <AlertDescription>
                 <strong>Note:</strong> Adding a new column will trigger document processing to extract values for this column from all documents in the dataset. This process may take some time depending on the number of documents.
-              </Typography>
+              </AlertDescription>
             </Alert>
           )}
 
           {mode === 'edit' && formData.new_name !== formData.name && formData.new_name.trim() && (
-            <Alert severity="warning">
-              <Typography variant="body2">
+            <Alert variant="warning">
+              <AlertDescription>
                 <strong>Note:</strong> Renaming a column will trigger reprocessing to ensure data consistency. This may take some time.
-              </Typography>
+              </AlertDescription>
             </Alert>
           )}
-        </Box>
-      </DialogContent>
+        </div>
 
-      <DialogActions sx={{ p: 2, gap: 1 }}>
-        <Button
-          onClick={onClose}
-          disabled={loading}
-          startIcon={<Cancel />}
-        >
-          Cancel
-        </Button>
-        
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          disabled={loading}
-          startIcon={loading ? <CircularProgress size={16} /> : submitIcon}
-        >
-          {loading ? 'Processing...' : submitText}
-        </Button>
-      </DialogActions>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button onClick={handleSubmit} disabled={loading}>
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              <>
+                {submitIcon}
+                <span className="ml-2">{submitText}</span>
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 };

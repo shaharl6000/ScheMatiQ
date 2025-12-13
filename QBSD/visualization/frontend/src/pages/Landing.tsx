@@ -1,30 +1,25 @@
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Box,
-  Typography,
+  Sparkles,
+  Upload,
+  CheckCircle2,
+  Gauge,
+  Eye,
+  Pencil,
+} from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import {
   Card,
   CardContent,
-  CardActions,
-  Button,
-  Grid,
-  Container,
-  Chip,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-} from '@mui/material';
-import {
-  CloudUpload,
-  AutoAwesome,
-  CheckCircle,
-  Speed,
-  Visibility,
-  Edit,
-} from '@mui/icons-material';
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
-const Landing: React.FC = () => {
+const Landing = () => {
   const navigate = useNavigate();
 
   const loadFeatures = [
@@ -42,184 +37,139 @@ const Landing: React.FC = () => {
   ];
 
   return (
-    <Container maxWidth="lg">
-      <Box sx={{ textAlign: 'center', mb: 6 }}>
-        <Typography variant="h3" component="h1" gutterBottom>
+    <div className="max-w-5xl mx-auto">
+      {/* Hero Section */}
+      <div className="text-center mb-12">
+        <h1 className="text-4xl font-bold tracking-tight mb-4 bg-gradient-to-r from-primary via-blue-500 to-blue-400 bg-clip-text text-transparent">
           QBSD Visualization
-        </Typography>
-        <Typography variant="h6" color="text.secondary" sx={{ mb: 3 }}>
+        </h1>
+        <p className="text-lg text-muted-foreground mb-4 max-w-2xl mx-auto">
           Interactive visualization and schema editing for Query-Based Schema Discovery
-        </Typography>
-        <Chip label="Dual Input Options" color="primary" variant="outlined" />
-      </Box>
+        </p>
+        <Badge variant="outline" className="text-primary border-primary">
+          Dual Input Options
+        </Badge>
+      </div>
 
-      <Grid container spacing={4} justifyContent="center">
-        {/* Create QBSD Option - Primary action on LEFT */}
-        <Grid item xs={12} md={6}>
-          <Card
-            sx={{
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              transition: 'transform 0.2s',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: 3,
-              }
-            }}
-          >
-            <CardContent sx={{ flexGrow: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <AutoAwesome color="primary" sx={{ fontSize: 32, mr: 1 }} />
-                <Typography variant="h5" component="h2">
-                  Create QBSD
-                </Typography>
-              </Box>
+      {/* Main Cards */}
+      <div className="grid md:grid-cols-2 gap-6 mb-12">
+        {/* Create QBSD Card */}
+        <Card className="flex flex-col transition-all hover:-translate-y-1 hover:shadow-lg border-primary/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <Sparkles className="h-6 w-6 text-primary" />
+              </div>
+              Create QBSD
+            </CardTitle>
+            <CardDescription>
+              Run the full QBSD pipeline to discover schemas and extract structured data
+              from your document collections using AI-powered analysis.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex-grow">
+            <h4 className="font-medium mb-3">Features:</h4>
+            <ul className="space-y-2">
+              {qbsdFeatures.map((feature, index) => (
+                <li key={index} className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                  {feature}
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-2 mt-4">
+              <Badge variant="info">AI-Powered</Badge>
+              <Badge variant="warning">Real-time</Badge>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button
+              className="w-full"
+              size="lg"
+              onClick={() => navigate('/qbsd')}
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              Create QBSD
+            </Button>
+          </CardFooter>
+        </Card>
 
-              <Typography variant="body1" color="text.secondary" paragraph>
-                Run the full QBSD pipeline to discover schemas and extract structured data
-                from your document collections using AI-powered analysis.
-              </Typography>
+        {/* Load Existing QBSD Card */}
+        <Card className="flex flex-col transition-all hover:-translate-y-1 hover:shadow-lg">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-secondary">
+                <Upload className="h-6 w-6 text-muted-foreground" />
+              </div>
+              Load Existing QBSD
+            </CardTitle>
+            <CardDescription>
+              Import your existing QBSD datasets for visualization, editing, and analysis.
+              Perfect for exploring pre-processed data or continuing previous work.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex-grow">
+            <h4 className="font-medium mb-3">Features:</h4>
+            <ul className="space-y-2">
+              {loadFeatures.map((feature, index) => (
+                <li key={index} className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                  {feature}
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-2 mt-4">
+              <Badge variant="success">Quick Start</Badge>
+              <Badge variant="info">CSV/JSON</Badge>
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button
+              className="w-full"
+              size="lg"
+              onClick={() => navigate('/load')}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Load Data
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
 
-              <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
-                Features:
-              </Typography>
-              <List dense>
-                {qbsdFeatures.map((feature, index) => (
-                  <ListItem key={index} sx={{ py: 0 }}>
-                    <ListItemIcon sx={{ minWidth: 36 }}>
-                      <CheckCircle color="success" fontSize="small" />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={feature}
-                      primaryTypographyProps={{ variant: 'body2' }}
-                    />
-                  </ListItem>
-                ))}
-              </List>
-
-              <Box sx={{ mt: 2 }}>
-                <Chip label="AI-Powered" size="small" color="primary" variant="outlined" />
-                <Chip label="Real-time" size="small" color="warning" variant="outlined" sx={{ ml: 1 }} />
-              </Box>
-            </CardContent>
-
-            <CardActions sx={{ p: 3, pt: 0 }}>
-              <Button
-                variant="contained"
-                fullWidth
-                size="large"
-                startIcon={<AutoAwesome />}
-                onClick={() => navigate('/qbsd')}
-              >
-                Create QBSD
-              </Button>
-            </CardActions>
-          </Card>
-        </Grid>
-
-        {/* Load Existing QBSD Option - Secondary action on RIGHT */}
-        <Grid item xs={12} md={6}>
-          <Card
-            sx={{
-              height: '100%',
-              display: 'flex',
-              flexDirection: 'column',
-              transition: 'transform 0.2s',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: 3,
-              }
-            }}
-          >
-            <CardContent sx={{ flexGrow: 1 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <CloudUpload color="secondary" sx={{ fontSize: 32, mr: 1 }} />
-                <Typography variant="h5" component="h2">
-                  Load Existing QBSD
-                </Typography>
-              </Box>
-
-              <Typography variant="body1" color="text.secondary" paragraph>
-                Import your existing QBSD datasets for visualization, editing, and analysis.
-                Perfect for exploring pre-processed data or continuing previous work.
-              </Typography>
-
-              <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
-                Features:
-              </Typography>
-              <List dense>
-                {loadFeatures.map((feature, index) => (
-                  <ListItem key={index} sx={{ py: 0 }}>
-                    <ListItemIcon sx={{ minWidth: 36 }}>
-                      <CheckCircle color="success" fontSize="small" />
-                    </ListItemIcon>
-                    <ListItemText
-                      primary={feature}
-                      primaryTypographyProps={{ variant: 'body2' }}
-                    />
-                  </ListItem>
-                ))}
-              </List>
-
-              <Box sx={{ mt: 2 }}>
-                <Chip label="Quick Start" size="small" color="success" variant="outlined" />
-                <Chip label="CSV/JSON" size="small" color="info" variant="outlined" sx={{ ml: 1 }} />
-              </Box>
-            </CardContent>
-
-            <CardActions sx={{ p: 3, pt: 0 }}>
-              <Button
-                variant="contained"
-                color="secondary"
-                fullWidth
-                size="large"
-                startIcon={<CloudUpload />}
-                onClick={() => navigate('/load')}
-              >
-                Load Data
-              </Button>
-            </CardActions>
-          </Card>
-        </Grid>
-      </Grid>
-
-      {/* Common Features */}
-      <Box sx={{ mt: 6, textAlign: 'center' }}>
-        <Typography variant="h5" gutterBottom>
-          Powerful Visualization Features
-        </Typography>
-        <Grid container spacing={3} justifyContent="center" sx={{ mt: 2 }}>
-          <Grid item xs={12} sm={4}>
-            <Box sx={{ textAlign: 'center' }}>
-              <Visibility color="primary" sx={{ fontSize: 48, mb: 1 }} />
-              <Typography variant="h6">Interactive Visualization</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Explore your data with dynamic tables, charts, and schema views
-              </Typography>
-            </Box>
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <Box sx={{ textAlign: 'center' }}>
-              <Edit color="primary" sx={{ fontSize: 48, mb: 1 }} />
-              <Typography variant="h6">Schema Editing</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Modify schemas with real-time validation and re-extraction
-              </Typography>
-            </Box>
-          </Grid>
-          <Grid item xs={12} sm={4}>
-            <Box sx={{ textAlign: 'center' }}>
-              <Speed color="primary" sx={{ fontSize: 48, mb: 1 }} />
-              <Typography variant="h6">Performance Optimized</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Handle large datasets with virtual scrolling and lazy loading
-              </Typography>
-            </Box>
-          </Grid>
-        </Grid>
-      </Box>
-    </Container>
+      {/* Features Section */}
+      <div className="text-center">
+        <h2 className="text-2xl font-semibold mb-8">Powerful Visualization Features</h2>
+        <div className="grid sm:grid-cols-3 gap-8">
+          <div className="flex flex-col items-center">
+            <div className="p-4 rounded-full bg-primary/10 mb-4">
+              <Eye className="h-8 w-8 text-primary" />
+            </div>
+            <h3 className="font-semibold mb-2">Interactive Visualization</h3>
+            <p className="text-sm text-muted-foreground">
+              Explore your data with dynamic tables, charts, and schema views
+            </p>
+          </div>
+          <div className="flex flex-col items-center">
+            <div className="p-4 rounded-full bg-primary/10 mb-4">
+              <Pencil className="h-8 w-8 text-primary" />
+            </div>
+            <h3 className="font-semibold mb-2">Schema Editing</h3>
+            <p className="text-sm text-muted-foreground">
+              Modify schemas with real-time validation and re-extraction
+            </p>
+          </div>
+          <div className="flex flex-col items-center">
+            <div className="p-4 rounded-full bg-primary/10 mb-4">
+              <Gauge className="h-8 w-8 text-primary" />
+            </div>
+            <h3 className="font-semibold mb-2">Performance Optimized</h3>
+            <p className="text-sm text-muted-foreground">
+              Handle large datasets with virtual scrolling and lazy loading
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 };
 

@@ -1,39 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { GitMerge, ArrowDown, Columns, Loader2, X } from 'lucide-react';
+
 import {
   Dialog,
-  DialogTitle,
   DialogContent,
-  DialogActions,
-  TextField,
-  Button,
-  Box,
-  Alert,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Chip,
-  Typography,
-  Divider,
-  CircularProgress,
-  Autocomplete,
-  SelectChangeEvent,
-  Paper,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
-} from '@mui/material';
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import {
-  Merge,
-  Cancel,
-  ArrowDownward,
-  ViewColumn,
-  CallMerge,
-} from '@mui/icons-material';
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { Card } from '@/components/ui/card';
 
-import { 
-  ColumnInfo, 
+import {
+  ColumnInfo,
   MergeColumnsRequest,
 } from '../../types';
 import { schemaAPI } from '../../services/api';
@@ -84,6 +77,26 @@ const MergeDialog: React.FC<MergeDialogProps> = ({
   const [rationale, setRationale] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
+  const generateMergePreview = useCallback((selectedColumns: string[]) => {
+    if (selectedColumns.length === 0) return;
+
+    const selectedColumnObjs = columns.filter(col => selectedColumns.includes(col.name));
+
+    const suggestedName = selectedColumns.join('_');
+    setTargetColumn(suggestedName);
+
+    const definitions = selectedColumnObjs.map(col => col.definition).filter(Boolean);
+    const rationales = selectedColumnObjs.map(col => col.rationale).filter(Boolean);
+
+    if (definitions.length > 0) {
+      setDefinition(`Combined column containing: ${definitions.join(separator)}`);
+    }
+
+    if (rationales.length > 0) {
+      setRationale(`Merged from multiple columns to consolidate related information: ${rationales.join(separator)}`);
+    }
+  }, [columns, separator]);
+
   // Initialize form when dialog opens
   useEffect(() => {
     if (open) {
@@ -94,36 +107,12 @@ const MergeDialog: React.FC<MergeDialogProps> = ({
       setDefinition('');
       setRationale('');
       setErrors({});
-      
-      // Auto-generate initial values based on selected columns
+
       if (preselectedColumns.length > 0) {
         generateMergePreview(preselectedColumns);
       }
     }
-  }, [open, preselectedColumns]);
-
-  const generateMergePreview = (selectedColumns: string[]) => {
-    if (selectedColumns.length === 0) return;
-    
-    // Get column objects for selected columns
-    const selectedColumnObjs = columns.filter(col => selectedColumns.includes(col.name));
-    
-    // Generate suggested target name
-    const suggestedName = selectedColumns.join('_');
-    setTargetColumn(suggestedName);
-    
-    // Combine definitions and rationales
-    const definitions = selectedColumnObjs.map(col => col.definition).filter(Boolean);
-    const rationales = selectedColumnObjs.map(col => col.rationale).filter(Boolean);
-    
-    if (definitions.length > 0) {
-      setDefinition(`Combined column containing: ${definitions.join(separator)}`);
-    }
-    
-    if (rationales.length > 0) {
-      setRationale(`Merged from multiple columns to consolidate related information: ${rationales.join(separator)}`);
-    }
-  };
+  }, [open, preselectedColumns, generateMergePreview]);
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -135,8 +124,7 @@ const MergeDialog: React.FC<MergeDialogProps> = ({
     if (!targetColumn.trim()) {
       newErrors.targetColumn = 'Target column name is required';
     } else {
-      // Check if target column name conflicts (unless it's one of the source columns)
-      const isConflict = columns.some(col => 
+      const isConflict = columns.some(col =>
         col.name === targetColumn && !sourceColumns.includes(col.name)
       );
       if (isConflict) {
@@ -175,8 +163,8 @@ const MergeDialog: React.FC<MergeDialogProps> = ({
         rationale: rationale.trim(),
         separator: mergeStrategy === 'concatenate' ? separator : undefined,
       };
-      
-      const response = await schemaAPI.mergeColumns(sessionId, request);
+
+      await schemaAPI.mergeColumns(sessionId, request);
       onSuccess(`Merged ${sourceColumns.length} columns into "${targetColumn}" - processing started`);
       onClose();
     } catch (error: any) {
@@ -187,15 +175,11 @@ const MergeDialog: React.FC<MergeDialogProps> = ({
     }
   };
 
-  const handleSourceColumnsChange = (event: any, value: string[]) => {
-    setSourceColumns(value);
-    if (errors.sourceColumns) {
-      setErrors(prev => ({ ...prev, sourceColumns: '' }));
-    }
-    
-    // Regenerate preview when selection changes
-    if (value.length > 0) {
-      generateMergePreview(value);
+  const handleRemoveColumn = (colName: string) => {
+    const newColumns = sourceColumns.filter(c => c !== colName);
+    setSourceColumns(newColumns);
+    if (newColumns.length > 0) {
+      generateMergePreview(newColumns);
     } else {
       setTargetColumn('');
       setDefinition('');
@@ -203,241 +187,242 @@ const MergeDialog: React.FC<MergeDialogProps> = ({
     }
   };
 
-  const handleStrategyChange = (event: SelectChangeEvent<string>) => {
-    const strategy = event.target.value as 'concatenate' | 'smart_merge' | 'first_non_empty';
-    setMergeStrategy(strategy);
-    
-    // Set default separator for concatenate
-    if (strategy === 'concatenate' && !separator) {
-      setSeparator(' | ');
+  const handleAddColumn = (colName: string) => {
+    if (!sourceColumns.includes(colName)) {
+      const newColumns = [...sourceColumns, colName];
+      setSourceColumns(newColumns);
+      generateMergePreview(newColumns);
     }
   };
 
   const selectedStrategy = MERGE_STRATEGIES.find(s => s.value === mergeStrategy);
-  const availableColumns = columns.filter(col => !col.name.endsWith('_excerpt'));
+  const availableColumns = columns.filter(col => !col.name.endsWith('_excerpt') && !sourceColumns.includes(col.name));
 
   return (
-    <Dialog 
-      open={open} 
-      onClose={onClose} 
-      maxWidth="lg" 
-      fullWidth
-      disableEscapeKeyDown={loading}
-    >
-      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <CallMerge />
-        Merge Columns
-      </DialogTitle>
-      
-      <DialogContent dividers>
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && !loading && onClose()}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <GitMerge className="h-5 w-5" />
+            Merge Columns
+          </DialogTitle>
+          <DialogDescription>
+            Combine multiple columns into a single column
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-6 py-4">
           {/* Source Columns Selection */}
-          <Box>
-            <Typography variant="h6" gutterBottom>
-              1. Select Columns to Merge
-            </Typography>
-            <Autocomplete
-              multiple
-              value={sourceColumns}
-              onChange={handleSourceColumnsChange}
-              options={availableColumns.map(col => col.name)}
-              getOptionLabel={(option) => option}
-              renderTags={(value, getTagProps) =>
-                value.map((option, index) => (
-                  <Chip 
-                    variant="outlined" 
-                    label={option} 
-                    {...getTagProps({ index })} 
-                    key={option}
-                  />
-                ))
-              }
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  variant="outlined"
-                  label="Source Columns"
-                  placeholder="Select columns to merge..."
-                  error={!!errors.sourceColumns}
-                  helperText={errors.sourceColumns}
-                />
+          <div className="space-y-3">
+            <h4 className="font-semibold">1. Select Columns to Merge</h4>
+
+            <div className="space-y-2">
+              <Label>Selected Columns</Label>
+              <div className="flex flex-wrap gap-2 min-h-[40px] p-2 border rounded-md bg-muted/50">
+                {sourceColumns.length === 0 ? (
+                  <span className="text-muted-foreground text-sm">No columns selected</span>
+                ) : (
+                  sourceColumns.map((colName) => (
+                    <Badge key={colName} variant="secondary" className="gap-1">
+                      {colName}
+                      <button
+                        onClick={() => handleRemoveColumn(colName)}
+                        className="ml-1 hover:text-destructive"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))
+                )}
+              </div>
+              {errors.sourceColumns && (
+                <p className="text-sm text-destructive">{errors.sourceColumns}</p>
               )}
-              disabled={loading}
-            />
-          </Box>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Add Column</Label>
+              <Select onValueChange={handleAddColumn}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a column to add..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableColumns.map((col) => (
+                    <SelectItem key={col.name} value={col.name}>
+                      {col.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
           {sourceColumns.length > 0 && (
             <>
-              <Divider />
-              
+              <Separator />
+
               {/* Merge Strategy */}
-              <Box>
-                <Typography variant="h6" gutterBottom>
-                  2. Choose Merge Strategy
-                </Typography>
-                <FormControl fullWidth error={!!errors.mergeStrategy}>
-                  <InputLabel>Merge Strategy</InputLabel>
+              <div className="space-y-3">
+                <h4 className="font-semibold">2. Choose Merge Strategy</h4>
+                <div className="space-y-2">
+                  <Label>Merge Strategy</Label>
                   <Select
                     value={mergeStrategy}
-                    onChange={handleStrategyChange}
-                    label="Merge Strategy"
-                    disabled={loading}
+                    onValueChange={(value: 'concatenate' | 'smart_merge' | 'first_non_empty') => setMergeStrategy(value)}
                   >
-                    {MERGE_STRATEGIES.map((strategy) => (
-                      <MenuItem key={strategy.value} value={strategy.value}>
-                        <Box>
-                          <Typography variant="subtitle1">{strategy.label}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {strategy.description}
-                          </Typography>
-                        </Box>
-                      </MenuItem>
-                    ))}
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MERGE_STRATEGIES.map((strategy) => (
+                        <SelectItem key={strategy.value} value={strategy.value}>
+                          <div>
+                            <div className="font-medium">{strategy.label}</div>
+                            <div className="text-xs text-muted-foreground">{strategy.description}</div>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
                   </Select>
-                </FormControl>
+                </div>
 
                 {mergeStrategy === 'concatenate' && (
-                  <TextField
-                    label="Separator"
-                    value={separator}
-                    onChange={(e) => setSeparator(e.target.value)}
-                    error={!!errors.separator}
-                    helperText={errors.separator || 'Characters to separate merged values'}
-                    sx={{ mt: 2 }}
-                    disabled={loading}
-                  />
+                  <div className="space-y-2">
+                    <Label>Separator</Label>
+                    <Input
+                      value={separator}
+                      onChange={(e) => setSeparator(e.target.value)}
+                      placeholder="Characters to separate merged values"
+                    />
+                    {errors.separator && (
+                      <p className="text-sm text-destructive">{errors.separator}</p>
+                    )}
+                  </div>
                 )}
 
                 {selectedStrategy && (
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    <Typography variant="body2">
+                  <Alert variant="info">
+                    <AlertDescription>
                       <strong>{selectedStrategy.label}:</strong> {selectedStrategy.description}
-                    </Typography>
+                    </AlertDescription>
                   </Alert>
                 )}
-              </Box>
+              </div>
 
-              <Divider />
+              <Separator />
 
               {/* Target Column Configuration */}
-              <Box>
-                <Typography variant="h6" gutterBottom>
-                  3. Configure Target Column
-                </Typography>
-                
-                <TextField
-                  label="Target Column Name"
-                  value={targetColumn}
-                  onChange={(e) => setTargetColumn(e.target.value)}
-                  error={!!errors.targetColumn}
-                  helperText={errors.targetColumn || 'Name for the merged column'}
-                  fullWidth
-                  required
-                  disabled={loading}
-                  sx={{ mb: 2 }}
-                />
+              <div className="space-y-3">
+                <h4 className="font-semibold">3. Configure Target Column</h4>
 
-                <TextField
-                  label="Definition"
-                  value={definition}
-                  onChange={(e) => setDefinition(e.target.value)}
-                  error={!!errors.definition}
-                  helperText={errors.definition || 'Describe what the merged column represents'}
-                  multiline
-                  rows={3}
-                  fullWidth
-                  required
-                  disabled={loading}
-                  sx={{ mb: 2 }}
-                />
+                <div className="space-y-2">
+                  <Label>Target Column Name <span className="text-destructive">*</span></Label>
+                  <Input
+                    value={targetColumn}
+                    onChange={(e) => setTargetColumn(e.target.value)}
+                    placeholder="Name for the merged column"
+                  />
+                  {errors.targetColumn && (
+                    <p className="text-sm text-destructive">{errors.targetColumn}</p>
+                  )}
+                </div>
 
-                <TextField
-                  label="Rationale"
-                  value={rationale}
-                  onChange={(e) => setRationale(e.target.value)}
-                  error={!!errors.rationale}
-                  helperText={errors.rationale || 'Explain why merging these columns is beneficial'}
-                  multiline
-                  rows={3}
-                  fullWidth
-                  required
-                  disabled={loading}
-                />
-              </Box>
+                <div className="space-y-2">
+                  <Label>Definition <span className="text-destructive">*</span></Label>
+                  <Textarea
+                    value={definition}
+                    onChange={(e) => setDefinition(e.target.value)}
+                    rows={3}
+                    placeholder="Describe what the merged column represents"
+                  />
+                  {errors.definition && (
+                    <p className="text-sm text-destructive">{errors.definition}</p>
+                  )}
+                </div>
 
-              <Divider />
+                <div className="space-y-2">
+                  <Label>Rationale <span className="text-destructive">*</span></Label>
+                  <Textarea
+                    value={rationale}
+                    onChange={(e) => setRationale(e.target.value)}
+                    rows={3}
+                    placeholder="Explain why merging these columns is beneficial"
+                  />
+                  {errors.rationale && (
+                    <p className="text-sm text-destructive">{errors.rationale}</p>
+                  )}
+                </div>
+              </div>
+
+              <Separator />
 
               {/* Preview */}
-              <Box>
-                <Typography variant="h6" gutterBottom>
-                  4. Merge Preview
-                </Typography>
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Typography variant="subtitle2" color="primary" gutterBottom>
-                    Source Columns:
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                    {sourceColumns.map((colName) => (
-                      <Chip 
-                        key={colName} 
-                        label={colName} 
-                        variant="outlined" 
-                        size="small"
-                        icon={<ViewColumn />}
-                      />
-                    ))}
-                  </Box>
-                  
-                  <ArrowDownward sx={{ display: 'block', mx: 'auto', my: 1, color: 'primary.main' }} />
-                  
-                  <Typography variant="subtitle2" color="primary" gutterBottom>
-                    Target Column:
-                  </Typography>
-                  <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                    <Chip 
-                      label={targetColumn || 'unnamed'} 
-                      color="primary"
-                      size="small"
-                      icon={<Merge />}
-                    />
-                  </Box>
-                  
-                  <Typography variant="caption" color="text.secondary">
-                    Strategy: {selectedStrategy?.label} | 
-                    {mergeStrategy === 'concatenate' && ` Separator: "${separator}" | `}
-                    Source columns will be removed after successful merge
-                  </Typography>
-                </Paper>
-              </Box>
+              <div className="space-y-3">
+                <h4 className="font-semibold">4. Merge Preview</h4>
+                <Card className="p-4">
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-sm font-medium text-primary mb-2">Source Columns:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {sourceColumns.map((colName) => (
+                          <Badge key={colName} variant="outline" className="gap-1">
+                            <Columns className="h-3 w-3" />
+                            {colName}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+
+                    <ArrowDown className="mx-auto text-primary" />
+
+                    <div>
+                      <p className="text-sm font-medium text-primary mb-2">Target Column:</p>
+                      <Badge className="gap-1">
+                        <GitMerge className="h-3 w-3" />
+                        {targetColumn || 'unnamed'}
+                      </Badge>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground">
+                      Strategy: {selectedStrategy?.label}
+                      {mergeStrategy === 'concatenate' && ` | Separator: "${separator}"`}
+                      {' | Source columns will be removed after successful merge'}
+                    </p>
+                  </div>
+                </Card>
+              </div>
             </>
           )}
 
-          <Alert severity="warning">
-            <Typography variant="body2">
+          <Alert variant="warning">
+            <AlertDescription>
               <strong>Important:</strong> Merging columns will trigger document reprocessing to generate new values for the merged column. The source columns will be removed from the schema. This operation cannot be easily undone - consider creating a backup first.
-            </Typography>
+            </AlertDescription>
           </Alert>
-        </Box>
-      </DialogContent>
+        </div>
 
-      <DialogActions sx={{ p: 2, gap: 1 }}>
-        <Button
-          onClick={onClose}
-          disabled={loading}
-          startIcon={<Cancel />}
-        >
-          Cancel
-        </Button>
-        
-        <Button
-          onClick={handleSubmit}
-          variant="contained"
-          disabled={loading || sourceColumns.length < 2}
-          startIcon={loading ? <CircularProgress size={16} /> : <Merge />}
-        >
-          {loading ? 'Merging...' : `Merge ${sourceColumns.length} Columns`}
-        </Button>
-      </DialogActions>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={loading || sourceColumns.length < 2}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Merging...
+              </>
+            ) : (
+              <>
+                <GitMerge className="mr-2 h-4 w-4" />
+                Merge {sourceColumns.length} Columns
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 };

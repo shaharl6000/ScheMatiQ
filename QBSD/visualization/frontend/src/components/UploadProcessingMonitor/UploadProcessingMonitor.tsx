@@ -1,28 +1,20 @@
 import React from 'react';
 import {
-  Box,
-  Typography,
-  Paper,
-  LinearProgress,
-  Chip,
-  Alert,
-  List,
-  ListItem,
-  ListItemText,
-  Card,
-  CardContent,
-  Grid,
-  Button,
-} from '@mui/material';
-import {
-  CheckCircle,
-  Schedule,
-  PlayArrow,
-  Error,
-  TableView,
-  Schema,
-  Visibility,
-} from '@mui/icons-material';
+  CheckCircle2,
+  Clock,
+  Play,
+  AlertCircle,
+  Table2,
+  Database,
+  Eye,
+} from 'lucide-react';
+
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
+
 import { ProcessingStatus } from '../../types';
 import LLMConfigDisplay from '../LLMConfigDisplay';
 
@@ -32,7 +24,7 @@ interface UploadProcessingMonitorProps {
   loading: boolean;
   error?: string | null;
   onNavigateToResults?: () => void;
-  llmConfig?: any; // LLM configuration used for processing
+  llmConfig?: any;
 }
 
 const UploadProcessingMonitor: React.FC<UploadProcessingMonitorProps> = ({
@@ -43,21 +35,21 @@ const UploadProcessingMonitor: React.FC<UploadProcessingMonitorProps> = ({
   onNavigateToResults,
   llmConfig,
 }) => {
-  const getStatusColor = (statusValue?: string) => {
+  const getStatusVariant = (statusValue?: string): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" => {
     switch (statusValue) {
       case 'completed': return 'success';
       case 'processing_documents': return 'warning';
-      case 'error': return 'error';
+      case 'error': return 'destructive';
       default: return 'default';
     }
   };
 
   const getStatusIcon = (statusValue?: string) => {
     switch (statusValue) {
-      case 'completed': return <CheckCircle color="success" />;
-      case 'processing_documents': return <PlayArrow color="warning" />;
-      case 'error': return <Error color="error" />;
-      default: return <Schedule color="action" />;
+      case 'completed': return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+      case 'processing_documents': return <Play className="h-4 w-4 text-yellow-500" />;
+      case 'error': return <AlertCircle className="h-4 w-4 text-destructive" />;
+      default: return <Clock className="h-4 w-4 text-muted-foreground" />;
     }
   };
 
@@ -72,201 +64,176 @@ const UploadProcessingMonitor: React.FC<UploadProcessingMonitorProps> = ({
 
   if (loading && !status) {
     return (
-      <Box>
-        <Typography variant="h6" gutterBottom>
-          Starting Document Processing
-        </Typography>
-        <LinearProgress sx={{ mb: 2 }} />
-        <Typography variant="body2" color="text.secondary">
+      <div>
+        <h3 className="font-semibold mb-4">Starting Document Processing</h3>
+        <Progress className="mb-2" />
+        <p className="text-sm text-muted-foreground">
           Initializing AI processing pipeline...
-        </Typography>
-      </Box>
+        </p>
+      </div>
     );
   }
 
   return (
-    <Box>
-      <Typography variant="h6" gutterBottom>
-        Document Processing Status
-      </Typography>
+    <div>
+      <h3 className="font-semibold mb-4">Document Processing Status</h3>
 
       {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
+        <Alert variant="destructive" className="mb-4">
+          <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
 
       {status && (
         <>
           {/* Status Overview */}
-          <Grid container spacing={3} sx={{ mb: 4 }}>
-            <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                    <Typography variant="h6">Processing Status</Typography>
-                    <Chip 
-                      label={formatStatus(status.status)}
-                      color={getStatusColor(status.status)}
-                      icon={getStatusIcon(status.status)}
-                    />
-                  </Box>
-                  
-                  <Typography variant="body2" color="text.secondary" gutterBottom>
-                    Documents: {status.processed_documents}/{status.total_documents}
-                  </Typography>
-                  
-                  <LinearProgress 
-                    variant="determinate" 
-                    value={status.progress * 100}
-                    sx={{ mb: 2 }}
-                  />
-                  
-                  <Typography variant="body2">
-                    Progress: {(status.progress * 100).toFixed(1)}%
-                  </Typography>
-                </CardContent>
-              </Card>
-            </Grid>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h4 className="font-semibold">Processing Status</h4>
+                  <Badge variant={getStatusVariant(status.status)} className="gap-1">
+                    {getStatusIcon(status.status)}
+                    {formatStatus(status.status)}
+                  </Badge>
+                </div>
 
-            <Grid item xs={12} md={6}>
-              <Card>
-                <CardContent>
-                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                    <TableView sx={{ mr: 1 }} />
-                    Data Statistics
-                  </Typography>
-                  
-                  <List dense>
-                    <ListItem>
-                      <ListItemText
-                        primary="Original Rows"
-                        secondary={status.original_row_count?.toLocaleString() || '0'}
-                      />
-                    </ListItem>
-                    <ListItem>
-                      <ListItemText
-                        primary="Additional Rows Added"
-                        secondary={status.additional_rows_added?.toLocaleString() || '0'}
-                      />
-                    </ListItem>
-                    <ListItem>
-                      <ListItemText
-                        primary="Total Documents"
-                        secondary={status.total_documents?.toLocaleString() || '0'}
-                      />
-                    </ListItem>
-                  </List>
-                </CardContent>
-              </Card>
-            </Grid>
-          </Grid>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Documents: {status.processed_documents}/{status.total_documents}
+                </p>
+
+                <Progress value={status.progress * 100} className="mb-2" />
+
+                <p className="text-sm">
+                  Progress: {(status.progress * 100).toFixed(1)}%
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="pt-6">
+                <h4 className="font-semibold flex items-center gap-2 mb-4">
+                  <Table2 className="h-5 w-5" />
+                  Data Statistics
+                </h4>
+
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-sm">Original Rows</span>
+                    <span className="text-sm font-medium">{status.original_row_count?.toLocaleString() || '0'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Additional Rows Added</span>
+                    <span className="text-sm font-medium">{status.additional_rows_added?.toLocaleString() || '0'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Total Documents</span>
+                    <span className="text-sm font-medium">{status.total_documents?.toLocaleString() || '0'}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
 
           {/* Processing Details */}
           {status.status === 'processing_documents' && (
-            <Paper sx={{ p: 3, mb: 3 }}>
-              <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center' }}>
-                <Schema sx={{ mr: 1 }} />
-                AI Processing in Progress
-              </Typography>
-              
-              <Typography variant="body2" color="text.secondary" paragraph>
-                The system is analyzing your uploaded documents using the extracted schema. 
-                Each document is being processed to extract structured data according to the 
-                discovered column definitions.
-              </Typography>
+            <Card className="mb-4">
+              <CardContent className="pt-6">
+                <h4 className="font-semibold flex items-center gap-2 mb-3">
+                  <Database className="h-5 w-5" />
+                  AI Processing in Progress
+                </h4>
 
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <Chip 
-                  label={`${status.processed_documents} of ${status.total_documents} documents processed`}
-                  size="small"
-                  color="primary"
-                />
-                <Chip 
-                  label={`${status.additional_rows_added} new rows extracted`}
-                  size="small"
-                  color="secondary"
-                />
-              </Box>
+                <p className="text-sm text-muted-foreground mb-4">
+                  The system is analyzing your uploaded documents using the extracted schema.
+                  Each document is being processed to extract structured data according to the
+                  discovered column definitions.
+                </p>
 
-              {status.processed_documents > 0 && (
-                <Typography variant="body2" color="success.main">
-                  ✓ Processing is active and making progress
-                </Typography>
-              )}
+                <div className="flex flex-wrap gap-2 mb-4">
+                  <Badge>
+                    {status.processed_documents} of {status.total_documents} documents processed
+                  </Badge>
+                  <Badge variant="secondary">
+                    {status.additional_rows_added} new rows extracted
+                  </Badge>
+                </div>
 
-              {/* Display LLM Configuration used for processing */}
-              {llmConfig && (
-                <Box sx={{ mt: 3, pt: 2, borderTop: '1px solid', borderColor: 'divider' }}>
-                  <LLMConfigDisplay
-                    config={llmConfig}
-                    title="AI Model Used for Processing"
-                    variant="inline"
-                    showDetails={true}
-                  />
-                </Box>
-              )}
-            </Paper>
+                {status.processed_documents > 0 && (
+                  <p className="text-sm text-green-600">
+                    ✓ Processing is active and making progress
+                  </p>
+                )}
+
+                {llmConfig && (
+                  <div className="mt-4 pt-4 border-t">
+                    <LLMConfigDisplay
+                      config={llmConfig}
+                      title="AI Model Used for Processing"
+                      variant="inline"
+                      showDetails={true}
+                    />
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           )}
 
           {/* Processing Stats */}
           {status.processing_stats && Object.keys(status.processing_stats).length > 0 && (
-            <Paper sx={{ p: 3, mb: 3 }}>
-              <Typography variant="h6" gutterBottom>
-                Processing Statistics
-              </Typography>
-              
-              <Grid container spacing={2}>
-                {Object.entries(status.processing_stats).map(([key, value]) => (
-                  <Grid item xs={12} sm={6} md={4} key={key}>
-                    <Box sx={{ textAlign: 'center', p: 2, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
-                      <Typography variant="h6" color="primary">
+            <Card className="mb-4">
+              <CardContent className="pt-6">
+                <h4 className="font-semibold mb-4">Processing Statistics</h4>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                  {Object.entries(status.processing_stats).map(([key, value]) => (
+                    <div key={key} className="text-center p-4 border rounded-md">
+                      <p className="text-2xl font-semibold text-primary">
                         {typeof value === 'number' ? value.toLocaleString() : String(value)}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary">
+                      </p>
+                      <p className="text-sm text-muted-foreground">
                         {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                      </Typography>
-                    </Box>
-                  </Grid>
-                ))}
-              </Grid>
-            </Paper>
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Completion Message */}
           {status.status === 'completed' && (
-            <Alert severity="success" sx={{ mb: 3 }}>
-              <Typography variant="body1" gutterBottom>
-                🎉 Document processing completed successfully!
-              </Typography>
-              <Typography variant="body2" gutterBottom>
-                Added {status.additional_rows_added} new rows to your dataset from {status.total_documents} documents.
-              </Typography>
-              {onNavigateToResults && (
-                <Box sx={{ mt: 2 }}>
-                  <Button
-                    variant="contained"
-                    onClick={onNavigateToResults}
-                    startIcon={<Visibility />}
-                    size="large"
-                  >
+            <Alert variant="success" className="mb-4">
+              <CheckCircle2 className="h-4 w-4" />
+              <AlertDescription>
+                <p className="font-semibold mb-1">
+                  Document processing completed successfully!
+                </p>
+                <p className="text-sm mb-3">
+                  Added {status.additional_rows_added} new rows to your dataset from {status.total_documents} documents.
+                </p>
+                {onNavigateToResults && (
+                  <Button onClick={onNavigateToResults} size="lg">
+                    <Eye className="h-4 w-4 mr-2" />
                     View Results
                   </Button>
-                </Box>
-              )}
+                )}
+              </AlertDescription>
             </Alert>
           )}
 
           {/* Technical Details */}
-          <Paper sx={{ p: 2, backgroundColor: 'grey.50' }}>
-            <Typography variant="body2" color="text.secondary">
-              <strong>Session ID:</strong> {status.session_id}<br/>
-              <strong>Last Updated:</strong> {new Date(status.last_modified).toLocaleString()}
-            </Typography>
-          </Paper>
+          <Card className="bg-muted/50">
+            <CardContent className="pt-4">
+              <p className="text-sm text-muted-foreground">
+                <strong>Session ID:</strong> {status.session_id}<br/>
+                <strong>Last Updated:</strong> {new Date(status.last_modified).toLocaleString()}
+              </p>
+            </CardContent>
+          </Card>
         </>
       )}
-    </Box>
+    </div>
   );
 };
 
