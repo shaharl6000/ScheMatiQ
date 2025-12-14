@@ -12,8 +12,6 @@ import {
   Cell,
   LineChart,
   Line,
-  AreaChart,
-  Area,
 } from 'recharts';
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -28,8 +26,13 @@ interface StatsDashboardProps {
 }
 
 const StatsDashboard: React.FC<StatsDashboardProps> = ({ statistics }) => {
-  // Prepare data for charts
-  const completenessData = statistics.column_stats.map(col => ({
+  // Filter out excerpt columns from statistics
+  const filteredColumnStats = statistics.column_stats.filter(
+    col => !col.name.endsWith('_excerpt')
+  );
+
+  // Prepare data for charts (excluding excerpt columns)
+  const completenessData = filteredColumnStats.map(col => ({
     name: col.name,
     completeness: col.non_null_count && statistics.total_rows
       ? (col.non_null_count / statistics.total_rows) * 100
@@ -38,7 +41,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({ statistics }) => {
     unique_count: col.unique_count || 0,
   }));
 
-  const dataTypeDistribution = statistics.column_stats.reduce((acc, col) => {
+  const dataTypeDistribution = filteredColumnStats.reduce((acc, col) => {
     const type = col.data_type || 'unknown';
     acc[type] = (acc[type] || 0) + 1;
     return acc;
@@ -174,15 +177,15 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({ statistics }) => {
           <CardTitle>Column Statistics</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="overflow-x-auto overscroll-x-contain">
+            <table className="w-full min-w-[500px]">
               <thead>
                 <tr className="border-b-2 border-border">
-                  <th className="p-3 text-left font-semibold">Column Name</th>
-                  <th className="p-3 text-left font-semibold">Data Type</th>
-                  <th className="p-3 text-right font-semibold">Non-Null Count</th>
-                  <th className="p-3 text-right font-semibold">Unique Count</th>
-                  <th className="p-3 text-right font-semibold">Completeness</th>
+                  <th className="p-3 text-left font-semibold whitespace-nowrap">Column Name</th>
+                  <th className="p-3 text-left font-semibold whitespace-nowrap">Data Type</th>
+                  <th className="p-3 text-right font-semibold whitespace-nowrap">Non-Null Count</th>
+                  <th className="p-3 text-right font-semibold whitespace-nowrap">Unique Count</th>
+                  <th className="p-3 text-right font-semibold whitespace-nowrap">Completeness</th>
                 </tr>
               </thead>
               <tbody>
@@ -193,7 +196,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({ statistics }) => {
                   >
                     <td className="p-3 font-medium">{col.name}</td>
                     <td className="p-3 text-muted-foreground">
-                      {statistics.column_stats[index]?.data_type || 'unknown'}
+                      {filteredColumnStats[index]?.data_type || 'unknown'}
                     </td>
                     <td className="p-3 text-right">
                       {col.non_null_count.toLocaleString()}
@@ -289,13 +292,7 @@ const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evoluti
         <CardContent>
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={growthData}>
-                <defs>
-                  <linearGradient id="colorColumns" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
+              <LineChart data={growthData}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis
                   dataKey="name"
@@ -321,22 +318,24 @@ const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evoluti
                     borderRadius: '8px',
                   }}
                 />
-                <Area
-                  type="stepAfter"
+                <Line
+                  type="linear"
                   dataKey="totalColumns"
                   stroke="hsl(var(--primary))"
                   strokeWidth={2}
-                  fill="url(#colorColumns)"
+                  dot={{ fill: 'hsl(var(--primary))', strokeWidth: 2, r: 4 }}
+                  activeDot={{ r: 6 }}
                 />
                 <Line
-                  type="stepAfter"
+                  type="linear"
                   dataKey="newColumns"
                   stroke="hsl(var(--chart-2))"
                   strokeWidth={2}
                   strokeDasharray="5 5"
-                  dot={{ fill: 'hsl(var(--chart-2))', strokeWidth: 2 }}
+                  dot={{ fill: 'hsl(var(--chart-2))', strokeWidth: 2, r: 4 }}
+                  activeDot={{ r: 6 }}
                 />
-              </AreaChart>
+              </LineChart>
             </ResponsiveContainer>
           </div>
           <div className="flex justify-center gap-6 mt-4 text-sm">
@@ -364,13 +363,13 @@ const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evoluti
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
+          <div className="overflow-x-auto overscroll-x-contain">
+            <table className="w-full min-w-[400px]">
               <thead>
                 <tr className="border-b-2 border-border">
-                  <th className="p-3 text-left font-semibold">Column Name</th>
-                  <th className="p-3 text-left font-semibold">Source</th>
-                  <th className="p-3 text-left font-semibold">Definition</th>
+                  <th className="p-3 text-left font-semibold whitespace-nowrap">Column Name</th>
+                  <th className="p-3 text-left font-semibold whitespace-nowrap">Source</th>
+                  <th className="p-3 text-left font-semibold whitespace-nowrap">Definition</th>
                 </tr>
               </thead>
               <tbody>
@@ -379,9 +378,9 @@ const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evoluti
                     key={col.columnName}
                     className="border-b border-border odd:bg-muted/50"
                   >
-                    <td className="p-3 font-medium">{col.columnName}</td>
+                    <td className="p-3 font-medium whitespace-nowrap">{col.columnName}</td>
                     <td className="p-3">
-                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary whitespace-nowrap">
                         {col.source}
                       </span>
                     </td>

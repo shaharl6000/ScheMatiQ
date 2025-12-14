@@ -180,6 +180,7 @@ const QBSDConfigPage = () => {
 
   const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path : [config.docs_path];
   const isFormValid = config.query.trim() !== '' && selectedPaths.length > 0;
+  const hasApiKeys = schemaApiKey || valueApiKey;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -210,8 +211,10 @@ const QBSDConfigPage = () => {
               onChange={(e) => handleConfigChange('query', e.target.value)}
               placeholder="e.g., Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)?"
               className="resize-none"
+              aria-required="true"
+              aria-describedby="query-hint"
             />
-            <p className="text-sm text-muted-foreground">
+            <p id="query-hint" className="text-sm text-muted-foreground">
               The research question that will guide schema discovery
             </p>
           </div>
@@ -565,18 +568,25 @@ const QBSDConfigPage = () => {
               Back to Home
             </Button>
 
-            <Button
-              size="lg"
-              onClick={handleSubmit}
-              disabled={!isFormValid || loading}
-            >
-              {loading ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="mr-2 h-4 w-4" />
+            <div className="flex flex-col items-end gap-2">
+              {!hasApiKeys && isFormValid && (
+                <p className="text-sm text-amber-600 dark:text-amber-400">
+                  No API keys configured. Server environment keys will be used if available.
+                </p>
               )}
-              {loading ? 'Starting QBSD...' : 'Start QBSD'}
-            </Button>
+              <Button
+                size="lg"
+                onClick={handleSubmit}
+                disabled={!isFormValid || loading}
+              >
+                {loading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-4 w-4" />
+                )}
+                {loading ? 'Starting QBSD...' : 'Start QBSD'}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

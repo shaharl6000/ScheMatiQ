@@ -65,7 +65,16 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* Prevent horizontal overscroll from triggering browser back/forward navigation */
+    overscroll-behavior-x: none;
   }
+}
+
+/* Prevent browser navigation gestures on horizontal scroll containers */
+.overflow-x-auto,
+.overflow-auto,
+[class*="overflow-x-"] {
+  overscroll-behavior-x: contain;
 }
 
 /* Custom scrollbar styling */

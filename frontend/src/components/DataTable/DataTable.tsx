@@ -31,6 +31,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { sessionAPI } from '../../services/api';
@@ -92,7 +97,7 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({ column, childre
       ref={setNodeRef}
       style={style}
       className={cn(
-        "px-4 py-3 text-left font-bold text-base min-w-[200px] bg-background",
+        "px-4 py-3 text-left font-bold text-base min-w-[120px] sm:min-w-[150px] bg-background",
         isDragging && "bg-muted"
       )}
       {...attributes}
@@ -351,14 +356,20 @@ const DataTable: React.FC<DataTableProps> = ({
               <Badge key={index} variant="secondary">{String(item)}</Badge>
             ))}
             <span className="text-xs text-muted-foreground">+{value.length - 2} more</span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={() => handleViewContent(columnName, value)}
-            >
-              <Eye className="h-4 w-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={() => handleViewContent(columnName, value)}
+                  aria-label="View all items"
+                >
+                  <Eye className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>View all {value.length} items</TooltipContent>
+            </Tooltip>
           </div>
         );
       }
@@ -383,33 +394,43 @@ const DataTable: React.FC<DataTableProps> = ({
               {String(answer)}
             </span>
             {excerpts.length > 0 && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-blue-500"
-                title={`View excerpts (${excerpts.length} sources)`}
-                onClick={() => handleViewContent(columnName, {
-                  answer: answer,
-                  excerpts: excerpts
-                })}
-              >
-                <Eye className="h-4 w-4" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-blue-500"
+                    onClick={() => handleViewContent(columnName, {
+                      answer: answer,
+                      excerpts: excerpts
+                    })}
+                    aria-label="View excerpts"
+                  >
+                    <Eye className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>View excerpts ({excerpts.length} sources)</TooltipContent>
+              </Tooltip>
             )}
           </div>
         );
       }
 
       return (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          title="View object"
-          onClick={() => handleViewContent(columnName, value)}
-        >
-          <Eye className="h-4 w-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={() => handleViewContent(columnName, value)}
+              aria-label="View object"
+            >
+              <Eye className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>View object details</TooltipContent>
+        </Tooltip>
       );
     }
 
@@ -428,6 +449,9 @@ const DataTable: React.FC<DataTableProps> = ({
         getPreviewText(stringValue, 50) :
         getPreviewText(stringValue, SHORT_TEXT_THRESHOLD);
 
+      const tooltipText = hasExcerpts ? "View content with supporting excerpts" :
+                          isExplicitExcerpt ? "View excerpt details" : "View full content";
+
       return (
         <div className="flex items-center gap-1">
           <span className={cn(
@@ -436,26 +460,30 @@ const DataTable: React.FC<DataTableProps> = ({
           )}>
             {previewText}
           </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 text-blue-500 shrink-0"
-            title={hasExcerpts ? "View content with supporting excerpts" :
-                   isExplicitExcerpt ? "View excerpt details" : "View full content"}
-            onClick={() => {
-              if (hasExcerpts && rowData) {
-                const excerptText = getExcerptForColumn(rowData, columnName);
-                handleViewContent(columnName, {
-                  answer: stringValue,
-                  excerpts: excerptText ? [excerptText] : []
-                });
-              } else {
-                handleViewContent(columnName, value);
-              }
-            }}
-          >
-            <Eye className="h-4 w-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-blue-500 shrink-0"
+                onClick={() => {
+                  if (hasExcerpts && rowData) {
+                    const excerptText = getExcerptForColumn(rowData, columnName);
+                    handleViewContent(columnName, {
+                      answer: stringValue,
+                      excerpts: excerptText ? [excerptText] : []
+                    });
+                  } else {
+                    handleViewContent(columnName, value);
+                  }
+                }}
+                aria-label={tooltipText}
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{tooltipText}</TooltipContent>
+          </Tooltip>
         </div>
       );
     }
@@ -493,15 +521,21 @@ const DataTable: React.FC<DataTableProps> = ({
             </p>
           </div>
 
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search data..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9"
-            />
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <div className="relative w-64">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search data..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9"
+                  aria-label="Search all columns"
+                />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent>Search across row names and all column values</TooltipContent>
+          </Tooltip>
         </div>
 
         <DndContext
@@ -509,13 +543,13 @@ const DataTable: React.FC<DataTableProps> = ({
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}
         >
-          <div className="overflow-auto max-h-[600px] border rounded-md">
-            <table className="w-full min-w-[1000px] border-collapse">
+          <div className="overflow-auto max-h-[600px] border rounded-md overscroll-x-contain">
+            <table className="w-full border-collapse" style={{ minWidth: `${Math.max(600, columns.length * 150)}px` }}>
               <thead className="sticky top-0 z-10 bg-background border-b">
                 <tr>
                   {/* Frozen first column */}
                   {frozenColumn && (
-                    <th className="px-4 py-3 text-left font-bold text-base min-w-[200px] max-w-[200px] sticky left-0 bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
+                    <th className="px-4 py-3 text-left font-bold text-base min-w-[150px] max-w-[250px] sticky left-0 bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)]">
                       {frozenColumn.startsWith('_') ? (
                         <Badge variant="outline">{formatColumnName(frozenColumn)}</Badge>
                       ) : (
@@ -568,7 +602,7 @@ const DataTable: React.FC<DataTableProps> = ({
                     >
                       {/* Frozen first column */}
                       {frozenColumn && (
-                        <td className="px-4 py-3 min-w-[200px] max-w-[200px] sticky left-0 bg-background border-r overflow-hidden">
+                        <td className="px-4 py-3 min-w-[150px] max-w-[250px] sticky left-0 bg-background border-r overflow-hidden">
                           {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
                         </td>
                       )}
@@ -586,7 +620,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         }
 
                         return (
-                          <td key={column} className="px-4 py-3 min-w-[200px] max-h-[100px] overflow-hidden">
+                          <td key={column} className="px-4 py-3 min-w-[120px] sm:min-w-[150px] max-h-[100px] overflow-hidden">
                             {formatCellValue(cellValue, column, row)}
                           </td>
                         );

@@ -3,6 +3,7 @@
  */
 export * from './formatting';
 export * from './apiHelpers';
+export * from './clipboard';
 
 // Re-export commonly used functions for convenience
 export {
