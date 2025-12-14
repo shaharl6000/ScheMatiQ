@@ -637,58 +637,6 @@ const Visualize = () => {
         <TabsContent value="data" className="mt-4">
           {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
             <div className="relative">
-              {/* Processing Overlay */}
-              {(session?.status === 'processing_documents' || isQBSDRunning) && (
-                <div
-                  onMouseDown={handleOverlayMouseDown}
-                  onMouseMove={handleOverlayMouseMove}
-                  onMouseUp={handleOverlayMouseUp}
-                  onMouseLeave={handleOverlayMouseUp}
-                  style={{
-                    transform: `translate(${overlayPosition.x}px, ${overlayPosition.y}px)`,
-                  }}
-                  className={cn(
-                    "absolute top-0 right-0 z-10 min-w-[300px] max-w-full p-4 rounded-lg border-2 border-primary bg-background/98 backdrop-blur shadow-lg",
-                    isDragging ? "cursor-grabbing shadow-xl" : ""
-                  )}
-                >
-                  <div className="drag-handle flex items-center justify-between pb-2 mb-2 border-b cursor-grab active:cursor-grabbing">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <GripVertical className="h-4 w-4" />
-                      <span className="text-sm">Drag to move</span>
-                    </div>
-                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setOverlayPosition({ x: 0, y: 0 })}>
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <Alert variant="info" className="mb-3">
-                    <AlertDescription>
-                      <p className="font-bold mb-1">
-                        {isQBSDRunning ? 'Extracting Data from Documents' : 'Processing Documents with AI'}
-                      </p>
-                      <p className="text-sm">
-                        {isQBSDRunning
-                          ? 'Building table from discovered schema. Cells fill in as values are extracted.'
-                          : 'Extracting data from your uploaded documents. Cells fill in as values are extracted.'}
-                      </p>
-                    </AlertDescription>
-                  </Alert>
-
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                    <span className="text-sm">
-                      {isQBSDRunning
-                        ? `${streamingCells.size} rows being processed`
-                        : `${session?.metadata?.processed_documents || 0} of ${session?.metadata?.uploaded_documents?.length || 0} documents processed`}
-                    </span>
-                    {(session?.metadata?.additional_rows_added && session.metadata.additional_rows_added > 0) && (
-                      <Badge variant="success">+{session.metadata.additional_rows_added} new rows</Badge>
-                    )}
-                  </div>
-                </div>
-              )}
-
               <DataTable
                 sessionId={sessionId!}
                 sessionType={mode}

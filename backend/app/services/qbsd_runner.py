@@ -400,21 +400,23 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             docs_paths = qbsd_config["docs_path"]
             if isinstance(docs_paths, str):
                 docs_paths = [docs_paths]
-            
+
             documents = []
+            filenames = []
             total_docs = 0
-            
+
             for docs_path in docs_paths:
                 doc_path = Path(docs_path)
                 if doc_path.exists():
                     doc_files = list(doc_path.glob("*.txt")) + list(doc_path.glob("*.md"))
                     total_docs += len(doc_files)
-                    
+
                     # Load document contents
                     for doc_file in doc_files:
                         try:
                             content = doc_file.read_text(encoding='utf-8')
                             documents.append(content)
+                            filenames.append(doc_file.name)
                         except Exception as e:
                             print(f"Warning: Could not read {doc_file}: {e}")
             
@@ -482,7 +484,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             # Run real schema discovery
             print(f"🐛 DEBUG: Starting schema discovery with {len(documents)} documents")
             discovered_schema, schema_evolution = await self._run_schema_discovery(
-                documents, qbsd_config, llm, retriever, update_progress
+                documents, filenames, qbsd_config, llm, retriever, update_progress
             )
             print(f"🐛 DEBUG: Schema discovery completed with {len(discovered_schema.columns)} columns")
             print(f"🐛 DEBUG: Schema evolution: {len(schema_evolution.snapshots)} snapshots tracked")
@@ -598,6 +600,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
     async def _run_schema_discovery(
         self,
         documents: List[str],
+        filenames: List[str],
         qbsd_config: Dict[str, Any],
         llm: LLMInterface,
         retriever,
@@ -719,8 +722,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             new_column_names_lower = columns_after - columns_before
             new_columns = [col.name for col in merged_schema.columns if col.name.lower() in new_column_names_lower]
 
-            # Record column sources for new columns (use batch document names)
-            batch_source = f"batch_{iteration + 1}"
+            # Record column sources for new columns (use actual document names)
+            batch_source = ", ".join(batch_names) if batch_names else f"batch_{iteration + 1}"
             for col_name in new_columns:
                 if col_name not in evolution.column_sources:
                     evolution.column_sources[col_name] = batch_source
@@ -936,9 +939,21 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         columns = []
         for col in schema.columns:
             # Count non-null values for this column
+            # For QBSD data, check if the "answer" field exists and is not "None" string or empty
+            def is_valid_value(value):
+                if value is None:
+                    return False
+                if isinstance(value, dict):
+                    answer = value.get("answer")
+                    if answer is None or answer == "None" or answer == "" or answer == "[]":
+                        return False
+                    return True
+                # For non-dict values, check if it's not None or "None" string
+                return value != "None" and value != "" and value != "[]"
+
             non_null_count = sum(
                 1 for row in data_rows
-                if col.name in row and row[col.name] is not None
+                if col.name in row and is_valid_value(row[col.name])
             )
 
             # Count unique values (serialize to JSON for comparison)
