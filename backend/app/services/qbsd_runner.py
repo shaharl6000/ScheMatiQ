@@ -630,9 +630,18 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
         current_schema = initial_schema or Schema([])
         query = qbsd_config["query"]
-        max_iterations = 5  # Configurable
-        convergence_threshold = 3  # Stop if schema doesn't change for 3 iterations
+
+        # Calculate iterations based on document batching
+        batch_size = qbsd_config.get("documents_batch_size", 4)
+        max_iterations = math.ceil(len(documents) / batch_size) if documents else 1
+        convergence_threshold = 5  # Stop if schema doesn't change for 5 consecutive batches
         unchanged_count = 0
+
+        # Create document batches
+        batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
+        filename_batches = [filenames[i:i+batch_size] for i in range(0, len(filenames), batch_size)]
+
+        print(f"🐛 DEBUG: Document batching - {len(documents)} docs, batch_size={batch_size}, {len(batches)} batches")
 
         # Initialize schema evolution tracking
         evolution = SchemaEvolution(snapshots=[], column_sources={})
@@ -652,26 +661,27 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             for col in current_schema.columns:
                 evolution.column_sources[col.name] = "initial_schema"
 
-        for iteration in range(max_iterations):
-            print(f"🐛 DEBUG: Schema discovery iteration {iteration + 1}/{max_iterations}")
-            await progress_callback(f"Schema Discovery: Iteration {iteration + 1}/{max_iterations}", iteration / max_iterations, {
+        for iteration, (batch_docs, batch_names) in enumerate(zip(batches, filename_batches)):
+            print(f"🐛 DEBUG: Schema discovery batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs: {batch_names})")
+            await progress_callback(f"Schema Discovery: Batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs)", iteration / len(batches), {
                 "iteration": iteration + 1,
-                "max_iterations": max_iterations,
+                "max_iterations": len(batches),
+                "batch_docs": len(batch_docs),
                 "current_columns": len(current_schema.columns)
             })
 
             # Track column names before this iteration
             columns_before = {col.name.lower() for col in current_schema.columns}
-            cumulative_docs += 1  # Approximation - treating each iteration as one batch
+            cumulative_docs += len(batch_docs)
 
-            # Select relevant content
+            # Select relevant content from this batch's documents
             print(f"🐛 DEBUG: Selecting relevant content with retriever")
             relevant_content = QBSD.select_relevant_content(
-                docs=documents,
+                docs=batch_docs,
                 query=query,
                 retriever=retriever
             )
-            print(f"🐛 DEBUG: Selected {len(relevant_content)} relevant passages")
+            print(f"🐛 DEBUG: Selected {len(relevant_content)} relevant passages from batch")
 
             # Generate schema for this iteration
             print(f"🐛 DEBUG: Calling QBSD.generate_schema with LLM...")
@@ -709,22 +719,22 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             new_column_names_lower = columns_after - columns_before
             new_columns = [col.name for col in merged_schema.columns if col.name.lower() in new_column_names_lower]
 
-            # Record column sources for new columns
-            iteration_source = f"iteration_{iteration + 1}"
+            # Record column sources for new columns (use batch document names)
+            batch_source = f"batch_{iteration + 1}"
             for col_name in new_columns:
                 if col_name not in evolution.column_sources:
-                    evolution.column_sources[col_name] = iteration_source
+                    evolution.column_sources[col_name] = batch_source
 
-            # Add snapshot to evolution
+            # Add snapshot to evolution with actual document names
             evolution.snapshots.append(SchemaSnapshot(
                 iteration=iteration + 1,
-                documents_processed=[iteration_source],
+                documents_processed=batch_names,
                 total_columns=len(merged_schema.columns),
                 new_columns=new_columns,
                 cumulative_documents=cumulative_docs
             ))
 
-            print(f"🐛 DEBUG: Evolution - iteration {iteration + 1}: {len(new_columns)} new columns: {new_columns}")
+            print(f"🐛 DEBUG: Evolution - batch {iteration + 1}: {len(new_columns)} new columns: {new_columns}")
 
             # Check convergence
             print(f"🐛 DEBUG: Checking convergence...")
@@ -732,19 +742,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 unchanged_count += 1
                 print(f"🐛 DEBUG: Schema unchanged (count: {unchanged_count}/{convergence_threshold})")
                 if unchanged_count >= convergence_threshold:
-                    print(f"🐛 DEBUG: Schema converged after {iteration + 1} iterations")
+                    print(f"🐛 DEBUG: Schema converged after {iteration + 1} batches")
                     break
             else:
                 unchanged_count = 0
-                print(f"🐛 DEBUG: Schema changed, continuing iterations")
+                print(f"🐛 DEBUG: Schema changed, continuing to next batch")
 
             current_schema = merged_schema
-            print(f"🐛 DEBUG: Completed iteration {iteration + 1}, moving to next")
+            print(f"🐛 DEBUG: Completed batch {iteration + 1}, moving to next")
 
             # Small delay to allow other tasks
             await asyncio.sleep(0.1)
 
-        print(f"🐛 DEBUG: Schema discovery loop completed with {len(current_schema.columns)} columns")
+        print(f"🐛 DEBUG: Schema discovery completed with {len(current_schema.columns)} columns after {len(evolution.snapshots)} batches")
         print(f"🐛 DEBUG: Evolution tracking: {len(evolution.snapshots)} snapshots, {len(evolution.column_sources)} column sources")
         return current_schema, evolution
     
