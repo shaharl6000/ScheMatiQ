@@ -8,5 +8,17 @@
     "name": "protein_sequence",
     "definition": "The amino acid sequence of the protein or relevant domain",
     "rationale": "Core structural information needed for protein analysis and comparison"
+  },
+  {
+    "name": "has_nes",
+    "definition": "Whether the protein contains a nuclear export signal (NES)",
+    "rationale": "Primary binary classification for NES presence",
+    "allowed_values": ["yes", "no"]
+  },
+  {
+    "name": "nes_strength",
+    "definition": "The strength or activity level of the nuclear export signal",
+    "rationale": "Quantitative measure of NES functionality when present",
+    "allowed_values": ["weak", "moderate", "strong"]
   }
 ]

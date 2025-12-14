@@ -16,7 +16,7 @@ class LLMConfig(BaseModel):
 class RetrieverConfig(BaseModel):
     """Retriever configuration."""
     model_config = {"protected_namespaces": ()}
-    
+
     type: str = "embedding"
     model_name: str = "all-MiniLM-L6-v2"
     passage_chars: int = 512
@@ -26,13 +26,21 @@ class RetrieverConfig(BaseModel):
     dynamic_k_threshold: float = 0.65
     dynamic_k_minimum: int = 3
 
+class InitialSchemaColumn(BaseModel):
+    """Initial schema column definition."""
+    name: str
+    definition: str
+    rationale: str
+    allowed_values: Optional[List[str]] = None
+
 class QBSDConfig(BaseModel):
     """QBSD configuration matching the existing config format."""
     query: str
     docs_path: Union[str, List[str]]
     max_keys_schema: int = 100
     documents_batch_size: int = 4
-    initial_schema_path: Optional[str] = None
+    initial_schema_path: Optional[str] = None  # Path to schema file
+    initial_schema: Optional[List[InitialSchemaColumn]] = None  # Inline schema definition
     schema_creation_backend: LLMConfig
     value_extraction_backend: LLMConfig
     retriever: Optional[RetrieverConfig] = None

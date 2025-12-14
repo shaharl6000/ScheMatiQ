@@ -168,6 +168,22 @@ export const qbsdAPI = {
     return response.data;
   },
 
+  getSchemaFiles: async (): Promise<{
+    value: string;
+    label: string;
+    columns_count: number;
+    preview: string;
+    columns: {
+      name: string;
+      definition: string;
+      rationale: string;
+      allowed_values?: string[];
+    }[];
+  }[]> => {
+    const response = await api.get('/qbsd/schema-files');
+    return response.data;
+  },
+
   export: async (sessionId: string): Promise<void> => {
     const response = await api.get(`/qbsd/export/${sessionId}`, { 
       responseType: 'blob' 
@@ -250,6 +266,63 @@ export const schemaAPI = {
 
   restoreSchema: async (sessionId: string, backupId: string): Promise<SchemaEditResponse> => {
     const response = await api.post(`/schema/restore/${sessionId}`, { backup_id: backupId });
+    return response.data;
+  },
+
+  // Schema Evolution / Suggestions API
+  getSuggestions: async (sessionId: string): Promise<{
+    session_id: string;
+    suggestions: Array<{
+      column_name: string;
+      pending_values?: Array<{
+        value: string;
+        document_count: number;
+        first_seen: string;
+        documents: string[];
+      }>;
+      current_allowed_values?: string[];
+      auto_expand_threshold?: number;
+      suggested_values?: string[];
+      value_details?: Record<string, {
+        value: string;
+        document_count: number;
+        first_seen: string;
+        documents: string[];
+      }>;
+      auto_approved?: boolean;
+    }>;
+    total_pending: number;
+  }> => {
+    const response = await api.get(`/schema/suggestions/${sessionId}`);
+    return response.data;
+  },
+
+  approveSuggestion: async (sessionId: string, columnName: string, value: string): Promise<{ status: string; message: string }> => {
+    const response = await api.post(`/schema/approve-suggestion/${sessionId}`, {
+      column_name: columnName,
+      value: value
+    });
+    return response.data;
+  },
+
+  rejectSuggestion: async (sessionId: string, columnName: string, value: string): Promise<{ status: string; message: string }> => {
+    const response = await api.post(`/schema/reject-suggestion/${sessionId}`, {
+      column_name: columnName,
+      value: value
+    });
+    return response.data;
+  },
+
+  setAutoExpandThreshold: async (sessionId: string, columnName: string, threshold: number): Promise<{ status: string; message: string; threshold: number }> => {
+    const response = await api.put(`/schema/auto-expand-threshold/${sessionId}/${encodeURIComponent(columnName)}`, {
+      threshold: threshold
+    });
+    return response.data;
+  },
+
+  bulkApproveSuggestions: async (sessionId: string, columnName?: string): Promise<{ status: string; message: string; approved_count: number }> => {
+    const params = columnName ? `?column_name=${encodeURIComponent(columnName)}` : '';
+    const response = await api.post(`/schema/bulk-approve/${sessionId}${params}`);
     return response.data;
   },
 };

@@ -1,5 +1,22 @@
 // Type definitions for the visualization app
 
+// Pending value for schema evolution
+export interface PendingValue {
+  value: string;
+  document_count: number;
+  first_seen: string;
+  documents: string[];  // Document names where value appeared
+}
+
+// Schema suggestion for allowed_values evolution
+export interface SchemaSuggestion {
+  column_name: string;
+  suggested_values: string[];
+  value_details: Record<string, PendingValue>;
+  auto_approved: boolean;
+  created_at: string;
+}
+
 export interface ColumnInfo {
   name: string;
   definition?: string;
@@ -10,6 +27,8 @@ export interface ColumnInfo {
   source_document?: string;  // Document that first added this column
   discovery_iteration?: number;  // Iteration when this column was discovered
   allowed_values?: string[];  // Closed set of valid values for categorical columns
+  auto_expand_threshold?: number;  // Auto-add new value if seen in N+ docs (0 = disabled)
+  pending_values?: PendingValue[];  // Values pending approval
 }
 
 // Schema evolution tracking types
@@ -52,13 +71,14 @@ export interface DataStatistics {
 export interface VisualizationSession {
   id: string;
   type: 'load' | 'qbsd';
-  status: 'created' | 'processing' | 'schema_ready' | 'completed' | 'error' | 
+  status: 'created' | 'processing' | 'schema_ready' | 'completed' | 'error' |
           'schema_extracted' | 'documents_uploaded' | 'processing_documents';
   metadata: SessionMetadata;
   schema_query?: string;
   columns: ColumnInfo[];
   statistics?: DataStatistics;
   error_message?: string;
+  schema_suggestions?: SchemaSuggestion[];  // Pending schema evolution suggestions
 }
 
 export interface DataRow {
@@ -106,12 +126,21 @@ export interface RetrieverConfig {
   dynamic_k_minimum: number;
 }
 
+// Initial schema column for inline schema definition
+export interface InitialSchemaColumn {
+  name: string;
+  definition: string;
+  rationale: string;
+  allowed_values?: string[];
+}
+
 export interface QBSDConfig {
   query: string;
   docs_path: string | string[];
   max_keys_schema: number;
   documents_batch_size: number;
-  initial_schema_path?: string;
+  initial_schema_path?: string;  // Path to schema file
+  initial_schema?: InitialSchemaColumn[];  // Inline schema definition
   schema_creation_backend: LLMConfig;
   value_extraction_backend: LLMConfig;
   retriever?: RetrieverConfig;

@@ -92,7 +92,7 @@ def build_llm_interface(
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
 from app.models.qbsd import QBSDConfig, QBSDStatus, QBSDProgress
-from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus, SchemaEvolution, SchemaSnapshot
+from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus, SchemaEvolution, SchemaSnapshot, VisualizationSession
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
@@ -211,14 +211,25 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 "dynamic_k_minimum": config.retriever.dynamic_k_minimum
             }
         
-        # Add initial schema if provided
-        if config.initial_schema_path:
+        # Add initial schema if provided (inline takes priority over file path)
+        if config.initial_schema:
+            # Inline schema provided - convert to the format expected by schema loader
+            qbsd_config["initial_schema"] = [
+                {
+                    "name": col.name,
+                    "definition": col.definition,
+                    "rationale": col.rationale,
+                    "allowed_values": col.allowed_values
+                }
+                for col in config.initial_schema
+            ]
+        elif config.initial_schema_path:
             initial_schema_path = Path(config.initial_schema_path)
             if not initial_schema_path.is_absolute():
                 initial_schema_path = PROJECT_ROOT / initial_schema_path
             if initial_schema_path.exists():
                 qbsd_config["initial_schema_path"] = str(initial_schema_path)
-        
+
         return qbsd_config
     
     async def validate_config(self, config: QBSDConfig) -> Dict[str, Any]:
@@ -532,7 +543,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     data_type="object",
                     source_document=col.source_document,
                     discovery_iteration=col.discovery_iteration,
-                    allowed_values=col.allowed_values
+                    allowed_values=col.allowed_values,
+                    auto_expand_threshold=getattr(col, 'auto_expand_threshold', 2)
                 )
                 schema_columns.append(col_info)
             
@@ -618,24 +630,54 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             Tuple of (discovered_schema, schema_evolution)
         """
 
-        # Initialize schema
+        # Initialize schema (inline schema takes priority over file path)
         initial_schema = None
-        if "initial_schema_path" in qbsd_config:
+        if "initial_schema" in qbsd_config:
+            # Inline schema provided directly
+            try:
+                columns = []
+                for col_data in qbsd_config["initial_schema"]:
+                    col = Column(
+                        name=col_data["name"],
+                        definition=col_data.get("definition", ""),
+                        rationale=col_data.get("rationale", ""),
+                        allowed_values=col_data.get("allowed_values")
+                    )
+                    columns.append(col)
+                initial_schema = Schema(columns)
+                print(f"Loaded inline initial schema with {len(columns)} columns")
+            except Exception as e:
+                print(f"Warning: Could not load inline initial schema: {e}")
+        elif "initial_schema_path" in qbsd_config:
             try:
                 with open(qbsd_config["initial_schema_path"]) as f:
                     initial_data = json.load(f)
-                    if isinstance(initial_data, dict) and "schema" in initial_data:
+                    # Handle both formats: array of columns or dict with "schema" key
+                    if isinstance(initial_data, list):
+                        columns = []
+                        for col_data in initial_data:
+                            col = Column(
+                                name=col_data["name"],
+                                definition=col_data.get("definition", ""),
+                                rationale=col_data.get("rationale", ""),
+                                allowed_values=col_data.get("allowed_values")
+                            )
+                            columns.append(col)
+                        initial_schema = Schema(columns)
+                    elif isinstance(initial_data, dict) and "schema" in initial_data:
                         columns = []
                         for col_data in initial_data["schema"]:
                             col = Column(
                                 name=col_data["name"],
                                 definition=col_data.get("definition", ""),
-                                rationale=col_data.get("rationale", "")
+                                rationale=col_data.get("rationale", ""),
+                                allowed_values=col_data.get("allowed_values")
                             )
                             columns.append(col)
                         initial_schema = Schema(columns)
+                print(f"Loaded initial schema from file with {len(columns)} columns")
             except Exception as e:
-                print(f"Warning: Could not load initial schema: {e}")
+                print(f"Warning: Could not load initial schema from file: {e}")
 
         current_schema = initial_schema or Schema([])
         query = qbsd_config["query"]
@@ -817,8 +859,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         # Create callback to stream cell values as they're extracted
         on_value_extracted = self._create_value_extracted_callback(session_id, loop)
 
+        suggested_values_result = {}
+
         def run_value_extraction():
-            return build_table_jsonl(
+            nonlocal suggested_values_result
+            suggested_values_result = build_table_jsonl(
                 schema_path=value_extraction_schema_path,
                 docs_directories=docs_directories,
                 output_path=output_path,
@@ -830,7 +875,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 max_workers=1,  # Single worker to avoid overwhelming API
                 on_value_extracted=on_value_extracted  # Stream values as extracted
             )
-        
+            return suggested_values_result
+
         # Track progress by monitoring output file
         extraction_task = loop.run_in_executor(None, run_value_extraction)
         
@@ -882,26 +928,113 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         
         # Wait for completion
         try:
-            await extraction_task
+            suggested_values_result = await extraction_task
         except Exception as e:
             raise RuntimeError(f"Value extraction failed: {e}")
-        
+
         # Final progress update
         final_line_count = 0
         if output_path.exists():
             with open(output_path, 'r') as f:
                 final_line_count = sum(1 for _ in f)
-        
-        # Update final session metadata
+
+        # Update final session metadata and process suggested values
         session = self.session_manager.get_session(session_id)
         session.metadata.processed_documents = final_line_count
+
+        # Process suggested values for schema evolution
+        if suggested_values_result:
+            await self._process_suggested_values(session, schema, suggested_values_result)
+
         self.session_manager.update_session(session)
-        
+
         await progress_callback("Value Extraction: Complete", 1.0, {
             "rows_extracted": final_line_count,
             "total_documents": total_documents,
-            "elapsed_time": int(time.time() - start_time)
+            "elapsed_time": int(time.time() - start_time),
+            "suggested_values_count": sum(len(vals) for vals in suggested_values_result.values()) if suggested_values_result else 0
         })
+
+    async def _process_suggested_values(
+        self,
+        session: VisualizationSession,
+        schema: Schema,
+        suggested_values: Dict[str, Dict[str, Any]]
+    ):
+        """
+        Process suggested values from value extraction for schema evolution.
+
+        For each column with allowed_values:
+        - Auto-add values that meet the column's auto_expand_threshold
+        - Store remaining values as pending_values for user review
+        """
+        from app.models.session import PendingValue
+        from datetime import datetime
+
+        if not suggested_values:
+            return
+
+        print(f"🔄 Processing {sum(len(vals) for vals in suggested_values.values())} suggested values for schema evolution")
+
+        for col in session.columns:
+            if col.name not in suggested_values:
+                continue
+
+            col_suggestions = suggested_values[col.name]
+            if not col_suggestions:
+                continue
+
+            # Get threshold for this column (default to 2 if not set)
+            threshold = col.auto_expand_threshold if col.auto_expand_threshold is not None else 2
+
+            auto_added = []
+            pending = []
+
+            for value, details in col_suggestions.items():
+                doc_count = details.get("count", 0)
+                documents = details.get("documents", [])
+
+                # Skip if value already in allowed_values
+                if col.allowed_values and value in col.allowed_values:
+                    continue
+
+                if threshold > 0 and doc_count >= threshold:
+                    # Auto-add this value
+                    if col.allowed_values is None:
+                        col.allowed_values = []
+                    col.allowed_values.append(value)
+                    auto_added.append(value)
+                    print(f"  ✅ Auto-added '{value}' to {col.name} (appeared in {doc_count} docs, threshold={threshold})")
+                else:
+                    # Add to pending values for user review
+                    pending.append(PendingValue(
+                        value=value,
+                        document_count=doc_count,
+                        first_seen=datetime.now(),
+                        documents=documents[:10]  # Limit to first 10 documents
+                    ))
+
+            # Update column's pending values
+            if pending:
+                if col.pending_values is None:
+                    col.pending_values = []
+                col.pending_values.extend(pending)
+                print(f"  📋 Added {len(pending)} pending values to {col.name} for review")
+
+            if auto_added:
+                print(f"  🎉 Auto-expanded {col.name} allowed_values with {len(auto_added)} new values")
+
+        # Broadcast schema update if there were changes
+        total_auto_added = sum(1 for col in session.columns if col.allowed_values)
+        total_pending = sum(len(col.pending_values or []) for col in session.columns)
+
+        if total_auto_added > 0 or total_pending > 0:
+            await self.websocket_manager.broadcast_schema_updated(session.id, {
+                "operation": "schema_evolution",
+                "auto_added_values": total_auto_added,
+                "pending_values": total_pending,
+                "columns": [col.model_dump() for col in session.columns]
+            })
 
     def _compute_statistics_from_extracted_data(
         self,
@@ -986,7 +1119,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 unique_count=unique_count,
                 source_document=source_document,
                 discovery_iteration=getattr(col, 'discovery_iteration', None),
-                allowed_values=getattr(col, 'allowed_values', None)
+                allowed_values=getattr(col, 'allowed_values', None),
+                auto_expand_threshold=getattr(col, 'auto_expand_threshold', 2)
             )
             columns.append(col_info)
 

@@ -182,6 +182,74 @@ async def list_document_directories():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/schema-files")
+async def list_schema_files():
+    """List available initial schema files from research/experiments/configurations folder.
+
+    Returns a list of JSON files that contain valid schema arrays (with name, definition, rationale).
+    Each file can optionally include allowed_values for columns.
+    """
+    try:
+        # Try multiple path resolution strategies
+        candidates = [
+            Path("../research/experiments/configurations"),  # When running from backend/
+            Path(__file__).parent.parent.parent.parent.parent / "research" / "experiments" / "configurations",
+            Path.cwd().parent / "research" / "experiments" / "configurations",
+            Path.cwd() / "research" / "experiments" / "configurations",
+        ]
+
+        config_path = None
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_dir():
+                config_path = candidate
+                break
+
+        if config_path is None:
+            print(f"DEBUG: Could not find research/experiments/configurations directory. Tried: {[str(c) for c in candidates]}")
+            return []
+
+        schema_files = []
+        for item in sorted(config_path.iterdir()):
+            if item.is_file() and item.suffix == '.json':
+                # Try to validate it's a schema file (array of columns)
+                try:
+                    data = json.loads(item.read_text(encoding="utf-8"))
+                    # Check if it's a list of column definitions
+                    if isinstance(data, list) and len(data) > 0:
+                        first_item = data[0]
+                        if isinstance(first_item, dict) and "name" in first_item and "definition" in first_item:
+                            # Valid schema file
+                            columns_preview = [col.get("name", "?") for col in data[:3]]
+                            preview = ", ".join(columns_preview)
+                            if len(data) > 3:
+                                preview += f" (+{len(data) - 3} more)"
+
+                            schema_files.append({
+                                "value": f"../research/experiments/configurations/{item.name}",
+                                "label": item.stem,  # Filename without extension
+                                "columns_count": len(data),
+                                "preview": preview,
+                                "columns": [
+                                    {
+                                        "name": col.get("name", ""),
+                                        "definition": col.get("definition", ""),
+                                        "rationale": col.get("rationale", ""),
+                                        "allowed_values": col.get("allowed_values")
+                                    }
+                                    for col in data
+                                ]
+                            })
+                except (json.JSONDecodeError, KeyError):
+                    # Skip invalid JSON or non-schema files
+                    continue
+
+        return schema_files
+
+    except Exception as e:
+        print(f"DEBUG: Error listing schema files: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/export/{session_id}")
 async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
     """Export QBSD data as CSV with excerpts in separate columns.

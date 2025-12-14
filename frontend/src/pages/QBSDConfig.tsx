@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown } from 'lucide-react';
+import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, FileJson } from 'lucide-react';
 import { ApiKeyInput } from '@/components/ApiKeyInput';
 import { getGeminiKeyType } from '@/utils/apiKeyStorage';
+import InitialSchemaEditor from '@/components/InitialSchemaEditor/InitialSchemaEditor';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,7 +34,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 import { qbsdAPI } from '../services/api';
-import { QBSDConfig, LLMConfig, RetrieverConfig } from '../types';
+import { QBSDConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn } from '../types';
 
 const QBSDConfigPage = () => {
   const navigate = useNavigate();
@@ -45,6 +46,10 @@ const QBSDConfigPage = () => {
   const [valueApiKey, setValueApiKey] = useState('');
   const [schemaGeminiKeyType, setSchemaGeminiKeyType] = useState<'single' | 'multi'>('single');
   const [valueGeminiKeyType, setValueGeminiKeyType] = useState<'single' | 'multi'>('single');
+
+  // Initial schema state
+  const [initialSchemaPath, setInitialSchemaPath] = useState<string | undefined>(undefined);
+  const [initialSchemaData, setInitialSchemaData] = useState<InitialSchemaColumn[] | undefined>(undefined);
 
   // Directory state
   const [directories, setDirectories] = useState<{ value: string; label: string }[]>([]);
@@ -145,12 +150,20 @@ const QBSDConfigPage = () => {
     }));
   };
 
+  const handleInitialSchemaChange = useCallback((
+    schemaPath: string | undefined,
+    schemaData: InitialSchemaColumn[] | undefined
+  ) => {
+    setInitialSchemaPath(schemaPath);
+    setInitialSchemaData(schemaData);
+  }, []);
+
   const handleSubmit = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      // Build config with API keys
+      // Build config with API keys and initial schema
       const configWithKeys: QBSDConfig = {
         ...config,
         schema_creation_backend: {
@@ -167,6 +180,9 @@ const QBSDConfigPage = () => {
             ? valueGeminiKeyType
             : undefined,
         },
+        // Add initial schema (inline data takes priority over file path)
+        initial_schema: initialSchemaData,
+        initial_schema_path: !initialSchemaData ? initialSchemaPath : undefined,
       };
 
       const result = await qbsdAPI.configure(configWithKeys);
@@ -316,8 +332,31 @@ const QBSDConfigPage = () => {
             </div>
           </div>
 
-          {/* LLM Configuration Accordions */}
+          {/* Configuration Accordions */}
           <Accordion type="multiple" className="mt-6">
+            {/* Initial Schema */}
+            <AccordionItem value="initial-schema">
+              <AccordionTrigger className="hover:no-underline">
+                <div className="flex items-center gap-2">
+                  <FileJson className="h-4 w-4" />
+                  <span className="font-semibold">Initial Schema</span>
+                  {(initialSchemaPath || initialSchemaData) && (
+                    <Badge variant="secondary" className="ml-2">
+                      {initialSchemaData
+                        ? `${initialSchemaData.length} columns (manual)`
+                        : 'From file'}
+                    </Badge>
+                  )}
+                </div>
+              </AccordionTrigger>
+              <AccordionContent>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Optionally provide an initial schema to guide the discovery process. The LLM will start with these columns and expand as needed.
+                </p>
+                <InitialSchemaEditor onSchemaChange={handleInitialSchemaChange} />
+              </AccordionContent>
+            </AccordionItem>
+
             {/* Schema Creation LLM */}
             <AccordionItem value="schema-llm">
               <AccordionTrigger className="hover:no-underline">

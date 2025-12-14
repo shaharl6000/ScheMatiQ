@@ -1,0 +1,507 @@
+import React, { useState, useEffect } from 'react';
+import { Plus, Trash2, Pencil, Loader2, X, FileJson, List, Info } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+
+import { InitialSchemaColumn } from '../../types';
+import { qbsdAPI } from '../../services/api';
+
+type SchemaSource = 'none' | 'file' | 'manual';
+
+interface SchemaFile {
+  value: string;
+  label: string;
+  columns_count: number;
+  preview: string;
+  columns: {
+    name: string;
+    definition: string;
+    rationale: string;
+    allowed_values?: string[];
+  }[];
+}
+
+interface InitialSchemaEditorProps {
+  onSchemaChange: (
+    schemaPath: string | undefined,
+    schemaData: InitialSchemaColumn[] | undefined
+  ) => void;
+}
+
+const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChange }) => {
+  const [source, setSource] = useState<SchemaSource>('none');
+  const [schemaFiles, setSchemaFiles] = useState<SchemaFile[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<string>('');
+  const [columns, setColumns] = useState<InitialSchemaColumn[]>([]);
+
+  // Column editor dialog state
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    definition: '',
+    rationale: '',
+    allowed_values: [] as string[]
+  });
+  const [newAllowedValue, setNewAllowedValue] = useState('');
+
+  // Fetch schema files when file mode is selected
+  useEffect(() => {
+    if (source === 'file' && schemaFiles.length === 0) {
+      fetchSchemaFiles();
+    }
+  }, [source]);
+
+  // Notify parent when schema changes
+  useEffect(() => {
+    if (source === 'none') {
+      onSchemaChange(undefined, undefined);
+    } else if (source === 'file' && selectedFile) {
+      onSchemaChange(selectedFile, undefined);
+    } else if (source === 'manual' && columns.length > 0) {
+      onSchemaChange(undefined, columns);
+    } else {
+      onSchemaChange(undefined, undefined);
+    }
+  }, [source, selectedFile, columns, onSchemaChange]);
+
+  const fetchSchemaFiles = async () => {
+    setLoadingFiles(true);
+    try {
+      const files = await qbsdAPI.getSchemaFiles();
+      setSchemaFiles(files);
+    } catch (error) {
+      console.error('Failed to fetch schema files:', error);
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  const handleSourceChange = (value: SchemaSource) => {
+    setSource(value);
+    if (value !== 'file') {
+      setSelectedFile('');
+    }
+    if (value !== 'manual') {
+      setColumns([]);
+    }
+  };
+
+  const handleFileSelect = (filePath: string) => {
+    setSelectedFile(filePath);
+    // Optionally load columns for preview
+    const file = schemaFiles.find(f => f.value === filePath);
+    if (file) {
+      // Just for display, actual file path is used
+    }
+  };
+
+  const openAddDialog = () => {
+    setEditingIndex(null);
+    setFormData({ name: '', definition: '', rationale: '', allowed_values: [] });
+    setNewAllowedValue('');
+    setDialogOpen(true);
+  };
+
+  const openEditDialog = (index: number) => {
+    const col = columns[index];
+    setEditingIndex(index);
+    setFormData({
+      name: col.name,
+      definition: col.definition,
+      rationale: col.rationale,
+      allowed_values: col.allowed_values || []
+    });
+    setNewAllowedValue('');
+    setDialogOpen(true);
+  };
+
+  const handleSaveColumn = () => {
+    if (!formData.name.trim() || !formData.definition.trim() || !formData.rationale.trim()) {
+      return;
+    }
+
+    const newColumn: InitialSchemaColumn = {
+      name: formData.name.trim(),
+      definition: formData.definition.trim(),
+      rationale: formData.rationale.trim(),
+      allowed_values: formData.allowed_values.length > 0 ? formData.allowed_values : undefined
+    };
+
+    if (editingIndex !== null) {
+      setColumns(prev => prev.map((col, i) => i === editingIndex ? newColumn : col));
+    } else {
+      setColumns(prev => [...prev, newColumn]);
+    }
+
+    setDialogOpen(false);
+  };
+
+  const handleDeleteColumn = (index: number) => {
+    setColumns(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddAllowedValue = () => {
+    const value = newAllowedValue.trim();
+    if (value && !formData.allowed_values.includes(value)) {
+      setFormData(prev => ({
+        ...prev,
+        allowed_values: [...prev.allowed_values, value]
+      }));
+      setNewAllowedValue('');
+    }
+  };
+
+  const handleRemoveAllowedValue = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      allowed_values: prev.allowed_values.filter((_, i) => i !== index)
+    }));
+  };
+
+  const selectedSchemaFile = schemaFiles.find(f => f.value === selectedFile);
+
+  return (
+    <div className="space-y-4">
+      {/* Source Selection */}
+      <RadioGroup
+        value={source}
+        onValueChange={(v: string) => handleSourceChange(v as SchemaSource)}
+        className="flex flex-wrap gap-4"
+      >
+        <div className="flex items-center space-x-2">
+          <RadioGroupItem value="none" id="schema-none" />
+          <Label htmlFor="schema-none" className="font-normal cursor-pointer">None</Label>
+        </div>
+        <div className="flex items-center space-x-2">
+          <RadioGroupItem value="file" id="schema-file" />
+          <Label htmlFor="schema-file" className="font-normal cursor-pointer flex items-center gap-1">
+            <FileJson className="h-4 w-4" />
+            Load from File
+          </Label>
+        </div>
+        <div className="flex items-center space-x-2">
+          <RadioGroupItem value="manual" id="schema-manual" />
+          <Label htmlFor="schema-manual" className="font-normal cursor-pointer flex items-center gap-1">
+            <List className="h-4 w-4" />
+            Manual Entry
+          </Label>
+        </div>
+      </RadioGroup>
+
+      {/* File Selection */}
+      {source === 'file' && (
+        <div className="space-y-3">
+          <Select
+            value={selectedFile}
+            onValueChange={handleFileSelect}
+            disabled={loadingFiles}
+          >
+            <SelectTrigger>
+              {loadingFiles ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading schema files...
+                </div>
+              ) : (
+                <SelectValue placeholder="Select a schema file..." />
+              )}
+            </SelectTrigger>
+            <SelectContent>
+              {schemaFiles.map((file) => (
+                <SelectItem key={file.value} value={file.value}>
+                  <div className="flex flex-col">
+                    <span className="font-medium">{file.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {file.columns_count} columns: {file.preview}
+                    </span>
+                  </div>
+                </SelectItem>
+              ))}
+              {schemaFiles.length === 0 && !loadingFiles && (
+                <SelectItem value="__empty__" disabled>
+                  No schema files found
+                </SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+
+          {/* Preview selected schema */}
+          {selectedSchemaFile && (
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-sm font-medium mb-2">
+                  Schema Preview ({selectedSchemaFile.columns_count} columns)
+                </p>
+                <div className="space-y-2">
+                  {selectedSchemaFile.columns.map((col, idx) => (
+                    <div key={idx} className="text-sm p-2 bg-muted/50 rounded">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{col.name}</span>
+                        {col.allowed_values && col.allowed_values.length > 0 && (
+                          <Badge variant="outline" className="text-xs">
+                            {col.allowed_values.join(', ')}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-muted-foreground text-xs mt-1 line-clamp-1">
+                        {col.definition}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Manual Entry */}
+      {source === 'manual' && (
+        <div className="space-y-3">
+          {/* Column List */}
+          {columns.length > 0 && (
+            <div className="space-y-2">
+              {columns.map((col, idx) => (
+                <Card key={idx}>
+                  <CardContent className="py-3 px-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{col.name}</span>
+                          {col.allowed_values && col.allowed_values.length > 0 && (
+                            <Badge variant="outline" className="text-xs">
+                              {col.allowed_values.join(', ')}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                          {col.definition}
+                        </p>
+                      </div>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openEditDialog(idx)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleDeleteColumn(idx)}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+
+          {/* Add Column Button */}
+          <Button variant="outline" onClick={openAddDialog} className="w-full">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Column
+          </Button>
+        </div>
+      )}
+
+      {/* Column Editor Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {editingIndex !== null ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              {editingIndex !== null ? 'Edit Column' : 'Add Column'}
+            </DialogTitle>
+            <DialogDescription>
+              Define a column for the initial schema
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Column Name */}
+            <div className="space-y-2">
+              <Label htmlFor="col-name">
+                Column Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="col-name"
+                value={formData.name}
+                onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="e.g., protein_name"
+              />
+            </div>
+
+            {/* Definition */}
+            <div className="space-y-2">
+              <Label htmlFor="col-definition">
+                Definition <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                id="col-definition"
+                value={formData.definition}
+                onChange={(e) => setFormData(prev => ({ ...prev, definition: e.target.value }))}
+                placeholder="What this column represents..."
+                rows={2}
+              />
+            </div>
+
+            {/* Rationale */}
+            <div className="space-y-2">
+              <Label htmlFor="col-rationale">
+                Rationale <span className="text-destructive">*</span>
+              </Label>
+              <Textarea
+                id="col-rationale"
+                value={formData.rationale}
+                onChange={(e) => setFormData(prev => ({ ...prev, rationale: e.target.value }))}
+                placeholder="Why this column is important..."
+                rows={2}
+              />
+            </div>
+
+            {/* Allowed Values */}
+            <div className="space-y-2">
+              <div className="flex items-center gap-1">
+                <Label htmlFor="col-allowed">Value Constraints (Optional)</Label>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs">
+                    <p>Define allowed values for categorical columns or constraints like "number" or "0-100".</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+
+              {/* Preset buttons */}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['yes', 'no'] }))}
+                  className="text-xs"
+                >
+                  Yes/No
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['number'] }))}
+                  className="text-xs"
+                >
+                  Number
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['0-100'] }))}
+                  className="text-xs"
+                >
+                  0-100 (%)
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFormData(prev => ({ ...prev, allowed_values: [] }))}
+                  className="text-xs text-muted-foreground"
+                >
+                  Clear
+                </Button>
+              </div>
+
+              {/* Display existing values */}
+              {formData.allowed_values.length > 0 && (
+                <div className="flex flex-wrap gap-2 p-2 bg-muted/50 rounded-md">
+                  {formData.allowed_values.map((value, index) => (
+                    <Badge key={index} variant="secondary" className="gap-1 pr-1">
+                      {value}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAllowedValue(index)}
+                        className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {/* Add new value */}
+              <div className="flex gap-2">
+                <Input
+                  id="col-allowed"
+                  placeholder="Add allowed value..."
+                  value={newAllowedValue}
+                  onChange={(e) => setNewAllowedValue(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddAllowedValue())}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleAddAllowedValue}
+                  disabled={!newAllowedValue.trim()}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveColumn}
+              disabled={!formData.name.trim() || !formData.definition.trim() || !formData.rationale.trim()}
+            >
+              {editingIndex !== null ? 'Save Changes' : 'Add Column'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+};
+
+export default InitialSchemaEditor;
