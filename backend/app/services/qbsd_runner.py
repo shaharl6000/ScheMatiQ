@@ -45,28 +45,47 @@ except ImportError as e:
     
     QBSD_AVAILABLE = False
 
-def build_llm_interface(provider: str, model: str, max_tokens: int, temperature: float):
-    """Build LLM interface based on provider."""
+def build_llm_interface(
+    provider: str,
+    model: str,
+    max_tokens: int,
+    temperature: float,
+    api_key: str = None,
+    gemini_key_type: str = None
+):
+    """Build LLM interface based on provider.
+
+    Args:
+        provider: LLM provider name (together, openai, gemini)
+        model: Model name/identifier
+        max_tokens: Maximum tokens for generation
+        temperature: Sampling temperature
+        api_key: Optional user-provided API key (falls back to env var if None)
+        gemini_key_type: For Gemini only - 'single' or 'multi' key mode
+    """
     if not QBSD_AVAILABLE:
         raise RuntimeError("QBSD components not available")
-    
+
     if provider.lower() == "together":
         return TogetherLLM(
             model=model,
             max_tokens=max_tokens,
-            temperature=temperature
+            temperature=temperature,
+            api_key=api_key
         )
     elif provider.lower() == "openai":
         return OpenAILLM(
             model=model,
             max_tokens=max_tokens,
-            temperature=temperature
+            temperature=temperature,
+            api_key=api_key
         )
     elif provider.lower() == "gemini":
         return GeminiLLM(
             model=model,
             max_tokens=max_tokens,
-            temperature=temperature
+            temperature=temperature,
+            api_key=api_key
         )
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")
@@ -163,14 +182,18 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 "model": config.schema_creation_backend.model,
                 "max_tokens": config.schema_creation_backend.max_tokens,
                 "temperature": config.schema_creation_backend.temperature,
-                "max_context_tokens": config.schema_creation_backend.max_context_tokens
+                "max_context_tokens": config.schema_creation_backend.max_context_tokens,
+                "api_key": config.schema_creation_backend.api_key,
+                "gemini_key_type": config.schema_creation_backend.gemini_key_type
             },
             "value_extraction_backend": {
                 "provider": config.value_extraction_backend.provider,
                 "model": config.value_extraction_backend.model,
                 "max_tokens": config.value_extraction_backend.max_tokens,
                 "temperature": config.value_extraction_backend.temperature,
-                "max_context_tokens": config.value_extraction_backend.max_context_tokens
+                "max_context_tokens": config.value_extraction_backend.max_context_tokens,
+                "api_key": config.value_extraction_backend.api_key,
+                "gemini_key_type": config.value_extraction_backend.gemini_key_type
             }
         }
         
@@ -413,7 +436,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 provider=qbsd_config["schema_creation_backend"]["provider"],
                 model=qbsd_config["schema_creation_backend"]["model"],
                 max_tokens=qbsd_config["schema_creation_backend"]["max_tokens"],
-                temperature=qbsd_config["schema_creation_backend"]["temperature"]
+                temperature=qbsd_config["schema_creation_backend"]["temperature"],
+                api_key=qbsd_config["schema_creation_backend"].get("api_key"),
+                gemini_key_type=qbsd_config["schema_creation_backend"].get("gemini_key_type")
             )
             print(f"🐛 DEBUG: LLM interface created successfully")
             
@@ -523,7 +548,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 provider=qbsd_config["value_extraction_backend"]["provider"],
                 model=qbsd_config["value_extraction_backend"]["model"],
                 max_tokens=qbsd_config["value_extraction_backend"]["max_tokens"],
-                temperature=qbsd_config["value_extraction_backend"]["temperature"]
+                temperature=qbsd_config["value_extraction_backend"]["temperature"],
+                api_key=qbsd_config["value_extraction_backend"].get("api_key"),
+                gemini_key_type=qbsd_config["value_extraction_backend"].get("gemini_key_type")
             )
             print(f"🐛 DEBUG: Value Extraction LLM interface created successfully")
 

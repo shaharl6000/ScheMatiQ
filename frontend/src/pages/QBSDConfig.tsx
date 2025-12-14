@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown } from 'lucide-react';
+import { ApiKeyInput } from '@/components/ApiKeyInput';
+import { getGeminiKeyType } from '@/utils/apiKeyStorage';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -48,6 +50,19 @@ const QBSDConfigPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // API key state
+  const [schemaApiKey, setSchemaApiKey] = useState('');
+  const [valueApiKey, setValueApiKey] = useState('');
+  const [schemaGeminiKeyType, setSchemaGeminiKeyType] = useState<'single' | 'multi'>('single');
+  const [valueGeminiKeyType, setValueGeminiKeyType] = useState<'single' | 'multi'>('single');
+
+  // Load Gemini key type preference on mount
+  useEffect(() => {
+    const savedType = getGeminiKeyType();
+    setSchemaGeminiKeyType(savedType);
+    setValueGeminiKeyType(savedType);
+  }, []);
 
   const [config, setConfig] = useState<QBSDConfig>({
     query: 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?',
@@ -114,7 +129,26 @@ const QBSDConfigPage = () => {
     setError(null);
 
     try {
-      const result = await qbsdAPI.configure(config);
+      // Build config with API keys
+      const configWithKeys: QBSDConfig = {
+        ...config,
+        schema_creation_backend: {
+          ...config.schema_creation_backend,
+          api_key: schemaApiKey || undefined,
+          gemini_key_type: config.schema_creation_backend.provider === 'gemini'
+            ? schemaGeminiKeyType
+            : undefined,
+        },
+        value_extraction_backend: {
+          ...config.value_extraction_backend,
+          api_key: valueApiKey || undefined,
+          gemini_key_type: config.value_extraction_backend.provider === 'gemini'
+            ? valueGeminiKeyType
+            : undefined,
+        },
+      };
+
+      const result = await qbsdAPI.configure(configWithKeys);
       navigate(`/visualize/${result.session_id}?mode=qbsd`);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to configure QBSD');
@@ -316,6 +350,17 @@ const QBSDConfigPage = () => {
                     />
                   </div>
                 </div>
+
+                {/* API Key Configuration */}
+                <div className="mt-4 pt-4 border-t">
+                  <ApiKeyInput
+                    provider={config.schema_creation_backend.provider}
+                    value={schemaApiKey}
+                    onChange={setSchemaApiKey}
+                    geminiKeyType={schemaGeminiKeyType}
+                    onGeminiKeyTypeChange={setSchemaGeminiKeyType}
+                  />
+                </div>
               </AccordionContent>
             </AccordionItem>
 
@@ -392,6 +437,17 @@ const QBSDConfigPage = () => {
                       placeholder="Optional"
                     />
                   </div>
+                </div>
+
+                {/* API Key Configuration */}
+                <div className="mt-4 pt-4 border-t">
+                  <ApiKeyInput
+                    provider={config.value_extraction_backend.provider}
+                    value={valueApiKey}
+                    onChange={setValueApiKey}
+                    geminiKeyType={valueGeminiKeyType}
+                    onGeminiKeyTypeChange={setValueGeminiKeyType}
+                  />
                 </div>
               </AccordionContent>
             </AccordionItem>

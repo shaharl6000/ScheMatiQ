@@ -73,6 +73,8 @@ export interface LLMConfig {
   max_tokens: number;
   temperature: number;
   max_context_tokens?: number;
+  api_key?: string;
+  gemini_key_type?: 'single' | 'multi';
 }
 
 export interface RetrieverConfig {

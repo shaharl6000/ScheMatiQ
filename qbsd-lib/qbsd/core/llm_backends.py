@@ -478,12 +478,17 @@ class GeminiLLM(LLMInterface):
     def _load_api_keys(self, explicit_key: str | None = None) -> List[str]:
         """Load API keys from various sources in priority order."""
         keys = []
-        
-        # 1. Explicit parameter
+
+        # 1. Explicit parameter (supports comma-separated keys for multi-key mode)
         if explicit_key:
-            keys.append(explicit_key)
+            if ',' in explicit_key:
+                # Multi-key mode: split comma-separated keys
+                keys.extend([k.strip() for k in explicit_key.split(",") if k.strip()])
+            else:
+                # Single key mode
+                keys.append(explicit_key)
             return keys
-        
+
         # 2. Comma-separated environment variable
         comma_separated = os.getenv("GEMINI_API_KEYS")
         if comma_separated:
