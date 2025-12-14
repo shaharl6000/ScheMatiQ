@@ -31,7 +31,7 @@ from app.models.session import SessionStatus, DataRow
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.core.config import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL
+from app.core.config import DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL
 
 
 class UploadDocumentProcessor(WebSocketBroadcasterMixin):
@@ -683,7 +683,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         return {
             "provider": "gemini",
             "model": "gemini-2.5-flash-lite",  # Use lite model for extraction by default
-            "max_tokens": DEFAULT_MAX_TOKENS,
+            "max_output_tokens": DEFAULT_MAX_OUTPUT_TOKENS,
             "temperature": DEFAULT_TEMPERATURE
         }
     

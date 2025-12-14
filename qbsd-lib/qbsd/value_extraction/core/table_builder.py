@@ -113,7 +113,7 @@ class TableBuilder:
                 "type": self.llm.__class__.__name__,
                 "model": getattr(self.llm, 'model', None),
                 "temperature": getattr(self.llm, 'temperature', None),
-                "max_tokens": getattr(self.llm, 'max_tokens', None)
+                "max_output_tokens": getattr(self.llm, 'max_output_tokens', None)
             }
         }
     

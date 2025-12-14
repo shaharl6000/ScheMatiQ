@@ -42,9 +42,9 @@ class LLMBackendConfig(BaseModel):
     """LLM backend configuration."""
     provider: str
     model: str
-    max_tokens: int
+    max_output_tokens: int
     temperature: float
-    max_context_tokens: Optional[int] = None
+    context_window_size: Optional[int] = None
 
 class QBSDSchemaFormat(BaseModel):
     """QBSD schema file format."""

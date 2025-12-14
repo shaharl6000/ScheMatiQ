@@ -88,9 +88,9 @@ export interface FileValidationResult {
 export interface LLMConfig {
   provider: string;
   model: string;
-  max_tokens: number;
+  max_output_tokens: number;
   temperature: number;
-  max_context_tokens?: number;
+  context_window_size?: number;
   api_key?: string;
   gemini_key_type?: 'single' | 'multi';
 }

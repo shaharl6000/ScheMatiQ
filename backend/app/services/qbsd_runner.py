@@ -49,7 +49,7 @@ except ImportError as e:
 def build_llm_interface(
     provider: str,
     model: str,
-    max_tokens: int,
+    max_output_tokens: int,
     temperature: float,
     api_key: str = None,
     gemini_key_type: str = None
@@ -59,7 +59,7 @@ def build_llm_interface(
     Args:
         provider: LLM provider name (together, openai, gemini)
         model: Model name/identifier
-        max_tokens: Maximum tokens for generation
+        max_output_tokens: Maximum tokens the model can generate in its response
         temperature: Sampling temperature
         api_key: Optional user-provided API key (falls back to env var if None)
         gemini_key_type: For Gemini only - 'single' or 'multi' key mode
@@ -70,21 +70,21 @@ def build_llm_interface(
     if provider.lower() == "together":
         return TogetherLLM(
             model=model,
-            max_tokens=max_tokens,
+            max_output_tokens=max_output_tokens,
             temperature=temperature,
             api_key=api_key
         )
     elif provider.lower() == "openai":
         return OpenAILLM(
             model=model,
-            max_tokens=max_tokens,
+            max_output_tokens=max_output_tokens,
             temperature=temperature,
             api_key=api_key
         )
     elif provider.lower() == "gemini":
         return GeminiLLM(
             model=model,
-            max_tokens=max_tokens,
+            max_output_tokens=max_output_tokens,
             temperature=temperature,
             api_key=api_key
         )
@@ -181,18 +181,18 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             "schema_creation_backend": {
                 "provider": config.schema_creation_backend.provider,
                 "model": config.schema_creation_backend.model,
-                "max_tokens": config.schema_creation_backend.max_tokens,
+                "max_output_tokens": config.schema_creation_backend.max_output_tokens,
                 "temperature": config.schema_creation_backend.temperature,
-                "max_context_tokens": config.schema_creation_backend.max_context_tokens,
+                "context_window_size": config.schema_creation_backend.context_window_size,
                 "api_key": config.schema_creation_backend.api_key,
                 "gemini_key_type": config.schema_creation_backend.gemini_key_type
             },
             "value_extraction_backend": {
                 "provider": config.value_extraction_backend.provider,
                 "model": config.value_extraction_backend.model,
-                "max_tokens": config.value_extraction_backend.max_tokens,
+                "max_output_tokens": config.value_extraction_backend.max_output_tokens,
                 "temperature": config.value_extraction_backend.temperature,
-                "max_context_tokens": config.value_extraction_backend.max_context_tokens,
+                "context_window_size": config.value_extraction_backend.context_window_size,
                 "api_key": config.value_extraction_backend.api_key,
                 "gemini_key_type": config.value_extraction_backend.gemini_key_type
             }
@@ -438,7 +438,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             llm = build_llm_interface(
                 provider=qbsd_config["schema_creation_backend"]["provider"],
                 model=qbsd_config["schema_creation_backend"]["model"],
-                max_tokens=qbsd_config["schema_creation_backend"]["max_tokens"],
+                max_output_tokens=qbsd_config["schema_creation_backend"]["max_output_tokens"],
                 temperature=qbsd_config["schema_creation_backend"]["temperature"],
                 api_key=qbsd_config["schema_creation_backend"].get("api_key"),
                 gemini_key_type=qbsd_config["schema_creation_backend"].get("gemini_key_type")
@@ -557,7 +557,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             value_extraction_llm = build_llm_interface(
                 provider=qbsd_config["value_extraction_backend"]["provider"],
                 model=qbsd_config["value_extraction_backend"]["model"],
-                max_tokens=qbsd_config["value_extraction_backend"]["max_tokens"],
+                max_output_tokens=qbsd_config["value_extraction_backend"]["max_output_tokens"],
                 temperature=qbsd_config["value_extraction_backend"]["temperature"],
                 api_key=qbsd_config["value_extraction_backend"].get("api_key"),
                 gemini_key_type=qbsd_config["value_extraction_backend"].get("gemini_key_type")
@@ -701,7 +701,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     max_keys_schema=qbsd_config.get("max_keys_schema", 100),
                     current_schema=current_schema,
                     llm=llm,
-                    max_context_tokens=qbsd_config["schema_creation_backend"].get("max_context_tokens", 8192)
+                    context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size", 8192)
                 )
                 # generate_schema returns a tuple (Schema, bool)
                 new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result

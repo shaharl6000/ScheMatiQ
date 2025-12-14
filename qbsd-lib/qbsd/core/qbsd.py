@@ -158,16 +158,30 @@ You are *SchemaLLM*, a senior data analyst who discovers NEW table columns to ex
   ]
 }}
 
-### Guidelines for allowed_values (closed set)
-* Use `allowed_values` ONLY when the column represents a categorical or enumerable concept with a finite set of options
-* Good candidates for allowed_values:
-  - Boolean columns: ["yes", "no"] or ["true", "false"]
-  - Type/category columns: ["conference", "journal", "preprint"]
-  - Status columns: ["active", "inactive", "pending"]
-  - Data modality: ["text", "image", "audio", "video", "multimodal"]
-* Set to `null` or omit when values are free-form (e.g., paper_title, author_name, accuracy_score)
-* Keep the list concise (typically 3-10 values)
-* Values should be lowercase, mutually exclusive, and collectively cover the expected options
+### Guidelines for allowed_values (value constraints)
+Use `allowed_values` for columns with predictable or constrained values:
+
+**Categorical values** (list of options):
+  - Boolean: ["yes", "no"] or ["true", "false"]
+  - Types: ["conference", "journal", "preprint"], ["cnn", "rnn", "transformer"]
+  - Status: ["active", "inactive", "pending"]
+  - Modality: ["text", "image", "audio", "video", "multimodal"]
+
+**Numeric constraints** (single-item list):
+  - Any number: ["number"] - accepts any integer or float
+  - Percentage range: ["0-100"] - for accuracy, confidence scores
+  - Probability range: ["0.0-1.0"] - for ratios, probabilities
+  - Rating scale: ["1-5"] or ["1-10"] - for ratings, Likert scales
+  - Count: ["0-1000"] - for sample sizes, counts with expected bounds
+
+**When to use allowed_values**:
+* Prefer setting constraints when values follow a predictable pattern
+* For numeric columns (accuracy, score, count, percentage, F1, etc.), consider adding a range constraint
+* Set to `null` only for truly free-form text (titles, names, open-ended descriptions)
+
+**Format rules**:
+* Categorical: lowercase values, mutually exclusive
+* Numeric range: format as "min-max" (e.g., "0-100", "0.0-1.0")
 
 ### Critical Guidelines - BE VERY RESTRICTIVE
 * Honestly assess if documents contribute meaningful information for the query
@@ -227,14 +241,14 @@ def generate_schema(
     max_keys_schema: int,
     current_schema: Schema | None,
     llm,
-    max_context_tokens: int = 8192,
+    context_window_size: int = 8192,
 ) -> tuple[Schema, bool]:
     """
     Feed passages + (optional) current schema to the LLM, ask for additions.
     Returns (Schema, document_helpful_flag)
     """
     prompt = build_messages(query, passages, current_schema)
-    trimmed = utils.fit_prompt(prompt, truncate=True, max_context_tokens=max_context_tokens)
+    trimmed = utils.fit_prompt(prompt, truncate=True, context_window_size=context_window_size)
     llm_response = llm.generate(trimmed)
     return _parse_schema_from_llm(llm_response, query=query, max_keys_schema=max_keys_schema)
 
@@ -272,7 +286,7 @@ def discover_schema(
     llm,
     retriever,
     documents_batch_size,
-    max_context_tokens,
+    context_window_size,
     initial_schema: Schema | None = None,
     max_iters: int = 6
 ) -> tuple[Schema, List[str], List[str], SchemaEvolution]:
@@ -339,7 +353,7 @@ def discover_schema(
             )
             continue
 
-        proposed, document_helpful = generate_schema(passages, query, max_keys_schema, schema, llm, max_context_tokens)
+        proposed, document_helpful = generate_schema(passages, query, max_keys_schema, schema, llm, context_window_size)
 
         # Tag proposed columns with source document info BEFORE merging
         # Use first document in batch as source (representative)
@@ -525,11 +539,11 @@ def main(cfg_path: Path) -> None:
 
     # Run discovery with contribution tracking
     start_time = time.time()
-    max_context_tokens = backend_cfg.get("max_context_tokens", 8192)
+    context_window_size = backend_cfg.get("context_window_size", backend_cfg.get("max_context_tokens", 8192))
     schema, contributing_files, non_contributing_files, schema_evolution = discover_schema(
         query=query, documents=docs, filenames=filenames,
         max_keys_schema=max_keys_schema, llm=llm_for_schema, retriever=retriever,
-        max_context_tokens=max_context_tokens,
+        context_window_size=context_window_size,
         documents_batch_size=documents_batch_size,
         initial_schema=initial_schema
     )

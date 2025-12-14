@@ -93,16 +93,16 @@ const QBSDConfigPage = () => {
     schema_creation_backend: {
       provider: 'gemini',
       model: 'gemini-2.5-flash',
-      max_tokens: 8192,
+      max_output_tokens: 8192,
       temperature: 0.2,
-      max_context_tokens: 1000000,
+      context_window_size: 1000000,
     },
     value_extraction_backend: {
       provider: 'gemini',
       model: 'gemini-2.5-flash-lite',
-      max_tokens: 8192,
+      max_output_tokens: 8192,
       temperature: 0.2,
-      max_context_tokens: 1000000,
+      context_window_size: 1000000,
     },
     output_path: 'outputs/visualization_output.json',
     document_randomization_seed: 42,
@@ -360,11 +360,11 @@ const QBSDConfigPage = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Max Tokens</Label>
+                    <Label>Max Output Tokens</Label>
                     <Input
                       type="number"
-                      value={config.schema_creation_backend.max_tokens}
-                      onChange={(e) => handleSchemaBackendChange('max_tokens', parseInt(e.target.value))}
+                      value={config.schema_creation_backend.max_output_tokens}
+                      onChange={(e) => handleSchemaBackendChange('max_output_tokens', parseInt(e.target.value))}
                       min={512}
                       max={32768}
                     />
@@ -383,11 +383,11 @@ const QBSDConfigPage = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Max Context Tokens</Label>
+                    <Label>Context Window Size</Label>
                     <Input
                       type="number"
-                      value={config.schema_creation_backend.max_context_tokens || ''}
-                      onChange={(e) => handleSchemaBackendChange('max_context_tokens', e.target.value ? parseInt(e.target.value) : undefined)}
+                      value={config.schema_creation_backend.context_window_size || ''}
+                      onChange={(e) => handleSchemaBackendChange('context_window_size', e.target.value ? parseInt(e.target.value) : undefined)}
                       placeholder="Optional"
                     />
                   </div>
@@ -448,11 +448,11 @@ const QBSDConfigPage = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Max Tokens</Label>
+                    <Label>Max Output Tokens</Label>
                     <Input
                       type="number"
-                      value={config.value_extraction_backend.max_tokens}
-                      onChange={(e) => handleValueBackendChange('max_tokens', parseInt(e.target.value))}
+                      value={config.value_extraction_backend.max_output_tokens}
+                      onChange={(e) => handleValueBackendChange('max_output_tokens', parseInt(e.target.value))}
                       min={512}
                       max={32768}
                     />
@@ -471,11 +471,11 @@ const QBSDConfigPage = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Max Context Tokens</Label>
+                    <Label>Context Window Size</Label>
                     <Input
                       type="number"
-                      value={config.value_extraction_backend.max_context_tokens || ''}
-                      onChange={(e) => handleValueBackendChange('max_context_tokens', e.target.value ? parseInt(e.target.value) : undefined)}
+                      value={config.value_extraction_backend.context_window_size || ''}
+                      onChange={(e) => handleValueBackendChange('context_window_size', e.target.value ? parseInt(e.target.value) : undefined)}
                       placeholder="Optional"
                     />
                   </div>

@@ -125,7 +125,7 @@ class TogetherLLM(LLMInterface):
         self,
         model: str,
         api_key: str | None = None,
-        max_tokens: int = 1024,
+        max_output_tokens: int = 1024,
         temperature: float = 0.3,
         **backend_kwargs,
     ):
@@ -144,7 +144,7 @@ class TogetherLLM(LLMInterface):
         self._client = Together(api_key=self.api_key)
         self._default_args: Dict[str, Any] = dict(
             model=self.model,
-            max_tokens=max_tokens,
+            max_tokens=max_output_tokens,  # Together API uses max_tokens
             temperature=temperature,
         )
         # Removed API key printing for security
@@ -219,7 +219,7 @@ class OpenAILLM(LLMInterface):
         self,
         model: str,
         api_key: str | None = None,
-        max_tokens: int = 1024,
+        max_output_tokens: int = 1024,
         temperature: float = 0.3,
         **backend_kwargs,
     ):
@@ -238,7 +238,7 @@ class OpenAILLM(LLMInterface):
         self._client = OpenAI(api_key=self.api_key)
         self._default_args: Dict[str, Any] = dict(
             model=self.model,
-            max_tokens=max_tokens,
+            max_tokens=max_output_tokens,  # OpenAI API uses max_tokens
             temperature=temperature,
         )
 
@@ -309,7 +309,7 @@ class HuggingFaceLLM(LLMInterface):
     def __init__(
         self,
         model: str,
-        max_tokens: int = 1024,
+        max_output_tokens: int = 1024,
         temperature: float = 0.3,
         device: str | None = None,
         **backend_kwargs,
@@ -320,11 +320,11 @@ class HuggingFaceLLM(LLMInterface):
             from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, pipeline
         except ImportError as e:
             raise ImportError(
-                "pip install transformers accelerate" 
+                "pip install transformers accelerate"
                 "(https://pypi.org/project/transformers/)") from e
 
         self.model_name = model
-        self.max_tokens = max_tokens
+        self.max_output_tokens = max_output_tokens
         self.temperature = temperature
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -386,7 +386,7 @@ class HuggingFaceLLM(LLMInterface):
             prompt = "\n".join([f"{m['role']}: {m['content']}" for m in prompt])
 
         gen_args = {
-            "max_new_tokens": kwargs.get("max_tokens", self.max_tokens),
+            "max_new_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
             "do_sample": True,
             "return_full_text": False,
@@ -419,15 +419,15 @@ class GeminiLLM(LLMInterface):
         self,
         model: str,
         api_key: str | None = None,
-        max_tokens: int = 1024,
+        max_output_tokens: int = 1024,
         temperature: float = 0.3,
-        max_context_tokens: int = 1000000,  # Gemini has 1M context by default
+        context_window_size: int = 1000000,  # Gemini has 1M context by default
         rotation_requests: int = 10,  # Rotate keys every N requests
         **backend_kwargs,
     ):
         super().__init__(**backend_kwargs)
         self.model = model
-        self.max_context_tokens = max_context_tokens
+        self.context_window_size = context_window_size
         self.rotation_requests = rotation_requests
         
         # Load multiple API keys with fallback strategy
@@ -467,7 +467,7 @@ class GeminiLLM(LLMInterface):
         
         self._default_args: Dict[str, Any] = dict(
             generation_config=genai.types.GenerationConfig(
-                max_output_tokens=max_tokens,
+                max_output_tokens=max_output_tokens,
                 temperature=temperature,
             )
         )
@@ -614,8 +614,8 @@ class GeminiLLM(LLMInterface):
 
         # Merge generation config
         gen_config = self._default_args["generation_config"]
-        if kwargs.get("max_tokens"):
-            gen_config.max_output_tokens = kwargs["max_tokens"]
+        if kwargs.get("max_output_tokens"):
+            gen_config.max_output_tokens = kwargs["max_output_tokens"]
         if kwargs.get("temperature") is not None:
             gen_config.temperature = kwargs["temperature"]
 

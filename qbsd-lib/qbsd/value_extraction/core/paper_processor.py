@@ -139,10 +139,10 @@ class PaperProcessor:
         
         # Skip truncation for long context models
         should_truncate = not self._should_skip_truncation()
-        max_ctx = getattr(self.llm, 'max_context_tokens', 8192) if hasattr(self.llm, 'max_context_tokens') else 8192
-        trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=512, 
+        max_ctx = getattr(self.llm, 'context_window_size', 8192) if hasattr(self.llm, 'context_window_size') else 8192
+        trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=512,
                                  safety_margins=SAFETY_MARGIN_SINGLE_MODE,
-                                 max_context_tokens=max_ctx)
+                                 context_window_size=max_ctx)
         raw = self.llm.generate(trimmed)
         try:
             parsed = self.json_parser.parse_response(raw)
@@ -216,10 +216,10 @@ class PaperProcessor:
             )
             # Skip truncation for long context models
             should_truncate = not self._should_skip_truncation()
-            max_ctx = getattr(self.llm, 'max_context_tokens', 8192) if hasattr(self.llm, 'max_context_tokens') else 8192
-            trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens, 
+            max_ctx = getattr(self.llm, 'context_window_size', 8192) if hasattr(self.llm, 'context_window_size') else 8192
+            trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens,
                                      safety_margins=SAFETY_MARGIN_SINGLE_MODE,
-                                     max_context_tokens=max_ctx)
+                                     context_window_size=max_ctx)
             raw = self.llm.generate(trimmed)
             try:
                 parsed = self.json_parser.parse_response(raw)
@@ -244,10 +244,10 @@ class PaperProcessor:
             )
             # Skip truncation for long context models
             should_truncate = not self._should_skip_truncation()
-            max_ctx = getattr(self.llm, 'max_context_tokens', 8192) if hasattr(self.llm, 'max_context_tokens') else 8192
-            trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens, 
+            max_ctx = getattr(self.llm, 'context_window_size', 8192) if hasattr(self.llm, 'context_window_size') else 8192
+            trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens,
                                      safety_margins=SAFETY_MARGIN_ALL_MODE,
-                                     max_context_tokens=max_ctx)
+                                     context_window_size=max_ctx)
             raw = self.llm.generate(trimmed)
             try:
                 parsed = self.json_parser.parse_response(raw)

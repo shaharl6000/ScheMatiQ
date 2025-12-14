@@ -59,17 +59,17 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     if backend_config["provider"] == "gemini":
                         return GeminiLLM(
                             model=backend_config["model"],
-                            max_tokens=backend_config["max_tokens"],
+                            max_output_tokens=backend_config.get("max_output_tokens", backend_config.get("max_tokens", 2048)),
                             temperature=backend_config["temperature"]
                         )
                     # Could add other providers here when needed
-                        
+
         except Exception as e:
             print(f"DEBUG: Could not load LLM config from session {session_id}: {e}")
-            
+
         # Fallback to default configuration
         print(f"DEBUG: Using default LLM configuration for session {session_id}")
-        return GeminiLLM(model="gemini-2.5-flash-lite", max_tokens=2048, temperature=0.1)
+        return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0.1)
     
     async def reprocess_column(self, session_id: str, column_name: str):
         """Reprocess documents for a specific column after editing."""

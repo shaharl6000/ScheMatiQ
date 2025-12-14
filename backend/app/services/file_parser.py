@@ -1160,7 +1160,7 @@ class FileParser:
             "backend": {
                 "provider": "gemini",
                 "model": "gemini-2.5-flash",
-                "max_tokens": 1024,
+                "max_output_tokens": 1024,
                 "temperature": 0.3
             },
             "retriever": {

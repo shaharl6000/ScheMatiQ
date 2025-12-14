@@ -69,7 +69,7 @@ const LLM_OPTIONS = [
 const DEFAULT_CONFIG: LLMConfig = {
   provider: 'gemini',
   model: 'gemini-2.5-flash-lite',
-  max_tokens: 1024,
+  max_output_tokens: 1024,
   temperature: 0.3,
 };
 
@@ -103,7 +103,7 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
       setSelectedConfig({
         provider,
         model,
-        max_tokens: 1024,
+        max_output_tokens: 1024,
         temperature: 0.3,
       });
       setUsePreservedConfig(false);

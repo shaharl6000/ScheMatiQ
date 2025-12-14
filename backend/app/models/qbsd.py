@@ -7,9 +7,9 @@ class LLMConfig(BaseModel):
     """LLM backend configuration."""
     provider: str  # "openai", "together", "gemini"
     model: str
-    max_tokens: int = 1024
+    max_output_tokens: int = 1024
     temperature: float = 0.2
-    max_context_tokens: Optional[int] = None
+    context_window_size: Optional[int] = None
     api_key: Optional[str] = None  # User-provided API key (falls back to env var)
     gemini_key_type: Optional[str] = None  # "single" or "multi" for Gemini
 

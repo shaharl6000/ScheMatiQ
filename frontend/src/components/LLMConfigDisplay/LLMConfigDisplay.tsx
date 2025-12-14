@@ -13,7 +13,7 @@ interface LLMConfigDisplayProps {
   config: {
     provider?: string;
     model?: string;
-    max_tokens?: number;
+    max_output_tokens?: number;
     temperature?: number;
   } | null;
   title?: string;
@@ -80,16 +80,16 @@ const LLMConfigDisplay: React.FC<LLMConfigDisplayProps> = ({
             {config.provider || 'Unknown'}
           </Badge>
 
-          {config.max_tokens && (
+          {config.max_output_tokens && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Badge variant="outline" className="gap-1 cursor-help">
                   <HardDrive className="h-3 w-3" />
-                  {config.max_tokens} tokens
+                  {config.max_output_tokens} output tokens
                 </Badge>
               </TooltipTrigger>
               <TooltipContent>
-                Maximum tokens per request
+                Maximum tokens the model can generate in its response
               </TooltipContent>
             </Tooltip>
           )}
