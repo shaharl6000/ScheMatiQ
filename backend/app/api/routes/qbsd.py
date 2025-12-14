@@ -140,6 +140,48 @@ async def list_qbsd_sessions():
     """List all QBSD sessions."""
     return session_manager.list_sessions(SessionType.QBSD)
 
+
+@router.get("/directories")
+async def list_document_directories():
+    """List available document directories from research/data folder.
+
+    Returns a list of directories that can be used as document paths for QBSD.
+    Each directory includes its name and the relative path for the backend.
+    """
+    try:
+        # Try multiple path resolution strategies
+        candidates = [
+            Path("../research/data"),  # When running from backend/
+            Path(__file__).parent.parent.parent.parent.parent / "research" / "data",  # Absolute from file location
+            Path.cwd().parent / "research" / "data",  # From current working directory
+            Path.cwd() / "research" / "data",  # If running from project root
+        ]
+
+        research_data_path = None
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_dir():
+                research_data_path = candidate
+                break
+
+        if research_data_path is None:
+            print(f"DEBUG: Could not find research/data directory. Tried: {[str(c) for c in candidates]}")
+            return []
+
+        directories = []
+        for item in sorted(research_data_path.iterdir()):
+            if item.is_dir():
+                directories.append({
+                    "value": f"../research/data/{item.name}",
+                    "label": item.name
+                })
+
+        return directories
+
+    except Exception as e:
+        print(f"DEBUG: Error listing directories: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/export/{session_id}")
 async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
     """Export QBSD data as CSV with excerpts in separate columns.

@@ -35,17 +35,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { qbsdAPI } from '../services/api';
 import { QBSDConfig, LLMConfig, RetrieverConfig } from '../types';
 
-const DOCUMENT_DIRECTORIES = [
-  { value: '../research/data/file', label: 'file' },
-  { value: '../research/data/abstracts', label: 'abstracts' },
-  { value: '../research/data/full_text', label: 'full_text' },
-  { value: '../research/data/manually', label: 'manually' },
-  { value: '../research/data/NES_DATA', label: 'NES_DATA' },
-  { value: '../research/data/files', label: 'files' },
-  { value: '../research/data/arxivDIGESTables', label: 'arxivDIGESTables' },
-  { value: '../research/data/schema_6_filtered', label: 'schema_6_filtered' },
-];
-
 const QBSDConfigPage = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -57,11 +46,43 @@ const QBSDConfigPage = () => {
   const [schemaGeminiKeyType, setSchemaGeminiKeyType] = useState<'single' | 'multi'>('single');
   const [valueGeminiKeyType, setValueGeminiKeyType] = useState<'single' | 'multi'>('single');
 
+  // Directory state
+  const [directories, setDirectories] = useState<{ value: string; label: string }[]>([]);
+  const [directoriesLoading, setDirectoriesLoading] = useState(true);
+
   // Load Gemini key type preference on mount
   useEffect(() => {
     const savedType = getGeminiKeyType();
     setSchemaGeminiKeyType(savedType);
     setValueGeminiKeyType(savedType);
+  }, []);
+
+  // Fetch available directories on mount
+  useEffect(() => {
+    const fetchDirectories = async () => {
+      try {
+        setDirectoriesLoading(true);
+        const dirs = await qbsdAPI.getDirectories();
+        setDirectories(dirs);
+        // If current selection is empty and directories are available, select the first one
+        if (dirs.length > 0) {
+          setConfig(prev => {
+            const currentPaths = Array.isArray(prev.docs_path) ? prev.docs_path : [prev.docs_path];
+            // Check if current paths exist in the fetched directories
+            const validPaths = currentPaths.filter(path => dirs.some(d => d.value === path));
+            if (validPaths.length === 0) {
+              return { ...prev, docs_path: [dirs[0].value] };
+            }
+            return prev;
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch directories:', err);
+      } finally {
+        setDirectoriesLoading(false);
+      }
+    };
+    fetchDirectories();
   }, []);
 
   const [config, setConfig] = useState<QBSDConfig>({
@@ -203,29 +224,47 @@ const QBSDConfigPage = () => {
               </Label>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" className="w-full justify-between">
-                    {selectedPaths.length === 0
-                      ? 'Select directories...'
-                      : `${selectedPaths.length} selected`}
+                  <Button
+                    variant="outline"
+                    className="w-full justify-between"
+                    disabled={directoriesLoading}
+                  >
+                    {directoriesLoading ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Loading directories...
+                      </>
+                    ) : selectedPaths.length === 0 ? (
+                      'Select directories...'
+                    ) : (
+                      `${selectedPaths.length} selected`
+                    )}
                     <ChevronDown className="ml-2 h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-full min-w-[300px]">
+                <DropdownMenuContent className="w-full min-w-[300px] max-h-[300px] overflow-y-auto">
                   <DropdownMenuLabel>Select Directories</DropdownMenuLabel>
-                  {DOCUMENT_DIRECTORIES.map((dir) => (
-                    <DropdownMenuCheckboxItem
-                      key={dir.value}
-                      checked={selectedPaths.includes(dir.value)}
-                      onCheckedChange={(checked) => {
-                        const newPaths = checked
-                          ? [...selectedPaths, dir.value]
-                          : selectedPaths.filter(p => p !== dir.value);
-                        handleConfigChange('docs_path', newPaths);
-                      }}
-                    >
-                      {dir.label}
-                    </DropdownMenuCheckboxItem>
-                  ))}
+                  {directories.length === 0 ? (
+                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                      No directories found
+                    </div>
+                  ) : (
+                    directories.map((dir) => (
+                      <DropdownMenuCheckboxItem
+                        key={dir.value}
+                        checked={selectedPaths.includes(dir.value)}
+                        onSelect={(e) => e.preventDefault()}
+                        onCheckedChange={(checked) => {
+                          const newPaths = checked
+                            ? [...selectedPaths, dir.value]
+                            : selectedPaths.filter(p => p !== dir.value);
+                          handleConfigChange('docs_path', newPaths);
+                        }}
+                      >
+                        {dir.label}
+                      </DropdownMenuCheckboxItem>
+                    ))
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
               <p className="text-sm text-muted-foreground">

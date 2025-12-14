@@ -163,6 +163,11 @@ export const qbsdAPI = {
     return response.data;
   },
 
+  getDirectories: async (): Promise<{ value: string; label: string }[]> => {
+    const response = await api.get('/qbsd/directories');
+    return response.data;
+  },
+
   export: async (sessionId: string): Promise<void> => {
     const response = await api.get(`/qbsd/export/${sessionId}`, { 
       responseType: 'blob' 
