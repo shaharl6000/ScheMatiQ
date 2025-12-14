@@ -56,6 +56,7 @@ class Schema:
     # -------------------------------------------------------------- #
     def __post_init__(self):
         self._q_emb = _embed(self.query)
+        self._prune()  # Enforce max_keys limit immediately
 
 
     # ------------------------------------------------------------------ #
