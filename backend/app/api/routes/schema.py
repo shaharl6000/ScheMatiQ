@@ -27,12 +27,14 @@ class ColumnEditRequest(BaseModel):
     new_name: Optional[str] = None
     definition: Optional[str] = None
     rationale: Optional[str] = None
+    allowed_values: Optional[List[str]] = None  # Closed set of valid values
     reprocess: bool = True
 
 class ColumnAddRequest(BaseModel):
     name: str
     definition: str
     rationale: str
+    allowed_values: Optional[List[str]] = None  # Closed set of valid values
     documents_path: Optional[str] = None
     data_type: str = "text"
 
@@ -87,6 +89,9 @@ async def edit_column(
                     col.definition = edit_request.definition
                 if edit_request.rationale is not None:
                     col.rationale = edit_request.rationale
+                if edit_request.allowed_values is not None:
+                    # Empty list means clear allowed_values, otherwise set the list
+                    col.allowed_values = edit_request.allowed_values if edit_request.allowed_values else None
                 column_found = True
                 break
         
@@ -198,7 +203,8 @@ async def add_column(
             name=add_request.name,
             definition=add_request.definition,
             rationale=add_request.rationale,
-            data_type=add_request.data_type
+            data_type=add_request.data_type,
+            allowed_values=add_request.allowed_values if add_request.allowed_values else None
         )
         
         session.columns.append(new_column)

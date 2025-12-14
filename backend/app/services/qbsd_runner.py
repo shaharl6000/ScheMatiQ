@@ -500,6 +500,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     "definition": col_dict.get("definition", ""),
                     "rationale": col_dict.get("explanation", col.rationale)  # "explanation" -> "rationale"
                 }
+                # Include allowed_values if present
+                if col_dict.get("allowed_values"):
+                    frontend_col["allowed_values"] = col_dict["allowed_values"]
                 frontend_schema.append(frontend_col)
             
             with open(schema_file, 'w') as f:
@@ -526,7 +529,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     name=col.name,
                     definition=col.definition,
                     rationale=col.rationale,
-                    data_type="object"
+                    data_type="object",
+                    source_document=col.source_document,
+                    discovery_iteration=col.discovery_iteration,
+                    allowed_values=col.allowed_values
                 )
                 schema_columns.append(col_info)
             
@@ -978,7 +984,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 data_type="object",  # QBSD data is typically complex objects
                 non_null_count=non_null_count,
                 unique_count=unique_count,
-                source_document=source_document
+                source_document=source_document,
+                discovery_iteration=getattr(col, 'discovery_iteration', None),
+                allowed_values=getattr(col, 'allowed_values', None)
             )
             columns.append(col_info)
 

@@ -75,16 +75,32 @@ def _parse_schema_from_llm(raw_text: str,
     
     try:
         payload = json.loads(cleaned)
-        
+
         # Handle new format with document_helpful field
         if isinstance(payload, dict) and "columns" in payload:
             document_helpful = payload.get("document_helpful", True)
             columns_data = payload["columns"]
             if columns_data:
-                columns = [Column(**c) for c in columns_data]
+                columns = [
+                    Column(
+                        name=c["name"],
+                        definition=c.get("definition", ""),
+                        rationale=c.get("rationale", ""),
+                        allowed_values=c.get("allowed_values") if c.get("allowed_values") else None
+                    )
+                    for c in columns_data
+                ]
         # Handle legacy format (direct list of columns)
         elif isinstance(payload, list):
-            columns = [Column(**c) for c in payload]
+            columns = [
+                Column(
+                    name=c["name"],
+                    definition=c.get("definition", ""),
+                    rationale=c.get("rationale", ""),
+                    allowed_values=c.get("allowed_values") if c.get("allowed_values") else None
+                )
+                for c in payload
+            ]
         else:
             raise ValueError("Unexpected payload format")
             
@@ -127,19 +143,31 @@ You are *SchemaLLM*, a senior data analyst who discovers NEW table columns to ex
    - Return: {{"document_helpful": true, "columns": [...]}}
 4. Identify only those aspects whose answers can be found in the provided
    passages — do **not** invent information that is absent from the text.
-   
+
 ### Output JSON spec
 {{
   "document_helpful": <true|false>,
   "columns": [
     {{
-      "name":        "<snake_case_column_name>",
-      "definition":  "<one‑sentence definition of what data belongs here>",
-      "rationale":   "<one‑sentence on why this column helps answer the query>"
+      "name":           "<snake_case_column_name>",
+      "definition":     "<one‑sentence definition of what data belongs here>",
+      "rationale":      "<one‑sentence on why this column helps answer the query>",
+      "allowed_values": ["value1", "value2", ...] | null
     }},
     ...
   ]
 }}
+
+### Guidelines for allowed_values (closed set)
+* Use `allowed_values` ONLY when the column represents a categorical or enumerable concept with a finite set of options
+* Good candidates for allowed_values:
+  - Boolean columns: ["yes", "no"] or ["true", "false"]
+  - Type/category columns: ["conference", "journal", "preprint"]
+  - Status columns: ["active", "inactive", "pending"]
+  - Data modality: ["text", "image", "audio", "video", "multimodal"]
+* Set to `null` or omit when values are free-form (e.g., paper_title, author_name, accuracy_score)
+* Keep the list concise (typically 3-10 values)
+* Values should be lowercase, mutually exclusive, and collectively cover the expected options
 
 ### Critical Guidelines - BE VERY RESTRICTIVE
 * Honestly assess if documents contribute meaningful information for the query

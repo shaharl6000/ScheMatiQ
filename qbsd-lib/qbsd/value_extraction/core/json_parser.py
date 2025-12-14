@@ -1,8 +1,9 @@
 """JSON response parsing and validation for LLM outputs."""
 
+import difflib
 import json
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple, Optional
 
 
 class JSONResponseParser:
@@ -83,10 +84,63 @@ class JSONResponseParser:
         if excerpts:  # if they gave evidence, allow it (paper may literally say "unknown")
             return False
         return bool(self.placeholder_re.search(answer.strip()))
-    
-    def postprocess(self, parsed: Dict[str, Dict[str, Any]], 
-                   requested_cols: List[str]) -> Dict[str, Dict[str, Any]]:
-        """Ensure missing columns are omitted or set to {} and clean placeholders."""
+
+    def _normalize_to_allowed_values(
+        self,
+        answer: str,
+        allowed_values: List[str],
+        threshold: float = 0.8
+    ) -> Tuple[str, bool]:
+        """
+        Normalize extracted answer to closest allowed value using soft matching.
+        Returns (normalized_answer, was_matched).
+
+        Soft enforcement strategy:
+        1. Case-insensitive exact match -> return allowed value
+        2. Fuzzy match above threshold -> return allowed value
+        3. No match -> keep original answer
+        """
+        if not allowed_values or not answer:
+            return answer, False
+
+        answer_lower = answer.lower().strip()
+
+        # Case-insensitive exact match
+        for av in allowed_values:
+            if av.lower().strip() == answer_lower:
+                return av, True
+
+        # Fuzzy matching using difflib
+        best_match: Optional[str] = None
+        best_ratio: float = 0.0
+        for av in allowed_values:
+            ratio = difflib.SequenceMatcher(None, answer_lower, av.lower()).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_match = av
+
+        if best_ratio >= threshold and best_match is not None:
+            return best_match, True
+
+        # No match - keep original (soft enforcement)
+        return answer, False
+
+    def postprocess(
+        self,
+        parsed: Dict[str, Dict[str, Any]],
+        requested_cols: List[str],
+        column_allowed_values: Optional[Dict[str, List[str]]] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Ensure missing columns are omitted or set to {} and clean placeholders.
+        Optionally normalize values to allowed_values (closed set enforcement).
+
+        Args:
+            parsed: Parsed LLM response
+            requested_cols: List of requested column names
+            column_allowed_values: Dict mapping column_name to list of allowed values
+        """
+        column_allowed_values = column_allowed_values or {}
         out: Dict[str, Dict[str, Any]] = {}
         for col in requested_cols:
             entry = parsed.get(col)
@@ -102,5 +156,13 @@ class JSONResponseParser:
                 ans = str(ans)
             if not isinstance(exs, list):
                 exs = [str(exs)]
+
+            # Apply allowed_values normalization (soft enforcement)
+            normalized = False
+            if col in column_allowed_values and column_allowed_values[col]:
+                ans, normalized = self._normalize_to_allowed_values(ans, column_allowed_values[col])
+
             out[col] = {"answer": ans, "excerpts": exs}
+            if normalized:
+                out[col]["normalized_to_allowed"] = True
         return out

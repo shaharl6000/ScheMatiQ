@@ -146,16 +146,18 @@ class PaperProcessor:
         raw = self.llm.generate(trimmed)
         try:
             parsed = self.json_parser.parse_response(raw)
-            cleaned = self.json_parser.postprocess(parsed, [col.name])
+            # Build allowed_values dict for postprocessing
+            column_allowed_values = {col.name: col.allowed_values} if col.allowed_values else {}
+            cleaned = self.json_parser.postprocess(parsed, [col.name], column_allowed_values)
             result = cleaned.get(col.name, {})
-            
+
             # Cache the result
             self.cache.put(cache_key, result)
             return result
         except Exception as e:
             print(f"⚠️  parse failure for column {col.name}: {e}")
             return {}
-    
+
     def extract_values_for_paper(self,
                                 paper_title: str,
                                 paper_text: str,
@@ -221,9 +223,11 @@ class PaperProcessor:
             raw = self.llm.generate(trimmed)
             try:
                 parsed = self.json_parser.parse_response(raw)
-                cleaned = self.json_parser.postprocess(parsed, [col.name])
+                # Build allowed_values dict for postprocessing
+                column_allowed_values = {col.name: col.allowed_values} if col.allowed_values else {}
+                cleaned = self.json_parser.postprocess(parsed, [col.name], column_allowed_values)
                 result = cleaned.get(col.name, {})
-                
+
                 # Cache the result
                 self.cache.put(cache_key, result)
                 return result
@@ -252,7 +256,13 @@ class PaperProcessor:
                 parsed = {}
 
             requested = [c.name for c in schema.columns]
-            cleaned = self.json_parser.postprocess(parsed, requested)
+            # Build allowed_values dict for postprocessing
+            column_allowed_values = {
+                c.name: c.allowed_values
+                for c in schema.columns
+                if c.allowed_values
+            }
+            cleaned = self.json_parser.postprocess(parsed, requested, column_allowed_values)
 
             # Attach source filename to excerpts
             cleaned = self._attach_source_to_excerpts(cleaned, paper_title)

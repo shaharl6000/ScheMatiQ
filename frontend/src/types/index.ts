@@ -9,6 +9,7 @@ export interface ColumnInfo {
   unique_count?: number;
   source_document?: string;  // Document that first added this column
   discovery_iteration?: number;  // Iteration when this column was discovered
+  allowed_values?: string[];  // Closed set of valid values for categorical columns
 }
 
 // Schema evolution tracking types
@@ -301,6 +302,7 @@ export interface EditColumnRequest {
   definition?: string;
   rationale?: string;
   new_name?: string; // For renaming
+  allowed_values?: string[]; // Closed set of valid values
 }
 
 export interface AddColumnRequest {
@@ -308,6 +310,7 @@ export interface AddColumnRequest {
   definition: string;
   rationale: string;
   document_paths?: string[]; // Specific documents to process
+  allowed_values?: string[]; // Closed set of valid values
 }
 
 export interface MergeColumnsRequest {

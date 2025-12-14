@@ -32,6 +32,7 @@ class ColumnInfo(BaseModel):
     unique_count: Optional[int] = None
     source_document: Optional[str] = None  # Document that first added this column
     discovery_iteration: Optional[int] = None  # Iteration when this column was discovered
+    allowed_values: Optional[List[str]] = None  # Closed set of valid values for categorical columns
 
 
 class SchemaSnapshot(BaseModel):

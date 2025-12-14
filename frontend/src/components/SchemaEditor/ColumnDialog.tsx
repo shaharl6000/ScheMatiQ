@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Loader2, X, Info } from 'lucide-react';
 
 import {
   Dialog,
@@ -15,6 +15,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 import {
   ColumnInfo,
@@ -49,8 +56,10 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
     name: '',
     definition: '',
     rationale: '',
-    new_name: ''
+    new_name: '',
+    allowed_values: [] as string[]
   });
+  const [newAllowedValue, setNewAllowedValue] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Initialize form when dialog opens or column changes
@@ -61,16 +70,19 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           name: column.name,
           definition: column.definition || '',
           rationale: column.rationale || '',
-          new_name: column.name
+          new_name: column.name,
+          allowed_values: column.allowed_values || []
         });
       } else {
         setFormData({
           name: '',
           definition: '',
           rationale: '',
-          new_name: ''
+          new_name: '',
+          allowed_values: []
         });
       }
+      setNewAllowedValue('');
       setErrors({});
     }
   }, [open, mode, column]);
@@ -105,6 +117,16 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
 
   const handleSubmit = async () => {
     if (!validateForm()) {
+      // Scroll to first error
+      const firstErrorField = Object.keys(errors)[0] ||
+        (!formData.name.trim() && mode === 'add' ? 'name' :
+         !formData.definition.trim() ? 'definition' :
+         !formData.rationale.trim() ? 'rationale' : null);
+      if (firstErrorField) {
+        const element = document.getElementById(firstErrorField);
+        element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element?.focus();
+      }
       return;
     }
 
@@ -115,6 +137,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           name: formData.name.trim(),
           definition: formData.definition.trim(),
           rationale: formData.rationale.trim(),
+          allowed_values: formData.allowed_values.length > 0 ? formData.allowed_values : undefined,
         };
 
         const response = await schemaAPI.addColumn(sessionId, request);
@@ -125,6 +148,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           definition: formData.definition.trim(),
           rationale: formData.rationale.trim(),
           new_name: formData.new_name.trim() !== formData.name ? formData.new_name.trim() : undefined,
+          allowed_values: formData.allowed_values,  // Send even if empty to allow clearing
         };
 
         const response = await schemaAPI.editColumn(sessionId, request);
@@ -154,13 +178,38 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
     }
   };
 
+  const handleAddAllowedValue = () => {
+    const value = newAllowedValue.trim();
+    if (value && !formData.allowed_values.includes(value)) {
+      setFormData(prev => ({
+        ...prev,
+        allowed_values: [...prev.allowed_values, value]
+      }));
+      setNewAllowedValue('');
+    }
+  };
+
+  const handleRemoveAllowedValue = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      allowed_values: prev.allowed_values.filter((_, i) => i !== index)
+    }));
+  };
+
+  const handleAllowedValueKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddAllowedValue();
+    }
+  };
+
   const dialogTitle = mode === 'add' ? 'Add New Column' : 'Edit Column';
   const submitIcon = mode === 'add' ? <Plus className="h-4 w-4" /> : <Pencil className="h-4 w-4" />;
   const submitText = mode === 'add' ? 'Add Column' : 'Save Changes';
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && !loading && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {submitIcon}
@@ -173,7 +222,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-4">
+        <ScrollArea className="flex-1 overflow-y-auto">
+          <div className="space-y-4 py-4 pr-4">
           {/* Column Name */}
           <div className="space-y-2">
             <Label htmlFor="name">
@@ -185,8 +235,11 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
               onChange={(e) => mode !== 'edit' && handleChange('name', e.target.value)}
               disabled={mode === 'edit' || loading}
               className={mode === 'edit' ? 'bg-muted' : ''}
+              aria-required={mode === 'add'}
+              aria-invalid={!!errors.name}
+              aria-describedby={errors.name ? 'name-error' : undefined}
             />
-            {errors.name && <p className="text-sm text-destructive">{errors.name}</p>}
+            {errors.name && <p id="name-error" className="text-sm text-destructive">{errors.name}</p>}
           </div>
 
           {/* New Name (for edit mode) */}
@@ -218,9 +271,12 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
               onChange={(e) => handleChange('definition', e.target.value)}
               rows={3}
               disabled={loading}
+              aria-required="true"
+              aria-invalid={!!errors.definition}
+              aria-describedby={errors.definition ? 'definition-error' : 'definition-hint'}
             />
-            {errors.definition && <p className="text-sm text-destructive">{errors.definition}</p>}
-            <p className="text-sm text-muted-foreground">
+            {errors.definition && <p id="definition-error" className="text-sm text-destructive">{errors.definition}</p>}
+            <p id="definition-hint" className="text-sm text-muted-foreground">
               Describe what this column represents and what type of information it should contain
             </p>
           </div>
@@ -236,10 +292,77 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
               onChange={(e) => handleChange('rationale', e.target.value)}
               rows={4}
               disabled={loading}
+              aria-required="true"
+              aria-invalid={!!errors.rationale}
+              aria-describedby={errors.rationale ? 'rationale-error' : 'rationale-hint'}
             />
-            {errors.rationale && <p className="text-sm text-destructive">{errors.rationale}</p>}
-            <p className="text-sm text-muted-foreground">
+            {errors.rationale && <p id="rationale-error" className="text-sm text-destructive">{errors.rationale}</p>}
+            <p id="rationale-hint" className="text-sm text-muted-foreground">
               Explain why this column is important for answering the research query
+            </p>
+          </div>
+
+          <Separator />
+
+          {/* Allowed Values (Closed Set) */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-1">
+              <Label htmlFor="allowed_values">
+                Allowed Values (Optional)
+              </Label>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-xs">
+                  <p>Define a closed set of acceptable values for this column. Use for categorical data like types, statuses, or yes/no values. Leave empty for free-form text columns.</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+
+            {/* Display existing allowed values as badges */}
+            {formData.allowed_values.length > 0 && (
+              <div className="flex flex-wrap gap-2 p-2 bg-muted/50 rounded-md">
+                {formData.allowed_values.map((value, index) => (
+                  <Badge key={index} variant="secondary" className="gap-1 pr-1">
+                    {value}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAllowedValue(index)}
+                      className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                      disabled={loading}
+                      aria-label={`Remove ${value}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+
+            {/* Input for adding new values */}
+            <div className="flex gap-2">
+              <Input
+                id="allowed_values"
+                placeholder="Add allowed value..."
+                value={newAllowedValue}
+                onChange={(e) => setNewAllowedValue(e.target.value)}
+                onKeyPress={handleAllowedValueKeyPress}
+                disabled={loading}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleAddAllowedValue}
+                disabled={loading || !newAllowedValue.trim()}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Press Enter or click + to add. Values are used for soft matching during extraction.
             </p>
           </div>
 
@@ -258,7 +381,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
               </AlertDescription>
             </Alert>
           )}
-        </div>
+          </div>
+        </ScrollArea>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={loading}>

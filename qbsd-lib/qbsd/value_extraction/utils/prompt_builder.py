@@ -21,7 +21,7 @@ class PromptBuilder:
                           strict: bool = False) -> List[Dict[str, str]]:
         """
         Build messages for value extraction LLM calls.
-        
+
         mode:
           - "all"         – ask for all columns at once
           - "one"         – (deprecated) alias of "one_by_one"
@@ -29,19 +29,26 @@ class PromptBuilder:
         """
         if mode in {"one", "one_by_one"}:
             col = columns[0]
+            # Build allowed_values line if present
+            allowed_values_line = ""
+            if col.get('allowed_values'):
+                allowed_values_line = f"\nallowed_values: {col['allowed_values']}"
             col_block = f"""
             <REQUESTED_COLUMN>
             name: {col['column']}
-            definition: {col['definition']}
+            definition: {col['definition']}{allowed_values_line}
             </REQUESTED_COLUMN>
             """.strip()
         else:
-            col_specs = "\n".join(
-                f"- **{c['column']}**: {c['definition']}" for c in columns
-            )
+            col_specs = []
+            for c in columns:
+                spec = f"- **{c['column']}**: {c['definition']}"
+                if c.get('allowed_values'):
+                    spec += f" (allowed values: {', '.join(c['allowed_values'])})"
+                col_specs.append(spec)
             col_block = f"""
             <REQUESTED_COLUMNS>
-            {col_specs}
+            {chr(10).join(col_specs)}
             </REQUESTED_COLUMNS>
             """.strip()
 

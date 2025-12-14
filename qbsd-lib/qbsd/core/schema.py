@@ -28,6 +28,7 @@ class Column:
     definition: str
     source_document: Optional[str] = None      # Document that first added this column
     discovery_iteration: Optional[int] = None  # Iteration when this column was discovered
+    allowed_values: Optional[List[str]] = None  # Closed set of valid values for categorical columns
 
     def to_dict(self) -> Dict[str, str]:
         result = {"column": self.name, "explanation": self.rationale, "definition": self.definition}
@@ -36,6 +37,8 @@ class Column:
             result["source_document"] = self.source_document
         if self.discovery_iteration is not None:
             result["discovery_iteration"] = self.discovery_iteration
+        if self.allowed_values is not None:
+            result["allowed_values"] = self.allowed_values
         return result
 
     # Needed for `set` / dict keys
@@ -145,6 +148,11 @@ class Schema:
             if key:  # already present – maybe replace rationale
                 if len(cand.rationale) > len(combined[key].rationale):
                     combined[key].rationale = cand.rationale
+                # Merge allowed_values (union)
+                if cand.allowed_values:
+                    existing_av = combined[key].allowed_values or []
+                    merged_av = list(dict.fromkeys(existing_av + cand.allowed_values))  # Preserve order, dedupe
+                    combined[key].allowed_values = merged_av if merged_av else None
             else:    # brand-new column
                 combined[cand.name] = cand
                 combined_emb[cand.name] = _embed(cand.name)
@@ -192,14 +200,17 @@ class Schema:
 
     def to_llm_dict(self) -> List[Dict[str, str]]:
         """Serialize schema for LLM prompts, excluding internal fields like _q_emb."""
-        return [
-            {
+        result = []
+        for col in self.columns:
+            col_dict = {
                 "name": col.name,
                 "definition": col.definition,
                 "rationale": col.rationale
             }
-            for col in self.columns
-        ]
+            if col.allowed_values is not None:
+                col_dict["allowed_values"] = col.allowed_values
+            result.append(col_dict)
+        return result
 
     # Convenience dunders
     def __len__(self):              return len(self.columns)

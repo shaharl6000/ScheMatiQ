@@ -16,6 +16,8 @@ import {
   AlertCircle,
   Info,
   Loader2,
+  Copy,
+  Check,
 } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -56,6 +58,7 @@ import {
   WebSocketMessageExtended
 } from '../../types';
 import { formatColumnName } from '../../utils/formatting';
+import { copyToClipboard } from '../../utils/clipboard';
 import { schemaAPI } from '../../services/api';
 import ColumnDialog from '../SchemaEditor/ColumnDialog';
 import MergeDialog from '../SchemaEditor/MergeDialog';
@@ -94,9 +97,21 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [columnToDelete, setColumnToDelete] = useState<string>('');
+  const [reprocessDialogOpen, setReprocessDialogOpen] = useState(false);
   const [reprocessingStatus, setReprocessingStatus] = useState<ReprocessingStatus | null>(null);
   const [validationResult, setValidationResult] = useState<SchemaValidationResultType | null>(null);
   const [loading, setLoading] = useState(false);
+  const [copiedQuery, setCopiedQuery] = useState(false);
+
+  const handleCopyQuery = async () => {
+    if (query) {
+      const success = await copyToClipboard(query);
+      if (success) {
+        setCopiedQuery(true);
+        setTimeout(() => setCopiedQuery(false), 2000);
+      }
+    }
+  };
 
   // Update local columns when props change
   useEffect(() => {
@@ -333,7 +348,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     }
   };
 
-  const handleReprocess = async () => {
+  const handleReprocessClick = () => {
+    setReprocessDialogOpen(true);
+  };
+
+  const confirmReprocess = async () => {
+    setReprocessDialogOpen(false);
     setLoading(true);
     try {
       await schemaAPI.reprocessDocuments(sessionId, { incremental: true });
@@ -384,6 +404,26 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                 <h3 className="font-semibold flex items-center gap-2 mb-2">
                   <Database className="h-5 w-5" />
                   Research Query
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={handleCopyQuery}
+                        aria-label="Copy query to clipboard"
+                      >
+                        {copiedQuery ? (
+                          <Check className="h-3 w-3 text-green-500" />
+                        ) : (
+                          <Copy className="h-3 w-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {copiedQuery ? 'Copied!' : 'Copy query'}
+                    </TooltipContent>
+                  </Tooltip>
                 </h3>
                 <p className="text-muted-foreground">{query}</p>
               </div>
@@ -523,7 +563,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                       Create Backup
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={handleReprocess} disabled={loading || Boolean(reprocessingStatus)}>
+                    <DropdownMenuItem onClick={handleReprocessClick} disabled={loading || Boolean(reprocessingStatus)}>
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Reprocess All
                     </DropdownMenuItem>
@@ -561,22 +601,34 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
                     {!readonly && (
                       <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => handleEditColumn(column)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:text-destructive"
-                          onClick={() => handleDeleteColumn(column.name)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8"
+                              onClick={() => handleEditColumn(column)}
+                              aria-label="Edit column"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Edit column definition</TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive hover:text-destructive"
+                              onClick={() => handleDeleteColumn(column.name)}
+                              aria-label="Delete column"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Delete column</TooltipContent>
+                        </Tooltip>
                       </div>
                     )}
                   </div>
@@ -596,6 +648,28 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
                       <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">Rationale</p>
                       <p className="text-sm">{column.rationale}</p>
+                    </div>
+                  )}
+
+                  {/* Allowed Values (Closed Set) or Free-form indicator */}
+                  {column.allowed_values && column.allowed_values.length > 0 ? (
+                    <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-950 rounded-md border border-purple-200 dark:border-purple-800">
+                      <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-2">
+                        Allowed Values
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {column.allowed_values.map((value, idx) => (
+                          <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
+                            {value}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mb-3 p-2 bg-gray-50 dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+                        Free-form (any value accepted)
+                      </p>
                     </div>
                   )}
 
@@ -716,6 +790,32 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {loading ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reprocess Confirmation Dialog */}
+      <Dialog open={reprocessDialogOpen} onOpenChange={setReprocessDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5" />
+              Reprocess All Documents
+            </DialogTitle>
+            <DialogDescription>
+              This will re-extract values for all columns from all documents.
+              This operation may take a significant amount of time depending on the number of documents.
+              Existing extracted values will be replaced.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReprocessDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmReprocess} disabled={loading}>
+              {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {loading ? 'Starting...' : 'Start Reprocessing'}
             </Button>
           </DialogFooter>
         </DialogContent>
