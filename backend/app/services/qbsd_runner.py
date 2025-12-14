@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+import math
 import subprocess
 import time
 from typing import Dict, Any, Optional, List
@@ -91,7 +92,7 @@ def build_llm_interface(
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
 from app.models.qbsd import QBSDConfig, QBSDStatus, QBSDProgress
-from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus
+from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus, SchemaEvolution, SchemaSnapshot
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
@@ -480,10 +481,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             
             # Run real schema discovery
             print(f"🐛 DEBUG: Starting schema discovery with {len(documents)} documents")
-            discovered_schema = await self._run_schema_discovery(
+            discovered_schema, schema_evolution = await self._run_schema_discovery(
                 documents, qbsd_config, llm, retriever, update_progress
             )
             print(f"🐛 DEBUG: Schema discovery completed with {len(discovered_schema.columns)} columns")
+            print(f"🐛 DEBUG: Schema evolution: {len(schema_evolution.snapshots)} snapshots tracked")
             
             # Save discovered schema with frontend-compatible format
             schema_file = session_dir / "discovered_schema.json"
@@ -564,9 +566,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             # Step 7: Finalize
             current_step += 1
             await update_progress("Finalizing results", 0.0)
-            
-            # Update session as completed
+
+            # Compute statistics from extracted data (include evolution)
+            statistics = self._compute_statistics_from_extracted_data(session_id, discovered_schema, schema_evolution)
+
+            # Update session as completed with statistics
             session = self.session_manager.get_session(session_id)
+            session.statistics = statistics
             session.status = SessionStatus.COMPLETED
             self.session_manager.update_session(session)
             
@@ -590,15 +596,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             raise
     
     async def _run_schema_discovery(
-        self, 
-        documents: List[str], 
-        qbsd_config: Dict[str, Any], 
-        llm: LLMInterface, 
-        retriever, 
+        self,
+        documents: List[str],
+        qbsd_config: Dict[str, Any],
+        llm: LLMInterface,
+        retriever,
         progress_callback
-    ) -> Schema:
-        """Run real schema discovery using QBSD pipeline."""
-        
+    ) -> tuple[Schema, SchemaEvolution]:
+        """Run real schema discovery using QBSD pipeline.
+
+        Returns:
+            Tuple of (discovered_schema, schema_evolution)
+        """
+
         # Initialize schema
         initial_schema = None
         if "initial_schema_path" in qbsd_config:
@@ -617,13 +627,31 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                         initial_schema = Schema(columns)
             except Exception as e:
                 print(f"Warning: Could not load initial schema: {e}")
-        
+
         current_schema = initial_schema or Schema([])
         query = qbsd_config["query"]
         max_iterations = 5  # Configurable
         convergence_threshold = 3  # Stop if schema doesn't change for 3 iterations
         unchanged_count = 0
-        
+
+        # Initialize schema evolution tracking
+        evolution = SchemaEvolution(snapshots=[], column_sources={})
+        cumulative_docs = 0
+
+        # Record initial columns (if any) as iteration 0
+        if len(current_schema.columns) > 0:
+            initial_column_names = [col.name for col in current_schema.columns]
+            evolution.snapshots.append(SchemaSnapshot(
+                iteration=0,
+                documents_processed=["initial_schema"],
+                total_columns=len(current_schema.columns),
+                new_columns=initial_column_names,
+                cumulative_documents=0
+            ))
+            # Mark initial columns as from initial schema
+            for col in current_schema.columns:
+                evolution.column_sources[col.name] = "initial_schema"
+
         for iteration in range(max_iterations):
             print(f"🐛 DEBUG: Schema discovery iteration {iteration + 1}/{max_iterations}")
             await progress_callback(f"Schema Discovery: Iteration {iteration + 1}/{max_iterations}", iteration / max_iterations, {
@@ -631,7 +659,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 "max_iterations": max_iterations,
                 "current_columns": len(current_schema.columns)
             })
-            
+
+            # Track column names before this iteration
+            columns_before = {col.name.lower() for col in current_schema.columns}
+            cumulative_docs += 1  # Approximation - treating each iteration as one batch
+
             # Select relevant content
             print(f"🐛 DEBUG: Selecting relevant content with retriever")
             relevant_content = QBSD.select_relevant_content(
@@ -640,7 +672,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 retriever=retriever
             )
             print(f"🐛 DEBUG: Selected {len(relevant_content)} relevant passages")
-            
+
             # Generate schema for this iteration
             print(f"🐛 DEBUG: Calling QBSD.generate_schema with LLM...")
             try:
@@ -658,7 +690,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             except Exception as e:
                 print(f"🐛 DEBUG: ERROR in generate_schema: {e}")
                 raise
-            
+
             # Merge with existing schema
             print(f"🐛 DEBUG: Merging schemas...")
             print(f"🐛 DEBUG: Current schema has {len(current_schema.columns)} columns")
@@ -671,7 +703,29 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 import traceback
                 traceback.print_exc()
                 raise
-            
+
+            # Identify NEW columns added in this iteration
+            columns_after = {col.name.lower() for col in merged_schema.columns}
+            new_column_names_lower = columns_after - columns_before
+            new_columns = [col.name for col in merged_schema.columns if col.name.lower() in new_column_names_lower]
+
+            # Record column sources for new columns
+            iteration_source = f"iteration_{iteration + 1}"
+            for col_name in new_columns:
+                if col_name not in evolution.column_sources:
+                    evolution.column_sources[col_name] = iteration_source
+
+            # Add snapshot to evolution
+            evolution.snapshots.append(SchemaSnapshot(
+                iteration=iteration + 1,
+                documents_processed=[iteration_source],
+                total_columns=len(merged_schema.columns),
+                new_columns=new_columns,
+                cumulative_documents=cumulative_docs
+            ))
+
+            print(f"🐛 DEBUG: Evolution - iteration {iteration + 1}: {len(new_columns)} new columns: {new_columns}")
+
             # Check convergence
             print(f"🐛 DEBUG: Checking convergence...")
             if QBSD.evaluate_schema_convergence(current_schema, merged_schema):
@@ -683,15 +737,16 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             else:
                 unchanged_count = 0
                 print(f"🐛 DEBUG: Schema changed, continuing iterations")
-            
+
             current_schema = merged_schema
             print(f"🐛 DEBUG: Completed iteration {iteration + 1}, moving to next")
-            
+
             # Small delay to allow other tasks
             await asyncio.sleep(0.1)
-        
+
         print(f"🐛 DEBUG: Schema discovery loop completed with {len(current_schema.columns)} columns")
-        return current_schema
+        print(f"🐛 DEBUG: Evolution tracking: {len(evolution.snapshots)} snapshots, {len(evolution.column_sources)} column sources")
+        return current_schema, evolution
     
     async def _run_value_extraction(
         self, 
@@ -828,7 +883,102 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             "total_documents": total_documents,
             "elapsed_time": int(time.time() - start_time)
         })
-    
+
+    def _compute_statistics_from_extracted_data(
+        self,
+        session_id: str,
+        schema: Schema,
+        schema_evolution: Optional[SchemaEvolution] = None
+    ) -> Optional[DataStatistics]:
+        """Compute statistics from extracted JSONL data.
+
+        Args:
+            session_id: The session ID
+            schema: The discovered schema with column definitions
+            schema_evolution: Optional schema evolution data from discovery
+
+        Returns:
+            DataStatistics object or None if no data available
+        """
+        session_dir = self.work_dir / session_id
+        data_file = session_dir / "extracted_data.jsonl"
+
+        if not data_file.exists():
+            print(f"⚠️  Statistics: No extracted_data.jsonl found for session {session_id}")
+            return None
+
+        # Read all rows from the extracted data
+        data_rows = []
+        try:
+            with open(data_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        data_rows.append(json.loads(line))
+        except Exception as e:
+            print(f"⚠️  Statistics: Error reading extracted data: {e}")
+            return None
+
+        if not data_rows:
+            print(f"⚠️  Statistics: No data rows found in extracted_data.jsonl")
+            return None
+
+        # Build column stats from schema + data
+        columns = []
+        for col in schema.columns:
+            # Count non-null values for this column
+            non_null_count = sum(
+                1 for row in data_rows
+                if col.name in row and row[col.name] is not None
+            )
+
+            # Count unique values (serialize to JSON for comparison)
+            unique_values = set()
+            for row in data_rows:
+                if col.name in row:
+                    try:
+                        unique_values.add(json.dumps(row[col.name], sort_keys=True))
+                    except (TypeError, ValueError):
+                        unique_values.add(str(row[col.name]))
+            unique_count = len(unique_values)
+
+            # Include source document info from evolution if available
+            source_document = None
+            if schema_evolution and col.name in schema_evolution.column_sources:
+                source_document = schema_evolution.column_sources[col.name]
+
+            col_info = ColumnInfo(
+                name=col.name,
+                definition=col.definition,
+                rationale=col.rationale,
+                data_type="object",  # QBSD data is typically complex objects
+                non_null_count=non_null_count,
+                unique_count=unique_count,
+                source_document=source_document
+            )
+            columns.append(col_info)
+
+        # Calculate overall completeness
+        total_cells = len(data_rows) * len(columns)
+        non_null_cells = sum(col.non_null_count or 0 for col in columns)
+        completeness = (non_null_cells / total_cells * 100) if total_cells > 0 else 0.0
+
+        # Ensure completeness is a valid number
+        if math.isnan(completeness) or math.isinf(completeness):
+            completeness = 0.0
+
+        stats = DataStatistics(
+            total_rows=len(data_rows),
+            total_columns=len(columns),
+            completeness=completeness,
+            column_stats=columns,
+            schema_evolution=schema_evolution
+        )
+
+        print(f"✓ Statistics computed: {len(data_rows)} rows, {len(columns)} columns, {completeness:.1f}% complete")
+        if schema_evolution:
+            print(f"✓ Schema evolution: {len(schema_evolution.snapshots)} snapshots, {len(schema_evolution.column_sources)} column sources")
+        return stats
+
     async def get_status(self, session_id: str) -> QBSDStatus:
         """Get current status of QBSD execution."""
         if session_id in self.running_sessions:

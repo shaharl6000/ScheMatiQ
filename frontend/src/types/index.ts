@@ -7,6 +7,22 @@ export interface ColumnInfo {
   data_type?: string;
   non_null_count?: number;
   unique_count?: number;
+  source_document?: string;  // Document that first added this column
+  discovery_iteration?: number;  // Iteration when this column was discovered
+}
+
+// Schema evolution tracking types
+export interface SchemaSnapshot {
+  iteration: number;
+  documents_processed: string[];
+  total_columns: number;
+  new_columns: string[];
+  cumulative_documents: number;
+}
+
+export interface SchemaEvolution {
+  snapshots: SchemaSnapshot[];
+  column_sources: Record<string, string>;  // column_name -> source_document
 }
 
 export interface SessionMetadata {
@@ -29,6 +45,7 @@ export interface DataStatistics {
   total_columns: number;
   completeness: number;
   column_stats: ColumnInfo[];
+  schema_evolution?: SchemaEvolution;  // How schema evolved during discovery
 }
 
 export interface VisualizationSession {

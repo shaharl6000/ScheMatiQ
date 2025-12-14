@@ -4,6 +4,7 @@ import csv
 import json
 import math
 import io
+import re
 import aiofiles
 import pandas as pd
 from typing import List, Dict, Any, Optional
@@ -14,7 +15,7 @@ from app.models.upload import (
     FileValidationResult, ColumnMappingRequest, SchemaValidationResult,
     QBSDSchemaFormat, SchemaColumn, CompatibilityCheck, DualFileUploadResult
 )
-from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData
+from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SchemaEvolution, SchemaSnapshot
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 class FileParser:
@@ -279,20 +280,56 @@ class FileParser:
         if math.isnan(completeness) or math.isinf(completeness) or not (0 <= completeness <= 100):
             completeness = 0.0
             
+        # Check if CSV has _excerpts columns that should be merged
+        has_excerpt_columns = any(col.endswith('_excerpts') for col in df.columns)
+        source_filename = file_path.name if has_excerpt_columns else None
+
+        # Filter out _excerpts columns from the schema (they'll be merged with parent columns)
+        if has_excerpt_columns:
+            columns = [col for col in columns if not col.name.endswith('_excerpts')]
+
+        # Convert schema_evolution dict to SchemaEvolution model if present (backward compatible)
+        schema_evolution = None
+        if metadata_info.get('schema_evolution'):
+            try:
+                evolution_data = metadata_info['schema_evolution']
+                snapshots = [
+                    SchemaSnapshot(
+                        iteration=s["iteration"],
+                        documents_processed=s.get("documents_processed", []),
+                        total_columns=s["total_columns"],
+                        new_columns=s.get("new_columns", []),
+                        cumulative_documents=s.get("cumulative_documents", 0)
+                    )
+                    for s in evolution_data.get("snapshots", [])
+                ]
+                schema_evolution = SchemaEvolution(
+                    snapshots=snapshots,
+                    column_sources=evolution_data.get("column_sources", {})
+                )
+                print(f"DEBUG: Imported schema evolution from CSV with {len(snapshots)} snapshots")
+            except Exception as e:
+                print(f"DEBUG: Could not parse CSV schema_evolution: {e}")
+
         statistics = DataStatistics(
             total_rows=len(df),
-            total_columns=len(df.columns),
+            total_columns=len(columns),  # Use filtered column count
             completeness=completeness,
-            column_stats=columns
+            column_stats=columns,
+            schema_evolution=schema_evolution  # Include if parsed (backward compatible - None if not present)
         )
-        
+
         # Save processed data as JSONL
         data_file = file_path.parent / "data.jsonl"
         with open(data_file, 'w') as f:
             for _, row in df.iterrows():
-                # Sanitize row data before saving
-                sanitized_data = self._sanitize_data_dict(row.to_dict())
-                row_data = DataRow(data=sanitized_data)
+                row_dict = row.to_dict()
+                # Merge _excerpts columns into QBSD format if they exist
+                if has_excerpt_columns:
+                    merged_data = self._merge_excerpt_columns(row_dict, source_filename)
+                else:
+                    merged_data = self._sanitize_data_dict(row_dict)
+                row_data = DataRow(data=merged_data)
                 f.write(json.dumps(row_data.model_dump()) + '\n')
         
         # Include extracted metadata in the result
@@ -312,6 +349,8 @@ class FileParser:
     
     async def _parse_json(self, file_path: Path) -> Dict[str, Any]:
         """Parse JSON/JSONL file."""
+        schema_evolution = None  # Will be extracted if present (backward compatible)
+
         if file_path.suffix.lower() == '.jsonl':
             # JSONL format
             data_rows = []
@@ -321,33 +360,77 @@ class FileParser:
                         obj = json.loads(line)
                         data_rows.append(obj)
         else:
-            # Regular JSON
+            # Regular JSON - could be complete export or raw data
             with open(file_path) as f:
                 data = json.load(f)
-                if isinstance(data, list):
+
+                # Check if this is a complete QBSD export with schema_evolution
+                if isinstance(data, dict):
+                    # Extract schema_evolution if present (backward compatible)
+                    if "schema_evolution" in data:
+                        try:
+                            evolution_data = data["schema_evolution"]
+                            snapshots = [
+                                SchemaSnapshot(
+                                    iteration=s["iteration"],
+                                    documents_processed=s.get("documents_processed", []),
+                                    total_columns=s["total_columns"],
+                                    new_columns=s.get("new_columns", []),
+                                    cumulative_documents=s.get("cumulative_documents", 0)
+                                )
+                                for s in evolution_data.get("snapshots", [])
+                            ]
+                            schema_evolution = SchemaEvolution(
+                                snapshots=snapshots,
+                                column_sources=evolution_data.get("column_sources", {})
+                            )
+                            print(f"DEBUG: Imported schema evolution with {len(snapshots)} snapshots")
+                        except Exception as e:
+                            print(f"DEBUG: Could not parse schema_evolution: {e}")
+
+                    # Check if this is a complete export format with "data" array
+                    if "data" in data and isinstance(data["data"], list):
+                        data_rows = data["data"]
+                    elif "schema" in data:
+                        # QBSD schema format without data array
+                        data_rows = [data]
+                    else:
+                        data_rows = [data]
+                elif isinstance(data, list):
                     data_rows = data
                 else:
                     data_rows = [data]
-        
+
         if not data_rows:
             raise ValueError("No data found in file")
-        
+
         # Extract schema from first row
         sample_row = data_rows[0]
         columns = []
-        
+
         # Handle QBSD format
         if '_row_name' in sample_row and '_papers' in sample_row:
             # QBSD extracted data format
             for key, value in sample_row.items():
                 if key.startswith('_'):
                     continue  # Skip metadata fields
-                
+
                 col_info = ColumnInfo(
                     name=key,
                     data_type="object",
                     non_null_count=sum(1 for row in data_rows if key in row and row[key] is not None),
                     unique_count=len(set(json.dumps(row.get(key, None), sort_keys=True) for row in data_rows))
+                )
+                columns.append(col_info)
+        elif 'data' in sample_row and isinstance(sample_row.get('data'), dict):
+            # DataRow format (from complete export)
+            sample_data = sample_row['data']
+            for key in sample_data.keys():
+                col_info = ColumnInfo(
+                    name=key,
+                    data_type=type(sample_data[key]).__name__,
+                    non_null_count=sum(1 for row in data_rows if 'data' in row and key in row['data'] and row['data'][key] is not None),
+                    unique_count=len(set(json.dumps(row.get('data', {}).get(key, None), sort_keys=True) for row in data_rows))
                 )
                 columns.append(col_info)
         else:
@@ -360,25 +443,26 @@ class FileParser:
                     unique_count=len(set(json.dumps(row.get(key, None), sort_keys=True) for row in data_rows))
                 )
                 columns.append(col_info)
-        
+
         # Calculate statistics
-        total_cells = len(data_rows) * len(columns)
+        total_cells = len(data_rows) * len(columns) if columns else 0
         non_null_cells = sum(col.non_null_count for col in columns)
-        
+
         # Calculate completeness safely
         completeness = float(non_null_cells / total_cells * 100) if total_cells > 0 else 0.0
-        
+
         # Ensure completeness is a valid number
         if math.isnan(completeness) or math.isinf(completeness) or not (0 <= completeness <= 100):
             completeness = 0.0
-            
+
         statistics = DataStatistics(
             total_rows=len(data_rows),
             total_columns=len(columns),
             completeness=completeness,
-            column_stats=columns
+            column_stats=columns,
+            schema_evolution=schema_evolution  # Include if parsed (backward compatible - None if not present)
         )
-        
+
         # Save processed data as JSONL
         data_file = file_path.parent / "data.jsonl"
         with open(data_file, 'w') as f:
@@ -390,12 +474,19 @@ class FileParser:
                         papers=row_data.get('_papers', []),
                         data={k: v for k, v in row_data.items() if not k.startswith('_')}
                     )
+                elif 'data' in row_data and isinstance(row_data.get('data'), dict):
+                    # Already in DataRow format
+                    data_row = DataRow(
+                        row_name=row_data.get('row_name'),
+                        papers=row_data.get('papers', []),
+                        data=row_data['data']
+                    )
                 else:
                     # Regular format
                     data_row = DataRow(data=row_data)
-                
+
                 f.write(json.dumps(data_row.model_dump()) + '\n')
-        
+
         return {"columns": columns, "statistics": statistics}
     
     def _sanitize_value(self, value):
@@ -432,6 +523,84 @@ class FileParser:
             else:
                 sanitized[key] = self._sanitize_value(value)
         return sanitized
+
+    def _merge_excerpt_columns(self, data_dict: Dict[str, Any], source_filename: str = None) -> Dict[str, Any]:
+        """Merge _excerpts columns with their parent columns into QBSD format.
+
+        Converts CSV format with separate columns:
+            {'Column': 'value', 'Column_excerpts': 'excerpt text'}
+        Into QBSD format:
+            {'Column': {'answer': 'value', 'excerpts': [{'text': 'excerpt text', 'source': 'filename'}]}}
+
+        Maintains backward compatibility - if no _excerpts columns exist, returns data as-is.
+        """
+        merged = {}
+        processed_excerpt_keys = set()
+
+        # First pass: identify all excerpt columns
+        excerpt_suffix = '_excerpts'
+        excerpt_columns = {k for k in data_dict.keys() if k.endswith(excerpt_suffix)}
+
+        for key, value in data_dict.items():
+            # Skip excerpt columns - they'll be merged with parent
+            if key in excerpt_columns:
+                processed_excerpt_keys.add(key)
+                continue
+
+            # Check if this column has a corresponding _excerpts column
+            excerpt_key = f"{key}{excerpt_suffix}"
+            if excerpt_key in data_dict:
+                # Merge into QBSD format
+                excerpt_value = data_dict[excerpt_key]
+                excerpts = []
+
+                if excerpt_value and excerpt_value != '' and not (isinstance(excerpt_value, float) and math.isnan(excerpt_value)):
+                    # Parse excerpt value - could be string, list, or already structured
+                    if isinstance(excerpt_value, str):
+                        # Try to parse as JSON list first
+                        try:
+                            parsed = json.loads(excerpt_value)
+                            if isinstance(parsed, list):
+                                for item in parsed:
+                                    if isinstance(item, dict) and 'text' in item:
+                                        # Already has structure
+                                        excerpts.append(item)
+                                    elif isinstance(item, str):
+                                        excerpts.append({
+                                            "text": item,
+                                            "source": source_filename or "Unknown"
+                                        })
+                            else:
+                                excerpts.append({
+                                    "text": str(parsed),
+                                    "source": source_filename or "Unknown"
+                                })
+                        except (json.JSONDecodeError, TypeError):
+                            # Plain string excerpt
+                            excerpts.append({
+                                "text": excerpt_value,
+                                "source": source_filename or "Unknown"
+                            })
+                    elif isinstance(excerpt_value, list):
+                        for item in excerpt_value:
+                            if isinstance(item, dict) and 'text' in item:
+                                excerpts.append(item)
+                            else:
+                                excerpts.append({
+                                    "text": str(item),
+                                    "source": source_filename or "Unknown"
+                                })
+
+                # Create QBSD format
+                merged[key] = {
+                    "answer": self._sanitize_value(value),
+                    "excerpts": excerpts
+                }
+            else:
+                # No excerpt column - keep as plain value
+                merged[key] = self._sanitize_value(value)
+
+        return merged
 
     async def get_paginated_data(self, session_id: str, page: int = 0, page_size: int = DEFAULT_PAGE_SIZE) -> PaginatedData:
         """Get paginated data for a session."""
@@ -1016,7 +1185,8 @@ class FileParser:
             'query': None,
             'llm_config': {},
             'column_definitions': {},
-            'generated_timestamp': None
+            'generated_timestamp': None,
+            'schema_evolution': None  # Will hold parsed SchemaEvolution if present
         }
 
         try:
@@ -1074,6 +1244,55 @@ class FileParser:
                                     'provider': parts[0],
                                     'model': ' '.join(parts[1:])
                                 }
+                        elif content.startswith('Schema Evolution:'):
+                            # Initialize evolution tracking
+                            if metadata_info['schema_evolution'] is None:
+                                metadata_info['schema_evolution'] = {
+                                    'snapshots': [],
+                                    'column_sources': {}
+                                }
+                        elif content.startswith('Iteration ') and ':' in content:
+                            # Parse iteration lines: "Iteration 1: +3 columns [col1, col2, col3]"
+                            try:
+                                if metadata_info['schema_evolution'] is None:
+                                    metadata_info['schema_evolution'] = {'snapshots': [], 'column_sources': {}}
+
+                                # Extract iteration number and column info
+                                iter_part, cols_part = content.split(':', 1)
+                                iteration = int(iter_part.replace('Iteration', '').strip())
+
+                                # Parse columns from brackets if present
+                                new_columns = []
+                                if '[' in cols_part and ']' in cols_part:
+                                    bracket_content = cols_part[cols_part.index('[') + 1:cols_part.index(']')]
+                                    # Handle truncated columns (e.g., "col1, col2... (+3 more)")
+                                    bracket_content = bracket_content.split('...')[0]
+                                    new_columns = [c.strip() for c in bracket_content.split(',') if c.strip()]
+
+                                # Extract column count from "+N columns"
+                                count_match = re.search(r'\+(\d+)\s+columns?', cols_part)
+                                total_columns = int(count_match.group(1)) if count_match else len(new_columns)
+
+                                # Calculate cumulative - sum of previous snapshots plus this one
+                                prev_total = sum(len(s.get('new_columns', [])) for s in metadata_info['schema_evolution']['snapshots'])
+
+                                snapshot = {
+                                    'iteration': iteration,
+                                    'documents_processed': [f'iteration_{iteration}'],
+                                    'total_columns': prev_total + total_columns,
+                                    'new_columns': new_columns,
+                                    'cumulative_documents': iteration
+                                }
+                                metadata_info['schema_evolution']['snapshots'].append(snapshot)
+
+                                # Add column sources
+                                for col in new_columns:
+                                    metadata_info['schema_evolution']['column_sources'][col] = f'iteration_{iteration}'
+                            except Exception as e:
+                                print(f"DEBUG: Could not parse iteration line '{content}': {e}")
+                        elif content.startswith('Total:') and 'columns from' in content and 'iterations' in content:
+                            # "Total: 5 columns from 2 iterations" - just informational, skip
+                            pass
                         elif ':' in content and not content.startswith(('Column Definitions', 'Metadata-Rich', 'Upload Data Export', 'QBSD Export')):
                             # Parse column definitions
                             if content.count(':') >= 1:

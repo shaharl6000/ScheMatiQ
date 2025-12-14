@@ -8,13 +8,15 @@ captures information needed to answer the query.
 
 __version__ = "0.1.0"
 
-from qbsd.core.schema import Column, Schema
+from qbsd.core.schema import Column, Schema, SchemaSnapshot, SchemaEvolution
 from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
 from qbsd.core.retrievers import EmbeddingRetriever
 
 __all__ = [
     "Column",
     "Schema",
+    "SchemaSnapshot",
+    "SchemaEvolution",
     "LLMInterface",
     "TogetherLLM",
     "OpenAILLM",

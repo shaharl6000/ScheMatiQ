@@ -26,12 +26,71 @@ class Column:
     name: str
     rationale: str
     definition: str
+    source_document: Optional[str] = None      # Document that first added this column
+    discovery_iteration: Optional[int] = None  # Iteration when this column was discovered
 
     def to_dict(self) -> Dict[str, str]:
-        return {"column": self.name, "explanation": self.rationale, "definition": self.definition}
+        result = {"column": self.name, "explanation": self.rationale, "definition": self.definition}
+        # Include source tracking fields if set
+        if self.source_document is not None:
+            result["source_document"] = self.source_document
+        if self.discovery_iteration is not None:
+            result["discovery_iteration"] = self.discovery_iteration
+        return result
 
     # Needed for `set` / dict keys
     def __hash__(self): return hash(self.name.lower())
+
+
+@dataclass
+class SchemaSnapshot:
+    """Snapshot of schema state at a point during discovery."""
+    iteration: int
+    documents_processed: List[str]
+    total_columns: int
+    new_columns: List[str]  # Names of columns added in this iteration
+    cumulative_documents: int = 0  # Total documents processed so far
+
+    def to_dict(self) -> Dict:
+        return {
+            "iteration": self.iteration,
+            "documents_processed": self.documents_processed,
+            "total_columns": self.total_columns,
+            "new_columns": self.new_columns,
+            "cumulative_documents": self.cumulative_documents
+        }
+
+
+@dataclass
+class SchemaEvolution:
+    """Tracks how the schema evolved during discovery."""
+    snapshots: List[SchemaSnapshot] = field(default_factory=list)
+    column_sources: Dict[str, str] = field(default_factory=dict)  # column_name -> source_document
+
+    def to_dict(self) -> Dict:
+        return {
+            "snapshots": [s.to_dict() for s in self.snapshots],
+            "column_sources": self.column_sources
+        }
+
+    def add_snapshot(self, iteration: int, documents: List[str],
+                     total_columns: int, new_columns: List[str],
+                     cumulative_documents: int) -> None:
+        """Add a new snapshot to the evolution history."""
+        snapshot = SchemaSnapshot(
+            iteration=iteration,
+            documents_processed=documents,
+            total_columns=total_columns,
+            new_columns=new_columns,
+            cumulative_documents=cumulative_documents
+        )
+        self.snapshots.append(snapshot)
+
+    def record_column_source(self, column_name: str, source_document: str) -> None:
+        """Record which document contributed a column."""
+        if column_name not in self.column_sources:
+            self.column_sources[column_name] = source_document
+
 
 @dataclass
 class Schema:

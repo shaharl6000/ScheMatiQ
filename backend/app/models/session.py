@@ -30,6 +30,24 @@ class ColumnInfo(BaseModel):
     data_type: Optional[str] = None
     non_null_count: Optional[int] = None
     unique_count: Optional[int] = None
+    source_document: Optional[str] = None  # Document that first added this column
+    discovery_iteration: Optional[int] = None  # Iteration when this column was discovered
+
+
+class SchemaSnapshot(BaseModel):
+    """Snapshot of schema state at a point during discovery."""
+    iteration: int
+    documents_processed: List[str]
+    total_columns: int
+    new_columns: List[str]  # Names of columns added in this iteration
+    cumulative_documents: int = 0  # Total documents processed so far
+
+
+class SchemaEvolution(BaseModel):
+    """Tracks how the schema evolved during discovery."""
+    snapshots: List[SchemaSnapshot] = Field(default_factory=list)
+    column_sources: Dict[str, str] = Field(default_factory=dict)  # column_name -> source_document
+
 
 class SessionMetadata(BaseModel):
     """Metadata for a visualization session."""
@@ -54,6 +72,7 @@ class DataStatistics(BaseModel):
     total_columns: int
     completeness: float  # Percentage of non-null values
     column_stats: List[ColumnInfo]
+    schema_evolution: Optional[SchemaEvolution] = None  # How schema evolved during discovery
 
 class VisualizationSession(BaseModel):
     """Main session model for visualization."""

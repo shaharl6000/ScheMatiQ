@@ -10,12 +10,18 @@ import {
   PieChart,
   Pie,
   Cell,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
 } from 'recharts';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { TrendingUp, FileText, Info } from 'lucide-react';
 
-import { DataStatistics } from '../../types';
+import { DataStatistics, SchemaEvolution } from '../../types';
 
 interface StatsDashboardProps {
   statistics: DataStatistics;
@@ -210,7 +216,186 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({ statistics }) => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Schema Evolution Section */}
+      <SchemaEvolutionSection evolution={statistics.schema_evolution} columnStats={statistics.column_stats} />
     </div>
+  );
+};
+
+// Schema Evolution Section Component
+interface SchemaEvolutionSectionProps {
+  evolution?: SchemaEvolution;
+  columnStats: DataStatistics['column_stats'];
+}
+
+const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evolution, columnStats }) => {
+  // If no evolution data, show info message
+  if (!evolution || !evolution.snapshots || evolution.snapshots.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5" />
+            Schema Evolution
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              Schema evolution data is not available. This feature tracks how the schema
+              grew during QBSD discovery and is available for new QBSD sessions.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Prepare data for schema growth chart
+  const growthData = evolution.snapshots.map((snapshot, index) => ({
+    name: snapshot.documents_processed[0] || `Iteration ${snapshot.iteration}`,
+    iteration: snapshot.iteration,
+    totalColumns: snapshot.total_columns,
+    newColumns: snapshot.new_columns.length,
+    cumulativeDocs: snapshot.cumulative_documents,
+  }));
+
+  // Build column origins data from column_sources
+  const columnOriginsData = Object.entries(evolution.column_sources).map(([columnName, source]) => {
+    const colStat = columnStats.find(c => c.name === columnName);
+    return {
+      columnName,
+      source,
+      definition: colStat?.definition || '',
+      iteration: colStat?.discovery_iteration,
+    };
+  });
+
+  return (
+    <>
+      {/* Schema Growth Chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5" />
+            Schema Growth Over Iterations
+          </CardTitle>
+          <CardDescription>
+            How the schema evolved during discovery - total columns after each iteration
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={growthData}>
+                <defs>
+                  <linearGradient id="colorColumns" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis
+                  dataKey="name"
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                  tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 11 }}
+                />
+                <YAxis
+                  tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                  label={{ value: 'Columns', angle: -90, position: 'insideLeft', fill: 'hsl(var(--muted-foreground))' }}
+                />
+                <Tooltip
+                  formatter={(value: number, name: string) => {
+                    if (name === 'totalColumns') return [value, 'Total Columns'];
+                    if (name === 'newColumns') return [value, 'New Columns'];
+                    return [value, name];
+                  }}
+                  labelFormatter={(label) => `${label}`}
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--background))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px',
+                  }}
+                />
+                <Area
+                  type="stepAfter"
+                  dataKey="totalColumns"
+                  stroke="hsl(var(--primary))"
+                  strokeWidth={2}
+                  fill="url(#colorColumns)"
+                />
+                <Line
+                  type="stepAfter"
+                  dataKey="newColumns"
+                  stroke="hsl(var(--chart-2))"
+                  strokeWidth={2}
+                  strokeDasharray="5 5"
+                  dot={{ fill: 'hsl(var(--chart-2))', strokeWidth: 2 }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="flex justify-center gap-6 mt-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-1 bg-primary rounded" />
+              <span className="text-muted-foreground">Total Columns</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-1 border-t-2 border-dashed border-[hsl(var(--chart-2))]" />
+              <span className="text-muted-foreground">New Columns</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Column Origins Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            Column Origins
+          </CardTitle>
+          <CardDescription>
+            Which iteration or document contributed each column to the schema
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b-2 border-border">
+                  <th className="p-3 text-left font-semibold">Column Name</th>
+                  <th className="p-3 text-left font-semibold">Source</th>
+                  <th className="p-3 text-left font-semibold">Definition</th>
+                </tr>
+              </thead>
+              <tbody>
+                {columnOriginsData.map((col) => (
+                  <tr
+                    key={col.columnName}
+                    className="border-b border-border odd:bg-muted/50"
+                  >
+                    <td className="p-3 font-medium">{col.columnName}</td>
+                    <td className="p-3">
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                        {col.source}
+                      </span>
+                    </td>
+                    <td className="p-3 text-muted-foreground text-sm max-w-md truncate">
+                      {col.definition || '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </>
   );
 };
 

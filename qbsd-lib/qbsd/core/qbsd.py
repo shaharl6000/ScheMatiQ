@@ -27,7 +27,7 @@ import logging, re
 import time
 import random
 from pathlib import Path
-from qbsd.core.schema import Schema, Column
+from qbsd.core.schema import Schema, Column, SchemaEvolution
 
 
 ##############################################################################
@@ -247,19 +247,41 @@ def discover_schema(
     max_context_tokens,
     initial_schema: Schema | None = None,
     max_iters: int = 6
-) -> tuple[Schema, List[str], List[str]]:
+) -> tuple[Schema, List[str], List[str], SchemaEvolution]:
     """
     Main orchestration loop with document contribution tracking.
-    Returns (Schema, contributing_files, non_contributing_files)
+    Returns (Schema, contributing_files, non_contributing_files, schema_evolution)
     """
     logging.info("Starting schema discovery…")
     schema = initial_schema or Schema(query=query, max_keys=max_keys_schema)
     logging.info("Starting with schema containing %d columns", len(schema))
-    
+
     # Track document contributions
     contributing_files = []
     non_contributing_files = []
-    
+
+    # Track schema evolution
+    evolution = SchemaEvolution()
+    cumulative_docs = 0
+
+    # Record initial columns (if any) as iteration 0
+    if len(schema.columns) > 0:
+        initial_column_names = [col.name for col in schema.columns]
+        evolution.add_snapshot(
+            iteration=0,
+            documents=["initial_schema"],
+            total_columns=len(schema.columns),
+            new_columns=initial_column_names,
+            cumulative_documents=0
+        )
+        # Mark initial columns as from initial schema
+        for col in schema.columns:
+            if col.source_document is None:
+                col.source_document = "initial_schema"
+            if col.discovery_iteration is None:
+                col.discovery_iteration = 0
+            evolution.record_column_source(col.name, col.source_document)
+
     # Simple batching; one doc may be chunked if > batch_size
     doc_iter = iter(list(zip(documents, filenames)))
     batches = [list(itertools.islice(doc_iter, documents_batch_size))
@@ -268,17 +290,36 @@ def discover_schema(
     for it, batch_docs_with_names in enumerate(batches[:max_iters], start=1):
         batch_docs = [doc for doc, _ in batch_docs_with_names]
         batch_filenames = [fname for _, fname in batch_docs_with_names]
-        
+        cumulative_docs += len(batch_filenames)
+
+        # Track column names before this iteration
+        columns_before = {col.name.lower() for col in schema.columns}
+
         try:
             passages = select_relevant_content(batch_docs, query, retriever)
         except Exception as exc:
             print(f"Failed to retrieve {exc}")
             # Mark these documents as non-contributing due to retrieval failure
             non_contributing_files.extend(batch_filenames)
+            # Still record snapshot (no changes)
+            evolution.add_snapshot(
+                iteration=it,
+                documents=batch_filenames,
+                total_columns=len(schema.columns),
+                new_columns=[],
+                cumulative_documents=cumulative_docs
+            )
             continue
 
         proposed, document_helpful = generate_schema(passages, query, max_keys_schema, schema, llm, max_context_tokens)
-        
+
+        # Tag proposed columns with source document info BEFORE merging
+        # Use first document in batch as source (representative)
+        source_doc = batch_filenames[0] if batch_filenames else "unknown"
+        for col in proposed.columns:
+            col.source_document = source_doc
+            col.discovery_iteration = it
+
         # Track document contributions
         if document_helpful and len(proposed.columns) > 0:
             contributing_files.extend(batch_filenames)
@@ -289,19 +330,38 @@ def discover_schema(
                 logging.info("Iteration %d — Non-helpful documents (LLM assessed): %s", it, batch_filenames)
             else:
                 logging.info("Iteration %d — No new columns from: %s", it, batch_filenames)
-        
+
         merged = schema.merge(proposed)
 
-        logging.info("Iteration %d — columns: %d → %d (J=%.2f)",
-                     it, len(schema), len(merged), schema.jaccard(merged))
+        # Identify NEW columns added in this iteration
+        columns_after = {col.name.lower() for col in merged.columns}
+        new_column_names_lower = columns_after - columns_before
+        new_columns = [col.name for col in merged.columns if col.name.lower() in new_column_names_lower]
+
+        # Record column sources for new columns
+        for col in merged.columns:
+            if col.name.lower() in new_column_names_lower:
+                evolution.record_column_source(col.name, source_doc)
+
+        # Add snapshot to evolution
+        evolution.add_snapshot(
+            iteration=it,
+            documents=batch_filenames,
+            total_columns=len(merged.columns),
+            new_columns=new_columns,
+            cumulative_documents=cumulative_docs
+        )
+
+        logging.info("Iteration %d — columns: %d → %d (J=%.2f), new columns: %s",
+                     it, len(schema), len(merged), schema.jaccard(merged), new_columns)
 
         if evaluate_schema_convergence(schema, merged):
             logging.info("Converged at iteration %d", it)
-            return merged, contributing_files, non_contributing_files
+            return merged, contributing_files, non_contributing_files, evolution
 
         schema = merged  # update and continue
 
-    return schema, contributing_files, non_contributing_files
+    return schema, contributing_files, non_contributing_files, evolution
 
 
 # ------------------------------------------------------------------------ #
@@ -357,6 +417,7 @@ def save_schema(
     contributing_files: List[str] = None,
     non_contributing_files: List[str] = None,
     randomization_seed: Optional[int] = None,
+    schema_evolution: SchemaEvolution = None,
 ) -> None:
     artefact: Dict[str, Any] = {
         "query": query,
@@ -365,11 +426,11 @@ def save_schema(
         "retriever": retriever_cfg,
         "schema": [col.to_dict() for col in schema],
     }
-    
+
     # Add randomization metadata if seed was used
     if randomization_seed is not None:
         artefact["document_randomization_seed"] = randomization_seed
-    
+
     # Add document contribution tracking if available
     if contributing_files is not None:
         artefact["document_contributions"] = {
@@ -378,7 +439,11 @@ def save_schema(
             "total_files": len(contributing_files) + len(non_contributing_files or []),
             "contribution_rate": len(contributing_files) / (len(contributing_files) + len(non_contributing_files or [])) if (contributing_files or non_contributing_files) else 0.0
         }
-    
+
+    # Add schema evolution tracking if available
+    if schema_evolution is not None:
+        artefact["schema_evolution"] = schema_evolution.to_dict()
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(artefact, indent=2, ensure_ascii=False))
     logging.info("Saved schema JSON to %s", out_path.resolve())
@@ -433,7 +498,7 @@ def main(cfg_path: Path) -> None:
     # Run discovery with contribution tracking
     start_time = time.time()
     max_context_tokens = backend_cfg.get("max_context_tokens", 8192)
-    schema, contributing_files, non_contributing_files = discover_schema(
+    schema, contributing_files, non_contributing_files, schema_evolution = discover_schema(
         query=query, documents=docs, filenames=filenames,
         max_keys_schema=max_keys_schema, llm=llm_for_schema, retriever=retriever,
         max_context_tokens=max_context_tokens,
@@ -451,10 +516,10 @@ def main(cfg_path: Path) -> None:
         docs_path_for_save = [str(p) for p in docs_paths]
     else:
         docs_path_for_save = str(docs_paths)
-    
-    # Persist artefact with contribution tracking
-    save_schema(output_path, query, retriever_cfg, backend_cfg, docs_path_for_save, schema, 
-                contributing_files, non_contributing_files, randomization_seed)
+
+    # Persist artefact with contribution tracking and evolution
+    save_schema(output_path, query, retriever_cfg, backend_cfg, docs_path_for_save, schema,
+                contributing_files, non_contributing_files, randomization_seed, schema_evolution)
 
     # Print results
     print(f"\nSchema discovery completed for {total_docs} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")

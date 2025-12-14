@@ -908,7 +908,9 @@ async def export_complete_data(session_id: str, format: str = "json"):
                         "name": col.name,
                         "definition": col.definition or "",
                         "rationale": col.rationale or "",
-                        "data_type": col.data_type
+                        "data_type": col.data_type,
+                        "source_document": col.source_document,
+                        "discovery_iteration": col.discovery_iteration
                     }
                     for col in session.columns
                 ]
@@ -921,6 +923,10 @@ async def export_complete_data(session_id: str, format: str = "json"):
             },
             "data": []
         }
+
+        # Include schema evolution if available
+        if session.statistics and session.statistics.schema_evolution:
+            export_data["schema_evolution"] = session.statistics.schema_evolution.model_dump()
         
         # Get all data
         parser = FileParser()
@@ -1177,7 +1183,9 @@ async def export_schema_only(session_id: str):
                 {
                     "name": col.name,
                     "definition": col.definition or "",
-                    "rationale": col.rationale or ""
+                    "rationale": col.rationale or "",
+                    "source_document": col.source_document,
+                    "discovery_iteration": col.discovery_iteration
                 }
                 for col in session.columns
                 if col.name and not col.name.lower().endswith('_excerpt')
@@ -1191,7 +1199,11 @@ async def export_schema_only(session_id: str):
                 "export_timestamp": datetime.now().isoformat()
             }
         }
-        
+
+        # Include schema evolution if available
+        if session.statistics and session.statistics.schema_evolution:
+            schema_export["schema_evolution"] = session.statistics.schema_evolution.model_dump()
+
         content = json.dumps(schema_export, indent=2, ensure_ascii=False)
         
         # Generate filename

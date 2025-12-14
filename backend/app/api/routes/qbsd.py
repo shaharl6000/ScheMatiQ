@@ -203,6 +203,19 @@ async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
         output.write("# papers: Source documents used for extraction\n")
         output.write("# {column}_excerpt: Supporting evidence from documents for {column}\n")
         output.write("#\n")
+
+        # Add schema evolution summary if available
+        if session.statistics and session.statistics.schema_evolution:
+            evolution = session.statistics.schema_evolution
+            output.write("# Schema Evolution:\n")
+            for snapshot in evolution.snapshots:
+                if snapshot.new_columns:
+                    cols_str = ", ".join(snapshot.new_columns[:5])
+                    if len(snapshot.new_columns) > 5:
+                        cols_str += f"... (+{len(snapshot.new_columns) - 5} more)"
+                    output.write(f"# Iteration {snapshot.iteration}: +{len(snapshot.new_columns)} columns [{cols_str}]\n")
+            output.write(f"# Total: {len(evolution.column_sources)} columns from {len(evolution.snapshots)} iterations\n")
+            output.write("#\n")
         
         # Determine all column names including excerpt columns
         all_columns = set()
@@ -321,7 +334,9 @@ async def export_complete_qbsd_data(session_id: str, format: str = "json"):
                         "name": col.name,
                         "definition": col.definition or "",
                         "rationale": col.rationale or "",
-                        "data_type": col.data_type
+                        "data_type": col.data_type,
+                        "source_document": col.source_document,
+                        "discovery_iteration": col.discovery_iteration
                     }
                     for col in session.columns
                     if col.name and not col.name.lower().endswith('_excerpt')
@@ -344,6 +359,10 @@ async def export_complete_qbsd_data(session_id: str, format: str = "json"):
                 for row in data.rows
             ]
         }
+
+        # Include schema evolution if available
+        if session.statistics and session.statistics.schema_evolution:
+            export_data["schema_evolution"] = session.statistics.schema_evolution.model_dump()
         
         # Include LLM configuration if available
         if llm_configuration and any(llm_configuration.values()):
@@ -633,7 +652,9 @@ async def export_qbsd_schema_only(session_id: str):
                 {
                     "name": col.name,
                     "definition": col.definition or "",
-                    "rationale": col.rationale or ""
+                    "rationale": col.rationale or "",
+                    "source_document": col.source_document,
+                    "discovery_iteration": col.discovery_iteration
                 }
                 for col in session.columns
                 if col.name and not col.name.lower().endswith('_excerpt')
@@ -648,7 +669,11 @@ async def export_qbsd_schema_only(session_id: str):
                 "export_timestamp": datetime.now().isoformat()
             }
         }
-        
+
+        # Include schema evolution if available
+        if session.statistics and session.statistics.schema_evolution:
+            schema_export["schema_evolution"] = session.statistics.schema_evolution.model_dump()
+
         # Include LLM configuration if available
         if llm_configuration and any(llm_configuration.values()):
             schema_export["llm_configuration"] = llm_configuration
