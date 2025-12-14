@@ -7,7 +7,6 @@ import {
   Info,
   AlertTriangle,
   Activity,
-  Loader2,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 

@@ -226,7 +226,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         elif config.initial_schema_path:
             initial_schema_path = Path(config.initial_schema_path)
             if not initial_schema_path.is_absolute():
-                initial_schema_path = PROJECT_ROOT / initial_schema_path
+                initial_schema_path = (PROJECT_ROOT / initial_schema_path).resolve()
             if initial_schema_path.exists():
                 qbsd_config["initial_schema_path"] = str(initial_schema_path)
 
@@ -286,8 +286,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         # Validate initial schema if provided
         if config.initial_schema_path:
             schema_path = Path(config.initial_schema_path)
+            # Try to resolve relative paths against PROJECT_ROOT
+            if not schema_path.is_absolute():
+                schema_path = (PROJECT_ROOT / schema_path).resolve()
             if not schema_path.exists():
-                errors.append(f"Initial schema file does not exist: {config.initial_schema_path}")
+                errors.append(f"Initial schema file does not exist: {config.initial_schema_path} (resolved: {schema_path})")
         
         # Validate schema creation backend config
         if not config.schema_creation_backend.provider:

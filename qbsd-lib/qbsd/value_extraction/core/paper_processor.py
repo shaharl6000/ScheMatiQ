@@ -32,6 +32,54 @@ class PaperProcessor:
         self.text_processor = TextProcessor()
         self.prompt_builder = PromptBuilder()
         self.on_value_extracted = on_value_extracted
+        # Schema evolution tracking: {column_name: {value: [list of documents]}}
+        self.suggested_values: Dict[str, Dict[str, list]] = {}
+
+    def _track_unmatched_values(self, unmatched: Dict[str, list], document_name: str = None):
+        """Track unmatched values for schema evolution suggestions."""
+        for col_name, values in unmatched.items():
+            if col_name not in self.suggested_values:
+                self.suggested_values[col_name] = {}
+            for value in values:
+                if value not in self.suggested_values[col_name]:
+                    self.suggested_values[col_name][value] = []
+                if document_name and document_name not in self.suggested_values[col_name][value]:
+                    self.suggested_values[col_name][value].append(document_name)
+
+    def get_suggested_values(self, threshold: int = 2) -> Dict[str, Dict[str, Any]]:
+        """
+        Return values that appear in threshold+ documents.
+
+        Returns:
+            Dict mapping column_name to dict of {value: {"count": N, "documents": [...]}}
+        """
+        result = {}
+        for col_name, values in self.suggested_values.items():
+            qualified_values = {}
+            for value, documents in values.items():
+                count = len(documents)
+                if count >= threshold:
+                    qualified_values[value] = {
+                        "count": count,
+                        "documents": documents
+                    }
+            if qualified_values:
+                result[col_name] = qualified_values
+        return result
+
+    def get_all_suggested_values(self) -> Dict[str, Dict[str, Any]]:
+        """Return all suggested values with their document counts (regardless of threshold)."""
+        result = {}
+        for col_name, values in self.suggested_values.items():
+            result[col_name] = {
+                value: {"count": len(documents), "documents": documents}
+                for value, documents in values.items()
+            }
+        return result
+
+    def clear_suggested_values(self):
+        """Clear all tracked suggested values."""
+        self.suggested_values = {}
 
     def _notify_value_extracted(self, row_name: str, column_name: str, value: Any):
         """Call the on_value_extracted callback if set."""
@@ -148,8 +196,11 @@ class PaperProcessor:
             parsed = self.json_parser.parse_response(raw)
             # Build allowed_values dict for postprocessing
             column_allowed_values = {col.name: col.allowed_values} if col.allowed_values else {}
-            cleaned = self.json_parser.postprocess(parsed, [col.name], column_allowed_values)
+            cleaned, unmatched = self.json_parser.postprocess(parsed, [col.name], column_allowed_values)
             result = cleaned.get(col.name, {})
+
+            # Track unmatched values for schema evolution
+            self._track_unmatched_values(unmatched, paper_title)
 
             # Cache the result
             self.cache.put(cache_key, result)
@@ -225,8 +276,11 @@ class PaperProcessor:
                 parsed = self.json_parser.parse_response(raw)
                 # Build allowed_values dict for postprocessing
                 column_allowed_values = {col.name: col.allowed_values} if col.allowed_values else {}
-                cleaned = self.json_parser.postprocess(parsed, [col.name], column_allowed_values)
+                cleaned, unmatched = self.json_parser.postprocess(parsed, [col.name], column_allowed_values)
                 result = cleaned.get(col.name, {})
+
+                # Track unmatched values for schema evolution
+                self._track_unmatched_values(unmatched, paper_title)
 
                 # Cache the result
                 self.cache.put(cache_key, result)
@@ -262,7 +316,10 @@ class PaperProcessor:
                 for c in schema.columns
                 if c.allowed_values
             }
-            cleaned = self.json_parser.postprocess(parsed, requested, column_allowed_values)
+            cleaned, unmatched = self.json_parser.postprocess(parsed, requested, column_allowed_values)
+
+            # Track unmatched values for schema evolution
+            self._track_unmatched_values(unmatched, paper_title)
 
             # Attach source filename to excerpts
             cleaned = self._attach_source_to_excerpts(cleaned, paper_title)

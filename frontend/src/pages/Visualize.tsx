@@ -11,8 +11,6 @@ import {
   CheckCircle2,
   Play,
   XCircle,
-  GripVertical,
-  X,
   Loader2,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
@@ -22,7 +20,6 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
 
 import { loadAPI, qbsdAPI } from '../services/api';
 import { VisualizationSession, CellValue, CellExtractedData } from '../types';
@@ -69,11 +66,6 @@ const Visualize = () => {
   // Column order state
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
 
-  // Draggable overlay state
-  const [overlayPosition, setOverlayPosition] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-
   // WebSocket state
   const [forceWebSocketConnect, setForceWebSocketConnect] = useState(false);
   const wsRef = React.useRef<WebSocket | null>(null);
@@ -97,31 +89,6 @@ const Visualize = () => {
     if (sessionId) {
       localStorage.setItem(`columnOrder_${sessionId}`, JSON.stringify(newOrder));
     }
-  };
-
-  // Drag handlers
-  const handleOverlayMouseDown = (e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('.drag-handle')) {
-      setIsDragging(true);
-      setDragStart({
-        x: e.clientX - overlayPosition.x,
-        y: e.clientY - overlayPosition.y
-      });
-      e.preventDefault();
-    }
-  };
-
-  const handleOverlayMouseMove = (e: React.MouseEvent) => {
-    if (isDragging) {
-      setOverlayPosition({
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y
-      });
-    }
-  };
-
-  const handleOverlayMouseUp = () => {
-    setIsDragging(false);
   };
 
   // WebSocket connection
@@ -273,13 +240,6 @@ const Visualize = () => {
       keepPreviousData: true,
     }
   );
-
-  // Reset overlay position when processing completes
-  useEffect(() => {
-    if (session?.status !== 'processing_documents') {
-      setOverlayPosition({ x: 0, y: 0 });
-    }
-  }, [session?.status]);
 
   // WebSocket effect
   useEffect(() => {

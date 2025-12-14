@@ -57,7 +57,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
     definition: '',
     rationale: '',
     new_name: '',
-    allowed_values: [] as string[]
+    allowed_values: [] as string[],
+    auto_expand_threshold: 2
   });
   const [newAllowedValue, setNewAllowedValue] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -71,7 +72,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           definition: column.definition || '',
           rationale: column.rationale || '',
           new_name: column.name,
-          allowed_values: column.allowed_values || []
+          allowed_values: column.allowed_values || [],
+          auto_expand_threshold: column.auto_expand_threshold ?? 2
         });
       } else {
         setFormData({
@@ -79,7 +81,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           definition: '',
           rationale: '',
           new_name: '',
-          allowed_values: []
+          allowed_values: [],
+          auto_expand_threshold: 2
         });
       }
       setNewAllowedValue('');
@@ -167,7 +170,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
   const handleChange = (field: string, value: string) => {
     setFormData(prev => ({
       ...prev,
-      [field]: value
+      [field]: field === 'auto_expand_threshold' ? parseInt(value) || 0 : value
     }));
 
     if (errors[field]) {
@@ -308,16 +311,70 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           <div className="space-y-2">
             <div className="flex items-center gap-1">
               <Label htmlFor="allowed_values">
-                Allowed Values (Optional)
+                Value Constraints (Optional)
               </Label>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-xs">
-                  <p>Define a closed set of acceptable values for this column. Use for categorical data like types, statuses, or yes/no values. Leave empty for free-form text columns.</p>
+                  <p>Define constraints for this column: categorical values, numeric types, or ranges. Leave empty for free-form text columns.</p>
                 </TooltipContent>
               </Tooltip>
+            </div>
+
+            {/* Preset buttons for common constraints */}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['yes', 'no'] }))}
+                disabled={loading}
+                className="text-xs"
+              >
+                Yes/No
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['number'] }))}
+                disabled={loading}
+                className="text-xs"
+              >
+                Number
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['0-100'] }))}
+                disabled={loading}
+                className="text-xs"
+              >
+                0-100 (%)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['0.0-1.0'] }))}
+                disabled={loading}
+                className="text-xs"
+              >
+                0-1 (Prob)
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setFormData(prev => ({ ...prev, allowed_values: [] }))}
+                disabled={loading}
+                className="text-xs text-muted-foreground"
+              >
+                Clear
+              </Button>
             </div>
 
             {/* Display existing allowed values as badges */}
@@ -362,8 +419,44 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
               </Button>
             </div>
             <p className="text-sm text-muted-foreground">
-              Press Enter or click + to add. Values are used for soft matching during extraction.
+              Use presets above or add custom values. For custom ranges, enter "min-max" format (e.g., "1-10").
             </p>
+
+            {/* Auto-expand threshold for schema evolution */}
+            {formData.allowed_values.length > 0 && (
+              <div className="mt-3 p-3 bg-muted/50 rounded-md">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <Label htmlFor="auto_expand" className="text-sm">
+                      Auto-expand threshold
+                    </Label>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-xs">
+                        <p>Automatically add new values to allowed_values when they appear in at least this many documents. Set to 0 to disable auto-expansion.</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="auto_expand"
+                      type="number"
+                      min={0}
+                      max={10}
+                      value={formData.auto_expand_threshold}
+                      onChange={(e) => handleChange('auto_expand_threshold', e.target.value)}
+                      disabled={loading}
+                      className="w-16 h-8 text-center"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      {formData.auto_expand_threshold === 0 ? 'Disabled' : `${formData.auto_expand_threshold}+ docs`}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {mode === 'add' && (

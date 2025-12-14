@@ -225,7 +225,7 @@ async def list_schema_files():
                                 preview += f" (+{len(data) - 3} more)"
 
                             schema_files.append({
-                                "value": f"../research/experiments/configurations/{item.name}",
+                                "value": f"research/experiments/configurations/{item.name}",
                                 "label": item.stem,  # Filename without extension
                                 "columns_count": len(data),
                                 "preview": preview,

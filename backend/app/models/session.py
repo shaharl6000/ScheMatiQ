@@ -22,6 +22,23 @@ class SessionStatus(str, Enum):
     DOCUMENTS_UPLOADED = "documents_uploaded"  # Documents uploaded for processing
     PROCESSING_DOCUMENTS = "processing_documents"  # Processing documents with QBSD pipeline
 
+class PendingValue(BaseModel):
+    """A suggested value pending approval for addition to allowed_values."""
+    value: str
+    document_count: int
+    first_seen: datetime = Field(default_factory=datetime.now)
+    documents: List[str] = Field(default_factory=list)  # Document names where value appeared
+
+
+class SchemaSuggestion(BaseModel):
+    """Suggested schema updates from value extraction."""
+    column_name: str
+    suggested_values: List[str]
+    value_details: Dict[str, PendingValue] = Field(default_factory=dict)  # value -> details
+    auto_approved: bool = False
+    created_at: datetime = Field(default_factory=datetime.now)
+
+
 class ColumnInfo(BaseModel):
     """Information about a data column."""
     name: str
@@ -33,6 +50,8 @@ class ColumnInfo(BaseModel):
     source_document: Optional[str] = None  # Document that first added this column
     discovery_iteration: Optional[int] = None  # Iteration when this column was discovered
     allowed_values: Optional[List[str]] = None  # Closed set of valid values for categorical columns
+    auto_expand_threshold: Optional[int] = 2  # Auto-add new value if seen in N+ docs (None/0 = disabled)
+    pending_values: Optional[List[PendingValue]] = None  # Values pending approval
 
 
 class SchemaSnapshot(BaseModel):
@@ -85,6 +104,7 @@ class VisualizationSession(BaseModel):
     columns: List[ColumnInfo] = []
     statistics: Optional[DataStatistics] = None
     error_message: Optional[str] = None
+    schema_suggestions: Optional[List[SchemaSuggestion]] = None  # Pending schema evolution suggestions
 
 class DataRow(BaseModel):
     """A single row of data."""

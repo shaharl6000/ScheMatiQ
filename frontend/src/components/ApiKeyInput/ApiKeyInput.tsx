@@ -13,7 +13,6 @@ import {
 import {
   encryptAndStore,
   retrieveAndDecrypt,
-  getGeminiKeyType,
   storeGeminiKeyType,
 } from '@/utils/apiKeyStorage';
 
@@ -55,14 +54,13 @@ export const ApiKeyInput = ({
         setIsSaved(true);
       } else {
         // Clear the value if no saved key for this provider/type
-        if (value) {
-          onChange('');
-        }
+        onChange('');
         setIsSaved(false);
       }
       setIsLoading(false);
     };
     loadSavedKey();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, geminiKeyType, getStorageKey]);
 
   // Save key when it changes

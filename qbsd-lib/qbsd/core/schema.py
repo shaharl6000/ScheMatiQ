@@ -29,6 +29,7 @@ class Column:
     source_document: Optional[str] = None      # Document that first added this column
     discovery_iteration: Optional[int] = None  # Iteration when this column was discovered
     allowed_values: Optional[List[str]] = None  # Closed set of valid values for categorical columns
+    auto_expand_threshold: Optional[int] = 2   # Auto-add new value if seen in N+ docs (None/0 = disabled)
 
     def to_dict(self) -> Dict[str, str]:
         result = {"column": self.name, "explanation": self.rationale, "definition": self.definition}
@@ -39,6 +40,8 @@ class Column:
             result["discovery_iteration"] = self.discovery_iteration
         if self.allowed_values is not None:
             result["allowed_values"] = self.allowed_values
+        if self.auto_expand_threshold is not None:
+            result["auto_expand_threshold"] = self.auto_expand_threshold
         return result
 
     # Needed for `set` / dict keys
@@ -153,6 +156,9 @@ class Schema:
                     existing_av = combined[key].allowed_values or []
                     merged_av = list(dict.fromkeys(existing_av + cand.allowed_values))  # Preserve order, dedupe
                     combined[key].allowed_values = merged_av if merged_av else None
+                # Keep existing auto_expand_threshold unless candidate has it and existing doesn't
+                if cand.auto_expand_threshold is not None and combined[key].auto_expand_threshold is None:
+                    combined[key].auto_expand_threshold = cand.auto_expand_threshold
             else:    # brand-new column
                 combined[cand.name] = cand
                 combined_emb[cand.name] = _embed(cand.name)
@@ -209,6 +215,9 @@ class Schema:
             }
             if col.allowed_values is not None:
                 col_dict["allowed_values"] = col.allowed_values
+            # Include auto_expand_threshold for LLM awareness
+            if col.auto_expand_threshold is not None:
+                col_dict["auto_expand_threshold"] = col.auto_expand_threshold
             result.append(col_dict)
         return result
 

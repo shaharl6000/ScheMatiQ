@@ -64,15 +64,16 @@ def _extract_json(text: str) -> str:
 def _parse_schema_from_llm(raw_text: str,
                            query: str,
                            max_keys_schema: int,
-                           ) -> tuple[Schema, bool]:
+                           ) -> tuple[Schema, bool, List[Dict[str, Any]]]:
     """
     Parse schema from LLM response, now including document helpfulness assessment.
-    Returns (Schema, document_helpful_flag)
+    Returns (Schema, document_helpful_flag, suggested_value_additions)
     """
     cleaned = _extract_json(raw_text)
     document_helpful = True  # Default assumption
     columns = []
-    
+    suggested_value_additions = []
+
     try:
         payload = json.loads(cleaned)
 
@@ -90,6 +91,8 @@ def _parse_schema_from_llm(raw_text: str,
                     )
                     for c in columns_data
                 ]
+            # Extract suggested value additions for schema evolution
+            suggested_value_additions = payload.get("suggested_value_additions", [])
         # Handle legacy format (direct list of columns)
         elif isinstance(payload, list):
             columns = [
@@ -103,7 +106,7 @@ def _parse_schema_from_llm(raw_text: str,
             ]
         else:
             raise ValueError("Unexpected payload format")
-            
+
     except (json.JSONDecodeError, TypeError, KeyError, ValueError) as e:
         # ← fallback: lenient parsing for old models / bad outputs
         print(f"❌ JSON parsing failed ({e}). Cleaned text: '{cleaned}'")
@@ -119,8 +122,8 @@ def _parse_schema_from_llm(raw_text: str,
                         rationale=rationale
                     ))
         print(f"📊 Extracted {len(columns)} columns from fallback parsing")
-    
-    return Schema(query=query, max_keys=max_keys_schema, columns=columns), document_helpful
+
+    return Schema(query=query, max_keys=max_keys_schema, columns=columns), document_helpful, suggested_value_additions
 
 
 SYSTEM_PROMPT = """
@@ -183,6 +186,24 @@ Use `allowed_values` for columns with predictable or constrained values:
 * Categorical: lowercase values, mutually exclusive
 * Numeric range: format as "min-max" (e.g., "0-100", "0.0-1.0")
 
+### Evolving allowed_values
+When generating or refining a schema with an existing draft:
+- If you see new categorical values in the passages that fit an existing column's domain but are NOT in its allowed_values, suggest adding them
+- Include a "suggested_value_additions" field in your response when columns need expanded allowed_values:
+{{
+  "document_helpful": true,
+  "columns": [...],
+  "suggested_value_additions": [
+    {{
+      "column_name": "<name of existing column>",
+      "new_values": ["value1", "value2"],
+      "reason": "<brief explanation why these values should be added>"
+    }}
+  ]
+}}
+- Only suggest values that clearly belong to the column's domain based on the passages
+- Do NOT suggest values for columns with numeric constraints (like "0-100" or "number")
+
 ### Critical Guidelines - BE VERY RESTRICTIVE
 * Honestly assess if documents contribute meaningful information for the query
 * Return ONLY new columns that are missing from the existing schema AND are essential
@@ -242,10 +263,10 @@ def generate_schema(
     current_schema: Schema | None,
     llm,
     context_window_size: int = 8192,
-) -> tuple[Schema, bool]:
+) -> tuple[Schema, bool, List[Dict[str, Any]]]:
     """
     Feed passages + (optional) current schema to the LLM, ask for additions.
-    Returns (Schema, document_helpful_flag)
+    Returns (Schema, document_helpful_flag, suggested_value_additions)
     """
     prompt = build_messages(query, passages, current_schema)
     trimmed = utils.fit_prompt(prompt, truncate=True, context_window_size=context_window_size)
@@ -353,7 +374,30 @@ def discover_schema(
             )
             continue
 
-        proposed, document_helpful = generate_schema(passages, query, max_keys_schema, schema, llm, context_window_size)
+        proposed, document_helpful, suggested_value_additions = generate_schema(passages, query, max_keys_schema, schema, llm, context_window_size)
+
+        # Apply suggested value additions to existing schema columns
+        if suggested_value_additions:
+            for suggestion in suggested_value_additions:
+                col_name = suggestion.get("column_name", "")
+                new_values = suggestion.get("new_values", [])
+                reason = suggestion.get("reason", "")
+                if col_name and new_values:
+                    # Find the column in the current schema and add new values
+                    for col in schema.columns:
+                        if col.name.lower() == col_name.lower() and col.allowed_values is not None:
+                            # Only add values that don't already exist
+                            existing_lower = {v.lower() for v in col.allowed_values}
+                            added = []
+                            for val in new_values:
+                                if val.lower() not in existing_lower:
+                                    col.allowed_values.append(val)
+                                    existing_lower.add(val.lower())
+                                    added.append(val)
+                            if added:
+                                logging.info("Iteration %d — Added values %s to column '%s': %s",
+                                           it, added, col_name, reason)
+                            break
 
         # Tag proposed columns with source document info BEFORE merging
         # Use first document in batch as source (representative)
@@ -363,7 +407,7 @@ def discover_schema(
             col.discovery_iteration = it
 
         # Track document contributions
-        if document_helpful and len(proposed.columns) > 0:
+        if document_helpful and (len(proposed.columns) > 0 or suggested_value_additions):
             contributing_files.extend(batch_filenames)
             logging.info("Iteration %d — Helpful documents: %s", it, batch_filenames)
         else:

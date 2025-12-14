@@ -77,6 +77,7 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
     if (source === 'file' && schemaFiles.length === 0) {
       fetchSchemaFiles();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
   // Notify parent when schema changes

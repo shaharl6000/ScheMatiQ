@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  ChevronDown,
   Pencil,
   Plus,
   Trash2,
@@ -8,7 +7,6 @@ import {
   MoreVertical,
   GitMerge,
   Save,
-  RotateCcw,
   ShieldCheck,
   RefreshCw,
   AlertTriangle,
@@ -26,7 +24,6 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
-import { Separator } from '@/components/ui/separator';
 import {
   Dialog,
   DialogContent,
@@ -113,6 +110,68 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     }
   };
 
+  // WebSocket event handlers (defined before useEffect that uses them)
+  const handleSchemaUpdate = useCallback((data: any) => {
+    toast({
+      title: 'Schema Updated',
+      description: `Schema ${data.operation.replace('_', ' ')} completed successfully`,
+    });
+
+    if (onColumnsChange) {
+      onColumnsChange(data.columns || []);
+    }
+
+    if (data.data_updated || data.refresh_data) {
+      window.dispatchEvent(new CustomEvent('schema-data-updated', {
+        detail: {
+          sessionId,
+          operation: data.operation,
+          columns: data.columns
+        }
+      }));
+    }
+  }, [toast, onColumnsChange, sessionId]);
+
+  const handleReprocessingProgress = useCallback((data: any) => {
+    setReprocessingStatus({
+      session_id: sessionId,
+      status: 'processing',
+      progress: data.progress,
+      current_step: data.step,
+      affected_columns: data.affected_columns,
+      processed_documents: data.processed_documents,
+      total_documents: data.total_documents,
+    });
+  }, [sessionId]);
+
+  const handleReprocessingCompleted = useCallback((data: any) => {
+    setReprocessingStatus(null);
+    toast({
+      title: 'Reprocessing Complete',
+      description: `Completed for ${data.affected_columns?.length || 0} columns`,
+    });
+  }, [toast]);
+
+  const loadValidationResult = useCallback(async () => {
+    try {
+      const result = await schemaAPI.validateSchema(sessionId);
+      setValidationResult(result);
+    } catch (error) {
+      console.error('Failed to load validation result:', error);
+    }
+  }, [sessionId]);
+
+  const loadReprocessingStatus = useCallback(async () => {
+    try {
+      const status = await schemaAPI.getReprocessingStatus(sessionId);
+      if (status.status === 'processing') {
+        setReprocessingStatus(status);
+      }
+    } catch (error) {
+      console.error('Failed to load reprocessing status:', error);
+    }
+  }, [sessionId]);
+
   // Update local columns when props change
   useEffect(() => {
     setLocalColumns(columns || []);
@@ -149,7 +208,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     return () => {
       websocketManager.removeMessageHandler(handleMessage);
     };
-  }, [websocketManager, sessionId]);
+  }, [websocketManager, sessionId, handleSchemaUpdate, handleReprocessingProgress, handleReprocessingCompleted]);
 
   // Load initial validation and reprocessing status
   useEffect(() => {
@@ -157,69 +216,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       loadValidationResult();
       loadReprocessingStatus();
     }
-  }, [sessionId, readonly]);
-
-  // WebSocket event handlers
-  const handleSchemaUpdate = (data: any) => {
-    toast({
-      title: 'Schema Updated',
-      description: `Schema ${data.operation.replace('_', ' ')} completed successfully`,
-    });
-
-    if (onColumnsChange) {
-      onColumnsChange(data.columns || []);
-    }
-
-    if (data.data_updated || data.refresh_data) {
-      window.dispatchEvent(new CustomEvent('schema-data-updated', {
-        detail: {
-          sessionId,
-          operation: data.operation,
-          columns: data.columns
-        }
-      }));
-    }
-  };
-
-  const handleReprocessingProgress = (data: any) => {
-    setReprocessingStatus({
-      session_id: sessionId,
-      status: 'processing',
-      progress: data.progress,
-      current_step: data.step,
-      affected_columns: data.affected_columns,
-      processed_documents: data.processed_documents,
-      total_documents: data.total_documents,
-    });
-  };
-
-  const handleReprocessingCompleted = (data: any) => {
-    setReprocessingStatus(null);
-    toast({
-      title: 'Reprocessing Complete',
-      description: `Completed for ${data.affected_columns?.length || 0} columns`,
-    });
-  };
-
-  const loadValidationResult = async () => {
-    try {
-      const result = await schemaAPI.validateSchema(sessionId);
-      setValidationResult(result);
-    } catch (error) {
-      console.error('Failed to load validation result:', error);
-    }
-  };
-
-  const loadReprocessingStatus = async () => {
-    try {
-      const status = await schemaAPI.getReprocessingStatus(sessionId);
-      if (status.status === 'processing') {
-        setReprocessingStatus(status);
-      }
-    } catch (error) {
-      console.error('Failed to load reprocessing status:', error);
-    }
-  };
+  }, [sessionId, readonly, loadValidationResult, loadReprocessingStatus]);
 
   // Column management handlers
   const handleEditColumn = (column: ColumnInfo) => {
@@ -655,14 +652,29 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   {column.allowed_values && column.allowed_values.length > 0 ? (
                     <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-950 rounded-md border border-purple-200 dark:border-purple-800">
                       <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-2">
-                        Allowed Values
+                        {/* Detect constraint type for better labeling */}
+                        {column.allowed_values.length === 1 && column.allowed_values[0].toLowerCase() === 'number'
+                          ? 'Numeric Constraint'
+                          : column.allowed_values.length === 1 && /^-?\d+(\.\d+)?--?\d+(\.\d+)?$/.test(column.allowed_values[0])
+                            ? 'Range Constraint'
+                            : 'Allowed Values'}
                       </p>
                       <div className="flex flex-wrap gap-1">
-                        {column.allowed_values.map((value, idx) => (
-                          <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
-                            {value}
+                        {column.allowed_values.length === 1 && column.allowed_values[0].toLowerCase() === 'number' ? (
+                          <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
+                            Any Number (int/float)
                           </Badge>
-                        ))}
+                        ) : column.allowed_values.length === 1 && /^(-?\d+(\.\d+)?)-(-?\d+(\.\d+)?)$/.test(column.allowed_values[0]) ? (
+                          <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
+                            Range: {column.allowed_values[0]}
+                          </Badge>
+                        ) : (
+                          column.allowed_values.map((value, idx) => (
+                            <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
+                              {value}
+                            </Badge>
+                          ))
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -670,6 +682,31 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                       <p className="text-xs text-gray-500 dark:text-gray-400 italic">
                         Free-form (any value accepted)
                       </p>
+                    </div>
+                  )}
+
+                  {/* Pending Values for Schema Evolution */}
+                  {column.pending_values && column.pending_values.length > 0 && !readonly && (
+                    <div className="mb-3 p-3 bg-amber-50 dark:bg-amber-950 rounded-md border border-amber-200 dark:border-amber-800">
+                      <p className="text-xs font-semibold text-amber-700 dark:text-amber-300 mb-2 flex items-center gap-1">
+                        <AlertTriangle className="h-3 w-3" />
+                        New Values Detected ({column.pending_values.length})
+                      </p>
+                      <div className="space-y-1">
+                        {column.pending_values.slice(0, 3).map((pv, idx) => (
+                          <div key={idx} className="flex items-center justify-between text-xs">
+                            <span className="font-medium">{pv.value}</span>
+                            <span className="text-amber-600 dark:text-amber-400">
+                              {pv.document_count} doc{pv.document_count > 1 ? 's' : ''}
+                            </span>
+                          </div>
+                        ))}
+                        {column.pending_values.length > 3 && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 italic">
+                            +{column.pending_values.length - 3} more...
+                          </p>
+                        )}
+                      </div>
                     </div>
                   )}
 

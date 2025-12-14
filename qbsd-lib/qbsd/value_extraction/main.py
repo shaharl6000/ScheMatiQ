@@ -3,7 +3,7 @@
 import json
 import time
 from pathlib import Path
-from typing import Callable, Any, Optional
+from typing import Callable, Any, Optional, Dict
 
 from qbsd.core import utils
 from .core.table_builder import TableBuilder
@@ -24,7 +24,7 @@ def build_table_jsonl(
     retrieval_k: int = 8,
     max_workers: int = DEFAULT_MAX_WORKERS,
     on_value_extracted: Optional[OnValueExtractedCallback] = None,
-) -> None:
+) -> Dict[str, Dict[str, Any]]:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
     Each row represents a unique row name with data from potentially multiple papers.
@@ -33,6 +33,10 @@ def build_table_jsonl(
         on_value_extracted: Optional callback called when each column value is extracted.
             Signature: (row_name: str, column_name: str, value: Any) -> None
             Used for real-time streaming of values to UI.
+
+    Returns:
+        Dict of suggested values for schema evolution:
+        {column_name: {value: {"count": N, "documents": [...]}}}
 
     This is the main entry point that maintains backward compatibility with the original API.
     """
@@ -47,6 +51,8 @@ def build_table_jsonl(
         retrieval_k=retrieval_k,
         max_workers=max_workers,
     )
+    # Return all suggested values for schema evolution review
+    return table_builder.get_all_suggested_values()
 
 
 def main(cfg_path: Path) -> None:

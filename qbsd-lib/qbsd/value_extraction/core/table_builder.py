@@ -29,6 +29,14 @@ class TableBuilder:
         self.on_value_extracted = on_value_extracted
         self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted)
         self.row_manager = RowDataManager()
+
+    def get_suggested_values(self, threshold: int = 2) -> Dict[str, Dict[str, Any]]:
+        """Get suggested values that meet the threshold from PaperProcessor."""
+        return self.paper_processor.get_suggested_values(threshold)
+
+    def get_all_suggested_values(self) -> Dict[str, Dict[str, Any]]:
+        """Get all suggested values regardless of threshold."""
+        return self.paper_processor.get_all_suggested_values()
     
     def _is_system_file(self, filename: str) -> bool:
         """Check if a filename is a system file that should be skipped."""

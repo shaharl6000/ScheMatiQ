@@ -417,6 +417,251 @@ async def create_schema_backup(session_id: str):
             "backup_file": str(backup_file),
             "timestamp": backup_data["timestamp"]
         }
-        
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Schema Evolution Endpoints
+
+class ApproveSuggestionRequest(BaseModel):
+    column_name: str
+    value: str
+
+class RejectSuggestionRequest(BaseModel):
+    column_name: str
+    value: str
+
+class SetThresholdRequest(BaseModel):
+    threshold: int = 2  # 0 = disabled
+
+
+@router.get("/suggestions/{session_id}")
+async def get_schema_suggestions(session_id: str):
+    """Get pending allowed_values suggestions for review."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        suggestions = []
+
+        # Collect pending values from all columns
+        for col in session.columns:
+            if col.pending_values and len(col.pending_values) > 0:
+                suggestions.append({
+                    "column_name": col.name,
+                    "pending_values": [pv.model_dump() for pv in col.pending_values],
+                    "current_allowed_values": col.allowed_values or [],
+                    "auto_expand_threshold": col.auto_expand_threshold
+                })
+
+        # Also include session-level suggestions if any
+        if session.schema_suggestions:
+            for sugg in session.schema_suggestions:
+                # Avoid duplicates
+                if not any(s["column_name"] == sugg.column_name for s in suggestions):
+                    suggestions.append({
+                        "column_name": sugg.column_name,
+                        "suggested_values": sugg.suggested_values,
+                        "value_details": {k: v.model_dump() for k, v in sugg.value_details.items()},
+                        "auto_approved": sugg.auto_approved
+                    })
+
+        return {
+            "session_id": session_id,
+            "suggestions": suggestions,
+            "total_pending": sum(len(s.get("pending_values", s.get("suggested_values", []))) for s in suggestions)
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/approve-suggestion/{session_id}")
+async def approve_suggestion(session_id: str, request: ApproveSuggestionRequest):
+    """Approve adding a suggested value to allowed_values."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Find the column
+        column_found = False
+        for col in session.columns:
+            if col.name == request.column_name:
+                column_found = True
+
+                # Add value to allowed_values
+                if col.allowed_values is None:
+                    col.allowed_values = []
+                if request.value not in col.allowed_values:
+                    col.allowed_values.append(request.value)
+
+                # Remove from pending_values
+                if col.pending_values:
+                    col.pending_values = [pv for pv in col.pending_values if pv.value != request.value]
+                    if not col.pending_values:
+                        col.pending_values = None
+
+                break
+
+        if not column_found:
+            raise HTTPException(status_code=404, detail=f"Column '{request.column_name}' not found")
+
+        # Update session
+        session.metadata.last_modified = datetime.now()
+        session_manager.update_session(session)
+
+        # Broadcast update
+        await websocket_manager.broadcast_schema_updated(session_id, {
+            "operation": "approve_suggestion",
+            "column_name": request.column_name,
+            "approved_value": request.value,
+            "columns": [col.model_dump() for col in session.columns]
+        })
+
+        return {
+            "status": "success",
+            "message": f"Value '{request.value}' approved and added to allowed_values for column '{request.column_name}'"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reject-suggestion/{session_id}")
+async def reject_suggestion(session_id: str, request: RejectSuggestionRequest):
+    """Reject a suggested value (removes from pending, won't be re-suggested in this session)."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Find the column and remove the pending value
+        column_found = False
+        for col in session.columns:
+            if col.name == request.column_name:
+                column_found = True
+
+                if col.pending_values:
+                    col.pending_values = [pv for pv in col.pending_values if pv.value != request.value]
+                    if not col.pending_values:
+                        col.pending_values = None
+
+                break
+
+        if not column_found:
+            raise HTTPException(status_code=404, detail=f"Column '{request.column_name}' not found")
+
+        # Update session
+        session.metadata.last_modified = datetime.now()
+        session_manager.update_session(session)
+
+        # Broadcast update
+        await websocket_manager.broadcast_schema_updated(session_id, {
+            "operation": "reject_suggestion",
+            "column_name": request.column_name,
+            "rejected_value": request.value,
+            "columns": [col.model_dump() for col in session.columns]
+        })
+
+        return {
+            "status": "success",
+            "message": f"Value '{request.value}' rejected for column '{request.column_name}'"
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/auto-expand-threshold/{session_id}/{column_name}")
+async def set_auto_expand_threshold(
+    session_id: str,
+    column_name: str,
+    request: SetThresholdRequest
+):
+    """Configure auto-expand threshold for a column (0 = disabled)."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Find and update the column
+        column_found = False
+        for col in session.columns:
+            if col.name == column_name:
+                col.auto_expand_threshold = request.threshold if request.threshold > 0 else None
+                column_found = True
+                break
+
+        if not column_found:
+            raise HTTPException(status_code=404, detail=f"Column '{column_name}' not found")
+
+        # Update session
+        session.metadata.last_modified = datetime.now()
+        session_manager.update_session(session)
+
+        # Broadcast update
+        await websocket_manager.broadcast_schema_updated(session_id, {
+            "operation": "set_threshold",
+            "column_name": column_name,
+            "threshold": request.threshold,
+            "columns": [col.model_dump() for col in session.columns]
+        })
+
+        return {
+            "status": "success",
+            "message": f"Auto-expand threshold for '{column_name}' set to {request.threshold}",
+            "threshold": request.threshold
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/bulk-approve/{session_id}")
+async def bulk_approve_suggestions(session_id: str, column_name: Optional[str] = None):
+    """Approve all pending suggestions for a column or all columns."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        approved_count = 0
+
+        for col in session.columns:
+            if column_name and col.name != column_name:
+                continue
+
+            if col.pending_values:
+                if col.allowed_values is None:
+                    col.allowed_values = []
+
+                for pv in col.pending_values:
+                    if pv.value not in col.allowed_values:
+                        col.allowed_values.append(pv.value)
+                        approved_count += 1
+
+                col.pending_values = None
+
+        # Update session
+        session.metadata.last_modified = datetime.now()
+        session_manager.update_session(session)
+
+        # Broadcast update
+        await websocket_manager.broadcast_schema_updated(session_id, {
+            "operation": "bulk_approve",
+            "column_name": column_name,
+            "approved_count": approved_count,
+            "columns": [col.model_dump() for col in session.columns]
+        })
+
+        return {
+            "status": "success",
+            "message": f"Approved {approved_count} pending values",
+            "approved_count": approved_count
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

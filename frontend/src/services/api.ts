@@ -207,7 +207,8 @@ export const sessionAPI = {
       return loadAPI.getSession(sessionId);
     } else {
       // For QBSD, we need to construct from multiple endpoints
-      const status = await qbsdAPI.getStatus(sessionId);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const _status = await qbsdAPI.getStatus(sessionId);
       // This would need to be implemented based on actual backend structure
       throw new Error('QBSD session details not yet implemented');
     }
