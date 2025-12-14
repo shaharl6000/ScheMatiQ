@@ -1,7 +1,6 @@
 {
   "query_config_path": "configurations/config_qbsd_gemini_flash_longcontext.json",
   "data_path_override": "outputs/value_extractions/gemini_longcontext/values_nes_gemini_longcontext_all2_more_outtokens.json",
-  "gt_column": "GT_NES",
 
   "few_shot_config": {
     "n_shots_per_category": 2,

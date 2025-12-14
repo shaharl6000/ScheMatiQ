@@ -149,7 +149,8 @@ class TableBuilder:
             current_row = {
                 "_row_name": row_name,
                 "_papers": [],
-                "_metadata": self._create_metadata(schema, docs_directory)
+                "_metadata": self._create_metadata(schema, docs_directory),
+                "document_directory": str(docs_directory)
             }
         
         # Merge new paper results for this row
@@ -158,22 +159,14 @@ class TableBuilder:
                 existing_papers = current_row.get("_papers", [])
                 if paper_title in existing_papers:
                     continue  # Skip duplicates
-                    
+
                 if not existing_papers:
                     current_row.update(paper_data)
                     current_row["_papers"] = [paper_title]
                     current_row["_row_name"] = row_name
                 else:
                     current_row = self.row_manager.merge_row_data(current_row, paper_data, paper_title)
-        
-        # Add GT_NES column only for new rows (preserve existing GT_NES for existing rows)
-        if row_name not in existing_rows or "GT_NES" not in current_row:
-            gt_nes_value = "in_doubt" if "namesDoubt" in str(docs_directory) else "yes"
-            current_row["GT_NES"] = {
-                "answer": gt_nes_value,
-                "excerpts": [f"Based on source directory: {docs_directory}"]
-            }
-        
+
         # Write row if it has actual data
         if any(key for key in current_row.keys() if not key.startswith('_')):
             try:
@@ -196,7 +189,6 @@ class TableBuilder:
                                     max_workers: int = DEFAULT_MAX_WORKERS) -> None:
         """
         Extract values from papers across multiple directories and write to JSONL.
-        Handles different GT_NES values based on directory names (namesDoubt vs others).
         """
         # Aggregate all documents from all directories with their source info
         all_docs_with_source = []
@@ -292,25 +284,24 @@ class TableBuilder:
         current_row = existing_rows.get(row_name, {}).copy()
         current_row["_row_name"] = row_name
         current_row["_papers"] = [p.name for p in papers]
-        
-        # Determine predominant source directory for GT_NES assignment
+
+        # Track source directories
         source_dirs = [doc_to_source[p] for p in papers]
-        doubt_count = sum(1 for d in source_dirs if "namesDoubt" in str(d))
-        is_predominantly_doubt = doubt_count > len(source_dirs) / 2
-        
+
+        # Add document_directory column for CSV exports (join multiple dirs with pipe separator)
+        current_row["document_directory"] = " | ".join(sorted(set(str(d) for d in source_dirs)))
+
         # Add metadata with source directory info
         current_row["_metadata"] = {
             "query": schema.query,
             "source_directories": [str(d) for d in set(source_dirs)],
-            "doubt_papers": doubt_count,
-            "total_papers": len(papers),
-            "is_predominantly_doubt": is_predominantly_doubt
+            "total_papers": len(papers)
         }
-        
+
         # Process papers similar to single directory version but track sources
         if mode == "one_by_one":
             self._process_row_one_by_one_multi_dirs(
-                current_row, papers, doc_to_source, schema, retrieval_k, 
+                current_row, papers, doc_to_source, schema, retrieval_k,
                 max_new_tokens, existing_rows, processed_papers
             )
         else:
@@ -318,15 +309,7 @@ class TableBuilder:
                 current_row, papers, doc_to_source, schema, retrieval_k,
                 max_new_tokens, max_workers, existing_rows, processed_papers
             )
-        
-        # Set GT_NES based on predominant source
-        if row_name not in existing_rows or "GT_NES" not in current_row:
-            gt_nes_value = "in doubt" if is_predominantly_doubt else "yes"
-            current_row["GT_NES"] = {
-                "answer": gt_nes_value,
-                "excerpts": [f"Based on source directories: {set(str(d) for d in source_dirs)}"]
-            }
-        
+
         # Write row if it has actual data
         if any(key for key in current_row.keys() if not key.startswith('_')):
             try:

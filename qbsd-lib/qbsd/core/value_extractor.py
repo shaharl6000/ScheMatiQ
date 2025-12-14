@@ -8,8 +8,8 @@ The original 860-line monolithic file has been split into focused modules:
 - value_extraction/utils/ - Utility functions (text processing, prompt building)
 - value_extraction/config/ - Configuration and constants
 
-FIXED: Resume logic now preserves existing rows exactly as they were, 
-only adding new rows without modifying existing GT_NES or other data.
+FIXED: Resume logic now preserves existing rows exactly as they were,
+only adding new rows without modifying existing data.
 """
 
 from pathlib import Path

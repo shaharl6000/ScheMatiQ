@@ -24,9 +24,9 @@ def test_few_shot_manager():
 
     # Sample test data
     test_data = [
-        {"paper_name": "paper1", "GT_NES": "yes", "protein_sequence": "ABCDEF"},
-        {"paper_name": "paper2", "GT_NES": "no", "protein_sequence": "GHIJKL"},
-        {"paper_name": "paper3", "GT_NES": "yes", "protein_sequence": "MNOPQR"},
+        {"paper_name": "paper1", "ground_truth": "yes", "protein_sequence": "ABCDEF"},
+        {"paper_name": "paper2", "ground_truth": "no", "protein_sequence": "GHIJKL"},
+        {"paper_name": "paper3", "ground_truth": "yes", "protein_sequence": "MNOPQR"},
     ]
 
     config = {
@@ -35,11 +35,11 @@ def test_few_shot_manager():
     }
 
     fsm = FewShotManager(config)
-    examples = fsm.extract_gt_examples(test_data, "GT_NES")
+    examples = fsm.extract_gt_examples(test_data, "ground_truth")
 
     print(f"  Extracted {len(examples)} examples")
 
-    formatted = fsm.format_examples_for_prompt(examples, "Does this protein have NES?", "GT_NES")
+    formatted = fsm.format_examples_for_prompt(examples, "Does this protein have NES?", "ground_truth")
     print(f"  Formatted examples length: {len(formatted)} chars")
 
     if examples:

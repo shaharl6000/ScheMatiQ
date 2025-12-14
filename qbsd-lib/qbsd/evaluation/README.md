@@ -30,7 +30,7 @@ Key configuration options:
 {
   "query_config_path": "path/to/qbsd_config.json",
   "data_path_override": "path/to/extracted_data.jsonl",
-  "gt_column": "GT_NES",
+  "gt_column": "ground_truth",
 
   "few_shot_config": {
     "n_shots_per_category": 3,

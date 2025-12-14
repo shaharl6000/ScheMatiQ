@@ -40,7 +40,7 @@ class RowQueryEvaluator:
                     query: str,
                     row_data: Dict[str, Any],
                     few_shot_examples: str,
-                    gt_column: str = "GT_NES") -> RowEvaluationResult:
+                    gt_column: str = None) -> RowEvaluationResult:
         """
         Evaluate a single row by prompting LLM to answer query.
 
@@ -282,7 +282,7 @@ ANSWER:"""
                       query: str,
                       rows: List[Dict[str, Any]],
                       few_shot_examples: str,
-                      gt_column: str = "GT_NES") -> List[RowEvaluationResult]:
+                      gt_column: str = None) -> List[RowEvaluationResult]:
         """Evaluate multiple rows in batch."""
         results = []
 
