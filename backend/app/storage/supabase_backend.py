@@ -296,21 +296,28 @@ class SupabaseStorageBackend(StorageInterface):
         """Synchronous version of save_session."""
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
+            # Check if we're already in an async context
+            loop = asyncio.get_running_loop()
+            # If we get here, we're in an async context - use a new thread
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.save_session(session_id, data))
+                return future.result()
         except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        return loop.run_until_complete(self.save_session(session_id, data))
+            # No running loop, safe to use asyncio.run
+            return asyncio.run(self.save_session(session_id, data))
 
     def get_session_sync(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Synchronous version of get_session."""
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.get_session(session_id))
+                return future.result()
         except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        return loop.run_until_complete(self.get_session(session_id))
+            return asyncio.run(self.get_session(session_id))
 
     def upload_file_sync(
         self,
@@ -322,33 +329,37 @@ class SupabaseStorageBackend(StorageInterface):
         """Synchronous version of upload_file."""
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.upload_file(bucket, path, data, content_type))
+                return future.result()
         except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        return loop.run_until_complete(
-            self.upload_file(bucket, path, data, content_type)
-        )
+            return asyncio.run(self.upload_file(bucket, path, data, content_type))
 
     def download_file_sync(self, bucket: str, path: str) -> Optional[bytes]:
         """Synchronous version of download_file."""
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.download_file(bucket, path))
+                return future.result()
         except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        return loop.run_until_complete(self.download_file(bucket, path))
+            return asyncio.run(self.download_file(bucket, path))
 
     def file_exists_sync(self, bucket: str, path: str) -> bool:
         """Synchronous version of file_exists."""
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.file_exists(bucket, path))
+                return future.result()
         except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        return loop.run_until_complete(self.file_exists(bucket, path))
+            return asyncio.run(self.file_exists(bucket, path))
 
     # =======================
     # Dataset Operations
