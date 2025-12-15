@@ -1,5 +1,6 @@
 # Frontend Dockerfile for QueryDiscovery
 # Build from frontend directory: docker build -t qbsd-frontend .
+# Cache bust: v2
 
 # ============================================================================
 # Stage 1: Build
