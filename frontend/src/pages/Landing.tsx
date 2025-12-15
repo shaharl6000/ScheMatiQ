@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
@@ -18,9 +19,25 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { ApiKeySection } from '@/components/ApiKeySection';
+import { getConfiguredProviders, LLMProvider } from '@/utils/apiKeyStorage';
 
 const Landing = () => {
   const navigate = useNavigate();
+  const [configuredProviders, setConfiguredProviders] = useState<LLMProvider[]>([]);
+  const [isCheckingKeys, setIsCheckingKeys] = useState(true);
+
+  useEffect(() => {
+    const checkKeys = async () => {
+      setIsCheckingKeys(true);
+      const providers = await getConfiguredProviders();
+      setConfiguredProviders(providers);
+      setIsCheckingKeys(false);
+    };
+    checkKeys();
+  }, []);
+
+  const hasApiKeys = configuredProviders.length > 0;
 
   const loadFeatures = [
     'Support for CSV and JSON/JSONL files',
@@ -39,22 +56,22 @@ const Landing = () => {
   return (
     <div className="max-w-5xl mx-auto">
       {/* Hero Section */}
-      <div className="text-center mb-12">
+      <div className="text-center mb-8">
         <h1 className="text-4xl font-bold tracking-tight mb-4 bg-gradient-to-r from-primary via-blue-500 to-blue-400 bg-clip-text text-transparent">
           QBSD Visualization
         </h1>
-        <p className="text-lg text-muted-foreground mb-4 max-w-2xl mx-auto">
+        <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
           Interactive visualization and schema editing for Query-Based Schema Discovery
         </p>
-        <Badge variant="outline" className="text-primary border-primary">
-          Dual Input Options
-        </Badge>
       </div>
+
+      {/* API Key Configuration Section */}
+      <ApiKeySection onConfigurationChange={setConfiguredProviders} />
 
       {/* Main Cards */}
       <div className="grid md:grid-cols-2 gap-6 mb-12">
         {/* Create QBSD Card */}
-        <Card className="flex flex-col transition-all hover:-translate-y-1 hover:shadow-lg border-primary/20">
+        <Card className={`flex flex-col transition-all hover:-translate-y-1 hover:shadow-lg ${hasApiKeys ? 'border-primary/20' : 'opacity-60'}`}>
           <CardHeader>
             <CardTitle className="flex items-center gap-3">
               <div className="p-2 rounded-lg bg-primary/10">
@@ -87,9 +104,10 @@ const Landing = () => {
               className="w-full"
               size="lg"
               onClick={() => navigate('/qbsd')}
+              disabled={!hasApiKeys}
             >
               <Sparkles className="mr-2 h-4 w-4" />
-              Create QBSD
+              {hasApiKeys ? 'Create QBSD' : 'Configure API Keys First'}
             </Button>
           </CardFooter>
         </Card>

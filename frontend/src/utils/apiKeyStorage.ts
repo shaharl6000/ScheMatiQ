@@ -5,6 +5,8 @@
  * Provides obfuscation against casual observation, not full security against determined local attacks.
  */
 
+export type LLMProvider = 'openai' | 'together' | 'gemini';
+
 const STORAGE_KEY_PREFIX = 'qbsd_api_key_';
 const ENCRYPTION_KEY_STORAGE = 'qbsd_enc_key';
 const GEMINI_KEY_TYPE_STORAGE = 'qbsd_gemini_key_type';
@@ -138,4 +140,54 @@ export function storeGeminiKeyType(keyType: 'single' | 'multi'): void {
 export function getGeminiKeyType(): 'single' | 'multi' {
   const stored = localStorage.getItem(GEMINI_KEY_TYPE_STORAGE);
   return (stored === 'single' || stored === 'multi') ? stored : 'single';
+}
+
+/**
+ * Check if a specific provider has an API key configured.
+ * For Gemini, checks both single and multi key types.
+ */
+export async function hasApiKey(provider: LLMProvider): Promise<boolean> {
+  if (provider === 'gemini') {
+    const singleKey = await retrieveAndDecrypt('gemini_single');
+    const multiKey = await retrieveAndDecrypt('gemini_multi');
+    return !!(singleKey || multiKey);
+  }
+  const key = await retrieveAndDecrypt(provider);
+  return !!key;
+}
+
+/**
+ * Get list of all providers that have API keys configured.
+ */
+export async function getConfiguredProviders(): Promise<LLMProvider[]> {
+  const providers: LLMProvider[] = ['openai', 'together', 'gemini'];
+  const configured: LLMProvider[] = [];
+
+  for (const provider of providers) {
+    if (await hasApiKey(provider)) {
+      configured.push(provider);
+    }
+  }
+
+  return configured;
+}
+
+/**
+ * Check if any API keys are configured (for AI feature availability).
+ */
+export async function hasAnyApiKeys(): Promise<boolean> {
+  const configured = await getConfiguredProviders();
+  return configured.length > 0;
+}
+
+/**
+ * Get the API key for a provider (handling Gemini key type).
+ * Returns null if not configured.
+ */
+export async function getApiKeyForProvider(provider: LLMProvider): Promise<string | null> {
+  if (provider === 'gemini') {
+    const keyType = getGeminiKeyType();
+    return retrieveAndDecrypt(`gemini_${keyType}`);
+  }
+  return retrieveAndDecrypt(provider);
 }

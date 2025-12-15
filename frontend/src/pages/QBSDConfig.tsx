@@ -1,8 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, FileJson } from 'lucide-react';
-import { ApiKeyInput } from '@/components/ApiKeyInput';
-import { getGeminiKeyType } from '@/utils/apiKeyStorage';
+import {
+  getGeminiKeyType,
+  getConfiguredProviders,
+  getApiKeyForProvider,
+  LLMProvider,
+} from '@/utils/apiKeyStorage';
 import InitialSchemaEditor from '@/components/InitialSchemaEditor/InitialSchemaEditor';
 
 import { Button } from '@/components/ui/button';
@@ -41,11 +45,9 @@ const QBSDConfigPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // API key state
-  const [schemaApiKey, setSchemaApiKey] = useState('');
-  const [valueApiKey, setValueApiKey] = useState('');
-  const [schemaGeminiKeyType, setSchemaGeminiKeyType] = useState<'single' | 'multi'>('single');
-  const [valueGeminiKeyType, setValueGeminiKeyType] = useState<'single' | 'multi'>('single');
+  // Configured providers state
+  const [configuredProviders, setConfiguredProviders] = useState<LLMProvider[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(true);
 
   // Initial schema state
   const [initialSchemaPath, setInitialSchemaPath] = useState<string | undefined>(undefined);
@@ -55,12 +57,65 @@ const QBSDConfigPage = () => {
   const [directories, setDirectories] = useState<{ value: string; label: string }[]>([]);
   const [directoriesLoading, setDirectoriesLoading] = useState(true);
 
-  // Load Gemini key type preference on mount
+  // Check configured providers on mount and redirect if none
   useEffect(() => {
-    const savedType = getGeminiKeyType();
-    setSchemaGeminiKeyType(savedType);
-    setValueGeminiKeyType(savedType);
-  }, []);
+    const checkProviders = async () => {
+      setProvidersLoading(true);
+      const providers = await getConfiguredProviders();
+      setConfiguredProviders(providers);
+
+      // Redirect if no providers configured
+      if (providers.length === 0) {
+        navigate('/');
+        return;
+      }
+
+      // Update default providers if currently selected ones aren't configured
+      setConfig(prev => {
+        let updated = { ...prev };
+        let needsUpdate = false;
+
+        if (!providers.includes(prev.schema_creation_backend.provider as LLMProvider)) {
+          updated = {
+            ...updated,
+            schema_creation_backend: {
+              ...prev.schema_creation_backend,
+              provider: providers[0],
+              model: getDefaultModel(providers[0]),
+            },
+          };
+          needsUpdate = true;
+        }
+
+        if (!providers.includes(prev.value_extraction_backend.provider as LLMProvider)) {
+          updated = {
+            ...updated,
+            value_extraction_backend: {
+              ...prev.value_extraction_backend,
+              provider: providers[0],
+              model: getDefaultModel(providers[0]),
+            },
+          };
+          needsUpdate = true;
+        }
+
+        return needsUpdate ? updated : prev;
+      });
+
+      setProvidersLoading(false);
+    };
+    checkProviders();
+  }, [navigate]);
+
+  // Helper function for default models
+  const getDefaultModel = (provider: LLMProvider): string => {
+    const defaults: Record<LLMProvider, string> = {
+      gemini: 'gemini-2.5-flash',
+      openai: 'gpt-4-turbo',
+      together: 'meta-llama/Llama-3-70b-chat-hf',
+    };
+    return defaults[provider];
+  };
 
   // Fetch available directories on mount
   useEffect(() => {
@@ -163,6 +218,15 @@ const QBSDConfigPage = () => {
     setError(null);
 
     try {
+      // Get API keys from storage
+      const schemaApiKey = await getApiKeyForProvider(
+        config.schema_creation_backend.provider as LLMProvider
+      );
+      const valueApiKey = await getApiKeyForProvider(
+        config.value_extraction_backend.provider as LLMProvider
+      );
+      const geminiKeyType = getGeminiKeyType();
+
       // Build config with API keys and initial schema
       const configWithKeys: QBSDConfig = {
         ...config,
@@ -170,14 +234,14 @@ const QBSDConfigPage = () => {
           ...config.schema_creation_backend,
           api_key: schemaApiKey || undefined,
           gemini_key_type: config.schema_creation_backend.provider === 'gemini'
-            ? schemaGeminiKeyType
+            ? geminiKeyType
             : undefined,
         },
         value_extraction_backend: {
           ...config.value_extraction_backend,
           api_key: valueApiKey || undefined,
           gemini_key_type: config.value_extraction_backend.provider === 'gemini'
-            ? valueGeminiKeyType
+            ? geminiKeyType
             : undefined,
         },
         // Add initial schema (inline data takes priority over file path)
@@ -196,7 +260,6 @@ const QBSDConfigPage = () => {
 
   const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path : [config.docs_path];
   const isFormValid = config.query.trim() !== '' && selectedPaths.length > 0;
-  const hasApiKeys = schemaApiKey || valueApiKey;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -382,9 +445,15 @@ const QBSDConfigPage = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="gemini">Google Gemini</SelectItem>
-                        <SelectItem value="openai">OpenAI</SelectItem>
-                        <SelectItem value="together">Together AI</SelectItem>
+                        {configuredProviders.includes('gemini') && (
+                          <SelectItem value="gemini">Google Gemini</SelectItem>
+                        )}
+                        {configuredProviders.includes('openai') && (
+                          <SelectItem value="openai">OpenAI</SelectItem>
+                        )}
+                        {configuredProviders.includes('together') && (
+                          <SelectItem value="together">Together AI</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -431,17 +500,6 @@ const QBSDConfigPage = () => {
                     />
                   </div>
                 </div>
-
-                {/* API Key Configuration */}
-                <div className="mt-4 pt-4 border-t">
-                  <ApiKeyInput
-                    provider={config.schema_creation_backend.provider}
-                    value={schemaApiKey}
-                    onChange={setSchemaApiKey}
-                    geminiKeyType={schemaGeminiKeyType}
-                    onGeminiKeyTypeChange={setSchemaGeminiKeyType}
-                  />
-                </div>
               </AccordionContent>
             </AccordionItem>
 
@@ -470,9 +528,15 @@ const QBSDConfigPage = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="gemini">Google Gemini</SelectItem>
-                        <SelectItem value="openai">OpenAI</SelectItem>
-                        <SelectItem value="together">Together AI</SelectItem>
+                        {configuredProviders.includes('gemini') && (
+                          <SelectItem value="gemini">Google Gemini</SelectItem>
+                        )}
+                        {configuredProviders.includes('openai') && (
+                          <SelectItem value="openai">OpenAI</SelectItem>
+                        )}
+                        {configuredProviders.includes('together') && (
+                          <SelectItem value="together">Together AI</SelectItem>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -518,17 +582,6 @@ const QBSDConfigPage = () => {
                       placeholder="Optional"
                     />
                   </div>
-                </div>
-
-                {/* API Key Configuration */}
-                <div className="mt-4 pt-4 border-t">
-                  <ApiKeyInput
-                    provider={config.value_extraction_backend.provider}
-                    value={valueApiKey}
-                    onChange={setValueApiKey}
-                    geminiKeyType={valueGeminiKeyType}
-                    onGeminiKeyTypeChange={setValueGeminiKeyType}
-                  />
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -607,25 +660,18 @@ const QBSDConfigPage = () => {
               Back to Home
             </Button>
 
-            <div className="flex flex-col items-end gap-2">
-              {!hasApiKeys && isFormValid && (
-                <p className="text-sm text-amber-600 dark:text-amber-400">
-                  No API keys configured. Server environment keys will be used if available.
-                </p>
+            <Button
+              size="lg"
+              onClick={handleSubmit}
+              disabled={!isFormValid || loading || providersLoading}
+            >
+              {loading ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
               )}
-              <Button
-                size="lg"
-                onClick={handleSubmit}
-                disabled={!isFormValid || loading}
-              >
-                {loading ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-2 h-4 w-4" />
-                )}
-                {loading ? 'Starting QBSD...' : 'Start QBSD'}
-              </Button>
-            </div>
+              {loading ? 'Starting QBSD...' : 'Start QBSD'}
+            </Button>
           </div>
         </CardContent>
       </Card>
