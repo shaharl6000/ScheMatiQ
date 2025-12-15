@@ -45,7 +45,8 @@ DEFAULT_PORT = int(os.environ.get("PORT", 8000))
 # CORS Configuration - supports comma-separated origins via ALLOWED_ORIGINS env var
 _default_origins = [
     "http://localhost:3000",
-    "http://127.0.0.1:3000"
+    "http://127.0.0.1:3000",
+    "https://querydiscovery-production.up.railway.app",  # Production frontend
 ]
 _env_origins = os.environ.get("ALLOWED_ORIGINS", "")
 ALLOWED_ORIGINS = (
