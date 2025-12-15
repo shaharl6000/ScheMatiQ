@@ -103,10 +103,14 @@ backend/app/qbsd_work/
 # ============================================================================
 /build/
 dist/
-# Explicitly include frontend build (negates any previous patterns)
-!frontend/build/
 *.egg
 *.whl
+
+# ============================================================================
+# IMPORTANT: Explicitly include frontend build for Docker
+# ============================================================================
+!frontend/build/
+!frontend/build/**
 
 # ============================================================================
 # Claude/AI Files
