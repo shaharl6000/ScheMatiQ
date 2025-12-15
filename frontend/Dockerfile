@@ -1,31 +1,28 @@
 # Frontend Dockerfile for QueryDiscovery
-# Build from frontend directory: docker build -t qbsd-frontend .
-# Cache bust: v2
+# Builds React app for production
 
 # ============================================================================
 # Stage 1: Build
 # ============================================================================
-FROM node:20 AS builder
+FROM node:18-bookworm AS builder
 
 WORKDIR /app
 
-# Copy package.json only (not package-lock.json to avoid platform-specific deps)
+# Copy package.json only
 COPY package.json ./
+COPY .npmrc ./
 
-# Install dependencies fresh for Linux platform
-# Force reinstall of rollup to get correct platform binaries
-RUN npm install --legacy-peer-deps && \
-    npm rebuild @rollup/rollup || true
+# Generate fresh package-lock.json on Linux and install
+RUN npm install --legacy-peer-deps
 
-# Copy frontend source code
+# Copy source code
 COPY . .
 
-# Build arguments for environment variables (set at build time)
+# Build arguments for environment variables
 ARG REACT_APP_API_URL
 ARG REACT_APP_WS_URL
 ARG REACT_APP_ENABLE_DEBUG=false
 
-# Set environment variables for build
 ENV REACT_APP_API_URL=${REACT_APP_API_URL}
 ENV REACT_APP_WS_URL=${REACT_APP_WS_URL}
 ENV REACT_APP_ENABLE_DEBUG=${REACT_APP_ENABLE_DEBUG}
@@ -36,23 +33,18 @@ RUN npm run build
 # ============================================================================
 # Stage 2: Production
 # ============================================================================
-FROM node:20-slim
+FROM node:18-bookworm-slim
 
 WORKDIR /app
 
-# Install serve globally for serving static files
+# Install serve
 RUN npm install -g serve
 
-# Copy built assets from builder stage
+# Copy built assets
 COPY --from=builder /app/build ./build
 
-# Railway sets PORT env var, default to 3000 for local
+# Railway sets PORT env var
 ENV PORT=3000
 EXPOSE ${PORT}
 
-# Health check (use curl instead of wget for slim image)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:' + process.env.PORT + '/', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
-
-# Use shell form to allow variable substitution for PORT
-CMD serve -s build -l ${PORT}
+CMD ["sh", "-c", "serve -s build -l ${PORT}"]
