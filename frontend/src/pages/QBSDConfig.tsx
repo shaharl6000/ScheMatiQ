@@ -123,15 +123,16 @@ const QBSDConfigPage = () => {
       try {
         setDirectoriesLoading(true);
         const dirs = await qbsdAPI.getDirectories();
-        setDirectories(dirs);
+        const dirsArray = Array.isArray(dirs) ? dirs : [];
+        setDirectories(dirsArray);
         // If current selection is empty and directories are available, select the first one
-        if (dirs.length > 0) {
+        if (dirsArray.length > 0) {
           setConfig(prev => {
             const currentPaths = Array.isArray(prev.docs_path) ? prev.docs_path : [prev.docs_path];
             // Check if current paths exist in the fetched directories
-            const validPaths = currentPaths.filter(path => dirs.some(d => d.value === path));
+            const validPaths = currentPaths.filter(path => dirsArray.some(d => d.value === path));
             if (validPaths.length === 0) {
-              return { ...prev, docs_path: [dirs[0].value] };
+              return { ...prev, docs_path: [dirsArray[0].value] };
             }
             return prev;
           });
