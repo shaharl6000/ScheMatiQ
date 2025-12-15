@@ -101,8 +101,10 @@ backend/app/qbsd_work/
 # ============================================================================
 # Build Artifacts
 # ============================================================================
-build/
+/build/
 dist/
+# Explicitly include frontend build (negates any previous patterns)
+!frontend/build/
 *.egg
 *.whl
 
