@@ -8,12 +8,14 @@ FROM node:18-bookworm AS builder
 
 WORKDIR /app
 
+# Install yarn
+RUN npm install -g yarn
+
 # Copy package.json only
 COPY package.json ./
-COPY .npmrc ./
 
-# Generate fresh package-lock.json on Linux and install
-RUN npm install --legacy-peer-deps
+# Install dependencies with yarn (handles platform deps better)
+RUN yarn install --legacy-peer-deps 2>/dev/null || yarn install
 
 # Copy source code
 COPY . .
@@ -28,7 +30,7 @@ ENV REACT_APP_WS_URL=${REACT_APP_WS_URL}
 ENV REACT_APP_ENABLE_DEBUG=${REACT_APP_ENABLE_DEBUG}
 
 # Build the production app
-RUN npm run build
+RUN yarn build
 
 # ============================================================================
 # Stage 2: Production
