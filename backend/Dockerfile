@@ -25,7 +25,11 @@ RUN pip install --no-cache-dir -e /app/qbsd-lib/
 COPY backend/requirements.txt /app/backend/
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
-# Copy backend source code (updated 2025-12-15)
+# Cache bust argument - change this value to force rebuild
+ARG CACHEBUST=1
+RUN echo "Cache bust: $CACHEBUST"
+
+# Copy backend source code
 COPY backend/ /app/backend/
 
 WORKDIR /app/backend
