@@ -28,7 +28,7 @@ venv
 # Node
 # ============================================================================
 **/node_modules
-frontend/build
+# frontend/build - DO NOT ignore, needed for frontend Docker build
 frontend/.next
 frontend/coverage
 
