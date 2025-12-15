@@ -13,7 +13,9 @@ WORKDIR /app
 COPY package.json ./
 
 # Install dependencies fresh for Linux platform
-RUN npm install --legacy-peer-deps
+# Force reinstall of rollup to get correct platform binaries
+RUN npm install --legacy-peer-deps && \
+    npm rebuild @rollup/rollup || true
 
 # Copy frontend source code
 COPY . .
