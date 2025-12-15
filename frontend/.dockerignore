@@ -1,20 +1,4 @@
-# Node
-node_modules
-# build  # Don't ignore - we need to copy pre-built files
-.next
-coverage
-
-# Environment
-.env
-.env.*
-!.env.example
-
-# OS
-.DS_Store
-
-# IDE
-.idea
-.vscode
-
-# Logs
-*.log
+# Ignore everything except build folder
+*
+!build/
+!build/**
