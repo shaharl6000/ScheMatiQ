@@ -1,6 +1,6 @@
 # Node
 node_modules
-build
+# build  # Don't ignore - we need to copy pre-built files
 .next
 coverage
 

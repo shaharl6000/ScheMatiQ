@@ -1,52 +1,19 @@
-# Frontend Dockerfile for QueryDiscovery
-# Builds React app for production
+# Frontend Dockerfile - Serves pre-built static files
+# No npm install or build needed - files are pre-built locally
 
-# ============================================================================
-# Stage 1: Build
-# ============================================================================
-FROM node:18-bookworm AS builder
+FROM node:18-alpine
 
 WORKDIR /app
 
-# Install yarn
-RUN npm install -g yarn
-
-# Copy package.json only
-COPY package.json ./
-
-# Install dependencies with yarn (handles platform deps better)
-RUN yarn install --legacy-peer-deps 2>/dev/null || yarn install
-
-# Copy source code
-COPY . .
-
-# Build arguments for environment variables
-ARG REACT_APP_API_URL
-ARG REACT_APP_WS_URL
-ARG REACT_APP_ENABLE_DEBUG=false
-
-ENV REACT_APP_API_URL=${REACT_APP_API_URL}
-ENV REACT_APP_WS_URL=${REACT_APP_WS_URL}
-ENV REACT_APP_ENABLE_DEBUG=${REACT_APP_ENABLE_DEBUG}
-
-# Build using react-scripts directly (bypass craco)
-RUN npx react-scripts build
-
-# ============================================================================
-# Stage 2: Production
-# ============================================================================
-FROM node:18-bookworm-slim
-
-WORKDIR /app
-
-# Install serve
+# Install serve globally
 RUN npm install -g serve
 
-# Copy built assets
-COPY --from=builder /app/build ./build
+# Copy pre-built static files
+COPY build/ ./build/
 
 # Railway sets PORT env var
 ENV PORT=3000
 EXPOSE ${PORT}
 
+# Serve static files
 CMD ["sh", "-c", "serve -s build -l ${PORT}"]

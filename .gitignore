@@ -97,7 +97,7 @@ QBSD/visualization/backend/qbsd_work/
 
 # New structure ignores
 # Frontend
-frontend/build/
+# frontend/build/  # Commented out - we commit build for Railway deployment
 frontend/node_modules/
 
 # Backend
