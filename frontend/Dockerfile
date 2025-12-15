@@ -5,10 +5,7 @@
 # ============================================================================
 # Stage 1: Build
 # ============================================================================
-FROM node:20-alpine AS builder
-
-# Install build dependencies for native modules
-RUN apk add --no-cache libc6-compat
+FROM node:20 AS builder
 
 WORKDIR /app
 
@@ -37,7 +34,7 @@ RUN npm run build
 # ============================================================================
 # Stage 2: Production
 # ============================================================================
-FROM node:20-alpine
+FROM node:20-slim
 
 WORKDIR /app
 
@@ -51,9 +48,9 @@ COPY --from=builder /app/build ./build
 ENV PORT=3000
 EXPOSE ${PORT}
 
-# Health check
+# Health check (use curl instead of wget for slim image)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/ || exit 1
+    CMD node -e "require('http').get('http://localhost:' + process.env.PORT + '/', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 # Use shell form to allow variable substitution for PORT
 CMD serve -s build -l ${PORT}
