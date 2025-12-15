@@ -1,22 +1,22 @@
 # Frontend - Static file server using nginx
 FROM nginx:alpine
 
+# Remove default nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
 # Copy pre-built static files
 COPY build/ /usr/share/nginx/html/
 
-# Create a simple startup script that configures nginx with Railway's PORT
-RUN printf '#!/bin/sh\n\
-PORT="${PORT:-3000}"\n\
-cat > /etc/nginx/conf.d/default.conf << EOF\n\
-server {\n\
-    listen $PORT;\n\
+# Create nginx config that listens on port 8080 (Railway's default)
+RUN printf 'server {\n\
+    listen 8080;\n\
     root /usr/share/nginx/html;\n\
     index index.html;\n\
     location / {\n\
-        try_files \\$uri \\$uri/ /index.html;\n\
+        try_files $uri $uri/ /index.html;\n\
     }\n\
-}\n\
-EOF\n\
-nginx -g "daemon off;"\n' > /start.sh && chmod +x /start.sh
+}\n' > /etc/nginx/conf.d/default.conf
 
-CMD ["/bin/sh", "/start.sh"]
+EXPOSE 8080
+
+CMD ["nginx", "-g", "daemon off;"]
