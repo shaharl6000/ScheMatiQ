@@ -7,6 +7,9 @@
 # ============================================================================
 FROM node:20-alpine AS builder
 
+# Install build dependencies for native modules
+RUN apk add --no-cache libc6-compat
+
 WORKDIR /app
 
 # Copy package files first (better layer caching)
