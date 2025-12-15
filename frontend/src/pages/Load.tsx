@@ -37,9 +37,11 @@ const Load = () => {
     const fetchTemplates = async () => {
       try {
         const data = await cloudAPI.getTemplates();
-        setTemplates(data);
+        // Ensure data is an array before setting
+        setTemplates(Array.isArray(data) ? data : []);
       } catch (err) {
         console.log('No templates available:', err);
+        setTemplates([]);
       } finally {
         setLoadingTemplates(false);
       }
