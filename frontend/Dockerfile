@@ -29,8 +29,8 @@ ENV REACT_APP_API_URL=${REACT_APP_API_URL}
 ENV REACT_APP_WS_URL=${REACT_APP_WS_URL}
 ENV REACT_APP_ENABLE_DEBUG=${REACT_APP_ENABLE_DEBUG}
 
-# Build the production app
-RUN yarn build
+# Build using react-scripts directly (bypass craco)
+RUN npx react-scripts build
 
 # ============================================================================
 # Stage 2: Production
