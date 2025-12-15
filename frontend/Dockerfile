@@ -6,23 +6,20 @@ FROM nginx:alpine
 # Copy pre-built static files to nginx html directory
 COPY build/ /usr/share/nginx/html/
 
-# Copy custom nginx config for SPA routing
+# Create nginx config template that uses PORT env var
 RUN echo 'server { \
-    listen 3000; \
+    listen ${PORT}; \
     root /usr/share/nginx/html; \
     index index.html; \
     location / { \
         try_files $uri $uri/ /index.html; \
     } \
-}' > /etc/nginx/conf.d/default.conf
+}' > /etc/nginx/templates/default.conf.template
 
-# Railway uses PORT env var - nginx needs to listen on it
-# We'll use a startup script to handle this
-RUN echo '#!/bin/sh' > /start.sh && \
-    echo 'sed -i "s/listen 3000/listen ${PORT:-3000}/" /etc/nginx/conf.d/default.conf' >> /start.sh && \
-    echo 'nginx -g "daemon off;"' >> /start.sh && \
-    chmod +x /start.sh
+# Default port
+ENV PORT=3000
 
 EXPOSE 3000
 
-CMD ["/start.sh"]
+# nginx:alpine uses envsubst to process templates automatically
+CMD ["nginx", "-g", "daemon off;"]
