@@ -5,7 +5,8 @@ FROM nginx:alpine
 RUN rm /etc/nginx/conf.d/default.conf
 
 # Copy pre-built static files
-COPY build/ /usr/share/nginx/html/
+# Path is frontend/build/ when Railway builds from repo root context
+COPY frontend/build/ /usr/share/nginx/html/
 
 # Create nginx config that listens on port 8080 (Railway's default)
 RUN printf 'server {\n\
