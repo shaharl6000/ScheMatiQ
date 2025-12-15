@@ -25,7 +25,7 @@ RUN pip install --no-cache-dir -e /app/qbsd-lib/
 COPY backend/requirements.txt /app/backend/
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
-# Copy backend source code
+# Copy backend source code (updated 2025-12-15)
 COPY backend/ /app/backend/
 
 WORKDIR /app/backend
