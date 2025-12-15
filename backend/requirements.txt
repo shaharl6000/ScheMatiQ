@@ -30,6 +30,3 @@ PyYAML>=6.0.0
 
 # Cloud Storage
 supabase>=2.0.0
-
-# QBSD Library (from GitHub)
-git+https://github.com/shaharl6000/QueryDiscovery.git#subdirectory=qbsd-lib
