@@ -1,0 +1,11 @@
+# Frontend Docker ignore
+# Only ignore node_modules and build artifacts
+
+node_modules/
+build/
+.next/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
