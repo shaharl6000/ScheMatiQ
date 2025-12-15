@@ -1,0 +1,22 @@
+# Railway Configuration for QueryDiscovery
+# Copy this file to .railway-config and fill in values after deployment
+# Or run ./deploy-railway init to set up automatically
+
+# Railway Project Info (from Railway dashboard)
+RAILWAY_PROJECT_ID=""
+RAILWAY_PROJECT_NAME="querydiscovery"
+
+# Service Names (default values, usually don't need to change)
+RAILWAY_FRONTEND_SERVICE="frontend"
+RAILWAY_BACKEND_SERVICE="backend"
+
+# Deployed URLs (fill in after deployment)
+# Get these from Railway dashboard after deploying
+FRONTEND_URL=""
+BACKEND_URL=""
+
+# Example with real values:
+# RAILWAY_PROJECT_ID="abc123-def456-ghi789"
+# RAILWAY_PROJECT_NAME="querydiscovery"
+# FRONTEND_URL="https://querydiscovery-frontend.up.railway.app"
+# BACKEND_URL="https://querydiscovery-backend.up.railway.app"

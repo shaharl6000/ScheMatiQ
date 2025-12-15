@@ -119,3 +119,6 @@ qbsd-lib/*.egg-info/
 qbsd-lib/build/
 qbsd-lib/dist/
 /research/data/full_text_namesDoubt/
+
+# Railway deployment
+.railway-config

@@ -71,7 +71,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({ statistics }) => {
           <CardContent className="pt-6">
             <p className="text-sm text-muted-foreground mb-1">Total Columns</p>
             <p className="text-3xl font-bold">
-              {statistics.total_columns}
+              {filteredColumnStats.length}
             </p>
           </CardContent>
         </Card>
@@ -256,8 +256,29 @@ const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evoluti
     );
   }
 
+  // Check if we need to add initial schema point to the graph
+  // This handles cases where initial schema exists but iteration 0 snapshot is missing
+  const hasInitialSchema = evolution.column_sources &&
+    Object.values(evolution.column_sources).includes('initial_schema');
+  const firstSnapshotIsInitial = evolution.snapshots[0]?.iteration === 0;
+
+  let snapshotsToUse = evolution.snapshots;
+  if (hasInitialSchema && !firstSnapshotIsInitial) {
+    const initialCols = Object.entries(evolution.column_sources)
+      .filter(([_, source]) => source === 'initial_schema')
+      .map(([name, _]) => name);
+
+    snapshotsToUse = [{
+      iteration: 0,
+      documents_processed: ['Initial Schema'],
+      total_columns: initialCols.length,
+      new_columns: initialCols,
+      cumulative_documents: 0
+    }, ...evolution.snapshots];
+  }
+
   // Prepare data for schema growth chart
-  const growthData = evolution.snapshots.map((snapshot, index) => ({
+  const growthData = snapshotsToUse.map((snapshot, index) => ({
     name: snapshot.documents_processed[0] || `Iteration ${snapshot.iteration}`,
     iteration: snapshot.iteration,
     totalColumns: snapshot.total_columns,

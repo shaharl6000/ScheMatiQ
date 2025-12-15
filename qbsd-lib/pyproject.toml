@@ -29,6 +29,10 @@ dependencies = [
     "requests",
     "openai",
     "together",
+    "tiktoken",
+    "arxiv",
+    "PyPDF2",
+    "numpy",
 ]
 
 [project.optional-dependencies]

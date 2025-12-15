@@ -8,7 +8,7 @@ websockets==12.0
 python-json-logger==2.0.7
 
 # Data processing
-pandas==2.1.4
+pandas>=2.2.0
 numpy>=2.0.0
 
 # PDF processing
