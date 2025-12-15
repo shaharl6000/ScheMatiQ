@@ -4,19 +4,18 @@ FROM node:18-alpine AS builder
 WORKDIR /app
 
 # Copy package files and config files first
-# Paths are relative to repo root (Railway's build context)
-COPY frontend/package*.json ./
-COPY frontend/craco.config.js ./
-COPY frontend/tsconfig.json ./
-COPY frontend/tailwind.config.js ./
-COPY frontend/postcss.config.js ./
+COPY package*.json ./
+COPY craco.config.js ./
+COPY tsconfig.json ./
+COPY tailwind.config.js ./
+COPY postcss.config.js ./
 
 # Install dependencies
 RUN npm install --legacy-peer-deps
 
 # Copy source code
-COPY frontend/src/ ./src/
-COPY frontend/public/ ./public/
+COPY src/ ./src/
+COPY public/ ./public/
 
 # Build args for environment variables
 ARG REACT_APP_API_URL
