@@ -1,19 +1,51 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import { Upload, ArrowLeft, Loader2 } from 'lucide-react';
+import { Upload, ArrowLeft, Loader2, FileSpreadsheet, ChevronDown, Database } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card } from '@/components/ui/card';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { loadAPI } from '../services/api';
+import { loadAPI, cloudAPI } from '../services/api';
+
+interface Template {
+  name: string;
+  path: string;
+  file_type: string;
+  description?: string;
+  row_count?: number;
+  column_count?: number;
+}
 
 const Load = () => {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(true);
+
+  // Fetch available templates on mount
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const data = await cloudAPI.getTemplates();
+        setTemplates(data);
+      } catch (err) {
+        console.log('No templates available:', err);
+      } finally {
+        setLoadingTemplates(false);
+      }
+    };
+    fetchTemplates();
+  }, []);
 
   // File load handler - uploads, validates, parses, then navigates to visualization
   const handleFileLoad = async (file: File) => {
@@ -37,6 +69,20 @@ const Load = () => {
       navigate(`/visualize/${result.session_id}?mode=load`);
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to load file');
+      setLoading(false);
+    }
+  };
+
+  // Template load handler
+  const handleTemplateLoad = async (templateName: string) => {
+    setError(null);
+    setLoading(true);
+
+    try {
+      const result = await cloudAPI.loadTemplate(templateName);
+      navigate(`/visualize/${result.session_id}?mode=load`);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || err.message || 'Failed to load template');
       setLoading(false);
     }
   };
@@ -79,6 +125,62 @@ const Load = () => {
       <p className="text-sm text-muted-foreground mb-6">
         Supported formats: CSV, JSON, JSONL (up to 100MB)
       </p>
+
+      {/* Template Selection */}
+      {templates.length > 0 && (
+        <Card className="p-4 mb-4 bg-muted/30">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-primary" />
+              <div>
+                <h3 className="font-medium">Load from Examples</h3>
+                <p className="text-sm text-muted-foreground">
+                  Choose from pre-loaded example tables
+                </p>
+              </div>
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" disabled={loading || loadingTemplates}>
+                  <FileSpreadsheet className="mr-2 h-4 w-4" />
+                  Select Example
+                  <ChevronDown className="ml-2 h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                {templates.map((template) => (
+                  <DropdownMenuItem
+                    key={template.name}
+                    onClick={() => handleTemplateLoad(template.name)}
+                    className="flex flex-col items-start py-2"
+                  >
+                    <span className="font-medium">{template.name}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {template.file_type.toUpperCase()}
+                      {template.row_count !== undefined && ` • ${template.row_count} rows`}
+                      {template.column_count !== undefined && ` • ${template.column_count} cols`}
+                    </span>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </Card>
+      )}
+
+      {/* Divider */}
+      {templates.length > 0 && (
+        <div className="relative my-6">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground">
+              Or upload your own file
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Load Dropzone */}
       <Card

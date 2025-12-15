@@ -21,8 +21,99 @@ from app.models.upload import (
 from app.services.file_parser import FileParser
 from app.services.session_manager import SessionManager
 from app.services import session_manager
+from app.storage import get_storage
 
 router = APIRouter()
+
+
+# ==================
+# Template Loading
+# ==================
+
+@router.post("/template/{template_name}", response_model=dict)
+async def load_template(template_name: str):
+    """Load a pre-made template table and create a session from it.
+
+    This endpoint allows users to load pre-uploaded example tables
+    without having to upload files manually.
+
+    Args:
+        template_name: Name of the template to load
+
+    Returns:
+        Session ID and parsing results
+    """
+    try:
+        storage = get_storage()
+
+        # Get template content
+        template_content = await storage.download_template(template_name)
+        if not template_content:
+            # Get available templates for error message
+            templates = await storage.list_templates()
+            available = [t.name for t in templates]
+            raise HTTPException(
+                status_code=404,
+                detail=f"Template '{template_name}' not found. Available: {available}"
+            )
+
+        # Determine file type from templates list
+        templates = await storage.list_templates()
+        template_info = next((t for t in templates if t.name == template_name), None)
+        file_type = template_info.file_type if template_info else "csv"
+        filename = f"{template_name}.{file_type}"
+
+        # Create session
+        session_id = str(uuid.uuid4())
+        metadata = SessionMetadata(
+            source=f"template:{template_name}",
+            file_size=len(template_content)
+        )
+
+        session = VisualizationSession(
+            id=session_id,
+            type=SessionType.UPLOAD,
+            metadata=metadata
+        )
+
+        # Save template content as uploaded file
+        session_dir = Path("./data") / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        # Write template content to file
+        file_path = session_dir / filename
+        with open(file_path, 'wb') as f:
+            f.write(template_content)
+
+        # Store session
+        session_manager.create_session(session)
+
+        # Parse the template file
+        parser = FileParser()
+        result = await parser.parse_file(session_id, None)
+
+        # Update session with parsed data
+        session.columns = result["columns"]
+        session.statistics = result["statistics"]
+        session.status = SessionStatus.COMPLETED
+        session_manager.update_session(session)
+
+        return {
+            "session_id": session_id,
+            "template_name": template_name,
+            "status": "success",
+            "message": f"Template '{template_name}' loaded successfully",
+            "row_count": result["statistics"].get("total_rows", 0),
+            "column_count": len(result["columns"])
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error loading template {template_name}: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/file", response_model=dict)
 async def upload_file(file: UploadFile = File(...)):
@@ -712,6 +803,119 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class CloudDocumentRequest(BaseModel):
+    """Request model for adding cloud documents to a session."""
+    dataset: str
+    files: List[str]  # List of filenames to add from the dataset
+
+
+@router.post("/add-cloud-documents/{session_id}", response_model=dict)
+async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
+    """Add documents from cloud storage to a session.
+
+    This endpoint allows users to add documents from pre-uploaded
+    cloud datasets without uploading files manually.
+
+    Args:
+        session_id: Session ID to add documents to
+        request: Dataset name and list of filenames to add
+
+    Returns:
+        Status and list of added files
+    """
+    try:
+        print(f"DEBUG: Adding cloud documents from '{request.dataset}' to session: {session_id}")
+
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Validate session status
+        is_valid_upload_session = (
+            session.type == SessionType.UPLOAD and
+            session.status in [SessionStatus.SCHEMA_EXTRACTED, SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]
+        )
+        is_valid_qbsd_session = (
+            session.type == SessionType.QBSD and
+            session.status == SessionStatus.COMPLETED
+        )
+
+        if not (is_valid_upload_session or is_valid_qbsd_session):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot add documents for session type '{session.type}' in status '{session.status}'."
+            )
+
+        storage = get_storage()
+
+        # Verify dataset exists
+        datasets = await storage.list_datasets()
+        dataset_names = [d.name for d in datasets]
+        if request.dataset not in dataset_names:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dataset '{request.dataset}' not found. Available: {dataset_names}"
+            )
+
+        # Create directories for this session
+        parser = FileParser()
+        session_dir = parser.data_dir / session_id
+        pending_dir = session_dir / "pending_documents"
+        pending_dir.mkdir(parents=True, exist_ok=True)
+        docs_dir = session_dir / "documents"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+
+        # Download requested files
+        downloaded_files = []
+        errors = []
+
+        for filename in request.files:
+            try:
+                content = await storage.download_dataset_file(request.dataset, filename)
+                if content:
+                    file_path = pending_dir / filename
+                    with open(file_path, 'wb') as f:
+                        f.write(content)
+                    downloaded_files.append(filename)
+                    print(f"DEBUG: Downloaded cloud file: {filename}")
+                else:
+                    errors.append(f"Could not download file: {filename}")
+            except Exception as e:
+                errors.append(f"Error downloading {filename}: {str(e)}")
+
+        if not downloaded_files:
+            raise HTTPException(
+                status_code=400,
+                detail={"errors": errors, "message": "No files were downloaded"}
+            )
+
+        # Update session metadata
+        existing_docs = session.metadata.uploaded_documents or []
+        session.metadata.uploaded_documents = existing_docs + downloaded_files
+        session.status = SessionStatus.DOCUMENTS_UPLOADED
+        session.metadata.last_modified = datetime.now()
+        session_manager.update_session(session)
+
+        print(f"DEBUG: Added {len(downloaded_files)} cloud documents to session")
+
+        return {
+            "status": "success",
+            "message": f"Successfully added {len(downloaded_files)} documents from '{request.dataset}'",
+            "added_files": downloaded_files,
+            "errors": errors if errors else None,
+            "documents_directory": str(docs_dir)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"DEBUG: Exception in add_cloud_documents: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 class DocumentProcessingRequest(BaseModel):
     """Request model for document processing with optional LLM configuration."""

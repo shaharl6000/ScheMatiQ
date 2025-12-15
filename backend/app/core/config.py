@@ -78,6 +78,14 @@ DEFAULT_SESSIONS_DIR = "./sessions"
 DEFAULT_DATA_DIR = "./data"
 DEFAULT_QBSD_WORK_DIR = "./qbsd_work"
 
+# Storage Backend Selection
+# Options: "local" (default) or "supabase"
+STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "local")
+
+# Supabase Configuration (required if STORAGE_BACKEND=supabase)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+
 # Status Messages
 HEALTH_CHECK_MESSAGE = "healthy"
 API_ROOT_MESSAGE = "QBSD Visualization API"

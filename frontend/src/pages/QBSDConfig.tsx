@@ -37,7 +37,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
-import { qbsdAPI } from '../services/api';
+import { qbsdAPI, cloudAPI } from '../services/api';
 import { QBSDConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn } from '../types';
 
 const QBSDConfigPage = () => {
@@ -53,9 +53,9 @@ const QBSDConfigPage = () => {
   const [initialSchemaPath, setInitialSchemaPath] = useState<string | undefined>(undefined);
   const [initialSchemaData, setInitialSchemaData] = useState<InitialSchemaColumn[] | undefined>(undefined);
 
-  // Directory state
-  const [directories, setDirectories] = useState<{ value: string; label: string }[]>([]);
-  const [directoriesLoading, setDirectoriesLoading] = useState(true);
+  // Dataset state (for Document Paths dropdown)
+  const [datasets, setDatasets] = useState<{ name: string; path: string; file_count: number }[]>([]);
+  const [datasetsLoading, setDatasetsLoading] = useState(true);
 
   // Check configured providers on mount and redirect if none
   useEffect(() => {
@@ -117,33 +117,33 @@ const QBSDConfigPage = () => {
     return defaults[provider];
   };
 
-  // Fetch available directories on mount
+  // Fetch available datasets on mount
   useEffect(() => {
-    const fetchDirectories = async () => {
+    const fetchDatasets = async () => {
       try {
-        setDirectoriesLoading(true);
-        const dirs = await qbsdAPI.getDirectories();
-        const dirsArray = Array.isArray(dirs) ? dirs : [];
-        setDirectories(dirsArray);
-        // If current selection is empty and directories are available, select the first one
-        if (dirsArray.length > 0) {
+        setDatasetsLoading(true);
+        const data = await cloudAPI.getDatasets();
+        const datasetsArray = Array.isArray(data) ? data : [];
+        setDatasets(datasetsArray);
+        // If current selection is empty and datasets are available, select the first one
+        if (datasetsArray.length > 0) {
           setConfig(prev => {
             const currentPaths = Array.isArray(prev.docs_path) ? prev.docs_path : [prev.docs_path];
-            // Check if current paths exist in the fetched directories
-            const validPaths = currentPaths.filter(path => dirsArray.some(d => d.value === path));
+            // Check if current paths exist in the fetched datasets
+            const validPaths = currentPaths.filter(path => datasetsArray.some(d => d.name === path));
             if (validPaths.length === 0) {
-              return { ...prev, docs_path: [dirsArray[0].value] };
+              return { ...prev, docs_path: [datasetsArray[0].name] };
             }
             return prev;
           });
         }
       } catch (err) {
-        console.error('Failed to fetch directories:', err);
+        console.error('Failed to fetch datasets:', err);
       } finally {
-        setDirectoriesLoading(false);
+        setDatasetsLoading(false);
       }
     };
-    fetchDirectories();
+    fetchDatasets();
   }, []);
 
   const [config, setConfig] = useState<QBSDConfig>({
@@ -299,59 +299,64 @@ const QBSDConfigPage = () => {
             </p>
           </div>
 
-          {/* Document Paths and Max Keys */}
+          {/* Document Datasets and Max Keys */}
           <div className="grid md:grid-cols-3 gap-4">
             <div className="md:col-span-2 space-y-2">
               <Label htmlFor="docs_path">
-                Document Paths <span className="text-destructive">*</span>
+                Document Datasets <span className="text-destructive">*</span>
               </Label>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="outline"
                     className="w-full justify-between"
-                    disabled={directoriesLoading}
+                    disabled={datasetsLoading}
                   >
-                    {directoriesLoading ? (
+                    {datasetsLoading ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Loading directories...
+                        Loading datasets...
                       </>
                     ) : selectedPaths.length === 0 ? (
-                      'Select directories...'
+                      'Select datasets...'
                     ) : (
-                      `${selectedPaths.length} selected`
+                      `${selectedPaths.length} dataset${selectedPaths.length > 1 ? 's' : ''} selected`
                     )}
                     <ChevronDown className="ml-2 h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent className="w-full min-w-[300px] max-h-[300px] overflow-y-auto">
-                  <DropdownMenuLabel>Select Directories</DropdownMenuLabel>
-                  {directories.length === 0 ? (
+                  <DropdownMenuLabel>Select Datasets</DropdownMenuLabel>
+                  {datasets.length === 0 ? (
                     <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                      No directories found
+                      No datasets available
                     </div>
                   ) : (
-                    directories.map((dir) => (
+                    datasets.map((dataset) => (
                       <DropdownMenuCheckboxItem
-                        key={dir.value}
-                        checked={selectedPaths.includes(dir.value)}
+                        key={dataset.name}
+                        checked={selectedPaths.includes(dataset.name)}
                         onSelect={(e) => e.preventDefault()}
                         onCheckedChange={(checked) => {
                           const newPaths = checked
-                            ? [...selectedPaths, dir.value]
-                            : selectedPaths.filter(p => p !== dir.value);
+                            ? [...selectedPaths, dataset.name]
+                            : selectedPaths.filter(p => p !== dataset.name);
                           handleConfigChange('docs_path', newPaths);
                         }}
                       >
-                        {dir.label}
+                        <span className="flex items-center justify-between w-full">
+                          <span>{dataset.name}</span>
+                          <Badge variant="secondary" className="ml-2 text-xs">
+                            {dataset.file_count} files
+                          </Badge>
+                        </span>
                       </DropdownMenuCheckboxItem>
                     ))
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>
               <p className="text-sm text-muted-foreground">
-                Select one or more document directories
+                Select one or more document datasets
               </p>
             </div>
 
@@ -664,7 +669,7 @@ const QBSDConfigPage = () => {
             <Button
               size="lg"
               onClick={handleSubmit}
-              disabled={!isFormValid || loading || providersLoading}
+              disabled={!isFormValid || loading || providersLoading || datasetsLoading}
             >
               {loading ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

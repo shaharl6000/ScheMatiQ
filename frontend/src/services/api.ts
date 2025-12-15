@@ -224,6 +224,99 @@ export const sessionAPI = {
 };
 
 // Schema editing API
+// Cloud Data API (datasets and templates)
+export const cloudAPI = {
+  // List available datasets
+  getDatasets: async (): Promise<{
+    name: string;
+    path: string;
+    file_count: number;
+    description?: string;
+  }[]> => {
+    const response = await api.get('/cloud/datasets');
+    return response.data;
+  },
+
+  // List files in a dataset
+  getDatasetFiles: async (datasetName: string): Promise<{
+    name: string;
+    path: string;
+    size: number;
+    content_type?: string;
+  }[]> => {
+    const response = await api.get(`/cloud/datasets/${encodeURIComponent(datasetName)}/files`);
+    return response.data;
+  },
+
+  // List available templates
+  getTemplates: async (): Promise<{
+    name: string;
+    path: string;
+    file_type: string;
+    description?: string;
+    row_count?: number;
+    column_count?: number;
+  }[]> => {
+    const response = await api.get('/cloud/templates');
+    return response.data;
+  },
+
+  // Get template info
+  getTemplate: async (templateName: string): Promise<{
+    name: string;
+    path: string;
+    file_type: string;
+    description?: string;
+    row_count?: number;
+    column_count?: number;
+  }> => {
+    const response = await api.get(`/cloud/templates/${encodeURIComponent(templateName)}`);
+    return response.data;
+  },
+
+  // List all cloud documents grouped by dataset
+  getCloudDocuments: async (): Promise<{
+    dataset: string;
+    files: {
+      name: string;
+      path: string;
+      size: number;
+      content_type?: string;
+    }[];
+  }[]> => {
+    const response = await api.get('/cloud/documents');
+    return response.data;
+  },
+
+  // Load a template and create a session
+  loadTemplate: async (templateName: string): Promise<{
+    session_id: string;
+    template_name: string;
+    status: string;
+    message: string;
+    row_count: number;
+    column_count: number;
+  }> => {
+    const response = await api.post(`/load/template/${encodeURIComponent(templateName)}`);
+    return response.data;
+  },
+
+  // Add cloud documents to a session
+  addCloudDocuments: async (sessionId: string, dataset: string, files: string[]): Promise<{
+    status: string;
+    message: string;
+    added_files: string[];
+    errors?: string[];
+  }> => {
+    const response = await api.post(`/load/add-cloud-documents/${sessionId}`, {
+      dataset,
+      files
+    });
+    return response.data;
+  },
+};
+
+// Schema editing API
 export const schemaAPI = {
   editColumn: async (sessionId: string, request: EditColumnRequest): Promise<SchemaEditResponse> => {
     const response = await api.put(`/schema/edit-column/${sessionId}`, request);
