@@ -12,10 +12,10 @@ RUN apk add --no-cache libc6-compat
 
 WORKDIR /app
 
-# Copy package files first (better layer caching)
-COPY package*.json ./
+# Copy package.json only (not package-lock.json to avoid platform-specific deps)
+COPY package.json ./
 
-# Install dependencies (including dev dependencies for build)
+# Install dependencies fresh for Linux platform
 RUN npm install --legacy-peer-deps
 
 # Copy frontend source code
