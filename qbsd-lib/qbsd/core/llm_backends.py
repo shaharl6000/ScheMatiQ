@@ -403,38 +403,45 @@ class HuggingFaceLLM(LLMInterface):
 class GeminiLLM(LLMInterface):
     """
     Enhanced Gemini LLM with multi-key support for rate limit failover.
-    
+
     Usage:
-        llm = GeminiLLM(model="gemini-1.5-flash")
+        llm = GeminiLLM()  # Uses gemini-2.5-flash by default
         answer = llm.generate("What is the capital of France?")
-    
+
     API Key Loading (in priority order):
         1. Explicit api_key parameter
         2. GEMINI_API_KEYS=key1,key2,key3 (comma-separated)
         3. GEMINI_API_KEY_1, GEMINI_API_KEY_2, ... (individual keys)
         4. GEMINI_API_KEY (single key, legacy)
+
+    Key Rotation Strategy:
+        - Round-robin rotation every N requests (default: 5)
+        - On rate limit errors: rotate to next key immediately
+        - On quota exhausted (RPD): mark key exhausted, rotate
+        - Exhausted keys reset after 24 hours (RPD resets daily)
+        - Fails after 2 full rotations through all keys with only errors
     """
 
     def __init__(
         self,
-        model: str,
+        model: str = "gemini-2.5-flash",
         api_key: str | None = None,
-        max_output_tokens: int = 1024,
+        max_output_tokens: int = 8192,
         temperature: float = 0.3,
         context_window_size: int = 1000000,  # Gemini has 1M context by default
-        rotation_requests: int = 10,  # Rotate keys every N requests
+        rotation_requests: int = 5,  # Rotate keys every N requests
         **backend_kwargs,
     ):
         super().__init__(**backend_kwargs)
         self.model = model
         self.context_window_size = context_window_size
         self.rotation_requests = rotation_requests
-        
+        self.max_output_tokens = max_output_tokens
+
         # Load multiple API keys with fallback strategy
         self.api_keys = self._load_api_keys(api_key)
         self.current_key_index = 0
-        self.exhausted_keys = set()  # Keys that hit daily quota
-        self.failed_keys = set()     # Keys that are temporarily failing
+        self.exhausted_keys: Dict[int, float] = {}  # key_index -> timestamp when exhausted
         self.request_count = 0       # Track requests for round-robin rotation
         
         try:
@@ -519,42 +526,54 @@ class GeminiLLM(LLMInterface):
         print(f"🔑 Loaded {len(keys)} Gemini API key(s)")
         return keys
     
+    def _is_key_exhausted(self, key_index: int) -> bool:
+        """Check if a key is exhausted. Resets after 24 hours (RPD resets daily)."""
+        if key_index not in self.exhausted_keys:
+            return False
+
+        exhausted_time = self.exhausted_keys[key_index]
+        hours_since_exhausted = (time.time() - exhausted_time) / 3600
+
+        # Reset after 24 hours (RPD resets daily)
+        if hours_since_exhausted >= 24:
+            del self.exhausted_keys[key_index]
+            print(f"🔓 Key #{key_index + 1} reset after 24 hours")
+            return False
+
+        return True
+
     def _switch_to_key(self, key_index: int) -> bool:
         """Switch to a different API key. Returns True if successful."""
-        if key_index >= len(self.api_keys) or key_index in self.exhausted_keys:
+        if key_index >= len(self.api_keys) or self._is_key_exhausted(key_index):
             return False
-        
+
         self.current_key_index = key_index
         current_key = self.api_keys[key_index]
-        
+
         # Configure Gemini with new key
         self.genai.configure(api_key=current_key)
         self._client = self.genai.GenerativeModel(
             self.model,
             safety_settings=self.safety_settings
         )
-        
+
         print(f"🔄 Switched to API key #{key_index + 1}")
         return True
-    
-    def _find_next_available_key(self) -> int | None:
-        """Find the next non-exhausted key index."""
-        for i in range(len(self.api_keys)):
-            if i not in self.exhausted_keys and i not in self.failed_keys:
-                return i
-        return None
-    
+
+    def _get_available_keys(self) -> List[int]:
+        """Get list of non-exhausted key indices."""
+        return [i for i in range(len(self.api_keys)) if not self._is_key_exhausted(i)]
+
     def _rotate_to_next_key(self) -> bool:
         """Rotate to the next available key in round-robin fashion."""
         if len(self.api_keys) <= 1:
             return False
-            
-        available_keys = [i for i in range(len(self.api_keys)) 
-                         if i not in self.exhausted_keys and i not in self.failed_keys]
-        
+
+        available_keys = self._get_available_keys()
+
         if len(available_keys) <= 1:
             return False
-            
+
         # Find current index in available keys list
         try:
             current_pos = available_keys.index(self.current_key_index)
@@ -563,51 +582,61 @@ class GeminiLLM(LLMInterface):
         except ValueError:
             # Current key not in available keys, pick first available
             next_key_index = available_keys[0]
-        
+
         if next_key_index != self.current_key_index:
             return self._switch_to_key(next_key_index)
         return False
-    
-    def _mark_key_failed(self, key_index: int, temporary: bool = True) -> None:
-        """Mark a key as failed. If temporary, it can be retried later."""
-        if temporary:
-            self.failed_keys.add(key_index)
-            # Remove from failed keys after some time (simple approach)
-            # In a real implementation, you might want a more sophisticated approach
-        else:
-            self.exhausted_keys.add(key_index)
-        print(f"🚫 Marked key #{key_index + 1} as {'temporarily failed' if temporary else 'exhausted'}")
-    
+
     def _should_rotate_key(self) -> bool:
         """Check if we should rotate to next key based on request count."""
-        return (len(self.api_keys) > 1 and 
-                self.request_count > 0 and 
+        return (len(self.api_keys) > 1 and
+                self.request_count > 0 and
                 self.request_count % self.rotation_requests == 0)
+
+    def _mark_key_exhausted(self, key_index: int) -> None:
+        """Mark a key as exhausted (hit daily quota)."""
+        self.exhausted_keys[key_index] = time.time()
+        print(f"🚫 Marked key #{key_index + 1} as exhausted (RPD limit)")
+
+    def _calculate_backoff(self, attempt: int, base_wait: int) -> int:
+        """Calculate exponential backoff with jitter."""
+        # Exponential: base * 2^attempt, capped at 5 minutes
+        backoff = min(base_wait * (2 ** attempt), 300)
+        # Add jitter (10-30% of backoff)
+        jitter = random.randint(int(backoff * 0.1), int(backoff * 0.3))
+        return backoff + jitter
 
     def generate(self,
                  prompt: Union[str, List[Dict[str, str]]],
                  **kwargs) -> str:
         """
         Enhanced generate method with round-robin rotation and smart error handling.
-        
+
+        Strategy:
+        - Rotate keys on each rate limit error (spreads load)
+        - Track full rotations through all keys
+        - Fail after 2 full rotations with only errors (all keys tried twice)
+        - Use exponential backoff for wait times
+        - Log MAX_TOKENS but continue with truncated response
+
         Args
         ----
         prompt : str | list[dict]
             • str  – plain prompt
             • list – chat-style messages (converted to plain prompt)
         """
-        # Increment request counter and check for round-robin rotation
+        # Increment request counter and check for proactive round-robin rotation
         self.request_count += 1
         if self._should_rotate_key():
             if self._rotate_to_next_key():
                 print(f"🔁 Round-robin rotation to key #{self.current_key_index + 1} (request #{self.request_count})")
-        
+
         # Convert chat messages to plain text if needed
         if isinstance(prompt, list):
             prompt_text = "\n".join([f"{m['role']}: {m['content']}" for m in prompt])
         else:
             prompt_text = prompt
-            
+
         # Add scientific context to help with safety filtering
         scientific_context = "Context: This is a scientific research task about cellular biology and protein sequences. Terms like 'nuclear' refer to cell nuclei (the cellular organelle), not weapons or harmful content."
         prompt_text = f"{scientific_context}\n\n{prompt_text}"
@@ -619,113 +648,110 @@ class GeminiLLM(LLMInterface):
         if kwargs.get("temperature") is not None:
             gen_config.temperature = kwargs["temperature"]
 
-        # Enhanced retry logic with multi-key support and resilient error handling
-        max_retries_per_key = 3
-        max_key_switches = len(self.api_keys) - 1  # Try all keys except current one
-        key_switches_attempted = 0
+        # Track rotation state for 2x full rotation failure detection
+        available_keys = self._get_available_keys()
+        num_available_keys = len(available_keys)
+        max_total_attempts = num_available_keys * 2  # 2 full rotations through all keys
+        total_attempts = 0
         last_exception = None
-        
-        # Clear temporary failures periodically (simple approach)
-        if self.request_count % 50 == 0:  # Every 50 requests
-            self.failed_keys.clear()
-            print(f"🔄 Cleared temporary key failures (request #{self.request_count})")
-        
-        while key_switches_attempted <= max_key_switches:
+        starting_key = self.current_key_index
+
+        while total_attempts < max_total_attempts:
+            total_attempts += 1
             current_key_display = f"#{self.current_key_index + 1}"
-            
-            for attempt in range(max_retries_per_key + 1):
-                try:
-                    response = self._client.generate_content(
-                        prompt_text,
-                        generation_config=gen_config
-                    )
-                    
-                    # Handle safety filtering or empty responses
-                    if not response.candidates:
-                        print(f"⚠️  Gemini returned no candidates. Finish reason: {response.prompt_feedback}")
-                        return "No response generated due to safety filters or other restrictions."
-                    
-                    candidate = response.candidates[0]
-                    finish_reason = candidate.finish_reason.name
-                    if finish_reason and finish_reason != "STOP":  # 1 = STOP (normal completion)
-                        print(f"✅ Response generated. Finish reason: {finish_reason}")
-                    
-                    if not candidate.content or not candidate.content.parts:
-                        print("⚠️  Gemini returned empty content")
-                        return "Empty response from Gemini."
-                    
-                    return response.text.strip()
-                    
-                except Exception as e:
-                    error_str = str(e)
-                    last_exception = e
-                    
-                    # Handle safety filter errors specifically
-                    if "Invalid operation" in error_str and "finish_reason" in error_str:
-                        print(f"⚠️  Gemini safety filter triggered: {error_str}")
-                        return "Response blocked by Gemini safety filters. Please try rephrasing your request."
-                    
-                    # Check for quota exhausted (RPD) errors - requires key switch
-                    if _is_quota_exhausted_error(error_str):
-                        print(f"💳 RPD quota exhausted for key {current_key_display}: {error_str}")
-                        self.exhausted_keys.add(self.current_key_index)
-                        
-                        # Try to switch to next available key
-                        next_key_index = self._find_next_available_key()
-                        if next_key_index is not None and key_switches_attempted < max_key_switches:
-                            if self._switch_to_key(next_key_index):
-                                key_switches_attempted += 1
-                                print(f"🔄 Switched to key #{next_key_index + 1}, retrying request...")
-                                break  # Break out of retry loop for current key, try new key
-                        else:
-                            print(f"❌ All API keys exhausted. Cannot continue.")
-                            raise last_exception
-                    
-                    # Check for RPM errors - just wait and retry with same key
-                    elif _is_rpm_error(error_str):
-                        if attempt < max_retries_per_key:
-                            wait_time = _extract_wait_time(error_str)
-                            print(f"🚦 RPM rate limit hit with key {current_key_display} (attempt {attempt + 1}/{max_retries_per_key + 1}). Waiting {wait_time}s before retry...")
-                            time.sleep(wait_time)
-                            continue
-                        else:
-                            print(f"❌ RPM rate limit error after {max_retries_per_key} retries with key {current_key_display}")
-                            # For RPM errors, we don't switch keys - the key isn't exhausted
-                            raise last_exception
-                    
-                    # Check for general rate limit errors
-                    elif _is_rate_limit_error(error_str):
-                        if attempt < max_retries_per_key:
-                            wait_time = _extract_wait_time(error_str)
-                            print(f"🚦 Rate limit hit with key {current_key_display} (attempt {attempt + 1}/{max_retries_per_key + 1}). Waiting {wait_time}s before retry...")
-                            time.sleep(wait_time)
-                            continue
-                        else:
-                            print(f"❌ Rate limit error after {max_retries_per_key} retries with key {current_key_display}")
-                            raise last_exception
-                    
-                    # Check for server overload errors  
-                    elif _is_server_overloaded_error(error_str):
-                        if attempt < max_retries_per_key:
-                            wait_time = 10 + random.randint(5, 15)
-                            print(f"🔄 Server overloaded with key {current_key_display} (attempt {attempt + 1}/{max_retries_per_key + 1}). Waiting {wait_time}s before retry...")
-                            time.sleep(wait_time)
-                            continue
-                        else:
-                            print(f"❌ Server overloaded error after {max_retries_per_key} retries with key {current_key_display}")
-                            raise last_exception
+            rotation_num = (total_attempts - 1) // num_available_keys + 1
+            attempt_in_rotation = (total_attempts - 1) % num_available_keys + 1
+
+            print(f"🔄 Attempt {total_attempts}/{max_total_attempts} (rotation {rotation_num}, key {attempt_in_rotation}/{num_available_keys}) with key {current_key_display}")
+
+            try:
+                response = self._client.generate_content(
+                    prompt_text,
+                    generation_config=gen_config
+                )
+
+                # Handle safety filtering or empty responses
+                if not response.candidates:
+                    print(f"⚠️  Gemini returned no candidates. Feedback: {response.prompt_feedback}")
+                    return "No response generated due to safety filters or other restrictions."
+
+                candidate = response.candidates[0]
+                finish_reason = candidate.finish_reason.name if candidate.finish_reason else None
+
+                # Log non-STOP finish reasons (including MAX_TOKENS) but continue
+                if finish_reason and finish_reason != "STOP":
+                    if finish_reason == "MAX_TOKENS":
+                        print(f"⚠️  Response truncated (MAX_TOKENS). Output may be incomplete.")
                     else:
-                        # Not a retryable error, don't retry
-                        print(f"❌ Non-retryable error with key {current_key_display}: {error_str}")
+                        print(f"ℹ️  Response finish reason: {finish_reason}")
+
+                if not candidate.content or not candidate.content.parts:
+                    print("⚠️  Gemini returned empty content")
+                    return "Empty response from Gemini."
+
+                return response.text.strip()
+
+            except Exception as e:
+                error_str = str(e)
+                last_exception = e
+
+                # Handle safety filter errors specifically - don't retry
+                if "Invalid operation" in error_str and "finish_reason" in error_str:
+                    print(f"⚠️  Gemini safety filter triggered: {error_str}")
+                    return "Response blocked by Gemini safety filters. Please try rephrasing your request."
+
+                # Check for quota exhausted (RPD) errors - mark key and rotate
+                if _is_quota_exhausted_error(error_str):
+                    print(f"💳 RPD quota exhausted for key {current_key_display}")
+                    self._mark_key_exhausted(self.current_key_index)
+
+                    # Update available keys after exhaustion
+                    available_keys = self._get_available_keys()
+                    if not available_keys:
+                        print(f"❌ All API keys exhausted (daily quota). Cannot continue.")
                         raise last_exception
-            
-            # If we reach here, we either successfully processed or exhausted retries for current key
-            # If we broke out due to key switch, continue with new key
-            if key_switches_attempted <= max_key_switches and self.current_key_index not in self.exhausted_keys:
-                continue
-            else:
-                break
-        
-        # Re-raise the last exception if we've exhausted all options
-        print(f"❌ Exhausted all retry options across {key_switches_attempted + 1} API key(s)")
+
+                    # Rotate to next available key
+                    self._rotate_to_next_key()
+                    continue
+
+                # For RPM/rate limit errors - rotate to spread load, with exponential backoff
+                elif _is_rpm_error(error_str) or _is_rate_limit_error(error_str):
+                    base_wait = _extract_wait_time(error_str)
+                    # Calculate which attempt this is for this specific error type
+                    backoff_attempt = total_attempts // num_available_keys
+                    wait_time = self._calculate_backoff(backoff_attempt, base_wait)
+
+                    print(f"🚦 Rate limit hit with key {current_key_display}. Rotating and waiting {wait_time}s...")
+
+                    # Rotate to next key to spread load
+                    if num_available_keys > 1:
+                        self._rotate_to_next_key()
+
+                    time.sleep(wait_time)
+                    continue
+
+                # Server overload errors - rotate and wait with backoff
+                elif _is_server_overloaded_error(error_str):
+                    backoff_attempt = total_attempts // num_available_keys
+                    wait_time = self._calculate_backoff(backoff_attempt, 15)
+
+                    print(f"🔄 Server overloaded with key {current_key_display}. Rotating and waiting {wait_time}s...")
+
+                    if num_available_keys > 1:
+                        self._rotate_to_next_key()
+
+                    time.sleep(wait_time)
+                    continue
+
+                else:
+                    # Non-retryable error - rotate and try next key
+                    print(f"⚠️  Error with key {current_key_display}: {error_str[:200]}...")
+
+                    if num_available_keys > 1:
+                        self._rotate_to_next_key()
+                    continue
+
+        # Exhausted 2 full rotations with only errors
+        print(f"❌ Failed after {total_attempts} attempts across 2 full rotations of {num_available_keys} key(s)")
         raise last_exception

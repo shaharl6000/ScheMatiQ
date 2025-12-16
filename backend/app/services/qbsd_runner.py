@@ -58,7 +58,7 @@ def build_llm_interface(
 
     Args:
         provider: LLM provider name (together, openai, gemini)
-        model: Model name/identifier
+        model: Model name/identifier (empty string uses provider default)
         max_output_tokens: Maximum tokens the model can generate in its response
         temperature: Sampling temperature
         api_key: Optional user-provided API key (falls back to env var if None)
@@ -68,6 +68,8 @@ def build_llm_interface(
         raise RuntimeError("QBSD components not available")
 
     if provider.lower() == "together":
+        if not model:
+            raise ValueError("Model must be specified for Together AI provider")
         return TogetherLLM(
             model=model,
             max_output_tokens=max_output_tokens,
@@ -75,6 +77,8 @@ def build_llm_interface(
             api_key=api_key
         )
     elif provider.lower() == "openai":
+        if not model:
+            raise ValueError("Model must be specified for OpenAI provider")
         return OpenAILLM(
             model=model,
             max_output_tokens=max_output_tokens,
@@ -82,12 +86,16 @@ def build_llm_interface(
             api_key=api_key
         )
     elif provider.lower() == "gemini":
-        return GeminiLLM(
-            model=model,
-            max_output_tokens=max_output_tokens,
-            temperature=temperature,
-            api_key=api_key
-        )
+        # GeminiLLM has default model="gemini-2.5-flash" and max_output_tokens=8192
+        # Only pass model if explicitly provided (non-empty)
+        kwargs = {
+            "max_output_tokens": max_output_tokens,
+            "temperature": temperature,
+            "api_key": api_key
+        }
+        if model:  # Only pass model if explicitly set
+            kwargs["model"] = model
+        return GeminiLLM(**kwargs)
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
@@ -295,16 +303,20 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         # Validate schema creation backend config
         if not config.schema_creation_backend.provider:
             errors.append("Schema creation LLM provider must be specified")
-        
+
+        # Model is required for OpenAI and Together, optional for Gemini (has default)
         if not config.schema_creation_backend.model:
-            errors.append("Schema creation LLM model must be specified")
-            
+            if config.schema_creation_backend.provider.lower() not in ["gemini"]:
+                errors.append("Schema creation LLM model must be specified (required for non-Gemini providers)")
+
         # Validate value extraction backend config
         if not config.value_extraction_backend.provider:
             errors.append("Value extraction LLM provider must be specified")
-        
+
+        # Model is required for OpenAI and Together, optional for Gemini (has default)
         if not config.value_extraction_backend.model:
-            errors.append("Value extraction LLM model must be specified")
+            if config.value_extraction_backend.provider.lower() not in ["gemini"]:
+                errors.append("Value extraction LLM model must be specified (required for non-Gemini providers)")
         
         return {
             "is_valid": len(errors) == 0,
