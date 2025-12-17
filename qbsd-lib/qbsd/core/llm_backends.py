@@ -697,6 +697,19 @@ class GeminiLLM(LLMInterface):
                 and not self._is_key_rate_limited(i)
                 and i not in self.invalid_keys]
 
+    def should_sleep_before_request(self) -> bool:
+        """Check if caller should sleep before making a request.
+
+        Returns True only if ALL keys are currently rate-limited.
+        When fresh keys are available, there's no need to sleep -
+        just rotate to a fresh key and continue immediately.
+
+        This is used by table_builder to implement dynamic sleep:
+        only sleep when necessary, not between every paper.
+        """
+        fresh_keys = self._get_fresh_keys()
+        return len(fresh_keys) == 0
+
     def _switch_to_key(self, key_index: int) -> bool:
         """Switch to a different API key. Returns True if successful."""
         if key_index >= len(self.api_keys) or self._is_key_exhausted(key_index) or key_index in self.invalid_keys:

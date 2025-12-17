@@ -34,6 +34,8 @@ class PaperProcessor:
         self.on_value_extracted = on_value_extracted
         # Schema evolution tracking: {column_name: {value: [list of documents]}}
         self.suggested_values: Dict[str, Dict[str, list]] = {}
+        # Cache for fallback retriever (created on-demand, reused across papers)
+        self._cached_fallback_retriever = None
 
     def _track_unmatched_values(self, unmatched: Dict[str, list], document_name: str = None):
         """Track unmatched values for schema evolution suggestions."""
@@ -334,11 +336,13 @@ class PaperProcessor:
             if missing:
                 print(f"↻ Fallback per-column for {len(missing)} missing: {[c.name for c in missing]}")
                 
-                # Create fallback retriever if we don't have one (long context mode)
+                # Use cached fallback retriever if we don't have one (long context mode)
                 fallback_retriever = self.retriever
                 if self.retriever is None:
-                    print(f"📡 Creating fallback retriever for missing columns in long context mode")
-                    fallback_retriever = self._create_fallback_retriever()
+                    if self._cached_fallback_retriever is None:
+                        print(f"📡 Creating fallback retriever (will be cached for future use)")
+                        self._cached_fallback_retriever = self._create_fallback_retriever()
+                    fallback_retriever = self._cached_fallback_retriever
                 
                 for col in missing:
                     # First fallback: expanded k + strict prompt with retrieval

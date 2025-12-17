@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
 from qbsd.core.schema import Schema, Column
-from qbsd.core.llm_backends import LLMInterface
+from qbsd.core.llm_backends import LLMInterface, AllKeysFailedError
 from qbsd.core import utils
 
 from .paper_processor import PaperProcessor, OnValueExtractedCallback
@@ -248,23 +248,38 @@ class TableBuilder:
         # Process rows
         written_rows = set()
         total_rows = len(papers_by_row)
-        
-        for row_idx, (row_name, papers) in enumerate(papers_by_row.items(), 1):
-            print(f"\n🔄 Processing row {row_idx}/{total_rows}: {row_name}")
-            
-            if row_name in completed_rows:
-                print(f"⏭️  Row {row_name} already completed, skipping...")
-                written_rows.add(row_name)
-                continue
-            
-            # Process with directory-specific GT_NES logic
-            self._process_row_multi_dirs(
-                row_name, papers, doc_to_source, schema, mode, retrieval_k, 
-                max_new_tokens, max_workers, existing_rows, processed_papers,
-                written_rows, completed_rows, output_path
-            )
-        
-        print(f"\n✅ Processing complete! Wrote {len(written_rows)} rows to {output_path}")
+
+        try:
+            for row_idx, (row_name, papers) in enumerate(papers_by_row.items(), 1):
+                print(f"\n🔄 Processing row {row_idx}/{total_rows}: {row_name}")
+
+                if row_name in completed_rows:
+                    print(f"⏭️  Row {row_name} already completed, skipping...")
+                    written_rows.add(row_name)
+                    continue
+
+                # Process with directory-specific GT_NES logic
+                self._process_row_multi_dirs(
+                    row_name, papers, doc_to_source, schema, mode, retrieval_k,
+                    max_new_tokens, max_workers, existing_rows, processed_papers,
+                    written_rows, completed_rows, output_path
+                )
+
+            print(f"\n✅ Processing complete! Wrote {len(written_rows)} rows to {output_path}")
+
+        except AllKeysFailedError as e:
+            print(f"\n" + "="*60)
+            print(f"⚠️  ALL API KEYS FAILED - GRACEFUL SHUTDOWN")
+            print(f"="*60)
+            print(f"Reason: {e.message}")
+            print(f"Keys tried: {e.keys_tried}")
+            if e.last_error:
+                print(f"Last error: {e.last_error[:200]}...")
+            print(f"\n💾 Data saved so far: {len(written_rows)} rows written to {output_path}")
+            print(f"📝 You can resume later with resume=True to continue from where you left off.")
+            print(f"="*60)
+            # Re-raise to signal caller that processing was interrupted
+            raise
     
     def _process_row_multi_dirs(self,
                                row_name: str,
@@ -508,64 +523,88 @@ class TableBuilder:
         # Process papers with incremental row writing
         paper_results = {}
         papers_processed = 0
-        
-        if max_workers == 0:
-            # Sequential processing
-            print(f"🔄 Processing {len(papers_to_process)} papers sequentially with incremental writing...")
-            for doc_path in tqdm(papers_to_process, desc="processing papers"):
-                try:
-                    row_name, paper_title, extracted_data = self.paper_processor.process_single_paper(
-                        doc_path, schema, max_new_tokens, mode, retrieval_k, processed_papers
-                    )
-                    if extracted_data is not None:
-                        paper_results[paper_title] = (row_name, extracted_data)
-                        papers_processed += 1
-                        
-                        # Try to write row if complete
-                        self._write_row_if_complete(row_name, paper_results, papers_by_row, existing_rows, 
-                                                  written_rows, completed_rows, output_path, schema, docs_directory)
-                        time.sleep(0.5)  # Gentle on API
-                        
-                except Exception as e:
-                    print(f"⚠️  Error processing {doc_path.stem}: {e}")
-        else:
-            # Parallel processing with incremental writing
-            print(f"🚀 Processing {len(papers_to_process)} papers using {max_workers} parallel workers with incremental writing...")
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_paper = {
-                    executor.submit(
-                        self.paper_processor.process_single_paper, 
-                        doc_path, schema, max_new_tokens, mode, retrieval_k, processed_papers
-                    ): doc_path
-                    for doc_path in papers_to_process
-                }
-                
-                for future in tqdm(as_completed(future_to_paper), total=len(papers_to_process), desc="processing papers"):
-                    doc_path = future_to_paper[future]
+
+        try:
+            if max_workers == 0:
+                # Sequential processing
+                print(f"🔄 Processing {len(papers_to_process)} papers sequentially with incremental writing...")
+                for doc_path in tqdm(papers_to_process, desc="processing papers"):
                     try:
-                        row_name, paper_title, extracted_data = future.result()
+                        row_name, paper_title, extracted_data = self.paper_processor.process_single_paper(
+                            doc_path, schema, max_new_tokens, mode, retrieval_k, processed_papers
+                        )
                         if extracted_data is not None:
                             paper_results[paper_title] = (row_name, extracted_data)
                             papers_processed += 1
-                            
+
                             # Try to write row if complete
-                            self._write_row_if_complete(row_name, paper_results, papers_by_row, existing_rows, 
+                            self._write_row_if_complete(row_name, paper_results, papers_by_row, existing_rows,
                                                       written_rows, completed_rows, output_path, schema, docs_directory)
-                            
+
+                            # Dynamic sleep: only pause if all API keys are rate-limited
+                            # With multiple keys from different projects, we can often continue immediately
+                            if hasattr(self.llm, 'should_sleep_before_request') and self.llm.should_sleep_before_request():
+                                time.sleep(0.3)  # Short delay when all keys are rate-limited
+
+                    except AllKeysFailedError:
+                        raise  # Let this bubble up to the outer handler
                     except Exception as e:
-                        print(f"⚠️  Error in parallel processing for {doc_path.stem}: {e}")
-        
-        # Final check: write any remaining incomplete rows
-        print("📝 Writing any remaining incomplete rows...")
-        remaining_rows = 0
-        for row_name in papers_by_row.keys():
-            if row_name not in written_rows and row_name not in completed_rows:
-                self._write_row_if_complete(row_name, paper_results, papers_by_row, existing_rows, 
-                                          written_rows, completed_rows, output_path, schema, docs_directory)
-                if row_name in written_rows:
-                    remaining_rows += 1
-        
-        total_rows = len(written_rows) + len(completed_rows)
-        print(f"✅ Incremental processing complete: {papers_processed} papers processed into {total_rows} total rows ➜ {output_path.resolve()}")
-        if remaining_rows > 0:
-            print(f"📄 Wrote {remaining_rows} additional incomplete rows at the end")
+                        print(f"⚠️  Error processing {doc_path.stem}: {e}")
+            else:
+                # Parallel processing with incremental writing
+                print(f"🚀 Processing {len(papers_to_process)} papers using {max_workers} parallel workers with incremental writing...")
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_to_paper = {
+                        executor.submit(
+                            self.paper_processor.process_single_paper,
+                            doc_path, schema, max_new_tokens, mode, retrieval_k, processed_papers
+                        ): doc_path
+                        for doc_path in papers_to_process
+                    }
+
+                    for future in tqdm(as_completed(future_to_paper), total=len(papers_to_process), desc="processing papers"):
+                        doc_path = future_to_paper[future]
+                        try:
+                            row_name, paper_title, extracted_data = future.result()
+                            if extracted_data is not None:
+                                paper_results[paper_title] = (row_name, extracted_data)
+                                papers_processed += 1
+
+                                # Try to write row if complete
+                                self._write_row_if_complete(row_name, paper_results, papers_by_row, existing_rows,
+                                                          written_rows, completed_rows, output_path, schema, docs_directory)
+
+                        except AllKeysFailedError:
+                            raise  # Let this bubble up to the outer handler
+                        except Exception as e:
+                            print(f"⚠️  Error in parallel processing for {doc_path.stem}: {e}")
+
+            # Final check: write any remaining incomplete rows
+            print("📝 Writing any remaining incomplete rows...")
+            remaining_rows = 0
+            for row_name in papers_by_row.keys():
+                if row_name not in written_rows and row_name not in completed_rows:
+                    self._write_row_if_complete(row_name, paper_results, papers_by_row, existing_rows,
+                                              written_rows, completed_rows, output_path, schema, docs_directory)
+                    if row_name in written_rows:
+                        remaining_rows += 1
+
+            total_rows = len(written_rows) + len(completed_rows)
+            print(f"✅ Incremental processing complete: {papers_processed} papers processed into {total_rows} total rows ➜ {output_path.resolve()}")
+            if remaining_rows > 0:
+                print(f"📄 Wrote {remaining_rows} additional incomplete rows at the end")
+
+        except AllKeysFailedError as e:
+            print(f"\n" + "="*60)
+            print(f"⚠️  ALL API KEYS FAILED - GRACEFUL SHUTDOWN")
+            print(f"="*60)
+            print(f"Reason: {e.message}")
+            print(f"Keys tried: {e.keys_tried}")
+            if e.last_error:
+                print(f"Last error: {e.last_error[:200]}...")
+            print(f"\n💾 Data saved so far: {len(written_rows)} rows written to {output_path}")
+            print(f"📊 Papers processed before failure: {papers_processed}")
+            print(f"📝 You can resume later with resume=True to continue from where you left off.")
+            print(f"="*60)
+            # Re-raise to signal caller that processing was interrupted
+            raise
