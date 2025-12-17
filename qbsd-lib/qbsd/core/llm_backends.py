@@ -14,6 +14,24 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Union
 import re
 
+
+##############################################################################
+# Custom Exceptions                                                          #
+##############################################################################
+
+class AllKeysFailedError(Exception):
+    """Raised when all API keys have failed and no more retries are possible.
+
+    This exception signals that the caller should save any data and exit gracefully.
+    """
+    def __init__(self, message: str = "All API keys exhausted or invalid",
+                 keys_tried: int = 0, last_error: str = None):
+        self.message = message
+        self.keys_tried = keys_tried
+        self.last_error = last_error
+        super().__init__(self.message)
+
+
 ##############################################################################
 # Rate limit retry utilities                                                 #
 ##############################################################################
@@ -23,49 +41,83 @@ def _is_rate_limit_error(error_str: str) -> bool:
     return "429" in error_str and ("rate limit" in error_str.lower() or "rate_limit" in error_str.lower())
 
 def _is_quota_exhausted_error(error_str: str) -> bool:
-    """Check if error is a quota exhausted (RPD/daily) error - requires key switch."""
+    """Check if error is a quota exhausted (RPD/daily) error - requires key switch.
+
+    ULTRA-CONSERVATIVE: Only return True if error EXPLICITLY mentions "daily".
+    Any ambiguous "exhausted" error is treated as temporary rate limit, NOT RPD.
+
+    This prevents false positives that would incorrectly mark keys as dead for 24h.
+    """
     error_lower = error_str.lower()
-    
-    # Exclude per-minute errors from being classified as quota exhausted
-    if "per minute" in error_lower or "perminute" in error_lower:
+
+    # Must be a 429 error
+    if "429" not in error_str:
         return False
-    
-    # Look for daily/billing quota indicators
-    rpd_indicators = [
-        "daily quota", "requests per day", "rpd", 
-        "billing", "insufficient quota", "plan and billing",
-        "quota exhausted", "quota limit exceeded"
+
+    # ONLY mark as RPD if error EXPLICITLY mentions "daily" or "per day"
+    # This is the ONLY way to be certain it's a daily quota, not per-minute
+    explicit_daily_indicators = [
+        "daily",        # "daily quota", "daily limit", etc.
+        "per day",      # "requests per day", "per day limit", etc.
+        "rpd"           # Explicit RPD mention
     ]
-    
-    # Must be a 429 error and contain RPD indicators
-    return "429" in error_str and any(indicator in error_lower for indicator in rpd_indicators)
+
+    for indicator in explicit_daily_indicators:
+        if indicator in error_lower:
+            print(f"🔍 RPD detection: Found '{indicator}' in error - confirming as daily quota")
+            return True
+
+    # Everything else is NOT confirmed as daily quota
+    # Generic "exhausted", "quota", "billing" etc. could be per-minute limits
+    return False
 
 def _is_rpm_error(error_str: str) -> bool:
-    """Check if error is requests per minute (RPM) error - requires waiting."""
+    """Check if error is a rate limit that should be handled with waiting/rotation.
+
+    CATCH-ALL: Any 429 error that isn't confirmed as daily quota (RPD)
+    is treated as a temporary rate limit (likely RPM) that will reset shortly.
+
+    This ensures we never incorrectly mark keys as dead when it's just a
+    per-minute limit that will reset in 60 seconds.
+    """
     error_lower = error_str.lower()
-    
-    # Specific Gemini RPM indicators
-    gemini_rpm_indicators = [
-        "generatereq​uestsperminuteperprojectpermodel",
-        "perminute", "per minute"
-    ]
-    
-    # General RPM indicators
-    general_rpm_indicators = [
-        "requests per minute", "rpm", "per minute limit",
-        "minute quota", "too many requests"
-    ]
-    
-    # Must be a 429 error with per-minute indicators
-    if "429" in error_str:
-        return (any(indicator in error_lower for indicator in gemini_rpm_indicators) or 
-                any(indicator in error_lower for indicator in general_rpm_indicators))
-    
+
+    # Must be a 429 error
+    if "429" not in error_str:
+        return False
+
+    # If it's NOT a confirmed daily quota error, treat as RPM (temporary)
+    # This is the safe default - wait and retry instead of marking key dead
+    if not _is_quota_exhausted_error(error_str):
+        return True
+
     return False
 
 def _is_server_overloaded_error(error_str: str) -> bool:
     """Check if error is a server overloaded error (503)."""
     return "503" in error_str and ("overloaded" in error_str.lower() or "not ready" in error_str.lower())
+
+
+def _is_invalid_api_key_error(error_str: str) -> bool:
+    """Check if error indicates a malformed or invalid API key.
+
+    These errors occur when the API key has invalid characters, is corrupted,
+    or is otherwise malformed. The key should be permanently marked as invalid.
+    """
+    error_lower = error_str.lower()
+
+    # gRPC plugin credential errors (malformed key with illegal characters)
+    if "illegal header value" in error_lower or "invalid metadata" in error_lower:
+        return True
+
+    # Generic invalid API key errors
+    invalid_key_indicators = [
+        "invalid api key", "api key not valid", "api_key_invalid",
+        "invalid credential", "authentication failed", "unauthorized",
+        "permission denied", "invalid_api_key", "api key is invalid"
+    ]
+
+    return any(indicator in error_lower for indicator in invalid_key_indicators)
 
 def _extract_wait_time(error_str: str) -> int:
     """Extract wait time from rate limit error or return default."""
@@ -441,8 +493,11 @@ class GeminiLLM(LLMInterface):
         # Load multiple API keys with fallback strategy
         self.api_keys = self._load_api_keys(api_key)
         self.current_key_index = 0
-        self.exhausted_keys: Dict[int, float] = {}  # key_index -> timestamp when exhausted
+        self.exhausted_keys: Dict[int, float] = {}  # key_index -> timestamp when exhausted (RPD)
+        self.rate_limited_keys: Dict[int, float] = {}  # key_index -> timestamp when rate limited (RPM)
+        self.invalid_keys: set = set()  # Keys that are permanently invalid (malformed, wrong format)
         self.request_count = 0       # Track requests for round-robin rotation
+        self.RPM_RESET_SECONDS = 60  # Per-minute limits reset after 60 seconds
         
         try:
             import google.generativeai as genai
@@ -482,52 +537,116 @@ class GeminiLLM(LLMInterface):
         # Initialize with first available key
         self._switch_to_key(0)
     
+    def _validate_api_key(self, key: str, key_source: str = "unknown") -> bool:
+        """Validate that an API key doesn't have invalid characters.
+
+        gRPC will crash with 'Illegal header value' if the key contains
+        newlines, non-ASCII characters, or other invalid header chars.
+        """
+        if not key:
+            return False
+
+        # Check for newlines (common issue with env vars)
+        if '\n' in key or '\r' in key:
+            print(f"⚠️  API key from {key_source} contains newline characters - skipping")
+            return False
+
+        # Check for non-printable characters
+        if not key.isprintable():
+            print(f"⚠️  API key from {key_source} contains non-printable characters - skipping")
+            return False
+
+        # Check for spaces (API keys shouldn't have spaces)
+        if ' ' in key:
+            print(f"⚠️  API key from {key_source} contains spaces - skipping")
+            return False
+
+        # Check for common invalid chars in HTTP headers
+        invalid_chars = set('\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f')
+        if any(c in invalid_chars for c in key):
+            print(f"⚠️  API key from {key_source} contains control characters - skipping")
+            return False
+
+        return True
+
     def _load_api_keys(self, explicit_key: str | None = None) -> List[str]:
         """Load API keys from various sources in priority order."""
         keys = []
+        skipped_keys = 0
 
         # 1. Explicit parameter (supports comma-separated keys for multi-key mode)
         if explicit_key:
             if ',' in explicit_key:
                 # Multi-key mode: split comma-separated keys
-                keys.extend([k.strip() for k in explicit_key.split(",") if k.strip()])
+                for k in explicit_key.split(","):
+                    k = k.strip()
+                    if k and self._validate_api_key(k, "explicit parameter"):
+                        keys.append(k)
+                    elif k:
+                        skipped_keys += 1
             else:
                 # Single key mode
-                keys.append(explicit_key)
-            return keys
+                if self._validate_api_key(explicit_key.strip(), "explicit parameter"):
+                    keys.append(explicit_key.strip())
+                else:
+                    skipped_keys += 1
+            if keys:
+                if skipped_keys:
+                    print(f"⚠️  Skipped {skipped_keys} invalid key(s)")
+                print(f"🔑 Loaded {len(keys)} valid Gemini API key(s)")
+                return keys
 
         # 2. Comma-separated environment variable
         comma_separated = os.getenv("GEMINI_API_KEYS")
         if comma_separated:
-            keys.extend([k.strip() for k in comma_separated.split(",") if k.strip()])
-        
+            for k in comma_separated.split(","):
+                k = k.strip()
+                if k and self._validate_api_key(k, "GEMINI_API_KEYS"):
+                    if k not in keys:
+                        keys.append(k)
+                elif k:
+                    skipped_keys += 1
+
         # 3. Individual numbered environment variables
         i = 1
         while True:
             key = os.getenv(f"GEMINI_API_KEY_{i}")
             if not key:
                 break
-            keys.append(key)
+            key = key.strip()
+            if self._validate_api_key(key, f"GEMINI_API_KEY_{i}"):
+                if key not in keys:
+                    keys.append(key)
+            else:
+                skipped_keys += 1
             i += 1
-        
+
         # 4. Legacy single key
         single_key = os.getenv("GEMINI_API_KEY")
-        if single_key and single_key not in keys:
-            keys.append(single_key)
-        
+        if single_key:
+            single_key = single_key.strip()
+            if self._validate_api_key(single_key, "GEMINI_API_KEY"):
+                if single_key not in keys:
+                    keys.append(single_key)
+            else:
+                skipped_keys += 1
+
         if not keys:
             raise ValueError(
-                "No Gemini API keys found. Set one of:\n"
+                "No valid Gemini API keys found. Set one of:\n"
                 "  • GEMINI_API_KEYS=key1,key2,key3\n"
                 "  • GEMINI_API_KEY_1, GEMINI_API_KEY_2, ...\n"
-                "  • GEMINI_API_KEY (single key)"
+                "  • GEMINI_API_KEY (single key)\n"
+                f"Note: {skipped_keys} key(s) were skipped due to invalid characters."
             )
-        
-        print(f"🔑 Loaded {len(keys)} Gemini API key(s)")
+
+        if skipped_keys:
+            print(f"⚠️  Skipped {skipped_keys} invalid key(s)")
+        print(f"🔑 Loaded {len(keys)} valid Gemini API key(s)")
         return keys
     
     def _is_key_exhausted(self, key_index: int) -> bool:
-        """Check if a key is exhausted. Resets after 24 hours (RPD resets daily)."""
+        """Check if a key is exhausted (RPD). Resets after 24 hours (RPD resets daily)."""
         if key_index not in self.exhausted_keys:
             return False
 
@@ -542,9 +661,45 @@ class GeminiLLM(LLMInterface):
 
         return True
 
+    def _is_key_rate_limited(self, key_index: int) -> bool:
+        """Check if a key is currently rate limited (RPM). Resets after 60 seconds."""
+        if key_index not in self.rate_limited_keys:
+            return False
+
+        limited_time = self.rate_limited_keys[key_index]
+        seconds_since_limited = time.time() - limited_time
+
+        # RPM resets after 60 seconds
+        if seconds_since_limited >= self.RPM_RESET_SECONDS:
+            del self.rate_limited_keys[key_index]
+            return False
+
+        return True
+
+    def _mark_key_rate_limited(self, key_index: int) -> None:
+        """Mark a key as temporarily rate limited (RPM)."""
+        self.rate_limited_keys[key_index] = time.time()
+        print(f"⏱️  Marked key #{key_index + 1} as rate limited (RPM) - will reset in 60s")
+
+    def _get_seconds_until_key_available(self, key_index: int) -> float:
+        """Get seconds until a rate-limited key becomes available again."""
+        if key_index not in self.rate_limited_keys:
+            return 0
+        limited_time = self.rate_limited_keys[key_index]
+        seconds_since_limited = time.time() - limited_time
+        remaining = self.RPM_RESET_SECONDS - seconds_since_limited
+        return max(0, remaining)
+
+    def _get_fresh_keys(self) -> List[int]:
+        """Get list of keys that are not currently rate limited, exhausted, or invalid."""
+        return [i for i in range(len(self.api_keys))
+                if not self._is_key_exhausted(i)
+                and not self._is_key_rate_limited(i)
+                and i not in self.invalid_keys]
+
     def _switch_to_key(self, key_index: int) -> bool:
         """Switch to a different API key. Returns True if successful."""
-        if key_index >= len(self.api_keys) or self._is_key_exhausted(key_index):
+        if key_index >= len(self.api_keys) or self._is_key_exhausted(key_index) or key_index in self.invalid_keys:
             return False
 
         self.current_key_index = key_index
@@ -561,14 +716,37 @@ class GeminiLLM(LLMInterface):
         return True
 
     def _get_available_keys(self) -> List[int]:
-        """Get list of non-exhausted key indices."""
-        return [i for i in range(len(self.api_keys)) if not self._is_key_exhausted(i)]
+        """Get list of non-exhausted and non-invalid key indices."""
+        return [i for i in range(len(self.api_keys))
+                if not self._is_key_exhausted(i) and i not in self.invalid_keys]
 
-    def _rotate_to_next_key(self) -> bool:
-        """Rotate to the next available key in round-robin fashion."""
+    def _mark_key_invalid(self, key_index: int) -> None:
+        """Mark a key as permanently invalid (malformed, wrong format, etc.)."""
+        self.invalid_keys.add(key_index)
+        print(f"🚫 Marked key #{key_index + 1} as INVALID (malformed or unauthorized)")
+
+    def _rotate_to_next_key(self, prefer_fresh: bool = True) -> bool:
+        """Rotate to the next available key in round-robin fashion.
+
+        Args:
+            prefer_fresh: If True, prefer keys that are not rate-limited (RPM).
+                         This allows immediate retry without waiting.
+        """
         if len(self.api_keys) <= 1:
             return False
 
+        # First, try to find a fresh key (not rate limited)
+        if prefer_fresh:
+            fresh_keys = self._get_fresh_keys()
+            if fresh_keys:
+                # Pick the next fresh key after current index
+                for key_idx in fresh_keys:
+                    if key_idx != self.current_key_index:
+                        return self._switch_to_key(key_idx)
+                # If only one fresh key and it's current, no rotation needed
+                return False
+
+        # Fallback to any available key (may be rate limited but not exhausted)
         available_keys = self._get_available_keys()
 
         if len(available_keys) <= 1:
@@ -586,6 +764,20 @@ class GeminiLLM(LLMInterface):
         if next_key_index != self.current_key_index:
             return self._switch_to_key(next_key_index)
         return False
+
+    def _get_min_wait_for_rate_limited_keys(self) -> float:
+        """Get the minimum time to wait for any rate-limited key to become available."""
+        if not self.rate_limited_keys:
+            return 0
+
+        min_wait = float('inf')
+        for key_idx in self.rate_limited_keys:
+            if key_idx not in self.invalid_keys and not self._is_key_exhausted(key_idx):
+                wait = self._get_seconds_until_key_available(key_idx)
+                if wait < min_wait:
+                    min_wait = wait
+
+        return min_wait if min_wait != float('inf') else 0
 
     def _should_rotate_key(self) -> bool:
         """Check if we should rotate to next key based on request count."""
@@ -700,8 +892,32 @@ class GeminiLLM(LLMInterface):
                     print(f"⚠️  Gemini safety filter triggered: {error_str}")
                     return "Response blocked by Gemini safety filters. Please try rephrasing your request."
 
+                # Check for invalid/malformed API key errors - mark key as permanently invalid
+                if _is_invalid_api_key_error(error_str):
+                    print(f"🔑 Invalid/malformed API key detected for key {current_key_display}")
+                    self._mark_key_invalid(self.current_key_index)
+
+                    # Update available keys after marking invalid
+                    available_keys = self._get_available_keys()
+                    if not available_keys:
+                        print(f"❌ All API keys are exhausted or invalid. Cannot continue.")
+                        print(f"💾 Raising AllKeysFailedError - caller should save data and exit gracefully.")
+                        raise AllKeysFailedError(
+                            message="All API keys are exhausted or invalid",
+                            keys_tried=len(self.api_keys),
+                            last_error=error_str[:500]
+                        )
+
+                    # Update max attempts based on remaining keys
+                    num_available_keys = len(available_keys)
+                    max_total_attempts = num_available_keys * 2
+
+                    # Rotate to next available key (prefer fresh if available)
+                    self._rotate_to_next_key(prefer_fresh=True)
+                    continue
+
                 # Check for quota exhausted (RPD) errors - mark key and rotate
-                if _is_quota_exhausted_error(error_str):
+                elif _is_quota_exhausted_error(error_str):
                     print(f"💳 RPD quota exhausted for key {current_key_display}")
                     self._mark_key_exhausted(self.current_key_index)
 
@@ -709,37 +925,60 @@ class GeminiLLM(LLMInterface):
                     available_keys = self._get_available_keys()
                     if not available_keys:
                         print(f"❌ All API keys exhausted (daily quota). Cannot continue.")
-                        raise last_exception
+                        print(f"💾 Raising AllKeysFailedError - caller should save data and exit gracefully.")
+                        raise AllKeysFailedError(
+                            message="All API keys exhausted (daily quota)",
+                            keys_tried=len(self.api_keys),
+                            last_error=error_str[:500]
+                        )
 
-                    # Rotate to next available key
-                    self._rotate_to_next_key()
+                    # Update max attempts based on remaining keys
+                    num_available_keys = len(available_keys)
+                    max_total_attempts = num_available_keys * 2
+
+                    # Rotate to next available key (prefer fresh if available)
+                    self._rotate_to_next_key(prefer_fresh=True)
                     continue
 
-                # For RPM/rate limit errors - rotate to spread load, with exponential backoff
+                # For RPM/rate limit errors - mark key and try fresh key immediately
                 elif _is_rpm_error(error_str) or _is_rate_limit_error(error_str):
-                    base_wait = _extract_wait_time(error_str)
-                    # Calculate which attempt this is for this specific error type
-                    backoff_attempt = total_attempts // num_available_keys
-                    wait_time = self._calculate_backoff(backoff_attempt, base_wait)
+                    # Mark current key as rate limited (will reset in 60s)
+                    self._mark_key_rate_limited(self.current_key_index)
 
-                    print(f"🚦 Rate limit hit with key {current_key_display}. Rotating and waiting {wait_time}s...")
+                    # Try to find a fresh key (not rate limited)
+                    fresh_keys = self._get_fresh_keys()
 
-                    # Rotate to next key to spread load
-                    if num_available_keys > 1:
-                        self._rotate_to_next_key()
+                    if fresh_keys:
+                        # Fresh key available - rotate and retry IMMEDIATELY (no wait!)
+                        print(f"🚦 Rate limit hit with key {current_key_display}. Rotating to fresh key...")
+                        self._rotate_to_next_key(prefer_fresh=True)
+                        # No sleep - fresh key from different project has fresh quota
+                        continue
+                    else:
+                        # All keys are rate limited - wait for the first one to reset
+                        min_wait = self._get_min_wait_for_rate_limited_keys()
+                        if min_wait > 0:
+                            # Add small buffer
+                            wait_time = min_wait + random.randint(2, 5)
+                            print(f"🚦 All keys rate limited. Waiting {wait_time:.0f}s for key to reset...")
+                            time.sleep(wait_time)
+                            # Clear expired rate limits and try again
+                            self._rotate_to_next_key(prefer_fresh=True)
+                        else:
+                            # Shouldn't happen, but fallback to short wait
+                            time.sleep(5)
+                        continue
 
-                    time.sleep(wait_time)
-                    continue
-
-                # Server overload errors - rotate and wait with backoff
+                # Server overload errors - rotate to different key, short wait
                 elif _is_server_overloaded_error(error_str):
-                    backoff_attempt = total_attempts // num_available_keys
-                    wait_time = self._calculate_backoff(backoff_attempt, 15)
+                    # Server overload is global, not per-key, but rotation may help
+                    # as different keys might hit different server instances
+                    wait_time = 5 + random.randint(2, 8)  # Short wait, server overload is usually brief
 
-                    print(f"🔄 Server overloaded with key {current_key_display}. Rotating and waiting {wait_time}s...")
+                    print(f"🔄 Server overloaded. Rotating and waiting {wait_time}s...")
 
                     if num_available_keys > 1:
-                        self._rotate_to_next_key()
+                        self._rotate_to_next_key(prefer_fresh=True)
 
                     time.sleep(wait_time)
                     continue
@@ -749,9 +988,14 @@ class GeminiLLM(LLMInterface):
                     print(f"⚠️  Error with key {current_key_display}: {error_str[:200]}...")
 
                     if num_available_keys > 1:
-                        self._rotate_to_next_key()
+                        self._rotate_to_next_key(prefer_fresh=True)
                     continue
 
         # Exhausted 2 full rotations with only errors
         print(f"❌ Failed after {total_attempts} attempts across 2 full rotations of {num_available_keys} key(s)")
-        raise last_exception
+        print(f"💾 Raising AllKeysFailedError - caller should save data and exit gracefully.")
+        raise AllKeysFailedError(
+            message=f"Failed after {total_attempts} attempts across 2 full rotations",
+            keys_tried=num_available_keys,
+            last_error=str(last_exception)[:500] if last_exception else None
+        )
