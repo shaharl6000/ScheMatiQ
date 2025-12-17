@@ -37,7 +37,7 @@ interface ColumnDialogProps {
   column?: ColumnInfo;
   existingColumns: ColumnInfo[];
   onClose: () => void;
-  onSuccess: (message: string) => void;
+  onSuccess: (message: string, updatedColumns?: ColumnInfo[]) => void;
   onError: (error: string) => void;
 }
 
@@ -144,24 +144,39 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
         };
 
         const response = await schemaAPI.addColumn(sessionId, request);
-        onSuccess(`Column "${request.name}" added successfully${response.reprocessing_required ? ' - processing started' : ''}`);
+        onSuccess(
+          `Column "${request.name}" added successfully${response.reprocessing_required ? ' - processing started' : ''}`,
+          response.columns
+        );
       } else {
         const request: EditColumnRequest = {
-          name: formData.name,
+          old_name: formData.name,  // Current name of the column being edited
           definition: formData.definition.trim(),
           rationale: formData.rationale.trim(),
           new_name: formData.new_name.trim() !== formData.name ? formData.new_name.trim() : undefined,
           allowed_values: formData.allowed_values,  // Send even if empty to allow clearing
+          reprocess: false,  // Don't reprocess documents for metadata-only edits
         };
 
         const response = await schemaAPI.editColumn(sessionId, request);
-        onSuccess(`Column updated successfully${response.reprocessing_required ? ' - reprocessing started' : ''}`);
+        onSuccess(`Column updated successfully`, response.columns);
       }
 
       onClose();
     } catch (error: any) {
       console.error('Column operation failed:', error);
-      onError(error.response?.data?.detail || `Failed to ${mode} column`);
+      // Handle Pydantic validation errors which return an array of error objects
+      const detail = error.response?.data?.detail;
+      let errorMessage = `Failed to ${mode} column`;
+      if (typeof detail === 'string') {
+        errorMessage = detail;
+      } else if (Array.isArray(detail) && detail.length > 0) {
+        // Pydantic validation error format: [{type, loc, msg, input}, ...]
+        errorMessage = detail.map((err: any) => err.msg || String(err)).join('; ');
+      } else if (detail && typeof detail === 'object') {
+        errorMessage = detail.msg || JSON.stringify(detail);
+      }
+      onError(errorMessage);
     } finally {
       setLoading(false);
     }

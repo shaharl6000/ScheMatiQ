@@ -327,11 +327,12 @@ export interface ProcessingStats {
 
 // Schema editing operation types
 export interface EditColumnRequest {
-  name: string;
+  old_name: string;  // Current name of the column to edit
   definition?: string;
   rationale?: string;
   new_name?: string; // For renaming
   allowed_values?: string[]; // Closed set of valid values
+  reprocess?: boolean; // Whether to reprocess documents (default: true on backend, set false for metadata-only edits)
 }
 
 export interface AddColumnRequest {
@@ -358,11 +359,11 @@ export interface ReprocessRequest {
 }
 
 export interface SchemaEditResponse {
-  success: boolean;
+  status: string;
   message: string;
-  updated_columns: ColumnInfo[];
+  columns?: ColumnInfo[];  // Updated columns returned from backend
+  reprocessing?: boolean;
   reprocessing_required?: boolean;
-  session_status: string;
 }
 
 export interface ReprocessingStatus {

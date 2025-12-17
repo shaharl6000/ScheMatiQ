@@ -100,6 +100,20 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [loading, setLoading] = useState(false);
   const [copiedQuery, setCopiedQuery] = useState(false);
 
+  // Helper function to extract error message from API errors (handles Pydantic validation errors)
+  const extractErrorMessage = (error: any, fallback: string): string => {
+    const detail = error.response?.data?.detail;
+    if (typeof detail === 'string') {
+      return detail;
+    } else if (Array.isArray(detail) && detail.length > 0) {
+      // Pydantic validation error format: [{type, loc, msg, input}, ...]
+      return detail.map((err: any) => err.msg || String(err)).join('; ');
+    } else if (detail && typeof detail === 'object') {
+      return detail.msg || JSON.stringify(detail);
+    }
+    return fallback;
+  };
+
   const handleCopyQuery = async () => {
     if (query) {
       const success = await copyToClipboard(query);
@@ -259,7 +273,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: error.response?.data?.detail || 'Failed to delete column',
+        description: extractErrorMessage(error, 'Failed to delete column'),
         variant: 'destructive',
       });
     } finally {
@@ -298,11 +312,19 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     setSelectedColumns([]);
   };
 
-  const handleDialogSuccess = (message: string) => {
+  const handleDialogSuccess = (message: string, updatedColumns?: ColumnInfo[]) => {
     toast({ title: 'Success', description: message });
     setSelectedColumns([]);
     setDialogState({ open: false, mode: 'add' });
     setMergeDialogOpen(false);
+
+    // Update columns if provided in the response
+    if (updatedColumns && updatedColumns.length > 0) {
+      setLocalColumns(updatedColumns);
+      if (onColumnsChange) {
+        onColumnsChange(updatedColumns);
+      }
+    }
   };
 
   const handleDialogError = (message: string) => {
@@ -320,7 +342,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: error.response?.data?.detail || 'Failed to create backup',
+        description: extractErrorMessage(error, 'Failed to create backup'),
         variant: 'destructive',
       });
     } finally {
@@ -337,7 +359,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: error.response?.data?.detail || 'Failed to validate schema',
+        description: extractErrorMessage(error, 'Failed to validate schema'),
         variant: 'destructive',
       });
     } finally {
@@ -358,7 +380,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     } catch (error: any) {
       toast({
         title: 'Error',
-        description: error.response?.data?.detail || 'Failed to start reprocessing',
+        description: extractErrorMessage(error, 'Failed to start reprocessing'),
         variant: 'destructive',
       });
     } finally {

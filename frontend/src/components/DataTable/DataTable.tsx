@@ -339,19 +339,31 @@ const DataTable: React.FC<DataTableProps> = ({
     const priorityColumns: string[] = [];
     const regularColumns: string[] = [];
 
-    if (data.rows.some(row => row.row_name)) {
-      priorityColumns.push('_row_name');
-    }
-    if (data.rows.some(row => row.papers?.length)) {
-      regularColumns.push('_papers');
-    }
-
+    // First, collect all data columns to check for row-name-like columns
     const allDataColumns = new Set<string>();
     data.rows.forEach(row => {
       Object.keys(row.data).forEach(key => allDataColumns.add(key));
     });
 
     const dataColumnArray = Array.from(allDataColumns).filter(col => !col.endsWith('_excerpt'));
+
+    // Check if there's a row-name-like column in the data (e.g., "Row Name", "Name", etc.)
+    const rowNamePatterns = ['row name', 'row_name', 'rowname', 'name', 'id', 'identifier'];
+    const hasRowNameColumnInData = dataColumnArray.some(col => {
+      const colLower = col.toLowerCase().replace(/[_-]/g, ' ');
+      return rowNamePatterns.includes(colLower);
+    });
+
+    // Only add _row_name column if:
+    // 1. Some rows have row_name at DataRow level, AND
+    // 2. There's NO row-name-like column already in the data (to avoid duplicates)
+    if (data.rows.some(row => row.row_name) && !hasRowNameColumnInData) {
+      priorityColumns.push('_row_name');
+    }
+
+    if (data.rows.some(row => row.papers?.length)) {
+      regularColumns.push('_papers');
+    }
 
     const exactMatches = ['row_name', 'name', 'id', 'title', 'row', 'identifier'];
     exactMatches.forEach(exactName => {
@@ -499,48 +511,142 @@ const DataTable: React.FC<DataTableProps> = ({
     return null;
   };
 
+  // Helper to try parsing string values that look like JSON/Python objects
+  const tryParseValue = (val: CellValue): CellValue => {
+    if (typeof val !== 'string') return val;
+    const trimmed = val.trim();
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return val;
+
+    try {
+      // Try JSON parse first
+      return JSON.parse(trimmed);
+    } catch {
+      try {
+        // Try to handle Python-style single quotes by replacing with double quotes
+        // This is a simple heuristic - replace single quotes around keys/values
+        const jsonified = trimmed
+          .replace(/'/g, '"')
+          .replace(/None/g, 'null')
+          .replace(/True/g, 'true')
+          .replace(/False/g, 'false');
+        return JSON.parse(jsonified);
+      } catch {
+        return val;
+      }
+    }
+  };
+
+  // Helper to normalize a parsed value to QBSD format with 'answer' and 'excerpts'
+  const normalizeToQBSD = (val: any): any => {
+    if (!val || typeof val !== 'object') return val;
+
+    // If it's an array with dict items, take first item
+    if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object') {
+      return normalizeToQBSD(val[0]);
+    }
+
+    // Already in QBSD format - but check if 'answer' needs parsing
+    if ('answer' in val) {
+      let answerVal = val.answer;
+      let excerptsVal = val.excerpts || [];
+
+      // Check if 'answer' is a string that looks like JSON/Python object
+      // e.g., "[{'value': 'reduction', 'excerpt': '...'}]"
+      if (typeof answerVal === 'string') {
+        const parsed = tryParseValue(answerVal);
+        if (parsed !== answerVal) {
+          // Successfully parsed
+          if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'object') {
+            const firstItem = parsed[0] as Record<string, any>;
+            // Extract answer from first item
+            answerVal = firstItem.value || firstItem.answer || String(firstItem);
+            // Collect all excerpts
+            const allExcerpts: any[] = [];
+            for (const item of parsed as Record<string, any>[]) {
+              const exc = item.excerpt || item.excerpts;
+              if (exc) {
+                if (Array.isArray(exc)) {
+                  allExcerpts.push(...exc);
+                } else {
+                  allExcerpts.push(exc);
+                }
+              }
+            }
+            if (allExcerpts.length > 0) {
+              excerptsVal = allExcerpts;
+            }
+          } else if (typeof parsed === 'object' && parsed !== null) {
+            // Recursively normalize
+            return normalizeToQBSD(parsed);
+          }
+        }
+      }
+
+      return {
+        answer: answerVal,
+        excerpts: excerptsVal
+      };
+    }
+
+    // Normalize 'value'/'excerpt' to 'answer'/'excerpts'
+    if ('value' in val) {
+      return {
+        answer: val.value,
+        excerpts: val.excerpt ? [val.excerpt] : (val.excerpts || [])
+      };
+    }
+
+    return val;
+  };
+
   const formatCellValue = (value: CellValue, columnName: string, rowData?: DataRow): React.ReactNode => {
-    if (value === null || value === undefined) {
+    // Try to parse and normalize the value
+    let processedValue = tryParseValue(value);
+    if (typeof processedValue === 'object' && processedValue !== null) {
+      processedValue = normalizeToQBSD(processedValue);
+    }
+
+    if (processedValue === null || processedValue === undefined) {
       return <Badge variant="outline">null</Badge>;
     }
 
-    if (Array.isArray(value)) {
-      if (value.length > 3) {
+    if (Array.isArray(processedValue)) {
+      if (processedValue.length > 3) {
         return (
           <div className="flex items-center gap-1">
-            {value.slice(0, 2).map((item, index) => (
+            {processedValue.slice(0, 2).map((item, index) => (
               <Badge key={index} variant="secondary">{String(item)}</Badge>
             ))}
-            <span className="text-xs text-muted-foreground">+{value.length - 2} more</span>
+            <span className="text-xs text-muted-foreground">+{processedValue.length - 2} more</span>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-6 w-6"
-                  onClick={() => handleViewContent(columnName, value)}
+                  onClick={() => handleViewContent(columnName, processedValue)}
                   aria-label="View all items"
                 >
                   <Eye className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>View all {value.length} items</TooltipContent>
+              <TooltipContent>View all {processedValue.length} items</TooltipContent>
             </Tooltip>
           </div>
         );
       }
       return (
         <div className="flex flex-wrap gap-1">
-          {value.map((item, index) => (
+          {processedValue.map((item, index) => (
             <Badge key={index} variant="secondary">{String(item)}</Badge>
           ))}
         </div>
       );
     }
 
-    if (typeof value === 'object' && value !== null) {
-      if ('answer' in value && typeof (value as QBSDAnswerWithExcerpts).answer !== 'undefined') {
-        const qbsdValue = value as QBSDAnswerWithExcerpts;
+    if (typeof processedValue === 'object' && processedValue !== null) {
+      if ('answer' in processedValue && typeof (processedValue as QBSDAnswerWithExcerpts).answer !== 'undefined') {
+        const qbsdValue = processedValue as QBSDAnswerWithExcerpts;
         const answer = qbsdValue.answer;
         const excerpts = qbsdValue.excerpts || [];
 
@@ -579,7 +685,7 @@ const DataTable: React.FC<DataTableProps> = ({
               variant="ghost"
               size="icon"
               className="h-6 w-6"
-              onClick={() => handleViewContent(columnName, value)}
+              onClick={() => handleViewContent(columnName, processedValue)}
               aria-label="View object"
             >
               <Eye className="h-4 w-4" />
@@ -590,7 +696,7 @@ const DataTable: React.FC<DataTableProps> = ({
       );
     }
 
-    const stringValue = String(value);
+    const stringValue = String(processedValue);
 
     const hasExcerpts = rowData && excerptMapping[columnName] && rowData.data[excerptMapping[columnName]];
     const isExplicitExcerpt = isExcerptContent(columnName, stringValue);

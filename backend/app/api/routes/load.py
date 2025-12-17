@@ -555,7 +555,9 @@ async def export_upload_data(session_id: str, column_order: Optional[str] = None
                 output.write(f"# {col.name}: {col.definition or 'No definition available'}\n")
                 if col.rationale:
                     output.write(f"#   Rationale: {col.rationale}\n")
-        
+                if col.allowed_values:
+                    output.write(f"#   Allowed Values: {', '.join(col.allowed_values)}\n")
+
         output.write("#\n")
         
         # Get column names - use user-specified order if provided
@@ -586,7 +588,10 @@ async def export_upload_data(session_id: str, column_order: Optional[str] = None
         
         # Generate filename with timestamp
         source_name = session.metadata.source or "uploaded_data"
-        safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+        # Strip file extension to avoid double extensions (e.g., file.csv_timestamp.csv)
+        if source_name.lower().endswith(('.csv', '.json', '.jsonl')):
+            source_name = Path(source_name).stem
+        safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"{safe_name}_{timestamp}.csv"
         
@@ -1309,6 +1314,7 @@ async def export_upload_rich_csv(session_id: str):
             if col_name not in ['row_name', 'papers']:
                 enhanced_columns.append(f"{col_name}_definition")
                 enhanced_columns.append(f"{col_name}_rationale")
+                enhanced_columns.append(f"{col_name}_allowed_values")
         
         writer = csv.DictWriter(output, fieldnames=enhanced_columns)
         
@@ -1331,7 +1337,8 @@ async def export_upload_rich_csv(session_id: str):
             if col.name:
                 column_metadata[col.name] = {
                     'definition': col.definition or '',
-                    'rationale': col.rationale or ''
+                    'rationale': col.rationale or '',
+                    'allowed_values': ', '.join(col.allowed_values) if col.allowed_values else ''
                 }
         
         # Write data rows with metadata
@@ -1347,6 +1354,7 @@ async def export_upload_rich_csv(session_id: str):
                 if col_name not in ['row_name', 'papers'] and col_name in column_metadata:
                     csv_row[f"{col_name}_definition"] = column_metadata[col_name]['definition']
                     csv_row[f"{col_name}_rationale"] = column_metadata[col_name]['rationale']
+                    csv_row[f"{col_name}_allowed_values"] = column_metadata[col_name]['allowed_values']
             
             writer.writerow(csv_row)
         
@@ -1356,7 +1364,10 @@ async def export_upload_rich_csv(session_id: str):
         
         # Generate filename
         source_name = session.metadata.source or "uploaded_data"
-        safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+        # Strip file extension to avoid double extensions (e.g., file.csv_timestamp.csv)
+        if source_name.lower().endswith(('.csv', '.json', '.jsonl')):
+            source_name = Path(source_name).stem
+        safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"{safe_name}_{timestamp}_rich.csv"
         
@@ -1381,19 +1392,23 @@ async def export_schema_only(session_id: str):
             raise HTTPException(status_code=404, detail="Session not found")
         
         # Create QBSD-compatible schema export
-        schema_export = {
-            "query": session.schema_query or "",
-            "schema": [
-                {
+        schema_columns = []
+        for col in session.columns:
+            if col.name and not col.name.lower().endswith('_excerpt'):
+                col_export = {
                     "name": col.name,
                     "definition": col.definition or "",
                     "rationale": col.rationale or "",
                     "source_document": col.source_document,
                     "discovery_iteration": col.discovery_iteration
                 }
-                for col in session.columns
-                if col.name and not col.name.lower().endswith('_excerpt')
-            ],
+                if col.allowed_values:
+                    col_export["allowed_values"] = col.allowed_values
+                schema_columns.append(col_export)
+
+        schema_export = {
+            "query": session.schema_query or "",
+            "schema": schema_columns,
             "metadata": {
                 "session_id": session_id,
                 "session_type": session.type.value,
@@ -1412,7 +1427,10 @@ async def export_schema_only(session_id: str):
         
         # Generate filename
         source_name = session.metadata.source or "schema"
-        safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_', '.')).rstrip()
+        # Strip file extension to avoid double extensions (e.g., file.csv_schema.json)
+        if source_name.lower().endswith(('.csv', '.json', '.jsonl')):
+            source_name = Path(source_name).stem
+        safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
         filename = f"{safe_name}_schema_{session_id[:8]}.json"
         
         return StreamingResponse(

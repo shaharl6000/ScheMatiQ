@@ -100,18 +100,17 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # Clean up any system files (like .DS_Store) that might have been created
             self._clean_system_files(pending_dir)
             
-            # Get extracted schema
-            extracted_schema = session.metadata.extracted_schema
-            if not extracted_schema:
-                raise ValueError("No extracted schema found")
-            
-            print(f"🔄 DEBUG: Processing with schema: {len(extracted_schema['schema'])} columns")
-            
+            # Build schema from session.columns (includes any user edits from SCHEMA tab)
+            # This ensures that edits like allowed_values affect new document processing
+            current_schema = self._build_schema_from_session(session)
+
+            print(f"🔄 DEBUG: Processing with schema: {len(current_schema['schema'])} columns")
+
             # Create enhanced QBSD schema file for value extraction
             await self.broadcast_progress(session_id, "Preparing schema for processing", 0.1, "processing_documents")
-            
+
             # Enhance schema with extraction instructions based on column metadata
-            enhanced_schema = self._enhance_schema_for_extraction(extracted_schema)
+            enhanced_schema = self._enhance_schema_for_extraction(current_schema)
             
             schema_path = session_dir / "processing_schema.json"
             with open(schema_path, 'w') as f:
@@ -121,7 +120,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             await self.broadcast_progress(session_id, "Setting up AI models", 0.2, "processing_documents")
             
             # Try to use preserved LLM configuration, fallback to defaults
-            backend_config = self._get_llm_config_for_extraction(extracted_schema, session_id)
+            backend_config = self._get_llm_config_for_extraction(current_schema, session_id)
             
             llm = utils.build_llm(backend_config)
             print(f"🔄 DEBUG: LLM interface created successfully")
@@ -226,7 +225,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                 new_row_index = original_row_count + last_processed_line - len(current_new_rows) + i + 1
 
                                 # Analyze extraction quality for this row
-                                extraction_summary = self._analyze_extraction_quality(new_row_data, extracted_schema)
+                                extraction_summary = self._analyze_extraction_quality(new_row_data, current_schema)
 
                                 await self.broadcast_row_completed(session_id, {
                                     "row_index": new_row_index,
@@ -234,7 +233,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                     "completed_at": datetime.now().isoformat(),
                                     "additional_rows": current_line_count,
                                     "extraction_quality": extraction_summary,
-                                    "row_preview": self._create_row_preview(new_row_data, extracted_schema)
+                                    "row_preview": self._create_row_preview(new_row_data, current_schema)
                                 })
 
                     except Exception as e:
@@ -308,19 +307,33 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         session_dir = Path("./data") / session_id
         original_data_file = session_dir / "data.jsonl"
         additional_data_file = session_dir / "additional_data.jsonl"
-        
+
         if not additional_data_file.exists():
             print(f"No additional data to merge for session {session_id}")
             return 0
-        
-        # Read original data to get the base row count
+
+        # Read original data to get the base row count and detect row name column pattern
         original_rows = []
+        row_name_column_in_data = None  # Track if original data has a "Row Name" type column inside data
+
         if original_data_file.exists():
             with open(original_data_file, 'r') as f:
                 for line in f:
                     if line.strip():
-                        original_rows.append(json.loads(line))
-        
+                        row = json.loads(line)
+                        original_rows.append(row)
+
+                        # Check if original data stores row name inside 'data' field
+                        # Look for common row name column patterns (case-insensitive)
+                        if row_name_column_in_data is None and 'data' in row:
+                            row_data_dict = row.get('data', {})
+                            for key in row_data_dict.keys():
+                                key_lower = key.lower().replace('_', ' ').replace('-', ' ')
+                                if key_lower in ['row name', 'rowname', 'row_name', 'name', 'id', 'identifier']:
+                                    row_name_column_in_data = key
+                                    print(f"DEBUG: Detected row name column in data: '{key}'")
+                                    break
+
         # Read new extracted data and append to original file
         new_rows_added = 0
         with open(additional_data_file, 'r') as additional_f:
@@ -333,27 +346,57 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             # Convert QBSD format to DataRow format with proper data cleaning
                             row_name = row_data.get("_row_name", f"Row_{len(original_rows) + new_rows_added + 1}")
                             papers_list = row_data.get("_papers", [])
-                            
+
                             # Clean the data by removing metadata fields and ensuring proper types
                             clean_data = {}
                             for key, value in row_data.items():
                                 # Skip metadata fields (_row_name, _papers) and 'row_name' which is used for row identifier
                                 if key.startswith('_') or key == 'row_name':
                                     continue
+
+                                # Try to parse string values that look like JSON/Python objects
+                                parsed_value = self._try_parse_string_value(value)
+
                                 # Handle QBSD answer format vs direct values
-                                if isinstance(value, dict) and 'answer' in value:
-                                    clean_data[key] = value  # Keep QBSD format for display
-                                elif isinstance(value, dict) and 'answer' not in value:
-                                    # This might be a misplaced object, convert to string
-                                    clean_data[key] = str(value)
+                                if isinstance(parsed_value, dict):
+                                    # Normalize to QBSD format with 'answer' and 'excerpts' keys
+                                    normalized = self._normalize_to_qbsd_format(parsed_value)
+                                    clean_data[key] = normalized
+                                elif isinstance(parsed_value, list) and len(parsed_value) > 0:
+                                    # Handle list format (e.g., [{'value': '...', 'excerpt': '...'}])
+                                    if isinstance(parsed_value[0], dict):
+                                        # Take first item and normalize it
+                                        normalized = self._normalize_to_qbsd_format(parsed_value[0])
+                                        # If there are multiple items, collect all excerpts
+                                        if len(parsed_value) > 1:
+                                            all_excerpts = normalized.get('excerpts', [])
+                                            for item in parsed_value[1:]:
+                                                if isinstance(item, dict):
+                                                    item_normalized = self._normalize_to_qbsd_format(item)
+                                                    all_excerpts.extend(item_normalized.get('excerpts', []))
+                                            normalized['excerpts'] = all_excerpts
+                                        clean_data[key] = normalized
+                                    else:
+                                        # List of non-dict values, keep as is
+                                        clean_data[key] = parsed_value
                                 else:
-                                    clean_data[key] = value
-                            
-                            converted_row = {
-                                "data": clean_data,
-                                "row_name": row_name,
-                                "papers": papers_list if isinstance(papers_list, list) else [str(papers_list)] if papers_list else []
-                            }
+                                    clean_data[key] = parsed_value
+
+                            # If original data has a row name column inside 'data', put the row name there
+                            # to maintain consistency and avoid column duplication
+                            if row_name_column_in_data:
+                                clean_data[row_name_column_in_data] = row_name
+                                converted_row = {
+                                    "data": clean_data,
+                                    "row_name": None,  # Don't duplicate at DataRow level
+                                    "papers": papers_list if isinstance(papers_list, list) else [str(papers_list)] if papers_list else []
+                                }
+                            else:
+                                converted_row = {
+                                    "data": clean_data,
+                                    "row_name": row_name,
+                                    "papers": papers_list if isinstance(papers_list, list) else [str(papers_list)] if papers_list else []
+                                }
                             original_f.write(json.dumps(converted_row) + '\n')
                         else:
                             # Already in DataRow format, but validate papers field
@@ -361,6 +404,14 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             papers = row_copy.get("papers", [])
                             if not isinstance(papers, list):
                                 row_copy["papers"] = [str(papers)] if papers else []
+
+                            # Also check if we need to move row_name into data for consistency
+                            if row_name_column_in_data and row_copy.get("row_name"):
+                                if 'data' not in row_copy:
+                                    row_copy['data'] = {}
+                                row_copy['data'][row_name_column_in_data] = row_copy["row_name"]
+                                row_copy["row_name"] = None
+
                             original_f.write(json.dumps(row_copy) + '\n')
                         new_rows_added += 1
         
@@ -392,6 +443,137 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
         return new_rows_added
 
+    def _try_parse_string_value(self, value: Any) -> Any:
+        """Try to parse a string value that might be a JSON/Python object representation.
+
+        Returns the parsed object if successful, otherwise returns the original value.
+        This handles cases where LLM outputs are stored as string representations.
+        """
+        if not isinstance(value, str):
+            return value
+
+        # Quick check: does it look like a JSON object/array?
+        stripped = value.strip()
+        if not stripped:
+            return value
+
+        if stripped.startswith('{') or stripped.startswith('['):
+            # Try JSON parsing first
+            try:
+                import json
+                parsed = json.loads(stripped)
+                return parsed
+            except json.JSONDecodeError:
+                pass
+
+            # Try Python literal parsing (handles single quotes)
+            try:
+                import ast
+                parsed = ast.literal_eval(stripped)
+                return parsed
+            except (ValueError, SyntaxError):
+                pass
+
+        return value
+
+    def _normalize_to_qbsd_format(self, value: dict) -> dict:
+        """Normalize a dict value to QBSD format with 'answer' and 'excerpts' keys.
+
+        Handles various possible key names from LLM outputs:
+        - 'answer' / 'excerpts' (standard QBSD format)
+        - 'value' / 'excerpt' (alternative LLM output)
+        - 'response' / 'evidence' (another alternative)
+        """
+        # Already in correct format
+        if 'answer' in value:
+            answer_val = value['answer']
+            excerpts_val = value.get('excerpts', [])
+
+            # Check if 'answer' is a string that looks like a JSON/Python object
+            # e.g., "[{'value': 'reduction', 'excerpt': '...'}]"
+            if isinstance(answer_val, str):
+                parsed_answer = self._try_parse_string_value(answer_val)
+                if parsed_answer != answer_val:
+                    # Successfully parsed - extract the actual answer
+                    if isinstance(parsed_answer, list) and len(parsed_answer) > 0:
+                        # It's a list of dicts like [{'value': '...', 'excerpt': '...'}]
+                        first_item = parsed_answer[0]
+                        if isinstance(first_item, dict):
+                            # Extract answer from first item
+                            answer_val = first_item.get('value', first_item.get('answer', str(first_item)))
+                            # Collect all excerpts
+                            all_excerpts = []
+                            for item in parsed_answer:
+                                if isinstance(item, dict):
+                                    exc = item.get('excerpt', item.get('excerpts'))
+                                    if exc:
+                                        if isinstance(exc, list):
+                                            all_excerpts.extend(exc)
+                                        else:
+                                            all_excerpts.append(exc)
+                            if all_excerpts:
+                                excerpts_val = all_excerpts
+                        else:
+                            answer_val = str(first_item)
+                    elif isinstance(parsed_answer, dict):
+                        # Recursively normalize the parsed dict
+                        return self._normalize_to_qbsd_format(parsed_answer)
+
+            result = {
+                'answer': answer_val,
+                'excerpts': excerpts_val
+            }
+            # Preserve any additional metadata fields
+            for key in ['normalized_to_allowed', 'unmatched_value', 'suggested_for_allowed_values']:
+                if key in value:
+                    result[key] = value[key]
+            return result
+
+        # Alternative key mappings
+        answer_keys = ['value', 'response', 'result', 'text', 'content']
+        excerpt_keys = ['excerpt', 'excerpts', 'evidence', 'sources', 'quotes', 'supporting_text']
+
+        answer = None
+        excerpts = []
+
+        # Find the answer value
+        for key in answer_keys:
+            if key in value:
+                answer = value[key]
+                break
+
+        # Find the excerpts value
+        for key in excerpt_keys:
+            if key in value:
+                exc_val = value[key]
+                if isinstance(exc_val, list):
+                    excerpts = exc_val
+                elif isinstance(exc_val, str):
+                    excerpts = [exc_val] if exc_val else []
+                break
+
+        # If we found a recognized format, return normalized QBSD format
+        if answer is not None:
+            return {
+                'answer': str(answer),
+                'excerpts': excerpts
+            }
+
+        # If it's a dict with unknown structure, try to extract something meaningful
+        # Look for any string value that could be the answer
+        for key, val in value.items():
+            if isinstance(val, str) and val.strip():
+                return {
+                    'answer': val,
+                    'excerpts': []
+                }
+
+        # Fallback: convert to string representation
+        return {
+            'answer': str(value),
+            'excerpts': []
+        }
+
     def stop_processing(self, session_id: str) -> bool:
         """Stop document processing for a session."""
         if session_id in self.running_sessions:
@@ -399,6 +581,41 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             return True
         return False
     
+    def _build_schema_from_session(self, session) -> Dict[str, Any]:
+        """Build schema dict from session.columns (includes user edits from SCHEMA tab).
+
+        This ensures that any schema edits (like adding allowed_values) are used
+        when processing new documents.
+        """
+        # Start with extracted_schema as base (for query, llm_configuration, etc.)
+        base_schema = session.metadata.extracted_schema or {}
+
+        # Build schema columns from session.columns (the editable version)
+        schema_columns = []
+        for col in session.columns:
+            col_dict = {
+                "name": col.name,
+                "column": col.name,  # Some code expects 'column' key
+                "definition": col.definition or "",
+                "rationale": col.rationale or "",
+                "explanation": col.rationale or "",  # Alias for compatibility
+            }
+            # Include allowed_values if set (important for value constraints)
+            if col.allowed_values:
+                col_dict["allowed_values"] = col.allowed_values
+            # Include auto_expand_threshold if set
+            if col.auto_expand_threshold is not None:
+                col_dict["auto_expand_threshold"] = col.auto_expand_threshold
+
+            schema_columns.append(col_dict)
+
+        # Build the final schema dict
+        return {
+            "query": session.schema_query or base_schema.get("query", ""),
+            "schema": schema_columns,
+            "llm_configuration": base_schema.get("llm_configuration", {}),
+        }
+
     def _enhance_schema_for_extraction(self, extracted_schema: Dict[str, Any]) -> Dict[str, Any]:
         """Enhance schema with detailed extraction instructions based on column metadata."""
         enhanced_schema = extracted_schema.copy()

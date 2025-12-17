@@ -121,9 +121,10 @@ async def edit_column(
         return {
             "status": "success",
             "message": f"Column '{edit_request.old_name}' updated successfully",
-            "reprocessing": edit_request.reprocess
+            "reprocessing": edit_request.reprocess,
+            "columns": [col.model_dump() for col in session.columns]  # Return updated columns
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -230,9 +231,10 @@ async def add_column(
             "status": "success",
             "message": f"Column '{add_request.name}' added successfully",
             "column": new_column.model_dump(),
+            "columns": [col.model_dump() for col in session.columns],  # Return all updated columns
             "extracting_values": True
         }
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
