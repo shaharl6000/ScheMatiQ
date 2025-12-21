@@ -656,18 +656,18 @@ const DataTable: React.FC<DataTableProps> = ({
 
         if (showExpandIcon) {
           return (
-            <div className="relative group">
-              <div
-                className="text-base leading-relaxed line-clamp-3 break-words cursor-pointer hover:text-blue-600 pr-6"
-                onClick={() => handleViewContent(columnName, { answer, excerpts })}
-                title={hasExcerptsData ? "Click to view excerpts" : "Click to view full content"}
-              >
+            <div
+              className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+              onClick={() => handleViewContent(columnName, { answer, excerpts })}
+              title={hasExcerptsData ? "Click to view excerpts" : "Click to view full content"}
+            >
+              <div className="text-base leading-relaxed line-clamp-3 break-words">
                 {answerStr}
               </div>
-              <Eye
-                className="h-4 w-4 absolute top-0 right-0 text-blue-500 opacity-70 group-hover:opacity-100 cursor-pointer"
-                onClick={() => handleViewContent(columnName, { answer, excerpts })}
-              />
+              <div className="flex items-center gap-1 mt-1 text-blue-600 text-xs">
+                <Eye className="h-3 w-3" />
+                <span>{hasExcerptsData ? "View excerpts" : "View more"}</span>
+              </div>
             </div>
           );
         }
@@ -728,43 +728,45 @@ const DataTable: React.FC<DataTableProps> = ({
       };
 
       return (
-        <div className="relative group">
+        <div
+          className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+          onClick={handleClick}
+          title={tooltipText}
+        >
           <div
             className={cn(
-              "text-base leading-relaxed line-clamp-3 break-words cursor-pointer hover:text-blue-600 pr-6",
+              "text-base leading-relaxed line-clamp-3 break-words",
               isExplicitExcerpt && "italic text-muted-foreground"
             )}
-            onClick={handleClick}
-            title={tooltipText}
           >
             {previewText}
           </div>
-          <Eye
-            className="h-4 w-4 absolute top-0 right-0 text-blue-500 opacity-70 group-hover:opacity-100 cursor-pointer"
-            onClick={handleClick}
-          />
+          <div className="flex items-center gap-1 mt-1 text-blue-600 text-xs">
+            <Eye className="h-3 w-3" />
+            <span>{hasExcerpts ? "View excerpts" : "View more"}</span>
+          </div>
         </div>
       );
     }
 
-    // Show clickable text with Eye icon for any text that could be truncated
+    // Show clickable text with expand indicator for any text that could be truncated
     // Using 40 chars as threshold since column width can cause early truncation
     const couldBeTruncated = stringValue.length > 40;
 
     if (couldBeTruncated) {
       return (
-        <div className="relative group">
-          <div
-            className="text-base leading-relaxed line-clamp-3 break-words cursor-pointer hover:text-blue-600 pr-6"
-            onClick={() => handleViewContent(columnName, value)}
-            title="Click to view full content"
-          >
+        <div
+          className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+          onClick={() => handleViewContent(columnName, value)}
+          title="Click to view full content"
+        >
+          <div className="text-base leading-relaxed line-clamp-3 break-words">
             {stringValue}
           </div>
-          <Eye
-            className="h-4 w-4 absolute top-0 right-0 text-blue-500 opacity-70 group-hover:opacity-100"
-            onClick={() => handleViewContent(columnName, value)}
-          />
+          <div className="flex items-center gap-1 mt-1 text-blue-600 text-xs">
+            <Eye className="h-3 w-3" />
+            <span>View more</span>
+          </div>
         </div>
       );
     }
