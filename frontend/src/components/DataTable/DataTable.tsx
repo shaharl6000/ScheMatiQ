@@ -715,38 +715,34 @@ const DataTable: React.FC<DataTableProps> = ({
       const tooltipText = hasExcerpts ? "View content with supporting excerpts" :
                           isExplicitExcerpt ? "View excerpt details" : "View full content";
 
+      const handleClick = () => {
+        if (hasExcerpts && rowData) {
+          const excerptText = getExcerptForColumn(rowData, columnName);
+          handleViewContent(columnName, {
+            answer: stringValue,
+            excerpts: excerptText ? [excerptText] : []
+          });
+        } else {
+          handleViewContent(columnName, value);
+        }
+      };
+
       return (
-        <div className="flex items-center gap-1">
-          <span className={cn(
-            "text-base leading-relaxed line-clamp-3",
-            isExplicitExcerpt && "italic text-muted-foreground"
-          )}>
+        <div className="relative group">
+          <div
+            className={cn(
+              "text-base leading-relaxed line-clamp-3 break-words cursor-pointer hover:text-blue-600 pr-6",
+              isExplicitExcerpt && "italic text-muted-foreground"
+            )}
+            onClick={handleClick}
+            title={tooltipText}
+          >
             {previewText}
-          </span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-blue-500 shrink-0"
-                onClick={() => {
-                  if (hasExcerpts && rowData) {
-                    const excerptText = getExcerptForColumn(rowData, columnName);
-                    handleViewContent(columnName, {
-                      answer: stringValue,
-                      excerpts: excerptText ? [excerptText] : []
-                    });
-                  } else {
-                    handleViewContent(columnName, value);
-                  }
-                }}
-                aria-label={tooltipText}
-              >
-                <Eye className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{tooltipText}</TooltipContent>
-          </Tooltip>
+          </div>
+          <Eye
+            className="h-4 w-4 absolute top-0 right-0 text-blue-500 opacity-70 group-hover:opacity-100 cursor-pointer"
+            onClick={handleClick}
+          />
         </div>
       );
     }
