@@ -1032,7 +1032,11 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
         user_llm_config = None
         if request and request.llm_config:
             user_llm_config = request.llm_config
-            print(f"DEBUG: Using user-provided LLM config: {user_llm_config}")
+            # Log config without exposing full API key
+            config_for_log = {k: v for k, v in user_llm_config.items() if k != 'api_key'}
+            has_api_key = 'api_key' in user_llm_config and user_llm_config['api_key']
+            api_key_info = f"api_key={'present ('+str(len(user_llm_config['api_key']))+' chars)' if has_api_key else 'MISSING'}"
+            print(f"DEBUG: Using user-provided LLM config: {config_for_log}, {api_key_info}")
 
             # Store the user configuration in session directory for processing
             session_dir = Path("./data") / session_id
