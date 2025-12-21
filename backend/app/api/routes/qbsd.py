@@ -307,7 +307,9 @@ async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
                 output.write(f"# {col.name}: {col.definition or 'No definition available'}\n")
                 if col.rationale:
                     output.write(f"#   Rationale: {col.rationale}\n")
-        
+                if col.allowed_values:
+                    output.write(f"#   Allowed Values: {', '.join(col.allowed_values)}\n")
+
         # Add special column explanations
         output.write("# row_name: Identifier for this data row\n")
         output.write("# papers: Source documents used for extraction\n")
@@ -323,8 +325,20 @@ async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
                     cols_str = ", ".join(snapshot.new_columns[:5])
                     if len(snapshot.new_columns) > 5:
                         cols_str += f"... (+{len(snapshot.new_columns) - 5} more)"
-                    output.write(f"# Iteration {snapshot.iteration}: +{len(snapshot.new_columns)} columns [{cols_str}]\n")
+                    # Include document names if available
+                    docs_str = ", ".join(snapshot.documents_processed[:3]) if snapshot.documents_processed else ""
+                    if len(snapshot.documents_processed) > 3:
+                        docs_str += f"... (+{len(snapshot.documents_processed) - 3} more)"
+                    if docs_str:
+                        output.write(f"# Iteration {snapshot.iteration}: +{len(snapshot.new_columns)} columns [{cols_str}] from [{docs_str}]\n")
+                    else:
+                        output.write(f"# Iteration {snapshot.iteration}: +{len(snapshot.new_columns)} columns [{cols_str}]\n")
             output.write(f"# Total: {len(evolution.column_sources)} columns from {len(evolution.snapshots)} iterations\n")
+            # Write column sources mapping
+            if evolution.column_sources:
+                output.write("# Column Sources:\n")
+                for col_name, source in evolution.column_sources.items():
+                    output.write(f"#   {col_name}: {source}\n")
             output.write("#\n")
         
         # Determine all column names including excerpt columns
@@ -652,10 +666,11 @@ async def export_qbsd_rich_csv(session_id: str):
         for col_name in sorted(base_columns):
             enhanced_columns.append(col_name)
             # Add metadata columns for schema columns (not for standard or excerpt columns)
-            if (col_name not in ['row_name', 'papers'] and 
+            if (col_name not in ['row_name', 'papers'] and
                 not col_name.endswith('_excerpt')):
                 enhanced_columns.append(f"{col_name}_definition")
                 enhanced_columns.append(f"{col_name}_rationale")
+                enhanced_columns.append(f"{col_name}_allowed_values")
         
         writer = csv.DictWriter(output, fieldnames=enhanced_columns)
         
@@ -676,19 +691,20 @@ async def export_qbsd_rich_csv(session_id: str):
             if col.name:
                 column_metadata[col.name] = {
                     'definition': col.definition or '',
-                    'rationale': col.rationale or ''
+                    'rationale': col.rationale or '',
+                    'allowed_values': ', '.join(col.allowed_values) if col.allowed_values else ''
                 }
-        
+
         # Write data rows with metadata
         for row in data.rows:
             csv_row = {}
-            
+
             # Add standard columns
             if row.row_name:
                 csv_row['row_name'] = row.row_name
             if row.papers:
                 csv_row['papers'] = '; '.join(row.papers) if isinstance(row.papers, list) else str(row.papers)
-            
+
             # Process data columns with metadata
             for col_name, value in row.data.items():
                 if isinstance(value, dict) and 'answer' in value:
@@ -706,12 +722,13 @@ async def export_qbsd_rich_csv(session_id: str):
                         csv_row[col_name] = str(value)
                     else:
                         csv_row[col_name] = value
-                
+
                 # Add metadata columns for this data column
                 if col_name in column_metadata:
                     csv_row[f"{col_name}_definition"] = column_metadata[col_name]['definition']
                     csv_row[f"{col_name}_rationale"] = column_metadata[col_name]['rationale']
-            
+                    csv_row[f"{col_name}_allowed_values"] = column_metadata[col_name]['allowed_values']
+
             writer.writerow(csv_row)
         
         # Prepare response
@@ -756,19 +773,23 @@ async def export_qbsd_schema_only(session_id: str):
                 print(f"DEBUG: Could not load LLM configuration: {e}")
 
         # Create QBSD schema export
-        schema_export = {
-            "query": session.schema_query or "",
-            "schema": [
-                {
+        schema_columns = []
+        for col in session.columns:
+            if col.name and not col.name.lower().endswith('_excerpt'):
+                col_export = {
                     "name": col.name,
                     "definition": col.definition or "",
                     "rationale": col.rationale or "",
                     "source_document": col.source_document,
                     "discovery_iteration": col.discovery_iteration
                 }
-                for col in session.columns
-                if col.name and not col.name.lower().endswith('_excerpt')
-            ],
+                if col.allowed_values:
+                    col_export["allowed_values"] = col.allowed_values
+                schema_columns.append(col_export)
+
+        schema_export = {
+            "query": session.schema_query or "",
+            "schema": schema_columns,
             "metadata": {
                 "session_id": session_id,
                 "session_type": session.type.value,

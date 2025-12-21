@@ -104,9 +104,12 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
             temperature=cfg.get("temperature", 0.3),
         )
     elif provider == "gemini":
+        model_name = cfg.get("model", "gemini-2.5-flash")
+        max_tokens = cfg.get("max_output_tokens", cfg.get("max_tokens", 8192))
+        print(f"🤖 Gemini model: {model_name}, max_output_tokens: {max_tokens}")
         return GeminiLLM(
-            model=cfg.get("model", "gemini-1.5-flash"),
-            max_output_tokens=cfg.get("max_output_tokens", cfg.get("max_tokens", 1024)),
+            model=model_name,
+            max_output_tokens=max_tokens,
             temperature=cfg.get("temperature", 0.3),
             context_window_size=cfg.get("context_window_size", cfg.get("max_context_tokens", 1000000)),
             api_key=cfg.get("api_key"),

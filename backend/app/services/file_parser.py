@@ -254,20 +254,23 @@ class FileParser:
                 unique_count = 0
             
             # Use metadata if available, otherwise generate basic info
+            allowed_values = None
             if col in metadata_info['column_definitions']:
                 definition = metadata_info['column_definitions'][col]['definition']
                 rationale = metadata_info['column_definitions'][col]['rationale']
+                allowed_values = metadata_info['column_definitions'][col].get('allowed_values')
             else:
                 definition = f"Column containing {col.replace('_', ' ').lower()} data"
                 rationale = "Imported from CSV data"
-                
+
             col_info = ColumnInfo(
                 name=col,
                 data_type=str(df[col].dtype),
                 non_null_count=non_null_count,
                 unique_count=unique_count,
                 definition=definition,
-                rationale=rationale
+                rationale=rationale,
+                allowed_values=allowed_values
             )
             columns.append(col_info)
         
@@ -404,8 +407,18 @@ class FileParser:
         if not data_rows:
             raise ValueError("No data found in file")
 
-        # Extract schema from first row
+        # Extract schema metadata (including allowed_values) from JSON if present
+        schema_metadata = {}
         sample_row = data_rows[0]
+        if isinstance(sample_row, dict) and "schema" in sample_row and isinstance(sample_row["schema"], list):
+            for schema_col in sample_row["schema"]:
+                if isinstance(schema_col, dict) and "name" in schema_col:
+                    schema_metadata[schema_col["name"]] = {
+                        "definition": schema_col.get("definition", ""),
+                        "rationale": schema_col.get("rationale", ""),
+                        "allowed_values": schema_col.get("allowed_values")
+                    }
+
         columns = []
 
         # Handle QBSD format
@@ -415,32 +428,47 @@ class FileParser:
                 if key.startswith('_'):
                     continue  # Skip metadata fields
 
+                # Get metadata from schema if available
+                meta = schema_metadata.get(key, {})
                 col_info = ColumnInfo(
                     name=key,
                     data_type="object",
                     non_null_count=sum(1 for row in data_rows if key in row and row[key] is not None),
-                    unique_count=len(set(json.dumps(row.get(key, None), sort_keys=True) for row in data_rows))
+                    unique_count=len(set(json.dumps(row.get(key, None), sort_keys=True) for row in data_rows)),
+                    definition=meta.get("definition", ""),
+                    rationale=meta.get("rationale", ""),
+                    allowed_values=meta.get("allowed_values")
                 )
                 columns.append(col_info)
         elif 'data' in sample_row and isinstance(sample_row.get('data'), dict):
             # DataRow format (from complete export)
             sample_data = sample_row['data']
             for key in sample_data.keys():
+                # Get metadata from schema if available
+                meta = schema_metadata.get(key, {})
                 col_info = ColumnInfo(
                     name=key,
                     data_type=type(sample_data[key]).__name__,
                     non_null_count=sum(1 for row in data_rows if 'data' in row and key in row['data'] and row['data'][key] is not None),
-                    unique_count=len(set(json.dumps(row.get('data', {}).get(key, None), sort_keys=True) for row in data_rows))
+                    unique_count=len(set(json.dumps(row.get('data', {}).get(key, None), sort_keys=True) for row in data_rows)),
+                    definition=meta.get("definition", ""),
+                    rationale=meta.get("rationale", ""),
+                    allowed_values=meta.get("allowed_values")
                 )
                 columns.append(col_info)
         else:
             # Regular JSON format
             for key in sample_row.keys():
+                # Get metadata from schema if available
+                meta = schema_metadata.get(key, {})
                 col_info = ColumnInfo(
                     name=key,
                     data_type=type(sample_row[key]).__name__,
                     non_null_count=sum(1 for row in data_rows if key in row and row[key] is not None),
-                    unique_count=len(set(json.dumps(row.get(key, None), sort_keys=True) for row in data_rows))
+                    unique_count=len(set(json.dumps(row.get(key, None), sort_keys=True) for row in data_rows)),
+                    definition=meta.get("definition", ""),
+                    rationale=meta.get("rationale", ""),
+                    allowed_values=meta.get("allowed_values")
                 )
                 columns.append(col_info)
 
@@ -534,6 +562,8 @@ class FileParser:
 
         Maintains backward compatibility - if no _excerpts columns exist, returns data as-is.
         """
+        import ast
+
         merged = {}
         processed_excerpt_keys = set()
 
@@ -557,30 +587,72 @@ class FileParser:
                 if excerpt_value and excerpt_value != '' and not (isinstance(excerpt_value, float) and math.isnan(excerpt_value)):
                     # Parse excerpt value - could be string, list, or already structured
                     if isinstance(excerpt_value, str):
-                        # Try to parse as JSON list first
-                        try:
-                            parsed = json.loads(excerpt_value)
-                            if isinstance(parsed, list):
-                                for item in parsed:
-                                    if isinstance(item, dict) and 'text' in item:
-                                        # Already has structure
-                                        excerpts.append(item)
-                                    elif isinstance(item, str):
+                        # Check for QBSD export format: "{'text': '...', 'source': '...'} | {'text': '...', 'source': '...'}"
+                        if " | " in excerpt_value and "{'text':" in excerpt_value:
+                            # Split by ' | ' and parse each part as Python literal
+                            parts = excerpt_value.split(" | ")
+                            for part in parts:
+                                part = part.strip()
+                                if part:
+                                    try:
+                                        parsed_item = ast.literal_eval(part)
+                                        if isinstance(parsed_item, dict) and 'text' in parsed_item:
+                                            excerpts.append(parsed_item)
+                                        else:
+                                            excerpts.append({
+                                                "text": str(parsed_item),
+                                                "source": source_filename or "Unknown"
+                                            })
+                                    except (ValueError, SyntaxError):
+                                        # Couldn't parse, treat as plain text
                                         excerpts.append({
-                                            "text": item,
+                                            "text": part,
                                             "source": source_filename or "Unknown"
                                         })
-                            else:
+                        # Also check for [source] text format from our CSV export
+                        elif excerpt_value.startswith("[") and "] " in excerpt_value:
+                            # Format: "[source1] text1 | [source2] text2"
+                            parts = excerpt_value.split(" | ")
+                            for part in parts:
+                                part = part.strip()
+                                if part.startswith("[") and "] " in part:
+                                    bracket_end = part.index("] ")
+                                    source = part[1:bracket_end]
+                                    text = part[bracket_end + 2:]
+                                    excerpts.append({
+                                        "text": text,
+                                        "source": source
+                                    })
+                                elif part:
+                                    excerpts.append({
+                                        "text": part,
+                                        "source": source_filename or "Unknown"
+                                    })
+                        else:
+                            # Try to parse as JSON list first
+                            try:
+                                parsed = json.loads(excerpt_value)
+                                if isinstance(parsed, list):
+                                    for item in parsed:
+                                        if isinstance(item, dict) and 'text' in item:
+                                            # Already has structure
+                                            excerpts.append(item)
+                                        elif isinstance(item, str):
+                                            excerpts.append({
+                                                "text": item,
+                                                "source": source_filename or "Unknown"
+                                            })
+                                else:
+                                    excerpts.append({
+                                        "text": str(parsed),
+                                        "source": source_filename or "Unknown"
+                                    })
+                            except (json.JSONDecodeError, TypeError):
+                                # Plain string excerpt
                                 excerpts.append({
-                                    "text": str(parsed),
+                                    "text": excerpt_value,
                                     "source": source_filename or "Unknown"
                                 })
-                        except (json.JSONDecodeError, TypeError):
-                            # Plain string excerpt
-                            excerpts.append({
-                                "text": excerpt_value,
-                                "source": source_filename or "Unknown"
-                            })
                     elif isinstance(excerpt_value, list):
                         for item in excerpt_value:
                             if isinstance(item, dict) and 'text' in item:
@@ -1189,6 +1261,9 @@ class FileParser:
             'schema_evolution': None  # Will hold parsed SchemaEvolution if present
         }
 
+        # State tracking for multi-line sections
+        in_column_sources_section = False
+
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -1202,8 +1277,10 @@ class FileParser:
                     if line.startswith('#'):
                         metadata_info['has_comments'] = True
 
-                        # Remove the # and clean whitespace
-                        content = line[1:].strip()
+                        # Remove the # and preserve leading whitespace to detect indentation
+                        raw_content = line[1:]
+                        content = raw_content.strip()
+                        is_indented = raw_content.startswith('  ') or raw_content.startswith('\t')
 
                         # Check for Rationale FIRST (before general column parsing)
                         # Rationale lines start with "Rationale:" after stripping
@@ -1214,6 +1291,15 @@ class FileParser:
                             if metadata_info['column_definitions']:
                                 last_col = list(metadata_info['column_definitions'].keys())[-1]
                                 metadata_info['column_definitions'][last_col]['rationale'] = rationale
+                        elif content.startswith('Allowed Values:'):
+                            # This is allowed_values for the previous column
+                            values_str = content.split(':', 1)[1].strip()
+                            # Parse comma-separated values
+                            allowed_values = [v.strip() for v in values_str.split(',') if v.strip()]
+                            # Find the last column definition to add allowed_values to
+                            if metadata_info['column_definitions'] and allowed_values:
+                                last_col = list(metadata_info['column_definitions'].keys())[-1]
+                                metadata_info['column_definitions'][last_col]['allowed_values'] = allowed_values
                         elif content.startswith('Session ID:'):
                             metadata_info['session_id'] = content.split(':', 1)[1].strip()
                         elif content.startswith('Query:'):
@@ -1293,7 +1379,21 @@ class FileParser:
                         elif content.startswith('Total:') and 'columns from' in content and 'iterations' in content:
                             # "Total: 5 columns from 2 iterations" - just informational, skip
                             pass
-                        elif ':' in content and not content.startswith(('Column Definitions', 'Metadata-Rich', 'Upload Data Export', 'QBSD Export')):
+                        elif content.startswith('Column Sources:'):
+                            # Start of column sources section
+                            in_column_sources_section = True
+                        elif in_column_sources_section and is_indented and ':' in content:
+                            # Parse column source line: "  column_name: source_document"
+                            if metadata_info['schema_evolution'] is None:
+                                metadata_info['schema_evolution'] = {'snapshots': [], 'column_sources': {}}
+                            col_name, source = content.split(':', 1)
+                            col_name = col_name.strip()
+                            source = source.strip()
+                            if col_name and source:
+                                metadata_info['schema_evolution']['column_sources'][col_name] = source
+                        elif ':' in content and not content.startswith(('Column Definitions', 'Metadata-Rich', 'Upload Data Export', 'QBSD Export', 'Schema Evolution')):
+                            # Reset column sources section flag when we hit a non-indented line
+                            in_column_sources_section = False
                             # Parse column definitions
                             if content.count(':') >= 1:
                                 col_name, definition = content.split(':', 1)
