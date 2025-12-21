@@ -649,29 +649,35 @@ const DataTable: React.FC<DataTableProps> = ({
         const qbsdValue = processedValue as QBSDAnswerWithExcerpts;
         const answer = qbsdValue.answer;
         const excerpts = qbsdValue.excerpts || [];
+        const answerStr = String(answer);
+        const hasExcerptsData = excerpts.length > 0;
+        // Show Eye icon if there are excerpts OR if the answer could be truncated
+        const showExpandIcon = hasExcerptsData || answerStr.length > 40;
 
         return (
           <div className="flex items-center gap-1">
-            <span className="text-base leading-relaxed line-clamp-3">
-              {String(answer)}
+            <span className="text-base leading-relaxed line-clamp-3 flex-1">
+              {answerStr}
             </span>
-            {excerpts.length > 0 && (
+            {showExpandIcon && (
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-6 w-6 text-blue-500"
+                    className="h-6 w-6 text-blue-500 shrink-0"
                     onClick={() => handleViewContent(columnName, {
                       answer: answer,
                       excerpts: excerpts
                     })}
-                    aria-label="View excerpts"
+                    aria-label={hasExcerptsData ? "View excerpts" : "View full content"}
                   >
                     <Eye className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>View excerpts ({excerpts.length} sources)</TooltipContent>
+                <TooltipContent>
+                  {hasExcerptsData ? `View excerpts (${excerpts.length} sources)` : "View full content"}
+                </TooltipContent>
               </Tooltip>
             )}
           </div>
