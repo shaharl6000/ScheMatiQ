@@ -654,33 +654,28 @@ const DataTable: React.FC<DataTableProps> = ({
         // Show Eye icon if there are excerpts OR if the answer could be truncated
         const showExpandIcon = hasExcerptsData || answerStr.length > 40;
 
+        if (showExpandIcon) {
+          return (
+            <div className="relative group">
+              <div
+                className="text-base leading-relaxed line-clamp-3 break-words cursor-pointer hover:text-blue-600 pr-6"
+                onClick={() => handleViewContent(columnName, { answer, excerpts })}
+                title={hasExcerptsData ? "Click to view excerpts" : "Click to view full content"}
+              >
+                {answerStr}
+              </div>
+              <Eye
+                className="h-4 w-4 absolute top-0 right-0 text-blue-500 opacity-70 group-hover:opacity-100 cursor-pointer"
+                onClick={() => handleViewContent(columnName, { answer, excerpts })}
+              />
+            </div>
+          );
+        }
+
         return (
-          <div className="flex items-center gap-1">
-            <span className="text-base leading-relaxed line-clamp-3 flex-1">
-              {answerStr}
-            </span>
-            {showExpandIcon && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6 text-blue-500 shrink-0"
-                    onClick={() => handleViewContent(columnName, {
-                      answer: answer,
-                      excerpts: excerpts
-                    })}
-                    aria-label={hasExcerptsData ? "View excerpts" : "View full content"}
-                  >
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {hasExcerptsData ? `View excerpts (${excerpts.length} sources)` : "View full content"}
-                </TooltipContent>
-              </Tooltip>
-            )}
-          </div>
+          <span className="text-base leading-relaxed line-clamp-3">
+            {answerStr}
+          </span>
         );
       }
 
@@ -756,30 +751,24 @@ const DataTable: React.FC<DataTableProps> = ({
       );
     }
 
-    // Show Eye icon for any text that could be truncated by line-clamp-3
+    // Show clickable text with Eye icon for any text that could be truncated
     // Using 40 chars as threshold since column width can cause early truncation
     const couldBeTruncated = stringValue.length > 40;
 
     if (couldBeTruncated) {
       return (
-        <div className="flex items-center gap-1">
-          <span className="text-base leading-relaxed line-clamp-3 break-words flex-1">
+        <div className="relative group">
+          <div
+            className="text-base leading-relaxed line-clamp-3 break-words cursor-pointer hover:text-blue-600 pr-6"
+            onClick={() => handleViewContent(columnName, value)}
+            title="Click to view full content"
+          >
             {stringValue}
-          </span>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 text-muted-foreground hover:text-blue-500 shrink-0"
-                onClick={() => handleViewContent(columnName, value)}
-                aria-label="View full content"
-              >
-                <Eye className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>View full content</TooltipContent>
-          </Tooltip>
+          </div>
+          <Eye
+            className="h-4 w-4 absolute top-0 right-0 text-blue-500 opacity-70 group-hover:opacity-100"
+            onClick={() => handleViewContent(columnName, value)}
+          />
         </div>
       );
     }
