@@ -595,14 +595,11 @@ class SupabaseStorageBackend(StorageInterface):
                             content = self.client.storage.from_("initial_schemas").download(name)
                             data = json.loads(content.decode('utf-8'))
 
-                            # Handle list format or object with columns/schema key
+                            # Handle both list format and object with columns key
                             if isinstance(data, list):
                                 columns = data
-                            elif isinstance(data, dict):
-                                if 'columns' in data:
-                                    columns = data['columns']
-                                elif 'schema' in data:
-                                    columns = data['schema']
+                            elif isinstance(data, dict) and 'columns' in data:
+                                columns = data['columns']
 
                             columns_count = len(columns)
                             # Create preview from first 3 column names
