@@ -750,11 +750,15 @@ const DataTable: React.FC<DataTableProps> = ({
       );
     }
 
-    if (needsTruncation(stringValue)) {
+    // Show Eye icon for any text that could be truncated by line-clamp-3
+    // Using 40 chars as threshold since column width can cause early truncation
+    const couldBeTruncated = stringValue.length > 40;
+
+    if (couldBeTruncated) {
       return (
         <div className="flex items-center gap-1">
           <span className="text-base leading-relaxed line-clamp-3 break-words flex-1">
-            {truncateText(stringValue)}
+            {stringValue}
           </span>
           <Tooltip>
             <TooltipTrigger asChild>
