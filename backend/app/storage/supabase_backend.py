@@ -504,9 +504,19 @@ class SupabaseStorageBackend(StorageInterface):
 
                             if ext == '.csv':
                                 lines = text.strip().split('\n')
-                                row_count = len(lines) - 1  # Exclude header
-                                if lines:
-                                    column_count = len(lines[0].split(','))
+                                # Skip comment lines (metadata)
+                                data_lines = [l for l in lines if not l.startswith('#')]
+                                if data_lines:
+                                    row_count = len(data_lines) - 1  # Exclude header
+                                    # Parse header to count actual data columns
+                                    header = data_lines[0].split(',')
+                                    # Exclude metadata and excerpt columns
+                                    metadata_cols = {'document_directory', 'papers', 'row_name'}
+                                    data_columns = [
+                                        col for col in header
+                                        if not col.endswith('_excerpt') and col not in metadata_cols
+                                    ]
+                                    column_count = len(data_columns)
                             elif ext == '.jsonl':
                                 lines = [l for l in text.strip().split('\n') if l.strip()]
                                 row_count = len(lines)
