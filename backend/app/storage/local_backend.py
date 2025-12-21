@@ -555,11 +555,14 @@ class LocalStorageBackend(StorageInterface):
                             with open(file_path, 'r') as f:
                                 data = json.load(f)
 
-                            # Handle both list format and object with columns key
+                            # Handle list format or object with columns/schema key
                             if isinstance(data, list):
                                 columns = data
-                            elif isinstance(data, dict) and 'columns' in data:
-                                columns = data['columns']
+                            elif isinstance(data, dict):
+                                if 'columns' in data:
+                                    columns = data['columns']
+                                elif 'schema' in data:
+                                    columns = data['schema']
 
                             columns_count = len(columns)
                             # Create preview from first 3 column names

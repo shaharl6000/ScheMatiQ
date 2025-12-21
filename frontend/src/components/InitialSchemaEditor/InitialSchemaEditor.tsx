@@ -190,10 +190,17 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
       let columns: InitialSchemaColumn[] = [];
       if (Array.isArray(data)) {
         columns = data;
-      } else if (data && typeof data === 'object' && 'columns' in data) {
-        columns = data.columns;
+      } else if (data && typeof data === 'object') {
+        if ('columns' in data) {
+          columns = data.columns;
+        } else if ('schema' in data) {
+          columns = data.schema;
+        } else {
+          setUploadError('Schema must be a JSON array or an object with a "columns" or "schema" key');
+          return;
+        }
       } else {
-        setUploadError('Schema must be a JSON array of columns or an object with a "columns" key');
+        setUploadError('Schema must be a JSON array or an object with a "columns" or "schema" key');
         return;
       }
 

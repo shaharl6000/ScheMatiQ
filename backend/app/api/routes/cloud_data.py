@@ -324,12 +324,20 @@ async def upload_initial_schema(file: UploadFile = File(...)):
     columns = []
     if isinstance(data, list):
         columns = data
-    elif isinstance(data, dict) and 'columns' in data:
-        columns = data['columns']
+    elif isinstance(data, dict):
+        if 'columns' in data:
+            columns = data['columns']
+        elif 'schema' in data:
+            columns = data['schema']
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Schema must be a JSON array or an object with a 'columns' or 'schema' key"
+            )
     else:
         raise HTTPException(
             status_code=400,
-            detail="Schema must be a JSON array of columns or an object with a 'columns' key"
+            detail="Schema must be a JSON array or an object with a 'columns' or 'schema' key"
         )
 
     # Validate columns have required fields

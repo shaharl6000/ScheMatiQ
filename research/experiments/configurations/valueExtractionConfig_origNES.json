@@ -1,8 +1,8 @@
 {
-  "schema_path": "outputs/original_nesdb_schema.json",
+  "schema_path": "../../data/original_nesdb_schema.json",
   "docs_directories": [
-    "../src/full_text_namesDoubt",
-    "../src/full_text"
+    "../../data/full_text_namesDoubt",
+    "../../data/full_text"
   ],
   "mode": "all",
   "resume": true,

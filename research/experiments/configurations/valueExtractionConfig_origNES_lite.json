@@ -9,10 +9,10 @@
   "max_workers": 1,
   "backend_cfg": {
     "provider": "gemini",
-    "model": "gemini-2.5-flash",
+    "model": "gemini-2.5-flash-lite",
     "max_tokens": 16000,
     "temperature": 0.2,
     "max_context_tokens": 1000000
   },
-  "output_path": "outputs/value_extractions/gemini_longcontext/values_orig_nes_multi_dirs_gemini_longcontext.json"
+  "output_path": "outputs/value_extractions/gemini_longcontext/values_orig_nes_gemini_lite_16_12_new.json"
 }
