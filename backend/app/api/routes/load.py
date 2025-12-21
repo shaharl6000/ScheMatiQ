@@ -98,12 +98,16 @@ async def load_template(template_name: str):
         session.status = SessionStatus.COMPLETED
         session_manager.update_session(session)
 
+        # Get row count from statistics (handle both dict and Pydantic object)
+        stats = result["statistics"]
+        row_count = stats.total_rows if hasattr(stats, 'total_rows') else stats.get("total_rows", 0) if isinstance(stats, dict) else 0
+
         return {
             "session_id": session_id,
             "template_name": template_name,
             "status": "success",
             "message": f"Template '{template_name}' loaded successfully",
-            "row_count": result["statistics"].get("total_rows", 0),
+            "row_count": row_count,
             "column_count": len(result["columns"])
         }
 
