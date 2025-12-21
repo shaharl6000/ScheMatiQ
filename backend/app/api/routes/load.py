@@ -1033,11 +1033,12 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
         if request and request.llm_config:
             user_llm_config = request.llm_config
             print(f"DEBUG: Using user-provided LLM config: {user_llm_config}")
-            
+
             # Store the user configuration in session directory for processing
             session_dir = Path("./data") / session_id
+            session_dir.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
             user_config_file = session_dir / "user_llm_config.json"
-            
+
             with open(user_config_file, 'w') as f:
                 json.dump(user_llm_config, f, indent=2)
         

@@ -13,10 +13,14 @@ const getWebSocketBaseUrl = (): string => {
   if (process.env.REACT_APP_WS_URL) {
     return process.env.REACT_APP_WS_URL;
   }
-  // Derive from API URL if set
+  // Derive from API URL if set (build-time env var)
   if (process.env.REACT_APP_API_URL) {
     const apiUrl = process.env.REACT_APP_API_URL;
     return apiUrl.replace(/^http/, 'ws');
+  }
+  // Derive from API_BASE_URL if it's set (runtime check)
+  if (API_BASE_URL) {
+    return API_BASE_URL.replace(/^http/, 'ws');
   }
   // Default: use current host (works with proxy in development)
   return (window.location.protocol === 'https:' ? 'wss:' : 'ws:') + '//' + window.location.host;

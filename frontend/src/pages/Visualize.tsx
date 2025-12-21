@@ -21,7 +21,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-import { loadAPI, qbsdAPI } from '../services/api';
+import { loadAPI, qbsdAPI, cloudAPI } from '../services/api';
+import { getApiKeyForProvider, LLMProvider } from '../utils/apiKeyStorage';
 import { VisualizationSession, CellValue, CellExtractedData } from '../types';
 import {
   PROCESSING_REFRESH_INTERVAL,
@@ -29,7 +30,8 @@ import {
   WS_RECONNECT_ATTEMPTS,
   WS_RECONNECT_DELAY_BASE,
   WS_RECONNECT_MAX_DELAY,
-  API_BASE_URL
+  API_BASE_URL,
+  WS_BASE_URL
 } from '../constants/index';
 
 // Component imports
@@ -95,9 +97,7 @@ const Visualize = () => {
   // WebSocket connection
   const connectWebSocketSync = (): Promise<WebSocket> => {
     return new Promise((resolve, reject) => {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const backendHost = process.env.REACT_APP_WS_HOST || 'localhost:8000';
-      const wsUrl = `${protocol}//${backendHost}/ws/progress/${sessionId}`;
+      const wsUrl = `${WS_BASE_URL}/ws/progress/${sessionId}`;
 
       const ws = new WebSocket(wsUrl);
 
@@ -246,9 +246,7 @@ const Visualize = () => {
   useEffect(() => {
     if (!sessionId) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const backendHost = process.env.REACT_APP_WS_HOST || 'localhost:8000';
-    const wsUrl = `${protocol}//${backendHost}/ws/progress/${sessionId}`;
+    const wsUrl = `${WS_BASE_URL}/ws/progress/${sessionId}`;
 
     let ws: WebSocket | null = null;
     let reconnectAttempts = 0;
@@ -414,6 +412,20 @@ const Visualize = () => {
     setDocumentUploadError(null);
 
     try {
+      // Retrieve API key from storage for the selected provider
+      const apiKey = await getApiKeyForProvider(llmConfig.provider as LLMProvider);
+      if (!apiKey) {
+        setDocumentUploadError(`No API key configured for ${llmConfig.provider}. Please add your API key on the home page.`);
+        setDocumentUploadLoading(false);
+        return;
+      }
+
+      // Include API key in the config
+      const configWithKey = {
+        ...llmConfig,
+        api_key: apiKey,
+      };
+
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.close(1000, 'Reconnecting');
         wsRef.current = null;
@@ -428,7 +440,7 @@ const Visualize = () => {
       }
 
       setForceWebSocketConnect(true);
-      await loadAPI.processDocuments(sessionId, llmConfig);
+      await loadAPI.processDocuments(sessionId, configWithKey);
       queryClient.invalidateQueries(['session', sessionId]);
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || err.message || 'Failed to start processing';
@@ -653,6 +665,22 @@ const Visualize = () => {
                         onUpload={handleDocumentUpload}
                         canUpload={true}
                         uploadResult={documentUploadResult}
+                        sessionId={sessionId}
+                        onCloudDocumentsAdd={async (dataset, files) => {
+                          const result = await cloudAPI.addCloudDocuments(sessionId!, dataset, files);
+                          if (result.added_files?.length > 0) {
+                            queryClient.invalidateQueries(['session', sessionId]);
+                            setDocumentUploadResult({
+                              status: 'success',
+                              message: `Added ${result.added_files.length} cloud documents`,
+                              uploaded_files: result.added_files,
+                              warnings: result.errors || []
+                            });
+                          }
+                          if (result.errors?.length) {
+                            throw new Error(result.errors.join(', '));
+                          }
+                        }}
                       />
 
                       {((session?.metadata?.uploaded_documents?.length || 0) > 0 || documentUploadResult?.uploaded_files?.length > 0) && (

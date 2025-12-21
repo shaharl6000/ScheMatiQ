@@ -311,13 +311,13 @@ cmd_env() {
             ;;
         set)
             [[ -z "${1:-}" ]] && die "Usage: ./$SCRIPT_NAME env $service set KEY=VALUE"
-            railway variables set "$1" --service "$service_name" || die "Failed to set variable"
+            railway variables --set "$1" --service "$service_name" || die "Failed to set variable"
             success "Variable set on $service_name"
             ;;
         delete)
             [[ -z "${1:-}" ]] && die "Usage: ./$SCRIPT_NAME env $service delete KEY"
-            railway variables delete "$1" --service "$service_name" || die "Failed to delete"
-            success "Variable deleted from $service_name"
+            railway variables --service "$service_name" | grep -q "^$1=" && \
+                warn "Note: Railway CLI may not support variable deletion. Use Railway dashboard instead."
             ;;
         *)
             die "Unknown action: $action. Use 'list', 'set', or 'delete'"
