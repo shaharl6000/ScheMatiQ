@@ -752,9 +752,25 @@ const DataTable: React.FC<DataTableProps> = ({
 
     if (needsTruncation(stringValue)) {
       return (
-        <span className="text-base leading-relaxed line-clamp-3 break-words">
-          {truncateText(stringValue)}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className="text-base leading-relaxed line-clamp-3 break-words flex-1">
+            {truncateText(stringValue)}
+          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 text-muted-foreground hover:text-blue-500 shrink-0"
+                onClick={() => handleViewContent(columnName, value)}
+                aria-label="View full content"
+              >
+                <Eye className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>View full content</TooltipContent>
+          </Tooltip>
+        </div>
       );
     }
 

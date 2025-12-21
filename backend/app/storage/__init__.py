@@ -22,6 +22,7 @@ from app.storage.interface import (
     DatasetInfo,
     FileInfo,
     TemplateInfo,
+    InitialSchemaInfo,
 )
 from app.storage.factory import get_storage, reset_storage
 from app.storage.local_backend import LocalStorageBackend
@@ -31,6 +32,7 @@ __all__ = [
     "DatasetInfo",
     "FileInfo",
     "TemplateInfo",
+    "InitialSchemaInfo",
     "get_storage",
     "reset_storage",
     "LocalStorageBackend",

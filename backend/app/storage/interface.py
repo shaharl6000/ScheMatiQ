@@ -34,6 +34,17 @@ class TemplateInfo:
     column_count: Optional[int] = None
 
 
+@dataclass
+class InitialSchemaInfo:
+    """Information about an initial schema file."""
+    name: str
+    path: str
+    file_type: str  # json
+    columns_count: int
+    preview: str  # First few column names as preview
+    columns: List[Dict[str, Any]]  # Full column data
+
+
 class StorageInterface(ABC):
     """Abstract base class defining the storage contract.
 
@@ -370,5 +381,54 @@ class StorageInterface(ABC):
 
         Returns:
             Template file content as bytes, or None if not found
+        """
+        pass
+
+    # =======================
+    # Initial Schema Operations
+    # =======================
+
+    @abstractmethod
+    async def list_initial_schemas(self) -> List["InitialSchemaInfo"]:
+        """List available initial schema files.
+
+        Initial schemas are JSON files containing column definitions
+        that can be used to seed the QBSD schema discovery process.
+        In local mode, these come from a configured initial_schemas directory.
+        In Supabase mode, these come from the initial_schemas/ bucket.
+
+        Returns:
+            List of InitialSchemaInfo objects
+        """
+        pass
+
+    @abstractmethod
+    async def download_initial_schema(self, schema_name: str) -> Optional[bytes]:
+        """Download an initial schema file.
+
+        Args:
+            schema_name: Name of the initial schema file
+
+        Returns:
+            Schema file content as bytes, or None if not found
+        """
+        pass
+
+    @abstractmethod
+    async def upload_initial_schema(
+        self,
+        schema_name: str,
+        data: bytes,
+        content_type: Optional[str] = None
+    ) -> str:
+        """Upload an initial schema file.
+
+        Args:
+            schema_name: Name for the schema file
+            data: Schema file content as bytes
+            content_type: MIME type (typically application/json)
+
+        Returns:
+            Full path to the uploaded schema file
         """
         pass

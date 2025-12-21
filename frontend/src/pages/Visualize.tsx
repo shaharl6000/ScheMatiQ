@@ -12,6 +12,8 @@ import {
   Play,
   XCircle,
   Loader2,
+  X,
+  FileText,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -59,6 +61,7 @@ const Visualize = () => {
   const [documentUploadResult, setDocumentUploadResult] = useState<any>(null);
   const [documentUploadError, setDocumentUploadError] = useState<string | null>(null);
   const [newlyAddedRows, setNewlyAddedRows] = useState<Set<number>>(new Set());
+  const [removingDocument, setRemovingDocument] = useState<string | null>(null);
 
   // Streaming cells state
   const [streamingCells, setStreamingCells] = useState<Map<string, Record<string, CellValue>>>(new Map());
@@ -477,6 +480,23 @@ const Visualize = () => {
     }
   };
 
+  const handleRemoveDocument = async (filename: string) => {
+    if (!sessionId) return;
+
+    setRemovingDocument(filename);
+    setDocumentUploadError(null);
+
+    try {
+      await loadAPI.removeDocument(sessionId, filename);
+      queryClient.invalidateQueries(['session', sessionId]);
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.detail || err.message || 'Failed to remove document';
+      setDocumentUploadError(errorMessage);
+    } finally {
+      setRemovingDocument(null);
+    }
+  };
+
   if (!sessionId) {
     return (
       <Alert variant="destructive">
@@ -645,11 +665,36 @@ const Visualize = () => {
                       </p>
 
                       {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
-                        <Alert variant="info">
-                          <AlertDescription>
-                            <strong>Uploaded documents:</strong> {session.metadata.uploaded_documents.join(', ')}
-                          </AlertDescription>
-                        </Alert>
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Uploaded documents ({session.metadata.uploaded_documents.length}):</p>
+                          <div className="flex flex-wrap gap-2">
+                            {session.metadata.uploaded_documents.map((doc, index) => (
+                              <div
+                                key={`${doc}-${index}`}
+                                className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full text-sm"
+                              >
+                                <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                                <span className="text-blue-700 dark:text-blue-300 max-w-[200px] truncate" title={doc}>
+                                  {doc}
+                                </span>
+                                {session.status !== 'processing_documents' && (
+                                  <button
+                                    onClick={() => handleRemoveDocument(doc)}
+                                    disabled={removingDocument === doc}
+                                    className="ml-1 p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full transition-colors disabled:opacity-50"
+                                    title={`Remove ${doc}`}
+                                  >
+                                    {removingDocument === doc ? (
+                                      <Loader2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
+                                    ) : (
+                                      <X className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 hover:text-red-600 dark:hover:text-red-400" />
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
                       )}
 
                       {documentUploadError && (

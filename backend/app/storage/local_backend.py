@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 import aiofiles
 import aiofiles.os
 
-from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, TemplateInfo
+from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, TemplateInfo, InitialSchemaInfo
 
 
 class LocalStorageBackend(StorageInterface):
@@ -29,7 +29,8 @@ class LocalStorageBackend(StorageInterface):
         data_dir: str = "./data",
         qbsd_work_dir: str = "./qbsd_work",
         datasets_dir: str = "../research/data",
-        templates_dir: str = "./templates"
+        templates_dir: str = "./templates",
+        initial_schemas_dir: str = "./initial_schemas"
     ):
         """Initialize local storage backend.
 
@@ -39,18 +40,21 @@ class LocalStorageBackend(StorageInterface):
             qbsd_work_dir: Directory for QBSD work files
             datasets_dir: Directory containing shared datasets (document collections)
             templates_dir: Directory containing template tables
+            initial_schemas_dir: Directory containing initial schema files
         """
         self.sessions_dir = Path(sessions_dir)
         self.data_dir = Path(data_dir)
         self.qbsd_work_dir = Path(qbsd_work_dir)
         self.datasets_dir = Path(datasets_dir)
         self.templates_dir = Path(templates_dir)
+        self.initial_schemas_dir = Path(initial_schemas_dir)
 
         # Ensure directories exist (except datasets which is read-only)
         self.sessions_dir.mkdir(exist_ok=True)
         self.data_dir.mkdir(exist_ok=True)
         self.qbsd_work_dir.mkdir(exist_ok=True)
         self.templates_dir.mkdir(exist_ok=True)
+        self.initial_schemas_dir.mkdir(exist_ok=True)
 
     def _get_bucket_path(self, bucket: str, path: str = "") -> Path:
         """Map bucket and path to local filesystem path.
@@ -526,3 +530,108 @@ class LocalStorageBackend(StorageInterface):
                 print(f"Error downloading template {template_name}: {e}")
 
         return None
+
+    # =======================
+    # Initial Schema Operations
+    # =======================
+
+    async def list_initial_schemas(self) -> List[InitialSchemaInfo]:
+        """List available initial schema files."""
+        if not self.initial_schemas_dir.exists():
+            return []
+
+        schemas = []
+        try:
+            for file_path in self.initial_schemas_dir.iterdir():
+                if file_path.is_file() and not file_path.name.startswith('.'):
+                    ext = file_path.suffix.lower()
+                    if ext == '.json':
+                        # Parse the schema to get column info
+                        columns = []
+                        columns_count = 0
+                        preview = ""
+
+                        try:
+                            with open(file_path, 'r') as f:
+                                data = json.load(f)
+
+                            # Handle both list format and object with columns key
+                            if isinstance(data, list):
+                                columns = data
+                            elif isinstance(data, dict) and 'columns' in data:
+                                columns = data['columns']
+
+                            columns_count = len(columns)
+                            # Create preview from first 3 column names
+                            column_names = [col.get('name', '') for col in columns[:3]]
+                            preview = ', '.join(column_names)
+                            if columns_count > 3:
+                                preview += f", ... (+{columns_count - 3} more)"
+                        except Exception as e:
+                            print(f"Error parsing schema {file_path.name}: {e}")
+                            continue
+
+                        if columns_count > 0:
+                            schemas.append(InitialSchemaInfo(
+                                name=file_path.stem,
+                                path=str(file_path),
+                                file_type='json',
+                                columns_count=columns_count,
+                                preview=preview,
+                                columns=columns
+                            ))
+        except Exception as e:
+            print(f"Error listing initial schemas: {e}")
+
+        return sorted(schemas, key=lambda s: s.name)
+
+    async def download_initial_schema(self, schema_name: str) -> Optional[bytes]:
+        """Download an initial schema file."""
+        if not self.initial_schemas_dir.exists():
+            return None
+
+        # Try with .json extension
+        file_path = self.initial_schemas_dir / f"{schema_name}.json"
+        if file_path.exists():
+            try:
+                async with aiofiles.open(file_path, 'rb') as f:
+                    return await f.read()
+            except Exception as e:
+                print(f"Error downloading initial schema {schema_name}: {e}")
+                return None
+
+        # Try exact filename
+        file_path = self.initial_schemas_dir / schema_name
+        if file_path.exists():
+            try:
+                async with aiofiles.open(file_path, 'rb') as f:
+                    return await f.read()
+            except Exception as e:
+                print(f"Error downloading initial schema {schema_name}: {e}")
+
+        return None
+
+    async def upload_initial_schema(
+        self,
+        schema_name: str,
+        data: bytes,
+        content_type: Optional[str] = None
+    ) -> str:
+        """Upload an initial schema file to local storage."""
+        try:
+            # Ensure filename has .json extension
+            if not schema_name.endswith('.json'):
+                schema_name = f"{schema_name}.json"
+
+            file_path = self.initial_schemas_dir / schema_name
+
+            # Ensure directory exists
+            self.initial_schemas_dir.mkdir(parents=True, exist_ok=True)
+
+            async with aiofiles.open(file_path, 'wb') as f:
+                await f.write(data)
+
+            return str(file_path)
+        except Exception as e:
+            print(f"Error uploading initial schema {schema_name}: {e}")
+            raise

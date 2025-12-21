@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from supabase import create_client, Client
 
-from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, TemplateInfo
+from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, TemplateInfo, InitialSchemaInfo
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ class SupabaseStorageBackend(StorageInterface):
     """
 
     # Required buckets for the application
-    REQUIRED_BUCKETS = ["sessions", "documents", "data", "exports", "datasets", "templates"]
+    REQUIRED_BUCKETS = ["sessions", "documents", "data", "exports", "datasets", "templates", "initial_schemas"]
 
     def __init__(self, url: str, key: str):
         """Initialize Supabase storage backend.
@@ -567,3 +567,114 @@ class SupabaseStorageBackend(StorageInterface):
         except Exception as e:
             print(f"Error downloading template {template_name}: {e}")
             return None
+
+    # =======================
+    # Initial Schema Operations
+    # =======================
+
+    async def list_initial_schemas(self) -> List[InitialSchemaInfo]:
+        """List available initial schema files from the initial_schemas bucket."""
+        try:
+            logger.info("Fetching initial schemas from Supabase 'initial_schemas' bucket...")
+            files = self.client.storage.from_("initial_schemas").list()
+            logger.info(f"Supabase returned {len(files)} items from initial_schemas bucket")
+
+            schemas = []
+            for f in files:
+                if f.get("id"):  # It's a file
+                    name = f["name"]
+                    ext = Path(name).suffix.lower()
+
+                    if ext == '.json':
+                        # Parse the schema to get column info
+                        columns = []
+                        columns_count = 0
+                        preview = ""
+
+                        try:
+                            content = self.client.storage.from_("initial_schemas").download(name)
+                            data = json.loads(content.decode('utf-8'))
+
+                            # Handle both list format and object with columns key
+                            if isinstance(data, list):
+                                columns = data
+                            elif isinstance(data, dict) and 'columns' in data:
+                                columns = data['columns']
+
+                            columns_count = len(columns)
+                            # Create preview from first 3 column names
+                            column_names = [col.get('name', '') for col in columns[:3]]
+                            preview = ', '.join(column_names)
+                            if columns_count > 3:
+                                preview += f", ... (+{columns_count - 3} more)"
+                        except Exception as e:
+                            logger.warning(f"Error parsing schema {name}: {e}")
+                            continue
+
+                        if columns_count > 0:
+                            schemas.append(InitialSchemaInfo(
+                                name=Path(name).stem,
+                                path=f"initial_schemas/{name}",
+                                file_type='json',
+                                columns_count=columns_count,
+                                preview=preview,
+                                columns=columns
+                            ))
+
+            logger.info(f"Returning {len(schemas)} initial schemas")
+            return sorted(schemas, key=lambda s: s.name)
+        except Exception as e:
+            logger.error(f"Error listing initial schemas from Supabase: {e}", exc_info=True)
+            return []
+
+    async def download_initial_schema(self, schema_name: str) -> Optional[bytes]:
+        """Download an initial schema file."""
+        try:
+            # Try with .json extension
+            try:
+                filename = f"{schema_name}.json"
+                return self.client.storage.from_("initial_schemas").download(filename)
+            except Exception:
+                pass
+
+            # Try exact filename
+            try:
+                return self.client.storage.from_("initial_schemas").download(schema_name)
+            except Exception:
+                pass
+
+            return None
+        except Exception as e:
+            print(f"Error downloading initial schema {schema_name}: {e}")
+            return None
+
+    async def upload_initial_schema(
+        self,
+        schema_name: str,
+        data: bytes,
+        content_type: Optional[str] = None
+    ) -> str:
+        """Upload an initial schema file to Supabase storage."""
+        try:
+            # Ensure filename has .json extension
+            if not schema_name.endswith('.json'):
+                schema_name = f"{schema_name}.json"
+
+            # Remove existing file first (Supabase doesn't overwrite by default)
+            try:
+                self.client.storage.from_("initial_schemas").remove([schema_name])
+            except Exception:
+                pass
+
+            options = {"content-type": content_type or "application/json"}
+
+            self.client.storage.from_("initial_schemas").upload(
+                schema_name,
+                data,
+                options
+            )
+
+            return f"initial_schemas/{schema_name}"
+        except Exception as e:
+            print(f"Error uploading initial schema {schema_name} to Supabase: {e}")
+            raise

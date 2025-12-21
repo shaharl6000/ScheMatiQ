@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Pencil, Loader2, X, FileJson, List, Info } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Plus, Trash2, Pencil, Loader2, X, FileJson, List, Info, Upload, Cloud, Check, AlertCircle } from 'lucide-react';
+import { useDropzone } from 'react-dropzone';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Select,
   SelectContent,
@@ -30,7 +32,7 @@ import {
 } from '@/components/ui/tooltip';
 
 import { InitialSchemaColumn } from '../../types';
-import { qbsdAPI } from '../../services/api';
+import { qbsdAPI, cloudAPI } from '../../services/api';
 
 type SchemaSource = 'none' | 'file' | 'manual';
 
@@ -54,12 +56,41 @@ interface InitialSchemaEditorProps {
   ) => void;
 }
 
+interface CloudSchema {
+  name: string;
+  path: string;
+  file_type: string;
+  columns_count: number;
+  preview: string;
+  columns: {
+    name: string;
+    definition: string;
+    rationale: string;
+    allowed_values?: string[];
+  }[];
+}
+
 const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChange }) => {
   const [source, setSource] = useState<SchemaSource>('none');
   const [schemaFiles, setSchemaFiles] = useState<SchemaFile[]>([]);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [selectedFile, setSelectedFile] = useState<string>('');
   const [columns, setColumns] = useState<InitialSchemaColumn[]>([]);
+
+  // File mode tab state
+  const [fileTab, setFileTab] = useState<'upload' | 'cloud'>('cloud');
+
+  // Cloud schemas state
+  const [cloudSchemas, setCloudSchemas] = useState<CloudSchema[]>([]);
+  const [loadingCloudSchemas, setLoadingCloudSchemas] = useState(false);
+  const [selectedCloudSchema, setSelectedCloudSchema] = useState<string>('');
+
+  // File upload state
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [uploadedSchemaData, setUploadedSchemaData] = useState<InitialSchemaColumn[] | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
 
   // Column editor dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -72,10 +103,15 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
   });
   const [newAllowedValue, setNewAllowedValue] = useState('');
 
-  // Fetch schema files when file mode is selected
+  // Fetch cloud schemas when file mode is selected
   useEffect(() => {
-    if (source === 'file' && schemaFiles.length === 0) {
-      fetchSchemaFiles();
+    if (source === 'file') {
+      if (cloudSchemas.length === 0) {
+        fetchCloudSchemas();
+      }
+      if (schemaFiles.length === 0) {
+        fetchSchemaFiles();
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
@@ -84,14 +120,26 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
   useEffect(() => {
     if (source === 'none') {
       onSchemaChange(undefined, undefined);
-    } else if (source === 'file' && selectedFile) {
-      onSchemaChange(selectedFile, undefined);
+    } else if (source === 'file') {
+      if (fileTab === 'cloud' && selectedCloudSchema) {
+        // Find the selected cloud schema and pass its columns as data
+        const schema = cloudSchemas.find(s => s.name === selectedCloudSchema);
+        if (schema) {
+          onSchemaChange(undefined, schema.columns as InitialSchemaColumn[]);
+        } else {
+          onSchemaChange(undefined, undefined);
+        }
+      } else if (fileTab === 'upload' && uploadedSchemaData) {
+        onSchemaChange(undefined, uploadedSchemaData);
+      } else {
+        onSchemaChange(undefined, undefined);
+      }
     } else if (source === 'manual' && columns.length > 0) {
       onSchemaChange(undefined, columns);
     } else {
       onSchemaChange(undefined, undefined);
     }
-  }, [source, selectedFile, columns, onSchemaChange]);
+  }, [source, fileTab, selectedCloudSchema, uploadedSchemaData, columns, cloudSchemas, onSchemaChange]);
 
   const fetchSchemaFiles = async () => {
     setLoadingFiles(true);
@@ -105,10 +153,100 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
     }
   };
 
+  const fetchCloudSchemas = async () => {
+    setLoadingCloudSchemas(true);
+    try {
+      const schemas = await cloudAPI.getInitialSchemas();
+      setCloudSchemas(schemas);
+    } catch (error) {
+      console.error('Failed to fetch cloud schemas:', error);
+    } finally {
+      setLoadingCloudSchemas(false);
+    }
+  };
+
+  // File upload handler
+  const onDrop = useCallback(async (acceptedFiles: File[]) => {
+    const file = acceptedFiles[0];
+    if (!file) return;
+
+    setUploadError(null);
+    setUploadSuccess(false);
+    setUploadedFile(file);
+    setUploadedSchemaData(null);
+
+    // Validate file extension
+    if (!file.name.endsWith('.json')) {
+      setUploadError('File must be a JSON file (.json)');
+      return;
+    }
+
+    // Read and parse the file locally
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+
+      // Validate schema structure
+      let columns: InitialSchemaColumn[] = [];
+      if (Array.isArray(data)) {
+        columns = data;
+      } else if (data && typeof data === 'object' && 'columns' in data) {
+        columns = data.columns;
+      } else {
+        setUploadError('Schema must be a JSON array of columns or an object with a "columns" key');
+        return;
+      }
+
+      // Validate columns have required fields
+      for (let i = 0; i < columns.length; i++) {
+        const col = columns[i];
+        if (!col.name || !col.definition || !col.rationale) {
+          setUploadError(`Column ${i + 1} must have 'name', 'definition', and 'rationale' fields`);
+          return;
+        }
+      }
+
+      if (columns.length === 0) {
+        setUploadError('Schema must contain at least one column');
+        return;
+      }
+
+      setUploadedSchemaData(columns);
+      setUploadSuccess(true);
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        setUploadError('Invalid JSON file');
+      } else {
+        setUploadError('Failed to parse schema file');
+      }
+    }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'application/json': ['.json']
+    },
+    maxFiles: 1
+  });
+
+  const handleCloudSchemaSelect = (schemaName: string) => {
+    setSelectedCloudSchema(schemaName);
+  };
+
+  const clearUploadedFile = () => {
+    setUploadedFile(null);
+    setUploadedSchemaData(null);
+    setUploadError(null);
+    setUploadSuccess(false);
+  };
+
   const handleSourceChange = (value: SchemaSource) => {
     setSource(value);
     if (value !== 'file') {
       setSelectedFile('');
+      setSelectedCloudSchema('');
+      clearUploadedFile();
     }
     if (value !== 'manual') {
       setColumns([]);
@@ -117,11 +255,6 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
 
   const handleFileSelect = (filePath: string) => {
     setSelectedFile(filePath);
-    // Optionally load columns for preview
-    const file = schemaFiles.find(f => f.value === filePath);
-    if (file) {
-      // Just for display, actual file path is used
-    }
   };
 
   const openAddDialog = () => {
@@ -187,8 +320,6 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
     }));
   };
 
-  const selectedSchemaFile = schemaFiles.find(f => f.value === selectedFile);
-
   return (
     <div className="space-y-4">
       {/* Source Selection */}
@@ -217,71 +348,187 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
         </div>
       </RadioGroup>
 
-      {/* File Selection */}
+      {/* File Selection with Tabs */}
       {source === 'file' && (
-        <div className="space-y-3">
-          <Select
-            value={selectedFile}
-            onValueChange={handleFileSelect}
-            disabled={loadingFiles}
-          >
-            <SelectTrigger>
-              {loadingFiles ? (
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading schema files...
-                </div>
-              ) : (
-                <SelectValue placeholder="Select a schema file..." />
-              )}
-            </SelectTrigger>
-            <SelectContent>
-              {schemaFiles.map((file) => (
-                <SelectItem key={file.value} value={file.value}>
-                  <div className="flex flex-col">
-                    <span className="font-medium">{file.label}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {file.columns_count} columns: {file.preview}
-                    </span>
-                  </div>
-                </SelectItem>
-              ))}
-              {schemaFiles.length === 0 && !loadingFiles && (
-                <SelectItem value="__empty__" disabled>
-                  No schema files found
-                </SelectItem>
-              )}
-            </SelectContent>
-          </Select>
+        <Tabs value={fileTab} onValueChange={(v) => setFileTab(v as 'upload' | 'cloud')} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="cloud" className="flex items-center gap-2">
+              <Cloud className="h-4 w-4" />
+              From Cloud
+            </TabsTrigger>
+            <TabsTrigger value="upload" className="flex items-center gap-2">
+              <Upload className="h-4 w-4" />
+              Upload File
+            </TabsTrigger>
+          </TabsList>
 
-          {/* Preview selected schema */}
-          {selectedSchemaFile && (
-            <Card>
-              <CardContent className="pt-4">
-                <p className="text-sm font-medium mb-2">
-                  Schema Preview ({selectedSchemaFile.columns_count} columns)
+          {/* Cloud Schema Tab */}
+          <TabsContent value="cloud" className="space-y-3 mt-4">
+            <Select
+              value={selectedCloudSchema}
+              onValueChange={handleCloudSchemaSelect}
+              disabled={loadingCloudSchemas}
+            >
+              <SelectTrigger>
+                {loadingCloudSchemas ? (
+                  <div className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading schemas from cloud...
+                  </div>
+                ) : (
+                  <SelectValue placeholder="Select a schema from cloud storage..." />
+                )}
+              </SelectTrigger>
+              <SelectContent>
+                {cloudSchemas.map((schema) => (
+                  <SelectItem key={schema.name} value={schema.name}>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{schema.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {schema.columns_count} columns: {schema.preview}
+                      </span>
+                    </div>
+                  </SelectItem>
+                ))}
+                {cloudSchemas.length === 0 && !loadingCloudSchemas && (
+                  <SelectItem value="__empty__" disabled>
+                    No schemas found in cloud storage
+                  </SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+
+            {/* Preview selected cloud schema */}
+            {selectedCloudSchema && (
+              <Card>
+                <CardContent className="pt-4">
+                  {(() => {
+                    const schema = cloudSchemas.find(s => s.name === selectedCloudSchema);
+                    if (!schema) return null;
+                    return (
+                      <>
+                        <p className="text-sm font-medium mb-2">
+                          Schema Preview ({schema.columns_count} columns)
+                        </p>
+                        <div className="space-y-2 max-h-60 overflow-y-auto">
+                          {schema.columns.map((col, idx) => (
+                            <div key={idx} className="text-sm p-2 bg-muted/50 rounded">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{col.name}</span>
+                                {col.allowed_values && col.allowed_values.length > 0 && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {col.allowed_values.join(', ')}
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-muted-foreground text-xs mt-1 line-clamp-1">
+                                {col.definition}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* Upload File Tab */}
+          <TabsContent value="upload" className="space-y-3 mt-4">
+            {!uploadedFile ? (
+              <div
+                {...getRootProps()}
+                className={`
+                  border-2 border-dashed rounded-lg p-6 text-center cursor-pointer
+                  transition-colors duration-200
+                  ${isDragActive
+                    ? 'border-primary bg-primary/5'
+                    : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
+                  }
+                `}
+              >
+                <input {...getInputProps()} />
+                <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm font-medium">
+                  {isDragActive ? 'Drop the file here...' : 'Drag & drop a schema file'}
                 </p>
-                <div className="space-y-2">
-                  {selectedSchemaFile.columns.map((col, idx) => (
-                    <div key={idx} className="text-sm p-2 bg-muted/50 rounded">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{col.name}</span>
-                        {col.allowed_values && col.allowed_values.length > 0 && (
-                          <Badge variant="outline" className="text-xs">
-                            {col.allowed_values.join(', ')}
-                          </Badge>
+                <p className="text-xs text-muted-foreground mt-1">
+                  or click to browse (JSON files only)
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Uploaded file info */}
+                <Card>
+                  <CardContent className="py-3 px-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <FileJson className="h-5 w-5 text-primary" />
+                        <div>
+                          <p className="font-medium text-sm">{uploadedFile.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {uploadedSchemaData
+                              ? `${uploadedSchemaData.length} columns`
+                              : 'Parsing...'
+                            }
+                          </p>
+                        </div>
+                        {uploadSuccess && (
+                          <Check className="h-4 w-4 text-green-500" />
                         )}
                       </div>
-                      <p className="text-muted-foreground text-xs mt-1 line-clamp-1">
-                        {col.definition}
-                      </p>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={clearUploadedFile}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+                  </CardContent>
+                </Card>
+
+                {/* Error message */}
+                {uploadError && (
+                  <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg text-destructive text-sm">
+                    <AlertCircle className="h-4 w-4" />
+                    {uploadError}
+                  </div>
+                )}
+
+                {/* Preview uploaded schema */}
+                {uploadedSchemaData && (
+                  <Card>
+                    <CardContent className="pt-4">
+                      <p className="text-sm font-medium mb-2">
+                        Schema Preview ({uploadedSchemaData.length} columns)
+                      </p>
+                      <div className="space-y-2 max-h-60 overflow-y-auto">
+                        {uploadedSchemaData.map((col, idx) => (
+                          <div key={idx} className="text-sm p-2 bg-muted/50 rounded">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{col.name}</span>
+                              {col.allowed_values && col.allowed_values.length > 0 && (
+                                <Badge variant="outline" className="text-xs">
+                                  {col.allowed_values.join(', ')}
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-muted-foreground text-xs mt-1 line-clamp-1">
+                              {col.definition}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       )}
 
       {/* Manual Entry */}

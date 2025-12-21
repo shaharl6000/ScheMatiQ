@@ -820,6 +820,97 @@ class CloudDocumentRequest(BaseModel):
     files: List[str]  # List of filenames to add from the dataset
 
 
+class RemoveDocumentRequest(BaseModel):
+    """Request model for removing a specific uploaded document."""
+    filename: str
+
+
+@router.delete("/remove-document/{session_id}", response_model=dict)
+async def remove_uploaded_document(session_id: str, request: RemoveDocumentRequest):
+    """Remove an uploaded document from a session before processing.
+
+    This endpoint allows users to remove a document that was uploaded
+    but not yet processed.
+
+    Args:
+        session_id: Session ID containing the document
+        request: Document filename to remove
+
+    Returns:
+        Status and updated list of uploaded documents
+    """
+    try:
+        print(f"DEBUG: Removing document '{request.filename}' from session: {session_id}")
+
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Only allow removal for sessions with documents uploaded but not yet processed
+        if session.status not in [SessionStatus.DOCUMENTS_UPLOADED, SessionStatus.SCHEMA_EXTRACTED, SessionStatus.COMPLETED]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot remove documents for session in status '{session.status}'. Documents can only be removed before processing."
+            )
+
+        # Check if document is in the uploaded list
+        if not session.metadata.uploaded_documents:
+            raise HTTPException(status_code=404, detail="No uploaded documents found")
+
+        if request.filename not in session.metadata.uploaded_documents:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Document '{request.filename}' not found in uploaded documents"
+            )
+
+        # Remove from metadata
+        session.metadata.uploaded_documents.remove(request.filename)
+
+        # Remove the actual file from pending_documents directory
+        parser = FileParser()
+        session_dir = parser.data_dir / session_id
+        pending_file = session_dir / "pending_documents" / request.filename
+        docs_file = session_dir / "documents" / request.filename
+
+        files_removed = []
+        if pending_file.exists():
+            pending_file.unlink()
+            files_removed.append(str(pending_file))
+            print(f"DEBUG: Removed file from pending: {pending_file}")
+        if docs_file.exists():
+            docs_file.unlink()
+            files_removed.append(str(docs_file))
+            print(f"DEBUG: Removed file from documents: {docs_file}")
+
+        # Update session status if no more documents
+        if not session.metadata.uploaded_documents:
+            # Revert to previous state
+            if session.type == SessionType.UPLOAD:
+                session.status = SessionStatus.COMPLETED if session.statistics else SessionStatus.SCHEMA_EXTRACTED
+            else:
+                session.status = SessionStatus.COMPLETED
+
+        session.metadata.last_modified = datetime.now()
+        session_manager.update_session(session)
+
+        print(f"DEBUG: Document removed. Remaining: {session.metadata.uploaded_documents}")
+
+        return {
+            "status": "success",
+            "message": f"Document '{request.filename}' removed successfully",
+            "remaining_documents": session.metadata.uploaded_documents,
+            "files_removed": files_removed
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"DEBUG: Exception in remove_uploaded_document: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/add-cloud-documents/{session_id}", response_model=dict)
 async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
     """Add documents from cloud storage to a session.

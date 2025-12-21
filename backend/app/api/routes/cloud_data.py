@@ -1,10 +1,10 @@
-"""Cloud data API endpoints for datasets and templates."""
+"""Cloud data API endpoints for datasets, templates, and initial schemas."""
 
-from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+from typing import List, Optional, Any, Dict
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
-from app.storage import get_storage, DatasetInfo, FileInfo, TemplateInfo
+from app.storage import get_storage, DatasetInfo, FileInfo, TemplateInfo, InitialSchemaInfo
 
 router = APIRouter(prefix="/cloud", tags=["cloud-data"])
 
@@ -200,3 +200,172 @@ async def list_cloud_documents():
         ))
 
     return result
+
+
+# ==================
+# Initial Schema Endpoints
+# ==================
+
+class InitialSchemaColumnResponse(BaseModel):
+    """Response model for a column in an initial schema."""
+    name: str
+    definition: str
+    rationale: str
+    allowed_values: Optional[List[str]] = None
+
+
+class InitialSchemaResponse(BaseModel):
+    """Response model for initial schema information."""
+    name: str
+    path: str
+    file_type: str
+    columns_count: int
+    preview: str
+    columns: List[Dict[str, Any]]
+
+
+class InitialSchemaUploadResponse(BaseModel):
+    """Response model for initial schema upload."""
+    status: str
+    name: str
+    path: str
+    columns_count: int
+
+
+@router.get("/initial-schemas", response_model=List[InitialSchemaResponse])
+async def list_initial_schemas():
+    """List available initial schema files.
+
+    Initial schemas are JSON files containing column definitions
+    that can be used to seed the QBSD schema discovery process.
+
+    Returns:
+        List of initial schema information including name, columns count, and preview.
+    """
+    storage = get_storage()
+    schemas = await storage.list_initial_schemas()
+
+    return [
+        InitialSchemaResponse(
+            name=s.name,
+            path=s.path,
+            file_type=s.file_type,
+            columns_count=s.columns_count,
+            preview=s.preview,
+            columns=s.columns
+        )
+        for s in schemas
+    ]
+
+
+@router.get("/initial-schemas/{schema_name}")
+async def get_initial_schema(schema_name: str):
+    """Get information about a specific initial schema.
+
+    Args:
+        schema_name: Name of the initial schema
+
+    Returns:
+        Initial schema information if found.
+    """
+    storage = get_storage()
+    schemas = await storage.list_initial_schemas()
+
+    for s in schemas:
+        if s.name == schema_name:
+            return InitialSchemaResponse(
+                name=s.name,
+                path=s.path,
+                file_type=s.file_type,
+                columns_count=s.columns_count,
+                preview=s.preview,
+                columns=s.columns
+            )
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Initial schema '{schema_name}' not found"
+    )
+
+
+@router.post("/initial-schemas/upload", response_model=InitialSchemaUploadResponse)
+async def upload_initial_schema(file: UploadFile = File(...)):
+    """Upload a new initial schema file.
+
+    The file should be a JSON file containing an array of column definitions,
+    where each column has: name, definition, rationale, and optional allowed_values.
+
+    Args:
+        file: The JSON file to upload
+
+    Returns:
+        Upload status and schema information.
+    """
+    import json
+
+    # Validate file type
+    if not file.filename or not file.filename.endswith('.json'):
+        raise HTTPException(
+            status_code=400,
+            detail="File must be a JSON file (.json extension)"
+        )
+
+    # Read and parse the file
+    try:
+        content = await file.read()
+        data = json.loads(content.decode('utf-8'))
+    except json.JSONDecodeError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid JSON file: {str(e)}"
+        )
+
+    # Validate schema structure
+    columns = []
+    if isinstance(data, list):
+        columns = data
+    elif isinstance(data, dict) and 'columns' in data:
+        columns = data['columns']
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Schema must be a JSON array of columns or an object with a 'columns' key"
+        )
+
+    # Validate columns have required fields
+    for i, col in enumerate(columns):
+        if not isinstance(col, dict):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Column {i} must be an object"
+            )
+        if 'name' not in col or 'definition' not in col or 'rationale' not in col:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Column {i} must have 'name', 'definition', and 'rationale' fields"
+            )
+
+    if len(columns) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Schema must contain at least one column"
+        )
+
+    # Upload the file
+    storage = get_storage()
+    schema_name = file.filename.replace('.json', '')
+
+    try:
+        path = await storage.upload_initial_schema(schema_name, content, "application/json")
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to upload schema: {str(e)}"
+        )
+
+    return InitialSchemaUploadResponse(
+        status="success",
+        name=schema_name,
+        path=path,
+        columns_count=len(columns)
+    )

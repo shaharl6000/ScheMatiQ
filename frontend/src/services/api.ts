@@ -113,6 +113,18 @@ export const loadAPI = {
     return response.data;
   },
 
+  removeDocument: async (sessionId: string, filename: string): Promise<{
+    status: string;
+    message: string;
+    remaining_documents: string[];
+    files_removed: string[];
+  }> => {
+    const response = await api.delete(`/load/remove-document/${sessionId}`, {
+      data: { filename }
+    });
+    return response.data;
+  },
+
   getProcessingStatus: async (sessionId: string): Promise<ProcessingStatus> => {
     const response = await api.get(`/load/processing-status/${sessionId}`);
     return response.data;
@@ -311,6 +323,60 @@ export const cloudAPI = {
     const response = await api.post(`/load/add-cloud-documents/${sessionId}`, {
       dataset,
       files
+    });
+    return response.data;
+  },
+
+  // List available initial schemas from cloud storage
+  getInitialSchemas: async (): Promise<{
+    name: string;
+    path: string;
+    file_type: string;
+    columns_count: number;
+    preview: string;
+    columns: {
+      name: string;
+      definition: string;
+      rationale: string;
+      allowed_values?: string[];
+    }[];
+  }[]> => {
+    const response = await api.get('/cloud/initial-schemas');
+    return response.data;
+  },
+
+  // Get specific initial schema
+  getInitialSchema: async (schemaName: string): Promise<{
+    name: string;
+    path: string;
+    file_type: string;
+    columns_count: number;
+    preview: string;
+    columns: {
+      name: string;
+      definition: string;
+      rationale: string;
+      allowed_values?: string[];
+    }[];
+  }> => {
+    const response = await api.get(`/cloud/initial-schemas/${encodeURIComponent(schemaName)}`);
+    return response.data;
+  },
+
+  // Upload a new initial schema file
+  uploadInitialSchema: async (file: File): Promise<{
+    status: string;
+    name: string;
+    path: string;
+    columns_count: number;
+  }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await api.post('/cloud/initial-schemas/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
     });
     return response.data;
   },
