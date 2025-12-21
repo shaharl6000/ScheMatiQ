@@ -28,7 +28,8 @@ import {
   NEW_ROW_HIGHLIGHT_DURATION,
   WS_RECONNECT_ATTEMPTS,
   WS_RECONNECT_DELAY_BASE,
-  WS_RECONNECT_MAX_DELAY
+  WS_RECONNECT_MAX_DELAY,
+  API_BASE_URL
 } from '../constants/index';
 
 // Component imports
@@ -362,9 +363,11 @@ const Visualize = () => {
 
   const handleExport = async () => {
     try {
+      // Use API_BASE_URL for production deployment
+      const baseUrl = API_BASE_URL ? `${API_BASE_URL}/api` : '/api';
       let apiUrl = mode === 'load'
-        ? `/api/load/export/${sessionId}`
-        : `/api/qbsd/export/${sessionId}`;
+        ? `${baseUrl}/load/export/${sessionId}`
+        : `${baseUrl}/qbsd/export/${sessionId}`;
 
       if (columnOrder.length > 0) {
         const orderParam = encodeURIComponent(columnOrder.join(','));

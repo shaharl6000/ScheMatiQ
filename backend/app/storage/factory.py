@@ -1,8 +1,11 @@
 """Storage backend factory for selecting storage implementation."""
 
+import logging
 from typing import Optional
 
 from app.storage.interface import StorageInterface
+
+logger = logging.getLogger(__name__)
 
 # Singleton storage instance
 _storage_instance: Optional[StorageInterface] = None
@@ -35,14 +38,18 @@ def get_storage() -> StorageInterface:
         DEFAULT_QBSD_WORK_DIR,
     )
 
+    # Log configuration (without exposing secrets)
+    logger.info(f"Storage config: STORAGE_BACKEND='{STORAGE_BACKEND}', SUPABASE_URL set={bool(SUPABASE_URL)}, SUPABASE_KEY set={bool(SUPABASE_KEY)}")
+
     if STORAGE_BACKEND == "supabase" and SUPABASE_URL and SUPABASE_KEY:
         try:
+            logger.info("Attempting to initialize Supabase storage backend...")
             from app.storage.supabase_backend import SupabaseStorageBackend
             _storage_instance = SupabaseStorageBackend(SUPABASE_URL, SUPABASE_KEY)
-            print(f"Initialized Supabase storage backend")
+            logger.info("Initialized Supabase storage backend successfully")
         except Exception as e:
-            print(f"Failed to initialize Supabase storage: {e}")
-            print("Falling back to local storage")
+            logger.error(f"Failed to initialize Supabase storage: {e}", exc_info=True)
+            logger.warning("Falling back to local storage")
             from app.storage.local_backend import LocalStorageBackend
             _storage_instance = LocalStorageBackend(
                 sessions_dir=DEFAULT_SESSIONS_DIR,
@@ -50,13 +57,14 @@ def get_storage() -> StorageInterface:
                 qbsd_work_dir=DEFAULT_QBSD_WORK_DIR,
             )
     else:
+        logger.info(f"Using local storage backend (STORAGE_BACKEND='{STORAGE_BACKEND}')")
         from app.storage.local_backend import LocalStorageBackend
         _storage_instance = LocalStorageBackend(
             sessions_dir=DEFAULT_SESSIONS_DIR,
             data_dir=DEFAULT_DATA_DIR,
             qbsd_work_dir=DEFAULT_QBSD_WORK_DIR,
         )
-        print(f"Initialized local storage backend")
+        logger.info("Initialized local storage backend")
 
     return _storage_instance
 

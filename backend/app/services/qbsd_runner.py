@@ -104,6 +104,7 @@ from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedDat
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
+from app.storage import get_storage
 
 class QBSDRunner(WebSocketBroadcasterMixin):
     """Handles QBSD execution and integration."""
@@ -148,14 +149,153 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
         return on_value_extracted
 
-    def _convert_config_to_qbsd_format(self, config: QBSDConfig, session_id: str) -> Dict[str, Any]:
-        """Convert visualization QBSDConfig to QBSD pipeline format."""
+    async def _download_supabase_dataset(self, dataset_name: str, session_dir: Path) -> Optional[str]:
+        """Download a Supabase dataset to local directory.
+
+        Args:
+            dataset_name: Name of the dataset in Supabase
+            session_dir: Session work directory
+
+        Returns:
+            Local path to downloaded dataset, or None if not a Supabase dataset
+        """
+        storage = get_storage()
+
+        # Check if this is a Supabase dataset
+        try:
+            datasets = await storage.list_datasets()
+            dataset_names = [d.name for d in datasets]
+
+            if dataset_name in dataset_names:
+                # It's a Supabase dataset - download it
+                local_dataset_dir = session_dir / "datasets" / dataset_name
+                local_dataset_dir.mkdir(parents=True, exist_ok=True)
+
+                print(f"📥 Downloading Supabase dataset '{dataset_name}' to {local_dataset_dir}")
+                downloaded_files = await storage.download_dataset_to_local(dataset_name, str(local_dataset_dir))
+                print(f"✓ Downloaded {len(downloaded_files)} files from '{dataset_name}'")
+
+                return str(local_dataset_dir)
+        except Exception as e:
+            print(f"⚠️ Error checking/downloading Supabase dataset '{dataset_name}': {e}")
+
+        return None
+
+    def _convert_config_to_qbsd_format_sync(self, config: QBSDConfig, session_id: str, resolved_docs_paths: List[str]) -> Dict[str, Any]:
+        """Synchronous part of config conversion after paths are resolved."""
         session_dir = self.work_dir / session_id
-        
-        # Convert docs_path to absolute paths
+
+        # Build QBSD config with pre-resolved paths
+        qbsd_config = {
+            "query": config.query,
+            "docs_path": resolved_docs_paths[0] if len(resolved_docs_paths) == 1 else resolved_docs_paths,
+            "max_keys_schema": config.max_keys_schema,
+            "documents_batch_size": config.documents_batch_size,
+            "output_path": str(session_dir / "discovered_schema.json"),
+            "document_randomization_seed": config.document_randomization_seed,
+            "schema_creation_backend": {
+                "provider": config.schema_creation_backend.provider,
+                "model": config.schema_creation_backend.model,
+                "max_output_tokens": config.schema_creation_backend.max_output_tokens,
+                "temperature": config.schema_creation_backend.temperature,
+                "context_window_size": config.schema_creation_backend.context_window_size,
+                "api_key": config.schema_creation_backend.api_key,
+                "gemini_key_type": config.schema_creation_backend.gemini_key_type
+            },
+            "value_extraction_backend": {
+                "provider": config.value_extraction_backend.provider,
+                "model": config.value_extraction_backend.model,
+                "max_output_tokens": config.value_extraction_backend.max_output_tokens,
+                "temperature": config.value_extraction_backend.temperature,
+                "context_window_size": config.value_extraction_backend.context_window_size,
+                "api_key": config.value_extraction_backend.api_key,
+                "gemini_key_type": config.value_extraction_backend.gemini_key_type
+            }
+        }
+
+        # Add retriever config if provided
+        if config.retriever:
+            qbsd_config["retriever"] = {
+                "type": "embedding",
+                "model_name": config.retriever.model_name,
+                "k": config.retriever.k,
+                "passage_chars": config.retriever.passage_chars,
+                "overlap": config.retriever.overlap,
+                "enable_dynamic_k": config.retriever.enable_dynamic_k,
+                "dynamic_k_threshold": config.retriever.dynamic_k_threshold,
+                "dynamic_k_minimum": config.retriever.dynamic_k_minimum
+            }
+
+        # Add initial schema if provided
+        if config.initial_schema:
+            qbsd_config["initial_schema"] = [
+                {
+                    "name": col.name,
+                    "definition": col.definition,
+                    "rationale": col.rationale,
+                    "allowed_values": col.allowed_values
+                }
+                for col in config.initial_schema
+            ]
+        elif config.initial_schema_path:
+            initial_schema_path = Path(config.initial_schema_path)
+            if not initial_schema_path.is_absolute():
+                initial_schema_path = (PROJECT_ROOT / initial_schema_path).resolve()
+            if initial_schema_path.exists():
+                qbsd_config["initial_schema_path"] = str(initial_schema_path)
+
+        return qbsd_config
+
+    async def _resolve_docs_paths(self, config: QBSDConfig, session_id: str) -> List[str]:
+        """Resolve document paths - download from Supabase if needed."""
+        session_dir = self.work_dir / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+
         docs_paths = config.docs_path if isinstance(config.docs_path, list) else [config.docs_path]
         resolved_docs_paths = []
-        
+
+        for path in docs_paths:
+            # First, try to download from Supabase
+            supabase_path = await self._download_supabase_dataset(path, session_dir)
+            if supabase_path:
+                resolved_docs_paths.append(supabase_path)
+                continue
+
+            # Not a Supabase dataset - try local paths
+            doc_path = Path(path)
+            if not doc_path.is_absolute():
+                # Try relative to project root and common paths
+                candidates = [
+                    PROJECT_ROOT / path,
+                    PROJECT_ROOT / "research" / "data" / Path(path).name,
+                    PROJECT_ROOT / "test" / "files",
+                    Path.cwd() / path,
+                    Path.cwd().parent / path,
+                ]
+                for candidate in candidates:
+                    if candidate.exists():
+                        resolved_docs_paths.append(str(candidate.absolute()))
+                        print(f"✓ Resolved document path: {path} -> {candidate.absolute()}")
+                        break
+                else:
+                    print(f"Warning: Document path not found: {path}")
+                    resolved_docs_paths.append(path)
+            else:
+                resolved_docs_paths.append(str(doc_path))
+
+        return resolved_docs_paths
+
+    def _convert_config_to_qbsd_format(self, config: QBSDConfig, session_id: str) -> Dict[str, Any]:
+        """Convert visualization QBSDConfig to QBSD pipeline format.
+
+        NOTE: This is now a sync wrapper. Use _resolve_docs_paths() first in async context.
+        """
+        session_dir = self.work_dir / session_id
+
+        # Convert docs_path to absolute paths (sync version - no Supabase download)
+        docs_paths = config.docs_path if isinstance(config.docs_path, list) else [config.docs_path]
+        resolved_docs_paths = []
+
         for path in docs_paths:
             doc_path = Path(path)
             if not doc_path.is_absolute():
@@ -405,10 +545,15 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             # Step 1: Initializing
             print(f"🐛 DEBUG: Starting QBSD execution for session {session_id}")
             await update_progress("Initializing", 0.0)
-            
-            # Convert config to QBSD format
+
+            # Resolve document paths (download from Supabase if needed)
+            print(f"🐛 DEBUG: Resolving document paths (may download from Supabase)")
+            resolved_docs_paths = await self._resolve_docs_paths(config, session_id)
+            print(f"🐛 DEBUG: Resolved paths: {resolved_docs_paths}")
+
+            # Convert config to QBSD format with resolved paths
             print(f"🐛 DEBUG: Converting config to QBSD format")
-            qbsd_config = self._convert_config_to_qbsd_format(config, session_id)
+            qbsd_config = self._convert_config_to_qbsd_format_sync(config, session_id, resolved_docs_paths)
             
             # Save QBSD config
             qbsd_config_file = session_dir / "qbsd_config.json"

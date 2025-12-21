@@ -1,6 +1,7 @@
 """Supabase cloud storage backend implementation."""
 
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -9,6 +10,8 @@ from typing import Any, Dict, List, Optional
 from supabase import create_client, Client
 
 from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, TemplateInfo
+
+logger = logging.getLogger(__name__)
 
 
 class SupabaseStorageBackend(StorageInterface):
@@ -31,21 +34,26 @@ class SupabaseStorageBackend(StorageInterface):
             url: Supabase project URL
             key: Supabase anon/service key
         """
+        logger.info(f"Initializing Supabase storage backend with URL: {url[:30]}...")
         self.client: Client = create_client(url, key)
         self._verify_buckets()
+        logger.info("Supabase storage backend initialized successfully")
 
     def _verify_buckets(self) -> None:
         """Verify required buckets exist in Supabase."""
         try:
             existing_buckets = self.client.storage.list_buckets()
             existing_names = {b.name for b in existing_buckets}
+            logger.info(f"Found Supabase buckets: {existing_names}")
 
             missing = set(self.REQUIRED_BUCKETS) - existing_names
             if missing:
-                print(f"Warning: Missing Supabase buckets: {missing}")
-                print("Please create these buckets in your Supabase dashboard.")
+                logger.warning(f"Missing Supabase buckets: {missing}")
+                logger.warning("Please create these buckets in your Supabase dashboard.")
+            else:
+                logger.info("All required buckets exist")
         except Exception as e:
-            print(f"Warning: Could not verify Supabase buckets: {e}")
+            logger.error(f"Could not verify Supabase buckets: {e}", exc_info=True)
 
     def _get_storage_path(self, bucket: str, path: str) -> str:
         """Normalize path for Supabase storage.
@@ -368,19 +376,26 @@ class SupabaseStorageBackend(StorageInterface):
     async def list_datasets(self) -> List[DatasetInfo]:
         """List available datasets from the datasets bucket."""
         try:
+            logger.info("Fetching datasets from Supabase 'datasets' bucket...")
             # List top-level folders in datasets bucket
             items = self.client.storage.from_("datasets").list()
+            logger.info(f"Supabase returned {len(items)} items from datasets bucket")
+            logger.info(f"Raw items: {items}")
 
             datasets = []
             for item in items:
+                logger.debug(f"Processing item: {item}")
                 # Check if it's a folder (no id means folder)
                 if not item.get("id"):
                     dataset_name = item["name"]
+                    logger.info(f"Found folder (dataset): {dataset_name}")
                     # Count files in the dataset folder
                     try:
                         files = self.client.storage.from_("datasets").list(dataset_name)
                         file_count = sum(1 for f in files if f.get("id"))
-                    except Exception:
+                        logger.info(f"Dataset '{dataset_name}' has {file_count} files")
+                    except Exception as e:
+                        logger.warning(f"Error counting files in dataset '{dataset_name}': {e}")
                         file_count = 0
 
                     if file_count > 0:
@@ -390,10 +405,13 @@ class SupabaseStorageBackend(StorageInterface):
                             file_count=file_count,
                             description=f"Document collection: {dataset_name}"
                         ))
+                else:
+                    logger.debug(f"Skipping file at root level: {item.get('name')}")
 
+            logger.info(f"Returning {len(datasets)} datasets: {[d.name for d in datasets]}")
             return sorted(datasets, key=lambda d: d.name)
         except Exception as e:
-            print(f"Error listing datasets from Supabase: {e}")
+            logger.error(f"Error listing datasets from Supabase: {e}", exc_info=True)
             return []
 
     async def list_dataset_files(self, dataset_name: str) -> List[FileInfo]:

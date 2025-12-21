@@ -1,7 +1,16 @@
 """FastAPI application for QBSD visualization module."""
 
+import logging
 import sys
 from pathlib import Path
+
+# Configure logging to show in container logs
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s:%(name)s:%(message)s',
+    stream=sys.stdout,
+    force=True
+)
 
 # Add parent directories to path for imports
 backend_dir = Path(__file__).parent.parent
@@ -65,6 +74,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],  # Allow frontend to read download filename
 )
 
 # Include routers
