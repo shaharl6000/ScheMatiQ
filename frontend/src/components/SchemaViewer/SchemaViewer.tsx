@@ -651,17 +651,24 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
           {/* Column Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {displayColumns.map((column) => (
+            {displayColumns.map((column) => {
+              const isModified = schemaChanges?.changed_columns?.includes(column.name);
+              const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
+              const changeDetail = schemaChanges?.column_changes?.[column.name];
+
+              return (
               <Card
                 key={column.name}
                 className={cn(
                   "relative",
-                  selectedColumns.includes(column.name) && "ring-2 ring-primary"
+                  selectedColumns.includes(column.name) && "ring-2 ring-primary",
+                  isModified && "border-amber-400 dark:border-amber-600 border-2",
+                  isNew && "border-green-400 dark:border-green-600 border-2"
                 )}
               >
                 <CardContent className="pt-4">
                   <div className="flex justify-between items-start mb-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       {!readonly && (
                         <Checkbox
                           checked={selectedColumns.includes(column.name)}
@@ -673,6 +680,31 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                       <h4 className="font-semibold text-sm">
                         {formatColumnName(column.name)}
                       </h4>
+                      {isModified && (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300">
+                              Modified
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {changeDetail?.change_type === 'definition' && 'Definition changed'}
+                            {changeDetail?.change_type === 'rationale' && 'Rationale changed'}
+                            {changeDetail?.change_type === 'allowed_values' && 'Allowed values changed'}
+                            {!changeDetail?.change_type && 'Column modified since last extraction'}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                      {isNew && (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <Badge variant="outline" className="text-xs bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-300">
+                              New
+                            </Badge>
+                          </TooltipTrigger>
+                          <TooltipContent>New column added since last extraction</TooltipContent>
+                        </Tooltip>
+                      )}
                     </div>
 
                     {!readonly && (
@@ -815,7 +847,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   )}
                 </CardContent>
               </Card>
-            ))}
+              );
+            })}
           </div>
         </CardContent>
       </Card>
