@@ -506,13 +506,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     async def _run_reextraction(self, operation_id: str):
         """Execute re-extraction in background."""
+        print(f"DEBUG: _run_reextraction started for operation {operation_id}")
         operation = self.active_operations.get(operation_id)
         if not operation:
+            print(f"DEBUG: Operation {operation_id} not found in active_operations")
             return
 
         try:
             operation.status = "running"
             operation.started_at = datetime.now()
+            print(f"DEBUG: Re-extraction running for session {operation.session_id}, columns: {operation.columns}")
 
             session = self.session_manager.get_session(operation.session_id)
             if not session:
@@ -532,13 +535,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
 
             # Download cloud papers before extraction
+            print(f"DEBUG: Discovering papers for re-extraction...")
             paper_discovery = await self.discover_papers(operation.session_id)
+            print(f"DEBUG: Paper discovery result - available: {len(paper_discovery.get('available_papers', []))}, cloud: {len(paper_discovery.get('cloud_papers', {}))}, missing: {len(paper_discovery.get('missing_papers', []))}")
+
             if paper_discovery.get("cloud_papers"):
+                print(f"DEBUG: Downloading {len(paper_discovery['cloud_papers'])} cloud papers...")
                 downloaded = await self.download_cloud_papers(
                     operation.session_id,
                     paper_discovery["cloud_papers"]
                 )
                 print(f"DEBUG: Downloaded {len(downloaded)} papers from cloud storage for re-extraction")
+            else:
+                print(f"DEBUG: No cloud papers to download")
 
             # Get target columns
             target_columns = [
@@ -596,7 +605,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 ))
 
             # Run extraction
+            print(f"DEBUG: docs_dir={docs_dir}, exists={docs_dir.exists()}")
             if docs_dir.exists():
+                print(f"DEBUG: Starting build_table_jsonl extraction...")
                 await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: build_table_jsonl(
@@ -612,8 +623,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         on_value_extracted=on_value_extracted
                     )
                 )
+                print(f"DEBUG: build_table_jsonl completed, output_file exists: {output_file.exists()}")
+            else:
+                print(f"DEBUG: docs_dir does not exist, skipping extraction")
 
             # Merge results with existing data
+            print(f"DEBUG: Merging re-extracted data...")
             await self._merge_reextracted_data(
                 operation.session_id,
                 operation.columns,
@@ -631,6 +646,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             operation.progress = 1.0
             operation.completed_at = datetime.now()
 
+            print(f"DEBUG: Re-extraction completed successfully for operation {operation_id}")
+
             await self.broadcast_event(
                 operation.session_id,
                 "reextraction_completed",
@@ -642,6 +659,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
 
         except Exception as e:
+            print(f"DEBUG: Re-extraction FAILED for operation {operation_id}: {e}")
+            import traceback
+            traceback.print_exc()
             operation.status = "failed"
             operation.error = str(e)
             operation.completed_at = datetime.now()
