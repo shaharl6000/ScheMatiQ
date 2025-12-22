@@ -193,6 +193,35 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
+        ) : schemaChanges?.missing_baseline ? (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription className="space-y-3">
+              <p>
+                <strong>No baseline captured.</strong> This session was created before schema change tracking was enabled.
+                All {schemaChanges.new_columns.length} columns appear as "new" because there's nothing to compare against.
+              </p>
+              <p className="text-sm text-muted-foreground">
+                To use re-extraction properly, first capture the current schema as a baseline, then make your edits.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    await schemaAPI.captureBaseline(sessionId);
+                    onSuccess('Baseline captured! Now edit columns and re-open this dialog.');
+                    onClose();
+                  } catch (e: any) {
+                    onError(e.response?.data?.detail || 'Failed to capture baseline');
+                  }
+                }}
+              >
+                <Check className="h-4 w-4 mr-1" />
+                Capture Current Schema as Baseline
+              </Button>
+            </AlertDescription>
+          </Alert>
         ) : !hasChanges ? (
           <Alert>
             <Info className="h-4 w-4" />

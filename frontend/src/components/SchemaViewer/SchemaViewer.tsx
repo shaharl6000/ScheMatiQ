@@ -594,8 +594,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   Add Column
                 </Button>
 
-                {/* Re-extract button - shown when schema has changes */}
-                {schemaChanges?.has_changes && (
+                {/* Re-extract button - shown when schema has real changes (not missing baseline) */}
+                {schemaChanges?.has_changes && !schemaChanges?.missing_baseline && (
                   <Button
                     variant="default"
                     size="sm"
@@ -621,6 +621,23 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                       <Save className="h-4 w-4 mr-2" />
                       Create Backup
                     </DropdownMenuItem>
+                    {schemaChanges?.missing_baseline && (
+                      <DropdownMenuItem
+                        onClick={async () => {
+                          try {
+                            await schemaAPI.captureBaseline(sessionId);
+                            toast({ title: 'Success', description: 'Schema baseline captured. Now edit columns to enable re-extraction.' });
+                            loadSchemaChangeStatus();
+                          } catch (e: any) {
+                            toast({ title: 'Error', description: e.response?.data?.detail || 'Failed to capture baseline', variant: 'destructive' });
+                          }
+                        }}
+                        disabled={loading}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        Capture Schema Baseline
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleReprocessClick} disabled={loading || Boolean(reprocessingStatus)}>
                       <RefreshCw className="h-4 w-4 mr-2" />
