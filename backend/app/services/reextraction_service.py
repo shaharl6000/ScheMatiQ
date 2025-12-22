@@ -804,7 +804,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):
         """Broadcast an event via WebSocket."""
         if self.websocket_manager:
-            await self.websocket_manager.broadcast(session_id, {
+            await self.websocket_manager.broadcast_to_session(session_id, {
                 "type": event_type,
                 "session_id": session_id,
                 "data": data,
