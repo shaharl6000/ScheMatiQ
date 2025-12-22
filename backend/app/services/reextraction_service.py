@@ -339,7 +339,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
             # Then check Supabase if we have a document directory
             elif paper in paper_doc_dirs:
                 doc_dir = paper_doc_dirs[paper]
-                supabase_path = f"{doc_dir}/{paper}"
+                # Strip 'datasets/' prefix since we're already checking in the 'datasets' bucket
+                clean_doc_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
+                supabase_path = f"{clean_doc_dir}/{paper}"
+
+                print(f"DEBUG: Checking Supabase path: {supabase_path} in 'datasets' bucket")
 
                 # Try to check if file exists in Supabase
                 try:
@@ -348,7 +352,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         cloud_papers[paper] = supabase_path
                     else:
                         # Try with .txt extension
-                        supabase_path_txt = f"{doc_dir}/{paper}.txt" if not paper.endswith('.txt') else supabase_path
+                        supabase_path_txt = f"{clean_doc_dir}/{paper}.txt" if not paper.endswith('.txt') else supabase_path
                         exists_txt = await storage.file_exists('datasets', supabase_path_txt)
                         if exists_txt:
                             cloud_papers[paper] = supabase_path_txt
