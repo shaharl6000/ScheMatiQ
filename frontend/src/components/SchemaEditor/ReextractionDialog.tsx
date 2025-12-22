@@ -240,6 +240,12 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
                     {paperStatus.available_papers.length} source documents available
                   </span>
                   {' '}across {paperStatus.total_rows} rows.
+                  {/* Show cloud vs local breakdown */}
+                  {paperStatus.cloud_papers && Object.keys(paperStatus.cloud_papers).length > 0 && (
+                    <span className="text-blue-600 dark:text-blue-400">
+                      {' '}({Object.keys(paperStatus.cloud_papers).length} from cloud storage)
+                    </span>
+                  )}
                   {paperStatus.missing_papers.length > 0 && (
                     <span className="text-amber-600 dark:text-amber-400">
                       {' '}{paperStatus.missing_papers.length} documents are missing.

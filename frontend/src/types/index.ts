@@ -505,6 +505,8 @@ export interface PaperDiscoveryResult {
   available_papers: string[];
   missing_papers: string[];
   paper_to_rows: Record<string, string[]>;
+  cloud_papers?: Record<string, string>;  // paper_name -> supabase_path
+  local_papers?: string[];                 // papers already in local documents/
 }
 
 export interface ReextractionRequest {

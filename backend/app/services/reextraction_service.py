@@ -17,6 +17,7 @@ from app.models.session import (
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
+from app.storage.factory import get_storage
 
 # Import QBSD components from qbsd-lib for value extraction
 import sys
@@ -221,9 +222,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
             Dictionary with:
             - total_rows: Number of data rows
             - rows_with_papers: Number of rows that have paper references
-            - available_papers: Papers found in storage
-            - missing_papers: Papers referenced but not found
+            - available_papers: Papers found in storage (local + cloud)
+            - missing_papers: Papers referenced but not found anywhere
             - paper_to_rows: Mapping of paper name to row names
+            - cloud_papers: Mapping of paper name to Supabase path (NEW)
+            - local_papers: Papers found in local documents/ folder (NEW)
         """
         session = self.session_manager.get_session(session_id)
         if not session:
@@ -232,16 +235,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 "rows_with_papers": 0,
                 "available_papers": [],
                 "missing_papers": [],
-                "paper_to_rows": {}
+                "paper_to_rows": {},
+                "cloud_papers": {},
+                "local_papers": []
             }
 
         session_dir = Path("./data") / session_id
         data_file = session_dir / "data.jsonl"
         docs_dir = session_dir / "documents"
 
-        # Collect paper references from all rows
+        # Collect paper references and document directories from all rows
         paper_refs: Set[str] = set()
         row_paper_mapping: Dict[str, List[str]] = {}  # row_name -> [papers]
+        paper_doc_dirs: Dict[str, str] = {}  # paper_name -> document_directory
         total_rows = 0
 
         if data_file.exists():
@@ -257,27 +263,72 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             if isinstance(papers, str):
                                 papers = [papers]
 
+                            # Get document directory from row data
+                            doc_dir = (
+                                row.get('Document Directory') or
+                                row.get('document_directory') or
+                                row.get('data', {}).get('Document Directory') or
+                                row.get('data', {}).get('document_directory') or
+                                ''
+                            )
+
                             paper_refs.update(papers)
                             row_paper_mapping[row_name] = papers
+
+                            # Track document directory for each paper
+                            for paper in papers:
+                                if doc_dir and paper not in paper_doc_dirs:
+                                    paper_doc_dirs[paper] = doc_dir
+
                         except json.JSONDecodeError:
                             continue
 
-        # Check which papers exist in storage
-        existing_files: Set[str] = set()
+        # Check which papers exist in local storage
+        local_files: Set[str] = set()
         if docs_dir.exists():
             for f in docs_dir.iterdir():
                 if f.is_file() and not f.name.startswith('.'):
-                    existing_files.add(f.name)
-                    existing_files.add(f.stem)  # Also match without extension
+                    local_files.add(f.name)
+                    local_files.add(f.stem)  # Also match without extension
 
-        # Categorize papers
-        available = []
-        missing = []
+        # Categorize papers: local, cloud, or missing
+        local_papers: List[str] = []
+        cloud_papers: Dict[str, str] = {}  # paper_name -> supabase_path
+        missing: List[str] = []
+
+        # Get storage backend for cloud checks
+        storage = get_storage()
+
         for paper in paper_refs:
-            if paper in existing_files or f"{paper}.txt" in existing_files:
-                available.append(paper)
+            # Check local first
+            if paper in local_files or f"{paper}.txt" in local_files:
+                local_papers.append(paper)
+            # Then check Supabase if we have a document directory
+            elif paper in paper_doc_dirs:
+                doc_dir = paper_doc_dirs[paper]
+                supabase_path = f"{doc_dir}/{paper}"
+
+                # Try to check if file exists in Supabase
+                try:
+                    exists = await storage.file_exists('datasets', supabase_path)
+                    if exists:
+                        cloud_papers[paper] = supabase_path
+                    else:
+                        # Try with .txt extension
+                        supabase_path_txt = f"{doc_dir}/{paper}.txt" if not paper.endswith('.txt') else supabase_path
+                        exists_txt = await storage.file_exists('datasets', supabase_path_txt)
+                        if exists_txt:
+                            cloud_papers[paper] = supabase_path_txt
+                        else:
+                            missing.append(paper)
+                except Exception as e:
+                    print(f"DEBUG: Error checking Supabase for {paper}: {e}")
+                    missing.append(paper)
             else:
                 missing.append(paper)
+
+        # Combine local and cloud papers for available list
+        available = local_papers + list(cloud_papers.keys())
 
         # Build paper to rows mapping
         paper_to_rows: Dict[str, List[str]] = {}
@@ -289,13 +340,53 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
 
+        print(f"DEBUG: Paper discovery - local: {len(local_papers)}, cloud: {len(cloud_papers)}, missing: {len(missing)}")
+
         return {
             "total_rows": total_rows,
             "rows_with_papers": rows_with_papers,
             "available_papers": available,
             "missing_papers": missing,
-            "paper_to_rows": paper_to_rows
+            "paper_to_rows": paper_to_rows,
+            "cloud_papers": cloud_papers,
+            "local_papers": local_papers
         }
+
+    async def download_cloud_papers(
+        self,
+        session_id: str,
+        cloud_papers: Dict[str, str]  # paper_name -> supabase_path
+    ) -> List[str]:
+        """
+        Download papers from Supabase to local documents/ folder.
+
+        Args:
+            session_id: Session identifier
+            cloud_papers: Mapping of paper names to their Supabase paths
+
+        Returns:
+            List of successfully downloaded paper names
+        """
+        storage = get_storage()
+        session_dir = Path("./data") / session_id
+        docs_dir = session_dir / "documents"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+
+        downloaded = []
+        for paper_name, supabase_path in cloud_papers.items():
+            try:
+                content = await storage.download_file('datasets', supabase_path)
+                if content:
+                    # Ensure paper_name has the correct extension
+                    local_filename = paper_name if '.' in paper_name else f"{paper_name}.txt"
+                    local_path = docs_dir / local_filename
+                    local_path.write_bytes(content)
+                    downloaded.append(paper_name)
+                    print(f"DEBUG: Downloaded {paper_name} from Supabase to {local_path}")
+            except Exception as e:
+                print(f"DEBUG: Error downloading {paper_name} from Supabase: {e}")
+
+        return downloaded
 
     def _find_paper_path(self, session_dir: Path, paper_name: str) -> Optional[Path]:
         """Find the actual file path for a paper name."""
@@ -402,6 +493,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     "total_documents": operation.total_documents
                 }
             )
+
+            # Download cloud papers before extraction
+            paper_discovery = await self.discover_papers(operation.session_id)
+            if paper_discovery.get("cloud_papers"):
+                downloaded = await self.download_cloud_papers(
+                    operation.session_id,
+                    paper_discovery["cloud_papers"]
+                )
+                print(f"DEBUG: Downloaded {len(downloaded)} papers from cloud storage for re-extraction")
 
             # Get target columns
             target_columns = [
