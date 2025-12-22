@@ -258,10 +258,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         try:
                             row = json.loads(line)
                             row_name = row.get('row_name') or row.get('_row_name') or f"row_{total_rows}"
-                            papers = row.get('papers') or row.get('_papers', [])
-
-                            if isinstance(papers, str):
-                                papers = [papers]
 
                             # Helper to extract value from QBSD answer format or plain value
                             def extract_value(val: Any) -> str:
@@ -270,6 +266,27 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 if isinstance(val, dict) and 'answer' in val:
                                     return str(val['answer']) if val['answer'] else ''
                                 return str(val) if val else ''
+
+                            # Get papers from multiple possible locations
+                            papers_raw = (
+                                row.get('papers') or
+                                row.get('_papers') or
+                                row.get('Papers') or
+                                row.get('data', {}).get('Papers') or
+                                row.get('data', {}).get('papers') or
+                                []
+                            )
+
+                            # Handle QBSD answer format for papers
+                            if isinstance(papers_raw, dict) and 'answer' in papers_raw:
+                                papers_raw = papers_raw.get('answer', [])
+
+                            if isinstance(papers_raw, str):
+                                papers = [papers_raw] if papers_raw else []
+                            elif isinstance(papers_raw, list):
+                                papers = papers_raw
+                            else:
+                                papers = []
 
                             # Get document directory from row data (check multiple possible locations)
                             doc_dir_raw = (
@@ -280,6 +297,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 None
                             )
                             doc_dir = extract_value(doc_dir_raw)
+
+                            # Clean up doc_dir - extract just the datasets/... part if it's a full path
+                            if doc_dir and 'datasets/' in doc_dir:
+                                doc_dir = 'datasets/' + doc_dir.split('datasets/')[-1]
 
                             paper_refs.update(papers)
                             row_paper_mapping[row_name] = papers
