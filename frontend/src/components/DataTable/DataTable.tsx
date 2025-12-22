@@ -940,7 +940,7 @@ const DataTable: React.FC<DataTableProps> = ({
                     >
                       {/* Frozen first column */}
                       {frozenColumn && (
-                        <td className="px-4 py-3 min-w-[150px] max-w-[250px] sticky left-0 bg-background border-r overflow-hidden">
+                        <td className="px-4 py-3 min-w-[150px] max-w-[250px] sticky left-0 bg-background border-r">
                           {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
                         </td>
                       )}
@@ -958,7 +958,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         }
 
                         return (
-                          <td key={column} className="px-4 py-3 min-w-[120px] sm:min-w-[150px] max-h-[100px] overflow-hidden">
+                          <td key={column} className="px-4 py-3 min-w-[120px] sm:min-w-[150px]">
                             {formatCellValue(cellValue, column, row)}
                           </td>
                         );
