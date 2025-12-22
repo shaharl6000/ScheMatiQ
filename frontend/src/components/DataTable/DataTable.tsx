@@ -1,6 +1,6 @@
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter } from 'lucide-react';
-import { useQuery, useQueryClient } from 'react-query';
+import { useQuery } from 'react-query';
 import {
   DndContext,
   closestCenter,
@@ -41,8 +41,6 @@ import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts
 import { sessionAPI } from '../../services/api';
 import {
   formatColumnName,
-  needsTruncation,
-  truncateText,
   isExcerptContent,
   isVeryLongText,
   hasMultipleLines,
@@ -211,7 +209,6 @@ const DataTable: React.FC<DataTableProps> = ({
   const [modalContent, setModalContent] = useState<ModalContent>({ title: '', content: null });
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [filterDialogColumn, setFilterDialogColumn] = useState<string | undefined>();
-  const queryClient = useQueryClient();
 
   // Sort, filter, and visibility hooks
   const {
@@ -298,10 +295,6 @@ const DataTable: React.FC<DataTableProps> = ({
     };
   }, [fetchedOrInitialData, streamingCells]);
 
-  useEffect(() => {
-    // WebSocket listeners could be added here for more immediate updates
-  }, [queryClient, sessionId, sessionType]);
-
   // Filter data based on search term, column filters, then apply sorting
   const processedRows = useMemo(() => {
     let rows = data.rows;
@@ -330,9 +323,6 @@ const DataTable: React.FC<DataTableProps> = ({
 
     return rows;
   }, [data.rows, searchTerm, filterState, sortState]);
-
-  // Keep filteredRows as alias for backward compatibility
-  const filteredRows = processedRows;
 
   // Get all column names with proper ordering
   const defaultColumns = useMemo(() => {
@@ -511,19 +501,15 @@ const DataTable: React.FC<DataTableProps> = ({
     return null;
   };
 
-  // Helper to try parsing string values that look like JSON/Python objects
-  const tryParseValue = (val: CellValue): CellValue => {
-    if (typeof val !== 'string') return val;
+  // Helper to parse Python-style dict/list strings to JSON
+  const parsePythonString = (val: string): any => {
     const trimmed = val.trim();
     if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return val;
 
     try {
-      // Try JSON parse first
       return JSON.parse(trimmed);
     } catch {
       try {
-        // Try to handle Python-style single quotes by replacing with double quotes
-        // This is a simple heuristic - replace single quotes around keys/values
         const jsonified = trimmed
           .replace(/'/g, '"')
           .replace(/None/g, 'null')
@@ -536,7 +522,36 @@ const DataTable: React.FC<DataTableProps> = ({
     }
   };
 
-  // Helper to normalize a parsed value to QBSD format with 'answer' and 'excerpts'
+  // Parse pipe-separated excerpt strings like: {'text': '...', 'source': '...'} | {'text': '...'}
+  const parseExcerpts = (excerpts: any[]): any[] => {
+    const result: any[] = [];
+
+    for (const exc of excerpts) {
+      if (typeof exc === 'string') {
+        // Check if it's pipe-separated
+        if (exc.includes("'text':") || exc.includes('"text":')) {
+          // Split by pipe and parse each part
+          const parts = exc.split(/\s*\|\s*/);
+          for (const part of parts) {
+            const parsed = parsePythonString(part.trim());
+            if (typeof parsed === 'object' && parsed !== null && 'text' in parsed) {
+              result.push(parsed);
+            } else if (typeof parsed === 'string' && parsed.trim()) {
+              result.push({ text: parsed, source: 'Source' });
+            }
+          }
+        } else if (exc.trim()) {
+          result.push({ text: exc, source: 'Source' });
+        }
+      } else if (typeof exc === 'object' && exc !== null) {
+        result.push(exc);
+      }
+    }
+
+    return result;
+  };
+
+  // Normalize value to QBSD format with 'answer' and 'excerpts'
   const normalizeToQBSD = (val: any): any => {
     if (!val || typeof val !== 'object') return val;
 
@@ -545,93 +560,109 @@ const DataTable: React.FC<DataTableProps> = ({
       return normalizeToQBSD(val[0]);
     }
 
-    // Already in QBSD format - but check if 'answer' needs parsing
+    // Already in QBSD format
     if ('answer' in val) {
       let answerVal = val.answer;
       let excerptsVal = val.excerpts || [];
 
-      // Check if 'answer' is a string that looks like JSON/Python object
-      // e.g., "[{'value': 'reduction', 'excerpt': '...'}]"
+      // Parse answer if it's a JSON string
       if (typeof answerVal === 'string') {
-        const parsed = tryParseValue(answerVal);
-        if (parsed !== answerVal) {
-          // Successfully parsed
-          if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'object') {
-            const firstItem = parsed[0] as Record<string, any>;
-            // Extract answer from first item
+        const parsed = parsePythonString(answerVal);
+        if (parsed !== answerVal && Array.isArray(parsed) && parsed.length > 0) {
+          const firstItem = parsed[0];
+          if (typeof firstItem === 'object') {
             answerVal = firstItem.value || firstItem.answer || String(firstItem);
-            // Collect all excerpts
             const allExcerpts: any[] = [];
-            for (const item of parsed as Record<string, any>[]) {
+            for (const item of parsed) {
               const exc = item.excerpt || item.excerpts;
               if (exc) {
-                if (Array.isArray(exc)) {
-                  allExcerpts.push(...exc);
-                } else {
-                  allExcerpts.push(exc);
-                }
+                allExcerpts.push(...(Array.isArray(exc) ? exc : [exc]));
               }
             }
             if (allExcerpts.length > 0) {
               excerptsVal = allExcerpts;
             }
-          } else if (typeof parsed === 'object' && parsed !== null) {
-            // Recursively normalize
-            return normalizeToQBSD(parsed);
           }
         }
       }
 
+      // Parse excerpts if needed
+      const parsedExcerpts = parseExcerpts(excerptsVal);
+
       return {
         answer: answerVal,
-        excerpts: excerptsVal
+        excerpts: parsedExcerpts
       };
     }
 
-    // Normalize 'value'/'excerpt' to 'answer'/'excerpts'
+    // Normalize 'value'/'excerpt' format
     if ('value' in val) {
+      const excerptsRaw = val.excerpt ? [val.excerpt] : (val.excerpts || []);
       return {
         answer: val.value,
-        excerpts: val.excerpt ? [val.excerpt] : (val.excerpts || [])
+        excerpts: parseExcerpts(excerptsRaw)
       };
     }
 
     return val;
   };
 
+  // Unified clickable cell renderer with consistent Eye icon styling
+  const renderClickableCell = (
+    displayText: string,
+    onClick: () => void,
+    tooltip: string,
+    isItalic: boolean = false
+  ): React.ReactNode => {
+    return (
+      <div
+        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 group"
+        onClick={onClick}
+        title={tooltip}
+      >
+        <div
+          className={cn(
+            "relative text-base leading-relaxed line-clamp-3 break-words pr-6",
+            isItalic && "italic text-muted-foreground"
+          )}
+        >
+          {displayText}
+          <span className="absolute right-0 top-0 flex items-center h-6 bg-gradient-to-l from-white dark:from-gray-900 from-60% to-transparent pl-2">
+            <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   const formatCellValue = (value: CellValue, columnName: string, rowData?: DataRow): React.ReactNode => {
-    // Try to parse and normalize the value
-    let processedValue = tryParseValue(value);
+    // Handle null/undefined
+    if (value === null || value === undefined) {
+      return <Badge variant="outline">null</Badge>;
+    }
+
+    // Try to parse string values that look like JSON/Python objects
+    let processedValue = typeof value === 'string' ? parsePythonString(value) : value;
+
+    // Normalize to QBSD format if it's an object
     if (typeof processedValue === 'object' && processedValue !== null) {
       processedValue = normalizeToQBSD(processedValue);
     }
 
-    if (processedValue === null || processedValue === undefined) {
-      return <Badge variant="outline">null</Badge>;
-    }
-
+    // Handle arrays
     if (Array.isArray(processedValue)) {
       if (processedValue.length > 3) {
         return (
-          <div className="flex items-center gap-1">
+          <div
+            className="flex items-center gap-1 cursor-pointer group"
+            onClick={() => handleViewContent(columnName, processedValue)}
+            title={`View all ${processedValue.length} items`}
+          >
             {processedValue.slice(0, 2).map((item, index) => (
               <Badge key={index} variant="secondary">{String(item)}</Badge>
             ))}
             <span className="text-xs text-muted-foreground">+{processedValue.length - 2} more</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => handleViewContent(columnName, processedValue)}
-                  aria-label="View all items"
-                >
-                  <Eye className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>View all {processedValue.length} items</TooltipContent>
-            </Tooltip>
+            <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800 ml-1" />
           </div>
         );
       }
@@ -644,6 +675,7 @@ const DataTable: React.FC<DataTableProps> = ({
       );
     }
 
+    // Handle QBSD format objects with answer and excerpts
     if (typeof processedValue === 'object' && processedValue !== null) {
       if ('answer' in processedValue && typeof (processedValue as QBSDAnswerWithExcerpts).answer !== 'undefined') {
         const qbsdValue = processedValue as QBSDAnswerWithExcerpts;
@@ -651,24 +683,14 @@ const DataTable: React.FC<DataTableProps> = ({
         const excerpts = qbsdValue.excerpts || [];
         const answerStr = String(answer);
         const hasExcerptsData = excerpts.length > 0;
-        // Show Eye icon if there are excerpts OR if the answer could be truncated
         const showExpandIcon = hasExcerptsData || answerStr.length > 40;
 
         if (showExpandIcon) {
-          return (
-            <div
-              className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
-              onClick={() => handleViewContent(columnName, { answer, excerpts })}
-              title={hasExcerptsData ? "Click to view excerpts" : "Click to view full content"}
-            >
-              <div className="text-base leading-relaxed line-clamp-3 break-words">
-                {answerStr}
-              </div>
-              <div className="flex items-center gap-1 mt-1 text-blue-600 text-xs">
-                <Eye className="h-3 w-3" />
-                <span>{hasExcerptsData ? "View excerpts" : "View more"}</span>
-              </div>
-            </div>
+          const tooltip = hasExcerptsData ? "Click to view excerpts" : "Click to view full content";
+          return renderClickableCell(
+            answerStr,
+            () => handleViewContent(columnName, { answer, excerpts }),
+            tooltip
           );
         }
 
@@ -679,98 +701,56 @@ const DataTable: React.FC<DataTableProps> = ({
         );
       }
 
+      // Generic object - show Eye icon to view details
       return (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              onClick={() => handleViewContent(columnName, processedValue)}
-              aria-label="View object"
-            >
-              <Eye className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>View object details</TooltipContent>
-        </Tooltip>
+        <div
+          className="cursor-pointer group inline-flex items-center gap-1"
+          onClick={() => handleViewContent(columnName, processedValue)}
+          title="View object details"
+        >
+          <span className="text-sm text-muted-foreground">[Object]</span>
+          <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
+        </div>
       );
     }
 
+    // Handle string values
     const stringValue = String(processedValue);
-
     const hasExcerpts = rowData && excerptMapping[columnName] && rowData.data[excerptMapping[columnName]];
     const isExplicitExcerpt = isExcerptContent(columnName, stringValue);
     const isVeryLongContent = isVeryLongText(stringValue, LONG_TEXT_THRESHOLD);
     const hasManyLines = hasMultipleLines(stringValue, MAX_CELL_LINES);
 
-    const shouldShowEyeIcon = hasExcerpts || isExplicitExcerpt || isVeryLongContent ||
-                             (hasManyLines && stringValue.length > MEDIUM_TEXT_THRESHOLD);
+    const needsExpansion = hasExcerpts || isExplicitExcerpt || isVeryLongContent ||
+                          (hasManyLines && stringValue.length > MEDIUM_TEXT_THRESHOLD) ||
+                          stringValue.length > 40;
 
-    if (shouldShowEyeIcon) {
-      const previewText = isExplicitExcerpt ?
-        getPreviewText(stringValue, 50) :
-        getPreviewText(stringValue, SHORT_TEXT_THRESHOLD);
+    if (needsExpansion) {
+      const previewText = isExplicitExcerpt
+        ? getPreviewText(stringValue, 50)
+        : getPreviewText(stringValue, SHORT_TEXT_THRESHOLD);
 
-      const tooltipText = hasExcerpts ? "View content with supporting excerpts" :
-                          isExplicitExcerpt ? "View excerpt details" : "View full content";
+      const tooltip = hasExcerpts ? "View content with supporting excerpts" :
+                      isExplicitExcerpt ? "View excerpt details" : "View full content";
 
       const handleClick = () => {
         if (hasExcerpts && rowData) {
           const excerptText = getExcerptForColumn(rowData, columnName);
+          // Parse the excerpt text if it contains structured data
+          const parsedExcerpts = excerptText ? parseExcerpts([excerptText]) : [];
           handleViewContent(columnName, {
             answer: stringValue,
-            excerpts: excerptText ? [excerptText] : []
+            excerpts: parsedExcerpts
           });
         } else {
           handleViewContent(columnName, value);
         }
       };
 
-      return (
-        <div
-          className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
-          onClick={handleClick}
-          title={tooltipText}
-        >
-          <div
-            className={cn(
-              "text-base leading-relaxed line-clamp-3 break-words",
-              isExplicitExcerpt && "italic text-muted-foreground"
-            )}
-          >
-            {previewText}
-          </div>
-          <div className="flex items-center gap-1 mt-1 text-blue-600 text-xs">
-            <Eye className="h-3 w-3" />
-            <span>{hasExcerpts ? "View excerpts" : "View more"}</span>
-          </div>
-        </div>
-      );
+      return renderClickableCell(previewText, handleClick, tooltip, isExplicitExcerpt);
     }
 
-    // Show clickable text with expand indicator for any text that could be truncated
-    // Using 40 chars as threshold since column width can cause early truncation
-    const couldBeTruncated = stringValue.length > 40;
-
-    if (couldBeTruncated) {
-      return (
-        <div
-          className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
-          onClick={() => handleViewContent(columnName, value)}
-          title="Click to view full content"
-        >
-          <div className="text-base leading-relaxed line-clamp-3 break-words">
-            {stringValue}
-          </div>
-          <div className="flex items-center gap-1 mt-1 text-blue-600 text-xs">
-            <Eye className="h-3 w-3" />
-            <span>View more</span>
-          </div>
-        </div>
-      );
-    }
-
+    // Short text - no expansion needed
     return (
       <span className="text-base leading-relaxed line-clamp-3">
         {stringValue}
@@ -779,7 +759,7 @@ const DataTable: React.FC<DataTableProps> = ({
   };
 
   // Calculate total pages based on filtered data
-  const displayedRowCount = filteredRows.length;
+  const displayedRowCount = processedRows.length;
   const totalRowCount = data.total_count;
   const isFiltered = activeFilterCount > 0 || searchTerm.trim();
   const totalPages = Math.ceil(displayedRowCount / pageSize);
@@ -934,7 +914,7 @@ const DataTable: React.FC<DataTableProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.slice(page * pageSize, (page + 1) * pageSize).map((row, rowIndex) => {
+                {processedRows.slice(page * pageSize, (page + 1) * pageSize).map((row, rowIndex) => {
                   const getFrozenCellValue = () => {
                     if (frozenColumn === '_row_name') {
                       return row.row_name;
