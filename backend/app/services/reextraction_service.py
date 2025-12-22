@@ -29,6 +29,7 @@ try:
     from qbsd.value_extraction.main import build_table_jsonl
     from qbsd.core.llm_backends import GeminiLLM
     from qbsd.core.retrievers import EmbeddingRetriever
+    from qbsd.core import utils as qbsd_utils
     QBSD_AVAILABLE = True
 except ImportError as e:
     print(f"QBSD components not available for reextraction service: {e}")
@@ -739,27 +740,65 @@ class ReextractionService(WebSocketBroadcasterMixin):
         print(f"DEBUG: Merged re-extracted data for {len(columns)} columns across {len(extracted_by_row)} rows")
 
     def _get_llm_from_session(self, session_id: str):
-        """Get LLM configuration from session."""
-        try:
-            session_dir = Path("./data") / session_id
-            qbsd_config_file = session_dir / "qbsd_config.json"
+        """Get LLM configuration from session, including API key."""
+        session_dir = Path("./data") / session_id
 
+        # Priority 0: Check user_llm_config.json (user-provided config from frontend)
+        try:
+            user_config_file = session_dir / "user_llm_config.json"
+            if user_config_file.exists():
+                with open(user_config_file) as f:
+                    user_config = json.load(f)
+                print(f"DEBUG: Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
+                return qbsd_utils.build_llm(user_config)
+        except Exception as e:
+            print(f"DEBUG: Could not load user LLM config: {e}")
+
+        # Priority 1: Check session's metadata.extracted_schema for llm_configuration
+        try:
+            session = self.session_manager.get_session(session_id)
+            if session and session.metadata.extracted_schema:
+                extracted_schema = session.metadata.extracted_schema
+                if "llm_configuration" in extracted_schema:
+                    llm_config = extracted_schema["llm_configuration"]
+                    # Use value_extraction_backend if available, fallback to schema_creation_backend
+                    backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
+                    if backend_config:
+                        print(f"DEBUG: Using LLM config from session metadata: {backend_config.get('provider')} {backend_config.get('model')}")
+                        return qbsd_utils.build_llm(backend_config)
+        except Exception as e:
+            print(f"DEBUG: Could not load LLM config from session metadata: {e}")
+
+        # Priority 2: Check parsed_schema.json (contains llm_configuration with api_key)
+        try:
+            parsed_schema_file = session_dir / "parsed_schema.json"
+            if parsed_schema_file.exists():
+                with open(parsed_schema_file) as f:
+                    parsed_schema = json.load(f)
+                if "llm_configuration" in parsed_schema:
+                    llm_config = parsed_schema["llm_configuration"]
+                    backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
+                    if backend_config:
+                        print(f"DEBUG: Using LLM config from parsed_schema.json: {backend_config.get('provider')} {backend_config.get('model')}")
+                        return qbsd_utils.build_llm(backend_config)
+        except Exception as e:
+            print(f"DEBUG: Could not load LLM config from parsed_schema.json: {e}")
+
+        # Priority 3: Check qbsd_config.json (legacy location)
+        try:
+            qbsd_config_file = session_dir / "qbsd_config.json"
             if qbsd_config_file.exists():
                 with open(qbsd_config_file) as f:
                     qbsd_config = json.load(f)
-
-                if "value_extraction_backend" in qbsd_config:
-                    backend_config = qbsd_config["value_extraction_backend"]
-
-                    if backend_config["provider"] == "gemini":
-                        return GeminiLLM(
-                            model=backend_config["model"],
-                            max_output_tokens=backend_config.get("max_output_tokens", 2048),
-                            temperature=backend_config["temperature"]
-                        )
+                backend_config = qbsd_config.get("value_extraction_backend") or qbsd_config.get("schema_creation_backend")
+                if backend_config:
+                    print(f"DEBUG: Using LLM config from qbsd_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
+                    return qbsd_utils.build_llm(backend_config)
         except Exception as e:
-            print(f"DEBUG: Could not load LLM config: {e}")
+            print(f"DEBUG: Could not load LLM config from qbsd_config.json: {e}")
 
+        # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
+        print(f"DEBUG: Using default GeminiLLM - this will use GEMINI_API_KEY env var")
         return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0.1)
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):
