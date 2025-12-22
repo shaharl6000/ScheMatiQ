@@ -229,7 +229,10 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
         session.statistics = result["statistics"]
         session.status = SessionStatus.COMPLETED  # Mark as completed after successful parsing
         session_manager.update_session(session)
-        
+
+        # Capture schema baseline for re-extraction change detection
+        session_manager.capture_schema_baseline(session_id)
+
         print(f"DEBUG: Session updated successfully")
         
         # Include metadata info in response if available
@@ -426,11 +429,14 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
         session.statistics = result["statistics"]
         session.status = SessionStatus.COMPLETED
         session_manager.update_session(session)
-        
+
+        # Capture schema baseline for re-extraction change detection
+        session_manager.capture_schema_baseline(session_id)
+
         print(f"DEBUG: Dual file processing completed successfully")
-        
+
         return {"status": "success", "message": "Files processed successfully"}
-        
+
     except Exception as e:
         print(f"DEBUG: Exception in process_dual_files: {e}")
         import traceback

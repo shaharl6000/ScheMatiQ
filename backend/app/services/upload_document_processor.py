@@ -265,6 +265,9 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
             self.session_manager.update_session(session)
 
+            # Capture schema baseline for re-extraction change detection
+            self.session_manager.capture_schema_baseline(session_id)
+
             # Verify the update was successful
             updated_session = self.session_manager.get_session(session_id)
             print(f"🔍 DEBUG: Session after manager update: status={updated_session.status}, additional_rows={updated_session.metadata.additional_rows_added}")

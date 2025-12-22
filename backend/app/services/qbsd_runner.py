@@ -755,9 +755,12 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             session.statistics = statistics
             session.status = SessionStatus.COMPLETED
             self.session_manager.update_session(session)
-            
+
+            # Capture schema baseline for re-extraction change detection
+            self.session_manager.capture_schema_baseline(session_id)
+
             await update_progress("Finalizing results", 1.0)
-            
+
             # Broadcast completion
             await self.broadcast_completion(session_id, 
                 "QBSD execution completed successfully", {

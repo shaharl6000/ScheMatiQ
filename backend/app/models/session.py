@@ -54,6 +54,21 @@ class ColumnInfo(BaseModel):
     pending_values: Optional[List[PendingValue]] = None  # Values pending approval
 
 
+class ColumnBaseline(BaseModel):
+    """Baseline state for a column used in change detection."""
+    name: str
+    definition: str = ""
+    rationale: str = ""
+    allowed_values: Optional[List[str]] = None
+    checksum: str = ""  # MD5 hash of definition + rationale + allowed_values
+
+
+class SchemaBaseline(BaseModel):
+    """Snapshot of schema state after last extraction for change detection."""
+    columns: Dict[str, ColumnBaseline] = Field(default_factory=dict)
+    captured_at: datetime = Field(default_factory=datetime.now)
+
+
 class SchemaSnapshot(BaseModel):
     """Snapshot of schema state at a point during discovery."""
     iteration: int
@@ -105,6 +120,7 @@ class VisualizationSession(BaseModel):
     statistics: Optional[DataStatistics] = None
     error_message: Optional[str] = None
     schema_suggestions: Optional[List[SchemaSuggestion]] = None  # Pending schema evolution suggestions
+    schema_baseline: Optional[SchemaBaseline] = None  # Baseline for schema change detection
 
 class DataRow(BaseModel):
     """A single row of data."""

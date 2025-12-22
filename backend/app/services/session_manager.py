@@ -1,9 +1,10 @@
 """Session management service."""
 
+import hashlib
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from app.models.session import VisualizationSession, SessionType
+from app.models.session import VisualizationSession, SessionType, ColumnInfo, ColumnBaseline, SchemaBaseline
 from app.storage import get_storage, StorageInterface
 
 
@@ -107,3 +108,41 @@ class SessionManager:
         if session_type:
             sessions = [s for s in sessions if s.type == session_type]
         return sorted(sessions, key=lambda s: s.metadata.created, reverse=True)
+
+    def capture_schema_baseline(self, session_id: str) -> bool:
+        """
+        Capture the current schema state as a baseline for change detection.
+        Call this after schema discovery completes or after loading a dataset.
+
+        Returns:
+            True if baseline was captured successfully, False otherwise.
+        """
+        session = self.get_session(session_id)
+        if not session:
+            return False
+
+        columns_dict = {}
+        for col in session.columns:
+            if col.name and not col.name.lower().endswith('_excerpt'):
+                # Calculate checksum from definition + rationale + allowed_values
+                content = f"{col.definition or ''}{col.rationale or ''}"
+                if col.allowed_values:
+                    content += "|".join(sorted(col.allowed_values))
+                checksum = hashlib.md5(content.encode()).hexdigest()
+
+                columns_dict[col.name] = ColumnBaseline(
+                    name=col.name,
+                    definition=col.definition or "",
+                    rationale=col.rationale or "",
+                    allowed_values=col.allowed_values,
+                    checksum=checksum
+                )
+
+        session.schema_baseline = SchemaBaseline(
+            columns=columns_dict,
+            captured_at=datetime.now()
+        )
+
+        self.update_session(session)
+        print(f"DEBUG: Captured schema baseline for session {session_id} with {len(columns_dict)} columns")
+        return True

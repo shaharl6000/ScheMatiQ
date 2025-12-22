@@ -16,7 +16,12 @@ import {
   ReprocessRequest,
   SchemaEditResponse,
   ReprocessingStatus,
-  SchemaValidationResult as SchemaValidationResultType
+  SchemaValidationResult as SchemaValidationResultType,
+  SchemaChangeStatus,
+  PaperDiscoveryResult,
+  ReextractionRequest,
+  ReextractionResponse,
+  ReextractionOperationStatus
 } from '../types';
 
 // Use REACT_APP_API_URL for full URL (Railway), otherwise default to relative /api path
@@ -483,6 +488,41 @@ export const schemaAPI = {
   bulkApproveSuggestions: async (sessionId: string, columnName?: string): Promise<{ status: string; message: string; approved_count: number }> => {
     const params = columnName ? `?column_name=${encodeURIComponent(columnName)}` : '';
     const response = await api.post(`/schema/bulk-approve/${sessionId}${params}`);
+    return response.data;
+  },
+
+  // Re-extraction API methods
+  getSchemaChangeStatus: async (sessionId: string): Promise<SchemaChangeStatus> => {
+    const response = await api.get(`/schema/change-status/${sessionId}`);
+    return response.data;
+  },
+
+  discoverPapers: async (sessionId: string): Promise<PaperDiscoveryResult> => {
+    const response = await api.get(`/schema/discover-papers/${sessionId}`);
+    return response.data;
+  },
+
+  startReextraction: async (sessionId: string, request: ReextractionRequest): Promise<ReextractionResponse> => {
+    const response = await api.post(`/schema/reextract/${sessionId}`, request);
+    return response.data;
+  },
+
+  getReextractionStatus: async (sessionId: string, operationId: string): Promise<ReextractionOperationStatus> => {
+    const response = await api.get(`/schema/reextraction-status/${sessionId}/${operationId}`);
+    return response.data;
+  },
+
+  captureBaseline: async (sessionId: string): Promise<{ status: string; message: string; column_count: number }> => {
+    const response = await api.post(`/schema/capture-baseline/${sessionId}`);
+    return response.data;
+  },
+
+  uploadMissingPapers: async (sessionId: string, files: File[]): Promise<{ status: string; message: string; uploaded_files: string[] }> => {
+    const formData = new FormData();
+    files.forEach(file => formData.append('files', file));
+    const response = await api.post(`/schema/upload-missing-papers/${sessionId}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
     return response.data;
   },
 };

@@ -480,3 +480,83 @@ export interface SchemaEditingState {
   validationResult?: SchemaValidationResult;
   backups: SchemaBackup[];
 }
+
+// Re-extraction types
+export interface ColumnChangeDetail {
+  column_name: string;
+  change_type: 'definition' | 'rationale' | 'allowed_values' | 'new';
+  old_value?: string;
+  new_value?: string;
+  row_count_affected: number;
+}
+
+export interface SchemaChangeStatus {
+  has_changes: boolean;
+  changed_columns: string[];
+  new_columns: string[];
+  column_changes: Record<string, ColumnChangeDetail>;
+  can_reextract: boolean;
+  missing_baseline: boolean;
+}
+
+export interface PaperDiscoveryResult {
+  total_rows: number;
+  rows_with_papers: number;
+  available_papers: string[];
+  missing_papers: string[];
+  paper_to_rows: Record<string, string[]>;
+}
+
+export interface ReextractionRequest {
+  columns: string[];
+}
+
+export interface ReextractionResponse {
+  status: string;
+  operation_id: string;
+  columns: string[];
+  estimated_papers: number;
+  rows_to_process: number;
+  missing_papers: string[];
+}
+
+export interface ReextractionOperationStatus {
+  operation_id: string;
+  session_id: string;
+  status: 'pending' | 'starting' | 'running' | 'completed' | 'failed';
+  progress: number;
+  columns: string[];
+  current_column?: string;
+  processed_documents: number;
+  total_documents: number;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+}
+
+// Re-extraction WebSocket event types
+export interface ReextractionStartedData {
+  operation_id: string;
+  columns: string[];
+  total_documents: number;
+}
+
+export interface ReextractionProgressData {
+  operation_id: string;
+  column: string;
+  progress: number;
+  processed_documents: number;
+  total_documents: number;
+  current_row?: string;
+}
+
+export interface ReextractionCompletedData {
+  operation_id: string;
+  columns: string[];
+  status: 'success' | 'failed';
+}
+
+export interface ReextractionFailedData {
+  operation_id: string;
+  error: string;
+}

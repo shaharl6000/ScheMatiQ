@@ -52,13 +52,15 @@ import {
   ColumnDialogState,
   ReprocessingStatus,
   SchemaValidationResult as SchemaValidationResultType,
-  WebSocketMessageExtended
+  WebSocketMessageExtended,
+  SchemaChangeStatus
 } from '../../types';
 import { formatColumnName } from '../../utils/formatting';
 import { copyToClipboard } from '../../utils/clipboard';
 import { schemaAPI } from '../../services/api';
 import ColumnDialog from '../SchemaEditor/ColumnDialog';
 import MergeDialog from '../SchemaEditor/MergeDialog';
+import ReextractionDialog from '../SchemaEditor/ReextractionDialog';
 import LLMConfigDisplay from '../LLMConfigDisplay';
 
 interface SchemaViewerProps {
@@ -99,6 +101,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [validationResult, setValidationResult] = useState<SchemaValidationResultType | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedQuery, setCopiedQuery] = useState(false);
+  const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
+  const [reextractionDialogOpen, setReextractionDialogOpen] = useState(false);
 
   // Helper function to extract error message from API errors (handles Pydantic validation errors)
   const extractErrorMessage = (error: any, fallback: string): string => {
@@ -186,6 +190,15 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     }
   }, [sessionId]);
 
+  const loadSchemaChangeStatus = useCallback(async () => {
+    try {
+      const changes = await schemaAPI.getSchemaChangeStatus(sessionId);
+      setSchemaChanges(changes);
+    } catch (error) {
+      console.error('Failed to load schema change status:', error);
+    }
+  }, [sessionId]);
+
   // Update local columns when props change
   useEffect(() => {
     setLocalColumns(columns || []);
@@ -224,13 +237,14 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     };
   }, [websocketManager, sessionId, handleSchemaUpdate, handleReprocessingProgress, handleReprocessingCompleted]);
 
-  // Load initial validation and reprocessing status
+  // Load initial validation, reprocessing, and schema change status
   useEffect(() => {
     if (!readonly && sessionId) {
       loadValidationResult();
       loadReprocessingStatus();
+      loadSchemaChangeStatus();
     }
-  }, [sessionId, readonly, loadValidationResult, loadReprocessingStatus]);
+  }, [sessionId, readonly, loadValidationResult, loadReprocessingStatus, loadSchemaChangeStatus]);
 
   // Column management handlers
   const handleEditColumn = (column: ColumnInfo) => {
@@ -325,10 +339,24 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         onColumnsChange(updatedColumns);
       }
     }
+
+    // Reload schema change status after any schema operation
+    loadSchemaChangeStatus();
   };
 
   const handleDialogError = (message: string) => {
     toast({ title: 'Error', description: message, variant: 'destructive' });
+  };
+
+  const handleReextractionSuccess = (message: string) => {
+    toast({ title: 'Re-extraction Started', description: message });
+    setReextractionDialogOpen(false);
+    // Reload schema change status - it should be clear after re-extraction completes
+    setTimeout(() => loadSchemaChangeStatus(), 2000);
+  };
+
+  const handleReextractionError = (message: string) => {
+    toast({ title: 'Re-extraction Error', description: message, variant: 'destructive' });
   };
 
   const handleBackup = async () => {
@@ -565,6 +593,18 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   <Plus className="h-4 w-4 mr-1" />
                   Add Column
                 </Button>
+
+                {/* Re-extract button - shown when schema has changes */}
+                {schemaChanges?.has_changes && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setReextractionDialogOpen(true)}
+                  >
+                    <RefreshCw className="h-4 w-4 mr-1" />
+                    Re-extract ({(schemaChanges.changed_columns?.length || 0) + (schemaChanges.new_columns?.length || 0)})
+                  </Button>
+                )}
 
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -879,6 +919,15 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Re-extraction Dialog */}
+      <ReextractionDialog
+        open={reextractionDialogOpen}
+        sessionId={sessionId}
+        onClose={() => setReextractionDialogOpen(false)}
+        onSuccess={handleReextractionSuccess}
+        onError={handleReextractionError}
+      />
 
       {readonly && (
         <Alert variant="info">

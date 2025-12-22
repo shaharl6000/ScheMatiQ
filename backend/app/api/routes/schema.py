@@ -14,12 +14,16 @@ from app.models.session import VisualizationSession, SessionStatus, ColumnInfo
 from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
 from app.services.schema_manager import SchemaManager
+from app.services.reextraction_service import ReextractionService
 from app.services import session_manager, websocket_manager
 
 router = APIRouter(tags=["schema"])
 
 # Create schema manager instance
 schema_manager = SchemaManager(websocket_manager, session_manager)
+
+# Create reextraction service instance
+reextraction_service = ReextractionService(websocket_manager, session_manager)
 
 # Request/Response Models
 class ColumnEditRequest(BaseModel):
@@ -663,6 +667,205 @@ async def bulk_approve_suggestions(session_id: str, column_name: Optional[str] =
             "status": "success",
             "message": f"Approved {approved_count} pending values",
             "approved_count": approved_count
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== Re-extraction Endpoints ====================
+
+class ColumnChangeDetail(BaseModel):
+    column_name: str
+    change_type: str  # "definition", "rationale", "allowed_values", "new"
+    old_value: Optional[str] = None
+    new_value: Optional[str] = None
+    row_count_affected: int = 0
+
+
+class SchemaChangeStatusResponse(BaseModel):
+    has_changes: bool
+    changed_columns: List[str]
+    new_columns: List[str]
+    column_changes: Dict[str, ColumnChangeDetail]
+    can_reextract: bool
+    missing_baseline: bool = False
+
+
+class PaperDiscoveryResponse(BaseModel):
+    total_rows: int
+    rows_with_papers: int
+    available_papers: List[str]
+    missing_papers: List[str]
+    paper_to_rows: Dict[str, List[str]]
+
+
+class ReextractionRequest(BaseModel):
+    columns: List[str]
+
+
+class ReextractionResponse(BaseModel):
+    status: str
+    operation_id: str
+    columns: List[str]
+    estimated_papers: int
+    rows_to_process: int
+    missing_papers: List[str]
+
+
+@router.get("/change-status/{session_id}")
+async def get_schema_change_status(session_id: str) -> SchemaChangeStatusResponse:
+    """Detect which columns have changed since the baseline."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        changes = reextraction_service.detect_schema_changes(session)
+
+        # Count rows to determine affected row counts
+        paper_discovery = await reextraction_service.discover_papers(session_id)
+        row_count = paper_discovery["total_rows"]
+
+        # Update row counts in changes
+        for col_name in changes["column_changes"]:
+            changes["column_changes"][col_name]["row_count_affected"] = row_count
+
+        # Determine if we can reextract (need documents)
+        changes["can_reextract"] = paper_discovery["rows_with_papers"] > 0
+
+        return SchemaChangeStatusResponse(
+            has_changes=changes["has_changes"],
+            changed_columns=changes["changed_columns"],
+            new_columns=changes["new_columns"],
+            column_changes={
+                k: ColumnChangeDetail(**v) for k, v in changes["column_changes"].items()
+            },
+            can_reextract=changes["can_reextract"],
+            missing_baseline=changes["missing_baseline"]
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/discover-papers/{session_id}")
+async def discover_papers(session_id: str) -> PaperDiscoveryResponse:
+    """Find papers associated with table rows in storage."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        discovery = await reextraction_service.discover_papers(session_id)
+
+        return PaperDiscoveryResponse(**discovery)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/reextract/{session_id}")
+async def start_reextraction(
+    session_id: str,
+    request: ReextractionRequest,
+    background_tasks: BackgroundTasks
+) -> ReextractionResponse:
+    """Start selective re-extraction for specified columns."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        if not request.columns:
+            raise HTTPException(status_code=400, detail="No columns specified for re-extraction")
+
+        result = await reextraction_service.start_reextraction(
+            session_id,
+            request.columns
+        )
+
+        return ReextractionResponse(**result)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reextraction-status/{session_id}/{operation_id}")
+async def get_reextraction_status(session_id: str, operation_id: str):
+    """Get status of a re-extraction operation."""
+    try:
+        status = reextraction_service.get_operation_status(operation_id)
+        if not status:
+            raise HTTPException(status_code=404, detail="Operation not found")
+
+        if status["session_id"] != session_id:
+            raise HTTPException(status_code=403, detail="Operation does not belong to this session")
+
+        return status
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/capture-baseline/{session_id}")
+async def capture_schema_baseline(session_id: str):
+    """Manually capture the current schema as the baseline."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        await reextraction_service.capture_and_save_baseline(session_id)
+
+        return {
+            "status": "success",
+            "message": "Schema baseline captured successfully",
+            "column_count": len([c for c in session.columns if not c.name.lower().endswith('_excerpt')])
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/upload-missing-papers/{session_id}")
+async def upload_missing_papers(
+    session_id: str,
+    files: List[Any] = None  # Will be UploadFile in actual use
+):
+    """Upload papers that are missing from storage."""
+    from fastapi import UploadFile, File
+
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        session_dir = Path("./data") / session_id
+        docs_dir = session_dir / "documents"
+        docs_dir.mkdir(parents=True, exist_ok=True)
+
+        uploaded = []
+        # Handle file uploads if provided
+        if files:
+            for file in files:
+                if hasattr(file, 'filename') and hasattr(file, 'read'):
+                    file_path = docs_dir / file.filename
+                    content = await file.read()
+                    with open(file_path, 'wb') as f:
+                        f.write(content)
+                    uploaded.append(file.filename)
+
+        return {
+            "status": "success",
+            "message": f"Uploaded {len(uploaded)} files",
+            "uploaded_files": uploaded
         }
 
     except Exception as e:

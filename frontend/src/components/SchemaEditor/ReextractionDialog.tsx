@@ -1,0 +1,400 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { RefreshCw, AlertTriangle, Upload, FileText, Loader2, Check, Info } from 'lucide-react';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
+import {
+  SchemaChangeStatus,
+  PaperDiscoveryResult,
+  ColumnChangeDetail,
+  ReextractionResponse,
+} from '../../types';
+import { schemaAPI } from '../../services/api';
+
+interface ReextractionDialogProps {
+  open: boolean;
+  sessionId: string;
+  onClose: () => void;
+  onSuccess: (message: string) => void;
+  onError: (error: string) => void;
+}
+
+const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
+  open,
+  sessionId,
+  onClose,
+  onSuccess,
+  onError
+}) => {
+  const [loading, setLoading] = useState(false);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
+  const [paperStatus, setPaperStatus] = useState<PaperDiscoveryResult | null>(null);
+  const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionProgress, setExtractionProgress] = useState(0);
+  const [currentOperation, setCurrentOperation] = useState<ReextractionResponse | null>(null);
+
+  // Load schema change status and paper discovery when dialog opens
+  const loadStatus = useCallback(async () => {
+    if (!open || !sessionId) return;
+
+    setLoadingStatus(true);
+    try {
+      const [changes, papers] = await Promise.all([
+        schemaAPI.getSchemaChangeStatus(sessionId),
+        schemaAPI.discoverPapers(sessionId)
+      ]);
+
+      setSchemaChanges(changes);
+      setPaperStatus(papers);
+
+      // Pre-select all changed/new columns
+      const allChanged = new Set([
+        ...changes.changed_columns,
+        ...changes.new_columns
+      ]);
+      setSelectedColumns(allChanged);
+    } catch (error: any) {
+      onError(error.response?.data?.detail || 'Failed to load schema status');
+    } finally {
+      setLoadingStatus(false);
+    }
+  }, [open, sessionId, onError]);
+
+  useEffect(() => {
+    loadStatus();
+  }, [loadStatus]);
+
+  // Reset state when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setSelectedColumns(new Set());
+      setIsExtracting(false);
+      setExtractionProgress(0);
+      setCurrentOperation(null);
+    }
+  }, [open]);
+
+  const handleColumnToggle = (columnName: string, checked: boolean) => {
+    const newSet = new Set(selectedColumns);
+    if (checked) {
+      newSet.add(columnName);
+    } else {
+      newSet.delete(columnName);
+    }
+    setSelectedColumns(newSet);
+  };
+
+  const handleSelectAll = () => {
+    if (!schemaChanges) return;
+    const allColumns = new Set([
+      ...schemaChanges.changed_columns,
+      ...schemaChanges.new_columns
+    ]);
+    setSelectedColumns(allColumns);
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedColumns(new Set());
+  };
+
+  const handleStartReextraction = async () => {
+    if (selectedColumns.size === 0) {
+      onError('Please select at least one column to re-extract');
+      return;
+    }
+
+    setLoading(true);
+    setIsExtracting(true);
+
+    try {
+      const response = await schemaAPI.startReextraction(sessionId, {
+        columns: Array.from(selectedColumns)
+      });
+
+      setCurrentOperation(response);
+
+      // Show success and close after a delay
+      onSuccess(`Re-extraction started for ${response.columns.length} columns`);
+
+      // Keep dialog open to show progress, or close if you prefer
+      // For now, we'll close and let SchemaViewer handle progress via WebSocket
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+
+    } catch (error: any) {
+      onError(error.response?.data?.detail || 'Failed to start re-extraction');
+      setIsExtracting(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getChangeTypeBadge = (changeType: string) => {
+    const variants: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
+      definition: 'default',
+      rationale: 'secondary',
+      allowed_values: 'outline',
+      new: 'default'
+    };
+
+    const labels: Record<string, string> = {
+      definition: 'Definition changed',
+      rationale: 'Rationale changed',
+      allowed_values: 'Allowed values changed',
+      new: 'New column'
+    };
+
+    return (
+      <Badge variant={variants[changeType] || 'outline'} className="text-xs">
+        {labels[changeType] || changeType}
+      </Badge>
+    );
+  };
+
+  const allColumns = schemaChanges
+    ? [...schemaChanges.changed_columns, ...schemaChanges.new_columns]
+    : [];
+
+  const hasChanges = allColumns.length > 0;
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <RefreshCw className="h-5 w-5" />
+            Re-extract Column Values
+          </DialogTitle>
+          <DialogDescription>
+            Select columns to re-extract values from source documents.
+            This will replace existing values for the selected columns.
+          </DialogDescription>
+        </DialogHeader>
+
+        {loadingStatus ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : !hasChanges ? (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription>
+              No schema changes detected. Edit column definitions, rationales, or allowed values to enable re-extraction.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <>
+            {/* Paper Discovery Status */}
+            {paperStatus && (
+              <Alert variant={paperStatus.missing_papers.length > 0 ? 'default' : 'default'}>
+                <FileText className="h-4 w-4" />
+                <AlertDescription>
+                  <span className="font-medium">
+                    {paperStatus.available_papers.length} source documents available
+                  </span>
+                  {' '}across {paperStatus.total_rows} rows.
+                  {paperStatus.missing_papers.length > 0 && (
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {' '}{paperStatus.missing_papers.length} documents are missing.
+                    </span>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {/* Missing Papers Warning */}
+            {paperStatus && paperStatus.missing_papers.length > 0 && (
+              <Alert variant="destructive" className="mt-2">
+                <AlertTriangle className="h-4 w-4" />
+                <AlertDescription>
+                  <div className="space-y-2">
+                    <p className="font-medium">Missing documents (rows will be skipped):</p>
+                    <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                      {paperStatus.missing_papers.slice(0, 10).map((paper) => (
+                        <Badge key={paper} variant="outline" className="text-xs">
+                          {paper}
+                        </Badge>
+                      ))}
+                      {paperStatus.missing_papers.length > 10 && (
+                        <Badge variant="outline" className="text-xs">
+                          +{paperStatus.missing_papers.length - 10} more
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            <Separator />
+
+            {/* Column Selection */}
+            <div className="space-y-3 flex-1 overflow-hidden">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">
+                  Select columns to re-extract ({selectedColumns.size} selected)
+                </Label>
+                <div className="space-x-2">
+                  <Button variant="ghost" size="sm" onClick={handleSelectAll}>
+                    Select All
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={handleDeselectAll}>
+                    Clear
+                  </Button>
+                </div>
+              </div>
+
+              <ScrollArea className="h-[250px] border rounded-md p-3">
+                <div className="space-y-3">
+                  {/* Changed Columns */}
+                  {schemaChanges?.changed_columns.length ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        Modified Columns
+                      </p>
+                      {schemaChanges.changed_columns.map((colName) => {
+                        const change = schemaChanges.column_changes[colName];
+                        return (
+                          <ColumnCheckboxItem
+                            key={colName}
+                            name={colName}
+                            change={change}
+                            checked={selectedColumns.has(colName)}
+                            onCheckedChange={(checked) => handleColumnToggle(colName, checked)}
+                            getChangeTypeBadge={getChangeTypeBadge}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : null}
+
+                  {/* New Columns */}
+                  {schemaChanges?.new_columns.length ? (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        New Columns
+                      </p>
+                      {schemaChanges.new_columns.map((colName) => {
+                        const change = schemaChanges.column_changes[colName];
+                        return (
+                          <ColumnCheckboxItem
+                            key={colName}
+                            name={colName}
+                            change={change}
+                            checked={selectedColumns.has(colName)}
+                            onCheckedChange={(checked) => handleColumnToggle(colName, checked)}
+                            getChangeTypeBadge={getChangeTypeBadge}
+                          />
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              </ScrollArea>
+            </div>
+
+            {/* Extraction Progress */}
+            {isExtracting && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span className="text-sm">Starting re-extraction...</span>
+                </div>
+                <Progress value={extractionProgress * 100} />
+              </div>
+            )}
+          </>
+        )}
+
+        <DialogFooter className="mt-4">
+          <Button variant="outline" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleStartReextraction}
+            disabled={loading || selectedColumns.size === 0 || !hasChanges || !schemaChanges?.can_reextract}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Starting...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Re-extract {selectedColumns.size} Column{selectedColumns.size !== 1 ? 's' : ''}
+              </>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// Sub-component for column checkbox items
+interface ColumnCheckboxItemProps {
+  name: string;
+  change?: ColumnChangeDetail;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  getChangeTypeBadge: (changeType: string) => React.ReactNode;
+}
+
+const ColumnCheckboxItem: React.FC<ColumnCheckboxItemProps> = ({
+  name,
+  change,
+  checked,
+  onCheckedChange,
+  getChangeTypeBadge
+}) => {
+  return (
+    <div className="flex items-start gap-3 p-2 rounded-md hover:bg-muted/50">
+      <Checkbox
+        id={`col-${name}`}
+        checked={checked}
+        onCheckedChange={(checked) => onCheckedChange(checked as boolean)}
+        className="mt-0.5"
+      />
+      <div className="flex-1 space-y-1">
+        <div className="flex items-center gap-2">
+          <Label htmlFor={`col-${name}`} className="font-medium cursor-pointer">
+            {name}
+          </Label>
+          {change && getChangeTypeBadge(change.change_type)}
+        </div>
+        {change?.row_count_affected ? (
+          <p className="text-xs text-muted-foreground">
+            {change.row_count_affected} rows will be updated
+          </p>
+        ) : null}
+        {change?.old_value && change?.new_value && change.change_type !== 'new' && (
+          <div className="text-xs text-muted-foreground space-y-0.5">
+            <p className="line-through opacity-60">{change.old_value.slice(0, 100)}...</p>
+            <p className="text-foreground">{change.new_value.slice(0, 100)}...</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default ReextractionDialog;
