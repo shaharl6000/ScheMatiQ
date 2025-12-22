@@ -263,14 +263,23 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             if isinstance(papers, str):
                                 papers = [papers]
 
-                            # Get document directory from row data
-                            doc_dir = (
+                            # Helper to extract value from QBSD answer format or plain value
+                            def extract_value(val: Any) -> str:
+                                if val is None:
+                                    return ''
+                                if isinstance(val, dict) and 'answer' in val:
+                                    return str(val['answer']) if val['answer'] else ''
+                                return str(val) if val else ''
+
+                            # Get document directory from row data (check multiple possible locations)
+                            doc_dir_raw = (
                                 row.get('Document Directory') or
                                 row.get('document_directory') or
                                 row.get('data', {}).get('Document Directory') or
                                 row.get('data', {}).get('document_directory') or
-                                ''
+                                None
                             )
+                            doc_dir = extract_value(doc_dir_raw)
 
                             paper_refs.update(papers)
                             row_paper_mapping[row_name] = papers
@@ -279,6 +288,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             for paper in papers:
                                 if doc_dir and paper not in paper_doc_dirs:
                                     paper_doc_dirs[paper] = doc_dir
+
+                            # Debug logging
+                            print(f"DEBUG: Row {row_name} - papers: {papers}, doc_dir: {doc_dir}")
 
                         except json.JSONDecodeError:
                             continue
