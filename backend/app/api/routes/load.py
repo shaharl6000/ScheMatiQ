@@ -98,6 +98,9 @@ async def load_template(template_name: str):
         session.status = SessionStatus.COMPLETED
         session_manager.update_session(session)
 
+        # Capture schema baseline for re-extraction change detection
+        session_manager.capture_schema_baseline(session_id)
+
         # Get row count from statistics (handle both dict and Pydantic object)
         stats = result["statistics"]
         row_count = stats.total_rows if hasattr(stats, 'total_rows') else stats.get("total_rows", 0) if isinstance(stats, dict) else 0

@@ -165,12 +165,15 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 session_id,
                 f"Reprocessing completed for column '{column_name}'"
             )
-            
+
+            # Capture schema baseline after reprocessing completes
+            self.session_manager.capture_schema_baseline(session_id)
+
             # Cleanup temporary files
             schema_file.unlink(missing_ok=True)
             if 'output_file' in locals():
                 output_file.unlink(missing_ok=True)
-                
+
         except Exception as e:
             self.reprocessing_status[session_id] = {
                 "is_running": False,
@@ -623,7 +626,10 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 session_id,
                 f"Schema-aware reprocessing completed for all {len(columns)} columns"
             )
-            
+
+            # Capture schema baseline after reprocessing completes
+            self.session_manager.capture_schema_baseline(session_id)
+
             # Cleanup temporary files
             comprehensive_schema_file.unlink(missing_ok=True)
             
