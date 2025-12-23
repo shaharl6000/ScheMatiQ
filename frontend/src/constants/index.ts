@@ -107,3 +107,6 @@ export const STORAGE_KEYS = {
   USER_PREFERENCES: 'qbsd_user_preferences',
   TABLE_SETTINGS: 'qbsd_table_settings'
 } as const;
+
+// LLM Model Definitions
+export * from './llmModels';

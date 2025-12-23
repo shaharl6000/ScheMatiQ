@@ -7,6 +7,13 @@ import {
   getApiKeyForProvider,
   LLMProvider,
 } from '@/utils/apiKeyStorage';
+import {
+  getDefaultModelForProvider,
+  getAvailableProviders,
+  LLM_PROVIDER_NAMES,
+  LLMProviderKey,
+} from '@/constants/llmModels';
+import { ModelSelector } from '@/components/ModelSelector';
 import InitialSchemaEditor from '@/components/InitialSchemaEditor/InitialSchemaEditor';
 
 import { Button } from '@/components/ui/button';
@@ -62,38 +69,45 @@ const QBSDConfigPage = () => {
     const checkProviders = async () => {
       setProvidersLoading(true);
       const providers = await getConfiguredProviders();
-      setConfiguredProviders(providers);
 
-      // Redirect if no providers configured
-      if (providers.length === 0) {
+      // Filter to only providers that have models defined
+      const availableProviders = getAvailableProviders(providers);
+      setConfiguredProviders(availableProviders as LLMProvider[]);
+
+      // Redirect if no providers with models are configured
+      if (availableProviders.length === 0) {
         navigate('/');
         return;
       }
 
-      // Update default providers if currently selected ones aren't configured
+      // Update default providers if currently selected ones aren't available
       setConfig(prev => {
         let updated = { ...prev };
         let needsUpdate = false;
 
-        if (!providers.includes(prev.schema_creation_backend.provider as LLMProvider)) {
+        const schemaProvider = prev.schema_creation_backend.provider as LLMProviderKey;
+        if (!availableProviders.includes(schemaProvider)) {
+          const newProvider = availableProviders[0];
           updated = {
             ...updated,
             schema_creation_backend: {
               ...prev.schema_creation_backend,
-              provider: providers[0],
-              model: getDefaultModel(providers[0]),
+              provider: newProvider,
+              model: getDefaultModelForProvider(newProvider),
             },
           };
           needsUpdate = true;
         }
 
-        if (!providers.includes(prev.value_extraction_backend.provider as LLMProvider)) {
+        const valueProvider = prev.value_extraction_backend.provider as LLMProviderKey;
+        if (!availableProviders.includes(valueProvider)) {
+          const newProvider = availableProviders[0];
           updated = {
             ...updated,
             value_extraction_backend: {
               ...prev.value_extraction_backend,
-              provider: providers[0],
-              model: getDefaultModel(providers[0]),
+              provider: newProvider,
+              model: getDefaultModelForProvider(newProvider),
             },
           };
           needsUpdate = true;
@@ -106,16 +120,6 @@ const QBSDConfigPage = () => {
     };
     checkProviders();
   }, [navigate]);
-
-  // Helper function for default models
-  const getDefaultModel = (provider: LLMProvider): string => {
-    const defaults: Record<LLMProvider, string> = {
-      gemini: 'gemini-2.5-flash',
-      openai: 'gpt-4-turbo',
-      together: 'meta-llama/Llama-3-70b-chat-hf',
-    };
-    return defaults[provider];
-  };
 
   // Fetch available datasets on mount
   useEffect(() => {
@@ -177,23 +181,41 @@ const QBSDConfigPage = () => {
   };
 
   const handleSchemaBackendChange = (field: keyof LLMConfig, value: any) => {
-    setConfig(prev => ({
-      ...prev,
-      schema_creation_backend: {
-        ...prev.schema_creation_backend,
-        [field]: value,
-      },
-    }));
+    setConfig(prev => {
+      const updates: Partial<LLMConfig> = { [field]: value };
+
+      // When provider changes, auto-select default model for new provider
+      if (field === 'provider') {
+        updates.model = getDefaultModelForProvider(value as LLMProviderKey);
+      }
+
+      return {
+        ...prev,
+        schema_creation_backend: {
+          ...prev.schema_creation_backend,
+          ...updates,
+        },
+      };
+    });
   };
 
   const handleValueBackendChange = (field: keyof LLMConfig, value: any) => {
-    setConfig(prev => ({
-      ...prev,
-      value_extraction_backend: {
-        ...prev.value_extraction_backend,
-        [field]: value,
-      },
-    }));
+    setConfig(prev => {
+      const updates: Partial<LLMConfig> = { [field]: value };
+
+      // When provider changes, auto-select default model for new provider
+      if (field === 'provider') {
+        updates.model = getDefaultModelForProvider(value as LLMProviderKey);
+      }
+
+      return {
+        ...prev,
+        value_extraction_backend: {
+          ...prev.value_extraction_backend,
+          ...updates,
+        },
+      };
+    });
   };
 
   const handleRetrieverChange = (field: keyof RetrieverConfig, value: any) => {
@@ -451,25 +473,22 @@ const QBSDConfigPage = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {configuredProviders.includes('gemini') && (
-                          <SelectItem value="gemini">Google Gemini</SelectItem>
-                        )}
-                        {configuredProviders.includes('openai') && (
-                          <SelectItem value="openai">OpenAI</SelectItem>
-                        )}
-                        {configuredProviders.includes('together') && (
-                          <SelectItem value="together">Together AI</SelectItem>
-                        )}
+                        {configuredProviders.map((provider) => (
+                          <SelectItem key={provider} value={provider}>
+                            {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="md:col-span-2 space-y-2">
                     <Label>Model</Label>
-                    <Input
+                    <ModelSelector
+                      provider={config.schema_creation_backend.provider as LLMProviderKey}
                       value={config.schema_creation_backend.model}
-                      onChange={(e) => handleSchemaBackendChange('model', e.target.value)}
-                      placeholder="e.g., gemini-2.5-flash, gpt-4"
+                      onChange={(modelId) => handleSchemaBackendChange('model', modelId)}
+                      showDetails={true}
                     />
                   </div>
 
@@ -534,25 +553,22 @@ const QBSDConfigPage = () => {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {configuredProviders.includes('gemini') && (
-                          <SelectItem value="gemini">Google Gemini</SelectItem>
-                        )}
-                        {configuredProviders.includes('openai') && (
-                          <SelectItem value="openai">OpenAI</SelectItem>
-                        )}
-                        {configuredProviders.includes('together') && (
-                          <SelectItem value="together">Together AI</SelectItem>
-                        )}
+                        {configuredProviders.map((provider) => (
+                          <SelectItem key={provider} value={provider}>
+                            {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div className="md:col-span-2 space-y-2">
                     <Label>Model</Label>
-                    <Input
+                    <ModelSelector
+                      provider={config.value_extraction_backend.provider as LLMProviderKey}
                       value={config.value_extraction_backend.model}
-                      onChange={(e) => handleValueBackendChange('model', e.target.value)}
-                      placeholder="e.g., gemini-2.5-flash-lite, gpt-4"
+                      onChange={(modelId) => handleValueBackendChange('model', modelId)}
+                      showDetails={true}
                     />
                   </div>
 

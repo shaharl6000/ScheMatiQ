@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, Sparkles, Zap } from 'lucide-react';
+import { Brain, Sparkles, Zap, AlertCircle } from 'lucide-react';
 
 import {
   Dialog,
@@ -22,6 +22,23 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { LLMConfig } from '../../types';
+import {
+  getConfiguredProviders,
+  LLMProvider,
+} from '@/utils/apiKeyStorage';
+import {
+  LLMProviderKey,
+  LLMModelDefinition,
+  getModelsForProvider,
+  getDefaultModelForProvider,
+  getModelByProviderAndId,
+  getAvailableProviders,
+  getCostBadgeVariant,
+  getSpeedBadgeVariant,
+  formatCostLevel,
+  formatSpeedLevel,
+  LLM_PROVIDER_NAMES,
+} from '@/constants/llmModels';
 
 interface LLMSelectorProps {
   open: boolean;
@@ -33,45 +50,26 @@ interface LLMSelectorProps {
   loading?: boolean;
 }
 
-const LLM_OPTIONS = [
-  {
-    provider: 'gemini',
-    model: 'gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash',
-    description: 'Balanced performance and accuracy',
-    icon: <Brain className="h-4 w-4" />,
-    recommended: 'schema_creation',
-    cost: 'medium',
-    speed: 'fast',
-  },
-  {
-    provider: 'gemini',
-    model: 'gemini-2.5-flash-lite',
-    label: 'Gemini 2.5 Flash Lite',
-    description: 'Fast and cost-effective',
-    icon: <Zap className="h-4 w-4" />,
-    recommended: 'value_extraction',
-    cost: 'low',
-    speed: 'very_fast',
-  },
-  {
-    provider: 'gemini',
-    model: 'gemini-1.5-pro',
-    label: 'Gemini 1.5 Pro',
-    description: 'High accuracy for complex tasks',
-    icon: <Sparkles className="h-4 w-4" />,
-    recommended: 'complex_extraction',
-    cost: 'high',
-    speed: 'moderate',
-  },
-];
-
 const DEFAULT_CONFIG: LLMConfig = {
   provider: 'gemini',
   model: 'gemini-2.5-flash-lite',
   max_output_tokens: 1024,
   temperature: 0.3,
 };
+
+/**
+ * Get an icon for a model based on its cost tier
+ */
+function getModelIcon(model: LLMModelDefinition): React.ReactNode {
+  switch (model.cost) {
+    case 'low':
+      return <Zap className="h-4 w-4 text-green-500" />;
+    case 'high':
+      return <Sparkles className="h-4 w-4 text-amber-500" />;
+    default:
+      return <Brain className="h-4 w-4 text-blue-500" />;
+  }
+}
 
 const LLMSelector: React.FC<LLMSelectorProps> = ({
   open,
@@ -84,59 +82,71 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
 }) => {
   const [selectedConfig, setSelectedConfig] = useState<LLMConfig>(DEFAULT_CONFIG);
   const [usePreservedConfig, setUsePreservedConfig] = useState(false);
+  const [configuredProviders, setConfiguredProviders] = useState<LLMProviderKey[]>([]);
+  const [selectedProvider, setSelectedProvider] = useState<LLMProviderKey>('gemini');
+  const [providersLoading, setProvidersLoading] = useState(true);
 
+  // Load configured providers when dialog opens
   useEffect(() => {
-    if (preservedConfig) {
-      setSelectedConfig(preservedConfig);
-      setUsePreservedConfig(true);
-    } else {
-      setSelectedConfig(DEFAULT_CONFIG);
-      setUsePreservedConfig(false);
-    }
-  }, [preservedConfig]);
+    const loadProviders = async () => {
+      if (!open) return;
 
-  const handleModelChange = (value: string) => {
-    const [provider, ...modelParts] = value.split('-');
-    const model = modelParts.join('-');
-    const option = LLM_OPTIONS.find(opt => opt.provider === provider && opt.model === model);
-    if (option) {
-      setSelectedConfig({
-        provider,
-        model,
-        max_output_tokens: 1024,
-        temperature: 0.3,
-      });
-      setUsePreservedConfig(false);
-    }
+      setProvidersLoading(true);
+      const providers = await getConfiguredProviders();
+      // Filter to only providers with models
+      const availableProviders = getAvailableProviders(providers);
+      setConfiguredProviders(availableProviders);
+
+      // Set initial provider
+      if (preservedConfig?.provider && availableProviders.includes(preservedConfig.provider as LLMProviderKey)) {
+        setSelectedProvider(preservedConfig.provider as LLMProviderKey);
+        setSelectedConfig(preservedConfig);
+        setUsePreservedConfig(true);
+      } else if (availableProviders.length > 0) {
+        const defaultProvider = availableProviders[0];
+        setSelectedProvider(defaultProvider);
+        setSelectedConfig({
+          provider: defaultProvider,
+          model: getDefaultModelForProvider(defaultProvider),
+          max_output_tokens: 1024,
+          temperature: 0.3,
+        });
+        setUsePreservedConfig(false);
+      }
+
+      setProvidersLoading(false);
+    };
+
+    loadProviders();
+  }, [open, preservedConfig]);
+
+  const handleProviderChange = (provider: LLMProviderKey) => {
+    setSelectedProvider(provider);
+    const defaultModel = getDefaultModelForProvider(provider);
+    setSelectedConfig({
+      provider,
+      model: defaultModel,
+      max_output_tokens: 1024,
+      temperature: 0.3,
+    });
+    setUsePreservedConfig(false);
+  };
+
+  const handleModelChange = (modelId: string) => {
+    setSelectedConfig({
+      ...selectedConfig,
+      provider: selectedProvider,
+      model: modelId,
+    });
+    setUsePreservedConfig(false);
   };
 
   const handleConfirm = () => {
     onConfirm(selectedConfig);
   };
 
-  const getSelectedOption = () => {
-    return LLM_OPTIONS.find(
-      opt => opt.provider === selectedConfig.provider && opt.model === selectedConfig.model
-    );
-  };
-
-  const getCostVariant = (cost: string): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" => {
-    switch (cost) {
-      case 'low': return 'success';
-      case 'medium': return 'warning';
-      case 'high': return 'destructive';
-      default: return 'secondary';
-    }
-  };
-
-  const getSpeedVariant = (speed: string): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" => {
-    switch (speed) {
-      case 'very_fast': return 'success';
-      case 'fast': return 'info';
-      case 'moderate': return 'warning';
-      default: return 'secondary';
-    }
-  };
+  const availableModels = getModelsForProvider(selectedProvider);
+  const selectedModel = getModelByProviderAndId(selectedProvider, selectedConfig.model);
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -150,6 +160,7 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* Preserved Config Alert */}
           {preservedConfig && (
             <Alert variant="info">
               <AlertDescription className="flex items-center justify-between">
@@ -160,7 +171,19 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setUsePreservedConfig(!usePreservedConfig)}
+                  onClick={() => {
+                    if (usePreservedConfig) {
+                      // Switch to selecting a new model
+                      setUsePreservedConfig(false);
+                    } else {
+                      // Switch back to preserved config
+                      if (preservedConfig.provider) {
+                        setSelectedProvider(preservedConfig.provider as LLMProviderKey);
+                        setSelectedConfig(preservedConfig);
+                        setUsePreservedConfig(true);
+                      }
+                    }
+                  }}
                 >
                   {usePreservedConfig ? 'Change Model' : 'Use Original'}
                 </Button>
@@ -168,52 +191,94 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
             </Alert>
           )}
 
+          {/* No Providers Warning */}
+          {!providersLoading && configuredProviders.length === 0 && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                No API keys configured. Please add an API key on the home page.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {/* Provider Selection */}
           <div className="space-y-2">
-            <Label>AI Model</Label>
+            <Label>Provider</Label>
             <Select
-              value={`${selectedConfig.provider}-${selectedConfig.model}`}
-              onValueChange={handleModelChange}
-              disabled={usePreservedConfig}
+              value={selectedProvider}
+              onValueChange={(value) => handleProviderChange(value as LLMProviderKey)}
+              disabled={usePreservedConfig || configuredProviders.length === 0 || providersLoading}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Select a model" />
+                <SelectValue placeholder={providersLoading ? "Loading..." : "Select provider"} />
               </SelectTrigger>
               <SelectContent>
-                {LLM_OPTIONS.map((option) => (
-                  <SelectItem
-                    key={`${option.provider}-${option.model}`}
-                    value={`${option.provider}-${option.model}`}
-                  >
+                {configuredProviders.map((provider) => (
+                  <SelectItem key={provider} value={provider}>
+                    {LLM_PROVIDER_NAMES[provider]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Model Selection */}
+          <div className="space-y-2">
+            <Label>Model</Label>
+            <Select
+              value={selectedConfig.model}
+              onValueChange={handleModelChange}
+              disabled={usePreservedConfig || availableModels.length === 0 || providersLoading}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select model">
+                  {selectedModel && (
                     <div className="flex items-center gap-2">
-                      {option.icon}
-                      <span>{option.label}</span>
+                      {getModelIcon(selectedModel)}
+                      <span>{selectedModel.label}</span>
+                    </div>
+                  )}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {availableModels.map((model) => (
+                  <SelectItem key={model.id} value={model.id}>
+                    <div className="flex items-center gap-2">
+                      {getModelIcon(model)}
+                      <span>{model.label}</span>
+                      {model.isDefault && (
+                        <Badge variant="outline" className="ml-1 text-xs">
+                          default
+                        </Badge>
+                      )}
                     </div>
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {!usePreservedConfig && getSelectedOption() && (
+            {!usePreservedConfig && selectedModel && (
               <p className="text-sm text-muted-foreground">
-                {getSelectedOption()?.description}
+                {selectedModel.description}
               </p>
             )}
           </div>
 
-          {getSelectedOption() && (
+          {/* Model Details */}
+          {selectedModel && (
             <>
               <Separator />
               <div className="space-y-3">
                 <h4 className="text-sm font-medium">Model Details</h4>
                 <div className="flex gap-4 text-sm">
-                  <span><strong>Provider:</strong> {selectedConfig.provider}</span>
+                  <span><strong>Provider:</strong> {LLM_PROVIDER_NAMES[selectedProvider]}</span>
                   <span><strong>Model:</strong> {selectedConfig.model}</span>
                 </div>
                 <div className="flex gap-2">
-                  <Badge variant={getCostVariant(getSelectedOption()?.cost || 'medium')}>
-                    Cost: {getSelectedOption()?.cost}
+                  <Badge variant={getCostBadgeVariant(selectedModel.cost)}>
+                    Cost: {formatCostLevel(selectedModel.cost)}
                   </Badge>
-                  <Badge variant={getSpeedVariant(getSelectedOption()?.speed || 'moderate')}>
-                    Speed: {getSelectedOption()?.speed}
+                  <Badge variant={getSpeedBadgeVariant(selectedModel.speed)}>
+                    Speed: {formatSpeedLevel(selectedModel.speed)}
                   </Badge>
                 </div>
 
@@ -233,8 +298,11 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
           <Button variant="outline" onClick={onClose} disabled={loading}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={loading}>
-            {getSelectedOption()?.icon}
+          <Button
+            onClick={handleConfirm}
+            disabled={loading || configuredProviders.length === 0 || !selectedModel}
+          >
+            {selectedModel && getModelIcon(selectedModel)}
             <span className="ml-2">{loading ? 'Starting...' : 'Start Processing'}</span>
           </Button>
         </DialogFooter>
