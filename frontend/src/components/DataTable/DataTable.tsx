@@ -39,10 +39,6 @@ import {
 
 import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { sessionAPI } from '../../services/api';
-
-// Metadata columns that should not be displayed as data columns in the table
-// These are system/internal columns, not user data
-const METADATA_COLUMNS = new Set(['papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata']);
 import {
   formatColumnName,
   isExcerptContent,
@@ -70,6 +66,10 @@ import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
 import FilterPresets from './FilterPresets';
 import ColumnVisibilityDropdown from './ColumnVisibilityDropdown';
+
+// Metadata columns that should not be displayed as data columns in the table
+// These are system/internal columns, not user data
+const METADATA_COLUMNS = new Set(['papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata']);
 
 interface ColumnInfoProp {
   name: string;
