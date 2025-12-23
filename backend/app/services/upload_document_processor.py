@@ -344,9 +344,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             cloud_dataset = session.metadata.cloud_dataset
             print(f"DEBUG: Using cloud_dataset '{cloud_dataset}' for document_directory")
 
-        # Read original data to get the base row count and detect row name column pattern
+        # Read original data to get the base row count and detect row name/papers column patterns
         original_rows = []
         row_name_column_in_data = None  # Track if original data has a "Row Name" type column inside data
+        papers_column_in_data = None  # Track if original data has a "Papers" type column inside data
 
         if original_data_file.exists():
             with open(original_data_file, 'r') as f:
@@ -357,14 +358,20 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
                         # Check if original data stores row name inside 'data' field
                         # Look for common row name column patterns (case-insensitive)
-                        if row_name_column_in_data is None and 'data' in row:
+                        if 'data' in row:
                             row_data_dict = row.get('data', {})
                             for key in row_data_dict.keys():
                                 key_lower = key.lower().replace('_', ' ').replace('-', ' ')
-                                if key_lower in ['row name', 'rowname', 'row_name', 'name', 'id', 'identifier']:
-                                    row_name_column_in_data = key
-                                    print(f"DEBUG: Detected row name column in data: '{key}'")
-                                    break
+                                # Detect row name column
+                                if row_name_column_in_data is None:
+                                    if key_lower in ['row name', 'rowname', 'row_name', 'name', 'id', 'identifier']:
+                                        row_name_column_in_data = key
+                                        print(f"DEBUG: Detected row name column in data: '{key}'")
+                                # Detect papers column
+                                if papers_column_in_data is None:
+                                    if key_lower in ['papers', 'paper']:
+                                        papers_column_in_data = key
+                                        print(f"DEBUG: Detected papers column in data: '{key}'")
 
         # Read new extracted data and append to original file
         new_rows_added = 0
@@ -389,7 +396,9 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                 # Special handling for document_directory - use cloud_dataset if available
                                 if key.lower() == 'document_directory':
                                     if cloud_dataset:
-                                        clean_data['document_directory'] = cloud_dataset
+                                        # Ensure full path format: datasets/{dataset_name}
+                                        full_path = f"datasets/{cloud_dataset}" if not cloud_dataset.startswith("datasets/") else cloud_dataset
+                                        clean_data['document_directory'] = full_path
                                     else:
                                         clean_data['document_directory'] = value
                                     continue
@@ -426,24 +435,30 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             # to maintain consistency and avoid column duplication
                             if row_name_column_in_data:
                                 clean_data[row_name_column_in_data] = row_name
-                                converted_row = {
-                                    "data": clean_data,
-                                    "row_name": None,  # Don't duplicate at DataRow level
-                                    "papers": papers_list if isinstance(papers_list, list) else [str(papers_list)] if papers_list else []
-                                }
+
+                            # If original data has a papers column inside 'data', put the papers there
+                            # to maintain consistency and avoid column duplication
+                            papers_for_datarow = []
+                            if papers_column_in_data:
+                                # Format papers as comma-separated string to match original format
+                                papers_str = ", ".join(papers_list) if papers_list else ""
+                                clean_data[papers_column_in_data] = papers_str
+                                papers_for_datarow = []  # Don't duplicate at DataRow level
                             else:
-                                converted_row = {
-                                    "data": clean_data,
-                                    "row_name": row_name,
-                                    "papers": papers_list if isinstance(papers_list, list) else [str(papers_list)] if papers_list else []
-                                }
+                                papers_for_datarow = papers_list if isinstance(papers_list, list) else [str(papers_list)] if papers_list else []
+
+                            converted_row = {
+                                "data": clean_data,
+                                "row_name": None if row_name_column_in_data else row_name,
+                                "papers": papers_for_datarow
+                            }
                             original_f.write(json.dumps(converted_row) + '\n')
                         else:
                             # Already in DataRow format, but validate papers field
                             row_copy = row_data.copy()
                             papers = row_copy.get("papers", [])
                             if not isinstance(papers, list):
-                                row_copy["papers"] = [str(papers)] if papers else []
+                                papers = [str(papers)] if papers else []
 
                             # Also check if we need to move row_name into data for consistency
                             if row_name_column_in_data and row_copy.get("row_name"):
@@ -451,6 +466,16 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                     row_copy['data'] = {}
                                 row_copy['data'][row_name_column_in_data] = row_copy["row_name"]
                                 row_copy["row_name"] = None
+
+                            # Also check if we need to move papers into data for consistency
+                            if papers_column_in_data and papers:
+                                if 'data' not in row_copy:
+                                    row_copy['data'] = {}
+                                papers_str = ", ".join(papers) if isinstance(papers, list) else str(papers)
+                                row_copy['data'][papers_column_in_data] = papers_str
+                                row_copy["papers"] = []
+                            else:
+                                row_copy["papers"] = papers
 
                             original_f.write(json.dumps(row_copy) + '\n')
                         new_rows_added += 1

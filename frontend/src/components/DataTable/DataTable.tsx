@@ -67,10 +67,6 @@ import FilterDialog from './FilterDialog';
 import FilterPresets from './FilterPresets';
 import ColumnVisibilityDropdown from './ColumnVisibilityDropdown';
 
-// Metadata columns that should not be displayed as data columns in the table
-// These are system/internal columns, not user data
-const METADATA_COLUMNS = new Set(['papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata']);
-
 interface ColumnInfoProp {
   name: string;
   allowed_values?: string[];
@@ -334,12 +330,11 @@ const DataTable: React.FC<DataTableProps> = ({
     const regularColumns: string[] = [];
 
     // First, collect all data columns to check for row-name-like columns
-    // Filter out metadata columns that shouldn't be displayed as data columns
     const allDataColumns = new Set<string>();
     data.rows.forEach(row => {
       Object.keys(row.data).forEach(key => {
-        // Skip metadata columns and internal columns starting with _
-        if (!METADATA_COLUMNS.has(key.toLowerCase()) && !key.startsWith('_')) {
+        // Skip internal columns starting with _ (these are system columns)
+        if (!key.startsWith('_')) {
           allDataColumns.add(key);
         }
       });
