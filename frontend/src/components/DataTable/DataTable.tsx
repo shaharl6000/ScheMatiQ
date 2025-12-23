@@ -39,6 +39,10 @@ import {
 
 import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { sessionAPI } from '../../services/api';
+
+// Metadata columns that should not be displayed as data columns in the table
+// These are system/internal columns, not user data
+const METADATA_COLUMNS = new Set(['papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata']);
 import {
   formatColumnName,
   isExcerptContent,
@@ -330,9 +334,15 @@ const DataTable: React.FC<DataTableProps> = ({
     const regularColumns: string[] = [];
 
     // First, collect all data columns to check for row-name-like columns
+    // Filter out metadata columns that shouldn't be displayed as data columns
     const allDataColumns = new Set<string>();
     data.rows.forEach(row => {
-      Object.keys(row.data).forEach(key => allDataColumns.add(key));
+      Object.keys(row.data).forEach(key => {
+        // Skip metadata columns and internal columns starting with _
+        if (!METADATA_COLUMNS.has(key.toLowerCase()) && !key.startsWith('_')) {
+          allDataColumns.add(key);
+        }
+      });
     });
 
     const dataColumnArray = Array.from(allDataColumns).filter(col => !col.endsWith('_excerpt'));
