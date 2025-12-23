@@ -15,6 +15,7 @@ import copy
 import random
 import re
 import json
+import hashlib
 from transformers import AutoTokenizer
 import torch
 import tiktoken
@@ -232,8 +233,9 @@ class EmbeddingRetriever(Retriever):
     """
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: int = 512, batch_size: int = 32, k: int = 3,
-                 device: str | None = None, enable_dynamic_k: bool = False, 
-                 dynamic_k_threshold: float = 0.65, dynamic_k_minimum: int = 2):
+                 device: str | None = None, enable_dynamic_k: bool = False,
+                 dynamic_k_threshold: float = 0.65, dynamic_k_minimum: int = 2,
+                 enable_embedding_cache: bool = True, max_cache_size: int = 100):
         super().__init__()
         if SentenceTransformer is None:
             raise ImportError(
@@ -246,11 +248,17 @@ class EmbeddingRetriever(Retriever):
         self.model_name = model_name
         self.batch_size = batch_size
         self.is_first_run = True
-        
+
         # Dynamic k parameters
         self.enable_dynamic_k = enable_dynamic_k
         self.dynamic_k_threshold = dynamic_k_threshold
         self.dynamic_k_minimum = dynamic_k_minimum
+
+        # Embedding cache: stores {doc_hash: {'passages': [...], 'embeddings': np.array}}
+        # This avoids recomputing embeddings for the same document across multiple queries
+        self.enable_embedding_cache = enable_embedding_cache
+        self.max_cache_size = max_cache_size
+        self._embedding_cache: Dict[str, Dict[str, Any]] = {}
 
         if "Qwen" in model_name:
             self.model = CrossEncoder(model_name, device="cuda", trust_remote_code=True, max_length=8192)
@@ -269,11 +277,38 @@ class EmbeddingRetriever(Retriever):
 
 
         print(f"-------Create EmbeddingRetriever, with model: {model_name}, k: {self.k}, "
-              f"max_words: {self.max_words}, batch_size: {self.batch_size}")
+              f"max_words: {self.max_words}, batch_size: {self.batch_size}, "
+              f"embedding_cache: {enable_embedding_cache}")
+
+    def _compute_doc_hash(self, doc: str) -> str:
+        """Compute a hash for the document to use as cache key."""
+        return hashlib.md5(doc.encode('utf-8', errors='ignore')).hexdigest()
+
+    def _get_cached_embeddings(self, doc_hash: str) -> Dict[str, Any] | None:
+        """Get cached passages and embeddings for a document hash."""
+        return self._embedding_cache.get(doc_hash)
+
+    def _cache_embeddings(self, doc_hash: str, passages: List[str], embeddings: Any) -> None:
+        """Cache passages and embeddings for a document hash."""
+        # Simple LRU-like eviction: if cache is full, remove oldest entry
+        if len(self._embedding_cache) >= self.max_cache_size:
+            # Remove the first (oldest) entry
+            oldest_key = next(iter(self._embedding_cache))
+            del self._embedding_cache[oldest_key]
+
+        self._embedding_cache[doc_hash] = {
+            'passages': passages,
+            'embeddings': embeddings
+        }
+
+    def clear_cache(self) -> None:
+        """Clear the embedding cache."""
+        self._embedding_cache.clear()
 
 
     # ---- Retriever API -------------------------------------------------- #
-    def _query_sentence_transformer(self,passages: list[str], question: str, k: int | None = None) -> list[str]:
+    def _query_sentence_transformer(self, passages: list[str], question: str, k: int | None = None) -> list[str]:
+        """Original method without caching - kept for backward compatibility."""
         q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
         p_embs = self.model.encode(
             passages,
@@ -287,20 +322,62 @@ class EmbeddingRetriever(Retriever):
             np.linalg.norm(p_embs, axis=1, keepdims=True) + 1e-8
         )
         sims = p_norm @ q_norm
-        # print(f"-----sims: mean {sum(sims)/len(sims)} sorted list: {sims.argsort()}")
         chosen_k = self.k if k is None else k
-        
+
         if self.enable_dynamic_k:
-            # min, but only when sim is > thresh
             num_above = int((sims > self.dynamic_k_threshold).sum())
             chosen_k = max(self.dynamic_k_minimum, num_above)
             print(f"---- chosen k = {chosen_k}, num_above: {num_above}, thresh: {self.dynamic_k_threshold} ----")
 
         top = sims.argsort()[-chosen_k:][::-1]
+        return [passages[i] for i in top]
 
+    def _query_sentence_transformer_with_cache(
+        self,
+        passages: list[str],
+        question: str,
+        k: int | None = None,
+        cached_embeddings: Any = None,
+        doc_hash: str | None = None
+    ) -> list[str]:
+        """
+        Query with caching support.
 
+        If cached_embeddings is provided, skip passage embedding computation.
+        Otherwise compute embeddings and cache them if doc_hash is provided.
+        """
+        # 1. Encode query (always needed, but fast ~10ms)
+        q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
 
+        # 2. Get or compute passage embeddings
+        if cached_embeddings is not None:
+            p_embs = cached_embeddings
+        else:
+            # Compute passage embeddings (the expensive part: ~30 sec)
+            p_embs = self.model.encode(
+                passages,
+                batch_size=self.batch_size,
+                show_progress_bar=False,
+            )
+            # Cache for future queries on this document
+            if self.enable_embedding_cache and doc_hash is not None:
+                self._cache_embeddings(doc_hash, passages, p_embs)
 
+        # 3. Cosine similarity (fast ~50ms)
+        q_norm = q_emb / (np.linalg.norm(q_emb) + 1e-8)
+        p_norm = p_embs / (
+            np.linalg.norm(p_embs, axis=1, keepdims=True) + 1e-8
+        )
+        sims = p_norm @ q_norm
+
+        chosen_k = self.k if k is None else k
+
+        if self.enable_dynamic_k:
+            num_above = int((sims > self.dynamic_k_threshold).sum())
+            chosen_k = max(self.dynamic_k_minimum, num_above)
+            print(f"---- chosen k = {chosen_k}, num_above: {num_above}, thresh: {self.dynamic_k_threshold} ----")
+
+        top = sims.argsort()[-chosen_k:][::-1]
         return [passages[i] for i in top]
 
     def _rerank_passages(self, pairs: list[tuple[str, str]], chunk: int) -> np.ndarray:
@@ -342,18 +419,36 @@ class EmbeddingRetriever(Retriever):
 
 
     def query(self, docs: Sequence[str], question: str, k: int | None = None) -> list[str]:
-        # ---- 1. collect & sanitise chunks ----------------------------------
-        passages: list[str] = []
-        for d in docs:
-            d = _to_unicode(d)  # 🆕 make sure the doc itself is clean
-            for chunk in self._improved_chunk(d):  #self._chunk(d):
-                # flatten lists / tuples
-                if isinstance(chunk, (list, tuple)):
-                    passages.extend(_to_unicode(c) for c in chunk)
-                else:
-                    passages.append(_to_unicode(chunk))  # 🆕
+        # ---- 1. Check cache for single document case -----------------------
+        # Caching works best when querying a single document multiple times
+        cached_passages = None
+        cached_embeddings = None
+        doc_hash = None
 
-        passages = [p.strip() for p in passages if p and p.strip()]
+        if self.enable_embedding_cache and len(docs) == 1 and not self.is_cross_encoder:
+            doc_hash = self._compute_doc_hash(docs[0])
+            cached = self._get_cached_embeddings(doc_hash)
+            if cached is not None:
+                cached_passages = cached['passages']
+                cached_embeddings = cached['embeddings']
+                # print(f"---- CACHE HIT: reusing embeddings for doc (hash: {doc_hash[:8]}...) ----")
+
+        # ---- 2. collect & sanitise chunks (or use cached) ------------------
+        if cached_passages is not None:
+            passages = cached_passages
+        else:
+            passages: list[str] = []
+            for d in docs:
+                d = _to_unicode(d)  # make sure the doc itself is clean
+                for chunk in self._improved_chunk(d):
+                    # flatten lists / tuples
+                    if isinstance(chunk, (list, tuple)):
+                        passages.extend(_to_unicode(c) for c in chunk)
+                    else:
+                        passages.append(_to_unicode(chunk))
+
+            passages = [p.strip() for p in passages if p and p.strip()]
+
         if not passages:
             return []
 
@@ -361,11 +456,15 @@ class EmbeddingRetriever(Retriever):
             print(f"-------first query run, k: {k}")
             self.is_first_run = False
 
-        # ---- 2. encode safely ----------------------------------------------
+        # ---- 3. encode safely ----------------------------------------------
         if self.is_cross_encoder:
             return self._query_cross_encoder(passages, question, k)
         else:
-            return self._query_sentence_transformer(passages, question, k)
+            return self._query_sentence_transformer_with_cache(
+                passages, question, k,
+                cached_embeddings=cached_embeddings,
+                doc_hash=doc_hash
+            )
 
 
 

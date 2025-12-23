@@ -20,7 +20,10 @@ from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
 class FileParser:
     """Handles file parsing and data processing."""
-    
+
+    # Metadata columns that should not be included as schema columns for LLM extraction
+    METADATA_COLUMNS = {'papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata'}
+
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(exist_ok=True)
@@ -244,15 +247,19 @@ class FileParser:
         # Extract columns info, using metadata if available
         columns = []
         for col in df.columns:
+            # Skip metadata columns - these are not schema columns for LLM extraction
+            if col.lower() in self.METADATA_COLUMNS or col.startswith('_'):
+                continue
+
             non_null_count = int(df[col].notna().sum())
             unique_count = int(df[col].nunique())
-            
+
             # Ensure values are valid
             if non_null_count < 0:
                 non_null_count = 0
             if unique_count < 0:
                 unique_count = 0
-            
+
             # Use metadata if available, otherwise generate basic info
             allowed_values = None
             if col in metadata_info['column_definitions']:
@@ -425,8 +432,9 @@ class FileParser:
         if '_row_name' in sample_row and '_papers' in sample_row:
             # QBSD extracted data format
             for key, value in sample_row.items():
-                if key.startswith('_'):
-                    continue  # Skip metadata fields
+                # Skip metadata columns - these are not schema columns for LLM extraction
+                if key.startswith('_') or key.lower() in self.METADATA_COLUMNS:
+                    continue
 
                 # Get metadata from schema if available
                 meta = schema_metadata.get(key, {})
@@ -444,6 +452,10 @@ class FileParser:
             # DataRow format (from complete export)
             sample_data = sample_row['data']
             for key in sample_data.keys():
+                # Skip metadata columns - these are not schema columns for LLM extraction
+                if key.startswith('_') or key.lower() in self.METADATA_COLUMNS:
+                    continue
+
                 # Get metadata from schema if available
                 meta = schema_metadata.get(key, {})
                 col_info = ColumnInfo(
@@ -459,6 +471,10 @@ class FileParser:
         else:
             # Regular JSON format
             for key in sample_row.keys():
+                # Skip metadata columns - these are not schema columns for LLM extraction
+                if key.startswith('_') or key.lower() in self.METADATA_COLUMNS:
+                    continue
+
                 # Get metadata from schema if available
                 meta = schema_metadata.get(key, {})
                 col_info = ColumnInfo(

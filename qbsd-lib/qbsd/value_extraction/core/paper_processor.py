@@ -1,7 +1,7 @@
 """Paper processing for value extraction."""
 
 from pathlib import Path
-from typing import Dict, Any, Set, Callable, Optional
+from typing import Dict, Any, Set, Callable, Optional, List, Iterator
 from qbsd.core.schema import Schema, Column
 from qbsd.core.llm_backends import LLMInterface
 from qbsd.core import utils
@@ -15,6 +15,16 @@ from ..config.constants import (
     SAFETY_MARGIN_ALL_MODE,
     SAFETY_MARGIN_SINGLE_MODE
 )
+
+
+def _chunk_list(lst: List, size: int) -> Iterator[List]:
+    """Split list into chunks of given size."""
+    for i in range(0, len(lst), size):
+        yield lst[i:i + size]
+
+
+# Default batch size for fallback column extraction
+FALLBACK_BATCH_SIZE = 3
 
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
 OnValueExtractedCallback = Callable[[str, str, Any], None]
@@ -211,6 +221,86 @@ class PaperProcessor:
             print(f"⚠️  parse failure for column {col.name}: {e}")
             return {}
 
+    def _batch_column_attempt(self,
+                              columns: List[Column],
+                              retriever,
+                              paper_text: str,
+                              schema: Schema,
+                              paper_title: str,
+                              base_k: int = 8) -> Dict[str, Any]:
+        """Extract multiple columns in a single LLM call with combined retrieval.
+
+        Args:
+            columns: List of columns to extract together (2-4 columns typically)
+            retriever: Retriever to use (can be None for snippet fallback)
+            paper_text: Full paper text
+            schema: Schema containing query
+            paper_title: Paper title for logging
+            base_k: Base retrieval k, will be scaled by batch size
+
+        Returns:
+            Dict mapping column names to their extracted values
+        """
+        batch_size = len(columns)
+        if batch_size == 0:
+            return {}
+
+        # Scale k by batch size (more columns = need more passages), cap at 15
+        scaled_k = min(base_k * batch_size, 15)
+
+        # Prepare text based on retriever availability
+        if retriever is not None:
+            try:
+                # Combined retrieval query for all columns in batch
+                retrieval_query = self.text_processor.build_retrieval_query(schema, columns)
+                passages = retriever.query([paper_text], retrieval_query, k=scaled_k)
+                if passages:
+                    eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(passages)
+                else:
+                    eff = paper_text
+            except Exception as e:
+                print(f"⚠️  Batch retrieval failed: {e}, using full text")
+                eff = paper_text
+        else:
+            # Fallback: combine keywords from all columns for heuristic snippets
+            all_keywords = []
+            for col in columns:
+                all_keywords.extend(self.text_processor.keywords_for_column(col))
+            eff = self.text_processor.heuristic_snippets(paper_text, all_keywords)
+
+        # Build LLM call with all columns (using "all" mode for batch)
+        msgs = self.prompt_builder.build_val_messages(
+            schema.query, paper_title, eff, [col.to_dict() for col in columns],
+            mode="all", strict=True  # strict for fallback
+        )
+
+        # Skip truncation for long context models
+        should_truncate = not self._should_skip_truncation()
+        max_ctx = getattr(self.llm, 'context_window_size', 8192) if hasattr(self.llm, 'context_window_size') else 8192
+        trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=512,
+                                 safety_margins=SAFETY_MARGIN_ALL_MODE,
+                                 context_window_size=max_ctx)
+        raw = self.llm.generate(trimmed)
+
+        try:
+            parsed = self.json_parser.parse_response(raw)
+            requested = [c.name for c in columns]
+            # Build allowed_values dict for postprocessing
+            column_allowed_values = {
+                c.name: c.allowed_values
+                for c in columns
+                if c.allowed_values
+            }
+            cleaned, unmatched = self.json_parser.postprocess(parsed, requested, column_allowed_values)
+
+            # Track unmatched values for schema evolution
+            self._track_unmatched_values(unmatched, paper_title)
+
+            return cleaned
+        except Exception as e:
+            print(f"⚠️  Batch parse failure for columns {[c.name for c in columns]}: {e}")
+            return {}
+
     def extract_values_for_paper(self,
                                 paper_title: str,
                                 paper_text: str,
@@ -344,31 +434,47 @@ class PaperProcessor:
                         self._cached_fallback_retriever = self._create_fallback_retriever()
                     fallback_retriever = self._cached_fallback_retriever
                 
-                for col in missing:
-                    # First fallback: expanded k + strict prompt with retrieval
-                    expanded_k = self.text_processor.expand_k(retrieval_k)
-                    col_res = {}
-                    
-                    # Only try retrieval fallback if we have a working fallback retriever
-                    if fallback_retriever is not None:
-                        col_res = self._single_column_attempt_with_retriever(
-                            col, strict=True, k_override=expanded_k, retriever=fallback_retriever, 
-                            paper_text=paper_text, schema=schema, paper_title=paper_title, use_snippets=False
+                # First fallback: batched extraction with retriever
+                expanded_k = self.text_processor.expand_k(retrieval_k)
+                still_missing = []
+
+                if fallback_retriever is not None:
+                    for batch in _chunk_list(missing, FALLBACK_BATCH_SIZE):
+                        print(f"  📦 Batch fallback ({len(batch)} columns): {[c.name for c in batch]}")
+                        batch_results = self._batch_column_attempt(
+                            batch, retriever=fallback_retriever,
+                            paper_text=paper_text, schema=schema,
+                            paper_title=paper_title, base_k=expanded_k
                         )
-                    
-                    if not col_res:
-                        # Second fallback: heuristic snippets (no retriever) or even stricter evidence demand
-                        col_res = self._single_column_attempt_with_retriever(
-                            col, strict=True, k_override=None, retriever=None,
-                            paper_text=paper_text, schema=schema, paper_title=paper_title, use_snippets=True
+                        # Process batch results
+                        for col in batch:
+                            col_res = batch_results.get(col.name)
+                            if col_res:
+                                col_res = self._attach_source_to_excerpts({col.name: col_res}, paper_title).get(col.name, col_res)
+                                cleaned[col.name] = col_res
+                                if row_name:
+                                    self._notify_value_extracted(row_name, col.name, col_res)
+                            else:
+                                still_missing.append(col)
+                else:
+                    still_missing = missing
+
+                # Second fallback: heuristic snippets for columns that still failed
+                if still_missing:
+                    print(f"  📦 Snippet fallback for {len(still_missing)} remaining: {[c.name for c in still_missing]}")
+                    for batch in _chunk_list(still_missing, FALLBACK_BATCH_SIZE):
+                        batch_results = self._batch_column_attempt(
+                            batch, retriever=None,
+                            paper_text=paper_text, schema=schema,
+                            paper_title=paper_title, base_k=expanded_k
                         )
-                    if col_res:
-                        # Attach source to fallback-extracted excerpts
-                        col_res = self._attach_source_to_excerpts({col.name: col_res}, paper_title).get(col.name, col_res)
-                        cleaned[col.name] = col_res
-                        # Notify callback for fallback-extracted column
-                        if row_name:
-                            self._notify_value_extracted(row_name, col.name, col_res)
+                        for col in batch:
+                            col_res = batch_results.get(col.name)
+                            if col_res:
+                                col_res = self._attach_source_to_excerpts({col.name: col_res}, paper_title).get(col.name, col_res)
+                                cleaned[col.name] = col_res
+                                if row_name:
+                                    self._notify_value_extracted(row_name, col.name, col_res)
 
             return cleaned
 

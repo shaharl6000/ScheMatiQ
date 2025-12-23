@@ -100,6 +100,7 @@ class SessionMetadata(BaseModel):
     processing_stats: Dict[str, Any] = Field(default_factory=dict)  # Document processing statistics
     original_row_count: Optional[int] = None  # Original uploaded data row count
     additional_rows_added: int = 0  # Rows added through document processing
+    cloud_dataset: Optional[str] = None  # Original cloud dataset name (e.g., "nes_full_text")
 
 class DataStatistics(BaseModel):
     """Statistics about the dataset."""

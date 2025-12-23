@@ -29,6 +29,7 @@ import {
   EditColumnRequest,
 } from '../../types';
 import { schemaAPI } from '../../services/api';
+import { getApiKeyForProvider } from '../../utils/apiKeyStorage';
 
 interface ColumnDialogProps {
   open: boolean;
@@ -136,12 +137,26 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
     setLoading(true);
     try {
       if (mode === 'add') {
+        // Get API key from localStorage for value extraction
+        const apiKey = await getApiKeyForProvider('gemini');
+
         const request: AddColumnRequest = {
           name: formData.name.trim(),
           definition: formData.definition.trim(),
           rationale: formData.rationale.trim(),
           allowed_values: formData.allowed_values.length > 0 ? formData.allowed_values : undefined,
         };
+
+        // Include LLM config if API key is available
+        if (apiKey) {
+          request.llm_config = {
+            provider: 'gemini',
+            model: 'gemini-2.5-flash-lite',
+            api_key: apiKey,
+            max_output_tokens: 2048,
+            temperature: 0.1
+          };
+        }
 
         const response = await schemaAPI.addColumn(sessionId, request);
         onSuccess(

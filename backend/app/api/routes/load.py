@@ -1003,6 +1003,7 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
         # Update session metadata
         existing_docs = session.metadata.uploaded_documents or []
         session.metadata.uploaded_documents = existing_docs + downloaded_files
+        session.metadata.cloud_dataset = request.dataset  # Store original cloud dataset name
         session.status = SessionStatus.DOCUMENTS_UPLOADED
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)

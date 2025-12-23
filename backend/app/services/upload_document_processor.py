@@ -3,7 +3,8 @@
 import json
 import asyncio
 import time
-from typing import Dict, Any, List
+import math
+from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime
 
@@ -27,7 +28,7 @@ except ImportError as e:
     print(f"✗ QBSD components not available for upload processing: {e}")
     QBSD_AVAILABLE = False
 
-from app.models.session import SessionStatus, DataRow
+from app.models.session import SessionStatus, DataRow, DataStatistics, ColumnInfo, VisualizationSession
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
@@ -36,6 +37,9 @@ from app.core.config import DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_TEMPERATURE, DEFA
 
 class UploadDocumentProcessor(WebSocketBroadcasterMixin):
     """Handles document processing for upload sessions using QBSD pipeline."""
+
+    # Metadata columns that should not be sent to LLM for extraction
+    METADATA_COLUMNS = {'papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata'}
 
     def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager):
         super().__init__(websocket_manager)
@@ -246,7 +250,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             
             # Merge additional extracted data into main data file
             await self.broadcast_progress(session_id, "Merging extracted data", 0.95, "processing_documents")
-            rows_added = await self._merge_extracted_data(session_id)
+            current_session = self.session_manager.get_session(session_id)
+            rows_added = await self._merge_extracted_data(session_id, current_session)
 
             # Update session as completed
             await self.broadcast_progress(session_id, "Processing complete", 1.0, "processing_documents")
@@ -264,6 +269,19 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             print(f"🔍 DEBUG: Session after completion update: status={session.status}, additional_rows={session.metadata.additional_rows_added}")
 
             self.session_manager.update_session(session)
+
+            # Recompute statistics from merged data
+            try:
+                statistics = self._compute_statistics_from_data(session_id, session)
+                if statistics:
+                    session.statistics = statistics
+                    self.session_manager.update_session(session)
+                    print(f"✓ Session statistics updated after document processing")
+                else:
+                    print(f"⚠️  No statistics generated for session {session_id}")
+            except Exception as e:
+                print(f"⚠️  Failed to compute statistics for session {session_id}: {e}")
+                # Don't fail the entire operation - statistics are supplementary
 
             # Capture schema baseline for re-extraction change detection
             self.session_manager.capture_schema_baseline(session_id)
@@ -305,8 +323,13 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 del self.running_sessions[session_id]
     
     
-    async def _merge_extracted_data(self, session_id: str) -> int:
-        """Merge newly extracted data with existing session data. Returns number of rows added."""
+    async def _merge_extracted_data(self, session_id: str, session: VisualizationSession = None) -> int:
+        """Merge newly extracted data with existing session data. Returns number of rows added.
+
+        Args:
+            session_id: The session ID
+            session: The session object (optional, used to get cloud_dataset for document_directory)
+        """
         session_dir = Path("./data") / session_id
         original_data_file = session_dir / "data.jsonl"
         additional_data_file = session_dir / "additional_data.jsonl"
@@ -314,6 +337,12 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         if not additional_data_file.exists():
             print(f"No additional data to merge for session {session_id}")
             return 0
+
+        # Get cloud dataset name for document_directory if available
+        cloud_dataset = None
+        if session and session.metadata and session.metadata.cloud_dataset:
+            cloud_dataset = session.metadata.cloud_dataset
+            print(f"DEBUG: Using cloud_dataset '{cloud_dataset}' for document_directory")
 
         # Read original data to get the base row count and detect row name column pattern
         original_rows = []
@@ -353,8 +382,16 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             # Clean the data by removing metadata fields and ensuring proper types
                             clean_data = {}
                             for key, value in row_data.items():
-                                # Skip metadata fields (_row_name, _papers) and 'row_name' which is used for row identifier
-                                if key.startswith('_') or key == 'row_name':
+                                # Skip most metadata fields (_row_name, _papers, row_name, papers)
+                                if key.startswith('_') or key.lower() in {'papers', 'row_name', '_row_name', '_papers', '_metadata'}:
+                                    continue
+
+                                # Special handling for document_directory - use cloud_dataset if available
+                                if key.lower() == 'document_directory':
+                                    if cloud_dataset:
+                                        clean_data['document_directory'] = cloud_dataset
+                                    else:
+                                        clean_data['document_directory'] = value
                                     continue
 
                                 # Try to parse string values that look like JSON/Python objects
@@ -594,8 +631,16 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         base_schema = session.metadata.extracted_schema or {}
 
         # Build schema columns from session.columns (the editable version)
+        # Filter out metadata columns that should not be sent to LLM for extraction
         schema_columns = []
         for col in session.columns:
+            # Skip columns with no name or metadata columns
+            if not col.name:
+                continue
+            # Skip metadata columns - these are not for LLM extraction
+            if col.name.lower() in self.METADATA_COLUMNS or col.name.startswith('_'):
+                continue
+
             col_dict = {
                 "name": col.name,
                 "column": col.name,  # Some code expects 'column' key
@@ -921,3 +966,117 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         for file_path in directory.glob('._*'):
             print(f"🧹 Removing hidden system file: {file_path}")
             file_path.unlink()
+
+    def _compute_statistics_from_data(self, session_id: str, session: VisualizationSession) -> Optional[DataStatistics]:
+        """Compute statistics from the merged data.jsonl file.
+
+        NOTE: Similar to qbsd_runner._compute_statistics_from_extracted_data() but:
+        - Reads from data.jsonl (not extracted_data.jsonl)
+        - Handles DataRow format with 'data' wrapper
+        - Does not include schema_evolution (upload sessions don't track evolution)
+
+        Args:
+            session_id: The session ID
+            session: The session object with columns
+
+        Returns:
+            DataStatistics object or None if no data available
+        """
+        session_dir = Path("./data") / session_id
+        data_file = session_dir / "data.jsonl"
+
+        if not data_file.exists():
+            print(f"⚠️  Statistics: No data.jsonl found for session {session_id}")
+            return None
+
+        # Read all rows from the data file
+        data_rows = []
+        try:
+            with open(data_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        data_rows.append(json.loads(line))
+        except Exception as e:
+            print(f"⚠️  Statistics: Error reading data: {e}")
+            return None
+
+        if not data_rows:
+            print(f"⚠️  Statistics: No data rows found in data.jsonl")
+            return None
+
+        if not session.columns:
+            print(f"⚠️  Statistics: No columns defined in session {session_id}")
+            return None
+
+        # Build column stats from session.columns + data
+        columns = []
+        for col in session.columns:
+            # Count non-null values for this column
+            def is_valid_value(value):
+                if value is None:
+                    return False
+                if isinstance(value, dict):
+                    answer = value.get("answer")
+                    if answer is None or answer == "None" or answer == "" or answer == "[]":
+                        return False
+                    # Also check for "not found" type values
+                    if isinstance(answer, str) and answer.strip().lower() in ["not found", "n/a", "none", "unknown"]:
+                        return False
+                    return True
+                # For non-dict values, check if it's not None or "None" string
+                if isinstance(value, str) and value.strip().lower() in ["not found", "n/a", "none", "unknown", ""]:
+                    return False
+                return value != "None" and value != "" and value != "[]"
+
+            non_null_count = 0
+            unique_values = set()
+
+            for row in data_rows:
+                # Handle both DataRow format (with 'data' key) and direct format
+                row_data = row.get('data', row)
+
+                if col.name in row_data:
+                    value = row_data[col.name]
+                    if is_valid_value(value):
+                        non_null_count += 1
+                    # Count unique values (serialize to JSON for comparison)
+                    try:
+                        unique_values.add(json.dumps(value, sort_keys=True))
+                    except (TypeError, ValueError):
+                        unique_values.add(str(value))
+
+            unique_count = len(unique_values)
+
+            col_info = ColumnInfo(
+                name=col.name,
+                definition=col.definition,
+                rationale=col.rationale,
+                data_type="object",  # Upload data is typically complex objects
+                non_null_count=non_null_count,
+                unique_count=unique_count,
+                source_document=col.source_document,
+                discovery_iteration=col.discovery_iteration,
+                allowed_values=col.allowed_values,
+                auto_expand_threshold=col.auto_expand_threshold
+            )
+            columns.append(col_info)
+
+        # Calculate overall completeness
+        total_cells = len(data_rows) * len(columns)
+        non_null_cells = sum(col.non_null_count or 0 for col in columns)
+        completeness = (non_null_cells / total_cells * 100) if total_cells > 0 else 0.0
+
+        # Ensure completeness is a valid number
+        if math.isnan(completeness) or math.isinf(completeness):
+            completeness = 0.0
+
+        stats = DataStatistics(
+            total_rows=len(data_rows),
+            total_columns=len(columns),
+            completeness=completeness,
+            column_stats=columns,
+            schema_evolution=None  # Upload sessions don't have schema evolution
+        )
+
+        print(f"✓ Statistics computed: {len(data_rows)} rows, {len(columns)} columns, {completeness:.1f}% complete")
+        return stats

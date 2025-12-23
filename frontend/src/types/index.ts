@@ -341,6 +341,13 @@ export interface AddColumnRequest {
   rationale: string;
   document_paths?: string[]; // Specific documents to process
   allowed_values?: string[]; // Closed set of valid values
+  llm_config?: {
+    provider: string;
+    model: string;
+    api_key: string;
+    max_output_tokens?: number;
+    temperature?: number;
+  };
 }
 
 export interface MergeColumnsRequest {
@@ -511,6 +518,13 @@ export interface PaperDiscoveryResult {
 
 export interface ReextractionRequest {
   columns: string[];
+  llm_config?: {
+    provider: string;
+    model: string;
+    api_key: string;
+    max_output_tokens?: number;
+    temperature?: number;
+  };
 }
 
 export interface ReextractionResponse {

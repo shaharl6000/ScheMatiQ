@@ -41,6 +41,7 @@ class ColumnAddRequest(BaseModel):
     allowed_values: Optional[List[str]] = None  # Closed set of valid values
     documents_path: Optional[str] = None
     data_type: str = "text"
+    llm_config: Optional[Dict[str, Any]] = None  # User-provided LLM config with API key
 
 class ColumnMergeRequest(BaseModel):
     source_columns: List[str]
@@ -222,7 +223,18 @@ async def add_column(
             "column": new_column.model_dump(),
             "columns": [col.model_dump() for col in session.columns]
         })
-        
+
+        # Save user-provided LLM config if provided (for value extraction)
+        if add_request.llm_config:
+            session_dir = Path("./data") / session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+            user_config_file = session_dir / "user_llm_config.json"
+            with open(user_config_file, 'w') as f:
+                json.dump(add_request.llm_config, f, indent=2)
+            config_for_log = {k: v for k, v in add_request.llm_config.items() if k != 'api_key'}
+            has_api_key = 'api_key' in add_request.llm_config and add_request.llm_config['api_key']
+            print(f"DEBUG: Saved user LLM config for add-column: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
+
         # Schedule value extraction for new column
         background_tasks.add_task(
             schema_manager.extract_values_for_new_column,
@@ -702,6 +714,7 @@ class PaperDiscoveryResponse(BaseModel):
 
 class ReextractionRequest(BaseModel):
     columns: List[str]
+    llm_config: Optional[Dict[str, Any]] = None  # User-provided LLM config with API key
 
 
 class ReextractionResponse(BaseModel):
@@ -779,6 +792,18 @@ async def start_reextraction(
 
         if not request.columns:
             raise HTTPException(status_code=400, detail="No columns specified for re-extraction")
+
+        # Save user-provided LLM config if provided
+        if request.llm_config:
+            session_dir = Path("./data") / session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+            user_config_file = session_dir / "user_llm_config.json"
+            with open(user_config_file, 'w') as f:
+                json.dump(request.llm_config, f, indent=2)
+            # Log without exposing full API key
+            config_for_log = {k: v for k, v in request.llm_config.items() if k != 'api_key'}
+            has_api_key = 'api_key' in request.llm_config and request.llm_config['api_key']
+            print(f"DEBUG: Saved user LLM config for re-extraction: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
 
         result = await reextraction_service.start_reextraction(
             session_id,
