@@ -204,6 +204,26 @@ cmd_setup() {
 # COMMAND: deploy
 # ============================================================================
 
+deploy_with_retry() {
+    local service_name="$1"
+    local max_retries=3
+    local retry=0
+
+    while [[ $retry -lt $max_retries ]]; do
+        if railway up --service "$service_name" --detach; then
+            success "Deployment initiated for $service_name!"
+            info "Check progress: railway logs --service $service_name"
+            return 0
+        fi
+        retry=$((retry + 1))
+        if [[ $retry -lt $max_retries ]]; then
+            warn "Upload failed, retrying ($retry/$max_retries)..."
+            sleep 5
+        fi
+    done
+    return 1
+}
+
 cmd_deploy() {
     local target="${1:-all}"
 
@@ -219,16 +239,14 @@ cmd_deploy() {
             [[ -z "$BACKEND_SERVICE" ]] && die "BACKEND_SERVICE not configured. Run setup first."
             info "Deploying to service: $BACKEND_SERVICE"
             info "This may take several minutes (ML dependencies)..."
-            railway up --service "$BACKEND_SERVICE" || die "Deployment failed"
-            success "Backend deployed!"
+            deploy_with_retry "$BACKEND_SERVICE" || die "Deployment failed after 3 attempts"
             ;;
 
         frontend)
             header "Deploying Frontend"
             [[ -z "$FRONTEND_SERVICE" ]] && die "FRONTEND_SERVICE not configured. Run setup first."
             info "Deploying to service: $FRONTEND_SERVICE"
-            railway up --service "$FRONTEND_SERVICE" || die "Deployment failed"
-            success "Frontend deployed!"
+            deploy_with_retry "$FRONTEND_SERVICE" || die "Deployment failed after 3 attempts"
             ;;
 
         all)
@@ -238,13 +256,13 @@ cmd_deploy() {
             [[ -z "$FRONTEND_SERVICE" ]] && die "FRONTEND_SERVICE not configured. Run setup first."
 
             info "Deploying backend to: $BACKEND_SERVICE"
-            railway up --service "$BACKEND_SERVICE" || warn "Backend deployment had issues"
+            deploy_with_retry "$BACKEND_SERVICE" || warn "Backend deployment had issues"
 
             echo ""
             info "Deploying frontend to: $FRONTEND_SERVICE"
-            railway up --service "$FRONTEND_SERVICE" || warn "Frontend deployment had issues"
+            deploy_with_retry "$FRONTEND_SERVICE" || warn "Frontend deployment had issues"
 
-            success "Deployment complete!"
+            success "Deployment initiated!"
             ;;
 
         *)
@@ -253,7 +271,7 @@ cmd_deploy() {
     esac
 
     echo ""
-    info "View at: https://railway.app/dashboard"
+    info "View build progress at: https://railway.app/dashboard"
 }
 
 # ============================================================================

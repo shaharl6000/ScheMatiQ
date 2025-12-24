@@ -17,19 +17,41 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { TrendingUp, FileText, Info } from 'lucide-react';
+import { TrendingUp, FileText, Info, Plus, Edit, Trash2 } from 'lucide-react';
 
-import { DataStatistics, SchemaEvolution } from '../../types';
+import { DataStatistics, SchemaEvolution, CreationMetadata, ModificationAction } from '../../types';
+import { CollapsibleSection, InfoCard } from '../shared';
 
 interface StatsDashboardProps {
   statistics: DataStatistics;
+  creationMetadata?: CreationMetadata;
+  modificationHistory?: ModificationAction[];
 }
 
-const StatsDashboard: React.FC<StatsDashboardProps> = ({ statistics }) => {
+const StatsDashboard: React.FC<StatsDashboardProps> = ({
+  statistics,
+  creationMetadata,
+  modificationHistory = []
+}) => {
   // Filter out excerpt columns from statistics
   const filteredColumnStats = statistics.column_stats.filter(
     col => !col.name.endsWith('_excerpt')
   );
+
+  // Count modifications by type
+  const modificationCounts = modificationHistory.reduce((acc, mod) => {
+    acc[mod.action_type] = (acc[mod.action_type] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'Unknown';
+    try {
+      return new Date(dateString).toLocaleString();
+    } catch {
+      return 'Unknown';
+    }
+  };
 
   // Prepare data for charts (excluding excerpt columns)
   const completenessData = filteredColumnStats.map(col => ({
@@ -220,8 +242,92 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({ statistics }) => {
         </CardContent>
       </Card>
 
-      {/* Schema Evolution Section */}
-      <SchemaEvolutionSection evolution={statistics.schema_evolution} columnStats={statistics.column_stats} />
+      {/* Advanced Statistics Section - Collapsible */}
+      <CollapsibleSection title="Advanced Statistics" defaultExpanded={false}>
+        <div className="space-y-6">
+          {/* Creation Information */}
+          {creationMetadata && (
+            <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+              <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-3 flex items-center gap-2">
+                <Info className="h-4 w-4" />
+                Creation Information
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                <InfoCard
+                  title="Created"
+                  value={formatDate(creationMetadata.created_at)}
+                  size="small"
+                />
+                <InfoCard
+                  title="LLM Model"
+                  value={creationMetadata.llm_model || 'Unknown'}
+                  size="small"
+                />
+                <InfoCard
+                  title="Iterations"
+                  value={creationMetadata.iterations_count || 0}
+                  size="small"
+                />
+                <InfoCard
+                  title="Convergence"
+                  value={creationMetadata.convergence_achieved ? 'Yes' : 'No'}
+                  size="small"
+                />
+              </div>
+              {creationMetadata.creation_query && (
+                <div className="mt-3 p-3 bg-white dark:bg-blue-900 rounded border border-blue-200 dark:border-blue-700">
+                  <div className="text-xs text-blue-700 dark:text-blue-300 font-medium mb-1">Creation Query</div>
+                  <div className="text-sm text-blue-900 dark:text-blue-100 italic">
+                    "{creationMetadata.creation_query}"
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Modification Summary */}
+          {modificationHistory.length > 0 && (
+            <div className="bg-amber-50 dark:bg-amber-950 p-4 rounded-lg border border-amber-200 dark:border-amber-800">
+              <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-3 flex items-center gap-2">
+                <Edit className="h-4 w-4" />
+                Modifications Summary
+              </h4>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="flex items-center gap-2 p-2 bg-white dark:bg-amber-900 rounded border border-amber-200 dark:border-amber-700">
+                  <Plus className="h-4 w-4 text-green-600" />
+                  <div>
+                    <div className="text-xs text-amber-700 dark:text-amber-300">Columns Added</div>
+                    <div className="text-lg font-bold text-amber-900 dark:text-amber-100">
+                      {modificationCounts['column_added'] || 0}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 p-2 bg-white dark:bg-amber-900 rounded border border-amber-200 dark:border-amber-700">
+                  <Edit className="h-4 w-4 text-blue-600" />
+                  <div>
+                    <div className="text-xs text-amber-700 dark:text-amber-300">Columns Edited</div>
+                    <div className="text-lg font-bold text-amber-900 dark:text-amber-100">
+                      {modificationCounts['column_edited'] || 0}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 p-2 bg-white dark:bg-amber-900 rounded border border-amber-200 dark:border-amber-700">
+                  <Trash2 className="h-4 w-4 text-red-600" />
+                  <div>
+                    <div className="text-xs text-amber-700 dark:text-amber-300">Columns Deleted</div>
+                    <div className="text-lg font-bold text-amber-900 dark:text-amber-100">
+                      {modificationCounts['column_deleted'] || 0}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Schema Evolution Section */}
+          <SchemaEvolutionSection evolution={statistics.schema_evolution} columnStats={statistics.column_stats} />
+        </div>
+      </CollapsibleSection>
     </div>
   );
 };

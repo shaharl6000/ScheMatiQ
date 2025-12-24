@@ -4,7 +4,8 @@ import hashlib
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from app.models.session import VisualizationSession, SessionType, ColumnInfo, ColumnBaseline, SchemaBaseline
+from app.models.session import VisualizationSession, SessionType, SessionStatus, ColumnInfo, ColumnBaseline, SchemaBaseline
+from app.models.modification import CreationMetadata, ModificationAction
 from app.storage import get_storage, StorageInterface
 
 
@@ -42,6 +43,8 @@ class SessionManager:
                     session_data = self._storage.get_session_sync(session_id)
                     if session_data:
                         session = VisualizationSession(**session_data)
+                        # Migrate session to include new fields if missing
+                        session = self.migrate_session(session)
                         self._sessions[session.id] = session
                 except Exception as e:
                     print(f"Error loading session {session_id}: {e}")
@@ -146,3 +149,92 @@ class SessionManager:
         self.update_session(session)
         print(f"DEBUG: Captured schema baseline for session {session_id} with {len(columns_dict)} columns")
         return True
+
+    def finalize_creation(self, session_id: str, llm_model: str = "", llm_provider: str = "") -> bool:
+        """
+        Finalize QBSD creation by capturing immutable creation metadata.
+        Call this when QBSD schema discovery or loading completes.
+
+        Args:
+            session_id: The session ID
+            llm_model: The LLM model used for schema creation
+            llm_provider: The LLM provider (e.g., "gemini", "openai")
+
+        Returns:
+            True if creation was finalized successfully, False otherwise.
+        """
+        session = self.get_session(session_id)
+        if not session:
+            return False
+
+        # Only finalize if not already finalized
+        if session.creation_metadata is not None:
+            print(f"DEBUG: Session {session_id} already has creation metadata, skipping finalize")
+            return True
+
+        # Create immutable creation metadata
+        session.creation_metadata = CreationMetadata(
+            created_at=session.metadata.created,
+            creation_query=session.schema_query or "",
+            llm_model=llm_model,
+            llm_provider=llm_provider,
+            iterations_count=len(session.statistics.schema_evolution.snapshots) if session.statistics and session.statistics.schema_evolution else 0,
+            final_schema_size=len([c for c in session.columns if not c.name.lower().endswith('_excerpt')]),
+            convergence_achieved=(session.status == SessionStatus.COMPLETED)
+        )
+
+        self.update_session(session)
+        print(f"DEBUG: Finalized creation for session {session_id}")
+        return True
+
+    def migrate_session(self, session: VisualizationSession) -> VisualizationSession:
+        """
+        Migrate a loaded session to include new fields if missing.
+        Call this when loading sessions from storage to ensure compatibility.
+
+        Args:
+            session: The session to migrate
+
+        Returns:
+            The migrated session with all new fields initialized.
+        """
+        modified = False
+
+        # Initialize modification_history if missing
+        if not hasattr(session, 'modification_history') or session.modification_history is None:
+            session.modification_history = []
+            modified = True
+
+        # Create creation_metadata from available data if missing
+        if not hasattr(session, 'creation_metadata') or session.creation_metadata is None:
+            # Try to infer creation metadata from existing session data
+            llm_model = ""
+            llm_provider = ""
+
+            # Try to get LLM info from extracted_schema
+            if session.metadata and hasattr(session.metadata, 'extracted_schema') and session.metadata.extracted_schema:
+                llm_config = session.metadata.extracted_schema.get('llm_configuration', {})
+                schema_backend = llm_config.get('schema_creation_backend', {})
+                llm_model = schema_backend.get('model', '')
+                llm_provider = schema_backend.get('provider', '')
+
+            # Calculate iterations count from schema_evolution if available
+            iterations_count = 0
+            if session.statistics and session.statistics.schema_evolution:
+                iterations_count = len(session.statistics.schema_evolution.snapshots)
+
+            session.creation_metadata = CreationMetadata(
+                created_at=session.metadata.created if session.metadata else datetime.now(),
+                creation_query=session.schema_query or "",
+                llm_model=llm_model,
+                llm_provider=llm_provider,
+                iterations_count=iterations_count,
+                final_schema_size=len([c for c in session.columns if not c.name.lower().endswith('_excerpt')]),
+                convergence_achieved=(session.status == SessionStatus.COMPLETED)
+            )
+            modified = True
+
+        if modified:
+            print(f"DEBUG: Migrated session {session.id} with new fields")
+
+        return session

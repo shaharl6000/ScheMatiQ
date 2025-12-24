@@ -11,6 +11,7 @@ import asyncio
 from pathlib import Path
 
 from app.models.session import VisualizationSession, SessionStatus, ColumnInfo
+from app.models.modification import ModificationAction
 from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
 from app.services.schema_manager import SchemaManager
@@ -102,7 +103,21 @@ async def edit_column(
         
         if not column_found:
             raise HTTPException(status_code=404, detail=f"Column '{edit_request.old_name}' not found")
-        
+
+        # Track modification in history
+        modification = ModificationAction(
+            action_type="column_edited",
+            column_name=edit_request.new_name or edit_request.old_name,
+            details={
+                "original_name": edit_request.old_name,
+                "new_name": edit_request.new_name,
+                "definition_changed": edit_request.definition is not None,
+                "rationale_changed": edit_request.rationale is not None,
+                "allowed_values_changed": edit_request.allowed_values is not None,
+            }
+        )
+        session.modification_history.append(modification)
+
         # Update session
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
@@ -151,11 +166,22 @@ async def delete_column(session_id: str, column_name: str):
         
         if not column_found:
             raise HTTPException(status_code=404, detail=f"Column '{column_name}' not found")
-        
+
+        # Track modification in history
+        modification = ModificationAction(
+            action_type="column_deleted",
+            column_name=column_name,
+            details={
+                "had_definition": any(c.definition for c in original_columns if c.name == column_name),
+                "had_rationale": any(c.rationale for c in original_columns if c.name == column_name),
+            }
+        )
+        session.modification_history.append(modification)
+
         # Update session
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
-        
+
         # Remove column data from existing records
         print(f"DEBUG: Starting column data removal for '{column_name}' in session {session_id}")
         await schema_manager.remove_column_data(session_id, column_name)
@@ -214,9 +240,22 @@ async def add_column(
         )
         
         session.columns.append(new_column)
+
+        # Track modification in history
+        modification = ModificationAction(
+            action_type="column_added",
+            column_name=add_request.name,
+            details={
+                "definition": add_request.definition,
+                "rationale": add_request.rationale,
+                "data_type": add_request.data_type,
+            }
+        )
+        session.modification_history.append(modification)
+
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
-        
+
         # Broadcast schema update
         await websocket_manager.broadcast_schema_updated(session_id, {
             "operation": "add_column",

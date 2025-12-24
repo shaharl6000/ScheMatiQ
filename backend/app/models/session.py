@@ -5,6 +5,8 @@ from typing import List, Optional, Dict, Any, Union, Literal
 from pydantic import BaseModel, Field
 from enum import Enum
 
+from app.models.modification import CreationMetadata, ModificationAction
+
 class SessionType(str, Enum):
     """Types of visualization sessions."""
     UPLOAD = "upload"
@@ -122,6 +124,9 @@ class VisualizationSession(BaseModel):
     error_message: Optional[str] = None
     schema_suggestions: Optional[List[SchemaSuggestion]] = None  # Pending schema evolution suggestions
     schema_baseline: Optional[SchemaBaseline] = None  # Baseline for schema change detection
+    # Creation and modification tracking
+    creation_metadata: Optional[CreationMetadata] = None  # Immutable creation info
+    modification_history: List[ModificationAction] = Field(default_factory=list)  # Schema modification log
 
 class DataRow(BaseModel):
     """A single row of data."""

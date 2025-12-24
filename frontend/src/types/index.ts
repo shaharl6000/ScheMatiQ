@@ -1,5 +1,23 @@
 // Type definitions for the visualization app
 
+// Creation and modification tracking types
+export interface ModificationAction {
+  timestamp: string;
+  action_type: 'column_added' | 'column_edited' | 'column_deleted';
+  column_name: string;
+  details: Record<string, any>;
+}
+
+export interface CreationMetadata {
+  created_at: string;
+  creation_query: string;
+  llm_model: string;
+  llm_provider: string;
+  iterations_count: number;
+  final_schema_size: number;
+  convergence_achieved: boolean;
+}
+
 // Pending value for schema evolution
 export interface PendingValue {
   value: string;
@@ -79,6 +97,9 @@ export interface VisualizationSession {
   statistics?: DataStatistics;
   error_message?: string;
   schema_suggestions?: SchemaSuggestion[];  // Pending schema evolution suggestions
+  // Creation and modification tracking
+  creation_metadata?: CreationMetadata;  // Immutable creation info
+  modification_history?: ModificationAction[];  // Schema modification log
 }
 
 export interface DataRow {

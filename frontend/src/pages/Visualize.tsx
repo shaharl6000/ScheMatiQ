@@ -834,7 +834,11 @@ const Visualize = () => {
         {/* Statistics Tab */}
         <TabsContent value="stats" className="mt-4">
           {session?.statistics ? (
-            <StatsDashboard statistics={session.statistics} />
+            <StatsDashboard
+              statistics={session.statistics}
+              creationMetadata={session.creation_metadata}
+              modificationHistory={session.modification_history}
+            />
           ) : isCompleted ? (
             <Alert variant="warning">
               <AlertDescription>Statistics not available</AlertDescription>
