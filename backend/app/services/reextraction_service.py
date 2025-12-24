@@ -380,6 +380,31 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         print(f"DEBUG: Paper discovery - local: {len(local_papers)}, cloud: {len(cloud_papers)}, missing: {len(missing)}")
 
+        # Backfill papers field for rows with empty papers but available documents
+        if local_files and any(not papers for papers in row_paper_mapping.values()):
+            print(f"DEBUG: Some rows have empty papers, attempting to backfill from {len(local_files)} local documents")
+            await self._backfill_papers_from_documents(session_id, list(local_files), total_rows)
+            # Re-read row_paper_mapping after backfill to update rows_with_papers count
+            if data_file.exists():
+                row_paper_mapping = {}
+                with open(data_file, 'r') as f:
+                    row_idx = 0
+                    for line in f:
+                        if line.strip():
+                            row_idx += 1
+                            try:
+                                row = json.loads(line)
+                                row_name = row.get('row_name') or row.get('_row_name') or f"row_{row_idx}"
+                                papers_raw = row.get('papers') or row.get('_papers') or []
+                                if isinstance(papers_raw, list):
+                                    row_paper_mapping[row_name] = papers_raw
+                                else:
+                                    row_paper_mapping[row_name] = [papers_raw] if papers_raw else []
+                            except json.JSONDecodeError:
+                                continue
+                rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
+                print(f"DEBUG: After backfill - rows_with_papers: {rows_with_papers}")
+
         return {
             "total_rows": total_rows,
             "rows_with_papers": rows_with_papers,
@@ -389,6 +414,66 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "cloud_papers": cloud_papers,
             "local_papers": local_papers
         }
+
+    async def _backfill_papers_from_documents(
+        self,
+        session_id: str,
+        local_files: List[str],
+        total_rows: int
+    ):
+        """
+        Backfill the papers field in data.jsonl for rows with empty papers.
+
+        This handles legacy data where the papers field was not populated
+        during initial data creation. It matches rows to documents by index order.
+
+        Args:
+            session_id: Session identifier
+            local_files: List of local document filenames
+            total_rows: Total number of rows in data.jsonl
+        """
+        session_dir = Path("./data") / session_id
+        data_file = session_dir / "data.jsonl"
+
+        if not data_file.exists():
+            return
+
+        # Sort local files for consistent ordering
+        sorted_docs = sorted(local_files)
+        print(f"DEBUG: Backfill - {len(sorted_docs)} documents available for {total_rows} rows")
+
+        # Read all rows
+        rows = []
+        with open(data_file, 'r') as f:
+            for line in f:
+                if line.strip():
+                    rows.append(json.loads(line))
+
+        if not rows:
+            return
+
+        # Match rows to documents by index
+        updated = False
+        for idx, row in enumerate(rows):
+            papers = row.get('papers') or []
+            # Only backfill if papers is empty
+            if not papers and idx < len(sorted_docs):
+                doc_name = sorted_docs[idx]
+                row['papers'] = [doc_name]
+                updated = True
+                print(f"DEBUG: Backfill - row {idx} now linked to document '{doc_name}'")
+
+        # Write back if any updates were made
+        if updated:
+            # Backup first
+            backup_file = session_dir / f"data_backup_backfill_{int(datetime.now().timestamp())}.jsonl"
+            import shutil
+            shutil.copy2(data_file, backup_file)
+
+            with open(data_file, 'w') as f:
+                for row in rows:
+                    f.write(json.dumps(row) + '\n')
+            print(f"DEBUG: Backfill complete - updated data.jsonl with paper linkages")
 
     async def download_cloud_papers(
         self,

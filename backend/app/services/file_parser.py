@@ -339,7 +339,24 @@ class FileParser:
                     merged_data = self._merge_excerpt_columns(row_dict, source_filename)
                 else:
                     merged_data = self._sanitize_data_dict(row_dict)
-                row_data = DataRow(data=merged_data)
+
+                # Extract papers field from data if present
+                papers_col_names = ['Papers', 'papers', 'Paper', 'paper', 'Documents', 'documents']
+                papers_value = []
+                for col_name in papers_col_names:
+                    if col_name in merged_data:
+                        raw_val = merged_data.pop(col_name)  # Remove from data dict
+                        # Handle QBSD answer format
+                        if isinstance(raw_val, dict) and 'answer' in raw_val:
+                            raw_val = raw_val.get('answer')
+                        # Convert to list
+                        if isinstance(raw_val, str):
+                            papers_value = [raw_val] if raw_val else []
+                        elif isinstance(raw_val, list):
+                            papers_value = raw_val
+                        break
+
+                row_data = DataRow(data=merged_data, papers=papers_value)
                 f.write(json.dumps(row_data.model_dump()) + '\n')
         
         # Include extracted metadata in the result
@@ -526,8 +543,23 @@ class FileParser:
                         data=row_data['data']
                     )
                 else:
-                    # Regular format
-                    data_row = DataRow(data=row_data)
+                    # Regular format - extract papers field if present
+                    papers_col_names = ['Papers', 'papers', 'Paper', 'paper', 'Documents', 'documents']
+                    papers_value = []
+                    clean_data = dict(row_data)  # Copy to avoid modifying original
+                    for col_name in papers_col_names:
+                        if col_name in clean_data:
+                            raw_val = clean_data.pop(col_name)
+                            # Handle QBSD answer format
+                            if isinstance(raw_val, dict) and 'answer' in raw_val:
+                                raw_val = raw_val.get('answer')
+                            # Convert to list
+                            if isinstance(raw_val, str):
+                                papers_value = [raw_val] if raw_val else []
+                            elif isinstance(raw_val, list):
+                                papers_value = raw_val
+                            break
+                    data_row = DataRow(data=clean_data, papers=papers_value)
 
                 f.write(json.dumps(data_row.model_dump()) + '\n')
 

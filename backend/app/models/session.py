@@ -126,7 +126,7 @@ class VisualizationSession(BaseModel):
 class DataRow(BaseModel):
     """A single row of data."""
     row_name: Optional[str] = None
-    papers: Optional[List[str]] = None
+    papers: List[str] = Field(default_factory=list)  # Always a list, never None
     data: Dict[str, Any] = {}
 
 class PaginatedData(BaseModel):
