@@ -728,6 +728,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         print(f"DEBUG: Extracted row names from extraction file: {list(extracted_by_row.keys())}")
 
+        # Build a mapping from paper name stem to extracted data for fallback matching
+        # This handles cases where existing data uses row_1, row_2, etc. but extraction uses paper names
+        extracted_by_paper_stem: Dict[str, Dict[str, Any]] = {}
+        for row_name, row_data in extracted_by_row.items():
+            # The row_name from extraction is typically the paper stem (e.g., "CCTalpha")
+            extracted_by_paper_stem[row_name.lower()] = row_data
+            print(f"DEBUG: Paper stem mapping: '{row_name.lower()}' -> extracted data")
+
         # Backup existing data
         backup_file = session_dir / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
         import shutil
@@ -743,10 +751,32 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                 row = json.loads(line)
                 row_name = row.get('row_name') or row.get('_row_name')
+                papers = row.get('papers', [])
+
+                print(f"DEBUG: Processing row '{row_name}' with papers: {papers}")
+
+                # Try direct row name match first
+                extracted = None
+                match_type = None
 
                 if row_name and row_name in extracted_by_row:
                     extracted = extracted_by_row[row_name]
+                    match_type = "direct"
+                else:
+                    # Fallback: try to match by paper name stem
+                    # Papers are like "CCTalpha_22621903_full.txt", extract stem "CCTalpha"
+                    for paper in papers:
+                        # Extract paper stem (before first underscore or file extension)
+                        paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
+                        if paper_stem in extracted_by_paper_stem:
+                            extracted = extracted_by_paper_stem[paper_stem]
+                            match_type = f"paper_stem:{paper_stem}"
+                            print(f"DEBUG: Matched row '{row_name}' via paper stem '{paper_stem}'")
+                            break
+
+                if extracted:
                     rows_updated += 1
+                    print(f"DEBUG: Match found for row '{row_name}' via {match_type}")
 
                     # Update only the re-extracted columns
                     for col_name in columns:
@@ -761,7 +791,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         else:
                             print(f"DEBUG: Column '{col_name}' not found in extracted data for row '{row_name}'")
                 elif row_name:
-                    print(f"DEBUG: Row '{row_name}' has no extracted data (available: {list(extracted_by_row.keys())[:3]}...)")
+                    print(f"DEBUG: Row '{row_name}' has no extracted data (available row_names: {list(extracted_by_row.keys())[:3]}, paper_stems: {list(extracted_by_paper_stem.keys())[:3]}...)")
 
                 updated_rows.append(row)
 
