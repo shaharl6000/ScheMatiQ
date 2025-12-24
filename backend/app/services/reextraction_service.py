@@ -751,7 +751,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                 row = json.loads(line)
                 row_name = row.get('row_name') or row.get('_row_name')
-                papers = row.get('papers', [])
+                papers = row.get('papers') or []  # Handle None value
 
                 print(f"DEBUG: Processing row '{row_name}' with papers: {papers}")
 
