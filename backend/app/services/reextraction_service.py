@@ -588,22 +588,45 @@ class ReextractionService(WebSocketBroadcasterMixin):
             # Track progress via callback
             processed_count = [0]
 
+            # Capture event loop before entering thread pool
+            loop = asyncio.get_running_loop()
+
             def on_value_extracted(row_name: str, column_name: str, value: Any):
                 processed_count[0] += 1
                 operation.processed_documents = processed_count[0]
-                # Fire progress event asynchronously
-                asyncio.create_task(self.broadcast_event(
-                    operation.session_id,
-                    "reextraction_progress",
-                    {
-                        "operation_id": operation_id,
-                        "column": column_name,
-                        "progress": processed_count[0] / max(operation.total_documents * len(operation.columns), 1),
-                        "processed_documents": processed_count[0],
-                        "total_documents": operation.total_documents,
-                        "current_row": row_name
-                    }
-                ))
+                # Schedule broadcasts on main event loop from thread (fire and forget)
+                try:
+                    # 1. Broadcast individual cell value for live table updates
+                    asyncio.run_coroutine_threadsafe(
+                        self.broadcast_cell_extracted(
+                            operation.session_id,
+                            {
+                                "row_name": row_name,
+                                "column": column_name,
+                                "value": value
+                            }
+                        ),
+                        loop
+                    )
+
+                    # 2. Broadcast progress for UI indicators
+                    asyncio.run_coroutine_threadsafe(
+                        self.broadcast_event(
+                            operation.session_id,
+                            "reextraction_progress",
+                            {
+                                "operation_id": operation_id,
+                                "column": column_name,
+                                "progress": processed_count[0] / max(operation.total_documents * len(operation.columns), 1),
+                                "processed_documents": processed_count[0],
+                                "total_documents": operation.total_documents,
+                                "current_row": row_name
+                            }
+                        ),
+                        loop
+                    )
+                except Exception as e:
+                    print(f"⚠️ Broadcast error: {e}")
 
             # Run extraction
             print(f"DEBUG: docs_dir={docs_dir}, exists={docs_dir.exists()}")

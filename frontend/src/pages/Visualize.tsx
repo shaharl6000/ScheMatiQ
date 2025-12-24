@@ -66,6 +66,9 @@ const Visualize = () => {
   // Streaming cells state
   const [streamingCells, setStreamingCells] = useState<Map<string, Record<string, CellValue>>>(new Map());
 
+  // Processing columns state (for re-extraction visual indicators)
+  const [processingColumns, setProcessingColumns] = useState<Set<string>>(new Set());
+
   // LLM selection state
   const [showLLMSelector, setShowLLMSelector] = useState(false);
 
@@ -168,6 +171,22 @@ const Visualize = () => {
                   wsRef.current = null;
                 }
               }, 3000);
+              break;
+            case 'reextraction_progress':
+              if (message.data?.column) {
+                setProcessingColumns(prev => {
+                  const newSet = new Set(Array.from(prev));
+                  newSet.add(message.data.column);
+                  return newSet;
+                });
+              }
+              break;
+            case 'reextraction_completed':
+              console.log('Re-extraction completed:', message.data);
+              setProcessingColumns(new Set()); // Clear processing state
+              setStreamingCells(new Map());    // Clear streaming cells
+              queryClient.invalidateQueries(['session', sessionId, mode]);
+              queryClient.invalidateQueries(['data', sessionId, mode]);
               break;
           }
         } catch (err) {
@@ -304,6 +323,22 @@ const Visualize = () => {
                     ws.close(1000, 'Processing completed');
                   }
                 }, 3000);
+                break;
+              case 'reextraction_progress':
+                if (message.data?.column) {
+                  setProcessingColumns(prev => {
+                    const newSet = new Set(Array.from(prev));
+                    newSet.add(message.data.column);
+                    return newSet;
+                  });
+                }
+                break;
+              case 'reextraction_completed':
+                console.log('Re-extraction completed:', message.data);
+                setProcessingColumns(new Set()); // Clear processing state
+                setStreamingCells(new Map());    // Clear streaming cells
+                queryClient.invalidateQueries(['session', sessionId, mode]);
+                queryClient.invalidateQueries(['data', sessionId, mode]);
                 break;
             }
           } catch (err) {
@@ -782,9 +817,10 @@ const Visualize = () => {
               sessionId={sessionId}
               sessionType={session.type}
               readonly={false}
+              processingColumns={processingColumns}
               onColumnsChange={() => {
                 queryClient.invalidateQueries(['session', sessionId, mode]);
-                queryClient.invalidateQueries(['data', sessionId]);
+                queryClient.invalidateQueries(['data', sessionId, mode]);
               }}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}
             />

@@ -69,6 +69,7 @@ interface SchemaViewerProps {
   sessionId: string;
   sessionType?: 'load' | 'qbsd';
   readonly?: boolean;
+  processingColumns?: Set<string>;
   onColumnsChange?: (columns: ColumnInfo[]) => void;
   websocketManager?: any;
   llmConfig?: any;
@@ -80,6 +81,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   sessionId,
   sessionType = 'qbsd',
   readonly = false,
+  processingColumns,
   onColumnsChange,
   websocketManager,
   llmConfig
@@ -348,11 +350,16 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     toast({ title: 'Error', description: message, variant: 'destructive' });
   };
 
-  const handleReextractionSuccess = (message: string) => {
-    toast({ title: 'Re-extraction Started', description: message });
+  const handleReextractionSuccess = (message: string, refreshData?: boolean) => {
+    toast({ title: 'Success', description: message });
     setReextractionDialogOpen(false);
-    // Reload schema change status - it should be clear after re-extraction completes
-    setTimeout(() => loadSchemaChangeStatus(), 2000);
+
+    if (refreshData && onColumnsChange) {
+      // Trigger parent to invalidate queries (refreshes data table)
+      onColumnsChange(localColumns);
+    }
+    // Reload schema change status - should now show no pending changes
+    loadSchemaChangeStatus();
   };
 
   const handleReextractionError = (message: string) => {
@@ -654,6 +661,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             {displayColumns.map((column) => {
               const isModified = schemaChanges?.changed_columns?.includes(column.name);
               const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
+              const isProcessing = processingColumns?.has(column.name);
               const changeDetail = schemaChanges?.column_changes?.[column.name];
 
               return (
@@ -663,7 +671,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   "relative",
                   selectedColumns.includes(column.name) && "ring-2 ring-primary",
                   isModified && "border-amber-400 dark:border-amber-600 border-2",
-                  isNew && "border-green-400 dark:border-green-600 border-2"
+                  isNew && "border-green-400 dark:border-green-600 border-2",
+                  isProcessing && "border-blue-400 dark:border-blue-600 border-2 animate-pulse"
                 )}
               >
                 <CardContent className="pt-4">
@@ -704,6 +713,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                           </TooltipTrigger>
                           <TooltipContent>New column added since last extraction</TooltipContent>
                         </Tooltip>
+                      )}
+                      {isProcessing && (
+                        <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300">
+                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                          Extracting...
+                        </Badge>
                       )}
                     </div>
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, AlertTriangle, Upload, FileText, Loader2, Check, Info } from 'lucide-react';
 
 import {
@@ -32,7 +32,7 @@ interface ReextractionDialogProps {
   open: boolean;
   sessionId: string;
   onClose: () => void;
-  onSuccess: (message: string) => void;
+  onSuccess: (message: string, refreshData?: boolean) => void;
   onError: (error: string) => void;
 }
 
@@ -51,6 +51,19 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionProgress, setExtractionProgress] = useState(0);
   const [currentOperation, setCurrentOperation] = useState<ReextractionResponse | null>(null);
+
+  // Ref for polling interval cleanup
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
+  }, []);
 
   // Load schema change status and paper discovery when dialog opens
   const loadStatus = useCallback(async () => {
@@ -90,6 +103,11 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
       setIsExtracting(false);
       setExtractionProgress(0);
       setCurrentOperation(null);
+      // Clear polling when dialog closes
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     }
   }, [open]);
 
@@ -148,19 +166,52 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
       const response = await schemaAPI.startReextraction(sessionId, request);
 
       setCurrentOperation(response);
-
-      // Show success and close after a delay
       onSuccess(`Re-extraction started for ${response.columns.length} columns`);
 
-      // Keep dialog open to show progress, or close if you prefer
-      // For now, we'll close and let SchemaViewer handle progress via WebSocket
-      setTimeout(() => {
-        onClose();
-      }, 1500);
+      // Poll for completion instead of relying on WebSocket
+      const operationId = response.operation_id;
+      const columnsCount = response.columns.length;
+
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const status = await schemaAPI.getReextractionStatus(sessionId, operationId);
+
+          // Update progress
+          if (status.progress !== undefined) {
+            setExtractionProgress(status.progress * 100);
+          }
+
+          if (status.status === 'completed') {
+            // Clear polling
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            setIsExtracting(false);
+            onSuccess(`Re-extraction completed for ${columnsCount} columns`, true);
+            onClose();
+          } else if (status.status === 'failed') {
+            // Clear polling
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+            }
+            setIsExtracting(false);
+            onError(`Re-extraction failed: ${status.error || 'Unknown error'}`);
+          }
+        } catch (e) {
+          console.error('Polling error:', e);
+        }
+      }, 2000);
 
     } catch (error: any) {
       onError(error.response?.data?.detail || 'Failed to start re-extraction');
       setIsExtracting(false);
+      // Clear any polling that might have started
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
     } finally {
       setLoading(false);
     }
