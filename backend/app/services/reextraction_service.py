@@ -726,6 +726,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     if row_name:
                         extracted_by_row[row_name] = row_data
 
+        print(f"DEBUG: Extracted row names from extraction file: {list(extracted_by_row.keys())}")
+
         # Backup existing data
         backup_file = session_dir / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
         import shutil
@@ -733,6 +735,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Read and update existing rows
         updated_rows = []
+        rows_updated = 0
         with open(data_file, 'r') as f:
             for line in f:
                 if not line.strip():
@@ -743,15 +746,22 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                 if row_name and row_name in extracted_by_row:
                     extracted = extracted_by_row[row_name]
+                    rows_updated += 1
 
                     # Update only the re-extracted columns
                     for col_name in columns:
                         if col_name in extracted:
                             # Handle nested 'data' structure or flat structure
                             if 'data' in row:
+                                old_value = row['data'].get(col_name)
                                 row['data'][col_name] = extracted[col_name]
+                                print(f"DEBUG: Updated row '{row_name}' column '{col_name}': {str(old_value)[:50]} -> {str(extracted[col_name])[:50]}")
                             else:
                                 row[col_name] = extracted[col_name]
+                        else:
+                            print(f"DEBUG: Column '{col_name}' not found in extracted data for row '{row_name}'")
+                elif row_name:
+                    print(f"DEBUG: Row '{row_name}' has no extracted data (available: {list(extracted_by_row.keys())[:3]}...)")
 
                 updated_rows.append(row)
 
@@ -760,7 +770,26 @@ class ReextractionService(WebSocketBroadcasterMixin):
             for row in updated_rows:
                 f.write(json.dumps(row) + '\n')
 
-        print(f"DEBUG: Merged re-extracted data for {len(columns)} columns across {len(extracted_by_row)} rows")
+        print(f"DEBUG: Merged re-extracted data for {len(columns)} columns, {rows_updated} rows updated")
+
+        # Update session statistics to reflect new data
+        session = self.session_manager.get_session(session_id)
+        if session and session.statistics:
+            # Recalculate column stats for re-extracted columns
+            for col_stat in session.statistics.column_stats:
+                if col_stat.name in columns:
+                    # Count non-null values for this column
+                    non_null_count = sum(
+                        1 for row in updated_rows
+                        if row.get('data', {}).get(col_stat.name) is not None
+                    )
+                    old_count = col_stat.non_null_count
+                    col_stat.non_null_count = non_null_count
+                    print(f"DEBUG: Updated stats for column '{col_stat.name}': non_null_count {old_count} -> {non_null_count}")
+
+            # Update session
+            self.session_manager.update_session(session)
+            print(f"DEBUG: Updated session statistics for {len(columns)} columns")
 
     def _get_llm_from_session(self, session_id: str):
         """Get LLM configuration from session, including API key."""
