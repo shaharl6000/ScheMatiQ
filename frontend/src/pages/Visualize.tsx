@@ -7,7 +7,6 @@ import {
   BarChart3,
   Download,
   RefreshCw,
-  Info,
   CheckCircle2,
   Play,
   XCircle,
@@ -43,7 +42,6 @@ import StatsDashboard from '../components/StatsDashboard/StatsDashboard';
 import QBSDMonitor from '../components/QBSDMonitor/QBSDMonitor';
 import UploadProcessingMonitor from '../components/UploadProcessingMonitor/UploadProcessingMonitor';
 import DocumentUpload from '../components/DocumentUpload/DocumentUpload';
-import ConfigurationInfo from '../components/ConfigurationInfo';
 import LLMSelector from '../components/LLMSelector';
 
 const Visualize = () => {
@@ -637,10 +635,6 @@ const Visualize = () => {
             <BarChart3 className="h-4 w-4" />
             Statistics
           </TabsTrigger>
-          <TabsTrigger value="info" className="gap-2">
-            <Info className="h-4 w-4" />
-            Session Info
-          </TabsTrigger>
           {mode === 'qbsd' && (
             <TabsTrigger value="monitor" className="gap-2">
               {session?.status === 'processing' ? (
@@ -836,6 +830,7 @@ const Visualize = () => {
           {session?.statistics ? (
             <StatsDashboard
               statistics={session.statistics}
+              session={session}
               creationMetadata={session.creation_metadata}
               modificationHistory={session.modification_history}
             />
@@ -848,11 +843,6 @@ const Visualize = () => {
               <AlertDescription>Statistics will be available when processing completes</AlertDescription>
             </Alert>
           )}
-        </TabsContent>
-
-        {/* Session Info Tab */}
-        <TabsContent value="info" className="mt-4">
-          <ConfigurationInfo session={session} compact={false} />
         </TabsContent>
 
         {/* QBSD Monitor Tab */}

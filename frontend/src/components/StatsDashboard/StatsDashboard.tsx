@@ -17,19 +17,22 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { TrendingUp, FileText, Info, Plus, Edit, Trash2 } from 'lucide-react';
+import { TrendingUp, FileText, Info, Plus, Edit, Trash2, Brain } from 'lucide-react';
 
-import { DataStatistics, SchemaEvolution, CreationMetadata, ModificationAction } from '../../types';
+import { DataStatistics, SchemaEvolution, CreationMetadata, ModificationAction, VisualizationSession } from '../../types';
 import { CollapsibleSection, InfoCard } from '../shared';
+import LLMConfigDisplay from '../LLMConfigDisplay';
 
 interface StatsDashboardProps {
   statistics: DataStatistics;
+  session?: VisualizationSession;
   creationMetadata?: CreationMetadata;
   modificationHistory?: ModificationAction[];
 }
 
 const StatsDashboard: React.FC<StatsDashboardProps> = ({
   statistics,
+  session,
   creationMetadata,
   modificationHistory = []
 }) => {
@@ -37,6 +40,11 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
   const filteredColumnStats = statistics.column_stats.filter(
     col => !col.name.endsWith('_excerpt')
   );
+
+  // Extract LLM config from session
+  const llmConfig = session?.metadata?.extracted_schema?.llm_configuration;
+  const schemaBackend = llmConfig?.schema_creation_backend;
+  const extractionBackend = llmConfig?.value_extraction_backend;
 
   // Count modifications by type
   const modificationCounts = modificationHistory.reduce((acc, mod) => {
@@ -50,6 +58,37 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
       return new Date(dateString).toLocaleString();
     } catch {
       return 'Unknown';
+    }
+  };
+
+  const getActionIcon = (actionType: string) => {
+    switch (actionType) {
+      case 'column_added':
+        return <Plus className="h-4 w-4 text-green-600" />;
+      case 'column_edited':
+        return <Edit className="h-4 w-4 text-blue-600" />;
+      case 'column_deleted':
+        return <Trash2 className="h-4 w-4 text-red-600" />;
+      default:
+        return <Info className="h-4 w-4" />;
+    }
+  };
+
+  const formatActionDetails = (action: ModificationAction) => {
+    switch (action.action_type) {
+      case 'column_added':
+        return `Added column "${action.column_name}"`;
+      case 'column_edited':
+        const changes = [];
+        if (action.details.definition_changed) changes.push('definition');
+        if (action.details.rationale_changed) changes.push('rationale');
+        if (action.details.allowed_values_changed) changes.push('allowed values');
+        if (action.details.new_name) changes.push(`renamed from "${action.details.original_name}"`);
+        return `Edited "${action.column_name}"${changes.length > 0 ? `: ${changes.join(', ')}` : ''}`;
+      case 'column_deleted':
+        return `Deleted column "${action.column_name}"`;
+      default:
+        return action.action_type;
     }
   };
 
@@ -285,41 +324,98 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
             </div>
           )}
 
-          {/* Modification Summary */}
-          {modificationHistory.length > 0 && (
-            <div className="bg-amber-50 dark:bg-amber-950 p-4 rounded-lg border border-amber-200 dark:border-amber-800">
-              <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-3 flex items-center gap-2">
-                <Edit className="h-4 w-4" />
-                Modifications Summary
+          {/* Modification History */}
+          <div className="bg-amber-50 dark:bg-amber-950 p-4 rounded-lg border border-amber-200 dark:border-amber-800">
+            <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-3 flex items-center gap-2">
+              <Edit className="h-4 w-4" />
+              Modification History
+            </h4>
+            {modificationHistory.length > 0 ? (
+              <div className="space-y-3">
+                {/* Summary counts */}
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="flex items-center gap-2 p-2 bg-white dark:bg-amber-900 rounded border border-amber-200 dark:border-amber-700">
+                    <Plus className="h-4 w-4 text-green-600" />
+                    <div>
+                      <div className="text-xs text-amber-700 dark:text-amber-300">Added</div>
+                      <div className="text-lg font-bold text-amber-900 dark:text-amber-100">
+                        {modificationCounts['column_added'] || 0}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 bg-white dark:bg-amber-900 rounded border border-amber-200 dark:border-amber-700">
+                    <Edit className="h-4 w-4 text-blue-600" />
+                    <div>
+                      <div className="text-xs text-amber-700 dark:text-amber-300">Edited</div>
+                      <div className="text-lg font-bold text-amber-900 dark:text-amber-100">
+                        {modificationCounts['column_edited'] || 0}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 bg-white dark:bg-amber-900 rounded border border-amber-200 dark:border-amber-700">
+                    <Trash2 className="h-4 w-4 text-red-600" />
+                    <div>
+                      <div className="text-xs text-amber-700 dark:text-amber-300">Deleted</div>
+                      <div className="text-lg font-bold text-amber-900 dark:text-amber-100">
+                        {modificationCounts['column_deleted'] || 0}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {/* Timeline */}
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {modificationHistory.map((modification, index) => (
+                    <div
+                      key={index}
+                      className="flex items-start gap-3 p-2 rounded-md bg-white dark:bg-amber-900 border border-amber-200 dark:border-amber-700"
+                    >
+                      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-800 border border-amber-300 dark:border-amber-600 flex-shrink-0">
+                        {getActionIcon(modification.action_type)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                          {formatActionDetails(modification)}
+                        </div>
+                        <div className="text-xs text-amber-600 dark:text-amber-400">
+                          {formatDate(modification.timestamp)}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-6 text-amber-700 dark:text-amber-300">
+                <Edit className="h-6 w-6 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No modifications have been made to this schema.</p>
+              </div>
+            )}
+          </div>
+
+          {/* AI Model Configuration */}
+          {(schemaBackend || extractionBackend) && (
+            <div className="bg-purple-50 dark:bg-purple-950 p-4 rounded-lg border border-purple-200 dark:border-purple-800">
+              <h4 className="text-sm font-semibold text-purple-900 dark:text-purple-100 mb-3 flex items-center gap-2">
+                <Brain className="h-4 w-4" />
+                AI Model Configuration
               </h4>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="flex items-center gap-2 p-2 bg-white dark:bg-amber-900 rounded border border-amber-200 dark:border-amber-700">
-                  <Plus className="h-4 w-4 text-green-600" />
-                  <div>
-                    <div className="text-xs text-amber-700 dark:text-amber-300">Columns Added</div>
-                    <div className="text-lg font-bold text-amber-900 dark:text-amber-100">
-                      {modificationCounts['column_added'] || 0}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 p-2 bg-white dark:bg-amber-900 rounded border border-amber-200 dark:border-amber-700">
-                  <Edit className="h-4 w-4 text-blue-600" />
-                  <div>
-                    <div className="text-xs text-amber-700 dark:text-amber-300">Columns Edited</div>
-                    <div className="text-lg font-bold text-amber-900 dark:text-amber-100">
-                      {modificationCounts['column_edited'] || 0}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 p-2 bg-white dark:bg-amber-900 rounded border border-amber-200 dark:border-amber-700">
-                  <Trash2 className="h-4 w-4 text-red-600" />
-                  <div>
-                    <div className="text-xs text-amber-700 dark:text-amber-300">Columns Deleted</div>
-                    <div className="text-lg font-bold text-amber-900 dark:text-amber-100">
-                      {modificationCounts['column_deleted'] || 0}
-                    </div>
-                  </div>
-                </div>
+              <div className="space-y-3">
+                {schemaBackend && (
+                  <LLMConfigDisplay
+                    config={schemaBackend}
+                    title="Schema Creation Model"
+                    variant="inline"
+                    showDetails={true}
+                  />
+                )}
+                {extractionBackend && (
+                  <LLMConfigDisplay
+                    config={extractionBackend}
+                    title="Value Extraction Model"
+                    variant="inline"
+                    showDetails={true}
+                  />
+                )}
               </div>
             </div>
           )}
