@@ -284,45 +284,72 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
       {/* Advanced Statistics Section - Collapsible */}
       <CollapsibleSection title="Advanced Statistics" defaultExpanded={false}>
         <div className="space-y-6">
-          {/* Creation Information */}
-          {creationMetadata && (
-            <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
-              <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-3 flex items-center gap-2">
-                <Info className="h-4 w-4" />
-                Creation Information
-              </h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                <InfoCard
-                  title="Created"
-                  value={formatDate(creationMetadata.created_at)}
-                  size="small"
-                />
-                <InfoCard
-                  title="LLM Model"
-                  value={creationMetadata.llm_model || 'Unknown'}
-                  size="small"
-                />
-                <InfoCard
-                  title="Iterations"
-                  value={creationMetadata.iterations_count || 0}
-                  size="small"
-                />
-                <InfoCard
-                  title="Convergence"
-                  value={creationMetadata.convergence_achieved ? 'Yes' : 'No'}
-                  size="small"
-                />
-              </div>
-              {creationMetadata.creation_query && (
-                <div className="mt-3 p-3 bg-white dark:bg-blue-900 rounded border border-blue-200 dark:border-blue-700">
-                  <div className="text-xs text-blue-700 dark:text-blue-300 font-medium mb-1">Creation Query</div>
-                  <div className="text-sm text-blue-900 dark:text-blue-100 italic">
-                    "{creationMetadata.creation_query}"
-                  </div>
-                </div>
-              )}
+          {/* Session Configuration - Always show */}
+          <div className="bg-blue-50 dark:bg-blue-950 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+            <h4 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-3 flex items-center gap-2">
+              <Info className="h-4 w-4" />
+              Session Configuration
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <InfoCard
+                title="Created"
+                value={formatDate(creationMetadata?.created_at || session?.metadata?.created)}
+                size="small"
+              />
+              <InfoCard
+                title="Session Type"
+                value={session?.type === 'qbsd' ? 'QBSD Pipeline' : 'Load Existing'}
+                size="small"
+              />
+              <InfoCard
+                title="Iterations"
+                value={creationMetadata?.iterations_count || statistics.schema_evolution?.snapshots?.length || 0}
+                size="small"
+              />
+              <InfoCard
+                title="Schema Columns"
+                value={creationMetadata?.final_schema_size || filteredColumnStats.length}
+                size="small"
+              />
             </div>
-          )}
+
+            {/* Research Query */}
+            {(creationMetadata?.creation_query || session?.schema_query) && (
+              <div className="mt-3 p-3 bg-white dark:bg-blue-900 rounded border border-blue-200 dark:border-blue-700">
+                <div className="text-xs text-blue-700 dark:text-blue-300 font-medium mb-1">Research Query</div>
+                <div className="text-sm text-blue-900 dark:text-blue-100 italic">
+                  "{creationMetadata?.creation_query || session?.schema_query}"
+                </div>
+              </div>
+            )}
+
+            {/* LLM Model Info */}
+            {(creationMetadata?.llm_model || schemaBackend?.model) && (
+              <div className="mt-3 p-3 bg-white dark:bg-blue-900 rounded border border-blue-200 dark:border-blue-700">
+                <div className="text-xs text-blue-700 dark:text-blue-300 font-medium mb-1">Schema Creation LLM</div>
+                <div className="text-sm text-blue-900 dark:text-blue-100">
+                  {creationMetadata?.llm_model || `${schemaBackend?.provider || ''} ${schemaBackend?.model || 'Unknown'}`}
+                </div>
+              </div>
+            )}
+
+            {/* Convergence Status */}
+            {creationMetadata && (
+              <div className="mt-3 flex items-center gap-2 text-sm text-blue-700 dark:text-blue-300">
+                {creationMetadata.convergence_achieved ? (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    Schema converged successfully
+                  </>
+                ) : (
+                  <>
+                    <div className="w-2 h-2 rounded-full bg-yellow-500" />
+                    Schema creation stopped before convergence
+                  </>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Modification History */}
           <div className="bg-amber-50 dark:bg-amber-950 p-4 rounded-lg border border-amber-200 dark:border-amber-800">
