@@ -333,6 +333,12 @@ export interface SchemaData {
     schema_creation_backend?: LLMConfig;
     value_extraction_backend?: LLMConfig;
   };
+  metadata?: {
+    imported_from_csv?: boolean;
+    original_session_id?: string;
+    generated_timestamp?: string;  // Original QBSD creation timestamp
+    import_timestamp?: string;     // When it was imported/loaded
+  };
 }
 
 export interface ProcessingStats {

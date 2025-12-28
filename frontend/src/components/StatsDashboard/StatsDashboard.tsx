@@ -46,6 +46,14 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
   const schemaBackend = llmConfig?.schema_creation_backend;
   const extractionBackend = llmConfig?.value_extraction_backend;
 
+  // Get original creation timestamp - prefer from extracted_schema metadata (original QBSD creation)
+  // over session.metadata.created (which is the loading time for loaded sessions)
+  const extractedSchemaMetadata = session?.metadata?.extracted_schema?.metadata;
+  const originalCreationTime =
+    creationMetadata?.created_at ||
+    extractedSchemaMetadata?.generated_timestamp ||
+    session?.metadata?.created;
+
   // Count modifications by type
   const modificationCounts = modificationHistory.reduce((acc, mod) => {
     acc[mod.action_type] = (acc[mod.action_type] || 0) + 1;
@@ -293,7 +301,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               <InfoCard
                 title="Created"
-                value={formatDate(creationMetadata?.created_at || session?.metadata?.created)}
+                value={formatDate(originalCreationTime)}
                 size="small"
               />
               <InfoCard
