@@ -224,7 +224,10 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
                 
                 with open(parsed_schema_file, 'w') as f:
                     json.dump(schema_data, f, indent=2)
-                
+
+                # Also populate the session's extracted_schema for frontend access
+                session.metadata.extracted_schema = schema_data
+
                 print(f"DEBUG: Saved parsed schema with extracted LLM configuration")
         
         # Update session with parsed data
