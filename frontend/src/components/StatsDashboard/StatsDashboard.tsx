@@ -63,7 +63,13 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
   const formatDate = (dateString?: string) => {
     if (!dateString) return 'Unknown';
     try {
-      return new Date(dateString).toLocaleString();
+      // Backend stores UTC timestamps without 'Z' suffix
+      // Append 'Z' if no timezone indicator present to ensure proper UTC parsing
+      let isoString = dateString;
+      if (!dateString.endsWith('Z') && !dateString.includes('+') && !dateString.match(/[-+]\d{2}:\d{2}$/)) {
+        isoString = dateString + 'Z';
+      }
+      return new Date(isoString).toLocaleString();
     } catch {
       return 'Unknown';
     }
