@@ -21,7 +21,12 @@ class WebSocketService {
     this.socket.onopen = () => {
       console.log('WebSocket connected');
       this.reconnectAttempts = 0;
-      
+
+      // Notify handlers that connection is established
+      this.messageHandlers.forEach(handler =>
+        handler({ type: 'connected', message: 'WebSocket connected' })
+      );
+
       // Send ping to keep connection alive
       this.startPingInterval();
     };
@@ -38,7 +43,12 @@ class WebSocketService {
     this.socket.onclose = (event) => {
       console.log('WebSocket disconnected:', event.code, event.reason);
       this.socket = null;
-      
+
+      // Notify handlers that connection is lost
+      this.messageHandlers.forEach(handler =>
+        handler({ type: 'disconnected', message: 'WebSocket disconnected' })
+      );
+
       // Attempt to reconnect if not a normal closure
       if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
         this.scheduleReconnect(sessionId, endpoint);
@@ -63,9 +73,17 @@ class WebSocketService {
   private scheduleReconnect(sessionId: string, endpoint: 'progress' | 'logs') {
     this.reconnectAttempts++;
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-    
+
     console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
-    
+
+    // Notify handlers about reconnection attempt
+    this.messageHandlers.forEach(handler =>
+      handler({
+        type: 'reconnecting',
+        message: `Reconnecting in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`,
+      })
+    );
+
     this.reconnectTimeout = setTimeout(() => {
       this.connect(sessionId, endpoint);
     }, delay);

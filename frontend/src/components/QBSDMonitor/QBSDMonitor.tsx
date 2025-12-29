@@ -7,6 +7,9 @@ import {
   Info,
   AlertTriangle,
   Activity,
+  Wifi,
+  WifiOff,
+  Loader2,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -35,8 +38,9 @@ interface LogEntry {
 const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   const queryClient = useQueryClient();
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting');
   const [isStarting, setIsStarting] = useState(false);
+  const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
 
   // Phase tracking state
   const [currentPhase, setCurrentPhase] = useState<'idle' | 'schema' | 'extraction' | 'completed'>('idle');
@@ -65,8 +69,14 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   useEffect(() => {
     const handleMessage = (message: WebSocketMessage) => {
       if (message.type === 'connected') {
-        setIsConnected(true);
-        addLog('info', 'Connected to real-time monitoring');
+        setConnectionStatus('connected');
+        addLog('success', 'Connected to real-time monitoring');
+      } else if (message.type === 'disconnected') {
+        setConnectionStatus('disconnected');
+        addLog('warning', 'Disconnected from server');
+      } else if (message.type === 'reconnecting') {
+        setConnectionStatus('reconnecting');
+        addLog('info', message.message || 'Attempting to reconnect...');
       } else if (message.type === 'progress') {
         const progressData = message.data as ProgressData;
         addLog('info', progressData?.current_step || 'Processing...', message.data);
@@ -141,14 +151,16 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
     return () => {
       cleanup();
       webSocketService.disconnect();
-      setIsConnected(false);
+      setConnectionStatus('disconnected');
     };
   }, [sessionId, queryClient]);
 
   const addLog = (level: LogEntry['level'], message: string, details?: any) => {
+    const now = new Date();
+    setLastUpdateTime(now);
     setLogs(prev => [
       {
-        timestamp: new Date().toISOString(),
+        timestamp: now.toISOString(),
         level,
         message,
         details,
@@ -241,28 +253,40 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
               {/* Phase 1: Schema Discovery */}
               <div>
                 <div className="flex justify-between items-center mb-1">
-                  <span className={`text-sm ${currentPhase === 'schema' ? 'font-bold' : ''} ${schemaProgress.isComplete ? 'text-green-600' : ''}`}>
-                    {schemaProgress.isComplete ? '✓ ' : ''}Phase 1: Schema Discovery
+                  <span className={`text-sm flex items-center gap-2 ${currentPhase === 'schema' ? 'font-bold text-primary' : ''} ${schemaProgress.isComplete ? 'text-green-600' : ''}`}>
+                    {schemaProgress.isComplete ? (
+                      <CheckCircle2 className="h-4 w-4" />
+                    ) : currentPhase === 'schema' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    Phase 1: Schema Discovery
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {schemaProgress.isComplete
                       ? `${schemaProgress.columnsDiscovered} columns`
                       : currentPhase === 'idle'
                         ? 'Waiting...'
-                        : 'Discovering...'}
+                        : schemaProgress.iteration > 0
+                          ? `Iteration ${schemaProgress.iteration}/${schemaProgress.maxIterations}`
+                          : 'Discovering...'}
                   </span>
                 </div>
                 <Progress
-                  value={schemaProgress.isComplete ? 100 : (currentPhase === 'schema' ? undefined : 0)}
-                  className="h-2"
+                  value={schemaProgress.isComplete ? 100 : (currentPhase === 'schema' ? (schemaProgress.iteration / schemaProgress.maxIterations) * 100 : 0)}
+                  className={`h-2 ${currentPhase === 'schema' && !schemaProgress.isComplete ? 'animate-pulse' : ''}`}
                 />
               </div>
 
               {/* Phase 2: Value Extraction */}
               <div>
                 <div className="flex justify-between items-center mb-1">
-                  <span className={`text-sm ${currentPhase === 'extraction' ? 'font-bold' : ''} ${extractionProgress.isComplete ? 'text-green-600' : (currentPhase === 'idle' || currentPhase === 'schema') ? 'text-muted-foreground' : ''}`}>
-                    {extractionProgress.isComplete ? '✓ ' : ''}Phase 2: Value Extraction
+                  <span className={`text-sm flex items-center gap-2 ${currentPhase === 'extraction' ? 'font-bold text-primary' : ''} ${extractionProgress.isComplete ? 'text-green-600' : (currentPhase === 'idle' || currentPhase === 'schema') ? 'text-muted-foreground' : ''}`}>
+                    {extractionProgress.isComplete ? (
+                      <CheckCircle2 className="h-4 w-4" />
+                    ) : currentPhase === 'extraction' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    Phase 2: Value Extraction
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {(currentPhase === 'idle' || currentPhase === 'schema')
@@ -276,7 +300,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
                   value={extractionProgress.totalDocs > 0
                     ? (extractionProgress.processedDocs / extractionProgress.totalDocs) * 100
                     : 0}
-                  className={`h-2 ${(currentPhase === 'idle' || currentPhase === 'schema') ? 'opacity-30' : ''}`}
+                  className={`h-2 ${(currentPhase === 'idle' || currentPhase === 'schema') ? 'opacity-30' : ''} ${currentPhase === 'extraction' && !extractionProgress.isComplete ? 'animate-pulse' : ''}`}
                 />
               </div>
 
@@ -319,12 +343,44 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
               </Button>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-              <span className="text-sm text-muted-foreground">
-                WebSocket: {isConnected ? 'Connected' : 'Disconnected'}
-              </span>
+            {/* Connection Status */}
+            <div className="flex items-center gap-2 p-2 rounded-md bg-muted/50">
+              {connectionStatus === 'connected' && (
+                <>
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <Wifi className="h-4 w-4 text-green-500" />
+                  <span className="text-sm text-green-600 font-medium">Connected</span>
+                </>
+              )}
+              {connectionStatus === 'connecting' && (
+                <>
+                  <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                  <Loader2 className="h-4 w-4 text-yellow-500 animate-spin" />
+                  <span className="text-sm text-yellow-600 font-medium">Connecting...</span>
+                </>
+              )}
+              {connectionStatus === 'reconnecting' && (
+                <>
+                  <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
+                  <Loader2 className="h-4 w-4 text-yellow-500 animate-spin" />
+                  <span className="text-sm text-yellow-600 font-medium">Reconnecting...</span>
+                </>
+              )}
+              {connectionStatus === 'disconnected' && (
+                <>
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  <WifiOff className="h-4 w-4 text-red-500" />
+                  <span className="text-sm text-red-600 font-medium">Disconnected</span>
+                </>
+              )}
             </div>
+
+            {/* Last Update Time */}
+            {lastUpdateTime && status?.status === 'processing' && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Last update: {Math.round((Date.now() - lastUpdateTime.getTime()) / 1000)}s ago
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
