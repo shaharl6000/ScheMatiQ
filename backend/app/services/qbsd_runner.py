@@ -480,7 +480,17 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             session = self.session_manager.get_session(session_id)
             session.status = SessionStatus.PROCESSING
             self.session_manager.update_session(session)
-            
+
+            # Immediately broadcast that we're starting (before any async work)
+            await self.broadcast_step_progress(
+                session_id,
+                "Starting QBSD execution...",
+                step_number=1,
+                total_steps=5,
+                step_progress=0.0,
+                message="Initializing pipeline..."
+            )
+
             # Load config
             config_file = self.work_dir / session_id / "config.json"
             with open(config_file) as f:
