@@ -369,6 +369,19 @@ class SupabaseStorageBackend(StorageInterface):
         except RuntimeError:
             return asyncio.run(self.file_exists(bucket, path))
 
+    def list_sessions_sync(self) -> List[str]:
+        """Synchronous version of list_sessions."""
+        try:
+            files = self.client.storage.from_("sessions").list()
+            return [
+                f["name"].replace(".json", "")
+                for f in files
+                if f["name"].endswith(".json")
+            ]
+        except Exception as e:
+            print(f"Error listing sessions from Supabase: {e}")
+            return []
+
     # =======================
     # Dataset Operations
     # =======================

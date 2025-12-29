@@ -25,17 +25,8 @@ class SessionManager:
     def _load_sessions(self):
         """Load existing sessions from storage."""
         try:
-            # Get list of session IDs
-            import asyncio
-            try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # We're in an async context, use sync helper
-                    session_ids = self._list_sessions_sync()
-                else:
-                    session_ids = loop.run_until_complete(self._storage.list_sessions())
-            except RuntimeError:
-                session_ids = self._list_sessions_sync()
+            # Get list of session IDs using sync method
+            session_ids = self._storage.list_sessions_sync()
 
             # Load each session
             for session_id in session_ids:
@@ -50,15 +41,6 @@ class SessionManager:
                     print(f"Error loading session {session_id}: {e}")
         except Exception as e:
             print(f"Error loading sessions: {e}")
-
-    def _list_sessions_sync(self) -> List[str]:
-        """Synchronously list sessions."""
-        import asyncio
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(self._storage.list_sessions())
-        finally:
-            loop.close()
 
     def _save_session(self, session: VisualizationSession):
         """Save session to storage."""

@@ -299,6 +299,15 @@ class LocalStorageBackend(StorageInterface):
         file_path = self._get_bucket_path(bucket, path)
         return file_path.exists()
 
+    def list_sessions_sync(self) -> List[str]:
+        """Synchronous version of list_sessions."""
+        try:
+            session_files = list(self.sessions_dir.glob("*.json"))
+            return [f.stem for f in session_files]
+        except Exception as e:
+            print(f"Error listing sessions: {e}")
+            return []
+
     def get_local_path(self, bucket: str, path: str) -> Path:
         """Get the local filesystem path for a bucket/path.
 
