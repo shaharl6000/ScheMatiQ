@@ -120,9 +120,24 @@ Only add a column when it is clearly missing from the existing schema and provid
 Most of the time, the correct response is: {{"document_helpful": true, "columns": []}}
 Adding columns should be RARE, not routine. When in doubt, DO NOT add.
 
+### CRITICAL: General Over Specific
+Since no query is provided, focus on **GENERAL, broadly applicable** columns — NOT document-specific details.
+
+**Prefer columns that:**
+- Would be valuable across MOST documents in this domain
+- Capture fundamental, recurring information patterns
+- Represent core attributes that define the subject matter
+
+**Avoid columns that:**
+- Are unique to a specific document or case
+- Capture niche details that won't appear in most documents
+- Are too granular (prefer broader categories over fine-grained specifics)
+
+Example: For scientific papers, prefer "methodology_type" over "specific_reagent_concentration"
+
 ### Task
 You are building a schema to extract structured information from documents.
-**No specific query is provided** — analyze the passages and propose columns that capture the key extractable information present in these documents.
+**No specific query is provided** — analyze the passages and propose columns that capture the **most general, broadly valuable** extractable information.
 
 **Step 1: Assess document content**
 If passages lack meaningful extractable information:
@@ -131,9 +146,9 @@ If passages lack meaningful extractable information:
 **Step 2: If passages contain extractable information**
 - **If an existing schema is provided:**
   - Assume the schema is already COMPLETE unless proven otherwise
-  - Ask: "Do these passages reveal a type of information NOT captured by any existing column?"
-  - If no new information type is found → return {{"document_helpful": true, "columns": []}}
-  - Only propose columns for genuinely MISSING information types
+  - Ask: "Do these passages reveal a GENERAL type of information NOT captured by any existing column?"
+  - If no new GENERAL information type is found → return {{"document_helpful": true, "columns": []}}
+  - Only propose columns for genuinely MISSING, broadly applicable information types
 - **If no existing schema is provided:**
   - Create ONLY the essential columns based on patterns you observe across passages
   - Focus on structured, extractable information (names, values, categories, metrics)
@@ -146,10 +161,11 @@ If passages lack meaningful extractable information:
 4. ❌ It overlaps semantically with existing columns
 5. ❌ It's metadata or context rather than extractable content
 6. ❌ The information cannot actually be extracted from documents like these
+7. ❌ It's a niche detail that only appears in some documents (not broadly applicable)
 
 **Only add if ALL of these are true:**
 - ✅ The schema has a CLEAR GAP — this information type is completely absent
-- ✅ This column captures extractable, structured information present in the documents
+- ✅ This column captures GENERAL information that would appear in most similar documents
 - ✅ No existing column covers this, even partially
 
 ### Output Format
@@ -181,8 +197,9 @@ If passages reveal new categorical values for an existing column:
 
 ### Remember
 - **FEWER columns = BETTER schema**
+- **GENERAL columns > specific columns** — focus on what's common across documents
 - When uncertain, return empty columns
-- Every column must justify its existence by capturing real, extractable information
+- Every column must capture broadly applicable, extractable information
 """.strip()
 
 USER_PROMPT_TMPL_DOCUMENT_ONLY = """
