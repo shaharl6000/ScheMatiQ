@@ -108,19 +108,37 @@ def _parse_schema_from_llm(raw_text: str,
             raise ValueError("Unexpected payload format")
 
     except (json.JSONDecodeError, TypeError, KeyError, ValueError) as e:
-        # ← fallback: lenient parsing for old models / bad outputs
+        # Fallback: lenient parsing for old models / bad outputs
         print(f"❌ JSON parsing failed ({e}). Cleaned text: '{cleaned}'")
         print(f"📝 Original raw text (first 500 chars): '{raw_text[:500]}'")
         columns = []
+
+        # JSON field names to skip (these are format spec, not actual columns)
+        json_field_names = {'name', 'definition', 'rationale', 'allowed_values',
+                           'document_helpful', 'columns', 'suggested_value_additions',
+                           'column_name', 'new_values', 'reason'}
+
         for line in raw_text.splitlines():
+            line = line.strip()
+            # Skip empty lines and JSON syntax
+            if not line or line in '{}[],' or line.startswith('{') or line.startswith('}'):
+                continue
             if ":" in line:
                 name, rationale = [s.strip() for s in line.split(":", 1)]
-                if name:
-                    columns.append(Column(
-                        name=name,
-                        definition="",
-                        rationale=rationale
-                    ))
+                # Skip if name is quoted (JSON field)
+                if name.startswith('"') and name.endswith('"'):
+                    continue
+                # Skip known JSON field names
+                if name.lower().strip('"') in json_field_names:
+                    continue
+                # Skip if name is empty or too short
+                if not name or len(name) < 2:
+                    continue
+                columns.append(Column(
+                    name=name,
+                    definition="",
+                    rationale=rationale
+                ))
         print(f"📊 Extracted {len(columns)} columns from fallback parsing")
 
     return Schema(query=query, max_keys=max_keys_schema, columns=columns), document_helpful, suggested_value_additions
