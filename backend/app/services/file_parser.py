@@ -144,12 +144,18 @@ class FileParser:
                 data_lines = [l for l in lines if l.strip() and not l.strip().startswith('#')]
                 comment_count = len([l for l in lines if l.strip().startswith('#')])
 
-                if len(data_lines) >= 2:  # Found header + at least 1 data row
+                if len(data_lines) >= 1:  # Found at least header row (data rows optional for schema-only exports)
                     await file.seek(0)  # Reset file position for subsequent processing
 
                     if comment_count > 0:
                         result["warnings"].append(
                             f"Detected {comment_count} metadata comment lines - will be preserved during import"
+                        )
+
+                    # Check for schema-only export (header but no data rows)
+                    if len(data_lines) == 1:
+                        result["warnings"].append(
+                            "Schema-only CSV detected (no data rows) - will import schema structure only"
                         )
 
                     # Parse CSV structure from data lines
@@ -180,7 +186,7 @@ class FileParser:
                 f"CSV metadata exceeds {MAX_TOTAL // 1024}KB - could not find data rows within validation limit"
             )
         else:
-            result["errors"].append("CSV file must have at least a header row and one data row")
+            result["errors"].append("CSV file must have at least a header row")
 
         return result
 
