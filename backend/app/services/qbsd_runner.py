@@ -149,6 +149,30 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
         return on_value_extracted
 
+    async def _start_heartbeat(self, session_id: str, interval: float = 15.0) -> asyncio.Task:
+        """Start a background heartbeat to keep WebSocket alive during long operations.
+
+        Args:
+            session_id: The session to send heartbeats to
+            interval: Seconds between heartbeat messages (default 15s)
+
+        Returns:
+            The heartbeat task (caller should cancel when done)
+        """
+        async def heartbeat_loop():
+            while True:
+                await asyncio.sleep(interval)
+                try:
+                    await self.websocket_manager.broadcast_log(session_id, {
+                        "level": "info",
+                        "message": "Processing... (still working)"
+                    })
+                except Exception as e:
+                    print(f"⚠️ Heartbeat failed: {e}")
+                    break
+
+        return asyncio.create_task(heartbeat_loop())
+
     async def _download_supabase_dataset(self, dataset_name: str, session_dir: Path) -> Optional[str]:
         """Download a Supabase dataset to local directory.
 
@@ -661,12 +685,20 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             # Step 5: Schema discovery
             current_step += 1
             await update_progress("Discovering schema", 0.0)
-            
-            # Run real schema discovery
+
+            # Run real schema discovery with heartbeat to keep WebSocket alive
             print(f"🐛 DEBUG: Starting schema discovery with {len(documents)} documents")
-            discovered_schema, schema_evolution = await self._run_schema_discovery(
-                documents, filenames, qbsd_config, llm, retriever, update_progress
-            )
+            heartbeat_task = await self._start_heartbeat(session_id, interval=15.0)
+            try:
+                discovered_schema, schema_evolution = await self._run_schema_discovery(
+                    documents, filenames, qbsd_config, llm, retriever, update_progress
+                )
+            finally:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass  # Expected when cancelling
             print(f"🐛 DEBUG: Schema discovery completed with {len(discovered_schema.columns)} columns")
             print(f"🐛 DEBUG: Schema evolution: {len(schema_evolution.snapshots)} snapshots tracked")
             
@@ -746,11 +778,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             )
             print(f"🐛 DEBUG: Value Extraction LLM interface created successfully")
 
-            # Run real value extraction with dedicated LLM
-            await self._run_value_extraction(
-                session_id, qbsd_config, discovered_schema, value_extraction_llm, retriever, update_progress
-            )
-            
+            # Run real value extraction with dedicated LLM (with heartbeat for long operations)
+            heartbeat_task = await self._start_heartbeat(session_id, interval=15.0)
+            try:
+                await self._run_value_extraction(
+                    session_id, qbsd_config, discovered_schema, value_extraction_llm, retriever, update_progress
+                )
+            finally:
+                heartbeat_task.cancel()
+                try:
+                    await heartbeat_task
+                except asyncio.CancelledError:
+                    pass  # Expected when cancelling
+
             await update_progress("Extracting values", 1.0)
             
             # Step 7: Finalize

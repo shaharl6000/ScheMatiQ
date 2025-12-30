@@ -67,7 +67,7 @@ class WebSocketService {
       } else {
         clearInterval(pingInterval);
       }
-    }, 30000); // Ping every 30 seconds
+    }, 15000); // Ping every 15 seconds (reduced from 30s to help keep connection alive)
   }
 
   private scheduleReconnect(sessionId: string, endpoint: 'progress' | 'logs') {
