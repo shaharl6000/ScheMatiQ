@@ -127,6 +127,16 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         self.work_dir = Path(work_dir)
         self.work_dir.mkdir(exist_ok=True)
         self.running_sessions: Dict[str, asyncio.Task] = {}
+        self.stop_flags: Dict[str, bool] = {}  # Track stop requests per session
+
+    def is_stop_requested(self, session_id: str) -> bool:
+        """Check if stop has been requested for a session."""
+        return self.stop_flags.get(session_id, False)
+
+    def clear_stop_flag(self, session_id: str):
+        """Clear the stop flag for a session."""
+        if session_id in self.stop_flags:
+            del self.stop_flags[session_id]
 
     def _create_value_extracted_callback(self, session_id: str, loop: asyncio.AbstractEventLoop):
         """Create a callback that streams extracted cell values via WebSocket.
@@ -718,7 +728,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             heartbeat_task = await self._start_heartbeat(session_id, interval=15.0)
             try:
                 discovered_schema, schema_evolution = await self._run_schema_discovery(
-                    documents, filenames, qbsd_config, llm, retriever, update_progress
+                    session_id, documents, filenames, qbsd_config, llm, retriever, update_progress
                 )
             finally:
                 heartbeat_task.cancel()
@@ -867,6 +877,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
     
     async def _run_schema_discovery(
         self,
+        session_id: str,
         documents: List[str],
         filenames: List[str],
         qbsd_config: Dict[str, Any],

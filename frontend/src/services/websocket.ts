@@ -34,6 +34,12 @@ class WebSocketService {
     this.socket.onmessage = (event) => {
       try {
         const message: WebSocketMessage = JSON.parse(event.data);
+
+        // Handle server heartbeats silently (just confirms connection is alive)
+        if (message.type === 'heartbeat') {
+          return;
+        }
+
         this.messageHandlers.forEach(handler => handler(message));
       } catch (error) {
         console.error('Error parsing WebSocket message:', error);

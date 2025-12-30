@@ -19,6 +19,7 @@ class SessionStatus(str, Enum):
     SCHEMA_READY = "schema_ready"  # Schema discovery complete, value extraction in progress
     COMPLETED = "completed"
     ERROR = "error"
+    STOPPED = "stopped"  # Gracefully stopped by user, may have partial results
     # Enhanced upload workflow states
     SCHEMA_EXTRACTED = "schema_extracted"  # Schema extracted from uploaded data
     DOCUMENTS_UPLOADED = "documents_uploaded"  # Documents uploaded for processing
