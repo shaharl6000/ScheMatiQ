@@ -156,8 +156,10 @@ export interface InitialSchemaColumn {
 }
 
 export interface QBSDConfig {
+  /** Research query (optional for document-only mode) */
   query: string;
-  docs_path: string | string[];
+  /** Document paths (optional for query-only mode - can be empty array or null) */
+  docs_path: string | string[] | null;
   max_keys_schema: number;
   documents_batch_size: number;
   initial_schema_path?: string;  // Path to schema file

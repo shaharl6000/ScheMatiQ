@@ -60,12 +60,14 @@ import {
 import { useTableSort } from './hooks/useTableSort';
 import { useTableFilter } from './hooks/useTableFilter';
 import { useColumnVisibility } from './hooks/useColumnVisibility';
-import { applyFilters, applySort, buildColumnMetadata } from './utils';
+import { useColumnStats } from './hooks/useColumnStats';
+import { applyFilters, applySort, buildColumnMetadata, isEmpty } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
 import FilterPresets from './FilterPresets';
 import ColumnVisibilityDropdown from './ColumnVisibilityDropdown';
+import FullnessFilter from './FullnessFilter';
 
 interface ColumnInfoProp {
   name: string;
@@ -209,6 +211,7 @@ const DataTable: React.FC<DataTableProps> = ({
   const [modalContent, setModalContent] = useState<ModalContent>({ title: '', content: null });
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [filterDialogColumn, setFilterDialogColumn] = useState<string | undefined>();
+  const [fullnessThreshold, setFullnessThreshold] = useState(0);
 
   // Sort, filter, and visibility hooks
   const {
@@ -406,10 +409,28 @@ const DataTable: React.FC<DataTableProps> = ({
     isVisible,
   } = useColumnVisibility({ sessionId, columns: allColumns });
 
-  // Apply visibility to get displayed columns
+  // Column statistics hook for fullness calculations
+  const { getColumnsAboveThreshold } = useColumnStats(data.rows, allColumns);
+
+  // Apply visibility and fullness threshold to get displayed columns
   const columns = useMemo(() => {
-    return allColumns.filter(col => isVisible(col));
-  }, [allColumns, isVisible]);
+    const columnsAboveThreshold = fullnessThreshold > 0
+      ? getColumnsAboveThreshold(fullnessThreshold)
+      : allColumns;
+    return allColumns.filter(col =>
+      isVisible(col) && columnsAboveThreshold.includes(col)
+    );
+  }, [allColumns, isVisible, fullnessThreshold, getColumnsAboveThreshold]);
+
+  // Count columns hidden specifically due to fullness threshold
+  const hiddenByFullnessCount = useMemo(() => {
+    if (fullnessThreshold === 0) return 0;
+    const columnsAboveThreshold = getColumnsAboveThreshold(fullnessThreshold);
+    // Count visible columns that would be hidden by fullness filter
+    return allColumns.filter(col =>
+      isVisible(col) && !columnsAboveThreshold.includes(col)
+    ).length;
+  }, [allColumns, isVisible, fullnessThreshold, getColumnsAboveThreshold]);
 
   // Build column metadata for filter dialog
   const columnMetadata = useMemo((): ColumnMetadata[] => {
@@ -641,20 +662,25 @@ const DataTable: React.FC<DataTableProps> = ({
   };
 
   const formatCellValue = (value: CellValue, columnName: string, rowData?: DataRow): React.ReactNode => {
-    // Handle null/undefined
-    if (value === null || value === undefined) {
-      return <Badge variant="outline">null</Badge>;
+    // Handle empty values first (null, undefined, "None", "N/A", [], {}, etc.)
+    if (isEmpty(value)) {
+      return <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>;
     }
 
     // Try to parse string values that look like JSON/Python objects
     let processedValue = typeof value === 'string' ? parsePythonString(value) : value;
+
+    // Check if parsing resulted in an empty value (e.g., parsed "[]" to [])
+    if (isEmpty(processedValue)) {
+      return <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>;
+    }
 
     // Normalize to QBSD format if it's an object
     if (typeof processedValue === 'object' && processedValue !== null) {
       processedValue = normalizeToQBSD(processedValue);
     }
 
-    // Handle arrays
+    // Handle arrays (already checked for empty above)
     if (Array.isArray(processedValue)) {
       if (processedValue.length > 3) {
         return (
@@ -827,6 +853,13 @@ const DataTable: React.FC<DataTableProps> = ({
               currentFilters={filterState.rules}
               currentSort={sortState.columns}
               onLoadPreset={handleLoadPreset}
+            />
+            <FullnessFilter
+              threshold={fullnessThreshold}
+              onThresholdChange={setFullnessThreshold}
+              visibleColumnsCount={columns.length}
+              totalColumnsCount={allColumns.length}
+              hiddenByFullnessCount={hiddenByFullnessCount}
             />
             <ColumnVisibilityDropdown
               columns={allColumns}

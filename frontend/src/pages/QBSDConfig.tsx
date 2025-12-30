@@ -283,8 +283,11 @@ const QBSDConfigPage = () => {
     }
   };
 
-  const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path : [config.docs_path];
-  const isFormValid = config.query.trim() !== '' && selectedPaths.length > 0;
+  const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path.filter(Boolean) : [config.docs_path].filter(Boolean);
+  const hasQuery = config.query.trim() !== '';
+  const hasDocuments = selectedPaths.length > 0;
+  // Valid if at least one of query or documents is provided
+  const isFormValid = hasQuery || hasDocuments;
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -303,10 +306,23 @@ const QBSDConfigPage = () => {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Mode Info */}
+          <Alert>
+            <AlertDescription>
+              <strong>Flexible Input:</strong> Provide a query, documents, or both.
+              {!hasQuery && !hasDocuments && (
+                <span className="text-destructive ml-1">At least one is required.</span>
+              )}
+              {hasQuery && hasDocuments && ' Using standard mode (query + documents).'}
+              {hasQuery && !hasDocuments && ' Using query-only mode — schema will be planned based on your query.'}
+              {!hasQuery && hasDocuments && ' Using document-only mode — schema will be discovered from document content.'}
+            </AlertDescription>
+          </Alert>
+
           {/* Research Query */}
           <div className="space-y-2">
             <Label htmlFor="query">
-              Research Query <span className="text-destructive">*</span>
+              Research Query {!hasDocuments && <span className="text-destructive">*</span>}
             </Label>
             <Textarea
               id="query"
@@ -315,11 +331,13 @@ const QBSDConfigPage = () => {
               onChange={(e) => handleConfigChange('query', e.target.value)}
               placeholder="e.g., Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)?"
               className="resize-none"
-              aria-required="true"
+              aria-required={!hasDocuments}
               aria-describedby="query-hint"
             />
             <p id="query-hint" className="text-sm text-muted-foreground">
-              The research question that will guide schema discovery
+              {hasDocuments && !hasQuery
+                ? 'Optional — leave empty to discover schema from document content'
+                : 'The research question that will guide schema discovery'}
             </p>
           </div>
 
@@ -327,7 +345,7 @@ const QBSDConfigPage = () => {
           <div className="grid md:grid-cols-3 gap-4">
             <div className="md:col-span-2 space-y-2">
               <Label htmlFor="docs_path">
-                Document Datasets <span className="text-destructive">*</span>
+                Document Datasets {!hasQuery && <span className="text-destructive">*</span>}
               </Label>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -380,7 +398,9 @@ const QBSDConfigPage = () => {
                 </DropdownMenuContent>
               </DropdownMenu>
               <p className="text-sm text-muted-foreground">
-                Select one or more document datasets
+                {hasQuery && !hasDocuments
+                  ? 'Optional — leave empty to plan schema based on query alone'
+                  : 'Select one or more document datasets'}
               </p>
             </div>
 

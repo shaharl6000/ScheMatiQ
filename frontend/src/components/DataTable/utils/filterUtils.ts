@@ -5,6 +5,7 @@ import {
   ColumnDataType,
   ColumnMetadata,
 } from '../types/filters';
+import { isEmpty } from './valueUtils';
 
 /**
  * Apply all filter rules to a set of rows
@@ -42,16 +43,17 @@ function getCellValue(row: DataRow, columnName: string): CellValue {
 function evaluateFilterRule(value: CellValue, rule: FilterRule): boolean {
   const { operator, value: filterValue, caseSensitive = false } = rule;
 
-  // Handle null operators first
+  // Handle null operators first - use isEmpty for consistent detection
+  // isEmpty treats null, undefined, "", "None", "N/A", [], {} as empty
   if (operator === 'isNull') {
-    return value === null || value === undefined || value === '';
+    return isEmpty(value);
   }
   if (operator === 'isNotNull') {
-    return value !== null && value !== undefined && value !== '';
+    return !isEmpty(value);
   }
 
-  // For other operators, null values don't match
-  if (value === null || value === undefined) {
+  // For other operators, empty values don't match
+  if (isEmpty(value)) {
     return false;
   }
 
@@ -301,7 +303,7 @@ export function buildColumnMetadata(
   const dataType = detectColumnType(rows, columnName, allowedValues);
   const hasNulls = rows.some(row => {
     const val = getCellValue(row, columnName);
-    return val === null || val === undefined || val === '';
+    return isEmpty(val);
   });
 
   return {

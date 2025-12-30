@@ -34,9 +34,17 @@ class InitialSchemaColumn(BaseModel):
     allowed_values: Optional[List[str]] = None
 
 class QBSDConfig(BaseModel):
-    """QBSD configuration matching the existing config format."""
-    query: str
-    docs_path: Union[str, List[str]]
+    """QBSD configuration matching the existing config format.
+
+    Supports three modes:
+    - Standard: Both query and docs_path provided
+    - Document-only: docs_path provided, query empty/None (schema discovered from content)
+    - Query-only: query provided, docs_path empty/None (schema planned based on query)
+
+    At least one of query or docs_path must be provided.
+    """
+    query: str = ""  # Optional - can be empty for document-only mode
+    docs_path: Union[str, List[str], None] = None  # Optional - can be None for query-only mode
     max_keys_schema: int = 100
     documents_batch_size: int = 4
     initial_schema_path: Optional[str] = None  # Path to schema file

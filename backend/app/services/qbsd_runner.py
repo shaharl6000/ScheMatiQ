@@ -405,55 +405,68 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         return qbsd_config
     
     async def validate_config(self, config: QBSDConfig) -> Dict[str, Any]:
-        """Validate QBSD configuration."""
+        """Validate QBSD configuration.
+
+        Supports three modes:
+        - Standard: Both query and documents provided
+        - Document-only: Documents provided, no query (schema discovered from document content)
+        - Query-only: Query provided, no documents (schema planned based on query)
+
+        At least one of query or documents must be provided.
+        """
         errors = []
         warnings = []
-        
-        # Validate query
-        if not config.query.strip():
-            errors.append("Query cannot be empty")
-        
-        # Validate document paths
+
+        # Check if we have query and/or documents
+        has_query = bool(config.query and config.query.strip())
         docs_paths = config.docs_path if isinstance(config.docs_path, list) else [config.docs_path]
-        for path in docs_paths:
-            doc_path = Path(path)
-            print(f"DEBUG: Checking document path: {path} -> {doc_path.absolute()}")
-            
-            # Try relative to current directory and various parent directories
-            paths_to_try = [
-                doc_path,
-                Path("..") / path,  # Try from parent directory
-                Path("../..") / path,  # Try from grandparent directory
-                Path("../../..") / path,  # Try from great-grandparent directory
-                # Also try the known test directory
-                Path("../../..") / "test" / "files",
-                PROJECT_ROOT / "test" / "files",  # Try from project root
-                PROJECT_ROOT / "research" / "data" / "file",  # Try research data
-                Path("../test/files"),  # Direct relative to test
-            ]
-            
-            path_exists = False
-            actual_path = None
-            for try_path in paths_to_try:
-                if try_path.exists():
-                    path_exists = True
-                    actual_path = try_path.absolute()
-                    print(f"DEBUG: Found path at: {actual_path}")
-                    # Check if directory has files
-                    try:
-                        file_count = len(list(try_path.glob("*.txt"))) + len(list(try_path.glob("*.md")))
-                        if file_count == 0:
-                            warnings.append(f"Document path appears to be empty: {path} (no .txt or .md files)")
-                        else:
-                            print(f"DEBUG: Found {file_count} document files")
-                    except Exception as e:
-                        warnings.append(f"Could not check document count in {path}: {e}")
-                    break
-            
-            if not path_exists:
-                # For testing, just warn instead of error and suggest test directory
-                warnings.append(f"Document path does not exist: {path}. Try using 'test/files' which contains sample documents.")
-                # errors.append(f"Document path does not exist: {path}")
+        has_documents = bool(docs_paths and any(p for p in docs_paths if p))
+
+        # Validate: at least one of query or documents must be provided
+        if not has_query and not has_documents:
+            errors.append("At least one of query or documents must be provided")
+        
+        # Validate document paths (only if documents are provided)
+        if has_documents:
+            for path in docs_paths:
+                doc_path = Path(path)
+                print(f"DEBUG: Checking document path: {path} -> {doc_path.absolute()}")
+
+                # Try relative to current directory and various parent directories
+                paths_to_try = [
+                    doc_path,
+                    Path("..") / path,  # Try from parent directory
+                    Path("../..") / path,  # Try from grandparent directory
+                    Path("../../..") / path,  # Try from great-grandparent directory
+                    # Also try the known test directory
+                    Path("../../..") / "test" / "files",
+                    PROJECT_ROOT / "test" / "files",  # Try from project root
+                    PROJECT_ROOT / "research" / "data" / "file",  # Try research data
+                    Path("../test/files"),  # Direct relative to test
+                ]
+
+                path_exists = False
+                actual_path = None
+                for try_path in paths_to_try:
+                    if try_path.exists():
+                        path_exists = True
+                        actual_path = try_path.absolute()
+                        print(f"DEBUG: Found path at: {actual_path}")
+                        # Check if directory has files
+                        try:
+                            file_count = len(list(try_path.glob("*.txt"))) + len(list(try_path.glob("*.md")))
+                            if file_count == 0:
+                                warnings.append(f"Document path appears to be empty: {path} (no .txt or .md files)")
+                            else:
+                                print(f"DEBUG: Found {file_count} document files")
+                        except Exception as e:
+                            warnings.append(f"Could not check document count in {path}: {e}")
+                        break
+
+                if not path_exists:
+                    # For testing, just warn instead of error and suggest test directory
+                    warnings.append(f"Document path does not exist: {path}. Try using 'test/files' which contains sample documents.")
+                    # errors.append(f"Document path does not exist: {path}")
         
         # Validate initial schema if provided
         if config.initial_schema_path:
@@ -630,9 +643,21 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 "total_documents": total_docs,
                 "loaded_documents": len(documents)
             })
-            
-            if not documents:
-                raise RuntimeError(f"No documents found in paths: {docs_paths}")
+
+            # Determine mode based on what's available
+            has_query = bool(qbsd_config.get("query", "").strip())
+            has_documents = bool(documents)
+
+            if not has_query and not has_documents:
+                raise RuntimeError("At least one of query or documents must be provided")
+
+            # Log the mode we're operating in
+            if has_query and has_documents:
+                print(f"🐛 DEBUG: STANDARD mode - query + {len(documents)} documents")
+            elif has_documents:
+                print(f"🐛 DEBUG: DOCUMENT_ONLY mode - {len(documents)} documents, no query")
+            else:
+                print(f"🐛 DEBUG: QUERY_ONLY mode - query provided, no documents")
             
             # Step 3: Build LLM backend
             current_step += 1

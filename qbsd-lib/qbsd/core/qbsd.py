@@ -28,6 +28,7 @@ import time
 import random
 from pathlib import Path
 from qbsd.core.schema import Schema, Column, SchemaEvolution
+from qbsd.core.prompts import get_prompts, SchemaMode, DRAFT_SCHEMA_TMPL
 
 
 ##############################################################################
@@ -148,103 +149,45 @@ def _parse_schema_from_llm(raw_text: str,
     return Schema(query=query, max_keys=max_keys_schema, columns=columns), document_helpful, suggested_value_additions
 
 
-SYSTEM_PROMPT = """
-You are *SchemaLLM*, a minimalist schema designer. Your default response is NO NEW COLUMNS.
-Only add a column when it is clearly missing from the existing schema and provides real value.
-
-### CRITICAL: Default to Empty
-Most of the time, the correct response is: {{"document_helpful": true, "columns": []}}
-Adding columns should be RARE, not routine. When in doubt, DO NOT add.
-
-### Task
-You are building a schema to extract structured information from documents.
-Given passages from documents, identify what types of extractable information they contain that would help answer the query.
-
-**Step 1: Assess document relevance**
-If passages lack extractable information relevant to the query:
-→ Return {{"document_helpful": false, "columns": []}}
-
-**Step 2: If passages contain relevant extractable information**
-- **If an existing schema is provided:**
-  - Assume the schema is already COMPLETE unless proven otherwise
-  - Ask: "Do these passages reveal a type of information NOT captured by any existing column?"
-  - If no new information type is found → return {{"document_helpful": true, "columns": []}}
-  - Only propose columns for genuinely MISSING information types
-- **If no existing schema is provided:**
-  - Create ONLY the essential columns based on what information can be extracted
-  - Return {{"document_helpful": true, "columns": [...]}}
-
-### Column Rejection Checklist — REJECT if ANY is true:
-1. ❌ An existing column could capture this information (even loosely or with different wording)
-2. ❌ It's a variation of an existing column (e.g., "model_accuracy" when "accuracy" exists)
-3. ❌ It's overly specific (e.g., "f1_micro" when "f1_score" would suffice)
-4. ❌ It overlaps semantically with existing columns
-5. ❌ It's "nice to have" rather than essential for answering the query
-6. ❌ The information cannot actually be extracted from documents like these
-
-**Only add if ALL of these are true:**
-- ✅ The schema has a CLEAR GAP — this information type is completely absent
-- ✅ This column captures extractable information that helps answer the query
-- ✅ No existing column covers this, even partially
-
-### Output Format
-Return valid JSON only:
-{{
-  "document_helpful": true | false,
-  "columns": [
-    {{
-      "name": "snake_case_name",
-      "definition": "One-sentence definition",
-      "rationale": "Why this is ESSENTIAL for answering the query",
-      "allowed_values": ["val1", "val2"] | ["0-100"] | null
-    }}
-  ],
-  "suggested_value_additions": []
-}}
-
-### allowed_values
-| Type | Format | Examples |
-|------|--------|----------|
-| Categorical | list | ["yes", "no"], ["cnn", "rnn", "transformer"] |
-| Numeric range | ["min-max"] | ["0-100"], ["0.0-1.0"] |
-| Any number | ["number"] | Unconstrained numeric |
-| Free-form | null | Titles, names, descriptions |
-
-### Evolving allowed_values
-If passages reveal new categorical values for an existing column:
-{{"column_name": "...", "new_values": ["..."], "reason": "..."}}
-
-### Remember
-- **FEWER columns = BETTER schema**
-- When uncertain, return empty columns
-- Every column must justify its existence as ESSENTIAL
-""".strip()
-
-USER_PROMPT_TMPL = """
-<QUERY>
-{query}
-</QUERY>
-
-<PASSAGES>
-{joined_passages}
-</PASSAGES>
-""".strip()
-
-DRAFT_SCHEMA_TMPL = """
-A draft schema already exists. Review it first – then append columns as needed.
-
-<DRAFT_SCHEMA>
-{json_schema}
-</DRAFT_SCHEMA>
-""".strip()
-
-def build_messages(query: str,
+def build_messages(query: str | None,
                    passages: list[str],
-                   draft_schema=None):
-    user_parts = [USER_PROMPT_TMPL.format(
-        query=query.strip(),
-        joined_passages="\n\n".join(p.strip() for p in passages)
-    )]
+                   draft_schema=None) -> tuple[list[dict], SchemaMode]:
+    """
+    Build LLM messages for schema discovery with automatic mode detection.
+
+    Args:
+        query: User query (may be None or empty for document-only mode)
+        passages: Document passages (may be empty for query-only mode)
+        draft_schema: Existing schema to refine (optional)
+
+    Returns:
+        Tuple of (messages, mode) where messages is the LLM conversation
+        and mode indicates which prompt variant was used.
+
+    Raises:
+        ValueError: If neither query nor passages are provided
+    """
+    has_passages = bool(passages)
+    system_prompt, user_prompt_tmpl, mode = get_prompts(query, has_passages)
+
+    # Build user prompt based on mode
+    if mode == SchemaMode.STANDARD:
+        user_content = user_prompt_tmpl.format(
+            query=query.strip(),
+            joined_passages="\n\n".join(p.strip() for p in passages)
+        )
+    elif mode == SchemaMode.DOCUMENT_ONLY:
+        user_content = user_prompt_tmpl.format(
+            joined_passages="\n\n".join(p.strip() for p in passages)
+        )
+    elif mode == SchemaMode.QUERY_ONLY:
+        user_content = user_prompt_tmpl.format(
+            query=query.strip()
+        )
+    else:
+        raise ValueError(f"Unknown schema mode: {mode}")
+
+    user_parts = [user_content]
 
     if draft_schema:
         serialisable = draft_schema.to_llm_dict()
@@ -256,28 +199,51 @@ def build_messages(query: str,
             )
         )
 
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
+    messages = [
+        {"role": "system", "content": system_prompt},
         {"role": "user",   "content": "\n\n".join(user_parts).strip()},
     ]
+
+    return messages, mode
 
 
 def generate_schema(
     passages: List[str],
-    query: str,
+    query: str | None,
     max_keys_schema: int,
     current_schema: Schema | None,
     llm,
     context_window_size: int = 8192,
-) -> tuple[Schema, bool, List[Dict[str, Any]]]:
+) -> tuple[Schema, bool, List[Dict[str, Any]], SchemaMode]:
     """
     Feed passages + (optional) current schema to the LLM, ask for additions.
-    Returns (Schema, document_helpful_flag, suggested_value_additions)
+
+    Args:
+        passages: Document passages (may be empty for query-only mode)
+        query: User query (may be None/empty for document-only mode)
+        max_keys_schema: Maximum number of schema columns
+        current_schema: Existing schema to refine
+        llm: LLM interface for generation
+        context_window_size: Maximum context window size
+
+    Returns:
+        Tuple of (Schema, document_helpful_flag, suggested_value_additions, mode)
+        Note: document_helpful is always True for QUERY_ONLY mode (no documents to assess)
     """
-    prompt = build_messages(query, passages, current_schema)
-    trimmed = utils.fit_prompt(prompt, truncate=True, context_window_size=context_window_size)
+    messages, mode = build_messages(query, passages, current_schema)
+    trimmed = utils.fit_prompt(messages, truncate=True, context_window_size=context_window_size)
     llm_response = llm.generate(trimmed)
-    return _parse_schema_from_llm(llm_response, query=query, max_keys_schema=max_keys_schema)
+
+    # For query-only mode, document_helpful doesn't apply
+    schema, document_helpful, suggested_value_additions = _parse_schema_from_llm(
+        llm_response, query=query or "", max_keys_schema=max_keys_schema
+    )
+
+    # In QUERY_ONLY mode, there are no documents to assess helpfulness
+    if mode == SchemaMode.QUERY_ONLY:
+        document_helpful = True  # Not applicable, default to True
+
+    return schema, document_helpful, suggested_value_additions, mode
 
 
 def evaluate_schema_convergence(prev: Schema, new: Schema, thresh: float = 0.9) -> bool:
@@ -306,7 +272,7 @@ def load_initial_schema(initial_schema_path: Path, query: str, max_keys_schema: 
 
 
 def discover_schema(
-    query: str,
+    query: str | None,
     documents: List[str],
     filenames: List[str],
     max_keys_schema : int,
@@ -319,10 +285,38 @@ def discover_schema(
 ) -> tuple[Schema, List[str], List[str], SchemaEvolution]:
     """
     Main orchestration loop with document contribution tracking.
-    Returns (Schema, contributing_files, non_contributing_files, schema_evolution)
+
+    Supports three modes:
+    - STANDARD: Both query and documents provided
+    - DOCUMENT_ONLY: Documents provided, no query
+    - QUERY_ONLY: Query provided, no documents
+
+    Args:
+        query: User query (optional - can be None/empty for document-only mode)
+        documents: List of document contents (optional - can be empty for query-only mode)
+        filenames: List of document filenames (parallel to documents)
+        max_keys_schema: Maximum number of schema columns
+        llm: LLM interface
+        retriever: Content retriever (optional)
+        documents_batch_size: Number of documents per batch
+        context_window_size: LLM context window size
+        initial_schema: Starting schema (optional)
+        max_iters: Maximum iterations
+
+    Returns:
+        (Schema, contributing_files, non_contributing_files, schema_evolution)
+
+    Raises:
+        ValueError: If neither query nor documents are provided
     """
+    # Validate inputs - at least one must be provided
+    has_query = bool(query and query.strip())
+    has_documents = bool(documents)
+    if not has_query and not has_documents:
+        raise ValueError("At least one of query or documents must be provided")
+
     logging.info("Starting schema discovery…")
-    schema = initial_schema or Schema(query=query, max_keys=max_keys_schema)
+    schema = initial_schema or Schema(query=query or "", max_keys=max_keys_schema)
     logging.info("Starting with schema containing %d columns", len(schema))
 
     # Track document contributions
@@ -350,6 +344,38 @@ def discover_schema(
             if col.discovery_iteration is None:
                 col.discovery_iteration = 0
             evolution.record_column_source(col.name, col.source_document)
+
+    # Handle QUERY_ONLY mode: no documents, just generate schema from query
+    if not has_documents:
+        logging.info("QUERY_ONLY mode: Generating schema from query without documents")
+        proposed, _, _, mode = generate_schema(
+            passages=[], query=query, max_keys_schema=max_keys_schema,
+            current_schema=schema, llm=llm, context_window_size=context_window_size
+        )
+
+        # Merge proposed schema
+        merged = schema.merge(proposed)
+        new_columns = [col.name for col in merged.columns if col.name not in {c.name for c in schema.columns}]
+
+        # Tag new columns
+        for col in merged.columns:
+            if col.name in new_columns:
+                col.source_document = "query_only"
+                col.discovery_iteration = 1
+                evolution.record_column_source(col.name, "query_only")
+
+        # Record evolution snapshot
+        evolution.add_snapshot(
+            iteration=1,
+            documents=["query_only"],
+            total_columns=len(merged.columns),
+            new_columns=new_columns,
+            cumulative_documents=0
+        )
+
+        logging.info("QUERY_ONLY mode completed with %d columns: %s",
+                     len(merged), [col.name for col in merged.columns])
+        return merged, contributing_files, non_contributing_files, evolution
 
     # Simple batching; one doc may be chunked if > batch_size
     doc_iter = iter(list(zip(documents, filenames)))
@@ -380,7 +406,7 @@ def discover_schema(
             )
             continue
 
-        proposed, document_helpful, suggested_value_additions = generate_schema(passages, query, max_keys_schema, schema, llm, context_window_size)
+        proposed, document_helpful, suggested_value_additions, _ = generate_schema(passages, query, max_keys_schema, schema, llm, context_window_size)
 
         # Apply suggested value additions to existing schema columns
         if suggested_value_additions:
