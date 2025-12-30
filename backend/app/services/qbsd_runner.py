@@ -217,6 +217,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             "documents_batch_size": config.documents_batch_size,
             "output_path": str(session_dir / "discovered_schema.json"),
             "document_randomization_seed": config.document_randomization_seed,
+            "skip_value_extraction": config.skip_value_extraction,
             "schema_creation_backend": {
                 "provider": config.schema_creation_backend.provider,
                 "model": config.schema_creation_backend.model,
