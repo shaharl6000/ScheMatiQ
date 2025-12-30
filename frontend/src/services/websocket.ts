@@ -1,6 +1,20 @@
 import { WebSocketMessage } from '../types';
+import { getBackendBaseUrl } from './api';
 
 type MessageHandler = (message: WebSocketMessage) => void;
+
+// Derive WebSocket URL from the backend base URL
+function getWebSocketBaseUrl(): string {
+  // Check for explicit WS URL first (build-time)
+  if (process.env.REACT_APP_WS_URL) {
+    return process.env.REACT_APP_WS_URL + '/ws';
+  }
+
+  // Get backend URL and convert to WebSocket protocol
+  const backendUrl = getBackendBaseUrl();
+  // Convert http(s) to ws(s)
+  return backendUrl.replace(/^http/, 'ws') + '/ws';
+}
 
 class WebSocketService {
   private socket: WebSocket | null = null;
@@ -8,7 +22,11 @@ class WebSocketService {
   private messageHandlers: MessageHandler[] = [];
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
-  private baseUrl = process.env.REACT_APP_WS_BASE || 'ws://localhost:8000/ws';
+  private baseUrl = getWebSocketBaseUrl();
+
+  constructor() {
+    console.log('WebSocket base URL:', this.baseUrl);
+  }
 
   connect(sessionId: string, endpoint: 'progress' | 'logs' = 'progress') {
     if (this.socket) {

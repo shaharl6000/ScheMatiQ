@@ -24,10 +24,43 @@ import {
   ReextractionOperationStatus
 } from '../types';
 
-// Use REACT_APP_API_URL for full URL (Railway), otherwise default to relative /api path
-const API_BASE = process.env.REACT_APP_API_URL
-  ? `${process.env.REACT_APP_API_URL}/api`
-  : '/api';
+// Railway backend URL - used when env vars aren't set at build time
+const RAILWAY_BACKEND_URL = 'https://backend-production-5a26.up.railway.app';
+
+// Determine API base URL
+function getApiBaseUrl(): string {
+  // Build-time env var (preferred)
+  if (process.env.REACT_APP_API_URL) {
+    return `${process.env.REACT_APP_API_URL}/api`;
+  }
+
+  // Runtime detection for Railway
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname.includes('railway.app') || hostname.includes('up.railway.app')) {
+      return `${RAILWAY_BACKEND_URL}/api`;
+    }
+  }
+
+  // Local development - use relative path (proxy handles it)
+  return '/api';
+}
+
+const API_BASE = getApiBaseUrl();
+
+// Export for WebSocket service to use
+export const getBackendBaseUrl = (): string => {
+  if (process.env.REACT_APP_API_URL) {
+    return process.env.REACT_APP_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    if (hostname.includes('railway.app') || hostname.includes('up.railway.app')) {
+      return RAILWAY_BACKEND_URL;
+    }
+  }
+  return 'http://localhost:8000';
+};
 
 const api = axios.create({
   baseURL: API_BASE,
