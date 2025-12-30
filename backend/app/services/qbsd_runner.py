@@ -974,6 +974,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 evolution.column_sources[col.name] = "initial_schema"
 
         for iteration, (batch_docs, batch_names) in enumerate(zip(batches, filename_batches)):
+            # Check for stop request at the start of each iteration
+            if self.is_stop_requested(session_id):
+                print(f"🛑 Stop requested during schema discovery - saving partial schema with {len(current_schema.columns)} columns")
+                break
+
             print(f"🐛 DEBUG: Schema discovery batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs: {batch_names})")
             await progress_callback(f"Schema Discovery: Batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs)", iteration / len(batches), {
                 "iteration": iteration + 1,
@@ -1063,6 +1068,24 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             current_schema = merged_schema
             print(f"🐛 DEBUG: Completed batch {iteration + 1}, moving to next")
 
+            # Save partial schema to disk after each batch (for stop resilience)
+            session_dir = self.work_dir / session_id
+            partial_schema_file = session_dir / "discovered_schema.json"
+            frontend_schema = []
+            for col in current_schema.columns:
+                col_dict = col.to_dict()
+                frontend_col = {
+                    "name": col_dict.get("column", col.name),
+                    "definition": col_dict.get("definition", ""),
+                    "rationale": col_dict.get("explanation", col.rationale)
+                }
+                if col_dict.get("allowed_values"):
+                    frontend_col["allowed_values"] = col_dict["allowed_values"]
+                frontend_schema.append(frontend_col)
+            with open(partial_schema_file, 'w') as f:
+                json.dump({"query": query, "schema": frontend_schema}, f, indent=2)
+            print(f"🐛 DEBUG: Saved partial schema with {len(current_schema.columns)} columns")
+
             # Small delay to allow other tasks
             await asyncio.sleep(0.1)
 
@@ -1147,9 +1170,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         last_update_time = time.time()
         
         while not extraction_task.done():
+            # Check for stop request
+            if self.is_stop_requested(session_id):
+                print(f"🛑 Stop requested during value extraction - cancelling task")
+                extraction_task.cancel()
+                try:
+                    await extraction_task
+                except asyncio.CancelledError:
+                    pass
+                break
+
             try:
                 current_time = time.time()
-                
+
                 # Check output file size for progress
                 if output_path.exists():
                     with open(output_path, 'r') as f:
@@ -1537,20 +1570,75 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             has_more=end_line < total_count
         )
     
-    async def stop_execution(self, session_id: str) -> bool:
-        """Stop QBSD execution."""
+    async def stop_execution(self, session_id: str) -> Dict[str, Any]:
+        """Stop QBSD execution gracefully.
+
+        Returns:
+            Dict with status info including what was saved (schema, data counts)
+        """
+        result = {
+            "stopped": False,
+            "schema_saved": False,
+            "data_rows_saved": 0,
+            "message": ""
+        }
+
         if session_id in self.running_sessions:
+            # Set stop flag first - the running task will check this and exit gracefully
+            self.stop_flags[session_id] = True
+
             task = self.running_sessions[session_id]
-            task.cancel()
-            del self.running_sessions[session_id]
-            
-            # Update session status
+
+            # Give the task time to stop gracefully (LLM calls can take 30+ seconds)
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=60.0)
+            except asyncio.TimeoutError:
+                # If it doesn't stop gracefully after 60s, force cancel it
+                print(f"🛑 Graceful stop timed out after 60s, force cancelling task for {session_id}")
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            except asyncio.CancelledError:
+                pass  # Task was cancelled, which is expected
+            except Exception as e:
+                print(f"🛑 Exception during stop: {e}")
+
+            # Clean up
+            if session_id in self.running_sessions:
+                del self.running_sessions[session_id]
+            self.clear_stop_flag(session_id)
+
+            # Check what was saved
+            session_dir = self.work_dir / session_id
+            schema_file = session_dir / "discovered_schema.json"
+            data_file = session_dir / "extracted_data.jsonl"
+
+            if schema_file.exists():
+                result["schema_saved"] = True
+
+            if data_file.exists():
+                with open(data_file, 'r') as f:
+                    result["data_rows_saved"] = sum(1 for _ in f)
+
+            # Update session status to STOPPED (not ERROR)
             session = self.session_manager.get_session(session_id)
-            session.status = SessionStatus.ERROR
-            session.error_message = "Execution stopped by user"
-            self.session_manager.update_session(session)
-            
-            await self.broadcast_error(session_id, "Execution stopped by user")
-            return True
-        
-        return False
+            if session:
+                session.status = SessionStatus.STOPPED
+                session.error_message = None  # Clear any error - this was intentional stop
+                self.session_manager.update_session(session)
+
+            # Broadcast stopped message
+            await self.broadcast_stopped(session_id, {
+                "schema_saved": result["schema_saved"],
+                "data_rows_saved": result["data_rows_saved"],
+                "message": "Processing stopped by user"
+            })
+
+            result["stopped"] = True
+            result["message"] = "Processing stopped successfully"
+            return result
+
+        result["message"] = "No running session found"
+        return result

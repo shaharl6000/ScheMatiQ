@@ -159,3 +159,20 @@ class WebSocketBroadcasterMixin:
             "data": cell_data
         }
         await self.websocket_manager.buffer_or_broadcast_cell(session_id, message)
+
+    async def broadcast_stopped(
+        self,
+        session_id: str,
+        stopped_data: Dict[str, Any]
+    ):
+        """Broadcast stopped message via WebSocket.
+
+        Args:
+            stopped_data: Dict with schema_saved, data_rows_saved, and message keys
+        """
+        message = {
+            "type": "stopped",
+            "timestamp": datetime.now().isoformat(),
+            "data": stopped_data
+        }
+        await self.websocket_manager.broadcast_to_session(session_id, message)

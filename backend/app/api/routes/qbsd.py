@@ -123,15 +123,23 @@ async def get_qbsd_data(session_id: str, page: int = 0, page_size: int = 50):
 
 @router.post("/stop/{session_id}")
 async def stop_qbsd(session_id: str):
-    """Stop QBSD execution."""
+    """Stop QBSD execution gracefully.
+
+    Returns information about what partial results were saved.
+    """
     try:
-        success = await qbsd_runner.stop_execution(session_id)
-        
-        if not success:
-            raise HTTPException(status_code=404, detail="No running QBSD session found")
-        
-        return {"message": "QBSD execution stopped"}
-        
+        result = await qbsd_runner.stop_execution(session_id)
+
+        if not result["stopped"]:
+            raise HTTPException(status_code=404, detail=result["message"])
+
+        return {
+            "status": "stopped",
+            "message": result["message"],
+            "schema_saved": result["schema_saved"],
+            "data_rows_saved": result["data_rows_saved"]
+        }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

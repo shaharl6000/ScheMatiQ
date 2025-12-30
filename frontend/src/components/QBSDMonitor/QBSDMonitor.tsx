@@ -27,7 +27,7 @@ import {
 
 import { qbsdAPI } from '../../services/api';
 import { webSocketService } from '../../services/websocket';
-import { WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData, LogData } from '../../types';
+import { WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData, LogData, StoppedData } from '../../types';
 
 interface QBSDMonitorProps {
   sessionId: string;
@@ -41,7 +41,7 @@ interface LogEntry {
 }
 
 // Processing state that changes IMMEDIATELY on user action
-type ProcessingState = 'idle' | 'starting' | 'schema' | 'extraction' | 'completed' | 'error';
+type ProcessingState = 'idle' | 'starting' | 'schema' | 'extraction' | 'completed' | 'error' | 'stopped';
 
 const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   const queryClient = useQueryClient();
@@ -67,6 +67,12 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
     isComplete: false
   });
 
+  // Stopped state info
+  const [stoppedInfo, setStoppedInfo] = useState<{
+    schemaSaved: boolean;
+    dataRowsSaved: number;
+  } | null>(null);
+
   // Fetch QBSD status
   const { data: status, isLoading } = useQuery(
     ['qbsd-status', sessionId],
@@ -82,6 +88,8 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       setProcessingState('starting');
     } else if (status?.status === 'completed' && processingState !== 'completed') {
       setProcessingState('completed');
+    } else if (status?.status === 'stopped' && processingState !== 'stopped') {
+      setProcessingState('stopped');
     } else if (status?.status === 'error') {
       setProcessingState('error');
       setErrorMessage(status.error_message || 'An error occurred');
@@ -185,6 +193,20 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       } else if (message.type === 'log') {
         const logData = message.data as LogData;
         addLog(logData?.level || 'info', logData?.message || 'Log message', message.data);
+      } else if (message.type === 'stopped') {
+        const stoppedData = message.data as StoppedData;
+        addLog('warning', `Processing stopped. Schema saved: ${stoppedData?.schema_saved}, Data rows: ${stoppedData?.data_rows_saved}`);
+        setProcessingState('stopped');
+        setStoppedInfo({
+          schemaSaved: stoppedData?.schema_saved || false,
+          dataRowsSaved: stoppedData?.data_rows_saved || 0
+        });
+        // Update schema progress if we have partial schema
+        if (stoppedData?.schema_saved) {
+          setSchemaProgress(prev => ({ ...prev, isComplete: true }));
+        }
+        queryClient.invalidateQueries(['qbsd-status', sessionId]);
+        queryClient.invalidateQueries(['session', sessionId, 'qbsd']);
       }
     };
 
@@ -248,8 +270,9 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   const handleStop = async () => {
     try {
       await qbsdAPI.stop(sessionId);
-      setProcessingState('idle');
-      addLog('warning', 'QBSD execution stopped by user');
+      // Don't set to idle - wait for WebSocket 'stopped' message
+      // which will set proper state with partial results info
+      addLog('warning', 'Stop requested - waiting for graceful shutdown...');
     } catch (error: any) {
       addLog('error', `Failed to stop QBSD: ${error.message}`);
     }
@@ -355,6 +378,32 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
               <Button onClick={handleStart}>
                 <Play className="h-4 w-4 mr-2" />
                 Try Again
+              </Button>
+            </>
+          )}
+
+          {/* STOPPED STATE */}
+          {processingState === 'stopped' && (
+            <>
+              <div className="w-14 h-14 rounded-full bg-yellow-100 flex items-center justify-center mb-4">
+                <Square className="h-8 w-8 text-yellow-600" />
+              </div>
+              <p className="text-xl font-semibold text-yellow-600 mb-1">Processing Stopped</p>
+              <p className="text-muted-foreground mb-2 text-center max-w-md">
+                {stoppedInfo?.schemaSaved
+                  ? `Schema discovered. ${stoppedInfo.dataRowsSaved > 0
+                      ? `${stoppedInfo.dataRowsSaved} data rows extracted.`
+                      : 'No data extracted yet.'}`
+                  : 'Stopped before schema discovery completed.'}
+              </p>
+              {(stoppedInfo?.schemaSaved || (stoppedInfo?.dataRowsSaved ?? 0) > 0) && (
+                <p className="text-sm text-muted-foreground mb-4">
+                  You can view and export partial results in the Data and Schema tabs.
+                </p>
+              )}
+              <Button onClick={handleStart}>
+                <Play className="h-4 w-4 mr-2" />
+                Start Fresh
               </Button>
             </>
           )}

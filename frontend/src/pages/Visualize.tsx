@@ -13,6 +13,7 @@ import {
   Loader2,
   X,
   FileText,
+  Square,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -555,7 +556,8 @@ const Visualize = () => {
   }
 
   const isQBSDRunning = mode === 'qbsd' && session?.status === 'processing';
-  const isSchemaReady = ['schema_ready', 'schema_extracted', 'documents_uploaded', 'processing_documents', 'completed'].includes(session?.status || '') ||
+  const isQBSDStopped = mode === 'qbsd' && session?.status === 'stopped';
+  const isSchemaReady = ['schema_ready', 'schema_extracted', 'documents_uploaded', 'processing_documents', 'completed', 'stopped'].includes(session?.status || '') ||
     (mode === 'qbsd' && session?.status === 'processing' && (session?.columns?.length ?? 0) > 0);
   const isCompleted = session?.status === 'completed';
   const isEnhancedUploadProcessing = session?.status === 'processing_documents';
@@ -564,6 +566,7 @@ const Visualize = () => {
     const status = session?.status;
     const variants: Record<string, 'default' | 'success' | 'warning' | 'destructive' | 'info'> = {
       completed: 'success',
+      stopped: 'warning',
       schema_ready: 'info',
       schema_extracted: 'info',
       documents_uploaded: 'warning',
@@ -572,6 +575,7 @@ const Visualize = () => {
       error: 'destructive',
     };
     const labels: Record<string, string> = {
+      stopped: 'Stopped (Partial)',
       schema_ready: 'Schema Ready',
       schema_extracted: 'Schema Extracted',
       documents_uploaded: 'Documents Ready',
@@ -605,7 +609,7 @@ const Visualize = () => {
 
         <div className="flex items-center gap-2">
           {getStatusBadge()}
-          {(isCompleted || isEnhancedUploadProcessing) && (
+          {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
             <>
               <Button variant="ghost" size="sm" onClick={handleRefresh}>
                 <RefreshCw className="h-4 w-4 mr-2" />
@@ -613,7 +617,7 @@ const Visualize = () => {
               </Button>
               <Button variant="outline" size="sm" onClick={handleExport}>
                 <Download className="h-4 w-4 mr-2" />
-                Export
+                Export{isQBSDStopped ? ' Partial' : ''}
               </Button>
             </>
           )}
@@ -623,7 +627,7 @@ const Visualize = () => {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
-          <TabsTrigger value="data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning} className="gap-2">
+          <TabsTrigger value="data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped} className="gap-2">
             <Table2 className="h-4 w-4" />
             Data
           </TabsTrigger>
@@ -631,7 +635,7 @@ const Visualize = () => {
             <Database className="h-4 w-4" />
             Schema
           </TabsTrigger>
-          <TabsTrigger value="stats" disabled={!isCompleted} className="gap-2">
+          <TabsTrigger value="stats" disabled={!isCompleted && !isQBSDStopped} className="gap-2">
             <BarChart3 className="h-4 w-4" />
             Statistics
           </TabsTrigger>
@@ -641,6 +645,8 @@ const Visualize = () => {
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : session?.status === 'completed' ? (
                 <CheckCircle2 className="h-4 w-4 text-green-500" />
+              ) : session?.status === 'stopped' ? (
+                <Square className="h-4 w-4 text-yellow-500" />
               ) : session?.status === 'error' ? (
                 <XCircle className="h-4 w-4 text-red-500" />
               ) : (
@@ -659,7 +665,7 @@ const Visualize = () => {
 
         {/* Data Tab */}
         <TabsContent value="data" className="mt-4">
-          {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
+          {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || isQBSDStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
             <div className="relative">
               <DataTable
                 sessionId={sessionId!}

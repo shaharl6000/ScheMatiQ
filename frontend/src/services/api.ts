@@ -204,8 +204,14 @@ export const qbsdAPI = {
     return response.data;
   },
 
-  stop: async (sessionId: string): Promise<void> => {
-    await api.post(`/qbsd/stop/${sessionId}`);
+  stop: async (sessionId: string): Promise<{
+    status: string;
+    message: string;
+    schema_saved: boolean;
+    data_rows_saved: number;
+  }> => {
+    const response = await api.post(`/qbsd/stop/${sessionId}`);
+    return response.data;
   },
 
   listSessions: async (): Promise<VisualizationSession[]> => {

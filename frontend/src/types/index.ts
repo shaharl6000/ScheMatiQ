@@ -89,7 +89,7 @@ export interface DataStatistics {
 export interface VisualizationSession {
   id: string;
   type: 'load' | 'qbsd';
-  status: 'created' | 'processing' | 'schema_ready' | 'completed' | 'error' |
+  status: 'created' | 'processing' | 'schema_ready' | 'completed' | 'error' | 'stopped' |
           'schema_extracted' | 'documents_uploaded' | 'processing_documents';
   metadata: SessionMetadata;
   schema_query?: string;
@@ -234,12 +234,18 @@ export interface CellExtractedData {
   row_index?: number;
 }
 
+export interface StoppedData {
+  schema_saved: boolean;
+  data_rows_saved: number;
+  message: string;
+}
+
 export interface WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'cell_extracted';
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'cell_extracted' | 'stopped';
   timestamp?: string;
   session_id?: string;
   message?: string;
-  data?: ProgressData | LogData | ErrorData | CompletionData | SchemaCompletionData | RowCompletionData | SchemaUpdatedData | ReprocessingProgressData | ReprocessingCompletedData | CellExtractedData;
+  data?: ProgressData | LogData | ErrorData | CompletionData | SchemaCompletionData | RowCompletionData | SchemaUpdatedData | ReprocessingProgressData | ReprocessingCompletedData | CellExtractedData | StoppedData;
 }
 
 // Schema types
