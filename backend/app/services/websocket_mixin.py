@@ -87,17 +87,18 @@ class WebSocketBroadcasterMixin:
         await self.websocket_manager.broadcast_progress(session_id, data)
     
     async def broadcast_step_progress(
-        self, 
-        session_id: str, 
+        self,
+        session_id: str,
         step_name: str,
         step_number: int,
         total_steps: int,
         step_progress: float = None,
-        message: str = None
+        message: str = None,
+        details: Dict[str, Any] = None
     ):
         """Broadcast step-based progress update."""
         overall_progress = (step_number - 1 + (step_progress or 0)) / total_steps
-        
+
         data = {
             "session_id": session_id,
             "status": "processing",
@@ -110,7 +111,9 @@ class WebSocketBroadcasterMixin:
         }
         if message:
             data["message"] = message
-        
+        if details:
+            data["details"] = details
+
         await self.websocket_manager.broadcast_progress(session_id, data)
     
     async def broadcast_schema_completed(

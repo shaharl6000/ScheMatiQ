@@ -567,12 +567,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         async def update_progress(step_name: str, step_progress: float = 0.0, details: Dict[str, Any] = None):
             nonlocal current_step
             await self.broadcast_step_progress(
-                session_id, 
-                step_name, 
-                current_step + 1, 
-                total_steps, 
-                step_progress, 
-                details.get("message") if details else None
+                session_id,
+                step_name,
+                current_step + 1,
+                total_steps,
+                step_progress,
+                details.get("message") if details else None,
+                details  # Pass full details dict including iteration data
             )
         
         try:

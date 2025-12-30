@@ -7,8 +7,6 @@ import {
   Info,
   AlertTriangle,
   Activity,
-  Wifi,
-  WifiOff,
   Loader2,
   XCircle,
   ChevronDown,
@@ -278,51 +276,17 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
 
   return (
     <div className="space-y-6">
-      {/* Connection Status Badge - Top Right */}
-      <div className="flex justify-end">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-muted/50 border">
-          {connectionStatus === 'connected' && (
-            <>
-              <div className="w-2 h-2 rounded-full bg-green-500" />
-              <Wifi className="h-3.5 w-3.5 text-green-500" />
-              <span className="text-xs text-green-600 font-medium">Connected</span>
-            </>
-          )}
-          {connectionStatus === 'connecting' && (
-            <>
-              <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-              <Loader2 className="h-3.5 w-3.5 text-yellow-500 animate-spin" />
-              <span className="text-xs text-yellow-600 font-medium">Connecting...</span>
-            </>
-          )}
-          {connectionStatus === 'reconnecting' && (
-            <>
-              <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" />
-              <Loader2 className="h-3.5 w-3.5 text-yellow-500 animate-spin" />
-              <span className="text-xs text-yellow-600 font-medium">Reconnecting...</span>
-            </>
-          )}
-          {connectionStatus === 'disconnected' && (
-            <>
-              <div className="w-2 h-2 rounded-full bg-red-500" />
-              <WifiOff className="h-3.5 w-3.5 text-red-500" />
-              <span className="text-xs text-red-600 font-medium">Disconnected</span>
-            </>
-          )}
-        </div>
-      </div>
-
       {/* HERO PROCESSING SECTION */}
       <Card className="border-2">
-        <CardContent className="py-12 flex flex-col items-center justify-center min-h-[250px]">
+        <CardContent className="py-6 flex flex-col items-center justify-center min-h-[160px]">
           {/* IDLE STATE */}
           {processingState === 'idle' && (
             <>
-              <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-6">
-                <Play className="h-10 w-10 text-muted-foreground" />
+              <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
+                <Play className="h-7 w-7 text-muted-foreground" />
               </div>
-              <p className="text-2xl font-semibold text-muted-foreground mb-2">Ready to Start</p>
-              <p className="text-sm text-muted-foreground mb-6">
+              <p className="text-xl font-semibold text-muted-foreground mb-1">Ready to Start</p>
+              <p className="text-sm text-muted-foreground mb-4">
                 Click the button below to begin QBSD execution
               </p>
               <Button size="lg" onClick={handleStart} className="px-8">
@@ -335,18 +299,18 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
           {/* PROCESSING STATES (starting, schema, extraction) */}
           {isProcessing && (
             <>
-              <div className="relative mb-6">
-                <Loader2 className="h-20 w-20 animate-spin text-primary" />
+              <div className="relative mb-4">
+                <Loader2 className="h-14 w-14 animate-spin text-primary" />
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="h-12 w-12 rounded-full bg-primary/10 animate-pulse" />
+                  <div className="h-8 w-8 rounded-full bg-primary/10 animate-pulse" />
                 </div>
               </div>
-              <p className="text-2xl font-semibold mb-2">
+              <p className="text-xl font-semibold mb-1">
                 {processingState === 'starting' && 'Starting...'}
                 {processingState === 'schema' && 'Discovering Schema...'}
                 {processingState === 'extraction' && 'Extracting Values...'}
               </p>
-              <p className="text-muted-foreground mb-6 text-center max-w-md">
+              <p className="text-muted-foreground mb-4 text-center max-w-md">
                 {currentStepMessage || 'Processing your documents...'}
               </p>
               <Button variant="outline" onClick={handleStop}>
@@ -359,11 +323,11 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
           {/* COMPLETED STATE */}
           {processingState === 'completed' && (
             <>
-              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center mb-6">
-                <CheckCircle2 className="h-12 w-12 text-green-600" />
+              <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4">
+                <CheckCircle2 className="h-8 w-8 text-green-600" />
               </div>
-              <p className="text-2xl font-semibold text-green-600 mb-2">Completed Successfully!</p>
-              <p className="text-muted-foreground mb-6 text-center max-w-md">
+              <p className="text-xl font-semibold text-green-600 mb-1">Completed Successfully!</p>
+              <p className="text-muted-foreground mb-4 text-center max-w-md">
                 {schemaProgress.columnsDiscovered > 0 && extractionProgress.totalDocs > 0
                   ? `Discovered ${schemaProgress.columnsDiscovered} columns from ${extractionProgress.totalDocs} documents`
                   : 'Schema discovery and value extraction finished'}
@@ -378,11 +342,11 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
           {/* ERROR STATE */}
           {processingState === 'error' && (
             <>
-              <div className="w-20 h-20 rounded-full bg-red-100 flex items-center justify-center mb-6">
-                <XCircle className="h-12 w-12 text-red-600" />
+              <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mb-4">
+                <XCircle className="h-8 w-8 text-red-600" />
               </div>
-              <p className="text-2xl font-semibold text-red-600 mb-2">Error Occurred</p>
-              <p className="text-muted-foreground mb-6 text-center max-w-md">
+              <p className="text-xl font-semibold text-red-600 mb-1">Error Occurred</p>
+              <p className="text-muted-foreground mb-4 text-center max-w-md">
                 {errorMessage || 'An unexpected error occurred'}
               </p>
               <Button onClick={handleStart}>
