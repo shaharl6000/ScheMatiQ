@@ -1169,6 +1169,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         last_line_count = 0
         last_update_time = time.time()
         
+        stopped_early = False
         while not extraction_task.done():
             # Check for stop request
             if self.is_stop_requested(session_id):
@@ -1178,6 +1179,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     await extraction_task
                 except asyncio.CancelledError:
                     pass
+                stopped_early = True
                 break
 
             try:
@@ -1220,11 +1222,12 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 print(f"Progress monitoring error: {e}")
                 await asyncio.sleep(2)
         
-        # Wait for completion
-        try:
-            suggested_values_result = await extraction_task
-        except Exception as e:
-            raise RuntimeError(f"Value extraction failed: {e}")
+        # Wait for completion (skip if we already handled stop)
+        if not stopped_early:
+            try:
+                suggested_values_result = await extraction_task
+            except Exception as e:
+                raise RuntimeError(f"Value extraction failed: {e}")
 
         # Final progress update
         final_line_count = 0
@@ -1232,9 +1235,15 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             with open(output_path, 'r') as f:
                 final_line_count = sum(1 for _ in f)
 
-        # Update final session metadata and process suggested values
+        # Update final session metadata
         session = self.session_manager.get_session(session_id)
         session.metadata.processed_documents = final_line_count
+        self.session_manager.update_session(session)
+
+        # If stopped early, return without processing suggested values or sending "Complete"
+        if stopped_early:
+            print(f"🛑 Value extraction stopped early with {final_line_count} rows extracted")
+            return
 
         # Process suggested values for schema evolution
         if suggested_values_result:
