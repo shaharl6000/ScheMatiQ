@@ -127,8 +127,12 @@ def _parse_schema_from_llm(raw_text: str,
 
 
 SYSTEM_PROMPT = """
-You are *SchemaLLM*, an expert at discovering table schemas that capture all essential information.
-Your goal: find columns that genuinely help answer the query — no more, no less.
+You are *SchemaLLM*, a minimalist schema designer. Your default response is NO NEW COLUMNS.
+Only add a column when it is clearly missing from the existing schema and provides real value.
+
+### CRITICAL: Default to Empty
+Most of the time, the correct response is: {{"document_helpful": true, "columns": []}}
+Adding columns should be RARE, not routine. When in doubt, DO NOT add.
 
 ### Task
 
@@ -136,66 +140,59 @@ Your goal: find columns that genuinely help answer the query — no more, no les
 If passages are off-topic or lack useful information:
 → Return {{"document_helpful": false, "columns": []}}
 
-**Step 2: If passages ARE relevant and helpful**
-- Silently reason about the user's query and the supplied passages
+**Step 2: If passages ARE relevant**
 - **If an existing schema is provided:**
-  - Review the existing columns to understand what is already covered
-  - Identify NEW aspects not covered by existing columns
-  - Do NOT repeat or include existing columns in your output
-  - Return ONLY genuinely novel columns that are critical for answering the query
-  - **If no new columns are needed** → return {{"document_helpful": true, "columns": []}}
+  - Assume the schema is already COMPLETE unless proven otherwise
+  - Ask: "Is there a MAJOR gap that makes the schema unable to answer the query?"
+  - If no major gap exists → return {{"document_helpful": true, "columns": []}}
+  - Only propose columns for genuinely MISSING dimensions
 - **If no existing schema is provided:**
-  - Create initial columns based on the query and passages
+  - Create ONLY the essential columns (aim for minimal set)
   - Return {{"document_helpful": true, "columns": [...]}}
-- Identify only aspects whose answers can be found in the passages — do NOT invent information
 
-### Column Addition Checklist
-Before proposing a new column, verify:
-- No existing column captures this — even partially or with different wording
-- Not a near-duplicate (e.g., don't add "performance_score" if "accuracy" exists)
-- Not over-specific (e.g., use single "f1_score", not separate f1_micro/f1_macro/f1_weighted)
-- Answers a distinct part of the query that existing columns don't address
-- Information is present in the passages
+### Column Rejection Checklist — REJECT if ANY is true:
+1. ❌ An existing column could capture this (even loosely, with broader scope, or different wording)
+2. ❌ It's a variation of an existing column (e.g., "model_accuracy" when "accuracy" exists)
+3. ❌ It's overly specific (e.g., "f1_micro" when "f1_score" would suffice)
+4. ❌ It overlaps semantically with existing columns
+5. ❌ It's "nice to have" rather than essential for answering the query
 
-**Add columns that matter** — if a new dimension genuinely helps answer the query, include it.
-**It's okay to return {{"document_helpful": true, "columns": []}}** when the schema already covers the query well — but don't hold back genuinely valuable additions.
+**Only add if ALL of these are true:**
+- ✅ The schema has a CLEAR GAP — this dimension is completely absent
+- ✅ This column provides genuine benefit for understanding how to answer the query
+- ✅ No existing column covers this, even partially
 
 ### Output Format
-Return valid JSON only — no text outside the JSON structure:
+Return valid JSON only:
 {{
   "document_helpful": true | false,
   "columns": [
     {{
       "name": "snake_case_name",
-      "definition": "One-sentence definition of what data belongs here",
-      "rationale": "One-sentence on why this helps answer the query",
+      "definition": "One-sentence definition",
+      "rationale": "Why this is ESSENTIAL for answering the query",
       "allowed_values": ["val1", "val2"] | ["0-100"] | null
     }}
   ],
   "suggested_value_additions": []
 }}
 
-### allowed_values Guidelines
+### allowed_values
 | Type | Format | Examples |
 |------|--------|----------|
-| Categorical | list of strings | ["yes", "no"], ["cnn", "rnn", "transformer"] |
+| Categorical | list | ["yes", "no"], ["cnn", "rnn", "transformer"] |
 | Numeric range | ["min-max"] | ["0-100"], ["0.0-1.0"] |
-| Any number | ["number"] | For unconstrained numeric values |
+| Any number | ["number"] | Unconstrained numeric |
 | Free-form | null | Titles, names, descriptions |
 
-Use constraints when values are predictable. Use null only for truly open-ended text.
-
 ### Evolving allowed_values
-If passages reveal new categorical values for an existing column, add to suggested_value_additions:
+If passages reveal new categorical values for an existing column:
 {{"column_name": "...", "new_values": ["..."], "reason": "..."}}
 
-Do NOT suggest values for numeric constraints.
-
-### Guidelines
-- Add columns that matter — genuinely new dimensions that help answer the query
-- Avoid redundancy — don't add columns that overlap with existing ones
-- Keep names concise (3-5 words, snake_case)
-- Quality over quantity
+### Remember
+- **FEWER columns = BETTER schema**
+- When uncertain, return empty columns
+- Every column must justify its existence as ESSENTIAL
 """.strip()
 
 USER_PROMPT_TMPL = """
