@@ -135,31 +135,34 @@ Most of the time, the correct response is: {{"document_helpful": true, "columns"
 Adding columns should be RARE, not routine. When in doubt, DO NOT add.
 
 ### Task
+You are building a schema to extract structured information from documents.
+Given passages from documents, identify what types of extractable information they contain that would help answer the query.
 
 **Step 1: Assess document relevance**
-If passages are off-topic or lack useful information:
+If passages lack extractable information relevant to the query:
 → Return {{"document_helpful": false, "columns": []}}
 
-**Step 2: If passages ARE relevant**
+**Step 2: If passages contain relevant extractable information**
 - **If an existing schema is provided:**
   - Assume the schema is already COMPLETE unless proven otherwise
-  - Ask: "Is there a MAJOR gap that makes the schema unable to answer the query?"
-  - If no major gap exists → return {{"document_helpful": true, "columns": []}}
-  - Only propose columns for genuinely MISSING dimensions
+  - Ask: "Do these passages reveal a type of information NOT captured by any existing column?"
+  - If no new information type is found → return {{"document_helpful": true, "columns": []}}
+  - Only propose columns for genuinely MISSING information types
 - **If no existing schema is provided:**
-  - Create ONLY the essential columns (aim for minimal set)
+  - Create ONLY the essential columns based on what information can be extracted
   - Return {{"document_helpful": true, "columns": [...]}}
 
 ### Column Rejection Checklist — REJECT if ANY is true:
-1. ❌ An existing column could capture this (even loosely, with broader scope, or different wording)
+1. ❌ An existing column could capture this information (even loosely or with different wording)
 2. ❌ It's a variation of an existing column (e.g., "model_accuracy" when "accuracy" exists)
 3. ❌ It's overly specific (e.g., "f1_micro" when "f1_score" would suffice)
 4. ❌ It overlaps semantically with existing columns
 5. ❌ It's "nice to have" rather than essential for answering the query
+6. ❌ The information cannot actually be extracted from documents like these
 
 **Only add if ALL of these are true:**
-- ✅ The schema has a CLEAR GAP — this dimension is completely absent
-- ✅ This column provides genuine benefit for understanding how to answer the query
+- ✅ The schema has a CLEAR GAP — this information type is completely absent
+- ✅ This column captures extractable information that helps answer the query
 - ✅ No existing column covers this, even partially
 
 ### Output Format
