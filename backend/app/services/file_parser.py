@@ -161,11 +161,20 @@ class FileParser:
                     # Parse CSV structure from data lines
                     try:
                         dialect = csv.Sniffer().sniff(data_lines[0])
-                        reader = csv.DictReader(data_lines[:2], dialect=dialect)
-                        sample = next(reader)
-                        result["estimated_columns"] = len(sample)
+                        reader = csv.DictReader(data_lines, dialect=dialect)
                         result["estimated_rows"] = len(data_lines) - 1  # Exclude header
-                        result["sample_data"] = [sample]
+
+                        # Try to get sample data (may be empty for schema-only CSVs)
+                        try:
+                            sample = next(reader)
+                            result["estimated_columns"] = len(sample)
+                            result["sample_data"] = [sample]
+                        except StopIteration:
+                            # Schema-only CSV: header row but no data rows
+                            # Parse header manually to get column count
+                            header_cols = list(csv.reader([data_lines[0]], dialect=dialect))[0]
+                            result["estimated_columns"] = len(header_cols)
+                            result["sample_data"] = []
                     except Exception as e:
                         result["errors"].append(f"Error parsing CSV structure: {str(e)}")
 
