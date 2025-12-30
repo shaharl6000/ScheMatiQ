@@ -24,10 +24,6 @@ class WebSocketService {
   private maxReconnectAttempts = 5;
   private baseUrl = getWebSocketBaseUrl();
 
-  constructor() {
-    console.log('WebSocket base URL:', this.baseUrl);
-  }
-
   connect(sessionId: string, endpoint: 'progress' | 'logs' = 'progress') {
     if (this.socket) {
       this.disconnect();

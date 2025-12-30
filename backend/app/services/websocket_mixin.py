@@ -42,11 +42,6 @@ class WebSocketBroadcasterMixin:
         if result_data:
             data.update(result_data)
 
-        # Debug: Log WebSocket connection status
-        conn_count = self.websocket_manager.get_connection_count(session_id)
-        print(f"🔌 DEBUG: WebSocket connections for {session_id}: {conn_count} active")
-        print(f"🔌 DEBUG: Broadcasting completion with data: {data}")
-
         await self.websocket_manager.broadcast_completion(session_id, data)
     
     async def broadcast_error(
@@ -114,7 +109,6 @@ class WebSocketBroadcasterMixin:
         if details:
             data["details"] = details
 
-        print(f"📡 BROADCASTING PROGRESS: {step_name} (step {step_number}/{total_steps}, details: {bool(details)})")
         await self.websocket_manager.broadcast_progress(session_id, data)
     
     async def broadcast_schema_completed(
@@ -147,11 +141,6 @@ class WebSocketBroadcasterMixin:
         Args:
             cell_data: Dict with row_name, column, and value keys
         """
-        # Debug: Log WebSocket connection status
-        conn_count = self.websocket_manager.get_connection_count(session_id)
-        print(f"📡 CELL BROADCAST: {session_id} has {conn_count} connections")
-        print(f"📡 CELL BROADCAST: {cell_data.get('row_name')}/{cell_data.get('column')}")
-
         # Use buffer_or_broadcast_cell to handle race condition
         message = {
             "type": "cell_extracted",

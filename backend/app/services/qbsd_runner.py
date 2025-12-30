@@ -799,6 +799,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 "total_columns": len(discovered_schema.columns)
             })
 
+            # Check if stop was requested during schema discovery - skip remaining steps
+            if self.is_stop_requested(session_id):
+                print(f"🛑 Stop requested - skipping value extraction and finalization")
+                return  # Exit early, stop_execution() will handle status update
+
             # Step 6: Value extraction (skip if schema-only mode)
             if qbsd_config.get("skip_value_extraction", False):
                 print(f"⏭️ Skipping value extraction (schema-only mode)")
@@ -833,6 +838,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                         pass  # Expected when cancelling
 
                 await update_progress("Extracting values", 1.0)
+
+            # Check if stop was requested during value extraction - skip finalization
+            if self.is_stop_requested(session_id):
+                print(f"🛑 Stop requested - skipping finalization")
+                return  # Exit early, stop_execution() will handle status update
 
             # Step 7: Finalize
             current_step += 1
