@@ -1404,14 +1404,14 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             with open(schema_file) as f:
                 return json.load(f)
         
-        # Fall back to session schema
+        # Fall back to session schema (return query even if no columns yet)
         session = self.session_manager.get_session(session_id)
-        if session and session.columns:
+        if session:
             return {
-                "query": session.schema_query,
-                "schema": [col.model_dump() for col in session.columns]
+                "query": session.schema_query or "",
+                "schema": [col.model_dump() for col in session.columns] if session.columns else []
             }
-        
+
         return {"query": "", "schema": []}
     
     async def get_data(self, session_id: str, page: int = 0, page_size: int = 50) -> PaginatedData:
