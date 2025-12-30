@@ -273,9 +273,9 @@ async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
         
         # Get all data
         data = await qbsd_runner.get_data(session_id, page=0, page_size=10000)  # Get all data
-        
-        if not data.rows:
-            raise HTTPException(status_code=404, detail="No data to export")
+
+        # Schema-only mode: no rows is valid, we'll export just the schema
+        is_schema_only = not data.rows
         
         # Prepare CSV data with metadata
         output = io.StringIO()
@@ -351,16 +351,26 @@ async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
         
         # Determine all column names including excerpt columns
         all_columns = set()
-        for row in data.rows:
-            if row.row_name:
-                all_columns.add('row_name')
-            if row.papers:
-                all_columns.add('papers')
-            for col_name in row.data.keys():
-                all_columns.add(col_name)
-                # Add excerpt column for QBSD data
-                if isinstance(row.data[col_name], dict) and 'excerpts' in row.data[col_name]:
-                    all_columns.add(f"{col_name}_excerpt")
+        if is_schema_only:
+            # Schema-only mode: use column names from schema
+            output.write("# NOTE: Schema-only export (no value extraction performed)\n")
+            output.write("#\n")
+            all_columns.add('row_name')
+            all_columns.add('papers')
+            for col in session.columns:
+                if col.name:
+                    all_columns.add(col.name)
+        else:
+            for row in data.rows:
+                if row.row_name:
+                    all_columns.add('row_name')
+                if row.papers:
+                    all_columns.add('papers')
+                for col_name in row.data.keys():
+                    all_columns.add(col_name)
+                    # Add excerpt column for QBSD data
+                    if isinstance(row.data[col_name], dict) and 'excerpts' in row.data[col_name]:
+                        all_columns.add(f"{col_name}_excerpt")
         
         # Determine column order - use user-specified order if provided
         if column_order:
@@ -414,7 +424,7 @@ async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
         
         # Generate filename with datetime
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        filename = f"QBSD_{timestamp}.csv"
+        filename = f"QBSD_{'schema_only_' if is_schema_only else ''}{timestamp}.csv"
         
         return StreamingResponse(
             io.BytesIO(content.encode('utf-8')),
