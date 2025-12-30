@@ -57,9 +57,13 @@ def _extract_json(text: str) -> str:
     """
     Return the JSON payload inside a Markdown code-block if one exists,
     otherwise return the original string (stripped of leading/trailing space).
+    Also normalizes double braces ({{ }}) to single braces ({ }).
     """
     match = _CODE_FENCE.search(text)
-    return match.group(1) if match else text.strip()
+    result = match.group(1) if match else text.strip()
+    # Normalize double braces (LLM may copy from prompt examples which use {{ }} for Python escaping)
+    result = result.replace('{{', '{').replace('}}', '}')
+    return result
 
 def _parse_schema_from_llm(raw_text: str,
                            query: str,
