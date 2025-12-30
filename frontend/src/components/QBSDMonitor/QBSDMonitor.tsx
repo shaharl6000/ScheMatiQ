@@ -104,6 +104,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   // WebSocket connection for real-time updates
   useEffect(() => {
     const handleMessage = (message: WebSocketMessage) => {
+      console.log('📨 WebSocket message received:', message.type, message);
       if (message.type === 'connected') {
         setConnectionStatus('connected');
         addLog('success', 'Connected to real-time monitoring');
@@ -116,11 +117,13 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       } else if (message.type === 'progress') {
         const progressData = message.data as ProgressData;
         const stepName = progressData?.current_step || 'Processing...';
+        console.log('📡 PROGRESS MESSAGE:', { stepName, progressData, hasSchema: stepName.toLowerCase().includes('schema') });
         setCurrentStepMessage(stepName);
         addLog('info', stepName, message.data);
 
         // Update processing state based on step name
         if (stepName.toLowerCase().includes('schema')) {
+          console.log('📡 Setting processingState to SCHEMA');
           setProcessingState('schema');
           const details = progressData?.details as Record<string, unknown> | undefined;
           if (details?.iteration) {
