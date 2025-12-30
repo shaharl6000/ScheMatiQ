@@ -983,6 +983,56 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             for col in current_schema.columns:
                 evolution.column_sources[col.name] = "initial_schema"
 
+        # Handle QUERY_ONLY mode: no documents, generate schema from query alone
+        if not documents:
+            print(f"🐛 DEBUG: QUERY_ONLY mode - generating schema from query without documents")
+            await progress_callback("Schema Discovery: Planning from query", 0.5, {
+                "mode": "query_only",
+                "current_columns": len(current_schema.columns)
+            })
+
+            try:
+                # Call generate_schema with empty passages
+                schema_result = QBSD.generate_schema(
+                    passages=[],
+                    query=query,
+                    max_keys_schema=qbsd_config.get("max_keys_schema", 100),
+                    current_schema=current_schema,
+                    llm=llm,
+                    context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size", 8192)
+                )
+                new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
+                print(f"🐛 DEBUG: QUERY_ONLY generated schema with {len(new_schema.columns)} columns")
+
+                # Merge with any initial schema
+                merged_schema = current_schema.merge(new_schema) if current_schema.columns else new_schema
+
+                # Track new columns
+                new_column_names = [col.name for col in merged_schema.columns
+                                   if col.name not in {c.name for c in current_schema.columns}]
+
+                # Record column sources
+                for col_name in new_column_names:
+                    evolution.column_sources[col_name] = "query_only"
+
+                # Add evolution snapshot
+                evolution.snapshots.append(SchemaSnapshot(
+                    iteration=1,
+                    documents_processed=["query_only"],
+                    total_columns=len(merged_schema.columns),
+                    new_columns=new_column_names,
+                    cumulative_documents=0
+                ))
+
+                print(f"🐛 DEBUG: QUERY_ONLY mode completed with {len(merged_schema.columns)} columns: {[c.name for c in merged_schema.columns]}")
+                return merged_schema, evolution
+
+            except Exception as e:
+                print(f"🐛 DEBUG: ERROR in QUERY_ONLY generate_schema: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
+
         for iteration, (batch_docs, batch_names) in enumerate(zip(batches, filename_batches)):
             # Check for stop request at the start of each iteration
             if self.is_stop_requested(session_id):
