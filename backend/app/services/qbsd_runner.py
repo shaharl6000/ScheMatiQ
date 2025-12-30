@@ -1369,8 +1369,30 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         data_file = session_dir / "extracted_data.jsonl"
 
         if not data_file.exists():
-            print(f"⚠️  Statistics: No extracted_data.jsonl found for session {session_id}")
-            return None
+            print(f"⚠️  Statistics: No extracted_data.jsonl found for session {session_id} (schema-only mode)")
+            # Schema-only mode: return statistics based on schema without data
+            columns = []
+            for col in schema.columns:
+                col_info = ColumnInfo(
+                    name=col.name,
+                    definition=col.definition,
+                    rationale=col.rationale,
+                    data_type="object",
+                    non_null_count=0,
+                    unique_count=0,
+                    source_document=col.source_document,
+                    discovery_iteration=col.discovery_iteration,
+                    allowed_values=col.allowed_values
+                )
+                columns.append(col_info)
+
+            return DataStatistics(
+                total_rows=0,
+                total_columns=len(schema.columns),
+                completeness=0.0,
+                column_stats=columns,
+                schema_evolution=schema_evolution
+            )
 
         # Read all rows from the extracted data
         data_rows = []
