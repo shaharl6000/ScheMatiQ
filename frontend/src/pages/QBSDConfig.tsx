@@ -43,6 +43,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Switch } from '@/components/ui/switch';
 
 import { qbsdAPI, cloudAPI } from '../services/api';
 import { QBSDConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn } from '../types';
@@ -171,6 +172,7 @@ const QBSDConfigPage = () => {
     },
     output_path: 'outputs/visualization_output.json',
     document_randomization_seed: 42,
+    skip_value_extraction: false,
   });
 
   const handleConfigChange = (field: string, value: any) => {
@@ -421,6 +423,23 @@ const QBSDConfigPage = () => {
               />
               <p className="text-sm text-muted-foreground">For reproducible ordering</p>
             </div>
+          </div>
+
+          {/* Schema Only Mode Toggle */}
+          <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/30">
+            <div className="space-y-0.5">
+              <Label htmlFor="schema-only" className="text-base font-medium">
+                Schema Only Mode
+              </Label>
+              <p className="text-sm text-muted-foreground">
+                Skip value extraction — faster and lower cost. Only discover the schema structure.
+              </p>
+            </div>
+            <Switch
+              id="schema-only"
+              checked={config.skip_value_extraction || false}
+              onCheckedChange={(checked) => handleConfigChange('skip_value_extraction', checked)}
+            />
           </div>
 
           {/* Configuration Accordions */}

@@ -46,6 +46,7 @@ class QBSDConfig(BaseModel):
     retriever: Optional[RetrieverConfig] = None
     output_path: str
     document_randomization_seed: int = 42
+    skip_value_extraction: bool = False  # Schema discovery only mode
 
 class QBSDStatus(BaseModel):
     """Status of QBSD execution."""

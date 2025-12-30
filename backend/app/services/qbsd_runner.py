@@ -762,38 +762,42 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 "columns": [col.model_dump() for col in schema_columns],
                 "total_columns": len(discovered_schema.columns)
             })
-            
-            # Step 6: Value extraction
-            current_step += 1
-            await update_progress("Extracting values", 0.0)
-            
-            # Build Value Extraction LLM interface (separate from schema creation)
-            print(f"🐛 DEBUG: Creating Value Extraction LLM interface...")
-            value_extraction_llm = build_llm_interface(
-                provider=qbsd_config["value_extraction_backend"]["provider"],
-                model=qbsd_config["value_extraction_backend"]["model"],
-                max_output_tokens=qbsd_config["value_extraction_backend"]["max_output_tokens"],
-                temperature=qbsd_config["value_extraction_backend"]["temperature"],
-                api_key=qbsd_config["value_extraction_backend"].get("api_key"),
-                gemini_key_type=qbsd_config["value_extraction_backend"].get("gemini_key_type")
-            )
-            print(f"🐛 DEBUG: Value Extraction LLM interface created successfully")
 
-            # Run real value extraction with dedicated LLM (with heartbeat for long operations)
-            heartbeat_task = await self._start_heartbeat(session_id, interval=15.0)
-            try:
-                await self._run_value_extraction(
-                    session_id, qbsd_config, discovered_schema, value_extraction_llm, retriever, update_progress
+            # Step 6: Value extraction (skip if schema-only mode)
+            if qbsd_config.get("skip_value_extraction", False):
+                print(f"⏭️ Skipping value extraction (schema-only mode)")
+                # Skip to finalization without value extraction
+            else:
+                current_step += 1
+                await update_progress("Extracting values", 0.0)
+
+                # Build Value Extraction LLM interface (separate from schema creation)
+                print(f"🐛 DEBUG: Creating Value Extraction LLM interface...")
+                value_extraction_llm = build_llm_interface(
+                    provider=qbsd_config["value_extraction_backend"]["provider"],
+                    model=qbsd_config["value_extraction_backend"]["model"],
+                    max_output_tokens=qbsd_config["value_extraction_backend"]["max_output_tokens"],
+                    temperature=qbsd_config["value_extraction_backend"]["temperature"],
+                    api_key=qbsd_config["value_extraction_backend"].get("api_key"),
+                    gemini_key_type=qbsd_config["value_extraction_backend"].get("gemini_key_type")
                 )
-            finally:
-                heartbeat_task.cancel()
-                try:
-                    await heartbeat_task
-                except asyncio.CancelledError:
-                    pass  # Expected when cancelling
+                print(f"🐛 DEBUG: Value Extraction LLM interface created successfully")
 
-            await update_progress("Extracting values", 1.0)
-            
+                # Run real value extraction with dedicated LLM (with heartbeat for long operations)
+                heartbeat_task = await self._start_heartbeat(session_id, interval=15.0)
+                try:
+                    await self._run_value_extraction(
+                        session_id, qbsd_config, discovered_schema, value_extraction_llm, retriever, update_progress
+                    )
+                finally:
+                    heartbeat_task.cancel()
+                    try:
+                        await heartbeat_task
+                    except asyncio.CancelledError:
+                        pass  # Expected when cancelling
+
+                await update_progress("Extracting values", 1.0)
+
             # Step 7: Finalize
             current_step += 1
             await update_progress("Finalizing results", 0.0)
@@ -813,10 +817,16 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             await update_progress("Finalizing results", 1.0)
 
             # Broadcast completion
-            await self.broadcast_completion(session_id, 
-                "QBSD execution completed successfully", {
+            schema_only = qbsd_config.get("skip_value_extraction", False)
+            completion_message = (
+                "Schema discovery completed (value extraction skipped)"
+                if schema_only
+                else "QBSD execution completed successfully"
+            )
+            await self.broadcast_completion(session_id, completion_message, {
                 "total_documents": total_docs,
-                "schema_columns": len(discovered_schema.columns)
+                "schema_columns": len(discovered_schema.columns),
+                "schema_only": schema_only
             })
             
         except Exception as e:

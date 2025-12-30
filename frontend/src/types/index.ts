@@ -167,6 +167,7 @@ export interface QBSDConfig {
   retriever?: RetrieverConfig;
   output_path: string;
   document_randomization_seed: number;
+  skip_value_extraction?: boolean;  // Schema discovery only mode
 }
 
 export interface QBSDStatus {
