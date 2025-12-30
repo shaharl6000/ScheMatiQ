@@ -114,6 +114,7 @@ class WebSocketBroadcasterMixin:
         if details:
             data["details"] = details
 
+        print(f"📡 BROADCASTING PROGRESS: {step_name} (step {step_number}/{total_steps}, details: {bool(details)})")
         await self.websocket_manager.broadcast_progress(session_id, data)
     
     async def broadcast_schema_completed(
