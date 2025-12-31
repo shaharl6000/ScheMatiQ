@@ -139,9 +139,33 @@ class PaginatedData(BaseModel):
     """Paginated data response."""
     rows: List[DataRow]
     total_count: int
+    filtered_count: Optional[int] = None  # Total rows after filtering (None = no filter applied)
     page: int
     page_size: int
     has_more: bool
+
+
+# Filter/Sort request models for server-side filtering
+class FilterRuleRequest(BaseModel):
+    """A single filter rule from the frontend."""
+    column: str
+    operator: str  # 'contains', 'equals', 'gt', 'lt', 'isNull', etc.
+    value: Any = None
+    caseSensitive: Optional[bool] = False
+
+
+class SortColumnRequest(BaseModel):
+    """A single sort column from the frontend."""
+    column: str
+    direction: Literal['asc', 'desc']
+    priority: Optional[int] = 1
+
+
+class FilterSortRequest(BaseModel):
+    """Request body for server-side filtering and sorting."""
+    filters: Optional[List[FilterRuleRequest]] = None
+    sort: Optional[List[SortColumnRequest]] = None
+    search: Optional[str] = None  # Global search term
 
 # Schema editing operation models
 class SchemaOperation(BaseModel):

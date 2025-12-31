@@ -1585,8 +1585,16 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
         return {"query": "", "schema": []}
     
-    async def get_data(self, session_id: str, page: int = 0, page_size: int = 50) -> PaginatedData:
-        """Get extracted data from all possible locations.
+    async def get_data(
+        self,
+        session_id: str,
+        page: int = 0,
+        page_size: int = 50,
+        filters: Optional[List[Dict]] = None,
+        sort: Optional[List[Dict]] = None,
+        search: Optional[str] = None
+    ) -> PaginatedData:
+        """Get extracted data from all possible locations with optional filtering and sorting.
 
         Data can be in multiple locations:
         - ./qbsd_work/{session_id}/extracted_data.jsonl - Original QBSD value extraction
@@ -1611,55 +1619,113 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             data_files.append(data_dir_file)
 
         if not data_files:
-            return PaginatedData(rows=[], total_count=0, page=page, page_size=page_size, has_more=False)
+            return PaginatedData(rows=[], total_count=0, filtered_count=None, page=page, page_size=page_size, has_more=False)
 
-        # Count total rows across all files
-        total_count = 0
-        for data_file in data_files:
-            with open(data_file, 'r', encoding='utf-8') as f:
-                total_count += sum(1 for _ in f)
+        # Check if we need to filter/sort (requires loading all rows)
+        needs_processing = bool(filters or sort or search)
 
-        # Read requested page across all files
-        rows = []
-        current_line = 0
-        start_line = page * page_size
-        end_line = start_line + page_size
+        if needs_processing:
+            # Load all rows from all files
+            all_rows = []
+            for data_file in data_files:
+                with open(data_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if line.strip():
+                            try:
+                                row_data = json.loads(line.strip())
+                                # Normalize to standard format
+                                if '_row_name' in row_data:
+                                    row_data = {
+                                        'row_name': row_data.get('_row_name'),
+                                        'papers': row_data.get('_papers', []),
+                                        'data': {k: v for k, v in row_data.items() if not k.startswith('_')}
+                                    }
+                                all_rows.append(row_data)
+                            except (json.JSONDecodeError, TypeError):
+                                pass
 
-        for data_file in data_files:
-            if current_line >= end_line:
-                break
-            with open(data_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if current_line >= start_line and current_line < end_line:
-                        try:
-                            row_data = json.loads(line.strip())
+            total_count = len(all_rows)
 
-                            # Handle both old mock format and new real extraction format
-                            if '_row_name' in row_data:
-                                # New format from value extraction
-                                data_row = DataRow(
-                                    row_name=row_data.get('_row_name'),
-                                    papers=row_data.get('_papers', []),
-                                    data={k: v for k, v in row_data.items() if not k.startswith('_')}
-                                )
-                            else:
-                                # Old mock format or direct DataRow format
-                                data_row = DataRow(**row_data)
+            # Use FileParser's filtering/sorting methods
+            from app.services.file_parser import FileParser
+            parser = FileParser()
 
-                            rows.append(data_row)
-                        except (json.JSONDecodeError, TypeError) as e:
-                            print(f"Warning: Could not parse row {current_line}: {e}")
-                    current_line += 1
-                    if current_line >= end_line:
-                        break
+            # Apply global search
+            if search and search.strip():
+                all_rows = parser._apply_search(all_rows, search.strip())
 
-        return PaginatedData(
-            rows=rows,
-            total_count=total_count,
-            page=page,
-            page_size=page_size,
-            has_more=end_line < total_count
-        )
+            # Apply column filters
+            if filters:
+                all_rows = parser._apply_filters(all_rows, filters)
+
+            filtered_count = len(all_rows)
+
+            # Apply sorting
+            if sort:
+                all_rows = parser._apply_sort(all_rows, sort)
+
+            # Paginate
+            start = page * page_size
+            end = start + page_size
+            page_rows = all_rows[start:end]
+
+            # Convert to DataRow objects
+            rows = [DataRow(**row_data) for row_data in page_rows]
+
+            return PaginatedData(
+                rows=rows,
+                total_count=total_count,
+                filtered_count=filtered_count,
+                page=page,
+                page_size=page_size,
+                has_more=end < filtered_count
+            )
+        else:
+            # Original efficient pagination (no filtering/sorting)
+            total_count = 0
+            for data_file in data_files:
+                with open(data_file, 'r', encoding='utf-8') as f:
+                    total_count += sum(1 for _ in f)
+
+            rows = []
+            current_line = 0
+            start_line = page * page_size
+            end_line = start_line + page_size
+
+            for data_file in data_files:
+                if current_line >= end_line:
+                    break
+                with open(data_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if current_line >= start_line and current_line < end_line:
+                            try:
+                                row_data = json.loads(line.strip())
+
+                                # Handle both old mock format and new real extraction format
+                                if '_row_name' in row_data:
+                                    data_row = DataRow(
+                                        row_name=row_data.get('_row_name'),
+                                        papers=row_data.get('_papers', []),
+                                        data={k: v for k, v in row_data.items() if not k.startswith('_')}
+                                    )
+                                else:
+                                    data_row = DataRow(**row_data)
+
+                                rows.append(data_row)
+                            except (json.JSONDecodeError, TypeError) as e:
+                                print(f"Warning: Could not parse row {current_line}: {e}")
+                        current_line += 1
+                        if current_line >= end_line:
+                            break
+
+            return PaginatedData(
+                rows=rows,
+                total_count=total_count,
+                filtered_count=None,
+                page=page,
+                page_size=page_size,
+                has_more=end_line < total_count
+            )
     
     async def stop_execution(self, session_id: str) -> Dict[str, Any]:
         """Stop QBSD execution gracefully.

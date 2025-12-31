@@ -11,7 +11,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.models.session import VisualizationSession, SessionType, SessionMetadata
+from app.models.session import VisualizationSession, SessionType, SessionMetadata, FilterSortRequest
 from app.models.qbsd import QBSDConfig, QBSDStatus
 from app.services.qbsd_runner import QBSDRunner
 from app.services import websocket_manager, session_manager
@@ -106,20 +106,44 @@ async def get_qbsd_schema(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/data/{session_id}")
-async def get_qbsd_data(session_id: str, page: int = 0, page_size: int = 50):
-    """Get extracted data."""
+@router.post("/data/{session_id}")
+async def get_qbsd_data_with_filters(
+    session_id: str,
+    page: int = 0,
+    page_size: int = 50,
+    request: Optional[FilterSortRequest] = None
+):
+    """Get extracted data with optional filtering and sorting."""
     try:
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        data = await qbsd_runner.get_data(session_id, page, page_size)
-        
+
+        # Extract filter/sort params from request body
+        filters = None
+        sort = None
+        search = None
+
+        if request:
+            filters = [f.dict() for f in request.filters] if request.filters else None
+            sort = [s.dict() for s in request.sort] if request.sort else None
+            search = request.search
+
+        data = await qbsd_runner.get_data(
+            session_id, page, page_size,
+            filters=filters, sort=sort, search=search
+        )
+
         return data
-        
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/data/{session_id}")
+async def get_qbsd_data(session_id: str, page: int = 0, page_size: int = 50):
+    """Get extracted data (backward compatible, no filtering)."""
+    return await get_qbsd_data_with_filters(session_id, page, page_size, None)
 
 @router.post("/stop/{session_id}")
 async def stop_qbsd(session_id: str):

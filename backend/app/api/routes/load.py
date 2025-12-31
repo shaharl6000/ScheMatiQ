@@ -13,7 +13,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from app.models.session import VisualizationSession, SessionType, SessionMetadata, PaginatedData, SessionStatus
+from app.models.session import VisualizationSession, SessionType, SessionMetadata, PaginatedData, SessionStatus, FilterSortRequest
 from app.models.upload import (
     FileValidationResult, ColumnMappingRequest, DataPreviewRequest,
     SchemaValidationResult, DualFileUploadResult, CompatibilityCheck
@@ -259,30 +259,49 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/data/{session_id}", response_model=PaginatedData)
-async def get_data(session_id: str, page: int = 0, page_size: int = 50):
-    """Get paginated data for a session."""
+@router.post("/data/{session_id}", response_model=PaginatedData)
+async def get_data_with_filters(
+    session_id: str,
+    page: int = 0,
+    page_size: int = 50,
+    request: Optional[FilterSortRequest] = None
+):
+    """Get paginated data with optional filtering and sorting."""
     try:
-        print(f"DEBUG: Getting data for session: {session_id}, page: {page}, page_size: {page_size}")
-        
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        print(f"DEBUG: Found session: {session.id}, status: {session.status}")
-        
+
         parser = FileParser()
-        data = await parser.get_paginated_data(session_id, page, page_size)
-        
-        print(f"DEBUG: Retrieved data: {len(data.rows)} rows, total: {data.total_count}")
-        
+
+        # Extract filter/sort params from request body
+        filters = None
+        sort = None
+        search = None
+
+        if request:
+            filters = [f.dict() for f in request.filters] if request.filters else None
+            sort = [s.dict() for s in request.sort] if request.sort else None
+            search = request.search
+
+        data = await parser.get_paginated_data(
+            session_id, page, page_size,
+            filters=filters, sort=sort, search=search
+        )
+
         return data
-        
+
     except Exception as e:
-        print(f"DEBUG: Exception in get_data: {e}")
+        print(f"DEBUG: Exception in get_data_with_filters: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/data/{session_id}", response_model=PaginatedData)
+async def get_data(session_id: str, page: int = 0, page_size: int = 50):
+    """Get paginated data for a session (backward compatible, no filtering)."""
+    return await get_data_with_filters(session_id, page, page_size, None)
 
 @router.get("/sessions", response_model=List[VisualizationSession])
 async def list_sessions():

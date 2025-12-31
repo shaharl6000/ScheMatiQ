@@ -61,7 +61,7 @@ import { useTableSort } from './hooks/useTableSort';
 import { useTableFilter } from './hooks/useTableFilter';
 import { useColumnVisibility } from './hooks/useColumnVisibility';
 import { useColumnStats } from './hooks/useColumnStats';
-import { applyFilters, applySort, buildColumnMetadata, isEmpty } from './utils';
+import { buildColumnMetadata, isEmpty } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
@@ -244,10 +244,27 @@ const DataTable: React.FC<DataTableProps> = ({
     })
   );
 
-  // Fetch data with pagination
+  // Fetch data with pagination, filtering, and sorting (server-side)
   const { data: fetchedData } = useQuery(
-    ['data', sessionId, sessionType, page, pageSize],
-    () => sessionAPI.getData(sessionId, sessionType, page, pageSize),
+    [
+      'data',
+      sessionId,
+      sessionType,
+      page,
+      pageSize,
+      JSON.stringify(filterState.rules),
+      JSON.stringify(sortState.columns),
+      searchTerm
+    ],
+    () => sessionAPI.getData(
+      sessionId,
+      sessionType,
+      page,
+      pageSize,
+      filterState.rules.length > 0 ? filterState.rules : undefined,
+      sortState.columns.length > 0 ? sortState.columns : undefined,
+      searchTerm.trim() || undefined
+    ),
     {
       keepPreviousData: true,
       enabled: !!sessionId,
@@ -298,34 +315,11 @@ const DataTable: React.FC<DataTableProps> = ({
     };
   }, [fetchedOrInitialData, streamingCells]);
 
-  // Filter data based on search term, column filters, then apply sorting
+  // Data is now filtered and sorted server-side
+  // processedRows is just data.rows (server returns correct page)
   const processedRows = useMemo(() => {
-    let rows = data.rows;
-
-    // Step 1: Apply search filter
-    if (searchTerm.trim()) {
-      rows = rows.filter(row => {
-        const searchLower = searchTerm.toLowerCase();
-        if (row.row_name?.toLowerCase().includes(searchLower)) return true;
-        return Object.values(row.data).some(value => {
-          if (value === null || value === undefined) return false;
-          return String(value).toLowerCase().includes(searchLower);
-        });
-      });
-    }
-
-    // Step 2: Apply column filters
-    if (filterState.rules.length > 0) {
-      rows = applyFilters(rows, filterState);
-    }
-
-    // Step 3: Apply sorting
-    if (sortState.columns.length > 0) {
-      rows = applySort(rows, sortState);
-    }
-
-    return rows;
-  }, [data.rows, searchTerm, filterState, sortState]);
+    return data.rows;
+  }, [data.rows]);
 
   // Get all column names with proper ordering
   const defaultColumns = useMemo(() => {
@@ -789,10 +783,11 @@ const DataTable: React.FC<DataTableProps> = ({
     );
   };
 
-  // Calculate total pages based on filtered data
-  const displayedRowCount = processedRows.length;
+  // Calculate total pages based on server-side filtered data
+  // Use filtered_count from server when available, otherwise total_count
+  const displayedRowCount = data.filtered_count ?? data.total_count;
   const totalRowCount = data.total_count;
-  const isFiltered = activeFilterCount > 0 || searchTerm.trim();
+  const isFiltered = data.filtered_count !== null && data.filtered_count !== undefined;
   const totalPages = Math.ceil(displayedRowCount / pageSize);
 
   return (
@@ -952,7 +947,7 @@ const DataTable: React.FC<DataTableProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {processedRows.slice(page * pageSize, (page + 1) * pageSize).map((row, rowIndex) => {
+                {processedRows.map((row, rowIndex) => {
                   const getFrozenCellValue = () => {
                     if (frozenColumn === '_row_name') {
                       return row.row_name;

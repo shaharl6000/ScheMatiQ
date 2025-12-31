@@ -111,6 +111,7 @@ export interface DataRow {
 export interface PaginatedData {
   rows: DataRow[];
   total_count: number;
+  filtered_count?: number;  // Total rows after filtering (undefined = no filter applied)
   page: number;
   page_size: number;
   has_more: boolean;

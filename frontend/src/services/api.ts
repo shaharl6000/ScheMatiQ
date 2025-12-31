@@ -23,6 +23,7 @@ import {
   ReextractionResponse,
   ReextractionOperationStatus
 } from '../types';
+import { FilterRule, SortColumn } from '../components/DataTable/types/filters';
 
 // Railway backend URL - used when env vars aren't set at build time
 const RAILWAY_BACKEND_URL = 'https://backend-production-5a26.up.railway.app';
@@ -96,8 +97,20 @@ export const loadAPI = {
     await api.post(`/load/parse/${sessionId}`, payload);
   },
 
-  getData: async (sessionId: string, page = 0, pageSize = 50): Promise<PaginatedData> => {
-    const response = await api.get(`/load/data/${sessionId}`, {
+  getData: async (
+    sessionId: string,
+    page = 0,
+    pageSize = 50,
+    filters?: FilterRule[],
+    sort?: SortColumn[],
+    search?: string
+  ): Promise<PaginatedData> => {
+    // Use POST for filter/sort support
+    const response = await api.post(`/load/data/${sessionId}`, {
+      filters: filters && filters.length > 0 ? filters : null,
+      sort: sort && sort.length > 0 ? sort : null,
+      search: search || null
+    }, {
       params: { page, page_size: pageSize }
     });
     return response.data;
@@ -197,8 +210,20 @@ export const qbsdAPI = {
     return response.data;
   },
 
-  getData: async (sessionId: string, page = 0, pageSize = 50): Promise<PaginatedData> => {
-    const response = await api.get(`/qbsd/data/${sessionId}`, {
+  getData: async (
+    sessionId: string,
+    page = 0,
+    pageSize = 50,
+    filters?: FilterRule[],
+    sort?: SortColumn[],
+    search?: string
+  ): Promise<PaginatedData> => {
+    // Use POST for filter/sort support
+    const response = await api.post(`/qbsd/data/${sessionId}`, {
+      filters: filters && filters.length > 0 ? filters : null,
+      sort: sort && sort.length > 0 ? sort : null,
+      search: search || null
+    }, {
       params: { page, page_size: pageSize }
     });
     return response.data;
@@ -270,11 +295,19 @@ export const sessionAPI = {
     }
   },
 
-  getData: async (sessionId: string, type: 'load' | 'qbsd', page = 0, pageSize = 50): Promise<PaginatedData> => {
+  getData: async (
+    sessionId: string,
+    type: 'load' | 'qbsd',
+    page = 0,
+    pageSize = 50,
+    filters?: FilterRule[],
+    sort?: SortColumn[],
+    search?: string
+  ): Promise<PaginatedData> => {
     if (type === 'load') {
-      return loadAPI.getData(sessionId, page, pageSize);
+      return loadAPI.getData(sessionId, page, pageSize, filters, sort, search);
     } else {
-      return qbsdAPI.getData(sessionId, page, pageSize);
+      return qbsdAPI.getData(sessionId, page, pageSize, filters, sort, search);
     }
   },
 };

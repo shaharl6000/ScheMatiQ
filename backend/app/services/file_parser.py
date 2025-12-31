@@ -737,43 +737,294 @@ class FileParser:
 
         return merged
 
-    async def get_paginated_data(self, session_id: str, page: int = 0, page_size: int = DEFAULT_PAGE_SIZE) -> PaginatedData:
-        """Get paginated data for a session."""
+    async def get_paginated_data(
+        self,
+        session_id: str,
+        page: int = 0,
+        page_size: int = DEFAULT_PAGE_SIZE,
+        filters: Optional[List[Dict]] = None,
+        sort: Optional[List[Dict]] = None,
+        search: Optional[str] = None
+    ) -> PaginatedData:
+        """Get paginated data for a session with optional filtering and sorting."""
         session_dir = self.data_dir / session_id
         data_file = session_dir / "data.jsonl"
-        
+
         if not data_file.exists():
             raise FileNotFoundError("No processed data found")
-        
-        # Count total lines
-        with open(data_file) as f:
-            total_count = sum(1 for _ in f)
-        
-        # Read requested page
+
+        # Check if we need to filter/sort (requires loading all rows)
+        needs_processing = bool(filters or sort or search)
+
+        if needs_processing:
+            # Load all rows for filtering/sorting
+            all_rows = self._load_all_rows(data_file)
+            total_count = len(all_rows)
+
+            # Apply global search
+            if search and search.strip():
+                all_rows = self._apply_search(all_rows, search.strip())
+
+            # Apply column filters
+            if filters:
+                all_rows = self._apply_filters(all_rows, filters)
+
+            filtered_count = len(all_rows)
+
+            # Apply sorting
+            if sort:
+                all_rows = self._apply_sort(all_rows, sort)
+
+            # Paginate
+            start = page * page_size
+            end = start + page_size
+            page_rows = all_rows[start:end]
+
+            # Convert to DataRow objects
+            rows = []
+            for row_data in page_rows:
+                if 'data' in row_data:
+                    row_data['data'] = self._sanitize_data_dict(row_data['data'])
+                rows.append(DataRow(**row_data))
+
+            return PaginatedData(
+                rows=rows,
+                total_count=total_count,
+                filtered_count=filtered_count,
+                page=page,
+                page_size=page_size,
+                has_more=end < filtered_count
+            )
+        else:
+            # Original efficient pagination (no filtering/sorting)
+            with open(data_file) as f:
+                total_count = sum(1 for _ in f)
+
+            rows = []
+            start_line = page * page_size
+            end_line = start_line + page_size
+
+            with open(data_file) as f:
+                for i, line in enumerate(f):
+                    if i >= start_line and i < end_line:
+                        row_data = json.loads(line)
+                        if 'data' in row_data:
+                            row_data['data'] = self._sanitize_data_dict(row_data['data'])
+                        rows.append(DataRow(**row_data))
+                    elif i >= end_line:
+                        break
+
+            return PaginatedData(
+                rows=rows,
+                total_count=total_count,
+                filtered_count=None,  # No filtering applied
+                page=page,
+                page_size=page_size,
+                has_more=end_line < total_count
+            )
+
+    def _load_all_rows(self, data_file: Path) -> List[Dict]:
+        """Load all rows from JSONL file."""
         rows = []
-        start_line = page * page_size
-        end_line = start_line + page_size
-        
         with open(data_file) as f:
-            for i, line in enumerate(f):
-                if i >= start_line and i < end_line:
-                    row_data = json.loads(line)
-                    
-                    # Sanitize the data before creating DataRow
-                    if 'data' in row_data:
-                        row_data['data'] = self._sanitize_data_dict(row_data['data'])
-                    
-                    rows.append(DataRow(**row_data))
-                elif i >= end_line:
-                    break
-        
-        return PaginatedData(
-            rows=rows,
-            total_count=total_count,
-            page=page,
-            page_size=page_size,
-            has_more=end_line < total_count
-        )
+            for line in f:
+                if line.strip():
+                    rows.append(json.loads(line))
+        return rows
+
+    def _apply_search(self, rows: List[Dict], search: str) -> List[Dict]:
+        """Apply global search term to all columns."""
+        search_lower = search.lower()
+        return [row for row in rows if self._row_matches_search(row, search_lower)]
+
+    def _row_matches_search(self, row: Dict, search_lower: str) -> bool:
+        """Check if any field in row matches search term."""
+        # Check row_name
+        if row.get('row_name') and search_lower in str(row['row_name']).lower():
+            return True
+        # Check data fields
+        data = row.get('data', row)
+        for value in data.values():
+            if self._value_contains_search(value, search_lower):
+                return True
+        return False
+
+    def _value_contains_search(self, value: Any, search_lower: str) -> bool:
+        """Check if a value contains the search term."""
+        if value is None:
+            return False
+        # Handle QBSD answer format
+        if isinstance(value, dict) and 'answer' in value:
+            value = value['answer']
+        return search_lower in str(value).lower()
+
+    def _apply_filters(self, rows: List[Dict], filters: List[Dict]) -> List[Dict]:
+        """Apply filter rules to rows (AND logic)."""
+        for filter_rule in filters:
+            rows = [row for row in rows if self._row_matches_filter(row, filter_rule)]
+        return rows
+
+    def _row_matches_filter(self, row: Dict, filter_rule: Dict) -> bool:
+        """Evaluate a single filter rule against a row."""
+        column = filter_rule.get('column', '')
+        operator = filter_rule.get('operator', '')
+        filter_value = filter_rule.get('value')
+        case_sensitive = filter_rule.get('caseSensitive', False)
+
+        # Get cell value
+        if column == '_row_name':
+            cell_value = row.get('row_name')
+        elif column == '_papers':
+            cell_value = row.get('papers', [])
+        else:
+            data = row.get('data', row)
+            cell_value = data.get(column)
+
+        return self._evaluate_filter(cell_value, operator, filter_value, case_sensitive)
+
+    def _evaluate_filter(self, cell_value: Any, operator: str, filter_value: Any, case_sensitive: bool) -> bool:
+        """Evaluate filter operator against cell value."""
+        # Handle QBSD answer format
+        if isinstance(cell_value, dict) and 'answer' in cell_value:
+            cell_value = cell_value['answer']
+
+        # Null checks
+        is_empty = cell_value is None or cell_value == '' or cell_value == [] or cell_value == {}
+        if isinstance(cell_value, str) and cell_value.lower() in ['none', 'n/a', 'null']:
+            is_empty = True
+
+        if operator == 'isNull':
+            return is_empty
+        if operator == 'isNotNull':
+            return not is_empty
+
+        if is_empty:
+            return False
+
+        # Boolean operators
+        if operator == 'isTrue':
+            return cell_value in [True, 'true', 'True', '1', 1]
+        if operator == 'isFalse':
+            return cell_value in [False, 'false', 'False', '0', 0]
+
+        # Text operators
+        str_value = str(cell_value)
+        filter_str = str(filter_value or '')
+        if not case_sensitive:
+            str_value = str_value.lower()
+            filter_str = filter_str.lower()
+
+        if operator == 'contains':
+            return filter_str in str_value
+        if operator == 'equals':
+            return str_value == filter_str
+        if operator == 'startsWith':
+            return str_value.startswith(filter_str)
+        if operator == 'endsWith':
+            return str_value.endswith(filter_str)
+        if operator == 'regex':
+            try:
+                flags = 0 if case_sensitive else re.IGNORECASE
+                return bool(re.search(str(filter_value), str(cell_value), flags))
+            except:
+                return False
+
+        # Numeric operators
+        if operator in ['eq', 'gt', 'lt', 'gte', 'lte', 'between']:
+            try:
+                num_value = float(str(cell_value))
+                if operator == 'eq':
+                    return num_value == float(filter_value)
+                if operator == 'gt':
+                    return num_value > float(filter_value)
+                if operator == 'lt':
+                    return num_value < float(filter_value)
+                if operator == 'gte':
+                    return num_value >= float(filter_value)
+                if operator == 'lte':
+                    return num_value <= float(filter_value)
+                if operator == 'between' and isinstance(filter_value, list) and len(filter_value) >= 2:
+                    return float(filter_value[0]) <= num_value <= float(filter_value[1])
+            except:
+                return False
+
+        # Categorical operators
+        if operator == 'in':
+            allowed = filter_value if isinstance(filter_value, list) else [filter_value]
+            str_val_lower = str(cell_value).lower()
+            return any(str(v).lower() == str_val_lower for v in allowed)
+        if operator == 'notIn':
+            allowed = filter_value if isinstance(filter_value, list) else [filter_value]
+            str_val_lower = str(cell_value).lower()
+            return not any(str(v).lower() == str_val_lower for v in allowed)
+
+        return True
+
+    def _apply_sort(self, rows: List[Dict], sort_columns: List[Dict]) -> List[Dict]:
+        """Apply multi-column sorting."""
+        if not sort_columns:
+            return rows
+
+        # Sort by priority (lower = more important)
+        sorted_cols = sorted(sort_columns, key=lambda x: x.get('priority', 1))
+
+        def compare_rows(a: Dict, b: Dict) -> int:
+            for sort_col in sorted_cols:
+                column = sort_col.get('column', '')
+                direction = sort_col.get('direction', 'asc')
+
+                a_val = self._get_sortable_value(a, column)
+                b_val = self._get_sortable_value(b, column)
+
+                # Handle nulls - always last
+                a_null = a_val is None or a_val == ''
+                b_null = b_val is None or b_val == ''
+
+                if a_null and b_null:
+                    continue
+                if a_null:
+                    return 1  # a after b
+                if b_null:
+                    return -1  # b after a
+
+                # Compare values
+                if isinstance(a_val, (int, float)) and isinstance(b_val, (int, float)):
+                    cmp = (a_val > b_val) - (a_val < b_val)
+                else:
+                    cmp = (str(a_val).lower() > str(b_val).lower()) - \
+                          (str(a_val).lower() < str(b_val).lower())
+
+                if cmp != 0:
+                    return cmp if direction == 'asc' else -cmp
+
+            return 0
+
+        from functools import cmp_to_key
+        return sorted(rows, key=cmp_to_key(compare_rows))
+
+    def _get_sortable_value(self, row: Dict, column: str) -> Any:
+        """Extract a sortable value from a row."""
+        if column == '_row_name':
+            return row.get('row_name')
+        if column == '_papers':
+            papers = row.get('papers', [])
+            return papers[0] if papers else None
+
+        data = row.get('data', row)
+        value = data.get(column)
+
+        # Handle QBSD format
+        if isinstance(value, dict) and 'answer' in value:
+            value = value['answer']
+
+        # Try to parse as number
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except:
+                pass
+
+        return value
     
     async def validate_schema_file(self, file: UploadFile) -> SchemaValidationResult:
         """Validate QBSD schema file."""
