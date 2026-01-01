@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter } from 'lucide-react';
+import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2 } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -47,6 +47,7 @@ import {
   getPreviewText
 } from '../../utils/formatting';
 import ContentModal from '../ContentModal/ContentModal';
+import ExtractingCell from './ExtractingCell';
 import {
   QBSD_REFRESH_INTERVAL,
   AVAILABLE_PAGE_SIZES,
@@ -83,6 +84,8 @@ interface DataTableProps {
   onColumnReorder?: (newOrder: string[]) => void;
   streamingCells?: Map<string, Record<string, CellValue>>;
   columnInfo?: ColumnInfoProp[];
+  /** Columns currently being re-extracted (for skeleton display) */
+  processingColumns?: Set<string>;
 }
 
 // Sortable Header Cell Component
@@ -203,6 +206,7 @@ const DataTable: React.FC<DataTableProps> = ({
   onColumnReorder,
   streamingCells,
   columnInfo,
+  processingColumns,
 }) => {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
@@ -658,6 +662,10 @@ const DataTable: React.FC<DataTableProps> = ({
   const formatCellValue = (value: CellValue, columnName: string, rowData?: DataRow): React.ReactNode => {
     // Handle empty values first (null, undefined, "None", "N/A", [], {}, etc.)
     if (isEmpty(value)) {
+      // Show skeleton if this column is currently being processed (re-extraction in progress)
+      if (processingColumns?.has(columnName)) {
+        return <ExtractingCell />;
+      }
       return <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>;
     }
 
@@ -666,6 +674,10 @@ const DataTable: React.FC<DataTableProps> = ({
 
     // Check if parsing resulted in an empty value (e.g., parsed "[]" to [])
     if (isEmpty(processedValue)) {
+      // Show skeleton if this column is currently being processed
+      if (processingColumns?.has(columnName)) {
+        return <ExtractingCell />;
+      }
       return <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>;
     }
 
@@ -706,6 +718,15 @@ const DataTable: React.FC<DataTableProps> = ({
         const qbsdValue = processedValue as QBSDAnswerWithExcerpts;
         const answer = qbsdValue.answer;
         const excerpts = qbsdValue.excerpts || [];
+
+        // Check if the answer itself is empty (e.g., "None", "", "N/A", null)
+        if (isEmpty(answer)) {
+          if (processingColumns?.has(columnName)) {
+            return <ExtractingCell />;
+          }
+          return <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>;
+        }
+
         const answerStr = String(answer);
         const hasExcerptsData = excerpts.length > 0;
         const showExpandIcon = hasExcerptsData || answerStr.length > 40;
@@ -809,6 +830,12 @@ const DataTable: React.FC<DataTableProps> = ({
               )}
               {sessionType === 'qbsd' && (
                 <Badge variant="info">Auto-refreshing</Badge>
+              )}
+              {processingColumns && processingColumns.size > 0 && (
+                <Badge variant="secondary" className="animate-pulse">
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                  Re-extracting {processingColumns.size} column{processingColumns.size !== 1 ? 's' : ''}
+                </Badge>
               )}
             </h3>
             <p className="text-xs text-muted-foreground">
