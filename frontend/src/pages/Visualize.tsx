@@ -302,19 +302,31 @@ const Visualize = () => {
     }
   );
 
-  // WebSocket effect
+  // WebSocket effect for re-extraction and document processing
+  // Uses wsRef to maintain connection across effect re-runs
   useEffect(() => {
     if (!sessionId) return;
 
     const wsUrl = `${WS_BASE_URL}/ws/progress/${sessionId}`;
-
-    let ws: WebSocket | null = null;
     let reconnectAttempts = 0;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
 
     const connectWebSocket = () => {
+      // Don't create duplicate connections
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        console.log('WebSocket already connected, skipping');
+        return;
+      }
+
       try {
-        ws = new WebSocket(wsUrl);
-        ws.onopen = () => { reconnectAttempts = 0; };
+        console.log('Creating WebSocket connection for session:', sessionId);
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+          console.log('WebSocket connected for session:', sessionId);
+          reconnectAttempts = 0;
+        };
 
         ws.onmessage = (event) => {
           try {
@@ -357,8 +369,9 @@ const Visualize = () => {
                 queryClient.refetchQueries(['session', sessionId, mode]);
                 queryClient.refetchQueries(['data', sessionId, mode]);
                 setTimeout(() => {
-                  if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.close(1000, 'Processing completed');
+                  if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                    wsRef.current.close(1000, 'Processing completed');
+                    wsRef.current = null;
                   }
                 }, 3000);
                 break;
@@ -392,6 +405,7 @@ const Visualize = () => {
                 setProcessingColumns(new Set()); // Clear processing state
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
+                setForceWebSocketConnect(false); // Allow WebSocket to close
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
                 break;
@@ -400,6 +414,7 @@ const Visualize = () => {
                 setProcessingColumns(new Set()); // Clear processing state
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
+                setForceWebSocketConnect(false); // Allow WebSocket to close
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
                 break;
@@ -410,34 +425,57 @@ const Visualize = () => {
         };
 
         ws.onclose = (event) => {
-          ws = null;
+          console.log('WebSocket closed:', event.code, event.reason);
+          wsRef.current = null;
+          // Only reconnect if not a clean close and we still need the connection
           if (event.code !== 1000 && reconnectAttempts < WS_RECONNECT_ATTEMPTS) {
             const delay = Math.min(WS_RECONNECT_DELAY_BASE * Math.pow(2, reconnectAttempts), WS_RECONNECT_MAX_DELAY);
-            setTimeout(() => {
+            reconnectTimeout = setTimeout(() => {
               reconnectAttempts++;
               connectWebSocket();
             }, delay);
           }
+        };
+
+        ws.onerror = (error) => {
+          console.error('WebSocket error:', error);
         };
       } catch (error) {
         console.error('Error creating WebSocket:', error);
       }
     };
 
-    const alreadyConnected = wsRef.current && wsRef.current.readyState === WebSocket.OPEN;
+    // Determine if we should connect
+    const shouldConnect = forceWebSocketConnect ||
+      session?.status === 'processing_documents' ||
+      (mode === 'qbsd' && session?.status === 'processing');
 
-    if ((forceWebSocketConnect || session?.status === 'processing_documents') && !alreadyConnected) {
-      connectWebSocket();
-    } else if (mode === 'qbsd' && session?.status === 'processing' && !alreadyConnected) {
+    if (shouldConnect) {
       connectWebSocket();
     }
 
     return () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.close(1000, 'Component unmounting');
+      // Clear any pending reconnect
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
       }
+      // Only close if we're unmounting AND not in the middle of re-extraction
+      // Check forceWebSocketConnect via closure - if still true, don't close
     };
-  }, [sessionId, mode, session?.status, queryClient, forceWebSocketConnect]);
+  }, [sessionId, mode, forceWebSocketConnect, session?.status, queryClient]);
+
+  // Separate effect to close WebSocket when no longer needed
+  useEffect(() => {
+    if (!forceWebSocketConnect && session?.status !== 'processing_documents' &&
+        !(mode === 'qbsd' && session?.status === 'processing')) {
+      // No longer need WebSocket, close it
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        console.log('Closing WebSocket - no longer needed');
+        wsRef.current.close(1000, 'No longer needed');
+        wsRef.current = null;
+      }
+    }
+  }, [forceWebSocketConnect, session?.status, mode]);
 
   // Schema data update listener
   useEffect(() => {
