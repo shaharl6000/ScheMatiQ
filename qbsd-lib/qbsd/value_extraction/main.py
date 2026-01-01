@@ -13,6 +13,10 @@ from .core.paper_processor import OnValueExtractedCallback
 from .config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
 
 
+# Type alias for the should_stop callback
+ShouldStopCallback = Callable[[], bool]
+
+
 def build_table_jsonl(
     schema_path: Path,
     docs_directories: list[Path],
@@ -26,6 +30,7 @@ def build_table_jsonl(
     retrieval_k: int = 8,
     max_workers: int = DEFAULT_MAX_WORKERS,
     on_value_extracted: Optional[OnValueExtractedCallback] = None,
+    should_stop: Optional[ShouldStopCallback] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
@@ -35,6 +40,9 @@ def build_table_jsonl(
         on_value_extracted: Optional callback called when each column value is extracted.
             Signature: (row_name: str, column_name: str, value: Any) -> None
             Used for real-time streaming of values to UI.
+        should_stop: Optional callback that returns True if extraction should stop.
+            Checked between processing each document. Allows graceful early termination.
+            Signature: () -> bool
 
     Returns:
         Dict of suggested values for schema evolution:
@@ -42,7 +50,7 @@ def build_table_jsonl(
 
     This is the main entry point that maintains backward compatibility with the original API.
     """
-    table_builder = TableBuilder(llm, retriever, on_value_extracted=on_value_extracted)
+    table_builder = TableBuilder(llm, retriever, on_value_extracted=on_value_extracted, should_stop=should_stop)
     table_builder.build_table_jsonl_multi_dirs(
         schema_path,
         docs_directories,

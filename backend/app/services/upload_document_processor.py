@@ -154,6 +154,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # Create callback to stream cell values as they're extracted
             on_value_extracted = self._create_value_extracted_callback(session_id, loop)
 
+            # Create should_stop callback that checks for stop requests
+            def should_stop():
+                return not self.running_sessions.get(session_id, True)
+
             def run_extraction():
                 print(f"🚀 EXTRACTION STARTING for session {session_id}")
                 print(f"   Schema: {schema_path}")
@@ -170,7 +174,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         mode="all",  # Process all columns together
                         retrieval_k=DEFAULT_RETRIEVAL_K,
                         max_workers=1,  # Single worker to avoid overwhelming API
-                        on_value_extracted=on_value_extracted  # Stream values as extracted
+                        on_value_extracted=on_value_extracted,  # Stream values as extracted
+                        should_stop=should_stop  # Allow graceful stop
                     )
                     print(f"✅ EXTRACTION COMPLETED for session {session_id}")
                     return result
@@ -190,6 +195,46 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             last_processed_line = 0
 
             while not extraction_task.done():
+                # Check for stop request
+                if not self.running_sessions.get(session_id, True):
+                    print(f"🛑 Stop requested for session {session_id}, cancelling extraction...")
+                    extraction_task.cancel()
+                    try:
+                        await extraction_task
+                    except asyncio.CancelledError:
+                        print(f"✓ Extraction task cancelled for session {session_id}")
+
+                    # Update session with partial results
+                    session = self.session_manager.get_session(session_id)
+                    session.status = SessionStatus.STOPPED
+                    session.metadata.last_modified = datetime.now()
+                    self.session_manager.update_session(session)
+
+                    # Merge any partial data that was extracted
+                    if output_path.exists():
+                        try:
+                            current_session = self.session_manager.get_session(session_id)
+                            rows_added = await self._merge_extracted_data(session_id, current_session)
+                            session.metadata.additional_rows_added = rows_added
+                            self.session_manager.update_session(session)
+                        except Exception as e:
+                            print(f"⚠️ Failed to merge partial data after stop: {e}")
+
+                    # Broadcast stopped message
+                    await self.broadcast_message(session_id, {
+                        "type": "stopped",
+                        "data": {
+                            "message": "Document processing stopped by user",
+                            "processed_documents": session.metadata.processed_documents or 0,
+                            "total_documents": total_docs,
+                            "data_rows_saved": session.metadata.additional_rows_added or 0
+                        }
+                    })
+
+                    # Clean up and return
+                    self.running_sessions.pop(session_id, None)
+                    return
+
                 # Check output file for progress tracking only
                 if output_path.exists():
                     try:

@@ -1205,6 +1205,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
         suggested_values_result = {}
 
+        # Create should_stop callback that checks for stop requests
+        def should_stop():
+            return self.is_stop_requested(session_id)
+
         def run_value_extraction():
             nonlocal suggested_values_result
             suggested_values_result = build_table_jsonl(
@@ -1217,7 +1221,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 mode="all",  # Process all columns together
                 retrieval_k=8,
                 max_workers=1,  # Single worker to avoid overwhelming API
-                on_value_extracted=on_value_extracted  # Stream values as extracted
+                on_value_extracted=on_value_extracted,  # Stream values as extracted
+                should_stop=should_stop  # Allow graceful stop
             )
             return suggested_values_result
 

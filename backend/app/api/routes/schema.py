@@ -878,6 +878,31 @@ async def get_reextraction_status(session_id: str, operation_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/stop-reextraction/{session_id}/{operation_id}")
+async def stop_reextraction(session_id: str, operation_id: str):
+    """Stop a running re-extraction operation.
+
+    Returns information about partial results saved.
+    """
+    try:
+        result = await reextraction_service.stop_operation(operation_id)
+
+        if not result["stopped"]:
+            raise HTTPException(status_code=400, detail=result["message"])
+
+        return {
+            "status": "stopped",
+            "message": result["message"],
+            "processed_documents": result.get("processed_documents", 0),
+            "total_documents": result.get("total_documents", 0)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/capture-baseline/{session_id}")
 async def capture_schema_baseline(session_id: str):
     """Manually capture the current schema as the baseline."""

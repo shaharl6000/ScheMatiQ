@@ -7,6 +7,8 @@ import {
   Table2,
   Database,
   Eye,
+  Square,
+  Loader2,
 } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,6 +26,8 @@ interface UploadProcessingMonitorProps {
   loading: boolean;
   error?: string | null;
   onNavigateToResults?: () => void;
+  onStop?: () => void;
+  isStopping?: boolean;
   llmConfig?: any;
 }
 
@@ -33,6 +37,8 @@ const UploadProcessingMonitor: React.FC<UploadProcessingMonitorProps> = ({
   loading,
   error,
   onNavigateToResults,
+  onStop,
+  isStopping,
   llmConfig,
 }) => {
   const getStatusVariant = (statusValue?: string): "default" | "secondary" | "destructive" | "outline" | "success" | "warning" | "info" => {
@@ -163,6 +169,34 @@ const UploadProcessingMonitor: React.FC<UploadProcessingMonitorProps> = ({
                   <p className="text-sm text-green-600">
                     ✓ Processing is active and making progress
                   </p>
+                )}
+
+                {/* Stop Button */}
+                {onStop && (
+                  <div className="mt-4 pt-4 border-t">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={onStop}
+                      disabled={isStopping}
+                      className="gap-1"
+                    >
+                      {isStopping ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Stopping...
+                        </>
+                      ) : (
+                        <>
+                          <Square className="h-4 w-4" />
+                          Stop Processing
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      Partial results will be saved if you stop now.
+                    </p>
+                  </div>
                 )}
 
                 {llmConfig && (

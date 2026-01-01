@@ -181,6 +181,18 @@ export const loadAPI = {
     return response.data;
   },
 
+  stopProcessing: async (sessionId: string): Promise<{
+    status: string;
+    message: string;
+    stopped: boolean;
+    processed_documents?: number;
+    total_documents?: number;
+    data_rows_saved?: number;
+  }> => {
+    const response = await api.post(`/load/stop-processing/${sessionId}`);
+    return response.data;
+  },
+
   exportData: async (sessionId: string): Promise<Blob> => {
     const response = await api.get(`/load/export/${sessionId}`, {
       responseType: 'blob'
@@ -581,6 +593,16 @@ export const schemaAPI = {
 
   getReextractionStatus: async (sessionId: string, operationId: string): Promise<ReextractionOperationStatus> => {
     const response = await api.get(`/schema/reextraction-status/${sessionId}/${operationId}`);
+    return response.data;
+  },
+
+  stopReextraction: async (sessionId: string, operationId: string): Promise<{
+    status: string;
+    message: string;
+    processed_documents: number;
+    total_documents: number;
+  }> => {
+    const response = await api.post(`/schema/stop-reextraction/${sessionId}/${operationId}`);
     return response.data;
   },
 

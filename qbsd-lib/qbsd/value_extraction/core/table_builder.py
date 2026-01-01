@@ -18,17 +18,24 @@ from .llm_cache import LLMCache
 from ..config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
 
 
+# Type alias for the should_stop callback
+ShouldStopCallback = Callable[[], bool]
+
+
 class TableBuilder:
     """Orchestrates the table building process."""
 
     def __init__(self, llm: LLMInterface, retriever=None, cache: LLMCache = None,
-                 on_value_extracted: Optional[OnValueExtractedCallback] = None):
+                 on_value_extracted: Optional[OnValueExtractedCallback] = None,
+                 should_stop: Optional[ShouldStopCallback] = None):
         self.llm = llm
         self.retriever = retriever
         self.cache = cache or LLMCache()
         self.on_value_extracted = on_value_extracted
+        self.should_stop = should_stop
         self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted)
         self.row_manager = RowDataManager()
+        self._stopped = False  # Track if we stopped early
 
     def get_suggested_values(self, threshold: int = 2) -> Dict[str, Dict[str, Any]]:
         """Get suggested values that meet the threshold from PaperProcessor."""
@@ -251,6 +258,12 @@ class TableBuilder:
 
         try:
             for row_idx, (row_name, papers) in enumerate(papers_by_row.items(), 1):
+                # Check for stop request before processing each row
+                if self.should_stop and self.should_stop():
+                    print(f"\n🛑 Stop requested - exiting after {row_idx-1}/{total_rows} rows")
+                    self._stopped = True
+                    break
+
                 print(f"\n🔄 Processing row {row_idx}/{total_rows}: {row_name}")
 
                 if row_name in completed_rows:
@@ -343,6 +356,12 @@ class TableBuilder:
         row_name = current_row.get("_row_name")
 
         for column in schema.columns:
+            # Check for stop request
+            if self.should_stop and self.should_stop():
+                print(f"🛑 Stop requested during column processing")
+                self._stopped = True
+                return
+
             # Handle both dict and Column object formats
             if isinstance(column, dict):
                 column_name = column.get('column') or column.get('name')
@@ -353,6 +372,11 @@ class TableBuilder:
                 continue
 
             for paper in papers:
+                # Check for stop request
+                if self.should_stop and self.should_stop():
+                    print(f"🛑 Stop requested during paper processing")
+                    self._stopped = True
+                    return
                 if paper in processed_papers:
                     continue
 
@@ -397,6 +421,15 @@ class TableBuilder:
                 }
 
                 for future in concurrent.futures.as_completed(future_to_paper):
+                    # Check for stop request
+                    if self.should_stop and self.should_stop():
+                        print(f"🛑 Stop requested - cancelling pending futures")
+                        self._stopped = True
+                        # Cancel any pending futures
+                        for pending_future in future_to_paper:
+                            pending_future.cancel()
+                        return
+
                     paper = future_to_paper[future]
                     try:
                         result = future.result()
@@ -411,6 +444,12 @@ class TableBuilder:
         else:
             # Sequential processing
             for paper in unprocessed_papers:
+                # Check for stop request
+                if self.should_stop and self.should_stop():
+                    print(f"🛑 Stop requested during sequential processing")
+                    self._stopped = True
+                    return
+
                 try:
                     result = self._extract_values_from_paper_file(
                         paper, schema, retrieval_k, max_new_tokens, row_name
@@ -529,6 +568,12 @@ class TableBuilder:
                 # Sequential processing
                 print(f"🔄 Processing {len(papers_to_process)} papers sequentially with incremental writing...")
                 for doc_path in tqdm(papers_to_process, desc="processing papers"):
+                    # Check for stop request
+                    if self.should_stop and self.should_stop():
+                        print(f"\n🛑 Stop requested - exiting after {papers_processed} papers")
+                        self._stopped = True
+                        break
+
                     try:
                         row_name, paper_title, extracted_data = self.paper_processor.process_single_paper(
                             doc_path, schema, max_new_tokens, mode, retrieval_k, processed_papers
@@ -563,6 +608,15 @@ class TableBuilder:
                     }
 
                     for future in tqdm(as_completed(future_to_paper), total=len(papers_to_process), desc="processing papers"):
+                        # Check for stop request
+                        if self.should_stop and self.should_stop():
+                            print(f"\n🛑 Stop requested - cancelling pending futures after {papers_processed} papers")
+                            self._stopped = True
+                            # Cancel any pending futures
+                            for pending_future in future_to_paper:
+                                pending_future.cancel()
+                            break
+
                         doc_path = future_to_paper[future]
                         try:
                             row_name, paper_title, extracted_data = future.result()

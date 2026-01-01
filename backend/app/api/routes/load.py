@@ -1192,6 +1192,83 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/stop-processing/{session_id}", response_model=dict)
+async def stop_document_processing(session_id: str):
+    """Stop document processing gracefully.
+
+    Returns information about what partial results were saved.
+    """
+    try:
+        from app.services.upload_document_processor import UploadDocumentProcessor
+        from app.services import websocket_manager
+
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # Check if session is actually processing
+        if session.status != SessionStatus.PROCESSING_DOCUMENTS:
+            return {
+                "status": "not_processing",
+                "message": f"Session is not processing documents (status: {session.status})",
+                "stopped": False
+            }
+
+        # Create processor and call stop
+        processor = UploadDocumentProcessor(
+            websocket_manager=websocket_manager,
+            session_manager=session_manager
+        )
+
+        stopped = processor.stop_processing(session_id)
+
+        if stopped:
+            # Update session status
+            session.status = SessionStatus.STOPPED
+            session.metadata.last_modified = datetime.now()
+            session_manager.update_session(session)
+
+            # Get current progress info
+            processed = session.metadata.processed_documents or 0
+            total = len(session.metadata.uploaded_documents) if session.metadata.uploaded_documents else 0
+            rows_added = session.metadata.additional_rows_added or 0
+
+            # Broadcast stopped message via WebSocket
+            await websocket_manager.broadcast_message(
+                session_id,
+                {
+                    "type": "stopped",
+                    "data": {
+                        "message": "Document processing stopped by user",
+                        "processed_documents": processed,
+                        "total_documents": total,
+                        "data_rows_saved": rows_added
+                    }
+                }
+            )
+
+            return {
+                "status": "stopped",
+                "message": f"Processing stopped. {processed}/{total} documents processed, {rows_added} rows extracted.",
+                "stopped": True,
+                "processed_documents": processed,
+                "total_documents": total,
+                "data_rows_saved": rows_added
+            }
+        else:
+            return {
+                "status": "not_found",
+                "message": "No active processing found for this session",
+                "stopped": False
+            }
+
+    except Exception as e:
+        print(f"DEBUG: Exception in stop_document_processing: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/processing-status/{session_id}", response_model=dict)
 async def get_processing_status(session_id: str):
     """Get document processing status and progress."""
