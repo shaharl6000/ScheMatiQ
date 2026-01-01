@@ -226,6 +226,47 @@ const Visualize = () => {
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
               break;
+
+            // Continue Discovery events
+            case 'continue_discovery_started':
+              console.log('Continue discovery started:', message.data);
+              break;
+            case 'continue_discovery_progress':
+              console.log('Continue discovery progress:', message.data);
+              break;
+            case 'continue_discovery_completed':
+              console.log('Continue discovery completed:', message.data);
+              queryClient.invalidateQueries(['session', sessionId, mode]);
+              break;
+            case 'continue_discovery_stopped':
+              console.log('Continue discovery stopped:', message.data);
+              break;
+            case 'continue_discovery_failed':
+              console.log('Continue discovery failed:', message.data);
+              break;
+            case 'incremental_extraction_started':
+              // Initialize processing columns when incremental extraction starts
+              if (message.data?.columns && Array.isArray(message.data.columns)) {
+                setProcessingColumns(new Set(message.data.columns));
+              }
+              break;
+            case 'incremental_extraction_progress':
+              if (message.data?.column) {
+                setProcessingColumns(prev => {
+                  const newSet = new Set(Array.from(prev));
+                  newSet.add(message.data.column);
+                  return newSet;
+                });
+              }
+              break;
+            case 'incremental_extraction_completed':
+              console.log('Incremental extraction completed:', message.data);
+              setProcessingColumns(new Set()); // Clear processing state
+              setCurrentDocumentProgress(null); // Clear document progress
+              setStreamingCells(new Map());    // Clear streaming cells
+              queryClient.invalidateQueries(['session', sessionId, mode]);
+              queryClient.invalidateQueries(['data', sessionId, mode]);
+              break;
           }
         } catch (err) {
           console.error('Error parsing WebSocket message:', err);
@@ -411,6 +452,48 @@ const Visualize = () => {
                 break;
               case 'reextraction_stopped':
                 console.log('Re-extraction stopped:', message.data);
+                setProcessingColumns(new Set()); // Clear processing state
+                setCurrentDocumentProgress(null); // Clear document progress
+                setStreamingCells(new Map());    // Clear streaming cells
+                setForceWebSocketConnect(false); // Allow WebSocket to close
+                queryClient.invalidateQueries(['session', sessionId, mode]);
+                queryClient.invalidateQueries(['data', sessionId, mode]);
+                break;
+
+              // Continue Discovery events
+              case 'continue_discovery_started':
+                console.log('Continue discovery started:', message.data);
+                break;
+              case 'continue_discovery_progress':
+                console.log('Continue discovery progress:', message.data);
+                break;
+              case 'continue_discovery_completed':
+                console.log('Continue discovery completed:', message.data);
+                queryClient.invalidateQueries(['session', sessionId, mode]);
+                break;
+              case 'continue_discovery_stopped':
+                console.log('Continue discovery stopped:', message.data);
+                break;
+              case 'continue_discovery_failed':
+                console.log('Continue discovery failed:', message.data);
+                break;
+              case 'incremental_extraction_started':
+                // Initialize processing columns when incremental extraction starts
+                if (message.data?.columns && Array.isArray(message.data.columns)) {
+                  setProcessingColumns(new Set(message.data.columns));
+                }
+                break;
+              case 'incremental_extraction_progress':
+                if (message.data?.column) {
+                  setProcessingColumns(prev => {
+                    const newSet = new Set(Array.from(prev));
+                    newSet.add(message.data.column);
+                    return newSet;
+                  });
+                }
+                break;
+              case 'incremental_extraction_completed':
+                console.log('Incremental extraction completed:', message.data);
                 setProcessingColumns(new Set()); // Clear processing state
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells

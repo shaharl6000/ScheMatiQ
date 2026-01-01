@@ -21,7 +21,13 @@ import {
   PaperDiscoveryResult,
   ReextractionRequest,
   ReextractionResponse,
-  ReextractionOperationStatus
+  ReextractionOperationStatus,
+  ContinueDiscoveryDocuments,
+  ContinueDiscoveryRequest,
+  ContinueDiscoveryResponse,
+  ContinueDiscoveryStatus,
+  ConfirmColumnsRequest,
+  ConfirmColumnsResponse
 } from '../types';
 import { FilterRule, SortColumn } from '../components/DataTable/types/filters';
 
@@ -618,6 +624,34 @@ export const schemaAPI = {
       headers: { 'Content-Type': 'multipart/form-data' }
     });
     return response.data;
+  },
+
+  // Continue Schema Discovery API methods
+  continueDiscovery: {
+    getDocuments: async (sessionId: string): Promise<ContinueDiscoveryDocuments> => {
+      const response = await api.get(`/schema/continue-discovery/documents/${sessionId}`);
+      return response.data;
+    },
+
+    start: async (sessionId: string, request: ContinueDiscoveryRequest): Promise<ContinueDiscoveryResponse> => {
+      const response = await api.post(`/schema/continue-discovery/start/${sessionId}`, request);
+      return response.data;
+    },
+
+    getStatus: async (sessionId: string, operationId: string): Promise<ContinueDiscoveryStatus> => {
+      const response = await api.get(`/schema/continue-discovery/status/${sessionId}/${operationId}`);
+      return response.data;
+    },
+
+    confirmColumns: async (sessionId: string, operationId: string, request: ConfirmColumnsRequest): Promise<ConfirmColumnsResponse> => {
+      const response = await api.post(`/schema/continue-discovery/confirm/${sessionId}/${operationId}`, request);
+      return response.data;
+    },
+
+    stop: async (sessionId: string, operationId: string): Promise<{ status: string; phase: string; message: string }> => {
+      const response = await api.post(`/schema/continue-discovery/stop/${sessionId}/${operationId}`);
+      return response.data;
+    },
   },
 };
 

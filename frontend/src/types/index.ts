@@ -613,3 +613,135 @@ export interface ReextractionFailedData {
   operation_id: string;
   error: string;
 }
+
+// ==================== Continue Schema Discovery Types ====================
+
+export interface ContinueDiscoveryDocuments {
+  original_documents: string[];
+  original_count: number;
+  cloud_datasets: string[];
+  original_cloud_dataset?: string;
+  can_use_original: boolean;
+  query: string;
+}
+
+export interface ContinueDiscoveryRequest {
+  document_source: 'original' | 'upload' | 'cloud';
+  cloud_dataset?: string;
+  llm_config: {
+    provider: string;
+    model: string;
+    api_key: string;
+    max_output_tokens?: number;
+    temperature?: number;
+    context_window_size?: number;
+  };
+  max_keys_schema?: number;
+  documents_batch_size?: number;
+}
+
+export interface ContinueDiscoveryResponse {
+  status: string;
+  operation_id: string;
+  initial_column_count: number;
+  document_source: string;
+}
+
+export interface NewColumnInfo {
+  name: string;
+  definition: string;
+  rationale: string;
+  allowed_values?: string[];
+  source_document?: string;
+  discovery_iteration?: number;
+}
+
+export interface ContinueDiscoveryStatus {
+  operation_id: string;
+  session_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'stopped';
+  phase: 'discovery' | 'extraction';
+  progress: number;
+  current_batch: number;
+  total_batches: number;
+  initial_columns: string[];
+  new_columns: NewColumnInfo[];
+  confirmed_columns: string[];
+  processed_documents: number;
+  total_documents: number;
+  started_at?: string;
+  completed_at?: string;
+  error?: string;
+}
+
+export interface ConfirmColumnsRequest {
+  selected_columns: string[];
+  row_selection: 'all' | 'selected';
+  selected_rows?: string[];
+  llm_config?: {
+    provider: string;
+    model: string;
+    api_key: string;
+    max_output_tokens?: number;
+    temperature?: number;
+  };
+}
+
+export interface ConfirmColumnsResponse {
+  status: string;
+  operation_id: string;
+  columns: string[];
+  row_count: number | 'all';
+}
+
+// Continue Discovery WebSocket event types
+export interface ContinueDiscoveryStartedData {
+  operation_id: string;
+  initial_columns: string[];
+  document_source: string;
+}
+
+export interface ContinueDiscoveryProgressData {
+  operation_id: string;
+  progress: number;
+  current_batch: number;
+  total_batches: number;
+}
+
+export interface ContinueDiscoveryCompletedData {
+  operation_id: string;
+  initial_columns: string[];
+  new_columns: NewColumnInfo[];
+  total_columns: number;
+  message: string;
+}
+
+export interface IncrementalExtractionStartedData {
+  operation_id: string;
+  columns: string[];
+}
+
+export interface IncrementalExtractionProgressData {
+  operation_id: string;
+  column: string;
+  progress: number;
+  processed_documents: number;
+  current_row?: string;
+}
+
+export interface IncrementalExtractionCompletedData {
+  operation_id: string;
+  columns: string[];
+  status: 'success' | 'failed';
+}
+
+export interface ContinueDiscoveryStoppedData {
+  operation_id: string;
+  phase: string;
+  message: string;
+}
+
+export interface ContinueDiscoveryFailedData {
+  operation_id: string;
+  error: string;
+}

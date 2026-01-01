@@ -16,6 +16,7 @@ from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
 from app.services.schema_manager import SchemaManager
 from app.services.reextraction_service import ReextractionService
+from app.services.continue_discovery_service import ContinueDiscoveryService
 from app.services import session_manager, websocket_manager
 
 router = APIRouter(tags=["schema"])
@@ -25,6 +26,9 @@ schema_manager = SchemaManager(websocket_manager, session_manager)
 
 # Create reextraction service instance
 reextraction_service = ReextractionService(websocket_manager, session_manager)
+
+# Create continue discovery service instance
+continue_discovery_service = ContinueDiscoveryService(websocket_manager, session_manager)
 
 # Request/Response Models
 class ColumnEditRequest(BaseModel):
@@ -957,5 +961,210 @@ async def upload_missing_papers(
             "uploaded_files": uploaded
         }
 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== Continue Schema Discovery Endpoints ====================
+
+class ContinueDiscoveryDocumentsResponse(BaseModel):
+    original_documents: List[str]
+    original_count: int
+    cloud_datasets: List[str]
+    original_cloud_dataset: Optional[str]
+    can_use_original: bool
+    query: str
+
+
+class ContinueDiscoveryRequest(BaseModel):
+    document_source: str  # 'original', 'upload', 'cloud'
+    cloud_dataset: Optional[str] = None
+    llm_config: Dict[str, Any]
+    max_keys_schema: int = 100
+    documents_batch_size: int = 1
+
+
+class ContinueDiscoveryResponse(BaseModel):
+    status: str
+    operation_id: str
+    initial_column_count: int
+    document_source: str
+
+
+class NewColumnInfo(BaseModel):
+    name: str
+    definition: str
+    rationale: str
+    allowed_values: Optional[List[str]] = None
+    source_document: Optional[str] = None
+    discovery_iteration: Optional[int] = None
+
+
+class ContinueDiscoveryStatus(BaseModel):
+    operation_id: str
+    session_id: str
+    status: str  # pending, running, completed, failed, stopped
+    phase: str   # discovery, extraction
+    progress: float
+    current_batch: int
+    total_batches: int
+    initial_columns: List[str]
+    new_columns: List[NewColumnInfo]
+    confirmed_columns: List[str]
+    processed_documents: int
+    total_documents: int
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    error: Optional[str] = None
+
+
+class ConfirmColumnsRequest(BaseModel):
+    selected_columns: List[str]
+    row_selection: str  # 'all' or 'selected'
+    selected_rows: Optional[List[str]] = None
+    llm_config: Optional[Dict[str, Any]] = None
+
+
+class ConfirmColumnsResponse(BaseModel):
+    status: str
+    operation_id: str
+    columns: List[str]
+    row_count: Any  # int or 'all'
+
+
+@router.get("/continue-discovery/documents/{session_id}")
+async def get_continue_discovery_documents(session_id: str) -> ContinueDiscoveryDocumentsResponse:
+    """Get available document sources for continued schema discovery."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        result = await continue_discovery_service.get_available_documents(session_id)
+
+        return ContinueDiscoveryDocumentsResponse(**result)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/continue-discovery/start/{session_id}")
+async def start_continue_discovery(
+    session_id: str,
+    request: ContinueDiscoveryRequest,
+    background_tasks: BackgroundTasks
+) -> ContinueDiscoveryResponse:
+    """Start schema discovery continuation with current schema as initial schema."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        if not request.llm_config:
+            raise HTTPException(status_code=400, detail="LLM configuration is required")
+
+        result = await continue_discovery_service.start_continue_discovery(
+            session_id=session_id,
+            document_source=request.document_source,
+            llm_config=request.llm_config,
+            cloud_dataset=request.cloud_dataset,
+            max_keys_schema=request.max_keys_schema,
+            documents_batch_size=request.documents_batch_size
+        )
+
+        return ContinueDiscoveryResponse(**result)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/continue-discovery/status/{session_id}/{operation_id}")
+async def get_continue_discovery_status(session_id: str, operation_id: str) -> ContinueDiscoveryStatus:
+    """Get status of a continue discovery operation."""
+    try:
+        status = continue_discovery_service.get_operation_status(operation_id)
+        if not status:
+            raise HTTPException(status_code=404, detail="Operation not found")
+
+        if status["session_id"] != session_id:
+            raise HTTPException(status_code=403, detail="Operation does not belong to this session")
+
+        # Convert new_columns dicts to NewColumnInfo
+        new_columns = [NewColumnInfo(**col) for col in status.get("new_columns", [])]
+
+        return ContinueDiscoveryStatus(
+            operation_id=status["operation_id"],
+            session_id=status["session_id"],
+            status=status["status"],
+            phase=status["phase"],
+            progress=status["progress"],
+            current_batch=status["current_batch"],
+            total_batches=status["total_batches"],
+            initial_columns=status["initial_columns"],
+            new_columns=new_columns,
+            confirmed_columns=status.get("confirmed_columns", []),
+            processed_documents=status["processed_documents"],
+            total_documents=status["total_documents"],
+            started_at=status.get("started_at"),
+            completed_at=status.get("completed_at"),
+            error=status.get("error")
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/continue-discovery/confirm/{session_id}/{operation_id}")
+async def confirm_new_columns(
+    session_id: str,
+    operation_id: str,
+    request: ConfirmColumnsRequest,
+    background_tasks: BackgroundTasks
+) -> ConfirmColumnsResponse:
+    """Confirm which new columns to add and start value extraction."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        result = await continue_discovery_service.confirm_and_start_extraction(
+            operation_id=operation_id,
+            selected_columns=request.selected_columns,
+            row_selection=request.row_selection,
+            selected_rows=request.selected_rows,
+            llm_config=request.llm_config
+        )
+
+        return ConfirmColumnsResponse(**result)
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/continue-discovery/stop/{session_id}/{operation_id}")
+async def stop_continue_discovery(session_id: str, operation_id: str):
+    """Stop a running continue discovery or extraction operation."""
+    try:
+        result = await continue_discovery_service.stop_operation(operation_id)
+
+        if not result["stopped"]:
+            raise HTTPException(status_code=400, detail=result["message"])
+
+        return {
+            "status": "stopped",
+            "phase": result.get("phase", "unknown"),
+            "message": result["message"]
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

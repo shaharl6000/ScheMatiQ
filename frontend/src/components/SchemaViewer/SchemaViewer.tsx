@@ -61,6 +61,7 @@ import { schemaAPI } from '../../services/api';
 import ColumnDialog from '../SchemaEditor/ColumnDialog';
 import MergeDialog from '../SchemaEditor/MergeDialog';
 import ReextractionDialog from '../SchemaEditor/ReextractionDialog';
+import ContinueDiscoveryDialog from '../SchemaEditor/ContinueDiscoveryDialog';
 import LLMConfigDisplay from '../LLMConfigDisplay';
 
 interface SchemaViewerProps {
@@ -107,6 +108,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [copiedQuery, setCopiedQuery] = useState(false);
   const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
   const [reextractionDialogOpen, setReextractionDialogOpen] = useState(false);
+  const [continueDiscoveryDialogOpen, setContinueDiscoveryDialogOpen] = useState(false);
 
   // Helper function to extract error message from API errors (handles Pydantic validation errors)
   const extractErrorMessage = (error: any, fallback: string): string => {
@@ -366,6 +368,24 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   const handleReextractionError = (message: string) => {
     toast({ title: 'Re-extraction Error', description: message, variant: 'destructive' });
+  };
+
+  const handleContinueDiscoverySuccess = (message: string, newColumns: ColumnInfo[]) => {
+    toast({ title: 'Success', description: message });
+    setContinueDiscoveryDialogOpen(false);
+
+    if (newColumns.length > 0 && onColumnsChange) {
+      // Add new columns to local state and notify parent
+      const updatedColumns = [...localColumns, ...newColumns];
+      setLocalColumns(updatedColumns);
+      onColumnsChange(updatedColumns);
+    }
+    // Reload schema change status
+    loadSchemaChangeStatus();
+  };
+
+  const handleContinueDiscoveryError = (message: string) => {
+    toast({ title: 'Continue Discovery Error', description: message, variant: 'destructive' });
   };
 
   const handleBackup = async () => {
@@ -651,6 +671,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     <DropdownMenuItem onClick={handleReprocessClick} disabled={loading || Boolean(reprocessingStatus)}>
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Reprocess All
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setContinueDiscoveryDialogOpen(true)} disabled={loading}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Continue Schema Discovery
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
@@ -995,6 +1020,19 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         onSuccess={handleReextractionSuccess}
         onError={handleReextractionError}
         onReextractionStarted={onReextractionStarted}
+      />
+
+      {/* Continue Discovery Dialog */}
+      <ContinueDiscoveryDialog
+        open={continueDiscoveryDialogOpen}
+        sessionId={sessionId}
+        sessionType={sessionType || 'qbsd'}
+        currentColumns={localColumns}
+        query={query || ''}
+        onClose={() => setContinueDiscoveryDialogOpen(false)}
+        onSuccess={handleContinueDiscoverySuccess}
+        onError={handleContinueDiscoveryError}
+        onExtractionStarted={onReextractionStarted}
       />
 
       {readonly && (

@@ -60,7 +60,8 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
 
   // Load schema change status and paper discovery when dialog opens
   const loadStatus = useCallback(async () => {
-    if (!open || !sessionId) return;
+    // Don't reload if dialog is closed, no session, or extraction is in progress
+    if (!open || !sessionId || isExtracting) return;
 
     setLoadingStatus(true);
     try {
@@ -83,7 +84,7 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
     } finally {
       setLoadingStatus(false);
     }
-  }, [open, sessionId, onError]);
+  }, [open, sessionId, onError, isExtracting]);
 
   useEffect(() => {
     loadStatus();
@@ -181,44 +182,19 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
 
       const response = await schemaAPI.startReextraction(sessionId, request);
 
-      // Store operation ID and start extraction mode
-      setExtractionOperationId(response.operation_id);
-      setIsExtracting(true);
-      setExtractionProgress(0);
-
       // Notify parent about the columns being re-extracted (for WebSocket connection and skeleton display)
       if (onReextractionStarted) {
         onReextractionStarted(response.columns);
       }
 
-      // Start polling for progress
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const status = await schemaAPI.getReextractionStatus(sessionId, response.operation_id);
-          setExtractionProgress(status.progress * 100);
-
-          if (status.status === 'completed') {
-            clearInterval(pollIntervalRef.current!);
-            pollIntervalRef.current = null;
-            setIsExtracting(false);
-            onSuccess(`Re-extraction completed for ${response.columns.length} column${response.columns.length !== 1 ? 's' : ''}.`, true);
-            onClose();
-          } else if (status.status === 'failed') {
-            clearInterval(pollIntervalRef.current!);
-            pollIntervalRef.current = null;
-            setIsExtracting(false);
-            onError(status.error || 'Re-extraction failed');
-          } else if (status.status === 'stopped') {
-            clearInterval(pollIntervalRef.current!);
-            pollIntervalRef.current = null;
-            setIsExtracting(false);
-            onSuccess(`Re-extraction stopped. ${status.processed_documents}/${status.total_documents} documents processed.`, true);
-            onClose();
-          }
-        } catch (err) {
-          console.error('Failed to poll reextraction status:', err);
-        }
-      }, 2000);
+      // Show success message and close dialog immediately so user can see the table
+      const columnCount = response.columns.length;
+      const docCount = response.rows_to_process;
+      onSuccess(
+        `Re-extraction started for ${columnCount} column${columnCount !== 1 ? 's' : ''} across ${docCount} documents. View the Data tab for live progress.`,
+        false // Don't refresh data yet - WebSocket will handle updates
+      );
+      onClose();
 
     } catch (error: any) {
       onError(error.response?.data?.detail || 'Failed to start re-extraction');
