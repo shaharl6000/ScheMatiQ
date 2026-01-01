@@ -227,11 +227,30 @@ class FileParser:
         
         # Parse based on file type
         if file_path.suffix.lower() == '.csv':
-            return await self._parse_csv(file_path, mapping)
+            result = await self._parse_csv(file_path, mapping)
         elif file_path.suffix.lower() in ['.json', '.jsonl']:
-            return await self._parse_json(file_path)
+            result = await self._parse_json(file_path)
         else:
             raise ValueError("Unsupported file format")
+
+        # Save documents_batch_size to qbsd_config.json if present (for loaded exports)
+        if result.get("documents_batch_size") is not None:
+            qbsd_config_file = session_dir / "qbsd_config.json"
+            try:
+                # Load existing config or create new one
+                if qbsd_config_file.exists():
+                    with open(qbsd_config_file) as f:
+                        config = json.load(f)
+                else:
+                    config = {}
+                config["documents_batch_size"] = result["documents_batch_size"]
+                with open(qbsd_config_file, 'w') as f:
+                    json.dump(config, f, indent=2)
+                print(f"DEBUG: Saved documents_batch_size={result['documents_batch_size']} to qbsd_config.json")
+            except Exception as e:
+                print(f"DEBUG: Could not save documents_batch_size to config: {e}")
+
+        return result
     
     async def _parse_csv(self, file_path: Path, mapping: Optional[ColumnMappingRequest] = None) -> Dict[str, Any]:
         """Parse CSV file, handling metadata comments."""
@@ -392,6 +411,7 @@ class FileParser:
     async def _parse_json(self, file_path: Path) -> Dict[str, Any]:
         """Parse JSON/JSONL file."""
         schema_evolution = None  # Will be extracted if present (backward compatible)
+        documents_batch_size = None  # Will be extracted if present (backward compatible)
 
         if file_path.suffix.lower() == '.jsonl':
             # JSONL format
@@ -429,6 +449,12 @@ class FileParser:
                             print(f"DEBUG: Imported schema evolution with {len(snapshots)} snapshots")
                         except Exception as e:
                             print(f"DEBUG: Could not parse schema_evolution: {e}")
+
+                    # Extract documents_batch_size from metadata if present (backward compatible)
+                    if "metadata" in data and isinstance(data["metadata"], dict):
+                        documents_batch_size = data["metadata"].get("documents_batch_size")
+                        if documents_batch_size is not None:
+                            print(f"DEBUG: Imported documents_batch_size: {documents_batch_size}")
 
                     # Check if this is a complete export format with "data" array
                     if "data" in data and isinstance(data["data"], list):
@@ -578,7 +604,10 @@ class FileParser:
 
                 f.write(json.dumps(data_row.model_dump()) + '\n')
 
-        return {"columns": columns, "statistics": statistics}
+        result = {"columns": columns, "statistics": statistics}
+        if documents_batch_size is not None:
+            result["documents_batch_size"] = documents_batch_size
+        return result
     
     def _sanitize_value(self, value):
         """Sanitize a value to ensure it's JSON serializable."""
@@ -1652,7 +1681,9 @@ class FileParser:
                                     'column_sources': {}
                                 }
                         elif content.startswith('Iteration ') and ':' in content:
-                            # Parse iteration lines: "Iteration 1: +3 columns [col1, col2, col3]"
+                            # Parse iteration lines:
+                            # New format: "Iteration 1: +3 columns [col1, col2, col3] from [doc1.txt] (total: 10)"
+                            # Old format: "Iteration 1: +3 columns [col1, col2, col3]"
                             try:
                                 if metadata_info['schema_evolution'] is None:
                                     metadata_info['schema_evolution'] = {'snapshots': [], 'column_sources': {}}
@@ -1661,33 +1692,49 @@ class FileParser:
                                 iter_part, cols_part = content.split(':', 1)
                                 iteration = int(iter_part.replace('Iteration', '').strip())
 
-                                # Parse columns from brackets if present
+                                # Parse new columns from brackets BEFORE "from" if present
                                 new_columns = []
-                                if '[' in cols_part and ']' in cols_part:
-                                    bracket_content = cols_part[cols_part.index('[') + 1:cols_part.index(']')]
+                                from_pos = cols_part.find(' from ')
+                                cols_section = cols_part[:from_pos] if from_pos != -1 else cols_part
+                                first_bracket_start = cols_section.find('[')
+                                first_bracket_end = cols_section.find(']')
+                                if first_bracket_start != -1 and first_bracket_end != -1:
+                                    bracket_content = cols_section[first_bracket_start + 1:first_bracket_end]
                                     # Handle truncated columns (e.g., "col1, col2... (+3 more)")
                                     bracket_content = bracket_content.split('...')[0]
                                     new_columns = [c.strip() for c in bracket_content.split(',') if c.strip()]
 
-                                # Extract column count from "+N columns"
-                                count_match = re.search(r'\+(\d+)\s+columns?', cols_part)
-                                total_columns = int(count_match.group(1)) if count_match else len(new_columns)
+                                # Parse document names from "from [doc1, doc2...]" if present
+                                documents_processed = [f'iteration_{iteration}']  # Default fallback
+                                from_match = re.search(r'from \[([^\]]+)\]', cols_part)
+                                if from_match:
+                                    docs_content = from_match.group(1).split('...')[0]  # Handle truncation
+                                    documents_processed = [d.strip() for d in docs_content.split(',') if d.strip()]
 
-                                # Calculate cumulative - sum of previous snapshots plus this one
-                                prev_total = sum(len(s.get('new_columns', [])) for s in metadata_info['schema_evolution']['snapshots'])
+                                # Extract total column count from "(total: X)" if present
+                                total_match = re.search(r'\(total:\s*(\d+)\)', cols_part)
+                                if total_match:
+                                    total_columns = int(total_match.group(1))
+                                else:
+                                    # Fallback: calculate from previous snapshots
+                                    prev_total = sum(len(s.get('new_columns', [])) for s in metadata_info['schema_evolution']['snapshots'])
+                                    count_match = re.search(r'\+(\d+)\s+columns?', cols_part)
+                                    new_count = int(count_match.group(1)) if count_match else len(new_columns)
+                                    total_columns = prev_total + new_count
 
                                 snapshot = {
                                     'iteration': iteration,
-                                    'documents_processed': [f'iteration_{iteration}'],
-                                    'total_columns': prev_total + total_columns,
+                                    'documents_processed': documents_processed,
+                                    'total_columns': total_columns,
                                     'new_columns': new_columns,
                                     'cumulative_documents': iteration
                                 }
                                 metadata_info['schema_evolution']['snapshots'].append(snapshot)
 
                                 # Add column sources
+                                source_name = documents_processed[0] if documents_processed else f'iteration_{iteration}'
                                 for col in new_columns:
-                                    metadata_info['schema_evolution']['column_sources'][col] = f'iteration_{iteration}'
+                                    metadata_info['schema_evolution']['column_sources'][col] = source_name
                             except Exception as e:
                                 print(f"DEBUG: Could not parse iteration line '{content}': {e}")
                         elif content.startswith('Total:') and 'columns from' in content and 'iterations' in content:

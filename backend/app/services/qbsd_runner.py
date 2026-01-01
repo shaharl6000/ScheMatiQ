@@ -954,7 +954,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         query = qbsd_config["query"]
 
         # Calculate iterations based on document batching
-        batch_size = qbsd_config.get("documents_batch_size", 4)
+        batch_size = qbsd_config.get("documents_batch_size", 1)
         max_iterations = math.ceil(len(documents) / batch_size) if documents else 1
         convergence_threshold = 5  # Stop if schema doesn't change for 5 consecutive batches
         unchanged_count = 0

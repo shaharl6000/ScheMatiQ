@@ -353,18 +353,25 @@ async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
             evolution = session.statistics.schema_evolution
             output.write("# Schema Evolution:\n")
             for snapshot in evolution.snapshots:
+                # Include document names if available
+                docs_str = ", ".join(snapshot.documents_processed[:3]) if snapshot.documents_processed else ""
+                if len(snapshot.documents_processed) > 3:
+                    docs_str += f"... (+{len(snapshot.documents_processed) - 3} more)"
+
                 if snapshot.new_columns:
                     cols_str = ", ".join(snapshot.new_columns[:5])
                     if len(snapshot.new_columns) > 5:
                         cols_str += f"... (+{len(snapshot.new_columns) - 5} more)"
-                    # Include document names if available
-                    docs_str = ", ".join(snapshot.documents_processed[:3]) if snapshot.documents_processed else ""
-                    if len(snapshot.documents_processed) > 3:
-                        docs_str += f"... (+{len(snapshot.documents_processed) - 3} more)"
                     if docs_str:
-                        output.write(f"# Iteration {snapshot.iteration}: +{len(snapshot.new_columns)} columns [{cols_str}] from [{docs_str}]\n")
+                        output.write(f"# Iteration {snapshot.iteration}: +{len(snapshot.new_columns)} columns [{cols_str}] from [{docs_str}] (total: {snapshot.total_columns})\n")
                     else:
-                        output.write(f"# Iteration {snapshot.iteration}: +{len(snapshot.new_columns)} columns [{cols_str}]\n")
+                        output.write(f"# Iteration {snapshot.iteration}: +{len(snapshot.new_columns)} columns [{cols_str}] (total: {snapshot.total_columns})\n")
+                else:
+                    # Write iterations with no new columns too (for accurate iteration count)
+                    if docs_str:
+                        output.write(f"# Iteration {snapshot.iteration}: +0 columns from [{docs_str}] (total: {snapshot.total_columns})\n")
+                    else:
+                        output.write(f"# Iteration {snapshot.iteration}: +0 columns (total: {snapshot.total_columns})\n")
             output.write(f"# Total: {len(evolution.column_sources)} columns from {len(evolution.snapshots)} iterations\n")
             # Write column sources mapping
             if evolution.column_sources:

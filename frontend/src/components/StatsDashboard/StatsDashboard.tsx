@@ -317,7 +317,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
               />
               <InfoCard
                 title="Iterations"
-                value={creationMetadata?.iterations_count || statistics.schema_evolution?.snapshots?.length || 0}
+                value={creationMetadata?.iterations_count || (statistics.schema_evolution?.snapshots?.length ? Math.max(...statistics.schema_evolution.snapshots.map(s => s.iteration)) : 0)}
                 size="small"
               />
               <InfoCard

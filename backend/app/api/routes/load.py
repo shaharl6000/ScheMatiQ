@@ -1268,7 +1268,19 @@ async def export_complete_data(session_id: str, format: str = "json"):
         # Include schema evolution if available
         if session.statistics and session.statistics.schema_evolution:
             export_data["schema_evolution"] = session.statistics.schema_evolution.model_dump()
-        
+
+        # Include documents_batch_size from qbsd_config if available
+        session_dir = Path("./data") / session_id
+        qbsd_config_file = session_dir / "qbsd_config.json"
+        if qbsd_config_file.exists():
+            try:
+                with open(qbsd_config_file) as f:
+                    qbsd_config = json.load(f)
+                    if "documents_batch_size" in qbsd_config:
+                        export_data["metadata"]["documents_batch_size"] = qbsd_config["documents_batch_size"]
+            except Exception:
+                pass  # Continue without batch size if there's an error
+
         # Get all data
         parser = FileParser()
         data_file = parser.data_dir / session_id / "data.jsonl"
