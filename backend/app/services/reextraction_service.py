@@ -403,35 +403,52 @@ class ReextractionService(WebSocketBroadcasterMixin):
         # Get storage backend for cloud checks
         storage = get_storage()
 
+        # Step 1: Check local files first, collect papers that need cloud checking
+        papers_to_check_cloud: List[str] = []
         for paper in paper_refs:
-            # Check local first
             if paper in local_files or f"{paper}.txt" in local_files:
                 local_papers.append(paper)
-            # Then check Supabase if we have a document directory
             elif paper in paper_doc_dirs:
-                doc_dir = paper_doc_dirs[paper]
-                # Strip 'datasets/' prefix since we're already checking in the 'datasets' bucket
-                clean_doc_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
-                supabase_path = f"{clean_doc_dir}/{paper}"
+                papers_to_check_cloud.append(paper)
+            else:
+                missing.append(paper)
 
-                print(f"DEBUG: Checking Supabase path: {supabase_path} in 'datasets' bucket")
+        # Step 2: Group papers by their cloud folder (to minimize HTTP requests)
+        folders_to_check: Dict[str, List[str]] = {}  # folder -> list of papers
+        for paper in papers_to_check_cloud:
+            doc_dir = paper_doc_dirs[paper]
+            # Strip 'datasets/' prefix since we're checking in the 'datasets' bucket
+            clean_doc_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
+            if clean_doc_dir not in folders_to_check:
+                folders_to_check[clean_doc_dir] = []
+            folders_to_check[clean_doc_dir].append(paper)
 
-                # Try to check if file exists in Supabase
-                try:
-                    exists = await storage.file_exists('datasets', supabase_path)
-                    if exists:
-                        cloud_papers[paper] = supabase_path
-                    else:
-                        # Try with .txt extension
-                        supabase_path_txt = f"{clean_doc_dir}/{paper}.txt" if not paper.endswith('.txt') else supabase_path
-                        exists_txt = await storage.file_exists('datasets', supabase_path_txt)
-                        if exists_txt:
-                            cloud_papers[paper] = supabase_path_txt
-                        else:
-                            missing.append(paper)
-                except Exception as e:
-                    print(f"DEBUG: Error checking Supabase for {paper}: {e}")
-                    missing.append(paper)
+        # Step 3: List each folder ONCE (instead of N HTTP requests per paper)
+        folder_contents: Dict[str, set] = {}
+        for folder in folders_to_check:
+            print(f"DEBUG: Listing Supabase folder: {folder} (checking {len(folders_to_check[folder])} papers)")
+            try:
+                folder_contents[folder] = await storage.list_folder_files('datasets', folder)
+                print(f"DEBUG: Found {len(folder_contents[folder])} files in {folder}")
+            except Exception as e:
+                print(f"DEBUG: Error listing Supabase folder {folder}: {e}")
+                folder_contents[folder] = set()
+
+        # Step 4: Check membership (no HTTP requests - just set lookups)
+        for paper in papers_to_check_cloud:
+            doc_dir = paper_doc_dirs[paper]
+            clean_doc_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
+            folder_files = folder_contents.get(clean_doc_dir, set())
+
+            # Check exact match
+            if paper in folder_files:
+                cloud_papers[paper] = f"{clean_doc_dir}/{paper}"
+            # Check with .txt extension
+            elif not paper.endswith('.txt') and f"{paper}.txt" in folder_files:
+                cloud_papers[paper] = f"{clean_doc_dir}/{paper}.txt"
+            # Check without .txt extension (if paper has .txt but file doesn't)
+            elif paper.endswith('.txt') and paper[:-4] in folder_files:
+                cloud_papers[paper] = f"{clean_doc_dir}/{paper[:-4]}"
             else:
                 missing.append(paper)
 

@@ -212,6 +212,29 @@ class SupabaseStorageBackend(StorageInterface):
         except Exception:
             return False
 
+    async def list_folder_files(self, bucket: str, folder: str) -> set:
+        """
+        List all file names in a folder (optimized for batch existence checks).
+
+        Returns a set of file names (not full paths) for efficient membership testing.
+        This is much faster than calling file_exists() for each file when checking
+        multiple files in the same folder.
+
+        Args:
+            bucket: Storage bucket name
+            folder: Folder path within the bucket
+
+        Returns:
+            Set of file names in the folder
+        """
+        try:
+            storage_folder = self._get_storage_path(bucket, folder)
+            files = self.client.storage.from_(bucket).list(storage_folder or None)
+            return {f["name"] for f in files if f.get("name")}
+        except Exception as e:
+            print(f"Error listing folder {bucket}/{folder}: {e}")
+            return set()
+
     async def list_files(self, bucket: str, prefix: str = "") -> List[str]:
         """List files in Supabase bucket with optional prefix filter."""
         try:

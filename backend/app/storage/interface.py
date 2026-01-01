@@ -167,6 +167,23 @@ class StorageInterface(ABC):
         pass
 
     @abstractmethod
+    async def list_folder_files(self, bucket: str, folder: str) -> set:
+        """List all file names in a folder (optimized for batch existence checks).
+
+        Returns a set of file names (not full paths) for efficient membership testing.
+        This is much faster than calling file_exists() for each file when checking
+        multiple files in the same folder.
+
+        Args:
+            bucket: Storage bucket name
+            folder: Folder path within the bucket
+
+        Returns:
+            Set of file names in the folder
+        """
+        pass
+
+    @abstractmethod
     async def list_files(self, bucket: str, prefix: str = "") -> List[str]:
         """List files in a bucket with optional prefix filter.
 

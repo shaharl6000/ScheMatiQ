@@ -198,6 +198,28 @@ class LocalStorageBackend(StorageInterface):
         file_path = self._get_bucket_path(bucket, path)
         return file_path.exists()
 
+    async def list_folder_files(self, bucket: str, folder: str) -> set:
+        """
+        List all file names in a folder (optimized for batch existence checks).
+
+        Returns a set of file names (not full paths) for efficient membership testing.
+
+        Args:
+            bucket: Storage bucket name
+            folder: Folder path within the bucket
+
+        Returns:
+            Set of file names in the folder
+        """
+        try:
+            folder_path = self._get_bucket_path(bucket, folder)
+            if not folder_path.exists() or not folder_path.is_dir():
+                return set()
+            return {f.name for f in folder_path.iterdir() if f.is_file()}
+        except Exception as e:
+            print(f"Error listing folder {bucket}/{folder}: {e}")
+            return set()
+
     async def list_files(self, bucket: str, prefix: str = "") -> List[str]:
         """List files in local directory with optional prefix filter."""
         try:
