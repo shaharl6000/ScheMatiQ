@@ -34,7 +34,7 @@ interface ReextractionDialogProps {
   onSuccess: (message: string, refreshData?: boolean) => void;
   onError: (error: string) => void;
   /** Called when re-extraction starts with the list of columns being re-extracted */
-  onReextractionStarted?: (columns: string[]) => void;
+  onReextractionStarted?: (columns: string[], operationId?: string) => void;
 }
 
 const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
@@ -184,7 +184,7 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
 
       // Notify parent about the columns being re-extracted (for WebSocket connection and skeleton display)
       if (onReextractionStarted) {
-        onReextractionStarted(response.columns);
+        onReextractionStarted(response.columns, response.operation_id);
       }
 
       // Show success message and close dialog immediately so user can see the table

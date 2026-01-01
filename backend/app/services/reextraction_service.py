@@ -794,9 +794,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # Schedule broadcasts on main event loop from thread (fire and forget)
                 try:
                     # 1. Broadcast individual cell value for live table updates
+                    # Use broadcast_event (same as document_started) since broadcast_cell_extracted
+                    # uses buffering that fails silently
                     asyncio.run_coroutine_threadsafe(
-                        self.broadcast_cell_extracted(
+                        self.broadcast_event(
                             operation.session_id,
+                            "cell_extracted",
                             {
                                 "row_name": row_name,
                                 "column": column_name,
