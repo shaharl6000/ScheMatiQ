@@ -63,16 +63,13 @@ export const ApiKeyInput = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider, geminiKeyType, getStorageKey]);
 
-  // Save key when it changes
+  // Save key when it changes (or clear from storage if empty)
   const handleKeyChange = async (newValue: string) => {
     onChange(newValue);
     const storageKey = getStorageKey();
-    if (newValue) {
-      await encryptAndStore(storageKey, newValue);
-      setIsSaved(true);
-    } else {
-      setIsSaved(false);
-    }
+    // encryptAndStore handles empty values by clearing the stored key
+    await encryptAndStore(storageKey, newValue);
+    setIsSaved(!!newValue);
   };
 
   // Handle Gemini key type change
