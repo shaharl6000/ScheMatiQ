@@ -82,8 +82,8 @@ const Visualize = () => {
   const [isStoppingProcessing, setIsStoppingProcessing] = useState(false);
 
   // Active re-extraction operation tracking
-  // const [activeReextractionId, setActiveReextractionId] = useState<string | null>(null);
-  // const [isStoppingReextraction, setIsStoppingReextraction] = useState(false);
+  const [activeReextractionId, setActiveReextractionId] = useState<string | null>(null);
+  const [isStoppingReextraction, setIsStoppingReextraction] = useState(false);
 
   // Column order state
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -186,9 +186,12 @@ const Visualize = () => {
               }, 3000);
               break;
             case 'reextraction_started':
-              // Initialize processing columns when re-extraction starts
+              // Initialize processing columns and store operation ID
               if (message.data?.columns && Array.isArray(message.data.columns)) {
                 setProcessingColumns(new Set(message.data.columns));
+              }
+              if (message.data?.operation_id) {
+                setActiveReextractionId(message.data.operation_id);
               }
               break;
             case 'document_started':
@@ -215,12 +218,16 @@ const Visualize = () => {
               setProcessingColumns(new Set()); // Clear processing state
               setCurrentDocumentProgress(null); // Clear document progress
               setStreamingCells(new Map());    // Clear streaming cells
+              setActiveReextractionId(null);   // Clear operation ID
+              setIsStoppingReextraction(false); // Clear stopping state
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
               break;
             case 'reextraction_stopped':
               console.log('Re-extraction stopped:', message.data);
               setProcessingColumns(new Set()); // Clear processing state
+              setActiveReextractionId(null);   // Clear operation ID
+              setIsStoppingReextraction(false); // Clear stopping state
               setCurrentDocumentProgress(null); // Clear document progress
               setStreamingCells(new Map());    // Clear streaming cells
               queryClient.invalidateQueries(['session', sessionId, mode]);
@@ -417,9 +424,12 @@ const Visualize = () => {
                 }, 3000);
                 break;
               case 'reextraction_started':
-                // Initialize processing columns when re-extraction starts
+                // Initialize processing columns and store operation ID
                 if (message.data?.columns && Array.isArray(message.data.columns)) {
                   setProcessingColumns(new Set(message.data.columns));
+                }
+                if (message.data?.operation_id) {
+                  setActiveReextractionId(message.data.operation_id);
                 }
                 break;
               case 'document_started':
@@ -446,6 +456,8 @@ const Visualize = () => {
                 setProcessingColumns(new Set()); // Clear processing state
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
+                setActiveReextractionId(null);   // Clear operation ID
+                setIsStoppingReextraction(false); // Clear stopping state
                 setForceWebSocketConnect(false); // Allow WebSocket to close
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
@@ -455,6 +467,8 @@ const Visualize = () => {
                 setProcessingColumns(new Set()); // Clear processing state
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
+                setActiveReextractionId(null);   // Clear operation ID
+                setIsStoppingReextraction(false); // Clear stopping state
                 setForceWebSocketConnect(false); // Allow WebSocket to close
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
@@ -737,11 +751,30 @@ const Visualize = () => {
   };
 
   // Handle re-extraction started - set up WebSocket and processing columns
-  const handleReextractionStarted = (columns: string[]) => {
+  const handleReextractionStarted = (columns: string[], operationId?: string) => {
     // Set the columns being processed (for skeleton display in table)
     setProcessingColumns(new Set(columns));
+    // Store operation ID for stop functionality
+    if (operationId) {
+      setActiveReextractionId(operationId);
+    }
     // Force WebSocket connection to receive real-time updates
     setForceWebSocketConnect(true);
+  };
+
+  // Handle stopping re-extraction
+  const handleStopReextraction = async () => {
+    if (!activeReextractionId || !sessionId) return;
+
+    setIsStoppingReextraction(true);
+    try {
+      const { schemaAPI } = await import('../services/api');
+      await schemaAPI.stopReextraction(sessionId, activeReextractionId);
+      // The WebSocket will handle the cleanup when it receives reextraction_stopped
+    } catch (err: any) {
+      console.error('Failed to stop re-extraction:', err);
+      setIsStoppingReextraction(false);
+    }
   };
 
   if (!sessionId) {
@@ -889,6 +922,8 @@ const Visualize = () => {
                 streamingCells={streamingCells}
                 processingColumns={processingColumns}
                 currentDocumentProgress={currentDocumentProgress}
+                onStopReextraction={handleStopReextraction}
+                isStoppingReextraction={isStoppingReextraction}
               />
 
               {/* Document Upload Section */}

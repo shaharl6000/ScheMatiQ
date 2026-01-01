@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2 } from 'lucide-react';
+import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -23,6 +23,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -92,6 +93,10 @@ interface DataTableProps {
     documentIndex: number;
     totalDocuments: number;
   } | null;
+  /** Callback to stop re-extraction */
+  onStopReextraction?: () => void;
+  /** Whether stop is in progress */
+  isStoppingReextraction?: boolean;
 }
 
 // Sortable Header Cell Component
@@ -214,6 +219,8 @@ const DataTable: React.FC<DataTableProps> = ({
   columnInfo,
   processingColumns,
   currentDocumentProgress,
+  onStopReextraction,
+  isStoppingReextraction,
 }) => {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
@@ -849,17 +856,6 @@ const DataTable: React.FC<DataTableProps> = ({
               {sessionType === 'qbsd' && (
                 <Badge variant="info">Auto-refreshing</Badge>
               )}
-              {processingColumns && processingColumns.size > 0 && (
-                <Badge variant="secondary" className="animate-pulse">
-                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                  Re-extracting {processingColumns.size} column{processingColumns.size !== 1 ? 's' : ''}
-                  {currentDocumentProgress && (
-                    <span className="ml-1">
-                      ({currentDocumentProgress.documentIndex}/{currentDocumentProgress.totalDocuments})
-                    </span>
-                  )}
-                </Badge>
-              )}
             </h3>
             <p className="text-xs text-muted-foreground">
               Click headers to sort • Shift+click for multi-sort • Drag to reorder
@@ -915,6 +911,57 @@ const DataTable: React.FC<DataTableProps> = ({
             />
           </div>
         </div>
+
+        {/* Re-extraction Progress Bar */}
+        {processingColumns && processingColumns.size > 0 && (
+          <div className="mb-4 p-4 bg-muted/30 border rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="font-medium">
+                  Re-extracting {processingColumns.size} column{processingColumns.size !== 1 ? 's' : ''}
+                </span>
+                {currentDocumentProgress && (
+                  <span className="text-sm text-muted-foreground">
+                    — Document {currentDocumentProgress.documentIndex} of {currentDocumentProgress.totalDocuments}
+                  </span>
+                )}
+              </div>
+              {onStopReextraction && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={onStopReextraction}
+                  disabled={isStoppingReextraction}
+                  className="gap-1"
+                >
+                  {isStoppingReextraction ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Stopping...
+                    </>
+                  ) : (
+                    <>
+                      <Square className="h-4 w-4" />
+                      Stop
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+            {currentDocumentProgress && currentDocumentProgress.totalDocuments > 0 && (
+              <div className="space-y-1">
+                <Progress
+                  value={(currentDocumentProgress.documentIndex / currentDocumentProgress.totalDocuments) * 100}
+                  className="h-2"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Processing: {currentDocumentProgress.documentName}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         <DndContext
           sensors={sensors}
