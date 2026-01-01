@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, AlertTriangle, Upload, FileText, Loader2, Check, Info } from 'lucide-react';
+import { RefreshCw, AlertTriangle, FileText, Loader2, Check, Info, Square } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 
 import {
   Dialog,
@@ -14,7 +15,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -22,7 +22,6 @@ import {
   SchemaChangeStatus,
   PaperDiscoveryResult,
   ColumnChangeDetail,
-  ReextractionResponse,
   ReextractionRequest,
 } from '../../types';
 import { schemaAPI } from '../../services/api';
@@ -34,6 +33,8 @@ interface ReextractionDialogProps {
   onClose: () => void;
   onSuccess: (message: string, refreshData?: boolean) => void;
   onError: (error: string) => void;
+  /** Called when re-extraction starts with the list of columns being re-extracted */
+  onReextractionStarted?: (columns: string[]) => void;
 }
 
 const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
@@ -41,29 +42,21 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
   sessionId,
   onClose,
   onSuccess,
-  onError
+  onError,
+  onReextractionStarted
 }) => {
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
   const [paperStatus, setPaperStatus] = useState<PaperDiscoveryResult | null>(null);
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
+
+  // Extraction progress state
   const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionOperationId, setExtractionOperationId] = useState<string | null>(null);
   const [extractionProgress, setExtractionProgress] = useState(0);
-  const [currentOperation, setCurrentOperation] = useState<ReextractionResponse | null>(null);
-
-  // Ref for polling interval cleanup
+  const [isStopping, setIsStopping] = useState(false);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-    };
-  }, []);
 
   // Load schema change status and paper discovery when dialog opens
   const loadStatus = useCallback(async () => {
@@ -101,15 +94,24 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
     if (!open) {
       setSelectedColumns(new Set());
       setIsExtracting(false);
+      setExtractionOperationId(null);
       setExtractionProgress(0);
-      setCurrentOperation(null);
-      // Clear polling when dialog closes
+      setIsStopping(false);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
     }
   }, [open]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, []);
 
   const handleColumnToggle = (columnName: string, checked: boolean) => {
     const newSet = new Set(selectedColumns);
@@ -134,6 +136,21 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
     setSelectedColumns(new Set());
   };
 
+  const handleStopReextraction = async () => {
+    if (!extractionOperationId) return;
+
+    setIsStopping(true);
+
+    try {
+      await schemaAPI.stopReextraction(sessionId, extractionOperationId);
+      // The polling will pick up the 'stopped' status and handle cleanup
+    } catch (error: any) {
+      console.error('Failed to stop re-extraction:', error);
+      onError(error.response?.data?.detail || 'Failed to stop re-extraction');
+      setIsStopping(false);
+    }
+  };
+
   const handleStartReextraction = async () => {
     if (selectedColumns.size === 0) {
       onError('Please select at least one column to re-extract');
@@ -141,7 +158,6 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
     }
 
     setLoading(true);
-    setIsExtracting(true);
 
     try {
       // Get API key from localStorage
@@ -165,53 +181,47 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
 
       const response = await schemaAPI.startReextraction(sessionId, request);
 
-      setCurrentOperation(response);
-      onSuccess(`Re-extraction started for ${response.columns.length} columns`);
+      // Store operation ID and start extraction mode
+      setExtractionOperationId(response.operation_id);
+      setIsExtracting(true);
+      setExtractionProgress(0);
 
-      // Poll for completion instead of relying on WebSocket
-      const operationId = response.operation_id;
-      const columnsCount = response.columns.length;
+      // Notify parent about the columns being re-extracted (for WebSocket connection and skeleton display)
+      if (onReextractionStarted) {
+        onReextractionStarted(response.columns);
+      }
 
+      // Start polling for progress
       pollIntervalRef.current = setInterval(async () => {
         try {
-          const status = await schemaAPI.getReextractionStatus(sessionId, operationId);
-
-          // Update progress
-          if (status.progress !== undefined) {
-            setExtractionProgress(status.progress * 100);
-          }
+          const status = await schemaAPI.getReextractionStatus(sessionId, response.operation_id);
+          setExtractionProgress(status.progress * 100);
 
           if (status.status === 'completed') {
-            // Clear polling
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
+            clearInterval(pollIntervalRef.current!);
+            pollIntervalRef.current = null;
             setIsExtracting(false);
-            onSuccess(`Re-extraction completed for ${columnsCount} columns`, true);
+            onSuccess(`Re-extraction completed for ${response.columns.length} column${response.columns.length !== 1 ? 's' : ''}.`, true);
             onClose();
           } else if (status.status === 'failed') {
-            // Clear polling
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-            }
+            clearInterval(pollIntervalRef.current!);
+            pollIntervalRef.current = null;
             setIsExtracting(false);
-            onError(`Re-extraction failed: ${status.error || 'Unknown error'}`);
+            onError(status.error || 'Re-extraction failed');
+          } else if (status.status === 'stopped') {
+            clearInterval(pollIntervalRef.current!);
+            pollIntervalRef.current = null;
+            setIsExtracting(false);
+            onSuccess(`Re-extraction stopped. ${status.processed_documents}/${status.total_documents} documents processed.`, true);
+            onClose();
           }
-        } catch (e) {
-          console.error('Polling error:', e);
+        } catch (err) {
+          console.error('Failed to poll reextraction status:', err);
         }
       }, 2000);
 
     } catch (error: any) {
       onError(error.response?.data?.detail || 'Failed to start re-extraction');
-      setIsExtracting(false);
-      // Clear any polling that might have started
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
     } finally {
       setLoading(false);
     }
@@ -416,40 +426,72 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
               </ScrollArea>
             </div>
 
-            {/* Extraction Progress */}
-            {isExtracting && (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span className="text-sm">Starting re-extraction...</span>
-                </div>
-                <Progress value={extractionProgress * 100} />
-              </div>
-            )}
           </>
         )}
 
-        <DialogFooter className="mt-4">
-          <Button variant="outline" onClick={onClose} disabled={loading}>
-            Cancel
-          </Button>
-          <Button
-            onClick={handleStartReextraction}
-            disabled={loading || selectedColumns.size === 0 || !hasChanges || !schemaChanges?.can_reextract}
-          >
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Starting...
-              </>
-            ) : (
-              <>
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Re-extract {selectedColumns.size} Column{selectedColumns.size !== 1 ? 's' : ''}
-              </>
-            )}
-          </Button>
-        </DialogFooter>
+        {/* Extraction Progress UI */}
+        {isExtracting && (
+          <div className="py-4 space-y-4">
+            <Separator />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium">Re-extracting values...</span>
+                <span className="text-muted-foreground">{Math.round(extractionProgress)}%</span>
+              </div>
+              <Progress value={extractionProgress} className="h-2" />
+              <p className="text-sm text-muted-foreground">
+                Processing {selectedColumns.size} column{selectedColumns.size !== 1 ? 's' : ''}.
+                The table is showing live updates.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleStopReextraction}
+                disabled={isStopping}
+                className="gap-1"
+              >
+                {isStopping ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Stopping...
+                  </>
+                ) : (
+                  <>
+                    <Square className="h-4 w-4" />
+                    Stop Re-extraction
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Normal footer when not extracting */}
+        {!isExtracting && (
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={onClose} disabled={loading}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleStartReextraction}
+              disabled={loading || selectedColumns.size === 0 || !hasChanges || !schemaChanges?.can_reextract}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  Re-extract {selectedColumns.size} Column{selectedColumns.size !== 1 ? 's' : ''}
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -65,6 +65,76 @@ class ReextractionService(WebSocketBroadcasterMixin):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
         self.active_operations: Dict[str, ReextractionOperation] = {}
+        self.stop_flags: Dict[str, bool] = {}  # operation_id -> stop requested
+        self._extraction_tasks: Dict[str, asyncio.Task] = {}  # operation_id -> task
+
+    def is_stop_requested(self, operation_id: str) -> bool:
+        """Check if stop was requested for an operation."""
+        return self.stop_flags.get(operation_id, False)
+
+    def clear_stop_flag(self, operation_id: str) -> None:
+        """Clear the stop flag for an operation."""
+        self.stop_flags.pop(operation_id, None)
+
+    async def stop_operation(self, operation_id: str) -> Dict[str, Any]:
+        """
+        Stop a running re-extraction operation.
+
+        Returns:
+            Dictionary with stop status and any partial results
+        """
+        operation = self.active_operations.get(operation_id)
+        if not operation:
+            return {
+                "stopped": False,
+                "message": f"Operation {operation_id} not found"
+            }
+
+        if operation.status in ["completed", "failed", "stopped"]:
+            return {
+                "stopped": False,
+                "message": f"Operation already {operation.status}"
+            }
+
+        # Set stop flag
+        self.stop_flags[operation_id] = True
+        print(f"🛑 Stop requested for re-extraction operation {operation_id}")
+
+        # Cancel the extraction task if it exists
+        task = self._extraction_tasks.get(operation_id)
+        if task and not task.done():
+            task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+
+        # Update operation status
+        operation.status = "stopped"
+        operation.completed_at = datetime.now()
+
+        # Broadcast stopped event
+        await self.broadcast_event(
+            operation.session_id,
+            "reextraction_stopped",
+            {
+                "operation_id": operation_id,
+                "columns": operation.columns,
+                "processed_documents": operation.processed_documents,
+                "total_documents": operation.total_documents,
+                "message": "Re-extraction stopped by user"
+            }
+        )
+
+        # Clean up
+        self.clear_stop_flag(operation_id)
+
+        return {
+            "stopped": True,
+            "message": "Re-extraction stopped",
+            "processed_documents": operation.processed_documents,
+            "total_documents": operation.total_documents
+        }
 
     # ==================== Schema Change Detection ====================
 
@@ -578,8 +648,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
         operation.total_documents = len(paper_discovery["available_papers"])
         self.active_operations[operation_id] = operation
 
-        # Start background task
-        asyncio.create_task(self._run_reextraction(operation_id))
+        # Start background task and store reference for potential cancellation
+        task = asyncio.create_task(self._run_reextraction(operation_id))
+        self._extraction_tasks[operation_id] = task
 
         return {
             "status": "started",
@@ -672,6 +743,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
             # Track progress via callback
             processed_count = [0]
+            current_document = [None]  # Track current document for document_started broadcasts
+            document_index = [0]
 
             # Capture event loop before entering thread pool
             loop = asyncio.get_running_loop()
@@ -679,6 +752,28 @@ class ReextractionService(WebSocketBroadcasterMixin):
             def on_value_extracted(row_name: str, column_name: str, value: Any):
                 processed_count[0] += 1
                 operation.processed_documents = processed_count[0]
+
+                # Broadcast document_started when we start processing a new document
+                if current_document[0] != row_name:
+                    current_document[0] = row_name
+                    document_index[0] += 1
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            self.broadcast_event(
+                                operation.session_id,
+                                "document_started",
+                                {
+                                    "document_name": row_name,
+                                    "document_index": document_index[0],
+                                    "total_documents": operation.total_documents,
+                                    "columns": operation.columns
+                                }
+                            ),
+                            loop
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Document started broadcast error: {e}")
+
                 # Schedule broadcasts on main event loop from thread (fire and forget)
                 try:
                     # 1. Broadcast individual cell value for live table updates
@@ -717,9 +812,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
             print(f"DEBUG: docs_dir={docs_dir}, exists={docs_dir.exists()}")
             if docs_dir.exists():
                 print(f"DEBUG: Starting build_table_jsonl extraction...")
-                await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: build_table_jsonl(
+
+                # Create should_stop callback that checks for stop requests
+                def should_stop():
+                    return self.is_stop_requested(operation_id)
+
+                def run_extraction():
+                    return build_table_jsonl(
                         schema_path=schema_file,
                         docs_directories=[docs_dir],
                         output_path=output_file,
@@ -729,9 +828,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         mode="one_by_one",
                         retrieval_k=10,
                         max_workers=1,
-                        on_value_extracted=on_value_extracted
+                        on_value_extracted=on_value_extracted,
+                        should_stop=should_stop  # Allow graceful stop
                     )
-                )
+
+                await asyncio.get_event_loop().run_in_executor(None, run_extraction)
                 print(f"DEBUG: build_table_jsonl completed, output_file exists: {output_file.exists()}")
             else:
                 print(f"DEBUG: docs_dir does not exist, skipping extraction")

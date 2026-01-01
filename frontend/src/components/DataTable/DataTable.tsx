@@ -86,6 +86,12 @@ interface DataTableProps {
   columnInfo?: ColumnInfoProp[];
   /** Columns currently being re-extracted (for skeleton display) */
   processingColumns?: Set<string>;
+  /** Current document being processed for re-extraction */
+  currentDocumentProgress?: {
+    documentName: string;
+    documentIndex: number;
+    totalDocuments: number;
+  } | null;
 }
 
 // Sortable Header Cell Component
@@ -207,6 +213,7 @@ const DataTable: React.FC<DataTableProps> = ({
   streamingCells,
   columnInfo,
   processingColumns,
+  currentDocumentProgress,
 }) => {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
@@ -390,13 +397,24 @@ const DataTable: React.FC<DataTableProps> = ({
   }, [data.rows]);
 
   const allColumns = useMemo(() => {
+    let columns = defaultColumns;
+
     if (externalColumnOrder && externalColumnOrder.length > 0) {
       const validExternalOrder = externalColumnOrder.filter(col => defaultColumns.includes(col));
       const newColumns = defaultColumns.filter(col => !externalColumnOrder.includes(col));
-      return [...validExternalOrder, ...newColumns];
+      columns = [...validExternalOrder, ...newColumns];
     }
-    return defaultColumns;
-  }, [defaultColumns, externalColumnOrder]);
+
+    // Include processing columns that aren't in data yet (e.g., newly added columns)
+    if (processingColumns && processingColumns.size > 0) {
+      const missingProcessingCols = Array.from(processingColumns).filter(col => !columns.includes(col));
+      if (missingProcessingCols.length > 0) {
+        columns = [...columns, ...missingProcessingCols];
+      }
+    }
+
+    return columns;
+  }, [defaultColumns, externalColumnOrder, processingColumns]);
 
   // Column visibility hook
   const {
@@ -835,6 +853,11 @@ const DataTable: React.FC<DataTableProps> = ({
                 <Badge variant="secondary" className="animate-pulse">
                   <Loader2 className="h-3 w-3 mr-1 animate-spin" />
                   Re-extracting {processingColumns.size} column{processingColumns.size !== 1 ? 's' : ''}
+                  {currentDocumentProgress && (
+                    <span className="ml-1">
+                      ({currentDocumentProgress.documentIndex}/{currentDocumentProgress.totalDocuments})
+                    </span>
+                  )}
                 </Badge>
               )}
             </h3>

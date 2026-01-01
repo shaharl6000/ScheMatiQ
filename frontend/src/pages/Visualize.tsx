@@ -68,8 +68,22 @@ const Visualize = () => {
   // Processing columns state (for re-extraction visual indicators)
   const [processingColumns, setProcessingColumns] = useState<Set<string>>(new Set());
 
+  // Current document being processed (for progress display)
+  const [currentDocumentProgress, setCurrentDocumentProgress] = useState<{
+    documentName: string;
+    documentIndex: number;
+    totalDocuments: number;
+  } | null>(null);
+
   // LLM selection state
   const [showLLMSelector, setShowLLMSelector] = useState(false);
+
+  // Stop processing state
+  const [isStoppingProcessing, setIsStoppingProcessing] = useState(false);
+
+  // Active re-extraction operation tracking
+  // const [activeReextractionId, setActiveReextractionId] = useState<string | null>(null);
+  // const [isStoppingReextraction, setIsStoppingReextraction] = useState(false);
 
   // Column order state
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -171,6 +185,22 @@ const Visualize = () => {
                 }
               }, 3000);
               break;
+            case 'reextraction_started':
+              // Initialize processing columns when re-extraction starts
+              if (message.data?.columns && Array.isArray(message.data.columns)) {
+                setProcessingColumns(new Set(message.data.columns));
+              }
+              break;
+            case 'document_started':
+              // Update current document progress
+              if (message.data?.document_name) {
+                setCurrentDocumentProgress({
+                  documentName: message.data.document_name,
+                  documentIndex: message.data.document_index || 0,
+                  totalDocuments: message.data.total_documents || 0
+                });
+              }
+              break;
             case 'reextraction_progress':
               if (message.data?.column) {
                 setProcessingColumns(prev => {
@@ -183,6 +213,15 @@ const Visualize = () => {
             case 'reextraction_completed':
               console.log('Re-extraction completed:', message.data);
               setProcessingColumns(new Set()); // Clear processing state
+              setCurrentDocumentProgress(null); // Clear document progress
+              setStreamingCells(new Map());    // Clear streaming cells
+              queryClient.invalidateQueries(['session', sessionId, mode]);
+              queryClient.invalidateQueries(['data', sessionId, mode]);
+              break;
+            case 'reextraction_stopped':
+              console.log('Re-extraction stopped:', message.data);
+              setProcessingColumns(new Set()); // Clear processing state
+              setCurrentDocumentProgress(null); // Clear document progress
               setStreamingCells(new Map());    // Clear streaming cells
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
@@ -323,6 +362,22 @@ const Visualize = () => {
                   }
                 }, 3000);
                 break;
+              case 'reextraction_started':
+                // Initialize processing columns when re-extraction starts
+                if (message.data?.columns && Array.isArray(message.data.columns)) {
+                  setProcessingColumns(new Set(message.data.columns));
+                }
+                break;
+              case 'document_started':
+                // Update current document progress
+                if (message.data?.document_name) {
+                  setCurrentDocumentProgress({
+                    documentName: message.data.document_name,
+                    documentIndex: message.data.document_index || 0,
+                    totalDocuments: message.data.total_documents || 0
+                  });
+                }
+                break;
               case 'reextraction_progress':
                 if (message.data?.column) {
                   setProcessingColumns(prev => {
@@ -335,6 +390,15 @@ const Visualize = () => {
               case 'reextraction_completed':
                 console.log('Re-extraction completed:', message.data);
                 setProcessingColumns(new Set()); // Clear processing state
+                setCurrentDocumentProgress(null); // Clear document progress
+                setStreamingCells(new Map());    // Clear streaming cells
+                queryClient.invalidateQueries(['session', sessionId, mode]);
+                queryClient.invalidateQueries(['data', sessionId, mode]);
+                break;
+              case 'reextraction_stopped':
+                console.log('Re-extraction stopped:', message.data);
+                setProcessingColumns(new Set()); // Clear processing state
+                setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
@@ -531,6 +595,34 @@ const Visualize = () => {
     }
   };
 
+  const handleStopProcessing = async () => {
+    if (!sessionId) return;
+
+    setIsStoppingProcessing(true);
+
+    try {
+      const result = await loadAPI.stopProcessing(sessionId);
+      if (result.stopped) {
+        // Refresh session data to get updated status
+        queryClient.invalidateQueries(['session', sessionId]);
+        queryClient.invalidateQueries(['data', sessionId]);
+      }
+    } catch (err: any) {
+      console.error('Failed to stop processing:', err);
+      setDocumentUploadError(err.response?.data?.detail || err.message || 'Failed to stop processing');
+    } finally {
+      setIsStoppingProcessing(false);
+    }
+  };
+
+  // Handle re-extraction started - set up WebSocket and processing columns
+  const handleReextractionStarted = (columns: string[]) => {
+    // Set the columns being processed (for skeleton display in table)
+    setProcessingColumns(new Set(columns));
+    // Force WebSocket connection to receive real-time updates
+    setForceWebSocketConnect(true);
+  };
+
   if (!sessionId) {
     return (
       <Alert variant="destructive">
@@ -674,6 +766,8 @@ const Visualize = () => {
                 columnOrder={columnOrder}
                 onColumnReorder={handleColumnReorder}
                 streamingCells={streamingCells}
+                processingColumns={processingColumns}
+                currentDocumentProgress={currentDocumentProgress}
               />
 
               {/* Document Upload Section */}
@@ -822,6 +916,7 @@ const Visualize = () => {
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
               }}
+              onReextractionStarted={handleReextractionStarted}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}
             />
           ) : (
@@ -863,8 +958,22 @@ const Visualize = () => {
           <TabsContent value="processing" className="mt-4">
             <UploadProcessingMonitor
               sessionId={sessionId}
-              status={null}
+              status={{
+                session_id: sessionId || '',
+                status: session?.status || 'processing_documents',
+                total_documents: session?.metadata?.uploaded_documents?.length || 0,
+                processed_documents: session?.metadata?.processed_documents || 0,
+                original_row_count: session?.metadata?.original_row_count || 0,
+                additional_rows_added: session?.metadata?.additional_rows_added || 0,
+                processing_stats: session?.metadata?.processing_stats || {},
+                progress: session?.metadata?.processed_documents && session?.metadata?.uploaded_documents?.length
+                  ? session.metadata.processed_documents / session.metadata.uploaded_documents.length
+                  : 0,
+                last_modified: session?.metadata?.last_modified || new Date().toISOString(),
+              }}
               loading={false}
+              onStop={handleStopProcessing}
+              isStopping={isStoppingProcessing}
               llmConfig={session?.metadata?.extracted_schema?.llm_configuration?.value_extraction_backend || null}
             />
           </TabsContent>

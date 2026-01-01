@@ -576,7 +576,7 @@ export interface ReextractionResponse {
 export interface ReextractionOperationStatus {
   operation_id: string;
   session_id: string;
-  status: 'pending' | 'starting' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'starting' | 'running' | 'completed' | 'failed' | 'stopped';
   progress: number;
   columns: string[];
   current_column?: string;

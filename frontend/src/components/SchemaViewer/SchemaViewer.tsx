@@ -71,6 +71,7 @@ interface SchemaViewerProps {
   readonly?: boolean;
   processingColumns?: Set<string>;
   onColumnsChange?: (columns: ColumnInfo[]) => void;
+  onReextractionStarted?: (columns: string[]) => void;
   websocketManager?: any;
   llmConfig?: any;
 }
@@ -83,6 +84,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   readonly = false,
   processingColumns,
   onColumnsChange,
+  onReextractionStarted,
   websocketManager,
   llmConfig
 }) => {
@@ -992,6 +994,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         onClose={() => setReextractionDialogOpen(false)}
         onSuccess={handleReextractionSuccess}
         onError={handleReextractionError}
+        onReextractionStarted={onReextractionStarted}
       />
 
       {readonly && (
