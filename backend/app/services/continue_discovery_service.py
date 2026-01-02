@@ -111,6 +111,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
     async def get_available_documents(self, session_id: str) -> Dict[str, Any]:
         """
         Get available document sources for continued discovery.
+        Works with both local storage and Supabase cloud storage.
 
         Returns:
             Dictionary with:
@@ -127,42 +128,81 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 "error": "Session not found"
             }
 
-        # Use storage backend's data directory for correct path resolution
-        session_dir = self._get_data_dir() / session_id
-        data_file = session_dir / "data.jsonl"
-        docs_dir = session_dir / "documents"
-
-        # 1. Collect document references from data.jsonl (like reextraction_service)
+        storage = get_storage()
         all_papers: Set[str] = set()
-        if data_file.exists():
-            with open(data_file, 'r') as f:
-                for line in f:
-                    try:
-                        row = json.loads(line)
-                        papers_raw = (
-                            row.get('papers') or
-                            row.get('_papers') or
-                            row.get('Papers') or
-                            row.get('data', {}).get('Papers') or
-                            row.get('data', {}).get('papers') or
-                            []
-                        )
-                        if isinstance(papers_raw, str):
-                            papers_raw = [papers_raw]
-                        for paper in papers_raw:
-                            if paper:
-                                all_papers.add(paper)
-                    except json.JSONDecodeError:
-                        continue
+        paper_doc_dirs: Dict[str, str] = {}  # paper_name -> document_directory
 
-        # 2. Check which documents exist locally
+        # 1. Get data.jsonl content - try Supabase first, then local
+        data_content = None
+        try:
+            # Try to download from Supabase 'data' bucket
+            data_bytes = await storage.download_file('data', f'{session_id}/data.jsonl')
+            if data_bytes:
+                data_content = data_bytes.decode('utf-8')
+                print(f"DEBUG: Downloaded data.jsonl from Supabase for session {session_id}")
+        except Exception as e:
+            print(f"DEBUG: Could not download from Supabase: {e}")
+
+        # Fallback to local file if Supabase didn't work
+        if not data_content:
+            session_dir = self._get_data_dir() / session_id
+            data_file = session_dir / "data.jsonl"
+            if data_file.exists():
+                data_content = data_file.read_text()
+                print(f"DEBUG: Read data.jsonl from local file for session {session_id}")
+
+        # 2. Parse data.jsonl to collect paper references
+        if data_content:
+            for line in data_content.strip().split('\n'):
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                    papers_raw = (
+                        row.get('papers') or
+                        row.get('_papers') or
+                        row.get('Papers') or
+                        row.get('data', {}).get('Papers') or
+                        row.get('data', {}).get('papers') or
+                        []
+                    )
+                    # Handle QBSD answer format
+                    if isinstance(papers_raw, dict) and 'answer' in papers_raw:
+                        papers_raw = papers_raw.get('answer', [])
+                    if isinstance(papers_raw, str):
+                        papers_raw = [papers_raw] if papers_raw else []
+                    for paper in papers_raw:
+                        if paper:
+                            all_papers.add(paper)
+
+                    # Get document directory for cloud lookup
+                    doc_dir = (
+                        row.get('Document Directory') or
+                        row.get('document_directory') or
+                        row.get('data', {}).get('Document Directory') or
+                        row.get('data', {}).get('document_directory')
+                    )
+                    if isinstance(doc_dir, dict) and 'answer' in doc_dir:
+                        doc_dir = doc_dir.get('answer')
+                    if doc_dir:
+                        for paper in papers_raw:
+                            if paper and paper not in paper_doc_dirs:
+                                paper_doc_dirs[paper] = doc_dir
+                except json.JSONDecodeError:
+                    continue
+
+        print(f"DEBUG: Found {len(all_papers)} paper references in data.jsonl")
+
+        # 3. Check local documents
         local_docs: Set[str] = set()
+        session_dir = self._get_data_dir() / session_id
+        docs_dir = session_dir / "documents"
         if docs_dir.exists():
             for f in docs_dir.iterdir():
                 if f.is_file() and not f.name.startswith('.'):
                     local_docs.add(f.name)
 
-        # 3. Also check qbsd_work/{session_id}/ for original QBSD documents
+        # Also check qbsd_work
         qbsd_work_dir = self._get_qbsd_work_dir() / session_id
         if qbsd_work_dir.exists():
             for subdir in qbsd_work_dir.iterdir():
@@ -174,25 +214,61 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         # 4. Get cloud dataset from session metadata
         cloud_dataset = session.metadata.cloud_dataset if session.metadata else None
 
-        # 5. Check cloud storage for documents referenced in data.jsonl
+        # 5. Check cloud storage for papers (batch by folder like reextraction_service)
         cloud_docs: Set[str] = set()
-        storage = get_storage()
         papers_to_check_cloud = all_papers - local_docs
-        if papers_to_check_cloud and cloud_dataset:
-            try:
-                cloud_files = await storage.list_folder_files('datasets', cloud_dataset)
-                cloud_docs = set(cloud_files) & papers_to_check_cloud
-            except Exception as e:
-                print(f"DEBUG: Could not check cloud storage: {e}")
 
-        # 6. Combine results - documents that exist either locally or in cloud
+        if papers_to_check_cloud:
+            # Group papers by their document directory
+            folders_to_check: Dict[str, List[str]] = {}
+            for paper in papers_to_check_cloud:
+                doc_dir = paper_doc_dirs.get(paper) or (f"datasets/{cloud_dataset}" if cloud_dataset else None)
+                if doc_dir:
+                    clean_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
+                    if clean_dir not in folders_to_check:
+                        folders_to_check[clean_dir] = []
+                    folders_to_check[clean_dir].append(paper)
+
+            # List each folder once
+            for folder, papers in folders_to_check.items():
+                try:
+                    folder_files = await storage.list_folder_files('datasets', folder)
+                    print(f"DEBUG: Found {len(folder_files)} files in datasets/{folder}")
+                    for paper in papers:
+                        if paper in folder_files or f"{paper}.txt" in folder_files:
+                            cloud_docs.add(paper)
+                except Exception as e:
+                    print(f"DEBUG: Could not list folder {folder}: {e}")
+
+        # 6. Combine results
         available_docs = local_docs | cloud_docs
+        print(f"DEBUG: Available docs: {len(local_docs)} local + {len(cloud_docs)} cloud = {len(available_docs)} total")
 
         # 7. Get list of all available cloud datasets
         cloud_datasets = []
         try:
-            folders = await storage.list_files('datasets', '')
-            cloud_datasets = [f['name'] for f in folders if f.get('is_folder', False)]
+            # For Supabase, list top-level folders in datasets bucket
+            if hasattr(storage, 'client'):
+                items = storage.client.storage.from_("datasets").list()
+                for item in items:
+                    if not item.get('id'):  # Folders don't have 'id'
+                        cloud_datasets.append(item.get('name'))
+                print(f"DEBUG: Found {len(cloud_datasets)} cloud datasets via Supabase client")
+            else:
+                # Local storage fallback
+                files = await storage.list_files('datasets', '')
+                seen_folders = set()
+                for f in files:
+                    if isinstance(f, dict):
+                        name = f.get('name', '')
+                        if f.get('is_folder'):
+                            cloud_datasets.append(name)
+                        elif '/' in name:
+                            seen_folders.add(name.split('/')[0])
+                    elif isinstance(f, str) and '/' in f:
+                        seen_folders.add(f.split('/')[0])
+                cloud_datasets.extend(list(seen_folders))
+                print(f"DEBUG: Found {len(cloud_datasets)} cloud datasets via list_files")
         except Exception as e:
             print(f"DEBUG: Could not list cloud datasets: {e}")
 
