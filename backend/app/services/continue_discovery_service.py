@@ -87,18 +87,24 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         self.stop_flags.pop(operation_id, None)
 
     def _get_data_dir(self) -> Path:
-        """Get the data directory path from storage backend."""
-        storage = get_storage()
-        if hasattr(storage, 'data_dir'):
-            return storage.data_dir
-        return Path("./data")
+        """Get the data directory path - uses module location for reliability."""
+        # Use the module's location to find the data directory
+        # This ensures consistent paths regardless of working directory
+        module_dir = Path(__file__).parent  # app/services/
+        app_dir = module_dir.parent  # app/
+        data_dir = app_dir / "data"
+        data_dir.mkdir(exist_ok=True)
+        return data_dir
 
     def _get_qbsd_work_dir(self) -> Path:
-        """Get the qbsd_work directory path from storage backend."""
-        storage = get_storage()
-        if hasattr(storage, 'qbsd_work_dir'):
-            return storage.qbsd_work_dir
-        return Path("./qbsd_work")
+        """Get the qbsd_work directory path - uses module location for reliability."""
+        # backend/qbsd_work/ is at the same level as app/
+        module_dir = Path(__file__).parent  # app/services/
+        app_dir = module_dir.parent  # app/
+        backend_dir = app_dir.parent  # backend/
+        qbsd_work_dir = backend_dir / "qbsd_work"
+        qbsd_work_dir.mkdir(exist_ok=True)
+        return qbsd_work_dir
 
     # ==================== Document Discovery ====================
 
