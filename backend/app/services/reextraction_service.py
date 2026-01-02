@@ -381,9 +381,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 if doc_dir and paper not in paper_doc_dirs:
                                     paper_doc_dirs[paper] = doc_dir
 
-                            # Debug logging
-                            print(f"DEBUG: Row {row_name} - papers: {papers}, doc_dir: {doc_dir}")
-
                         except json.JSONDecodeError:
                             continue
 
@@ -548,7 +545,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 doc_name = sorted_docs[idx]
                 row['papers'] = [doc_name]
                 updated = True
-                print(f"DEBUG: Backfill - row {idx} now linked to document '{doc_name}'")
 
         # Write back if any updates were made
         if updated:
@@ -560,7 +556,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
             with open(data_file, 'w') as f:
                 for row in rows:
                     f.write(json.dumps(row) + '\n')
-            print(f"DEBUG: Backfill complete - updated data.jsonl with paper linkages")
 
     async def download_cloud_papers(
         self,
@@ -959,8 +954,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 row_name = row.get('row_name') or row.get('_row_name')
                 papers = row.get('papers') or []  # Handle None value
 
-                print(f"DEBUG: Processing row '{row_name}' with papers: {papers}")
-
                 # Try direct row name match first
                 extracted = None
                 match_type = None
@@ -977,27 +970,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         if paper_stem in extracted_by_paper_stem:
                             extracted = extracted_by_paper_stem[paper_stem]
                             match_type = f"paper_stem:{paper_stem}"
-                            print(f"DEBUG: Matched row '{row_name}' via paper stem '{paper_stem}'")
                             break
 
                 if extracted:
                     rows_updated += 1
-                    print(f"DEBUG: Match found for row '{row_name}' via {match_type}")
 
                     # Update only the re-extracted columns
                     for col_name in columns:
                         if col_name in extracted:
                             # Handle nested 'data' structure or flat structure
                             if 'data' in row:
-                                old_value = row['data'].get(col_name)
                                 row['data'][col_name] = extracted[col_name]
-                                print(f"DEBUG: Updated row '{row_name}' column '{col_name}': {str(old_value)[:50]} -> {str(extracted[col_name])[:50]}")
                             else:
                                 row[col_name] = extracted[col_name]
-                        else:
-                            print(f"DEBUG: Column '{col_name}' not found in extracted data for row '{row_name}'")
-                elif row_name:
-                    print(f"DEBUG: Row '{row_name}' has no extracted data (available row_names: {list(extracted_by_row.keys())[:3]}, paper_stems: {list(extracted_by_paper_stem.keys())[:3]}...)")
 
                 updated_rows.append(row)
 

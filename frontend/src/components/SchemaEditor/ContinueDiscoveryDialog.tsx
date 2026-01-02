@@ -370,7 +370,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                 </Label>
                 <p className="text-sm text-muted-foreground mt-1">
                   {documentInfo?.can_use_original
-                    ? `${documentInfo.original_count} documents available from the original QBSD run`
+                    ? `${documentInfo.original_count} documents available${documentInfo.local_count !== undefined && documentInfo.cloud_count !== undefined ? ` (${documentInfo.local_count} local, ${documentInfo.cloud_count} cloud)` : ''}`
                     : 'No original documents found'}
                 </p>
               </div>

@@ -94,7 +94,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
         Returns:
             Dictionary with:
-            - original_documents: Documents from original QBSD run
+            - original_documents: Documents from original QBSD run or data.jsonl references
             - cloud_datasets: Available cloud datasets
             - can_use_original: Whether original documents are available
         """
@@ -107,43 +107,82 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 "error": "Session not found"
             }
 
-        # Check for original documents
-        original_docs = []
         session_dir = Path("./data") / session_id
-        qbsd_work_dir = Path("./qbsd_work") / session_id
-
-        # Check data/{session_id}/documents/
+        data_file = session_dir / "data.jsonl"
         docs_dir = session_dir / "documents"
-        if docs_dir.exists():
-            original_docs = [f.name for f in docs_dir.iterdir() if f.is_file() and not f.name.startswith('.')]
 
-        # Also check qbsd_work/{session_id}/ for original QBSD documents
-        if not original_docs and qbsd_work_dir.exists():
+        # 1. Collect document references from data.jsonl (like reextraction_service)
+        all_papers: Set[str] = set()
+        if data_file.exists():
+            with open(data_file, 'r') as f:
+                for line in f:
+                    try:
+                        row = json.loads(line)
+                        papers_raw = (
+                            row.get('papers') or
+                            row.get('_papers') or
+                            row.get('Papers') or
+                            row.get('data', {}).get('Papers') or
+                            row.get('data', {}).get('papers') or
+                            []
+                        )
+                        if isinstance(papers_raw, str):
+                            papers_raw = [papers_raw]
+                        for paper in papers_raw:
+                            if paper:
+                                all_papers.add(paper)
+                    except json.JSONDecodeError:
+                        continue
+
+        # 2. Check which documents exist locally
+        local_docs: Set[str] = set()
+        if docs_dir.exists():
+            for f in docs_dir.iterdir():
+                if f.is_file() and not f.name.startswith('.'):
+                    local_docs.add(f.name)
+
+        # 3. Also check qbsd_work/{session_id}/ for original QBSD documents
+        qbsd_work_dir = Path("./qbsd_work") / session_id
+        if qbsd_work_dir.exists():
             for subdir in qbsd_work_dir.iterdir():
                 if subdir.is_dir() and not subdir.name.startswith('.'):
                     for f in subdir.iterdir():
                         if f.is_file() and f.suffix in ['.txt', '.md']:
-                            original_docs.append(f.name)
+                            local_docs.add(f.name)
 
-        # Get cloud dataset from session metadata
+        # 4. Get cloud dataset from session metadata
         cloud_dataset = session.metadata.cloud_dataset if session.metadata else None
 
-        # Get list of available cloud datasets
+        # 5. Check cloud storage for documents referenced in data.jsonl
+        cloud_docs: Set[str] = set()
         storage = get_storage()
+        papers_to_check_cloud = all_papers - local_docs
+        if papers_to_check_cloud and cloud_dataset:
+            try:
+                cloud_files = await storage.list_folder_files('datasets', cloud_dataset)
+                cloud_docs = set(cloud_files) & papers_to_check_cloud
+            except Exception as e:
+                print(f"DEBUG: Could not check cloud storage: {e}")
+
+        # 6. Combine results - documents that exist either locally or in cloud
+        available_docs = local_docs | cloud_docs
+
+        # 7. Get list of all available cloud datasets
         cloud_datasets = []
         try:
-            # List top-level folders in datasets bucket
             folders = await storage.list_files('datasets', '')
             cloud_datasets = [f['name'] for f in folders if f.get('is_folder', False)]
         except Exception as e:
             print(f"DEBUG: Could not list cloud datasets: {e}")
 
         return {
-            "original_documents": original_docs,
-            "original_count": len(original_docs),
+            "original_documents": sorted(list(available_docs)),
+            "original_count": len(available_docs),
+            "local_count": len(local_docs),
+            "cloud_count": len(cloud_docs),
             "cloud_datasets": cloud_datasets,
             "original_cloud_dataset": cloud_dataset,
-            "can_use_original": len(original_docs) > 0,
+            "can_use_original": len(available_docs) > 0,
             "query": session.schema_query or ""
         }
 

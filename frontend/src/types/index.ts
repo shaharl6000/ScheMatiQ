@@ -619,6 +619,8 @@ export interface ReextractionFailedData {
 export interface ContinueDiscoveryDocuments {
   original_documents: string[];
   original_count: number;
+  local_count?: number;
+  cloud_count?: number;
   cloud_datasets: string[];
   original_cloud_dataset?: string;
   can_use_original: boolean;

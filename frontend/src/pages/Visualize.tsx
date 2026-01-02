@@ -143,7 +143,6 @@ const Visualize = () => {
           const message = JSON.parse(event.data);
           switch (message.type) {
             case 'cell_extracted':
-              console.log('📥 [legacy] cell_extracted received:', message.data);
               if (message.data?.row_name && message.data?.column) {
                 const cellData = message.data as CellExtractedData;
                 setStreamingCells(prev => {
@@ -151,7 +150,6 @@ const Visualize = () => {
                   const rowData = updated.get(cellData.row_name) || {};
                   rowData[cellData.column] = cellData.value;
                   updated.set(cellData.row_name, rowData);
-                  console.log('📊 [legacy] streamingCells updated for:', cellData.row_name);
                   return updated;
                 });
               }
@@ -383,7 +381,6 @@ const Visualize = () => {
             const message = JSON.parse(event.data);
             switch (message.type) {
               case 'cell_extracted':
-                console.log('📥 cell_extracted received:', message.data);
                 if (message.data?.row_name && message.data?.column) {
                   const cellData = message.data as CellExtractedData;
                   setStreamingCells(prev => {
@@ -391,7 +388,6 @@ const Visualize = () => {
                     const rowData = updated.get(cellData.row_name) || {};
                     rowData[cellData.column] = cellData.value;
                     updated.set(cellData.row_name, rowData);
-                    console.log('📊 streamingCells updated for:', cellData.row_name, 'column:', cellData.column);
                     return updated;
                   });
                 }
