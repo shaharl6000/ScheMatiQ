@@ -294,32 +294,54 @@ const DataTable: React.FC<DataTableProps> = ({
 
   // Merge streaming cells into the data for display
   const data = useMemo(() => {
-    console.log('🔄 DataTable useMemo recalculating, streamingCells size:', streamingCells?.size || 0);
     if (!streamingCells || streamingCells.size === 0) {
       return fetchedOrInitialData;
     }
 
-    console.log('🔄 Merging streaming cells:', Array.from(streamingCells.entries()));
-    console.log('🔄 Existing row names:', fetchedOrInitialData.rows.map(r => r.row_name));
     const mergedRows = [...fetchedOrInitialData.rows];
-    const existingRowNames = new Set(mergedRows.map(r => r.row_name));
+
+    // Find the first data column to use as row identifier fallback
+    // This handles cases where row_name is null but the row identifier is in a data column
+    const firstDataColumn = mergedRows.length > 0 && mergedRows[0].data
+      ? Object.keys(mergedRows[0].data)[0]
+      : null;
+
+    // Helper to get row identifier - try row_name first, then first data column
+    const getRowIdentifier = (row: DataRow): string | null => {
+      if (row.row_name) return row.row_name;
+      if (firstDataColumn && row.data[firstDataColumn]) {
+        const val = row.data[firstDataColumn];
+        // Handle both simple values and QBSD format {answer: ...}
+        if (typeof val === 'string') return val;
+        if (typeof val === 'object' && val !== null) {
+          if ('answer' in val) return String(val.answer);
+          if ('value' in val) return String(val.value);
+        }
+        return String(val);
+      }
+      return null;
+    };
+
+    // Build a map of row identifiers to indices for fast lookup
+    const rowIdentifierMap = new Map<string, number>();
+    mergedRows.forEach((row, index) => {
+      const identifier = getRowIdentifier(row);
+      if (identifier) {
+        rowIdentifierMap.set(identifier, index);
+      }
+    });
 
     streamingCells.forEach((cellData, rowName) => {
-      const existingRowIndex = mergedRows.findIndex(r => r.row_name === rowName);
-      console.log(`🔄 Looking for row "${rowName}", found at index:`, existingRowIndex);
+      const existingRowIndex = rowIdentifierMap.get(rowName) ?? -1;
 
       if (existingRowIndex >= 0) {
         const existingRow = mergedRows[existingRowIndex];
-        const mergedData = { ...existingRow.data, ...cellData };
-        console.log(`🔄 Merging into existing row. Before:`, existingRow.data);
-        console.log(`🔄 CellData to merge:`, cellData);
-        console.log(`🔄 After merge:`, mergedData);
         mergedRows[existingRowIndex] = {
           ...existingRow,
-          data: mergedData
+          data: { ...existingRow.data, ...cellData }
         };
       } else {
-        console.log(`🔄 Row not found, creating new row with data:`, cellData);
+        // Row not found on current page - add as new row
         mergedRows.push({
           row_name: rowName,
           papers: [],
@@ -328,9 +350,13 @@ const DataTable: React.FC<DataTableProps> = ({
       }
     });
 
+    // Count new streaming rows (not found in original data)
+    const existingIdentifiers = new Set(
+      fetchedOrInitialData.rows.map(r => getRowIdentifier(r)).filter(Boolean)
+    );
     let newStreamingRows = 0;
     streamingCells.forEach((_, rowName) => {
-      if (!existingRowNames.has(rowName)) {
+      if (!existingIdentifiers.has(rowName)) {
         newStreamingRows++;
       }
     });
