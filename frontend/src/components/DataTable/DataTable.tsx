@@ -294,10 +294,12 @@ const DataTable: React.FC<DataTableProps> = ({
 
   // Merge streaming cells into the data for display
   const data = useMemo(() => {
+    console.log('🔄 DataTable useMemo recalculating, streamingCells size:', streamingCells?.size || 0);
     if (!streamingCells || streamingCells.size === 0) {
       return fetchedOrInitialData;
     }
 
+    console.log('🔄 Merging streaming cells:', Array.from(streamingCells.entries()));
     const mergedRows = [...fetchedOrInitialData.rows];
     const existingRowNames = new Set(mergedRows.map(r => r.row_name));
 
