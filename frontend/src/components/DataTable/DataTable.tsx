@@ -331,8 +331,12 @@ const DataTable: React.FC<DataTableProps> = ({
       }
     });
 
+    console.log('🔄 First data column:', firstDataColumn);
+    console.log('🔄 Row identifiers found:', Array.from(rowIdentifierMap.keys()).slice(0, 5), '...');
+
     streamingCells.forEach((cellData, rowName) => {
       const existingRowIndex = rowIdentifierMap.get(rowName) ?? -1;
+      console.log(`🔄 Looking for "${rowName}", found at index:`, existingRowIndex);
 
       if (existingRowIndex >= 0) {
         const existingRow = mergedRows[existingRowIndex];
