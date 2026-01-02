@@ -300,17 +300,24 @@ const DataTable: React.FC<DataTableProps> = ({
 
     const mergedRows = [...fetchedOrInitialData.rows];
 
-    // Find the first data column to use as row identifier fallback
+    // Find the row identifier column - look for common row name column names
     // This handles cases where row_name is null but the row identifier is in a data column
-    const firstDataColumn = mergedRows.length > 0 && mergedRows[0].data
-      ? Object.keys(mergedRows[0].data)[0]
-      : null;
+    const ROW_NAME_COLUMN_PATTERNS = ['row name', 'row_name', 'name', 'gene', 'protein', 'id', 'identifier'];
+    let rowIdentifierColumn: string | null = null;
 
-    // Helper to get row identifier - try row_name first, then first data column
+    if (mergedRows.length > 0 && mergedRows[0].data) {
+      const dataColumns = Object.keys(mergedRows[0].data);
+      // First, try to find a column that matches common row name patterns
+      rowIdentifierColumn = dataColumns.find(col =>
+        ROW_NAME_COLUMN_PATTERNS.some(pattern => col.toLowerCase().includes(pattern))
+      ) || null;
+    }
+
+    // Helper to get row identifier - try row_name first, then row identifier column
     const getRowIdentifier = (row: DataRow): string | null => {
       if (row.row_name) return row.row_name;
-      if (firstDataColumn && row.data[firstDataColumn]) {
-        const val = row.data[firstDataColumn];
+      if (rowIdentifierColumn && row.data[rowIdentifierColumn]) {
+        const val = row.data[rowIdentifierColumn];
         // Handle both simple values and QBSD format {answer: ...}
         if (typeof val === 'string') return val;
         if (typeof val === 'object' && val !== null) {
@@ -331,7 +338,7 @@ const DataTable: React.FC<DataTableProps> = ({
       }
     });
 
-    console.log('🔄 First data column:', firstDataColumn);
+    console.log('🔄 Row identifier column:', rowIdentifierColumn);
     console.log('🔄 Row identifiers found:', Array.from(rowIdentifierMap.keys()).slice(0, 5), '...');
 
     streamingCells.forEach((cellData, rowName) => {
