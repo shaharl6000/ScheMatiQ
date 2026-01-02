@@ -86,6 +86,20 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         """Clear the stop flag for an operation."""
         self.stop_flags.pop(operation_id, None)
 
+    def _get_data_dir(self) -> Path:
+        """Get the data directory path from storage backend."""
+        storage = get_storage()
+        if hasattr(storage, 'data_dir'):
+            return storage.data_dir
+        return Path("./data")
+
+    def _get_qbsd_work_dir(self) -> Path:
+        """Get the qbsd_work directory path from storage backend."""
+        storage = get_storage()
+        if hasattr(storage, 'qbsd_work_dir'):
+            return storage.qbsd_work_dir
+        return Path("./qbsd_work")
+
     # ==================== Document Discovery ====================
 
     async def get_available_documents(self, session_id: str) -> Dict[str, Any]:
@@ -107,7 +121,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 "error": "Session not found"
             }
 
-        session_dir = Path("./data") / session_id
+        # Use storage backend's data directory for correct path resolution
+        session_dir = self._get_data_dir() / session_id
         data_file = session_dir / "data.jsonl"
         docs_dir = session_dir / "documents"
 
@@ -142,7 +157,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     local_docs.add(f.name)
 
         # 3. Also check qbsd_work/{session_id}/ for original QBSD documents
-        qbsd_work_dir = Path("./qbsd_work") / session_id
+        qbsd_work_dir = self._get_qbsd_work_dir() / session_id
         if qbsd_work_dir.exists():
             for subdir in qbsd_work_dir.iterdir():
                 if subdir.is_dir() and not subdir.name.startswith('.'):
@@ -205,7 +220,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         Returns:
             Tuple of (docs_directory, document_contents, filenames)
         """
-        session_dir = Path("./data") / session_id
+        # Use storage backend's directories for correct path resolution
+        session_dir = self._get_data_dir() / session_id
         docs_dir = session_dir / "documents"
         docs_dir.mkdir(parents=True, exist_ok=True)
 
@@ -214,7 +230,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
         if document_source == "original":
             # Use existing documents
-            qbsd_work_dir = Path("./qbsd_work") / session_id
+            qbsd_work_dir = self._get_qbsd_work_dir() / session_id
 
             # Check data/{session_id}/documents/ first
             if docs_dir.exists():
@@ -373,7 +389,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         self.active_operations[operation_id] = operation
 
         # Save LLM config for later use
-        session_dir = Path("./data") / session_id
+        session_dir = self._get_data_dir() / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
         llm_config_file = session_dir / f"continue_discovery_llm_{operation_id}.json"
         with open(llm_config_file, 'w') as f:
@@ -419,7 +435,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             if not session:
                 raise ValueError(f"Session {operation.session_id} not found")
 
-            session_dir = Path("./data") / operation.session_id
+            session_dir = self._get_data_dir() / operation.session_id
 
             # Load config
             config_file = session_dir / f"continue_discovery_config_{operation_id}.json"
@@ -624,7 +640,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         operation.progress = 0.0
 
         # Save extraction config
-        session_dir = Path("./data") / operation.session_id
+        session_dir = self._get_data_dir() / operation.session_id
         extraction_config = {
             "columns": selected_columns,
             "row_selection": row_selection,
@@ -658,7 +674,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             if not session:
                 raise ValueError(f"Session {operation.session_id} not found")
 
-            session_dir = Path("./data") / operation.session_id
+            session_dir = self._get_data_dir() / operation.session_id
             docs_dir = session_dir / "documents"
 
             # Load extraction config
@@ -847,7 +863,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             print(f"DEBUG: Extraction file not found: {extraction_file}")
             return
 
-        session_dir = Path("./data") / session_id
+        session_dir = self._get_data_dir() / session_id
         data_file = session_dir / "data.jsonl"
 
         if not data_file.exists():
