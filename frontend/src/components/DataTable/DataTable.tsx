@@ -300,19 +300,26 @@ const DataTable: React.FC<DataTableProps> = ({
     }
 
     console.log('🔄 Merging streaming cells:', Array.from(streamingCells.entries()));
+    console.log('🔄 Existing row names:', fetchedOrInitialData.rows.map(r => r.row_name));
     const mergedRows = [...fetchedOrInitialData.rows];
     const existingRowNames = new Set(mergedRows.map(r => r.row_name));
 
     streamingCells.forEach((cellData, rowName) => {
       const existingRowIndex = mergedRows.findIndex(r => r.row_name === rowName);
+      console.log(`🔄 Looking for row "${rowName}", found at index:`, existingRowIndex);
 
       if (existingRowIndex >= 0) {
         const existingRow = mergedRows[existingRowIndex];
+        const mergedData = { ...existingRow.data, ...cellData };
+        console.log(`🔄 Merging into existing row. Before:`, existingRow.data);
+        console.log(`🔄 CellData to merge:`, cellData);
+        console.log(`🔄 After merge:`, mergedData);
         mergedRows[existingRowIndex] = {
           ...existingRow,
-          data: { ...existingRow.data, ...cellData }
+          data: mergedData
         };
       } else {
+        console.log(`🔄 Row not found, creating new row with data:`, cellData);
         mergedRows.push({
           row_name: rowName,
           papers: [],
