@@ -360,12 +360,8 @@ const DataTable: React.FC<DataTableProps> = ({
       }
     });
 
-    console.log('🔄 Row identifier column:', rowIdentifierColumn);
-    console.log('🔄 Row identifiers found:', Array.from(rowIdentifierMap.keys()).slice(0, 5), '...');
-
     streamingCells.forEach((cellData, rowName) => {
       const existingRowIndex = rowIdentifierMap.get(rowName) ?? -1;
-      console.log(`🔄 Looking for "${rowName}", found at index:`, existingRowIndex);
 
       if (existingRowIndex >= 0) {
         const existingRow = mergedRows[existingRowIndex];
@@ -712,9 +708,12 @@ const DataTable: React.FC<DataTableProps> = ({
       };
     }
 
-    // Normalize 'value'/'excerpt' format
+    // Normalize 'value'/'excerpt'/'citation' format
     if ('value' in val) {
-      const excerptsRaw = val.excerpt ? [val.excerpt] : (val.excerpts || []);
+      // Check for citation (streaming cells), excerpt, or excerpts
+      const excerptsRaw = val.citation ? [val.citation] :
+                          val.excerpt ? [val.excerpt] :
+                          (val.excerpts || []);
       return {
         answer: val.value,
         excerpts: parseExcerpts(excerptsRaw)
