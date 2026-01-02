@@ -300,17 +300,39 @@ const DataTable: React.FC<DataTableProps> = ({
 
     const mergedRows = [...fetchedOrInitialData.rows];
 
-    // Find the row identifier column - look for common row name column names
+    // Find the row identifier column using same priority logic as defaultColumns
     // This handles cases where row_name is null but the row identifier is in a data column
-    const ROW_NAME_COLUMN_PATTERNS = ['row name', 'row_name', 'name', 'gene', 'protein', 'id', 'identifier'];
     let rowIdentifierColumn: string | null = null;
 
     if (mergedRows.length > 0 && mergedRows[0].data) {
-      const dataColumns = Object.keys(mergedRows[0].data);
-      // First, try to find a column that matches common row name patterns
+      const dataColumns = Object.keys(mergedRows[0].data).filter(col =>
+        !col.startsWith('_') && !col.endsWith('_excerpt')
+      );
+
+      // Helper: normalize column name (same as defaultColumns line 409)
+      const normalize = (col: string) => col.toLowerCase().replace(/[_-]/g, ' ');
+
+      // Priority 1: Exact match against row-name-like patterns (same as defaultColumns lines 407-411)
+      // These are columns that are SPECIFICALLY row identifiers
+      const rowNamePatterns = ['row name', 'row_name', 'rowname', 'name', 'id', 'identifier'];
       rowIdentifierColumn = dataColumns.find(col =>
-        ROW_NAME_COLUMN_PATTERNS.some(pattern => col.toLowerCase().includes(pattern))
+        rowNamePatterns.includes(normalize(col))
       ) || null;
+
+      // Priority 2: Fuzzy matches (same as defaultColumns lines 432-441)
+      // Columns that CONTAIN name/id/title/label
+      if (!rowIdentifierColumn) {
+        rowIdentifierColumn = dataColumns.find(col => {
+          const colLower = col.toLowerCase();
+          return colLower.includes('name') || colLower.includes('id') ||
+                 colLower.includes('title') || colLower.includes('label');
+        }) || null;
+      }
+
+      // Priority 3: Fallback to first column
+      if (!rowIdentifierColumn && dataColumns.length > 0) {
+        rowIdentifierColumn = dataColumns[0];
+      }
     }
 
     // Helper to get row identifier - try row_name first, then row identifier column
