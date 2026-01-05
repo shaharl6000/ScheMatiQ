@@ -145,24 +145,39 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         all_papers: Set[str] = set()
         paper_doc_dirs: Dict[str, str] = {}  # paper_name -> document_directory
 
+        print(f"DEBUG get_available_documents: session_id={session_id}")
+        print(f"DEBUG: storage type = {type(storage).__name__}")
+        print(f"DEBUG: cloud_dataset from session = {session.metadata.cloud_dataset if session.metadata else None}")
+
         # 1. Get data.jsonl content - try Supabase first, then local
         data_content = None
         try:
             # Try to download from Supabase 'data' bucket
+            print(f"DEBUG: Attempting Supabase download: data/{session_id}/data.jsonl")
             data_bytes = await storage.download_file('data', f'{session_id}/data.jsonl')
             if data_bytes:
                 data_content = data_bytes.decode('utf-8')
-                print(f"DEBUG: Downloaded data.jsonl from Supabase for session {session_id}")
+                print(f"DEBUG: Downloaded data.jsonl from Supabase, size={len(data_content)} bytes")
         except Exception as e:
-            print(f"DEBUG: Could not download from Supabase: {e}")
+            print(f"DEBUG: Supabase download failed: {type(e).__name__}: {e}")
 
         # Fallback to local file if Supabase didn't work
         if not data_content:
-            session_dir = self._get_data_dir() / session_id
+            data_dir = self._get_data_dir()
+            print(f"DEBUG: Local data_dir = {data_dir}")
+            session_dir = data_dir / session_id
             data_file = session_dir / "data.jsonl"
+            print(f"DEBUG: Checking local file: {data_file}, exists={data_file.exists()}")
             if data_file.exists():
                 data_content = data_file.read_text()
-                print(f"DEBUG: Read data.jsonl from local file for session {session_id}")
+                print(f"DEBUG: Read data.jsonl from local, size={len(data_content)} bytes")
+            else:
+                # List what's in the data_dir
+                if data_dir.exists():
+                    sessions_in_dir = list(data_dir.iterdir())[:5]
+                    print(f"DEBUG: data_dir exists, sample contents: {[s.name for s in sessions_in_dir]}")
+                else:
+                    print(f"DEBUG: data_dir does not exist: {data_dir}")
 
         # 2. Parse data.jsonl to collect paper references
         if data_content:
