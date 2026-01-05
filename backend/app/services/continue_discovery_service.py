@@ -88,17 +88,30 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
     def _get_data_dir(self) -> Path:
         """Get the data directory path - uses module location for reliability."""
-        # Use the module's location to find the data directory
-        # This ensures consistent paths regardless of working directory
+        # In Docker: /app/backend/app/services/ -> data is at /app/backend/data
+        # Locally: /backend/app/services/ -> data is at /backend/app/data (or /backend/data)
         module_dir = Path(__file__).parent  # app/services/
         app_dir = module_dir.parent  # app/
-        data_dir = app_dir / "data"
-        data_dir.mkdir(exist_ok=True)
-        return data_dir
+        backend_dir = app_dir.parent  # backend/
+
+        # Check both possible locations
+        # 1. Docker/Railway: ./data relative to backend/ (created by FileParser with cwd=backend/)
+        docker_data_dir = backend_dir / "data"
+        # 2. Local dev: ./app/data (where sessions were created locally)
+        local_data_dir = app_dir / "data"
+
+        # Prefer the one that exists and has session data
+        if docker_data_dir.exists() and any(docker_data_dir.iterdir()):
+            return docker_data_dir
+        elif local_data_dir.exists() and any(local_data_dir.iterdir()):
+            return local_data_dir
+        else:
+            # Default to docker location (./data relative to backend/)
+            docker_data_dir.mkdir(exist_ok=True)
+            return docker_data_dir
 
     def _get_qbsd_work_dir(self) -> Path:
         """Get the qbsd_work directory path - uses module location for reliability."""
-        # backend/qbsd_work/ is at the same level as app/
         module_dir = Path(__file__).parent  # app/services/
         app_dir = module_dir.parent  # app/
         backend_dir = app_dir.parent  # backend/
