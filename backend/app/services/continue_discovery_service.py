@@ -927,18 +927,29 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     stats_evolution = session.statistics.schema_evolution
                     next_iteration = len(stats_evolution.snapshots) + 1
 
+                    # Get document names that were used for discovery
+                    docs_dir = self._get_data_dir() / operation.session_id / "documents"
+                    doc_names = [f.name for f in docs_dir.glob("*") if f.is_file()][:10] if docs_dir.exists() else []
+
                     new_snapshot = SessionSchemaSnapshot(
                         iteration=next_iteration,
-                        documents_processed=[f.name for f in (self._get_data_dir() / operation.session_id / "documents").glob("*") if f.is_file()][:10],
+                        documents_processed=doc_names,
                         total_columns=len(session.columns),
                         new_columns=[col["name"] for col in new_columns],
                         cumulative_documents=operation.total_batches
                     )
                     stats_evolution.snapshots.append(new_snapshot)
 
+                    # Update column sources with actual document name (not generic iteration)
                     for col_data in new_columns:
                         if col_data["name"] not in stats_evolution.column_sources:
-                            stats_evolution.column_sources[col_data["name"]] = f"continue_discovery_iteration_{next_iteration}"
+                            # Use source_document if available, otherwise use first doc or iteration name
+                            source = col_data.get("source_document")
+                            if not source and doc_names:
+                                source = doc_names[0]
+                            if not source:
+                                source = f"continue_discovery_iteration_{next_iteration}"
+                            stats_evolution.column_sources[col_data["name"]] = source
 
                     session.statistics.total_columns = len(session.columns)
 
@@ -1294,43 +1305,15 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Use session manager's capture baseline
             self.session_manager.capture_schema_baseline(operation.session_id)
 
-            # Update schema evolution for Statistics chart
+            # Note: Schema evolution snapshot was already added in discovery phase
+            # Don't add another snapshot here to avoid double-counting columns
+            # Just update the session to ensure consistency
             session = self.session_manager.get_session(operation.session_id)
             if session and session.statistics:
-                from app.models.session import SchemaEvolution as SessionSchemaEvolution, SchemaSnapshot as SessionSchemaSnapshot
-
-                # Initialize schema_evolution if not present
-                if not session.statistics.schema_evolution:
-                    session.statistics.schema_evolution = SessionSchemaEvolution(
-                        snapshots=[],
-                        column_sources={}
-                    )
-
-                stats_evolution = session.statistics.schema_evolution
-
-                # Determine next iteration number
-                next_iteration = len(stats_evolution.snapshots) + 1
-
-                # Create new snapshot for continue discovery
-                new_snapshot = SessionSchemaSnapshot(
-                    iteration=next_iteration,
-                    documents_processed=list(operation.extraction_rows) if operation.extraction_rows else ["all"],
-                    total_columns=len(session.columns),
-                    new_columns=columns_to_extract,
-                    cumulative_documents=operation.total_documents
-                )
-                stats_evolution.snapshots.append(new_snapshot)
-
-                # Update column sources for new columns
-                for col_name in columns_to_extract:
-                    if col_name not in stats_evolution.column_sources:
-                        stats_evolution.column_sources[col_name] = f"continue_discovery_iteration_{next_iteration}"
-
-                # Update total columns in statistics
+                # Update total columns in statistics (should already be correct from discovery phase)
                 session.statistics.total_columns = len(session.columns)
-
                 self.session_manager.update_session(session)
-                print(f"DEBUG: Added schema evolution snapshot (iteration {next_iteration}, {len(columns_to_extract)} new columns)")
+                print(f"DEBUG: Extraction complete, total columns: {len(session.columns)}")
 
             # Update session status to completed after extraction
             session = self.session_manager.get_session(operation.session_id)
