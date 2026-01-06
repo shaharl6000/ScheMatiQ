@@ -756,6 +756,72 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             operation.new_columns = new_columns
             print(f"DEBUG: Discovered {len(new_columns)} new columns")
 
+            # Add new columns to session immediately after discovery
+            # So they appear in Schema tab even without extraction
+            session = self.session_manager.get_session(operation.session_id)
+            if session and new_columns:
+                from app.models.session import SchemaEvolution, SchemaSnapshot
+
+                for col_data in new_columns:
+                    new_col = ColumnInfo(
+                        name=col_data["name"],
+                        definition=col_data.get("definition", ""),
+                        rationale=col_data.get("rationale", ""),
+                        allowed_values=col_data.get("allowed_values"),
+                        source_document=col_data.get("source_document"),
+                        discovery_iteration=col_data.get("discovery_iteration")
+                    )
+                    # Only add if not already present
+                    if not any(c.name == new_col.name for c in session.columns):
+                        session.columns.append(new_col)
+
+                # Add null values for new columns in data.jsonl
+                data_file = self._get_data_dir() / operation.session_id / "data.jsonl"
+                if data_file.exists():
+                    rows = []
+                    with open(data_file, 'r') as f:
+                        for line in f:
+                            if line.strip():
+                                row = json.loads(line)
+                                for col_data in new_columns:
+                                    col_name = col_data["name"]
+                                    if col_name not in row:
+                                        row[col_name] = None
+                                rows.append(row)
+                    with open(data_file, 'w') as f:
+                        for row in rows:
+                            f.write(json.dumps(row) + '\n')
+                    print(f"DEBUG: Added null values for {len(new_columns)} new columns in data.jsonl")
+
+                # Update schema_evolution for Statistics chart
+                if session.statistics:
+                    if not session.statistics.schema_evolution:
+                        session.statistics.schema_evolution = SchemaEvolution(
+                            snapshots=[],
+                            column_sources={}
+                        )
+
+                    evolution = session.statistics.schema_evolution
+                    next_iteration = len(evolution.snapshots) + 1
+
+                    new_snapshot = SchemaSnapshot(
+                        iteration=next_iteration,
+                        documents_processed=[f.name for f in (self._get_data_dir() / operation.session_id / "documents").glob("*") if f.is_file()][:10],
+                        total_columns=len(session.columns),
+                        new_columns=[col["name"] for col in new_columns],
+                        cumulative_documents=operation.total_batches
+                    )
+                    evolution.snapshots.append(new_snapshot)
+
+                    for col_data in new_columns:
+                        if col_data["name"] not in evolution.column_sources:
+                            evolution.column_sources[col_data["name"]] = f"continue_discovery_iteration_{next_iteration}"
+
+                    session.statistics.total_columns = len(session.columns)
+
+                self.session_manager.update_session(session)
+                print(f"DEBUG: Added {len(new_columns)} new columns to session after discovery")
+
             # Complete discovery phase
             operation.status = "completed"
             operation.phase = "discovery"

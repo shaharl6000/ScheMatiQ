@@ -125,8 +125,21 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
             console.log('ContinueDiscoveryMonitor: onComplete called with columns:', columns);
             onComplete(columns);
           } else if (statusData.phase === 'discovery') {
+            // Transform new columns and call onComplete even for discovery phase
+            // so columns appear in Schema tab immediately (with null values)
+            const columns: ColumnInfo[] = statusData.new_columns.map(nc => ({
+              name: nc.name,
+              definition: nc.definition,
+              rationale: nc.rationale,
+              allowed_values: nc.allowed_values,
+              source_document: nc.source_document,
+              discovery_iteration: nc.discovery_iteration,
+            }));
+            setNewColumns(columns);
             setCurrentMessage(`Discovery complete! Found ${statusData.new_columns.length} new columns.`);
             addLog('success', `Discovered ${statusData.new_columns.length} new columns`);
+            console.log('ContinueDiscoveryMonitor: onComplete called with columns (discovery):', columns);
+            onComplete(columns);
           }
           if (pollIntervalRef.current) {
             clearInterval(pollIntervalRef.current);
