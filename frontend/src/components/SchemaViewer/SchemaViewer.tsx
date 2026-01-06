@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Pencil,
   Plus,
@@ -16,6 +16,11 @@ import {
   Loader2,
   Copy,
   Check,
+  LayoutGrid,
+  LayoutList,
+  Search,
+  ArrowUpDown,
+  X,
 } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,6 +29,8 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   Dialog,
   DialogContent,
@@ -63,6 +70,7 @@ import MergeDialog from '../SchemaEditor/MergeDialog';
 import ReextractionDialog from '../SchemaEditor/ReextractionDialog';
 import ContinueDiscoveryDialog from '../SchemaEditor/ContinueDiscoveryDialog';
 import LLMConfigDisplay from '../LLMConfigDisplay';
+import SchemaColumnDetailPanel from './SchemaColumnDetailPanel';
 
 interface SchemaViewerProps {
   columns: ColumnInfo[];
@@ -109,6 +117,16 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
   const [reextractionDialogOpen, setReextractionDialogOpen] = useState(false);
   const [continueDiscoveryDialogOpen, setContinueDiscoveryDialogOpen] = useState(false);
+
+  // View mode, search, and sort state
+  const [viewMode, setViewMode] = useState<'compact' | 'detailed'>(() => {
+    const saved = localStorage.getItem('schemaViewer.viewMode');
+    return (saved === 'compact' || saved === 'detailed') ? saved : 'compact';
+  });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'name' | 'type' | 'completeness' | 'modified'>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [selectedDetailColumn, setSelectedDetailColumn] = useState<ColumnInfo | null>(null);
 
   // Helper function to extract error message from API errors (handles Pydantic validation errors)
   const extractErrorMessage = (error: any, fallback: string): string => {
@@ -445,6 +463,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     }
   };
 
+  // Persist view mode to localStorage
+  useEffect(() => {
+    localStorage.setItem('schemaViewer.viewMode', viewMode);
+  }, [viewMode]);
+
   // Filter out excerpt columns for display
   const displayColumns = (localColumns || []).filter(column => {
     return column &&
@@ -452,6 +475,45 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       !column.name.toLowerCase().includes('excerpt') &&
       !column.name.toLowerCase().endsWith('_excerpt');
   });
+
+  // Filter columns by search query
+  const filteredColumns = useMemo(() => {
+    if (!searchQuery.trim()) return displayColumns;
+    const query = searchQuery.toLowerCase();
+    return displayColumns.filter(col =>
+      col.name.toLowerCase().includes(query) ||
+      col.definition?.toLowerCase().includes(query) ||
+      col.rationale?.toLowerCase().includes(query)
+    );
+  }, [displayColumns, searchQuery]);
+
+  // Sort columns
+  const sortedColumns = useMemo(() => {
+    const cols = [...filteredColumns];
+    cols.sort((a, b) => {
+      let comparison = 0;
+      switch (sortBy) {
+        case 'name':
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case 'type':
+          comparison = (a.data_type || '').localeCompare(b.data_type || '');
+          break;
+        case 'completeness':
+          const aComplete = (a.non_null_count || 0);
+          const bComplete = (b.non_null_count || 0);
+          comparison = aComplete - bComplete;
+          break;
+        case 'modified':
+          const aModified = schemaChanges?.changed_columns?.includes(a.name) ? 1 : 0;
+          const bModified = schemaChanges?.changed_columns?.includes(b.name) ? 1 : 0;
+          comparison = bModified - aModified;
+          break;
+      }
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+    return cols;
+  }, [filteredColumns, sortBy, sortOrder, schemaChanges]);
 
   const getValidationSeverity = (): 'success' | 'warning' | 'destructive' => {
     if (!validationResult) return 'success';
@@ -590,6 +652,100 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               )}
             </div>
 
+            {/* Toolbar: Search, Sort, View Toggle */}
+            <div className="flex items-center gap-2">
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search columns..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-8 h-8 w-40 text-sm"
+                />
+                {searchQuery && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6"
+                    onClick={() => setSearchQuery('')}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+
+              {/* Sort */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-8 gap-1">
+                    <ArrowUpDown className="h-3.5 w-3.5" />
+                    Sort
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => setSortBy('name')}>
+                    {sortBy === 'name' && <Check className="h-4 w-4 mr-2" />}
+                    {sortBy !== 'name' && <span className="w-4 mr-2" />}
+                    Name
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortBy('type')}>
+                    {sortBy === 'type' && <Check className="h-4 w-4 mr-2" />}
+                    {sortBy !== 'type' && <span className="w-4 mr-2" />}
+                    Data Type
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortBy('completeness')}>
+                    {sortBy === 'completeness' && <Check className="h-4 w-4 mr-2" />}
+                    {sortBy !== 'completeness' && <span className="w-4 mr-2" />}
+                    Completeness
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setSortBy('modified')}>
+                    {sortBy === 'modified' && <Check className="h-4 w-4 mr-2" />}
+                    {sortBy !== 'modified' && <span className="w-4 mr-2" />}
+                    Modified First
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}>
+                    {sortOrder === 'asc' ? '↑ Ascending' : '↓ Descending'}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* View Toggle */}
+              <div className="flex items-center border rounded-lg p-0.5 bg-muted/50">
+                <Button
+                  variant={viewMode === 'compact' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setViewMode('compact')}
+                >
+                  <LayoutGrid className="h-3.5 w-3.5 mr-1" />
+                  Compact
+                </Button>
+                <Button
+                  variant={viewMode === 'detailed' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setViewMode('detailed')}
+                >
+                  <LayoutList className="h-3.5 w-3.5 mr-1" />
+                  Detailed
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Action buttons row */}
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center gap-2">
+              {/* Search results count */}
+              {searchQuery && (
+                <span className="text-sm text-muted-foreground">
+                  Showing {sortedColumns.length} of {displayColumns.length}
+                </span>
+              )}
+            </div>
+
             {!readonly && (
               <div className="flex items-center gap-2">
                 {/* Selection Controls */}
@@ -684,13 +840,77 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           </div>
 
           {/* Column Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {displayColumns.map((column) => {
+          <div className={cn(
+            "grid gap-2",
+            viewMode === 'compact'
+              ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
+              : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+          )}>
+            {sortedColumns.map((column) => {
               const isModified = schemaChanges?.changed_columns?.includes(column.name);
               const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
               const isProcessing = processingColumns?.has(column.name);
               const changeDetail = schemaChanges?.column_changes?.[column.name];
 
+              // Compact view card
+              if (viewMode === 'compact') {
+                return (
+                  <Card
+                    key={column.name}
+                    className={cn(
+                      "relative cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all",
+                      selectedColumns.includes(column.name) && "ring-2 ring-primary",
+                      isModified && "border-amber-400 dark:border-amber-600 border-2",
+                      isNew && "border-green-400 dark:border-green-600 border-2",
+                      isProcessing && "border-blue-400 dark:border-blue-600 border-2 animate-pulse"
+                    )}
+                    onClick={() => setSelectedDetailColumn(column)}
+                  >
+                    <CardContent className="pt-3 pb-2 px-3">
+                      {/* Row 1: Checkbox + Name + Status indicators */}
+                      <div className="flex items-center gap-1.5 mb-1">
+                        {!readonly && (
+                          <Checkbox
+                            className="h-3.5 w-3.5"
+                            checked={selectedColumns.includes(column.name)}
+                            onCheckedChange={(checked) =>
+                              handleColumnSelection(column.name, checked as boolean)
+                            }
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        )}
+                        <h4 className="font-medium text-xs truncate flex-1">
+                          {formatColumnName(column.name)}
+                        </h4>
+                        {isModified && <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Modified" />}
+                        {isNew && <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="New" />}
+                        {isProcessing && <Loader2 className="h-3 w-3 animate-spin text-blue-500 flex-shrink-0" />}
+                      </div>
+
+                      {/* Row 2: Data type + constraint count */}
+                      <div className="flex items-center gap-1 mb-1">
+                        {column.data_type && (
+                          <Badge variant="outline" className="h-4 text-[10px] px-1">
+                            {column.data_type}
+                          </Badge>
+                        )}
+                        {column.allowed_values && column.allowed_values.length > 0 && (
+                          <Badge variant="outline" className="h-4 text-[10px] px-1 bg-purple-50 dark:bg-purple-950">
+                            {column.allowed_values.length} val
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Row 3: Truncated definition */}
+                      <p className="text-[10px] text-muted-foreground line-clamp-1">
+                        {column.definition || 'No definition'}
+                      </p>
+                    </CardContent>
+                  </Card>
+                );
+              }
+
+              // Detailed view card (original)
               return (
               <Card
                 key={column.name}
@@ -1044,6 +1264,25 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Column Detail Panel (for compact view) */}
+      <SchemaColumnDetailPanel
+        column={selectedDetailColumn}
+        isOpen={selectedDetailColumn !== null}
+        onClose={() => setSelectedDetailColumn(null)}
+        onEdit={(column) => {
+          setSelectedDetailColumn(null);
+          handleEditColumn(column);
+        }}
+        onDelete={(columnName) => {
+          setSelectedDetailColumn(null);
+          handleDeleteColumn(columnName);
+        }}
+        readonly={readonly}
+        schemaChanges={schemaChanges}
+        processingColumns={processingColumns}
+        sessionType={sessionType}
+      />
     </div>
   );
 };

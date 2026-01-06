@@ -747,3 +747,36 @@ export interface ContinueDiscoveryFailedData {
   operation_id: string;
   error: string;
 }
+
+// ==================== Column Clustering Types ====================
+
+/**
+ * Represents a cluster of related schema columns.
+ * Used for grouping columns by semantic similarity or user-defined categories.
+ */
+export interface ColumnCluster {
+  /** Unique identifier for the cluster */
+  id: string;
+  /** Human-readable name for the cluster */
+  name: string;
+  /** Optional description of what this cluster represents */
+  description?: string;
+  /** Color for visual distinction (hex or CSS color) */
+  color?: string;
+  /** Whether the cluster is collapsed in the UI */
+  collapsed?: boolean;
+  /** Ordered list of column names in this cluster */
+  column_names: string[];
+}
+
+/**
+ * Configuration for column clustering feature.
+ */
+export interface ClusteringConfig {
+  /** Whether clustering is enabled */
+  enabled: boolean;
+  /** List of defined clusters */
+  clusters: ColumnCluster[];
+  /** How to handle columns not in any cluster */
+  unclustered_behavior: 'hide' | 'show_at_end' | 'show_at_start';
+}
