@@ -172,27 +172,46 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             print(f"DEBUG: Schema evolution cleanup - actual columns: {actual_total}")
             print(f"DEBUG: Before cleanup - {len(existing_evolution.snapshots)} snapshots:")
             for i, snap in enumerate(existing_evolution.snapshots):
-                print(f"DEBUG:   Snapshot {i}: iteration={snap.iteration}, total_columns={snap.total_columns}, new_columns={snap.new_columns}")
+                # Handle both dict and object formats
+                if isinstance(snap, dict):
+                    print(f"DEBUG:   Snapshot {i} (dict): iteration={snap.get('iteration')}, total_columns={snap.get('total_columns')}, new_columns={snap.get('new_columns')}")
+                else:
+                    print(f"DEBUG:   Snapshot {i} (obj): iteration={snap.iteration}, total_columns={snap.total_columns}, new_columns={snap.new_columns}")
+
+            # Helper to get/set snapshot attributes (handles both dict and object)
+            def get_snap_attr(snap, attr):
+                if isinstance(snap, dict):
+                    return snap.get(attr)
+                return getattr(snap, attr, None)
+
+            def set_snap_attr(snap, attr, value):
+                if isinstance(snap, dict):
+                    snap[attr] = value
+                else:
+                    setattr(snap, attr, value)
 
             # Remove duplicate snapshots (same iteration number)
             if existing_evolution.snapshots:
                 seen_iterations = set()
                 unique_snapshots = []
                 for snapshot in existing_evolution.snapshots:
-                    if snapshot.iteration not in seen_iterations:
-                        seen_iterations.add(snapshot.iteration)
+                    iteration = get_snap_attr(snapshot, 'iteration')
+                    if iteration not in seen_iterations:
+                        seen_iterations.add(iteration)
                         unique_snapshots.append(snapshot)
                     else:
-                        print(f"DEBUG: Removing duplicate snapshot for iteration {snapshot.iteration}")
+                        print(f"DEBUG: Removing duplicate snapshot for iteration {iteration}")
                 if len(unique_snapshots) != len(existing_evolution.snapshots):
                     print(f"DEBUG: Removed {len(existing_evolution.snapshots) - len(unique_snapshots)} duplicate snapshots")
                     existing_evolution.snapshots = unique_snapshots
 
                 # Fix all snapshots to ensure total_columns doesn't exceed actual column count
                 for snapshot in existing_evolution.snapshots:
-                    if snapshot.total_columns > actual_total:
-                        print(f"DEBUG: Fixing snapshot {snapshot.iteration} total_columns: {snapshot.total_columns} -> {actual_total}")
-                        snapshot.total_columns = actual_total
+                    total_cols = get_snap_attr(snapshot, 'total_columns')
+                    iteration = get_snap_attr(snapshot, 'iteration')
+                    if total_cols and total_cols > actual_total:
+                        print(f"DEBUG: Fixing snapshot {iteration} total_columns: {total_cols} -> {actual_total}")
+                        set_snap_attr(snapshot, 'total_columns', actual_total)
 
             print(f"DEBUG: After cleanup - {len(existing_evolution.snapshots)} snapshots")
 
