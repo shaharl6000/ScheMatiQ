@@ -1069,8 +1069,9 @@ const Visualize = () => {
               readonly={false}
               processingColumns={processingColumns}
               onColumnsChange={() => {
-                queryClient.invalidateQueries(['session', sessionId, mode]);
-                queryClient.invalidateQueries(['data', sessionId, mode]);
+                // Use refetch for immediate update instead of invalidate
+                queryClient.refetchQueries({ queryKey: ['session', sessionId, mode] });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId, mode] });
               }}
               onReextractionStarted={handleReextractionStarted}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}

@@ -122,6 +122,7 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
             }));
             setNewColumns(columns);
             addLog('success', 'Extraction completed successfully!');
+            console.log('ContinueDiscoveryMonitor: onComplete called with columns:', columns);
             onComplete(columns);
           } else if (statusData.phase === 'discovery') {
             setCurrentMessage(`Discovery complete! Found ${statusData.new_columns.length} new columns.`);

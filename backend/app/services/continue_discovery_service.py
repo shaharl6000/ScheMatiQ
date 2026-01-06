@@ -1058,6 +1058,44 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Use session manager's capture baseline
             self.session_manager.capture_schema_baseline(operation.session_id)
 
+            # Update schema evolution for Statistics chart
+            session = self.session_manager.get_session(operation.session_id)
+            if session and session.statistics:
+                from app.models.session import SchemaEvolution, SchemaSnapshot
+
+                # Initialize schema_evolution if not present
+                if not session.statistics.schema_evolution:
+                    session.statistics.schema_evolution = SchemaEvolution(
+                        snapshots=[],
+                        column_sources={}
+                    )
+
+                evolution = session.statistics.schema_evolution
+
+                # Determine next iteration number
+                next_iteration = len(evolution.snapshots) + 1
+
+                # Create new snapshot for continue discovery
+                new_snapshot = SchemaSnapshot(
+                    iteration=next_iteration,
+                    documents_processed=list(operation.extraction_rows) if operation.extraction_rows else ["all"],
+                    total_columns=len(session.columns),
+                    new_columns=columns_to_extract,
+                    cumulative_documents=operation.total_documents
+                )
+                evolution.snapshots.append(new_snapshot)
+
+                # Update column sources for new columns
+                for col_name in columns_to_extract:
+                    if col_name not in evolution.column_sources:
+                        evolution.column_sources[col_name] = f"continue_discovery_iteration_{next_iteration}"
+
+                # Update total columns in statistics
+                session.statistics.total_columns = len(session.columns)
+
+                self.session_manager.update_session(session)
+                print(f"DEBUG: Added schema evolution snapshot (iteration {next_iteration}, {len(columns_to_extract)} new columns)")
+
             # Cleanup
             schema_file.unlink(missing_ok=True)
             output_file.unlink(missing_ok=True)
@@ -1175,6 +1213,17 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                                 row[col_name] = extracted[col_name]
 
                 updated_rows.append(row)
+
+        # Ensure all rows have the new columns (with null if not extracted)
+        for row in updated_rows:
+            for col_name in new_columns:
+                # Check both direct key and nested 'data' structure
+                if 'data' in row:
+                    if col_name not in row['data']:
+                        row['data'][col_name] = None
+                else:
+                    if col_name not in row:
+                        row[col_name] = None
 
         # Write updated data
         with open(data_file, 'w') as f:

@@ -412,13 +412,18 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   };
 
   const handleMonitorComplete = (newColumns: ColumnInfo[]) => {
+    console.log('handleMonitorComplete: received newColumns:', newColumns);
+    console.log('handleMonitorComplete: current localColumns count:', localColumns.length);
     setContinueDiscoveryMonitorOpen(false);
     setContinueDiscoveryOperationId(null);
     if (newColumns.length > 0 && onColumnsChange) {
       const updatedColumns = [...localColumns, ...newColumns];
+      console.log('handleMonitorComplete: updating to', updatedColumns.length, 'columns');
       setLocalColumns(updatedColumns);
       onColumnsChange(updatedColumns);
       toast({ title: 'Success', description: `Added ${newColumns.length} new columns with extracted values.` });
+    } else {
+      console.log('handleMonitorComplete: no update - newColumns.length:', newColumns.length, 'onColumnsChange:', !!onColumnsChange);
     }
     loadSchemaChangeStatus();
   };
