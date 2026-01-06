@@ -1268,7 +1268,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         llm=llm,
                         retriever=retriever,
                         resume=False,
-                        mode="one_by_one",
+                        mode="all",  # Extract all columns at once with fallback for missing
                         retrieval_k=10,
                         max_workers=1,
                         on_value_extracted=on_value_extracted,

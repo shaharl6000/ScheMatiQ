@@ -353,7 +353,12 @@ class TableBuilder:
                                           doc_to_source: dict, schema: Schema,
                                           retrieval_k: int, max_new_tokens: int,
                                           existing_rows: dict, processed_papers: set) -> None:
-        """Process row one column at a time (multi-directory version)."""
+        """Process row one column at a time (multi-directory version).
+
+        For each column, try each paper until we find a value.
+        Papers are NOT marked as 'processed' here - that tracking is for resume logic,
+        not for skipping papers within a single row's extraction.
+        """
         row_name = current_row.get("_row_name")
 
         for column in schema.columns:
@@ -378,8 +383,8 @@ class TableBuilder:
                     print(f"🛑 Stop requested during paper processing")
                     self._stopped = True
                     return
-                if paper in processed_papers:
-                    continue
+                # Note: Don't skip based on processed_papers here - we need to try
+                # each paper for EACH column, not skip after first column extraction
 
                 try:
                     paper_text = paper.read_text(encoding="utf-8", errors="ignore")
@@ -396,10 +401,13 @@ class TableBuilder:
                     )
                     if result and column_name in result:
                         current_row.update(result)
-                        processed_papers.add(paper)
-                        break
+                        break  # Found value for this column, move to next column
                 except Exception as e:
                     print(f"⚠️  Error processing {paper.name} for column {column_name}: {e}")
+
+        # Mark all papers as processed AFTER extracting all columns for this row
+        for paper in papers:
+            processed_papers.add(paper)
     
     def _process_row_all_multi_dirs(self, current_row: dict, papers: list[Path],
                                    doc_to_source: dict, schema: Schema,
