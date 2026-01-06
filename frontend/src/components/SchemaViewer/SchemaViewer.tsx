@@ -121,7 +121,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   // View mode, search, and sort state
   const [viewMode, setViewMode] = useState<'compact' | 'detailed'>(() => {
     const saved = localStorage.getItem('schemaViewer.viewMode');
-    return (saved === 'compact' || saved === 'detailed') ? saved : 'compact';
+    return (saved === 'compact' || saved === 'detailed') ? saved : 'detailed';
   });
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'type' | 'completeness' | 'modified'>('name');
@@ -839,13 +839,55 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             )}
           </div>
 
-          {/* Column Grid */}
+          {/* Column Grid with Sidebar for Detailed View */}
           <div className={cn(
-            "grid gap-2",
-            viewMode === 'compact'
-              ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6"
-              : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+            viewMode === 'detailed' ? "flex gap-4" : ""
           )}>
+            {/* Sidebar - Column List (Detailed View Only) */}
+            {viewMode === 'detailed' && (
+              <div className="w-48 flex-shrink-0">
+                <div className="sticky top-4">
+                  <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+                    Columns ({sortedColumns.length})
+                  </h4>
+                  <ScrollArea className="h-[calc(100vh-300px)]">
+                    <div className="space-y-1 pr-2">
+                      {sortedColumns.map((column) => {
+                        const isModified = schemaChanges?.changed_columns?.includes(column.name);
+                        const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
+                        const isSelected = selectedColumns.includes(column.name);
+                        return (
+                          <button
+                            key={column.name}
+                            onClick={() => {
+                              const element = document.getElementById(`column-${column.name}`);
+                              element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }}
+                            className={cn(
+                              "w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors",
+                              "hover:bg-muted",
+                              isSelected && "bg-primary/10 font-medium",
+                              isModified && "text-amber-600 dark:text-amber-400",
+                              isNew && "text-green-600 dark:text-green-400"
+                            )}
+                          >
+                            <span className="truncate block">{formatColumnName(column.name)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </ScrollArea>
+                </div>
+              </div>
+            )}
+
+            {/* Main Grid */}
+            <div className={cn(
+              "grid gap-3 flex-1",
+              viewMode === 'compact'
+                ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+                : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+            )}>
             {sortedColumns.map((column) => {
               const isModified = schemaChanges?.changed_columns?.includes(column.name);
               const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
@@ -914,6 +956,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               return (
               <Card
                 key={column.name}
+                id={`column-${column.name}`}
                 className={cn(
                   "relative",
                   selectedColumns.includes(column.name) && "ring-2 ring-primary",
@@ -1111,6 +1154,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               </Card>
               );
             })}
+            </div>
           </div>
         </CardContent>
       </Card>
