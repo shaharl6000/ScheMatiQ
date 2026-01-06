@@ -242,7 +242,7 @@ export interface StoppedData {
 }
 
 export interface WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'cell_extracted' | 'stopped';
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress';
   timestamp?: string;
   session_id?: string;
   message?: string;

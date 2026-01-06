@@ -50,6 +50,8 @@ interface ContinueDiscoveryDialogProps {
   onError: (error: string) => void;
   /** Called when extraction starts for live updates */
   onExtractionStarted?: (columns: string[]) => void;
+  /** Called when discovery starts - pass operationId to show full-page monitor */
+  onDiscoveryStarted?: (operationId: string) => void;
 }
 
 const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
@@ -60,7 +62,8 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   onClose,
   onSuccess,
   onError,
-  onExtractionStarted
+  onExtractionStarted,
+  onDiscoveryStarted,
 }) => {
   // Step state
   const [step, setStep] = useState<DialogStep>('documents');
@@ -245,7 +248,15 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
 
       setOperationId(response.operation_id);
 
-      // Start polling for progress
+      // If parent wants to show full-page monitor, notify and close dialog
+      if (onDiscoveryStarted) {
+        onDiscoveryStarted(response.operation_id);
+        onClose();
+        setLoading(false);
+        return;
+      }
+
+      // Otherwise, continue with in-dialog polling
       pollIntervalRef.current = setInterval(async () => {
         try {
           const status = await schemaAPI.continueDiscovery.getStatus(sessionId, response.operation_id);

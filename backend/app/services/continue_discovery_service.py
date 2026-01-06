@@ -608,6 +608,20 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             batch_size = config.get("documents_batch_size", 1)
             operation.total_batches = math.ceil(len(documents) / batch_size)
 
+            # Broadcast discovery starting
+            await self.broadcast_event(
+                operation.session_id,
+                "continue_discovery_progress",
+                {
+                    "operation_id": operation_id,
+                    "phase": "discovery",
+                    "progress": 0.1,
+                    "message": f"Starting schema discovery with {len(documents)} documents...",
+                    "total_documents": len(documents),
+                    "initial_columns": len(operation.initial_columns)
+                }
+            )
+
             # Run schema discovery with initial schema
             print(f"DEBUG: Starting discover_schema with initial_schema")
             result_schema, contributing_files, non_contributing_files, evolution = discover_schema(
