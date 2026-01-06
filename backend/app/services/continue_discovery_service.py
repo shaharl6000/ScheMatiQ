@@ -123,6 +123,125 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         qbsd_work_dir.mkdir(exist_ok=True)
         return qbsd_work_dir
 
+    # ==================== Statistics Computation ====================
+
+    def _recompute_statistics(self, session_id: str, preserve_evolution: bool = True) -> None:
+        """
+        Recompute statistics from data.jsonl after schema changes.
+
+        This properly computes column stats (non_null_count, unique_count, data_type)
+        instead of just copying basic column info.
+
+        Args:
+            session_id: The session ID
+            preserve_evolution: If True, preserve existing schema_evolution data
+        """
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            print(f"DEBUG: Cannot recompute statistics - session {session_id} not found")
+            return
+
+        session_dir = self._get_data_dir() / session_id
+        data_file = session_dir / "data.jsonl"
+
+        if not data_file.exists():
+            print(f"DEBUG: Cannot recompute statistics - no data.jsonl found")
+            return
+
+        # Read all rows from data file
+        data_rows = []
+        try:
+            with open(data_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        data_rows.append(json.loads(line))
+        except Exception as e:
+            print(f"DEBUG: Error reading data for statistics: {e}")
+            return
+
+        if not data_rows:
+            print(f"DEBUG: No data rows found for statistics computation")
+            return
+
+        # Preserve existing schema evolution
+        existing_evolution = None
+        if preserve_evolution and session.statistics and session.statistics.schema_evolution:
+            existing_evolution = session.statistics.schema_evolution
+
+        # Helper function to check if a value is valid (non-null)
+        def is_valid_value(value):
+            if value is None:
+                return False
+            if isinstance(value, dict):
+                answer = value.get("answer")
+                if answer is None or answer == "None" or answer == "" or answer == "[]":
+                    return False
+                if isinstance(answer, str) and answer.strip().lower() in ["not found", "n/a", "none", "unknown"]:
+                    return False
+                return True
+            if isinstance(value, str) and value.strip().lower() in ["not found", "n/a", "none", "unknown", ""]:
+                return False
+            return value != "None" and value != "" and value != "[]"
+
+        # Compute statistics for each column
+        columns = []
+        for col in session.columns:
+            non_null_count = 0
+            unique_values = set()
+
+            for row in data_rows:
+                # Handle both DataRow format (with 'data' key) and direct format
+                row_data = row.get('data', row)
+
+                if col.name in row_data:
+                    value = row_data[col.name]
+                    if is_valid_value(value):
+                        non_null_count += 1
+                    # Count unique values
+                    try:
+                        unique_values.add(json.dumps(value, sort_keys=True))
+                    except (TypeError, ValueError):
+                        unique_values.add(str(value))
+
+            unique_count = len(unique_values)
+
+            col_info = ColumnInfo(
+                name=col.name,
+                definition=col.definition,
+                rationale=col.rationale,
+                data_type="object",
+                non_null_count=non_null_count,
+                unique_count=unique_count,
+                source_document=col.source_document,
+                discovery_iteration=col.discovery_iteration,
+                allowed_values=col.allowed_values,
+                auto_expand_threshold=col.auto_expand_threshold
+            )
+            columns.append(col_info)
+
+        # Calculate overall completeness
+        total_cells = len(data_rows) * len(columns)
+        non_null_cells = sum(col.non_null_count or 0 for col in columns)
+        completeness = (non_null_cells / total_cells * 100) if total_cells > 0 else 0.0
+
+        if math.isnan(completeness) or math.isinf(completeness):
+            completeness = 0.0
+
+        # Import model for type checking
+        from app.models.session import DataStatistics
+
+        # Create or update statistics
+        session.statistics = DataStatistics(
+            total_rows=len(data_rows),
+            total_columns=len(columns),
+            completeness=completeness,
+            column_stats=columns,
+            schema_evolution=existing_evolution  # Preserve existing evolution
+        )
+
+        self.session_manager.update_session(session)
+        print(f"DEBUG: Statistics recomputed - {len(data_rows)} rows, {len(columns)} columns, {completeness:.1f}% complete")
+
     # ==================== Document Discovery ====================
 
     async def get_available_documents(self, session_id: str) -> Dict[str, Any]:
@@ -833,6 +952,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 self.session_manager.update_session(session)
                 print(f"DEBUG: Set session status to 'completed' after discovery")
 
+            # Recompute statistics with proper column stats (non_null_count, unique_count, etc.)
+            self._recompute_statistics(operation.session_id, preserve_evolution=True)
+            print(f"DEBUG: Statistics recomputed after discovery phase")
+
             # Complete discovery phase
             operation.status = "completed"
             operation.phase = "discovery"
@@ -1215,6 +1338,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 session.status = "completed"
                 self.session_manager.update_session(session)
                 print(f"DEBUG: Set session status to 'completed' after incremental extraction")
+
+            # Recompute statistics with proper column stats (non_null_count, unique_count, etc.)
+            self._recompute_statistics(operation.session_id, preserve_evolution=True)
+            print(f"DEBUG: Statistics recomputed after extraction phase")
 
             # Cleanup
             schema_file.unlink(missing_ok=True)
