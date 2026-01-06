@@ -58,7 +58,7 @@ class TableBuilder:
     def _load_schema(self, schema_path: Path) -> Schema:
         """Load schema from JSON file."""
         data = json.loads(schema_path.read_text(encoding="utf-8"))
-        
+
         # Convert dictionary columns to Column objects
         columns = []
         for col_dict in data["schema"]:
@@ -67,10 +67,11 @@ class TableBuilder:
                 name = col_dict.get("column") or col_dict.get("name")
                 definition = col_dict.get("definition", "")
                 rationale = col_dict.get("explanation", "") or col_dict.get("rationale", "")
-                columns.append(Column(name=name, definition=definition, rationale=rationale))
+                allowed_values = col_dict.get("allowed_values")
+                columns.append(Column(name=name, definition=definition, rationale=rationale, allowed_values=allowed_values))
             else:
                 columns.append(col_dict)  # Already a Column object
-        
+
         return Schema(query=data["query"],
                      columns=columns,
                      max_keys=len(data["schema"]))

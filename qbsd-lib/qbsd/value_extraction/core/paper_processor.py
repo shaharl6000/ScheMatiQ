@@ -480,8 +480,10 @@ class PaperProcessor:
 
         # mode == "one_by_one" with optimized fallback logic
         row: Dict[str, Any] = {}
+        print(f"🔍 Processing {len(schema.columns)} columns one-by-one: {[c.name for c in schema.columns]}")
         for col in schema.columns:
             col_value = None
+            print(f"  → Extracting column: {col.name}")
 
             # Attempt 1: normal rules, per-column retrieval
             first = _single_column_attempt(col, strict=False, k_override=None, use_snippets=False)
@@ -506,8 +508,11 @@ class PaperProcessor:
                 # Attach source filename to excerpts
                 col_value = self._attach_source_to_excerpts({col.name: col_value}, paper_title).get(col.name, col_value)
                 row[col.name] = col_value
+                print(f"    ✓ Found value for {col.name}: {str(col_value.get('answer', ''))[:50]}...")
                 if row_name:
                     self._notify_value_extracted(row_name, col.name, col_value)
+            else:
+                print(f"    ✗ No value found for {col.name}")
 
         return row
     
