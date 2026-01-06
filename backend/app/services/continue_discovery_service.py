@@ -31,7 +31,7 @@ sys.path.insert(0, str(QBSD_LIB_ROOT))
 try:
     from qbsd.core import qbsd as QBSD
     from qbsd.core.qbsd import discover_schema
-    from qbsd.core.schema import Schema, Column, SchemaEvolution
+    from qbsd.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot
     from qbsd.core.llm_backends import GeminiLLM
     from qbsd.core.retrievers import EmbeddingRetriever
     from qbsd.core import utils as qbsd_utils
