@@ -141,6 +141,26 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             print(f"DEBUG: Cannot recompute statistics - session {session_id} not found")
             return
 
+        # Debug: print all column names before deduplication
+        print(f"DEBUG: session.columns before dedup ({len(session.columns)}): {[c.name for c in session.columns]}")
+
+        # Deduplicate session.columns by name (keep first occurrence)
+        seen_names = set()
+        unique_columns = []
+        for col in session.columns:
+            if col.name and col.name not in seen_names:
+                seen_names.add(col.name)
+                unique_columns.append(col)
+            elif col.name:
+                print(f"DEBUG: Removing duplicate column: {col.name}")
+
+        if len(unique_columns) != len(session.columns):
+            print(f"DEBUG: Deduplicated columns: {len(session.columns)} -> {len(unique_columns)}")
+            session.columns = unique_columns
+            self.session_manager.update_session(session)
+
+        actual_column_count = len(unique_columns)
+
         session_dir = self._get_data_dir() / session_id
         data_file = session_dir / "data.jsonl"
 
@@ -167,7 +187,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         existing_evolution = None
         if preserve_evolution and session.statistics and session.statistics.schema_evolution:
             existing_evolution = session.statistics.schema_evolution
-            actual_total = len(session.columns)
+            actual_total = actual_column_count  # Use deduplicated count
 
             print(f"DEBUG: Schema evolution cleanup - actual columns: {actual_total}")
             print(f"DEBUG: Before cleanup - {len(existing_evolution.snapshots)} snapshots:")
@@ -932,6 +952,17 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 # Use alias to avoid conflict with qbsd.core.schema.SchemaEvolution
                 from app.models.session import SchemaEvolution as SessionSchemaEvolution, SchemaSnapshot as SessionSchemaSnapshot
 
+                # First, deduplicate existing session.columns
+                seen_names = set()
+                unique_cols = []
+                for col in session.columns:
+                    if col.name and col.name not in seen_names:
+                        seen_names.add(col.name)
+                        unique_cols.append(col)
+                if len(unique_cols) != len(session.columns):
+                    print(f"DEBUG: Deduplicated existing columns: {len(session.columns)} -> {len(unique_cols)}")
+                    session.columns = unique_cols
+
                 for col_data in new_columns:
                     new_col = ColumnInfo(
                         name=col_data["name"],
@@ -944,6 +975,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     # Only add if not already present
                     if not any(c.name == new_col.name for c in session.columns):
                         session.columns.append(new_col)
+
+                # Get actual unique column count after adding new columns
+                actual_unique_count = len(session.columns)
+                print(f"DEBUG: Column count after adding new columns: {actual_unique_count}")
 
                 # Add null values for new columns in data.jsonl
                 data_file = self._get_data_dir() / operation.session_id / "data.jsonl"
@@ -981,11 +1016,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     new_snapshot = SessionSchemaSnapshot(
                         iteration=next_iteration,
                         documents_processed=doc_names,
-                        total_columns=len(session.columns),
+                        total_columns=actual_unique_count,  # Use deduplicated count
                         new_columns=[col["name"] for col in new_columns],
                         cumulative_documents=operation.total_batches
                     )
                     stats_evolution.snapshots.append(new_snapshot)
+                    print(f"DEBUG: Created snapshot with total_columns={actual_unique_count}")
 
                     # Update column sources with actual document name (not generic iteration)
                     for col_data in new_columns:
@@ -998,7 +1034,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                                 source = f"continue_discovery_iteration_{next_iteration}"
                             stats_evolution.column_sources[col_data["name"]] = source
 
-                    session.statistics.total_columns = len(session.columns)
+                    session.statistics.total_columns = actual_unique_count  # Use deduplicated count
 
                 self.session_manager.update_session(session)
                 print(f"DEBUG: Added {len(new_columns)} new columns to session after discovery")
