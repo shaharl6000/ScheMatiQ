@@ -13,8 +13,10 @@ from pathlib import Path
 from datetime import datetime
 
 from app.models.session import (
-    ColumnInfo, VisualizationSession, SchemaEvolution, SchemaSnapshot
+    ColumnInfo, VisualizationSession
 )
+# Note: SchemaEvolution, SchemaSnapshot are imported locally where needed
+# to avoid conflict with qbsd.core.schema.SchemaEvolution
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
@@ -29,7 +31,7 @@ sys.path.insert(0, str(QBSD_LIB_ROOT))
 try:
     from qbsd.core import qbsd as QBSD
     from qbsd.core.qbsd import discover_schema
-    from qbsd.core.schema import Schema, Column
+    from qbsd.core.schema import Schema, Column, SchemaEvolution
     from qbsd.core.llm_backends import GeminiLLM
     from qbsd.core.retrievers import EmbeddingRetriever
     from qbsd.core import utils as qbsd_utils
@@ -761,7 +763,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             session = self.session_manager.get_session(operation.session_id)
             if session and new_columns:
                 # Use alias to avoid conflict with qbsd.core.schema.SchemaEvolution
-                from app.models.session import SchemaEvolution as SessionSchemaEvolution, SchemaSnapshot
+                from app.models.session import SchemaEvolution as SessionSchemaEvolution, SchemaSnapshot as SessionSchemaSnapshot
 
                 for col_data in new_columns:
                     new_col = ColumnInfo(
@@ -802,21 +804,21 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                             column_sources={}
                         )
 
-                    evolution = session.statistics.schema_evolution
-                    next_iteration = len(evolution.snapshots) + 1
+                    stats_evolution = session.statistics.schema_evolution
+                    next_iteration = len(stats_evolution.snapshots) + 1
 
-                    new_snapshot = SchemaSnapshot(
+                    new_snapshot = SessionSchemaSnapshot(
                         iteration=next_iteration,
                         documents_processed=[f.name for f in (self._get_data_dir() / operation.session_id / "documents").glob("*") if f.is_file()][:10],
                         total_columns=len(session.columns),
                         new_columns=[col["name"] for col in new_columns],
                         cumulative_documents=operation.total_batches
                     )
-                    evolution.snapshots.append(new_snapshot)
+                    stats_evolution.snapshots.append(new_snapshot)
 
                     for col_data in new_columns:
-                        if col_data["name"] not in evolution.column_sources:
-                            evolution.column_sources[col_data["name"]] = f"continue_discovery_iteration_{next_iteration}"
+                        if col_data["name"] not in stats_evolution.column_sources:
+                            stats_evolution.column_sources[col_data["name"]] = f"continue_discovery_iteration_{next_iteration}"
 
                     session.statistics.total_columns = len(session.columns)
 
@@ -1128,34 +1130,34 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Update schema evolution for Statistics chart
             session = self.session_manager.get_session(operation.session_id)
             if session and session.statistics:
-                from app.models.session import SchemaEvolution, SchemaSnapshot
+                from app.models.session import SchemaEvolution as SessionSchemaEvolution, SchemaSnapshot as SessionSchemaSnapshot
 
                 # Initialize schema_evolution if not present
                 if not session.statistics.schema_evolution:
-                    session.statistics.schema_evolution = SchemaEvolution(
+                    session.statistics.schema_evolution = SessionSchemaEvolution(
                         snapshots=[],
                         column_sources={}
                     )
 
-                evolution = session.statistics.schema_evolution
+                stats_evolution = session.statistics.schema_evolution
 
                 # Determine next iteration number
-                next_iteration = len(evolution.snapshots) + 1
+                next_iteration = len(stats_evolution.snapshots) + 1
 
                 # Create new snapshot for continue discovery
-                new_snapshot = SchemaSnapshot(
+                new_snapshot = SessionSchemaSnapshot(
                     iteration=next_iteration,
                     documents_processed=list(operation.extraction_rows) if operation.extraction_rows else ["all"],
                     total_columns=len(session.columns),
                     new_columns=columns_to_extract,
                     cumulative_documents=operation.total_documents
                 )
-                evolution.snapshots.append(new_snapshot)
+                stats_evolution.snapshots.append(new_snapshot)
 
                 # Update column sources for new columns
                 for col_name in columns_to_extract:
-                    if col_name not in evolution.column_sources:
-                        evolution.column_sources[col_name] = f"continue_discovery_iteration_{next_iteration}"
+                    if col_name not in stats_evolution.column_sources:
+                        stats_evolution.column_sources[col_name] = f"continue_discovery_iteration_{next_iteration}"
 
                 # Update total columns in statistics
                 session.statistics.total_columns = len(session.columns)
