@@ -33,7 +33,7 @@ import {
   NewColumnInfo,
   ColumnInfo,
 } from '../../types';
-import { schemaAPI } from '../../services/api';
+import { schemaAPI, loadAPI } from '../../services/api';
 import { getApiKeyForProvider, encryptAndStore } from '../../utils/apiKeyStorage';
 
 type DialogStep = 'documents' | 'llm_config' | 'discovery' | 'review' | 'rows' | 'extraction' | 'no_new_columns';
@@ -178,6 +178,18 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     setStep('discovery');
 
     try {
+      // If uploading files, upload them first
+      if (documentSource === 'upload' && uploadedFiles.length > 0) {
+        try {
+          await loadAPI.addDocuments(sessionId, uploadedFiles);
+        } catch (uploadError: any) {
+          onError(uploadError.response?.data?.detail || 'Failed to upload documents');
+          setStep('documents');
+          setLoading(false);
+          return;
+        }
+      }
+
       const response = await schemaAPI.continueDiscovery.start(sessionId, {
         document_source: documentSource,
         cloud_dataset: documentSource === 'cloud' ? selectedCloudDataset : undefined,
