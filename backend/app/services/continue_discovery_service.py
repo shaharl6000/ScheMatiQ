@@ -27,6 +27,7 @@ QBSD_LIB_ROOT = PROJECT_ROOT / "qbsd-lib"
 sys.path.insert(0, str(QBSD_LIB_ROOT))
 
 try:
+    from qbsd.core import qbsd as QBSD
     from qbsd.core.qbsd import discover_schema
     from qbsd.core.schema import Schema, Column
     from qbsd.core.llm_backends import GeminiLLM
@@ -593,16 +594,20 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Build LLM
             llm = qbsd_utils.build_llm(llm_config)
 
-            # Build retriever with configurable settings (or defaults)
-            retriever_cfg = config.get("retriever_config") or {}
-            retriever = EmbeddingRetriever(
-                model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
-                k=retriever_cfg.get("k", 15),
-                max_words=retriever_cfg.get("passage_chars", 512),
-                enable_dynamic_k=retriever_cfg.get("enable_dynamic_k", True),
-                dynamic_k_threshold=retriever_cfg.get("dynamic_k_threshold", 0.65),
-                dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
-            )
+            # Build retriever - use config if provided, otherwise use library defaults
+            retriever_cfg = config.get("retriever_config")
+            if retriever_cfg:
+                retriever = EmbeddingRetriever(
+                    model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
+                    k=retriever_cfg.get("k", 15),
+                    max_words=retriever_cfg.get("passage_chars", 512),
+                    enable_dynamic_k=retriever_cfg.get("enable_dynamic_k", True),
+                    dynamic_k_threshold=retriever_cfg.get("dynamic_k_threshold", 0.65),
+                    dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
+                )
+            else:
+                # No config provided - use library defaults
+                retriever = EmbeddingRetriever()
 
             # Calculate batches
             batch_size = config.get("documents_batch_size", 1)
@@ -622,33 +627,129 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 }
             )
 
-            # Run schema discovery with initial schema
-            print(f"DEBUG: Starting discover_schema with initial_schema")
-            result_schema, contributing_files, non_contributing_files, evolution = discover_schema(
-                query=query,
-                documents=documents,
-                filenames=filenames,
-                max_keys_schema=config.get("max_keys_schema", 100),
-                llm=llm,
-                retriever=retriever,
-                documents_batch_size=batch_size,
-                context_window_size=llm_config.get("context_window_size", 8192),
-                initial_schema=initial_schema,
-                max_iters=6
-            )
+            # Manual iteration loop for schema discovery (allows stop between batches)
+            print(f"DEBUG: Starting manual schema discovery loop with initial_schema")
 
-            print(f"DEBUG: discover_schema completed with {len(result_schema.columns)} columns")
+            # Create document batches
+            batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
+            filename_batches = [filenames[i:i+batch_size] for i in range(0, len(filenames), batch_size)]
 
-            # Check for stop
-            if self.is_stop_requested(operation_id):
-                operation.status = "stopped"
-                operation.completed_at = datetime.now()
+            # Update operation with actual batch count
+            operation.total_batches = len(batches)
+
+            # Initialize tracking
+            current_schema = initial_schema
+            context_window_size = llm_config.get("context_window_size", 8192)
+            convergence_threshold = 2
+            unchanged_count = 0
+            evolution = SchemaEvolution()
+            cumulative_docs = 0
+            stopped = False
+
+            for iteration, (batch_docs, batch_names) in enumerate(zip(batches, filename_batches)):
+                # CHECK STOP FLAG BEFORE EACH ITERATION
+                if self.is_stop_requested(operation_id):
+                    print(f"🛑 Stop requested during schema discovery at iteration {iteration}")
+                    stopped = True
+                    operation.status = "stopped"
+                    operation.completed_at = datetime.now()
+                    await self.broadcast_event(
+                        operation.session_id,
+                        "continue_discovery_stopped",
+                        {"operation_id": operation_id, "message": "Stopped by user during discovery"}
+                    )
+                    return
+
+                # Update progress
+                operation.current_batch = iteration + 1
+                progress = (iteration + 1) / len(batches)
+
                 await self.broadcast_event(
                     operation.session_id,
-                    "continue_discovery_stopped",
-                    {"operation_id": operation_id, "message": "Stopped by user"}
+                    "continue_discovery_progress",
+                    {
+                        "operation_id": operation_id,
+                        "phase": "discovery",
+                        "iteration": iteration + 1,
+                        "max_iterations": len(batches),
+                        "progress": progress,
+                        "message": f"Processing batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs)...",
+                        "current_columns": len(current_schema.columns)
+                    }
                 )
-                return
+
+                print(f"DEBUG: Schema discovery batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs: {batch_names})")
+
+                # Track column names before this iteration
+                columns_before = {col.name.lower() for col in current_schema.columns}
+                cumulative_docs += len(batch_docs)
+
+                # Select relevant content from this batch's documents
+                relevant_content = QBSD.select_relevant_content(
+                    docs=batch_docs,
+                    query=query,
+                    retriever=retriever
+                )
+                print(f"DEBUG: Selected {len(relevant_content)} relevant passages from batch")
+
+                # Generate schema for this batch
+                try:
+                    schema_result = QBSD.generate_schema(
+                        passages=relevant_content,
+                        query=query,
+                        max_keys_schema=config.get("max_keys_schema", 100),
+                        current_schema=current_schema,
+                        llm=llm,
+                        context_window_size=context_window_size
+                    )
+                    # generate_schema returns a tuple (Schema, bool)
+                    new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
+                    print(f"DEBUG: Generated schema with {len(new_schema.columns)} columns")
+                except Exception as e:
+                    print(f"DEBUG: ERROR in generate_schema: {e}")
+                    raise
+
+                # Merge with existing schema
+                merged_schema = current_schema.merge(new_schema)
+                print(f"DEBUG: Merged schema has {len(merged_schema.columns)} columns")
+
+                # Identify NEW columns added in this iteration
+                columns_after = {col.name.lower() for col in merged_schema.columns}
+                new_column_names_lower = columns_after - columns_before
+                new_columns_in_batch = [col.name for col in merged_schema.columns if col.name.lower() in new_column_names_lower]
+
+                # Record column sources
+                batch_source = ", ".join(batch_names) if batch_names else f"batch_{iteration + 1}"
+                for col_name in new_columns_in_batch:
+                    if col_name not in evolution.column_sources:
+                        evolution.column_sources[col_name] = batch_source
+
+                # Add snapshot to evolution
+                evolution.snapshots.append(SchemaSnapshot(
+                    iteration=iteration + 1,
+                    documents_processed=batch_names,
+                    total_columns=len(merged_schema.columns),
+                    new_columns=new_columns_in_batch,
+                    cumulative_documents=cumulative_docs
+                ))
+
+                # Check convergence
+                if QBSD.evaluate_schema_convergence(current_schema, merged_schema):
+                    unchanged_count += 1
+                    print(f"DEBUG: Schema unchanged (count: {unchanged_count}/{convergence_threshold})")
+                    if unchanged_count >= convergence_threshold:
+                        print(f"DEBUG: Schema converged after {iteration + 1} batches")
+                        break
+                else:
+                    unchanged_count = 0
+
+                current_schema = merged_schema
+
+                # Small delay to allow other tasks
+                await asyncio.sleep(0.1)
+
+            result_schema = current_schema
+            print(f"DEBUG: Schema discovery completed with {len(result_schema.columns)} columns after {len(evolution.snapshots)} batches")
 
             # Identify new columns
             new_columns = self._identify_new_columns(operation.initial_columns, result_schema)
@@ -822,7 +923,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             if discovery_config_file.exists():
                 with open(discovery_config_file) as f:
                     discovery_config = json.load(f)
-            retriever_cfg = discovery_config.get("retriever_config") or {}
+            retriever_cfg = discovery_config.get("retriever_config")
 
             # Broadcast extraction start
             await self.broadcast_event(
@@ -859,16 +960,20 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             with open(schema_file, 'w') as f:
                 json.dump(schema_data, f, indent=2)
 
-            # Setup LLM and retriever with configurable settings
+            # Setup LLM and retriever - use config if provided, otherwise use library defaults
             llm = qbsd_utils.build_llm(llm_config)
-            retriever = EmbeddingRetriever(
-                model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
-                k=retriever_cfg.get("k", 15),
-                max_words=retriever_cfg.get("passage_chars", 512),
-                enable_dynamic_k=retriever_cfg.get("enable_dynamic_k", True),
-                dynamic_k_threshold=retriever_cfg.get("dynamic_k_threshold", 0.65),
-                dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
-            )
+            if retriever_cfg:
+                retriever = EmbeddingRetriever(
+                    model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
+                    k=retriever_cfg.get("k", 15),
+                    max_words=retriever_cfg.get("passage_chars", 512),
+                    enable_dynamic_k=retriever_cfg.get("enable_dynamic_k", True),
+                    dynamic_k_threshold=retriever_cfg.get("dynamic_k_threshold", 0.65),
+                    dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
+                )
+            else:
+                # No config provided - use library defaults
+                retriever = EmbeddingRetriever()
 
             output_file = session_dir / f"incremental_output_{operation_id}.jsonl"
 

@@ -66,7 +66,7 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
   // Discovery phase progress
   const [discoveryProgress, setDiscoveryProgress] = useState({
     iteration: 0,
-    maxIterations: 6,
+    maxIterations: 0,  // Will be set from backend
     columnsDiscovered: 0,
     progress: 0,
   });
@@ -94,8 +94,8 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
         if (statusData.phase === 'discovery') {
           setDiscoveryProgress({
             iteration: statusData.current_batch,
-            maxIterations: statusData.total_batches || 6,
-            columnsDiscovered: statusData.new_columns.length,
+            maxIterations: statusData.total_batches || 0,
+            columnsDiscovered: statusData.new_columns?.length || 0,
             progress: statusData.progress * 100,
           });
           setCurrentMessage(`Analyzing documents... (${Math.round(statusData.progress * 100)}%)`);
@@ -176,8 +176,8 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
           setPhase('discovery');
           setDiscoveryProgress({
             iteration: data.iteration || 0,
-            maxIterations: data.max_iterations || 6,
-            columnsDiscovered: data.columns_discovered || 0,
+            maxIterations: data.max_iterations || 0,
+            columnsDiscovered: data.current_columns || 0,
             progress: (data.progress || 0) * 100,
           });
           setCurrentMessage(data.message || 'Discovering schema...');
@@ -308,8 +308,12 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
           <CardContent>
             <Progress value={discoveryProgress.progress} className="mb-2" />
             <div className="flex justify-between text-sm text-muted-foreground">
-              <span>Iteration {discoveryProgress.iteration}/{discoveryProgress.maxIterations}</span>
-              <span>{discoveryProgress.columnsDiscovered} new columns</span>
+              <span>
+                {discoveryProgress.maxIterations > 0
+                  ? `Batch ${discoveryProgress.iteration}/${discoveryProgress.maxIterations}`
+                  : 'Starting...'}
+              </span>
+              <span>{discoveryProgress.columnsDiscovered} columns</span>
             </div>
           </CardContent>
         </Card>
