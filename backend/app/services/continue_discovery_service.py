@@ -169,6 +169,11 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             existing_evolution = session.statistics.schema_evolution
             actual_total = len(session.columns)
 
+            print(f"DEBUG: Schema evolution cleanup - actual columns: {actual_total}")
+            print(f"DEBUG: Before cleanup - {len(existing_evolution.snapshots)} snapshots:")
+            for i, snap in enumerate(existing_evolution.snapshots):
+                print(f"DEBUG:   Snapshot {i}: iteration={snap.iteration}, total_columns={snap.total_columns}, new_columns={snap.new_columns}")
+
             # Remove duplicate snapshots (same iteration number)
             if existing_evolution.snapshots:
                 seen_iterations = set()
@@ -180,15 +185,16 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     else:
                         print(f"DEBUG: Removing duplicate snapshot for iteration {snapshot.iteration}")
                 if len(unique_snapshots) != len(existing_evolution.snapshots):
-                    existing_evolution.snapshots = unique_snapshots
                     print(f"DEBUG: Removed {len(existing_evolution.snapshots) - len(unique_snapshots)} duplicate snapshots")
+                    existing_evolution.snapshots = unique_snapshots
 
-                # Fix all snapshots to ensure total_columns is monotonically increasing
-                # and doesn't exceed actual column count
+                # Fix all snapshots to ensure total_columns doesn't exceed actual column count
                 for snapshot in existing_evolution.snapshots:
                     if snapshot.total_columns > actual_total:
                         print(f"DEBUG: Fixing snapshot {snapshot.iteration} total_columns: {snapshot.total_columns} -> {actual_total}")
                         snapshot.total_columns = actual_total
+
+            print(f"DEBUG: After cleanup - {len(existing_evolution.snapshots)} snapshots")
 
         # Helper function to check if a value is valid (non-null)
         def is_valid_value(value):

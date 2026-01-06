@@ -195,10 +195,24 @@ async def delete_column(session_id: str, column_name: str):
         # Update statistics to reflect deleted column
         if session.statistics and session.statistics.column_stats:
             session.statistics.column_stats = [
-                stat for stat in session.statistics.column_stats 
+                stat for stat in session.statistics.column_stats
                 if stat.name != column_name
             ]
             session.statistics.total_columns = len(session.columns)
+
+            # Update schema_evolution
+            if session.statistics.schema_evolution:
+                # Remove from column_sources
+                if column_name in session.statistics.schema_evolution.column_sources:
+                    del session.statistics.schema_evolution.column_sources[column_name]
+                # Update snapshots to reflect deletion
+                for snapshot in session.statistics.schema_evolution.snapshots:
+                    if column_name in snapshot.new_columns:
+                        snapshot.new_columns.remove(column_name)
+                    # Ensure total_columns doesn't exceed actual count
+                    if snapshot.total_columns > len(session.columns):
+                        snapshot.total_columns = len(session.columns)
+
             session_manager.update_session(session)
         
         # Broadcast schema update and data refresh trigger
@@ -257,6 +271,26 @@ async def add_column(
             }
         )
         session.modification_history.append(modification)
+
+        # Update statistics to include new column
+        if session.statistics:
+            # Add to column_stats
+            new_col_info = ColumnInfo(
+                name=add_request.name,
+                definition=add_request.definition,
+                rationale=add_request.rationale,
+                data_type=add_request.data_type or "object",
+                non_null_count=0,
+                unique_count=0,
+                allowed_values=add_request.allowed_values if add_request.allowed_values else None
+            )
+            session.statistics.column_stats.append(new_col_info)
+            session.statistics.total_columns = len(session.columns)
+
+            # Update schema_evolution
+            if session.statistics.schema_evolution:
+                # Add column source
+                session.statistics.schema_evolution.column_sources[add_request.name] = "manual_addition"
 
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
