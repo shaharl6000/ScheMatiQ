@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Loader2, Check, Info, AlertTriangle, Square, FolderOpen, Upload, Cloud } from 'lucide-react';
+import { Plus, Loader2, Check, Info, AlertTriangle, Square, Upload, Cloud } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
 import {
@@ -67,7 +67,8 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
 
   // Document source state
   const [documentInfo, setDocumentInfo] = useState<ContinueDiscoveryDocuments | null>(null);
-  const [documentSource, setDocumentSource] = useState<'original' | 'upload' | 'cloud'>('original');
+  const [documentSource, setDocumentSource] = useState<'upload' | 'cloud'>('cloud');
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [selectedCloudDataset, setSelectedCloudDataset] = useState<string>('');
 
   // LLM config state
@@ -106,8 +107,9 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   useEffect(() => {
     if (!open) {
       setStep('documents');
-      setDocumentSource('original');
+      setDocumentSource('cloud');
       setSelectedCloudDataset('');
+      setUploadedFiles([]);
       setNewColumns([]);
       setSelectedNewColumns(new Set());
       setRowSelection('all');
@@ -138,10 +140,8 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       const info = await schemaAPI.continueDiscovery.getDocuments(sessionId);
       setDocumentInfo(info);
 
-      // Pre-select original if available
-      if (info.can_use_original) {
-        setDocumentSource('original');
-      } else if (info.cloud_datasets.length > 0) {
+      // Pre-select cloud if datasets available, auto-select original dataset
+      if (info.cloud_datasets.length > 0) {
         setDocumentSource('cloud');
         if (info.original_cloud_dataset) {
           setSelectedCloudDataset(info.original_cloud_dataset);
@@ -360,22 +360,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           <Label className="text-sm font-medium">Select Document Source</Label>
 
           <RadioGroup value={documentSource} onValueChange={(v) => setDocumentSource(v as any)}>
-            {/* Original Documents */}
-            <div className="flex items-start space-x-3 p-3 border rounded-lg">
-              <RadioGroupItem value="original" id="original" disabled={!documentInfo?.can_use_original} />
-              <div className="flex-1">
-                <Label htmlFor="original" className="flex items-center gap-2 cursor-pointer">
-                  <FolderOpen className="h-4 w-4" />
-                  Use Original Documents
-                </Label>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {documentInfo?.can_use_original
-                    ? `${documentInfo.original_count} documents available${documentInfo.local_count !== undefined && documentInfo.cloud_count !== undefined ? ` (${documentInfo.local_count} local, ${documentInfo.cloud_count} cloud)` : ''}`
-                    : 'No original documents found'}
-                </p>
-              </div>
-            </div>
-
             {/* Cloud Storage */}
             <div className="flex items-start space-x-3 p-3 border rounded-lg">
               <RadioGroupItem value="cloud" id="cloud" disabled={!documentInfo?.cloud_datasets.length} />
@@ -408,16 +392,35 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
             </div>
 
             {/* Upload New */}
-            <div className="flex items-start space-x-3 p-3 border rounded-lg opacity-50">
-              <RadioGroupItem value="upload" id="upload" disabled />
+            <div className="flex items-start space-x-3 p-3 border rounded-lg">
+              <RadioGroupItem value="upload" id="upload" />
               <div className="flex-1">
                 <Label htmlFor="upload" className="flex items-center gap-2 cursor-pointer">
                   <Upload className="h-4 w-4" />
                   Upload New Documents
                 </Label>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Coming soon - upload new documents for schema discovery
+                  Upload documents for schema discovery
                 </p>
+                {documentSource === 'upload' && (
+                  <div className="mt-3">
+                    <input
+                      type="file"
+                      multiple
+                      accept=".txt,.md,.pdf"
+                      onChange={(e) => {
+                        const files = Array.from(e.target.files || []);
+                        setUploadedFiles(files);
+                      }}
+                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 cursor-pointer"
+                    />
+                    {uploadedFiles.length > 0 && (
+                      <p className="text-sm text-muted-foreground mt-2">
+                        {uploadedFiles.length} file{uploadedFiles.length !== 1 ? 's' : ''} selected
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </RadioGroup>
@@ -428,7 +431,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         <Button variant="outline" onClick={onClose}>Cancel</Button>
         <Button
           onClick={() => setStep('llm_config')}
-          disabled={loading || (documentSource === 'original' && !documentInfo?.can_use_original) || (documentSource === 'cloud' && !selectedCloudDataset)}
+          disabled={loading || (documentSource === 'cloud' && !selectedCloudDataset) || (documentSource === 'upload' && uploadedFiles.length === 0)}
         >
           Next
         </Button>
