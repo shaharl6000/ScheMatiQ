@@ -230,9 +230,9 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           provider: llmProvider,
           model: llmModel,
           api_key: apiKey,
-          max_output_tokens: 4096,
-          temperature: 0.7,
-          context_window_size: 8192
+          max_output_tokens: 8192,
+          temperature: 0.2,
+          context_window_size: 1000000
         },
         retriever_config: hasRetrieverConfig ? {
           model_name: retrieverConfig.model_name || undefined,
