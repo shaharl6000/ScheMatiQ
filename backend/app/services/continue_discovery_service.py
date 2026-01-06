@@ -163,10 +163,32 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             print(f"DEBUG: No data rows found for statistics computation")
             return
 
-        # Preserve existing schema evolution
+        # Preserve existing schema evolution, but fix any corrupted data
         existing_evolution = None
         if preserve_evolution and session.statistics and session.statistics.schema_evolution:
             existing_evolution = session.statistics.schema_evolution
+            actual_total = len(session.columns)
+
+            # Remove duplicate snapshots (same iteration number)
+            if existing_evolution.snapshots:
+                seen_iterations = set()
+                unique_snapshots = []
+                for snapshot in existing_evolution.snapshots:
+                    if snapshot.iteration not in seen_iterations:
+                        seen_iterations.add(snapshot.iteration)
+                        unique_snapshots.append(snapshot)
+                    else:
+                        print(f"DEBUG: Removing duplicate snapshot for iteration {snapshot.iteration}")
+                if len(unique_snapshots) != len(existing_evolution.snapshots):
+                    existing_evolution.snapshots = unique_snapshots
+                    print(f"DEBUG: Removed {len(existing_evolution.snapshots) - len(unique_snapshots)} duplicate snapshots")
+
+                # Fix all snapshots to ensure total_columns is monotonically increasing
+                # and doesn't exceed actual column count
+                for snapshot in existing_evolution.snapshots:
+                    if snapshot.total_columns > actual_total:
+                        print(f"DEBUG: Fixing snapshot {snapshot.iteration} total_columns: {snapshot.total_columns} -> {actual_total}")
+                        snapshot.total_columns = actual_total
 
         # Helper function to check if a value is valid (non-null)
         def is_valid_value(value):
