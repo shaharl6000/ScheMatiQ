@@ -8,6 +8,7 @@ import json
 import asyncio
 import uuid
 import math
+import shutil
 from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
 from datetime import datetime
@@ -1053,8 +1054,40 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
             output_file = session_dir / f"incremental_output_{operation_id}.jsonl"
 
-            # Count documents
-            doc_count = sum(1 for f in docs_dir.iterdir() if f.is_file() and f.suffix in ['.txt', '.md']) if docs_dir.exists() else 0
+            # Get existing row names from data.jsonl - only extract for existing rows
+            existing_rows = set()
+            data_file = session_dir / "data.jsonl"
+            if data_file.exists():
+                with open(data_file, 'r') as f:
+                    for line in f:
+                        if line.strip():
+                            row_data = json.loads(line)
+                            row_name = row_data.get('row_name') or row_data.get('_row_name')
+                            if row_name:
+                                existing_rows.add(row_name)
+            print(f"DEBUG: Existing rows to extract: {existing_rows}")
+
+            # Create filtered docs directory with only documents for existing rows
+            filtered_docs_dir = session_dir / "documents_filtered"
+            if filtered_docs_dir.exists():
+                shutil.rmtree(filtered_docs_dir)
+            filtered_docs_dir.mkdir(exist_ok=True)
+
+            # Copy only documents that belong to existing rows
+            if docs_dir.exists():
+                for doc_path in docs_dir.iterdir():
+                    if doc_path.is_file() and doc_path.suffix in ['.txt', '.md']:
+                        # Extract row name from filename (first part before underscore)
+                        row_name = doc_path.stem.split('_')[0]
+                        if row_name in existing_rows:
+                            shutil.copy2(doc_path, filtered_docs_dir / doc_path.name)
+                            print(f"DEBUG: Including document for existing row: {doc_path.name}")
+                        else:
+                            print(f"DEBUG: Skipping document for new row: {doc_path.name}")
+
+            # Count filtered documents
+            doc_count = sum(1 for f in filtered_docs_dir.iterdir() if f.is_file()) if filtered_docs_dir.exists() else 0
+            print(f"DEBUG: Filtered to {doc_count} documents for existing rows")
             operation.total_documents = doc_count
 
             # Track progress via callback
@@ -1100,14 +1133,14 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             def should_stop():
                 return self.is_stop_requested(operation_id)
 
-            # Run extraction
-            if docs_dir.exists() and doc_count > 0:
-                print(f"DEBUG: Starting incremental extraction for {len(columns_to_extract)} columns")
+            # Run extraction (using filtered docs directory with only existing rows)
+            if filtered_docs_dir.exists() and doc_count > 0:
+                print(f"DEBUG: Starting incremental extraction for {len(columns_to_extract)} columns on {doc_count} documents")
 
                 def run_extraction():
                     return build_table_jsonl(
                         schema_path=schema_file,
-                        docs_directories=[docs_dir],
+                        docs_directories=[filtered_docs_dir],  # Use filtered directory
                         output_path=output_file,
                         llm=llm,
                         retriever=retriever,
@@ -1121,6 +1154,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
                 await asyncio.get_event_loop().run_in_executor(None, run_extraction)
                 print(f"DEBUG: Incremental extraction completed")
+
+            # Clean up filtered docs directory
+            if filtered_docs_dir.exists():
+                shutil.rmtree(filtered_docs_dir, ignore_errors=True)
 
             # Merge results with existing data
             await self._merge_incremental_data(
