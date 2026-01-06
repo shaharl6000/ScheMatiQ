@@ -1314,8 +1314,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         sessionId={sessionId}
         sessionType={sessionType || 'qbsd'}
         currentColumns={
-          // Deduplicate columns by name (defensive fix for potential data issues)
-          Array.from(new Map(localColumns.map(c => [c.name, c])).values())
+          // Use displayColumns which filters out excerpt columns, then deduplicate
+          Array.from(new Map(displayColumns.map(c => [c.name, c])).values())
         }
         query={query || ''}
         onClose={() => setContinueDiscoveryDialogOpen(false)}
@@ -1331,7 +1331,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           <ContinueDiscoveryMonitor
             sessionId={sessionId}
             operationId={continueDiscoveryOperationId}
-            initialColumns={Array.from(new Set(localColumns.map(c => c.name)))}
+            initialColumns={Array.from(new Set(displayColumns.map(c => c.name)))}
             onComplete={handleMonitorComplete}
             onCancel={handleMonitorCancel}
             onError={handleContinueDiscoveryError}
