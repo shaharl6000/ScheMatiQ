@@ -825,6 +825,13 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 self.session_manager.update_session(session)
                 print(f"DEBUG: Added {len(new_columns)} new columns to session after discovery")
 
+            # Ensure session status is 'completed' so Data tab is enabled (always, even if no new columns)
+            session = self.session_manager.get_session(operation.session_id)
+            if session:
+                session.status = "completed"
+                self.session_manager.update_session(session)
+                print(f"DEBUG: Set session status to 'completed' after discovery")
+
             # Complete discovery phase
             operation.status = "completed"
             operation.phase = "discovery"
@@ -1164,6 +1171,13 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
                 self.session_manager.update_session(session)
                 print(f"DEBUG: Added schema evolution snapshot (iteration {next_iteration}, {len(columns_to_extract)} new columns)")
+
+            # Update session status to completed after extraction
+            session = self.session_manager.get_session(operation.session_id)
+            if session:
+                session.status = "completed"
+                self.session_manager.update_session(session)
+                print(f"DEBUG: Set session status to 'completed' after incremental extraction")
 
             # Cleanup
             schema_file.unlink(missing_ok=True)

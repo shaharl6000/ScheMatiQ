@@ -243,7 +243,8 @@ const Visualize = () => {
               break;
             case 'continue_discovery_completed':
               console.log('Continue discovery completed:', message.data);
-              queryClient.invalidateQueries(['session', sessionId, mode]);
+              queryClient.refetchQueries(['session', sessionId, mode]);
+              queryClient.refetchQueries(['data', sessionId, mode]);
               break;
             case 'continue_discovery_stopped':
               console.log('Continue discovery stopped:', message.data);
@@ -483,7 +484,8 @@ const Visualize = () => {
                 break;
               case 'continue_discovery_completed':
                 console.log('Continue discovery completed:', message.data);
-                queryClient.invalidateQueries(['session', sessionId, mode]);
+                queryClient.refetchQueries(['session', sessionId, mode]);
+                queryClient.refetchQueries(['data', sessionId, mode]);
                 break;
               case 'continue_discovery_stopped':
                 console.log('Continue discovery stopped:', message.data);
@@ -808,6 +810,17 @@ const Visualize = () => {
   const isCompleted = session?.status === 'completed';
   const isEnhancedUploadProcessing = session?.status === 'processing_documents';
 
+  // Debug logging for Data tab disable condition
+  console.log('Data tab state:', {
+    sessionStatus: session?.status,
+    mode,
+    isCompleted,
+    isEnhancedUploadProcessing,
+    isQBSDRunning,
+    isQBSDStopped,
+    dataTabDisabled: !isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded'
+  });
+
   const getStatusBadge = () => {
     const status = session?.status;
     const variants: Record<string, 'default' | 'success' | 'warning' | 'destructive' | 'info'> = {
@@ -873,7 +886,7 @@ const Visualize = () => {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
-          <TabsTrigger value="data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped} className="gap-2">
+          <TabsTrigger value="data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded'} className="gap-2">
             <Table2 className="h-4 w-4" />
             Data
           </TabsTrigger>
