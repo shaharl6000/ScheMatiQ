@@ -464,8 +464,21 @@ const DataTable: React.FC<DataTableProps> = ({
       if (firstColumn) priorityColumns.push(firstColumn);
     }
 
-    return [...priorityColumns, ...regularColumns];
-  }, [data.rows]);
+    // Include schema columns that don't have data yet (e.g., newly discovered columns)
+    // These columns are defined in the schema but may not have extracted values
+    const schemaColumns: string[] = [];
+    if (columnInfo && columnInfo.length > 0) {
+      columnInfo.forEach(col => {
+        if (!col.name.startsWith('_') && !col.name.endsWith('_excerpt')) {
+          if (!priorityColumns.includes(col.name) && !regularColumns.includes(col.name)) {
+            schemaColumns.push(col.name);
+          }
+        }
+      });
+    }
+
+    return [...priorityColumns, ...regularColumns, ...schemaColumns];
+  }, [data.rows, columnInfo]);
 
   const allColumns = useMemo(() => {
     let columns = defaultColumns;

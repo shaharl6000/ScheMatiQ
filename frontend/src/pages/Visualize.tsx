@@ -937,6 +937,7 @@ const Visualize = () => {
                 currentDocumentProgress={currentDocumentProgress}
                 onStopReextraction={handleStopReextraction}
                 isStoppingReextraction={isStoppingReextraction}
+                columnInfo={session?.columns?.map(col => ({ name: col.name, allowed_values: col.allowed_values ?? undefined }))}
               />
 
               {/* Document Upload Section */}
