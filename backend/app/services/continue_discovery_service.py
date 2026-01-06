@@ -760,7 +760,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # So they appear in Schema tab even without extraction
             session = self.session_manager.get_session(operation.session_id)
             if session and new_columns:
-                from app.models.session import SchemaEvolution, SchemaSnapshot
+                # Use alias to avoid conflict with qbsd.core.schema.SchemaEvolution
+                from app.models.session import SchemaEvolution as SessionSchemaEvolution, SchemaSnapshot
 
                 for col_data in new_columns:
                     new_col = ColumnInfo(
@@ -796,7 +797,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 # Update schema_evolution for Statistics chart
                 if session.statistics:
                     if not session.statistics.schema_evolution:
-                        session.statistics.schema_evolution = SchemaEvolution(
+                        session.statistics.schema_evolution = SessionSchemaEvolution(
                             snapshots=[],
                             column_sources={}
                         )
