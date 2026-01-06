@@ -118,11 +118,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [reextractionDialogOpen, setReextractionDialogOpen] = useState(false);
   const [continueDiscoveryDialogOpen, setContinueDiscoveryDialogOpen] = useState(false);
 
-  // View mode, search, and sort state
-  const [viewMode, setViewMode] = useState<'compact' | 'detailed'>(() => {
-    const saved = localStorage.getItem('schemaViewer.viewMode');
-    return (saved === 'compact' || saved === 'detailed') ? saved : 'detailed';
-  });
+  // View mode, search, and sort state - always default to 'detailed'
+  const [viewMode, setViewMode] = useState<'compact' | 'detailed'>('detailed');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'type' | 'completeness' | 'modified'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -845,9 +842,9 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           )}>
             {/* Sidebar - Column List (Detailed View Only) */}
             {viewMode === 'detailed' && (
-              <div className="w-48 flex-shrink-0">
+              <div className="w-56 flex-shrink-0">
                 <div className="sticky top-4">
-                  <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+                  <h4 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide">
                     Columns ({sortedColumns.length})
                   </h4>
                   <ScrollArea className="h-[calc(100vh-300px)]">
@@ -864,7 +861,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                               element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                             }}
                             className={cn(
-                              "w-full text-left px-2 py-1.5 rounded-md text-xs transition-colors",
+                              "w-full text-left px-2 py-2 rounded-md text-sm transition-colors",
                               "hover:bg-muted",
                               isSelected && "bg-primary/10 font-medium",
                               isModified && "text-amber-600 dark:text-amber-400",
