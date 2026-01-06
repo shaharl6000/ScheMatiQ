@@ -606,8 +606,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
                 )
             else:
-                # No config provided - use library defaults
-                retriever = EmbeddingRetriever()
+                # No config provided - no retriever
+                retriever = None
 
             # Calculate batches
             batch_size = config.get("documents_batch_size", 1)
@@ -972,8 +972,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
                 )
             else:
-                # No config provided - use library defaults
-                retriever = EmbeddingRetriever()
+                # No config provided - no retriever
+                retriever = None
 
             output_file = session_dir / f"incremental_output_{operation_id}.jsonl"
 
