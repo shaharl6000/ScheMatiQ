@@ -12,6 +12,7 @@ from pathlib import Path
 
 from app.models.session import VisualizationSession, SessionStatus, ColumnInfo
 from app.models.modification import ModificationAction
+from app.models.qbsd import RetrieverConfig
 from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
 from app.services.schema_manager import SchemaManager
@@ -980,6 +981,7 @@ class ContinueDiscoveryRequest(BaseModel):
     document_source: str  # 'original', 'upload', 'cloud'
     cloud_dataset: Optional[str] = None
     llm_config: Dict[str, Any]
+    retriever_config: Optional[Dict[str, Any]] = None  # Retriever settings (empty = defaults)
     max_keys_schema: int = 100
     documents_batch_size: int = 1
 
@@ -1068,6 +1070,7 @@ async def start_continue_discovery(
             document_source=request.document_source,
             llm_config=request.llm_config,
             cloud_dataset=request.cloud_dataset,
+            retriever_config=request.retriever_config,
             max_keys_schema=request.max_keys_schema,
             documents_batch_size=request.documents_batch_size
         )

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Loader2, Check, Info, AlertTriangle, Square, Upload, Cloud } from 'lucide-react';
+import { Plus, Loader2, Check, Info, AlertTriangle, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 import {
   Dialog,
@@ -76,6 +77,17 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [llmModel, setLlmModel] = useState('gemini-2.5-flash');
   const [apiKey, setApiKey] = useState('');
 
+  // Retriever config state (collapsed by default, empty = use defaults)
+  const [showRetrieverConfig, setShowRetrieverConfig] = useState(false);
+  const [retrieverConfig, setRetrieverConfig] = useState({
+    model_name: '',
+    passage_chars: '',
+    k: '',
+    enable_dynamic_k: true,
+    dynamic_k_threshold: '',
+    dynamic_k_minimum: ''
+  });
+
   // Discovery state
   const [operationId, setOperationId] = useState<string | null>(null);
   const [discoveryProgress, setDiscoveryProgress] = useState(0);
@@ -118,6 +130,15 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setDiscoveryProgress(0);
       setExtractionProgress(0);
       setIsStopping(false);
+      setShowRetrieverConfig(false);
+      setRetrieverConfig({
+        model_name: '',
+        passage_chars: '',
+        k: '',
+        enable_dynamic_k: true,
+        dynamic_k_threshold: '',
+        dynamic_k_minimum: ''
+      });
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -190,6 +211,15 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         }
       }
 
+      // Build retriever config only if user has configured any values
+      const hasRetrieverConfig = showRetrieverConfig && (
+        retrieverConfig.model_name ||
+        retrieverConfig.passage_chars ||
+        retrieverConfig.k ||
+        retrieverConfig.dynamic_k_threshold ||
+        retrieverConfig.dynamic_k_minimum
+      );
+
       const response = await schemaAPI.continueDiscovery.start(sessionId, {
         document_source: documentSource,
         cloud_dataset: documentSource === 'cloud' ? selectedCloudDataset : undefined,
@@ -201,6 +231,14 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           temperature: 0.7,
           context_window_size: 8192
         },
+        retriever_config: hasRetrieverConfig ? {
+          model_name: retrieverConfig.model_name || undefined,
+          passage_chars: retrieverConfig.passage_chars ? parseInt(retrieverConfig.passage_chars) : undefined,
+          k: retrieverConfig.k ? parseInt(retrieverConfig.k) : undefined,
+          enable_dynamic_k: retrieverConfig.enable_dynamic_k,
+          dynamic_k_threshold: retrieverConfig.dynamic_k_threshold ? parseFloat(retrieverConfig.dynamic_k_threshold) : undefined,
+          dynamic_k_minimum: retrieverConfig.dynamic_k_minimum ? parseInt(retrieverConfig.dynamic_k_minimum) : undefined
+        } : undefined,
         max_keys_schema: 100,
         documents_batch_size: 1
       });
@@ -332,10 +370,17 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     setIsStopping(true);
     try {
       await schemaAPI.continueDiscovery.stop(sessionId, operationId);
+      // Clean up polling interval on successful stop
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+      // Status will be updated by next poll response or WebSocket
     } catch (error: any) {
       console.error('Failed to stop operation:', error);
       onError(error.response?.data?.detail || 'Failed to stop operation');
-      setIsStopping(false);
+    } finally {
+      setIsStopping(false);  // Always reset stopping state
     }
   };
 
@@ -518,6 +563,82 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
             Your API key is stored locally and never sent to our servers.
           </p>
         </div>
+
+        {/* Collapsible Retriever Settings */}
+        <Collapsible open={showRetrieverConfig} onOpenChange={setShowRetrieverConfig}>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" className="w-full justify-start p-0 h-auto hover:bg-transparent">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {showRetrieverConfig ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                <Settings className="h-4 w-4" />
+                <span>Retriever Settings (Advanced)</span>
+                {!showRetrieverConfig && <Badge variant="secondary" className="ml-2">Default</Badge>}
+              </div>
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-3">
+            <div className="grid grid-cols-2 gap-3 p-3 border rounded-lg bg-muted/30">
+              <div className="col-span-2 space-y-1">
+                <Label className="text-xs">Model Name</Label>
+                <Input
+                  value={retrieverConfig.model_name}
+                  onChange={(e) => setRetrieverConfig({...retrieverConfig, model_name: e.target.value})}
+                  placeholder="all-MiniLM-L6-v2"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Passage Characters</Label>
+                <Input
+                  type="number"
+                  value={retrieverConfig.passage_chars}
+                  onChange={(e) => setRetrieverConfig({...retrieverConfig, passage_chars: e.target.value})}
+                  placeholder="512"
+                  min={128}
+                  max={2048}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Retrieval K</Label>
+                <Input
+                  type="number"
+                  value={retrieverConfig.k}
+                  onChange={(e) => setRetrieverConfig({...retrieverConfig, k: e.target.value})}
+                  placeholder="15"
+                  min={1}
+                  max={50}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Dynamic K Threshold</Label>
+                <Input
+                  type="number"
+                  value={retrieverConfig.dynamic_k_threshold}
+                  onChange={(e) => setRetrieverConfig({...retrieverConfig, dynamic_k_threshold: e.target.value})}
+                  placeholder="0.65"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Dynamic K Minimum</Label>
+                <Input
+                  type="number"
+                  value={retrieverConfig.dynamic_k_minimum}
+                  onChange={(e) => setRetrieverConfig({...retrieverConfig, dynamic_k_minimum: e.target.value})}
+                  placeholder="3"
+                  min={1}
+                  max={20}
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </div>
 
       <DialogFooter>

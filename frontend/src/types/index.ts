@@ -638,6 +638,14 @@ export interface ContinueDiscoveryRequest {
     temperature?: number;
     context_window_size?: number;
   };
+  retriever_config?: {
+    model_name?: string;
+    passage_chars?: number;
+    k?: number;
+    enable_dynamic_k?: boolean;
+    dynamic_k_threshold?: number;
+    dynamic_k_minimum?: number;
+  };
   max_keys_schema?: number;
   documents_batch_size?: number;
 }

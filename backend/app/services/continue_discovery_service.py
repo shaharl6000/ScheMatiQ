@@ -462,6 +462,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         document_source: str,
         llm_config: Dict[str, Any],
         cloud_dataset: Optional[str] = None,
+        retriever_config: Optional[Dict[str, Any]] = None,
         max_keys_schema: int = 100,
         documents_batch_size: int = 1
     ) -> Dict[str, Any]:
@@ -473,6 +474,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             document_source: 'original', 'upload', or 'cloud'
             llm_config: LLM configuration with provider, model, api_key
             cloud_dataset: Cloud dataset name (if using cloud documents)
+            retriever_config: Retriever configuration (None = use defaults)
             max_keys_schema: Maximum schema columns
             documents_batch_size: Documents per batch
 
@@ -509,6 +511,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         config = {
             "document_source": document_source,
             "cloud_dataset": cloud_dataset,
+            "retriever_config": retriever_config,
             "max_keys_schema": max_keys_schema,
             "documents_batch_size": documents_batch_size,
             "query": session.schema_query or ""
@@ -590,11 +593,15 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Build LLM
             llm = qbsd_utils.build_llm(llm_config)
 
-            # Build retriever
+            # Build retriever with configurable settings (or defaults)
+            retriever_cfg = config.get("retriever_config") or {}
             retriever = EmbeddingRetriever(
-                model_name="all-MiniLM-L6-v2",
-                k=10,
-                max_words=768
+                model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
+                k=retriever_cfg.get("k", 15),
+                max_words=retriever_cfg.get("passage_chars", 512),
+                enable_dynamic_k=retriever_cfg.get("enable_dynamic_k", True),
+                dynamic_k_threshold=retriever_cfg.get("dynamic_k_threshold", 0.65),
+                dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
             )
 
             # Calculate batches
@@ -795,6 +802,14 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             columns_to_extract = extraction_config["columns"]
             llm_config = extraction_config.get("llm_config") or operation.llm_config
 
+            # Load original discovery config for retriever settings
+            discovery_config_file = session_dir / f"continue_discovery_config_{operation_id}.json"
+            discovery_config = {}
+            if discovery_config_file.exists():
+                with open(discovery_config_file) as f:
+                    discovery_config = json.load(f)
+            retriever_cfg = discovery_config.get("retriever_config") or {}
+
             # Broadcast extraction start
             await self.broadcast_event(
                 operation.session_id,
@@ -830,12 +845,15 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             with open(schema_file, 'w') as f:
                 json.dump(schema_data, f, indent=2)
 
-            # Setup LLM and retriever
+            # Setup LLM and retriever with configurable settings
             llm = qbsd_utils.build_llm(llm_config)
             retriever = EmbeddingRetriever(
-                model_name="all-MiniLM-L6-v2",
-                k=10,
-                max_words=768
+                model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
+                k=retriever_cfg.get("k", 15),
+                max_words=retriever_cfg.get("passage_chars", 512),
+                enable_dynamic_k=retriever_cfg.get("enable_dynamic_k", True),
+                dynamic_k_threshold=retriever_cfg.get("dynamic_k_threshold", 0.65),
+                dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
             )
 
             output_file = session_dir / f"incremental_output_{operation_id}.jsonl"
@@ -1078,12 +1096,13 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         self.stop_flags[operation_id] = True
         print(f"DEBUG: Stop requested for operation {operation_id}")
 
-        # Cancel task if running
+        # Cancel task if running - wait for it to finish gracefully
         task = self._tasks.get(operation_id)
         if task and not task.done():
             task.cancel()
             try:
-                await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+                # Wait for task to handle cancellation (without shield - we WANT it to cancel)
+                await asyncio.wait_for(task, timeout=10.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
 
@@ -1100,6 +1119,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             }
         )
 
+        # Clear stop flag AFTER task is done (so it can check the flag during graceful shutdown)
         self.clear_stop_flag(operation_id)
 
         return {
