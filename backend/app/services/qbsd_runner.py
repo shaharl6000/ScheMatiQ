@@ -286,16 +286,16 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         session_dir = self.work_dir / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
 
-        # Check for uploaded documents in pending_documents/ directory
-        pending_dir = session_dir / "pending_documents"
-        if pending_dir.exists() and any(pending_dir.iterdir()):
-            # Use uploaded files - return the pending_documents directory as the source
-            uploaded_files = [str(f.absolute()) for f in sorted(pending_dir.iterdir())
+        # Check for uploaded documents in data/{session_id}/pending_documents/ directory
+        # (documents are uploaded via add-documents endpoint which uses ./data, not ./qbsd_work)
+        data_dir = Path("./data") / session_id / "pending_documents"
+        if data_dir.exists():
+            uploaded_files = [f for f in sorted(data_dir.iterdir())
                             if f.is_file() and not f.name.startswith('.')]
             if uploaded_files:
-                print(f"✓ Using {len(uploaded_files)} uploaded documents from pending_documents/")
+                print(f"✓ Using {len(uploaded_files)} uploaded documents from {data_dir}")
                 # Return the directory containing the files, not individual files
-                return [str(pending_dir.absolute())]
+                return [str(data_dir.absolute())]
 
         # No uploaded files - resolve from config.docs_path
         docs_paths = config.docs_path if isinstance(config.docs_path, list) else [config.docs_path]
