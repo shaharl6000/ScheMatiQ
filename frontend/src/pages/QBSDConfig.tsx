@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, FileJson } from 'lucide-react';
+import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, FileJson, Upload, Trash2, FileText } from 'lucide-react';
 import {
   getGeminiKeyType,
   getConfiguredProviders,
@@ -44,8 +44,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
-import { qbsdAPI, cloudAPI } from '../services/api';
+import { qbsdAPI, cloudAPI, loadAPI } from '../services/api';
+import { useFileUpload } from '../hooks/useFileUpload';
+import { formatFileSize } from '../utils/apiHelpers';
 import { QBSDConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn } from '../types';
 
 const QBSDConfigPage = () => {
@@ -64,6 +67,33 @@ const QBSDConfigPage = () => {
   // Dataset state (for Document Paths dropdown)
   const [datasets, setDatasets] = useState<{ name: string; path: string; file_count: number }[]>([]);
   const [datasetsLoading, setDatasetsLoading] = useState(true);
+
+  // Document source state (upload vs cloud)
+  const [documentSource, setDocumentSource] = useState<'upload' | 'cloud'>('cloud');
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // File upload hook for document uploads
+  const { getRootProps, getInputProps, isDragActive, dragError } = useFileUpload({
+    allowMultiple: true,
+    acceptedTypes: {
+      'text/plain': ['.txt'],
+      'text/markdown': ['.md'],
+      'application/pdf': ['.pdf'],
+      'application/msword': ['.doc'],
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
+      'application/rtf': ['.rtf'],
+    },
+    maxSize: 10 * 1024 * 1024, // 10MB per file
+    onFilesSelected: setUploadedFiles,
+    externalFiles: uploadedFiles,
+  });
+
+  const removeUploadedFile = (fileToRemove: File) => {
+    setUploadedFiles(prev => prev.filter(f => f !== fileToRemove));
+  };
+
+  const totalUploadSize = uploadedFiles.reduce((acc, file) => acc + file.size, 0);
 
   // Check configured providers on mount and redirect if none
   useEffect(() => {
@@ -255,6 +285,8 @@ const QBSDConfigPage = () => {
       // Build config with API keys and initial schema
       const configWithKeys: QBSDConfig = {
         ...config,
+        // If using upload mode, set docs_path to null (documents will be added after session creation)
+        docs_path: documentSource === 'upload' ? null : config.docs_path,
         schema_creation_backend: {
           ...config.schema_creation_backend,
           api_key: schemaApiKey || undefined,
@@ -274,8 +306,29 @@ const QBSDConfigPage = () => {
         initial_schema_path: !initialSchemaData ? initialSchemaPath : undefined,
       };
 
+      // Step 1: Create session
       const result = await qbsdAPI.configure(configWithKeys);
-      navigate(`/visualize/${result.session_id}?mode=qbsd`);
+      const sessionId = result.session_id;
+
+      // Step 2: If files were uploaded, add them to the session
+      if (documentSource === 'upload' && uploadedFiles.length > 0) {
+        setIsUploading(true);
+        try {
+          const uploadResult = await loadAPI.addDocuments(sessionId, uploadedFiles);
+          if (uploadResult.warnings && uploadResult.warnings.length > 0) {
+            console.warn('Upload warnings:', uploadResult.warnings);
+          }
+        } catch (uploadErr: any) {
+          // Session exists but upload failed - still navigate but warn user
+          console.error('File upload failed:', uploadErr);
+          setError('Session created but some files failed to upload. You can add documents later.');
+        } finally {
+          setIsUploading(false);
+        }
+      }
+
+      // Step 3: Navigate to visualization
+      navigate(`/visualize/${sessionId}?mode=qbsd`);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to configure QBSD');
     } finally {
@@ -285,7 +338,9 @@ const QBSDConfigPage = () => {
 
   const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path.filter(Boolean) : [config.docs_path].filter(Boolean);
   const hasQuery = config.query.trim() !== '';
-  const hasDocuments = selectedPaths.length > 0;
+  const hasCloudDocuments = documentSource === 'cloud' && selectedPaths.length > 0;
+  const hasUploadedFiles = documentSource === 'upload' && uploadedFiles.length > 0;
+  const hasDocuments = hasCloudDocuments || hasUploadedFiles;
   // Valid if at least one of query or documents is provided
   const isFormValid = hasQuery || hasDocuments;
 
@@ -341,66 +396,140 @@ const QBSDConfigPage = () => {
             </p>
           </div>
 
-          {/* Document Datasets and Max Keys */}
+          {/* Document Source and Max Keys */}
           <div className="grid md:grid-cols-3 gap-4">
             <div className="md:col-span-2 space-y-2">
-              <Label htmlFor="docs_path">
-                Document Datasets {!hasQuery && <span className="text-destructive">*</span>}
+              <Label>
+                Documents {!hasQuery && <span className="text-destructive">*</span>}
               </Label>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-between"
-                    disabled={datasetsLoading}
+              <Tabs value={documentSource} onValueChange={(v) => setDocumentSource(v as 'upload' | 'cloud')}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="upload" className="flex items-center gap-2">
+                    <Upload className="h-4 w-4" />
+                    Upload Files
+                  </TabsTrigger>
+                  <TabsTrigger value="cloud" className="flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Cloud Datasets
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* Upload Files Tab */}
+                <TabsContent value="upload" className="mt-3">
+                  <div
+                    {...getRootProps()}
+                    className={`
+                      border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors
+                      ${isDragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-primary/50'}
+                    `}
                   >
-                    {datasetsLoading ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Loading datasets...
-                      </>
-                    ) : selectedPaths.length === 0 ? (
-                      'Select datasets...'
-                    ) : (
-                      `${selectedPaths.length} dataset${selectedPaths.length > 1 ? 's' : ''} selected`
-                    )}
-                    <ChevronDown className="ml-2 h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-full min-w-[300px] max-h-[300px] overflow-y-auto">
-                  <DropdownMenuLabel>Select Datasets</DropdownMenuLabel>
-                  {datasets.length === 0 ? (
-                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                      No datasets available
-                    </div>
-                  ) : (
-                    datasets.map((dataset) => (
-                      <DropdownMenuCheckboxItem
-                        key={dataset.name}
-                        checked={selectedPaths.includes(dataset.name)}
-                        onSelect={(e) => e.preventDefault()}
-                        onCheckedChange={(checked) => {
-                          const newPaths = checked
-                            ? [...selectedPaths, dataset.name]
-                            : selectedPaths.filter(p => p !== dataset.name);
-                          handleConfigChange('docs_path', newPaths);
-                        }}
-                      >
-                        <span className="flex items-center justify-between w-full">
-                          <span>{dataset.name}</span>
-                          <Badge variant="secondary" className="ml-2 text-xs">
-                            {dataset.file_count} files
-                          </Badge>
-                        </span>
-                      </DropdownMenuCheckboxItem>
-                    ))
+                    <input {...getInputProps()} />
+                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                    <p className="text-sm text-muted-foreground">
+                      {isDragActive ? 'Drop files here...' : 'Drag and drop files here, or click to browse'}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Supports: .txt, .md, .pdf, .doc, .docx, .rtf (max 10MB each)
+                    </p>
+                  </div>
+
+                  {dragError && (
+                    <Alert variant="destructive" className="mt-3">
+                      <AlertDescription>{dragError}</AlertDescription>
+                    </Alert>
                   )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+
+                  {uploadedFiles.length > 0 && (
+                    <div className="mt-3 space-y-2">
+                      {uploadedFiles.map((file, index) => (
+                        <div
+                          key={`${file.name}-${index}`}
+                          className="flex items-center justify-between p-2 bg-muted/50 rounded-md"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <span className="text-sm truncate">{file.name}</span>
+                            <span className="text-xs text-muted-foreground flex-shrink-0">
+                              ({formatFileSize(file.size)})
+                            </span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeUploadedFile(file)}
+                            className="h-7 w-7 p-0 flex-shrink-0"
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </div>
+                      ))}
+                      <p className="text-xs text-muted-foreground">
+                        Total: {uploadedFiles.length} file{uploadedFiles.length > 1 ? 's' : ''} ({formatFileSize(totalUploadSize)})
+                      </p>
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* Cloud Datasets Tab */}
+                <TabsContent value="cloud" className="mt-3">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="w-full justify-between"
+                        disabled={datasetsLoading}
+                      >
+                        {datasetsLoading ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Loading datasets...
+                          </>
+                        ) : selectedPaths.length === 0 ? (
+                          'Select datasets...'
+                        ) : (
+                          `${selectedPaths.length} dataset${selectedPaths.length > 1 ? 's' : ''} selected`
+                        )}
+                        <ChevronDown className="ml-2 h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent className="w-full min-w-[300px] max-h-[300px] overflow-y-auto">
+                      <DropdownMenuLabel>Select Datasets</DropdownMenuLabel>
+                      {datasets.length === 0 ? (
+                        <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                          No datasets available
+                        </div>
+                      ) : (
+                        datasets.map((dataset) => (
+                          <DropdownMenuCheckboxItem
+                            key={dataset.name}
+                            checked={selectedPaths.includes(dataset.name)}
+                            onSelect={(e) => e.preventDefault()}
+                            onCheckedChange={(checked) => {
+                              const newPaths = checked
+                                ? [...selectedPaths, dataset.name]
+                                : selectedPaths.filter(p => p !== dataset.name);
+                              handleConfigChange('docs_path', newPaths);
+                            }}
+                          >
+                            <span className="flex items-center justify-between w-full">
+                              <span>{dataset.name}</span>
+                              <Badge variant="secondary" className="ml-2 text-xs">
+                                {dataset.file_count} files
+                              </Badge>
+                            </span>
+                          </DropdownMenuCheckboxItem>
+                        ))
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TabsContent>
+              </Tabs>
               <p className="text-sm text-muted-foreground">
                 {hasQuery && !hasDocuments
                   ? 'Optional — leave empty to plan schema based on query alone'
-                  : 'Select one or more document datasets'}
+                  : documentSource === 'upload'
+                    ? 'Upload documents from your computer'
+                    : 'Select one or more document datasets'}
               </p>
             </div>
 
@@ -726,12 +855,12 @@ const QBSDConfigPage = () => {
               onClick={handleSubmit}
               disabled={!isFormValid || loading || providersLoading || datasetsLoading}
             >
-              {loading ? (
+              {(loading || isUploading) ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
                 <Sparkles className="mr-2 h-4 w-4" />
               )}
-              {loading ? 'Starting QBSD...' : 'Start QBSD'}
+              {isUploading ? 'Uploading files...' : loading ? 'Starting QBSD...' : 'Start QBSD'}
             </Button>
           </div>
         </CardContent>
