@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Pencil,
   Plus,
@@ -21,6 +21,10 @@ import {
   Search,
   ArrowUpDown,
   X,
+  FolderInput,
+  FolderPlus,
+  Download,
+  Upload,
 } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -73,7 +77,7 @@ import ContinueDiscoveryDialog from '../SchemaEditor/ContinueDiscoveryDialog';
 import ContinueDiscoveryMonitor from '../SchemaEditor/ContinueDiscoveryMonitor';
 import LLMConfigDisplay from '../LLMConfigDisplay';
 import SchemaColumnDetailPanel from './SchemaColumnDetailPanel';
-import { clusterColumns } from './clustering';
+import { clusterColumns, assignColumnToCluster, createUserCluster } from './clustering';
 import {
   Accordion,
   AccordionContent,
@@ -139,6 +143,240 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   // Clustering state
   const [clusters, setClusters] = useState<ColumnCluster[]>([]);
   const clusteringEnabled = true; // TODO: Add toggle UI for this
+  const [editingClusterId, setEditingClusterId] = useState<string | null>(null);
+  const [editingClusterName, setEditingClusterName] = useState('');
+  const [showNewClusterDialog, setShowNewClusterDialog] = useState(false);
+  const [newClusterName, setNewClusterName] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [clustersInitialized, setClustersInitialized] = useState(false);
+
+  // Load clusters from localStorage on mount
+  useEffect(() => {
+    if (sessionId) {
+      const savedClusters = localStorage.getItem(`schema-clusters-${sessionId}`);
+      if (savedClusters) {
+        try {
+          const parsed = JSON.parse(savedClusters);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setClusters(parsed);
+          }
+        } catch (e) {
+          console.error('Failed to parse saved clusters:', e);
+        }
+      }
+      setClustersInitialized(true);
+    }
+  }, [sessionId]);
+
+  // Save user-modified clusters to localStorage
+  useEffect(() => {
+    if (sessionId && clustersInitialized && clusters.length > 0) {
+      // Only save clusters that have user modifications
+      const userModifiedClusters = clusters.filter(c =>
+        c.id.startsWith('user_') || // Explicitly user-created or renamed
+        c.name !== c.id // Name was changed from auto-generated
+      );
+      if (userModifiedClusters.length > 0) {
+        localStorage.setItem(`schema-clusters-${sessionId}`, JSON.stringify(clusters));
+      }
+    }
+  }, [clusters, sessionId, clustersInitialized]);
+
+  // Export schema with clusters as JSON
+  const handleExportSchemaWithClusters = useCallback(() => {
+    const schemaExport = {
+      version: '1.0',
+      exportDate: new Date().toISOString(),
+      sessionId,
+      query: query || '',
+      schema: localColumns.map(col => ({
+        name: col.name,
+        definition: col.definition || '',
+        rationale: col.rationale || '',
+        data_type: col.data_type,
+        allowed_values: col.allowed_values || [],
+        source_document: col.source_document,
+        discovery_iteration: col.discovery_iteration
+      })),
+      clusters: clusters.map(c => ({
+        id: c.id,
+        name: c.name,
+        description: c.description,
+        color: c.color,
+        collapsed: c.collapsed,
+        column_names: c.column_names
+      }))
+    };
+
+    const blob = new Blob([JSON.stringify(schemaExport, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `schema_with_clusters_${sessionId.slice(0, 8)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast({ title: 'Schema exported', description: 'Schema with clusters saved to JSON file' });
+  }, [localColumns, clusters, sessionId, query, toast]);
+
+  // Import clusters from JSON file
+  const handleImportClusters = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content);
+
+        if (data.clusters && Array.isArray(data.clusters)) {
+          // Validate cluster structure
+          const validClusters = data.clusters.filter((c: any) =>
+            c.id && c.name && Array.isArray(c.column_names)
+          ).map((c: any) => ({
+            id: c.id.startsWith('user_') ? c.id : `user_imported_${c.id}`,
+            name: c.name,
+            description: c.description || '',
+            color: c.color || '#6B7280',
+            collapsed: c.collapsed || false,
+            column_names: c.column_names
+          }));
+
+          if (validClusters.length > 0) {
+            // Merge imported clusters with current column names
+            const currentColumnNames = new Set(localColumns.map(c => c.name));
+            const filteredClusters = validClusters.map((c: ColumnCluster) => ({
+              ...c,
+              column_names: c.column_names.filter((name: string) => currentColumnNames.has(name))
+            })).filter((c: ColumnCluster) => c.column_names.length > 0);
+
+            if (filteredClusters.length > 0) {
+              setClusters(filteredClusters);
+              toast({
+                title: 'Clusters imported',
+                description: `Imported ${filteredClusters.length} cluster(s)`
+              });
+            } else {
+              toast({
+                title: 'Import warning',
+                description: 'No matching columns found for imported clusters',
+                variant: 'destructive'
+              });
+            }
+          } else {
+            toast({
+              title: 'Import failed',
+              description: 'No valid clusters found in file',
+              variant: 'destructive'
+            });
+          }
+        } else {
+          toast({
+            title: 'Import failed',
+            description: 'Invalid file format - expected schema export with clusters',
+            variant: 'destructive'
+          });
+        }
+      } catch (error) {
+        toast({
+          title: 'Import failed',
+          description: 'Failed to parse JSON file',
+          variant: 'destructive'
+        });
+      }
+
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    };
+    reader.readAsText(file);
+  }, [localColumns, toast]);
+
+  // Cluster management handlers
+  const handleRenameCluster = (clusterId: string, newName: string) => {
+    if (!newName.trim()) return;
+    setClusters(prev => prev.map(c =>
+      c.id === clusterId
+        ? { ...c, id: c.id.startsWith('algo_') ? `user_${c.id}` : c.id, name: newName.trim() }
+        : c
+    ));
+    setEditingClusterId(null);
+    setEditingClusterName('');
+    toast({ title: 'Cluster renamed', description: `Cluster renamed to "${newName.trim()}"` });
+  };
+
+  const handleDeleteCluster = (clusterId: string) => {
+    const cluster = clusters.find(c => c.id === clusterId);
+    if (!cluster) return;
+
+    // Move columns to "Other" or create it
+    const otherCluster = clusters.find(c => c.name === 'Other' && c.id !== clusterId);
+
+    setClusters(prev => {
+      const remaining = prev.filter(c => c.id !== clusterId);
+      if (otherCluster) {
+        // Add columns to existing "Other" cluster
+        return remaining.map(c =>
+          c.id === otherCluster.id
+            ? { ...c, column_names: [...c.column_names, ...cluster.column_names] }
+            : c
+        );
+      } else {
+        // Create new "Other" cluster
+        return [...remaining, {
+          id: `user_other_${Date.now()}`,
+          name: 'Other',
+          color: '#6B7280',
+          column_names: cluster.column_names
+        }];
+      }
+    });
+    toast({ title: 'Cluster deleted', description: `Columns moved to "Other"` });
+  };
+
+  const handleMoveColumn = (columnName: string, targetClusterId: string | 'new') => {
+    if (targetClusterId === 'new') {
+      setShowNewClusterDialog(true);
+      // Store the column to move after dialog closes
+      setNewClusterName('');
+      (window as any).__pendingMoveColumn = columnName;
+      return;
+    }
+
+    const updated = assignColumnToCluster(columnName, targetClusterId, clusters);
+    setClusters(updated);
+    toast({ title: 'Column moved', description: `"${formatColumnName(columnName)}" moved to new cluster` });
+  };
+
+  const handleCreateCluster = () => {
+    if (!newClusterName.trim()) return;
+
+    const pendingColumn = (window as any).__pendingMoveColumn;
+    const newCluster = createUserCluster(
+      newClusterName.trim(),
+      pendingColumn ? [pendingColumn] : []
+    );
+
+    if (pendingColumn) {
+      // Remove from old cluster and add new one
+      const updated = clusters.map(c => ({
+        ...c,
+        column_names: c.column_names.filter(name => name !== pendingColumn)
+      })).filter(c => c.column_names.length > 0);
+      setClusters([...updated, newCluster]);
+      delete (window as any).__pendingMoveColumn;
+    } else {
+      setClusters([...clusters, newCluster]);
+    }
+
+    setShowNewClusterDialog(false);
+    setNewClusterName('');
+    toast({ title: 'Cluster created', description: `New cluster "${newClusterName.trim()}" created` });
+  };
 
   // Helper function to extract error message from API errors (handles Pydantic validation errors)
   const extractErrorMessage = (error: any, fallback: string): string => {
@@ -240,9 +478,9 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     setLocalColumns(columns || []);
   }, [columns]);
 
-  // Run clustering when columns change
+  // Run clustering when columns change (only after localStorage is checked)
   useEffect(() => {
-    if (clusteringEnabled && localColumns.length > 0) {
+    if (clusteringEnabled && localColumns.length > 0 && clustersInitialized) {
       const result = clusterColumns(localColumns, clusters, {
         similarityThreshold: 0.5,
         minClusterSize: 1,
@@ -252,7 +490,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       setClusters(result.clusters);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localColumns, clusteringEnabled]); // Don't include clusters to avoid infinite loop
+  }, [localColumns, clusteringEnabled, clustersInitialized]); // Don't include clusters to avoid infinite loop
 
   // Set up WebSocket listener for real-time updates
   useEffect(() => {
@@ -376,7 +614,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     setSelectedColumns([]);
   };
 
-  const handleDialogSuccess = (message: string, updatedColumns?: ColumnInfo[]) => {
+  const handleDialogSuccess = (message: string, updatedColumns?: ColumnInfo[], selectedClusterId?: string | null) => {
     toast({ title: 'Success', description: message });
     setSelectedColumns([]);
     setDialogState({ open: false, mode: 'add' });
@@ -387,6 +625,19 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       setLocalColumns(updatedColumns);
       if (onColumnsChange) {
         onColumnsChange(updatedColumns);
+      }
+
+      // If a cluster was selected for the new column, assign it
+      if (selectedClusterId && dialogState.mode === 'add') {
+        // Find the newly added column (last one added)
+        const newColumnName = updatedColumns.find(
+          col => !localColumns.some(lc => lc.name === col.name)
+        )?.name;
+
+        if (newColumnName) {
+          const updatedClusters = assignColumnToCluster(newColumnName, selectedClusterId, clusters);
+          setClusters(updatedClusters);
+        }
       }
     }
 
@@ -923,8 +1174,25 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                       <Plus className="h-4 w-4 mr-2" />
                       Continue Schema Discovery
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleExportSchemaWithClusters}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Export Schema with Clusters
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Import Clusters
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                {/* Hidden file input for cluster import */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleImportClusters}
+                  className="hidden"
+                />
               </div>
             )}
           </div>
@@ -995,6 +1263,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             {/* Main Grid with Clusters */}
             <div className="flex-1">
               {clusteringEnabled && groupedColumns.length > 1 ? (
+                <>
                 <Accordion
                   type="multiple"
                   defaultValue={groupedColumns.map(g => g.cluster?.id || 'all')}
@@ -1007,17 +1276,67 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                       className="border rounded-lg px-4"
                     >
                       <AccordionTrigger className="hover:no-underline py-3">
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-1">
                           {cluster && (
                             <span
                               className="w-3 h-3 rounded-full flex-shrink-0"
                               style={{ backgroundColor: cluster.color }}
                             />
                           )}
-                          <span className="font-semibold">{cluster?.name || 'All Columns'}</span>
+                          {editingClusterId === cluster?.id ? (
+                            <Input
+                              value={editingClusterName}
+                              onChange={(e) => setEditingClusterName(e.target.value)}
+                              onKeyDown={(e) => {
+                                e.stopPropagation();
+                                if (e.key === 'Enter') {
+                                  handleRenameCluster(cluster!.id, editingClusterName);
+                                } else if (e.key === 'Escape') {
+                                  setEditingClusterId(null);
+                                  setEditingClusterName('');
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-7 w-48 text-sm font-semibold"
+                              autoFocus
+                            />
+                          ) : (
+                            <span className="font-semibold">{cluster?.name || 'All Columns'}</span>
+                          )}
                           <Badge variant="outline" className="ml-2">
                             {groupCols.length}
                           </Badge>
+                          {/* Cluster management buttons */}
+                          {cluster && !readonly && editingClusterId !== cluster.id && (
+                            <div className="flex items-center gap-1 ml-auto mr-2" onClick={(e) => e.stopPropagation()}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 opacity-60 hover:opacity-100"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingClusterId(cluster.id);
+                                  setEditingClusterName(cluster.name);
+                                }}
+                                title="Rename cluster"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 opacity-60 hover:opacity-100 text-destructive hover:text-destructive"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteCluster(cluster.id);
+                                }}
+                                title="Delete cluster"
+                                disabled={clusters.length <= 1}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            </div>
+                          )}
                         </div>
                       </AccordionTrigger>
                       <AccordionContent>
@@ -1080,6 +1399,38 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                     <p className="text-[10px] text-muted-foreground line-clamp-1">
                                       {column.definition || 'No definition'}
                                     </p>
+                                    {/* Move to cluster dropdown */}
+                                    {!readonly && clusters.length > 1 && (
+                                      <div className="mt-2 pt-2 border-t" onClick={(e) => e.stopPropagation()}>
+                                        <DropdownMenu>
+                                          <DropdownMenuTrigger asChild>
+                                            <Button variant="ghost" size="sm" className="h-6 text-[10px] w-full justify-start px-1">
+                                              <FolderInput className="h-3 w-3 mr-1" />
+                                              Move to...
+                                            </Button>
+                                          </DropdownMenuTrigger>
+                                          <DropdownMenuContent align="start">
+                                            {clusters.filter(c => !c.column_names.includes(column.name)).map(c => (
+                                              <DropdownMenuItem
+                                                key={c.id}
+                                                onClick={() => handleMoveColumn(column.name, c.id)}
+                                              >
+                                                <span
+                                                  className="w-2 h-2 rounded-full mr-2 flex-shrink-0"
+                                                  style={{ backgroundColor: c.color }}
+                                                />
+                                                {c.name}
+                                              </DropdownMenuItem>
+                                            ))}
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem onClick={() => handleMoveColumn(column.name, 'new')}>
+                                              <FolderPlus className="h-3.5 w-3.5 mr-2" />
+                                              New Cluster...
+                                            </DropdownMenuItem>
+                                          </DropdownMenuContent>
+                                        </DropdownMenu>
+                                      </div>
+                                    )}
                                   </CardContent>
                                 </Card>
                               );
@@ -1144,6 +1495,39 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                           </TooltipTrigger>
                                           <TooltipContent>Edit column</TooltipContent>
                                         </Tooltip>
+                                        {clusters.length > 1 && (
+                                          <DropdownMenu>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <DropdownMenuTrigger asChild>
+                                                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                    <FolderInput className="h-4 w-4" />
+                                                  </Button>
+                                                </DropdownMenuTrigger>
+                                              </TooltipTrigger>
+                                              <TooltipContent>Move to cluster</TooltipContent>
+                                            </Tooltip>
+                                            <DropdownMenuContent align="end">
+                                              {clusters.filter(c => !c.column_names.includes(column.name)).map(c => (
+                                                <DropdownMenuItem
+                                                  key={c.id}
+                                                  onClick={() => handleMoveColumn(column.name, c.id)}
+                                                >
+                                                  <span
+                                                    className="w-2 h-2 rounded-full mr-2 flex-shrink-0"
+                                                    style={{ backgroundColor: c.color }}
+                                                  />
+                                                  {c.name}
+                                                </DropdownMenuItem>
+                                              ))}
+                                              <DropdownMenuSeparator />
+                                              <DropdownMenuItem onClick={() => handleMoveColumn(column.name, 'new')}>
+                                                <FolderPlus className="h-3.5 w-3.5 mr-2" />
+                                                New Cluster...
+                                              </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
+                                        )}
                                         <Tooltip>
                                           <TooltipTrigger asChild>
                                             <Button
@@ -1206,6 +1590,22 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     </AccordionItem>
                   ))}
                 </Accordion>
+                {/* Add Cluster button */}
+                {!readonly && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => {
+                      setNewClusterName('');
+                      setShowNewClusterDialog(true);
+                    }}
+                  >
+                    <FolderPlus className="h-4 w-4 mr-2" />
+                    Add Cluster
+                  </Button>
+                )}
+                </>
               ) : (
                 // No clustering - flat grid
                 <div className={cn(
@@ -1536,6 +1936,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         sessionId={sessionId}
         column={dialogState.column}
         existingColumns={localColumns}
+        clusters={clusters}
         onClose={() => setDialogState({ open: false, mode: 'add' })}
         onSuccess={handleDialogSuccess}
         onError={handleDialogError}
@@ -1573,6 +1974,46 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {loading ? 'Deleting...' : 'Delete'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Cluster Dialog */}
+      <Dialog open={showNewClusterDialog} onOpenChange={setShowNewClusterDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderPlus className="h-5 w-5" />
+              Create New Cluster
+            </DialogTitle>
+            <DialogDescription>
+              Enter a name for the new cluster. You can move columns to this cluster after creating it.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <Input
+              placeholder="Cluster name"
+              value={newClusterName}
+              onChange={(e) => setNewClusterName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newClusterName.trim()) {
+                  handleCreateCluster();
+                }
+              }}
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setShowNewClusterDialog(false);
+              setNewClusterName('');
+              delete (window as any).__pendingMoveColumn;
+            }}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreateCluster} disabled={!newClusterName.trim()}>
+              Create Cluster
             </Button>
           </DialogFooter>
         </DialogContent>

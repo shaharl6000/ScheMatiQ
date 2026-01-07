@@ -27,9 +27,17 @@ import {
   ColumnInfo,
   AddColumnRequest,
   EditColumnRequest,
+  ColumnCluster,
 } from '../../types';
 import { schemaAPI } from '../../services/api';
 import { getApiKeyForProvider } from '../../utils/apiKeyStorage';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface ColumnDialogProps {
   open: boolean;
@@ -37,8 +45,9 @@ interface ColumnDialogProps {
   sessionId: string;
   column?: ColumnInfo;
   existingColumns: ColumnInfo[];
+  clusters?: ColumnCluster[];
   onClose: () => void;
-  onSuccess: (message: string, updatedColumns?: ColumnInfo[]) => void;
+  onSuccess: (message: string, updatedColumns?: ColumnInfo[], selectedClusterId?: string | null) => void;
   onError: (error: string) => void;
 }
 
@@ -48,6 +57,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
   sessionId,
   column,
   existingColumns,
+  clusters = [],
   onClose,
   onSuccess,
   onError
@@ -63,6 +73,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
   });
   const [newAllowedValue, setNewAllowedValue] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
 
   // Initialize form when dialog opens or column changes
   useEffect(() => {
@@ -88,6 +99,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
       }
       setNewAllowedValue('');
       setErrors({});
+      setSelectedClusterId(null);
     }
   }, [open, mode, column]);
 
@@ -161,7 +173,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
         const response = await schemaAPI.addColumn(sessionId, request);
         onSuccess(
           `Column "${request.name}" added successfully${response.reprocessing_required ? ' - processing started' : ''}`,
-          response.columns
+          response.columns,
+          selectedClusterId
         );
       } else {
         const request: EditColumnRequest = {
@@ -334,6 +347,40 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
               Explain why this column is important for answering the research query
             </p>
           </div>
+
+          {/* Cluster Selection (only for add mode) */}
+          {mode === 'add' && clusters.length > 0 && (
+            <div className="space-y-2">
+              <Label htmlFor="cluster">Assign to Cluster</Label>
+              <Select
+                value={selectedClusterId || 'auto'}
+                onValueChange={(value) => setSelectedClusterId(value === 'auto' ? null : value)}
+              >
+                <SelectTrigger id="cluster">
+                  <SelectValue placeholder="Auto (algorithm decides)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">
+                    <span className="text-muted-foreground">Auto (algorithm decides)</span>
+                  </SelectItem>
+                  {clusters.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-2 h-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: c.color }}
+                        />
+                        {c.name}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                Choose a cluster for this column, or let the algorithm assign it automatically
+              </p>
+            </div>
+          )}
 
           <Separator />
 
