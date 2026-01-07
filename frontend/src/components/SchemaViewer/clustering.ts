@@ -541,18 +541,47 @@ export function clusterColumns(
     maxClusterSize
   );
 
-  // Convert to ColumnCluster format
+  // Convert to ColumnCluster format with unique names
+  const usedNames = new Set<string>();
   const algorithmClusters: ColumnCluster[] = clusterNodes
     .filter(node => node.members.length >= minClusterSize)
     .slice(0, maxClusters)
-    .map((node, idx) => ({
-      id: `algo_${Date.now()}_${idx}`,
-      name: generateClusterLabel(columnsToCluster, node.members, commonTerms),
-      description: `${node.members.length} columns (similarity: ${(node.similarity * 100).toFixed(0)}%)`,
-      color: CLUSTER_COLORS[idx % CLUSTER_COLORS.length],
-      collapsed: false,
-      column_names: node.members.map(i => columnsToCluster[i].name)
-    }));
+    .map((node, idx) => {
+      let name = generateClusterLabel(columnsToCluster, node.members, commonTerms);
+
+      // Ensure unique names by appending a suffix if needed
+      if (usedNames.has(name)) {
+        // Try to find a more specific name using the first column
+        const firstCol = columnsToCluster[node.members[0]];
+        const altTokens = tokenizeName(firstCol.name).filter(t => !commonTerms.has(t));
+        if (altTokens.length > 0) {
+          const altName = titleCase(altTokens.slice(0, 2).join(' '));
+          if (!usedNames.has(altName)) {
+            name = altName;
+          } else {
+            // Add numeric suffix
+            let suffix = 2;
+            while (usedNames.has(`${name} ${suffix}`)) suffix++;
+            name = `${name} ${suffix}`;
+          }
+        } else {
+          // Add numeric suffix
+          let suffix = 2;
+          while (usedNames.has(`${name} ${suffix}`)) suffix++;
+          name = `${name} ${suffix}`;
+        }
+      }
+      usedNames.add(name);
+
+      return {
+        id: `algo_${Date.now()}_${idx}`,
+        name,
+        description: `${node.members.length} columns (similarity: ${(node.similarity * 100).toFixed(0)}%)`,
+        color: CLUSTER_COLORS[idx % CLUSTER_COLORS.length],
+        collapsed: false,
+        column_names: node.members.map(i => columnsToCluster[i].name)
+      };
+    });
 
   // Handle unclustered columns (singleton clusters below threshold)
   const clusteredColumns = new Set(algorithmClusters.flatMap(c => c.column_names));
@@ -570,14 +599,37 @@ export function clusterColumns(
         columnsToCluster.findIndex(c => c.name === col.name)
       ).filter(idx => idx !== -1);
 
-      const clusterName = chunk.length === 1
+      let clusterName = chunk.length === 1
         ? titleCase(tokenizeName(chunk[0].name).filter(t => !commonTerms.has(t)).slice(0, 3).join(' ')) ||
           titleCase(tokenizeName(chunk[0].name).slice(0, 3).join(' '))
         : generateClusterLabel(columnsToCluster, chunkIndices, commonTerms);
 
+      // Ensure unique name
+      if (!clusterName) clusterName = 'Other';
+      if (usedNames.has(clusterName)) {
+        // Try alternative from first column
+        const firstCol = chunk[0];
+        const altTokens = tokenizeName(firstCol.name).filter(t => !commonTerms.has(t));
+        if (altTokens.length > 0) {
+          const altName = titleCase(altTokens.slice(0, 2).join(' '));
+          if (!usedNames.has(altName)) {
+            clusterName = altName;
+          } else {
+            let suffix = 2;
+            while (usedNames.has(`${clusterName} ${suffix}`)) suffix++;
+            clusterName = `${clusterName} ${suffix}`;
+          }
+        } else {
+          let suffix = 2;
+          while (usedNames.has(`${clusterName} ${suffix}`)) suffix++;
+          clusterName = `${clusterName} ${suffix}`;
+        }
+      }
+      usedNames.add(clusterName);
+
       algorithmClusters.push({
         id: `algo_${Date.now()}_other_${chunkIdx}`,
-        name: clusterName || 'Other',
+        name: clusterName,
         description: `${chunk.length} columns`,
         color: CLUSTER_COLORS[(algorithmClusters.length + chunkIdx) % CLUSTER_COLORS.length],
         collapsed: false,
