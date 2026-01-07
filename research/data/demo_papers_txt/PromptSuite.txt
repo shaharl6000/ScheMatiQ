@@ -1,0 +1,612 @@
+PromptSuite: A Task-Agnostic Framework for Multi-Prompt
+Generation
+EliyaHabba* NoamDahan∗ GiliLior GabrielStanovsky
+TheHebrewUniversityofJerusalem
+eliya.habba@mail.huji.ac.il
+Abstract Evaluating over multiple prompts is currently
+challengingbecausethereisnostandardwaytoex-
+Evaluating LLMs with a single prompt has tendexistingbenchmarks,whichwerelargelycom-
+provenunreliable,withsmallchangesleading piledusingasingleprompt. Evidently,despiteits
+to significant performance differences. How- majorlimitation,single-promptevaluationsarestill
+ever,generatingthepromptvariationsneeded
+prevalent in many NLP tasks (Gu et al., 2024a,b;
+for a more robust multi-prompt evaluation is
+Lioretal.,2025).
+challenging, limiting its adoption in practice.
+Toaddressthis, we introducePromptSuite, a Toaddressthismajorchallengestandinginthe
+frameworkthatenablestheautomaticgenera- wayofmeaningfulevaluationinNLP,wepresent
+tionofvariousprompts. PromptSuiteisflexi- PromptSuite,aframeworkthatgeneratesmultiple
+ble–workingoutoftheboxonawiderange
+prompts, employing both LLMs as well as rule-
+of tasks and benchmarks. It follows a mod-
+basedheuristicstogeneratevariationsalongdimen-
+ular prompt design, allowing controlled per-
+sionsthatwerefoundtoaffectmodelperformance.
+turbationstoeachcomponent, andisextensi-
+PromptSuiteisbuiltaroundthreecoreprinciples,
+ble,supportingtheadditionofnewcomponents
+and perturbation types. Through a series of presentedinSection2. First, PromptSuiteisflex-
+case studies, we show that PromptSuite pro- ible, designed to work out of the box on a wide
+videsmeaningfulvariationstosupportstrong range of benchmarks. Second, PromptSuite fol-
+evaluation practices. All resources, includ- lows a modular design that decomposes prompts
+ingthePythonAPI,sourcecode,user-friendly
+intofourcomponents: instruction,promptformat,
+web interface, and demonstration video, are
+demonstration,andinstancecontent,andPrompt-
+available at: https://eliyahabba.github.
+io/PromptSuite/. Suiteenablestargetedperturbationstoeachcom-
+ponent,makingiteasytoevaluatetheirimpactand
+adapttonewtasks. Finally,PromptSuiteisexten-
+1 Introduction
+sible,supportingfutureLLMevaluationresearch
+RecentstudieshavedemonstratedthatLLMsare witheasyextensionsfornewpromptcomponents
+highlysensitivetosmall,meaning-preservingvari- andperturbations.
+ations in task formulation. Minor changes, rang- PromptSuiteprovidesdifferenttypesofperturba-
+ing from adding white spaces to instruction para- tionstoeachpromptcomponent,includingformat-
+phrasing, lead to substantial differences in per- ting,paraphrasing,contextaddition,andfew-shot
+formance and model ranking (Sclar et al., 2023; demonstrationediting,asillustratedinFigure1. In
+Mizrahi et al., 2024). This sensitivity has been Section 3, we provide further details on the per-
+explored in the evaluation of many NLP tasks in turbationtypes,aswellasdemonstratehowtouse
+zeroandfewshotsettings,suchastextclassifica- ourAPItotransformrawdataintomultipleprompt
+tions(Chakrabortyetal.,2023;ReifandSchwartz, variationswithjustafewlinesofcode.
+2024);multiple-choicequestionanswering(Habba
+In Section 4, we demonstrate the flexibility of
+etal.,2025;Alzahranietal.,2024);andtextgener-
+ourframeworkthroughaseriesofcasestudies. We
+ationtasks(ResendizandKlinger,2024),raising
+assess the impact of prompt variation on nine di-
+concernsaboutthevalidityofevaluationperformed
+versetaskswithtwoSOTALLMs,highlightingthe
+usingasingleprompt.
+utilityofPromptSuiteformulti-promptevaluation.
+*Equalcontribution. Ourcontributionsareasfollows:
+5202
+peS
+12
+]LC.sc[
+4v31941.7052:viXra
+Prompt Components Perturbations PromptSuite Output
+Instruction:
+Formatting Answer the question
+Answer the following question:
+Paraphrase Think carefully and reply
+Prompt Format:
+Question: Formatting QUESTION ||
+Answer: ANSWER ||
+Demonstrations:
+Who composed Hamilton?
+Who wrote A Doll’s
+Lin-Manuel Miranda Demonstration Perturb
+House?
+What genre is Antigone? Editing each
+Henrik Ibsen
+Tragedy component
+& combine
+Instance content:
+This romantic tragedy tells
+Who wrote Romeo and Juliet? Context addition the story of two young lovers
+from feuding families. Who
+wrote Romeo and Juliet?
+Figure1: PromptSuiteframework: configureamodularprompt,andapplycomponent-wiseperturbations. This
+modularityenablesPromptSuitetogeneralizeacrosstasksandadapttodiversedata.
+1. WepresentPromptSuite,aneasy-to-useframe- Modular PromptSuiteisbuiltaroundamodular
+work that provides the prompt variations representation, treating each prompt as a combi-
+neededformulti-promptevaluationacrossa nation of independent components, as shown in
+wide range of tasks, working out of the box Figure 1. This design enables targeted perturba-
+withdiversebenchmarksanddatasets. tionstospecificcomponents,supportingevaluation
+oftheirimpactonmodelperformanceandallowing
+2. We evaluate PromptSuite’s capabilities adaptationtonewtasks,formats,ordatasets.
+through a series of case studies that demon-
+strate its ability to reveal LLM sensitivity Extensible PromptSuiteisbuilttosupportfuture
+to prompt variations across a diverse set of researchinthefieldofLLMevaluation. Inparticu-
+tasks. lar,itiseasytoaddnewpromptcomponentsand
+newtypesofperturbationsthroughouropen-source
+3. We show PromptSuite’s modular design en- code.1
+ablesisolatingtheeffectofindividualprompt
+componentperturbations,enablingfuturere- 3 PromptSuite
+searchintothecausesofLLMsensitivity.
+PromptSuiteisaflexible,modularandextensible
+2 PromptSuite’sPrinciples frameworkthatgeneratesdiversepromptsneeded
+forrobustevaluation. Foragivendataset,itoutputs
+WebuildPromptSuiteonthreecoreprinciplesto a set of prompt variations for few-shot or zero-
+make it useful across a variety of use cases and shotsettings,whereeachsamplefromthedataset
+applicableovertime. appearsmultipletimeswithdifferentprompts. For
+example,inListing1,weloadSQuAD(Rajpurkar
+Flexible PromptSuitemustbeabletosupporta
+et al., 2016a) through Hugging Face, set up the
+diverserangeoftasksoutofthebox. Weachieve
+prompt and choose to paraphrase the instruction
+this by relying only on the prompt structure and
+and apply formatting to the prompt format. This
+notitscontent. Wedemonstratethisflexibilityin
+resultsin9promptvariationspersample,withjust
+Section4,whereweusePromptSuitetogetprompt
+afewlinesofcode,andminimalinformationabout
+variationsin9differenttasks, includingquestion
+thedataset.
+answering,multiple-choicereasoning,translation,
+summarization,andcodegeneration. 1https://www.github.com/eliyahabba/PromptSuite
+from promptsuite import PromptSuite thepromptortheappearanceofitstextualcontent.
+These are rule-based perturbations which can be
+# Initialize
+ps = PromptSuite() appliedtoallpromptcomponents2 andincludefor
+example: insertingextraspaces;introducingtypos
+# 1) Load dataset directly from HF (e.g.,“apple”→“aplpe”);changinglettercasing,
+ps.load_dataset("rajpurkar/squad")
+andalteringpunctuation. Thisformofnoisemim-
+# 2) Setup template and 3) Choose ics the kind of variation found in real-world user
+perturbations
+inputs (Ravichander et al., 2021), and has been
+template = {
+'instruction': 'Please␣answer␣the␣ shown to affect model performance (Sclar et al.,
+following␣questions.',
+2023).
+'prompt␣format': 'Q:␣{question}\nA:␣{
+ParaphrasingisanLLM-basedperturbationthat
+answer}',
+"instruction␣variations": [" changesthewordingoftheinstruction. Weusethe
+paraphrase_with_llm"],
+promptingmethodofMizrahietal.(2024),which
+"prompt␣format␣variations": ["format␣
+structure"], hasbeenshowntoproduceparaphrasesthatsurface
+} models’sensitivity.
+ps.set_template(template)
+Contextadditionperturbationaddsthematically
+# 4) Generate variations relatedtexttothepromptwithoutchangingthegold
+ps.configure(variations_per_field=3, answer or providing additional hints. While the
+api_platform="OpenAI", model_name="
+taskremainsunchanged,theaddedcontentmakes
+gpt-4o-mini")
+variations = mp.generate(verbose=True) thepromptlongerandpotentiallymorechallenging
+forthemodel(Levyetal.,2024).
+# Export results
+Lastly,DemonstrationEditingreferstochanges
+ps.export("output.json", format="json")
+tothefew-shotdemonstration–namely,thenum-
+Listing 1: Code snippet for using PromptSuite API.
+berofexamples,whichonesareincluded,andtheir
+Hereweapplyparaphrasingtotheinstructionwithan
+order, following (Lu et al., 2021). In addition to
+LLMandformattingtothepromptformat.
+the general perturbation strategies, we also sup-
+porttask-specificfeaturesforcommonsetups(e.g.,
+changingenumeratorsinmulti-answerquestions).
+In this section, we briefly describe the modu-
+ThesearedescribedinAppendixA.1.
+larpromptdesignandthesupportedperturbations,
+followed by an overview of how PromptSuite is 3.2 UsingPromptSuite
+used.
+We provide a detailed overview of using Prompt-
+Suite. ThepackagecontainingPromptSuitecanbe
+3.1 ModularPromptandPerturbations
+installedinthedesiredenvironmentusingpip:
+PromptSuitetreatseachpromptasaconcatenation
+pip install promptsuite
+ofcomponents,allowingcontrolledperturbations
+PromptSuite transforms raw data into diverse
+toeachpart,asillustratedinFigure1. Thisinter-
+promptvariationsinfoursteps, ascanbeseenin
+pretation of prompt structure is an integration of
+Listing1.
+severalrecentworksthatidentifiedpromptcompo-
+nentsthataffectoverallperformance(Sclaretal.,
+(1) Load datasets: PromptSuite supports data
+2023;Mondshineetal.,2025). Specifically,each
+from HuggingFace Datasets Library or local
+promptiscomprisedof: instruction(e.g.,“Answer
+sources,includingpandasDataFrames,JSON,and
+thefollowingquestion”,“Summarizethefollowing
+CSVfiles.
+text”);promptformat(e.g,“Question:,Answer:”,
+“Text:,Summary:”);demonstrations;andinstance (2)Setuptemplate: Toapplythedesiredpertur-
+content–thecurrentsamplethemodelisevaluated bations,PromptSuiterequiresthestructureofthe
+on(“WhowroteRomeoandJuliet?”). promptandwhichdatasetcolumnsshouldbeused
+Each component can be subjected to different init. TheInstruction,like“Pleaseanswerthefol-
+perturbations, as detailed in Table 1. All of the lowing question”, is given as a plain string. The
+perturbationspreservetheoriginalmeaningofthe
+Promptformat,suchasQ: question A: answer,
+prompt,aswellastheintendedoutput. Formatting
+2Differentimplementationsareappliedtodifferentcom-
+referstochangesthatmodifyeitherthestructureof ponents
+PerturbationType ApplicableComponents Description
+Formatting Instruction, promptformat, Addssurface-levelnoisetothetextItincludesinserting
+demonstrations, extraspaces,introducingtypos,changinglettercasing,
+instancecontent andalteringpunctuation. Following(Sclaretal.,2023).
+Paraphrase Instruction Createssemanticallyequivalentvariationstotheinstruc-
+tionthatdifferinphrasingandstyle. Following(Mizrahi
+etal.,2024).
+Contextaddition Instancecontent Uses an LLM to add text related to the instance con-
+tentwithoutrevealingorchangingtheanswer. Follow-
+ing(Liuetal.,2023;Levyetal.,2024).
+DemonstrationEditing Demonstrations Changes the few-shot examples, their order and their
+number. Following(Luetal.,2021).
+Table1: OverviewoftheperturbationtypessupportedbyPromptSuite. The“ApplicableComponents”column
+specifieswhichpromptcomponentseachperturbationcanbeappliedto. Forexample,paraphrasingisapplicableto
+theinstructioncomponent.
+is written using Python’s f-string syntax. Each loadtheirsingle-promptdataset,thenconfigurethe
+placeholder(e.g.,question)mustmatchacolumn promptcomponentsandselectthedesiredpertur-
+nameinthedataset. Forexample,inListing1,the bationsforeachcomponent. Asshowninthefig-
+columnsare’question’and’answer’. ure,PromptSuite’swebUIallowsuserstoexplore
+thegeneratedvariations,highlightingthechanges
+(3) Choose perturbations: Each component
+applied to each row. The interface also provides
+maybesubjectedtodifferentperturbations,accord-
+severalpredefinedtemplatesforpopulartasks,in-
+ing to the user’s choice, as described in Table 1.
+cluding multiple-choice QA, sentiment analysis,
+Thesechoicesareaddedtothetemplatesetup,by
+open-endedQA,andtextclassification,enablinga
+specifyingthenameofthecomponentandthevari-
+quickandeasyplug-and-playsetupforuserswho
+ation. Forexample,inListing1,wechoosetocre-
+wish to automatically generate multi-prompt ver-
+ateLLM-basedparaphraseontheinstructionand
+sionsoftheirdatasets.
+applyformattingtothepromptformat. Toensure
+maximum flexibility, users can not only modify 4 Evaluation
+the prompt components (i.e, instruction, prompt
+We demonstrate that PromptSuite is flexible and
+format,demonstrations,andinstancecontent)but
+generalizes across a wide range of tasks by ap-
+alsoapplyalterationstoanycolumnincludedasa
+plyingittoninediversebenchmarks. Ourresults
+placeholderintheprompttemplate.
+showthatmulti-promptevaluationrevealssubstan-
+(4) Generate variations: Lastly, the user can tial performance variance that would have been
+specifythenumberofperturbationspercomponent. missed using a single prompt. We further assess
+Toensurethedatasetremainsmanageableinterms the impact of perturbations to individual prompt
+ofcostandmemory,userscanalsolimitthetotal componentsonmodelperformancebyleveraging
+numberofgeneratedrows. Sinceeachcomponent PromptSuite’smodulardesign.
+supportsmultipleperturbations,thenumberofpos-
+4.1 ExperimentalSetup
+sible dataset variations grows exponentially with
+thenumberofchosenperturbations. Toproducea Tasks and datasets. We evaluate PromptSuite
+manageabledatasetsize,weprovideanoptionto on: (1) MMLU (Hendrycks et al., 2021) for
+randomlyselectacombinationofthedesiredper- multiple-choicereasoningacross12subjects; (2)
+turbationsandapplythemacrosstheentiredataset, GSM8K (Cobbe et al., 2021) for mathemati-
+followingtheapproachofHabbaetal.(2025). cal problem solving; (3) SST (Socher et al.,
+2013) for sentiment analysis; (4) WMT14 (Bo-
+PromptSuite is also available via a web inter-
+jar et al., 2014) for translation across 6 lan-
+face. WeofferthefullcapabilitiesofPromptSuite
+guage pairs (CS/HI/RU↔EN); (5) CNN/Daily-
+throughawebUI,asillustratedinFigure2.3 Users
+Mail (Hermann et al., 2015) for summarization;
+follow the same steps described above: first, up-
+(6) MuSiQue (Trivedi et al., 2022) for multi-hop
+3https://promptsuite.streamlit.app/ questionanswering;(7)SQuAD(Rajpurkaretal.,
+Figure 2: PromptSuite’s web UI. Left-to-right: uploading a dataset; configuring the template and choosing
+perturbations;andgeneratingamulti-promptdataset.Thepresentedexampledemonstratesasinglepromptvariation,
+withchangestothepromptformatandinstancecontent.
+2016b) for reading comprehension; (8) GPQA- omissionofthesystemmessage,suchas“youare
+Diamond(Reinetal.,2024)forgraduate-levelrea- anexpertinQA”).
+soning;and(9)HumanEval(Chenetal.,2021)for
+4.2 Results
+codegeneration.
+Belowweoutlineinterestingconclusionsderived
+Models. We evaluate GPT-4o-mini and Llama-
+fromourexperimentsusingPromptSuite.
+3.3-70B, representing closed and open-source
+LLMs. Temperatureissetto0toensureconsistent Modelsexhibitsensitivitytothepromptpertur-
+anddeterministicoutputs. Forcodegeneration,we bationsacrossalltasks,underscoringtheutility
+use a temperature of 0.8, since Pass@k relies on ofPromptSuite. Figures3aand3bshowperfor-
+generatingmultiplecandidatesolutions,andanon- mance distributions across prompt variations for
+zero temperature is essential to ensure a diverse Llama-3.3-70BandGPT-4o-mini,respectively. We
+set of outputs across multiple runs for the same observe substantial variability. For instance, on
+prompt,asdemonstratedin(Chenetal.,2021). GPQA-Diamond,GPT-4o-mini’saccuracyranges
+from 20% to 50% across variations. This vari-
+Promptvariations. Foreachtask,wegenerate anceisparticularlystrikingwhencomparedtotyp-
+variationsusing: paraphrasing,formattingapplied ical performance differences between competing
+to the prompt format and demonstration editing. models,whichoftenamounttojustafewpercent-
+Weprocess50rowsperdatasetwithupto25varia- agepoints(Lioretal.,2025). Theconsistencyof
+tionsperrow,resultinginapproximately1,250eval- thispatternacrossdiversetasksdemonstratesthat
+uatedpromptspertaskandatotalof 37,000LLM promptsensitivityisnotlimitedtospecificdomains
+outputs(detailedcalculationsinAppendixA.1,Ta- butrepresentsageneralchallengeinLLMevalua-
+ble 3, and token counts in Table 4). This yields tion.
+comprehensivecoveragewhileremainingcompu-
+PromptSuite’s modularity enables systematic
+tationallytractable.
+ablation, showing that the impact of prompt
+Manualvalidation. Tovalidateourresults,we component perturbations varies across tasks
+conducted human validation of a subset of 100 and models. PromptSuite’s modularity allows
+LLM-basedparaphrases. Twoin-houseannotators a systematic ablation study that assesses the im-
+independently annotated all 100 samples, reach- pact of changes in specific prompt components
+ing 95% agreement (Cohen’s k = 0.593). They on model performance. We perturb one prompt
+judgedthat96%oftheparaphrasespreservedthe componentatatimetomeasureitsspecificeffect,
+originalmeaningoftheinstruction. Thesamples testinginstructionparaphrasing,formattingapplied
+thatweretaggedasincorrectwereeitherduetothe toeitherthepromptformatortheinstancecontent
+useofalessaccuratesynonym(e.g.,forsentiment anddemonstrationsediting. Weconductthisexper-
+analysisinstruction,itrephrased“sentiment”into imentonGPQA-Diamond,SQuADandGSM8K.
+“emotionaltone”,whichcanbeambiguous,orthe Each perturbation was evaluated on 50 examples
+MMLU MMLU
+Multiple Choice Multiple Choice
+(Accuracy) (Accuracy)
+GPQA Diamond GPQA Diamond
+Proof Math Proof Math
+(Accuracy) (Accuracy)
+GSM8K GSM8K
+Open Math Problems Open Math Problems
+(Accuracy) (Accuracy)
+HumanEval HumanEval
+Code Generation Code Generation
+(Pass@1) (Pass@1)
+SST SST
+Sentiment Analysis Sentiment Analysis
+(MAE) (MAE)
+WMT14 WMT14
+Translation Translation
+(BLEU) (BLEU)
+CNNDaily Mail CNNDaily Mail
+Summarization Summarization
+(ROUGE 1) (ROUGE 1)
+SQuAD SQuAD
+Reading Comprehension Reading Comprehension
+(WordF1) (WordF1)
+MuSiQue MuSiQue
+Multihop Questions Multihop Questions
+(WordF1)0 20 40 60 80 100 (WordF1)0 20 40 60 80 100
+Performance (%) Performance (%)
+(a)Llama-3.3-70B (b)GPT-4o-mini
+Figure 3: Multi-prompt evaluation results using PromptSuite. The boxplots illustrate variance across different
+promptperturbations,revealingmodels’sensitivitytopromptvariationsandunderscoringtheutilityofPromptSuite
+forderivingrobustandmeaningfulevaluationsofLLMcapabilities.
+with20variationsperexample,yielding1000eval-
+50
+uatedpromptspercomponent-taskcombinationfor
+each model. Figure 4 presents the performance 40
+distributions across perturbation types in GPQA-
+Diamond. For example, we observe that demon- 30
+strationeditingcausedhighvarianceinLlama-3.3-
+20
+70B’s performance, whereas for other tasks (Fig-
+ure5intheAppendix),demonstrationeditinghad
+10
+almostnoeffectonLlama-3.3-70B’sperformance.
+Similarly,forGPT-4o-mini,promptformattinghad
+0
+Demonstrations Prompt Format Instruction Instance Content
+almost no effect on GPQA-Diamond (Figure 4), Editing Formatting Paraphrase Formatting
+but showed a more significant effect for SQuAD
+(Figure 5). These inconsistencies across models
+andtasksunderscoretheimportanceofaflexible
+andmodularframeworklikePromptSuite,which
+enablessystematicanalysisofpromptcomponent
+effects. For example, practitioners can leverage
+PromptSuite for a more efficient evaluation strat-
+egy,byfirstexperimentingonasmallsubsetofthe
+datatoidentifythemostinfluentialpromptcompo-
+nents, and then conducting a focused large-scale
+evaluationthatconcentratesonlyontheperturba-
+tionswiththemostsignificantimpact.
+5 RelatedWork
+A few existing frameworks support a subset
+of PromptSuite’s capabilities. To the best of
+our knowledge, they are task-specific and re-
+quire manual control over input variations. NL-
+Augmenter(Dholeetal.,2021)isacrowd-sourced
+)%(
+ycaruccA
+GPQA-Diamond
+GPT-4o mini
+Llama-3.3-70B
+Figure4: Analysisofhowperturbationstoindividual
+promptcomponentsaffectmodelsensitivityonGPQA-
+Diamond. Each boxplot represents an experiment in
+whichasinglepromptcomponentwasvariedwhileall
+othersremainedfixed.
+repository for perturbations. While it provides a
+wide range of task-specific transformations and
+filters, it operates solely on the input data and
+doesnotaccountforinstructionsortemplates,both
+of which are critical for robust few-shot evalua-
+tion. Unitxt (Bandel et al., 2024) is a library for
+data preparation and evaluation, with some tasks
+supporting a limited number of data alterations.
+Prompt-AgnosticFine-Tuning(PAFT)(Weietal.,
+2025) also seeks to reduce prompt sensitivity by
+generatingdiverseprompts,butincorporatesthem
+duringfinetuningratherthanatevaluationtime.
+6 Conclusion MarkChen,JerryTworek,HeewooJun,QimingYuan,
+Henrique Ponde de Oliveira Pinto, Jared Kaplan,
+WeintroducePromptSuite,aframeworkthatgen- HarriEdwards,YuriBurda,NicholasJoseph,Greg
+eratespromptvariationsneededformulti-prompt Brockman,AlexRay,RaulPuri,GretchenKrueger,
+MichaelPetrov,HeidyKhlaaf,GirishSastry,Pamela
+evaluation. It is flexible, uses a modular design
+Mishkin, Brooke Chan, Scott Gray, and 39 others.
+forcontrolledperturbations,andiseasilyextensi-
+2021. Evaluatinglargelanguagemodelstrainedon
+ble. Through case studies, we show that the vari- code. Preprint,arXiv:2107.03374.
+ations generated by PromptSuite are sufficient to
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian,
+testmodelsensitivity.
+MarkChen,HeewooJun,LukaszKaiser,Matthias
+Plappert, Jerry Tworek, Jacob Hilton, Reiichiro
+7 Limitations
+Nakano, and 1 others. 2021. Training verifiers
+to solve math word problems. arXiv preprint
+While PromptSuite provides a general, task-
+arXiv:2110.14168.
+agnostic framework for multi-prompt evaluation,
+thisgeneralitycomeswithatradeoff. Sometasks KaustubhDDhole,VarunGangal,SebastianGehrmann,
+AadeshGupta,ZhenhaoLi,SaadMahamood,Abi-
+may involve specific variations or prompt struc-
+nayaMahendiran,SimonMille,AshishShrivastava,
+turesthatPromptSuitedoesnotcurrentlysupport.
+SamsonTan,and1others.2021. Nl-augmenter: A
+Specifically, this limitation arises in cases where framework for task-sensitive natural language aug-
+evaluationisnotstraightforward(e.g.,multi-turn mentation. arXivpreprintarXiv:2112.02721.
+chat). To mitigate this limitation, we designed
+AlexGu,Wen-DingLi,NamanJain,TheoOlausson,Ce-
+our code to be easily extensible, allowing users
+lineLee,KoushikSen,andArmandoSolar-Lezama.
+toaddadditionalpromptcomponentsorvariations 2024a. Thecounterfeit conundrum: Can codelan-
+asneeded. guage models grasp the nuances of their incorrect
+generations? InFindingsoftheAssociationforCom-
+putational Linguistics: ACL 2024, pages 74–117,
+Bangkok,Thailand.AssociationforComputational
+References
+Linguistics.
+NorahAlzahrani,HishamAlyahya,YazeedAlnumay,
+Sultan AlRashed, Shaykhah Alsubaie, Yousef Al- Alex Gu, Baptiste Rozière, Hugh Leather, Armando
+mushayqih, Faisal Mirza, Nouf Alotaibi, Nora Al- Solar-Lezama,GabrielSynnaeve,andSidaIWang.
+Twairesh, Areeb Alowisheq, M Saiful Bari, and 2024b. Cruxeval: A benchmark for code reason-
+HaidarKhan.2024. Whenbenchmarksaretargets: ing, understanding and execution. arXiv preprint
+Revealing the sensitivity of large language model arXiv:2401.03065.
+leaderboards. In Proceedings of the 62nd Annual
+Meeting of the Association for Computational Lin- Eliya Habba, Ofir Arviv, Itay Itzhak, Yotam Perlitz,
+guistics (Volume 1: Long Papers), pages 13787– Elron Bandel, Leshem Choshen, Michal Shmueli-
+13805,Bangkok,Thailand.AssociationforCompu- Scheuer, and Gabriel Stanovsky. 2025. Dove: A
+tationalLinguistics. large-scale multi-dimensional predictions dataset
+towards meaningful llm evaluation. Preprint,
+Elron Bandel, Yotam Perlitz, Elad Venezian, Roni arXiv:2503.01622.
+Friedman-Melamed, Ofir Arviv, Matan Orbach,
+ShacharDon-Yehyia,DafnaSheinwald,ArielGera, DanHendrycks,CollinBurns,StevenBasart,AndyZou,
+Leshem Choshen, and 1 others. 2024. Unitxt: MantasMazeika,DawnSong,andJacobSteinhardt.
+Flexible, shareable and reusable data preparation 2021. Measuringmassivemultitasklanguageunder-
+and evaluation for generative ai. arXiv preprint standing. Preprint,arXiv:2009.03300.
+arXiv:2401.14019.
+KarlMoritzHermann,TomášKocˇiský,EdwardGrefen-
+Ondˇrej Bojar, Christian Buck, Christian Federmann, stette,LasseEspeholt,WillKay,MustafaSuleyman,
+BarryHaddow, PhilippKoehn, JohannesLeveling, andPhilBlunsom.2015. Teachingmachinestoread
+ChristofMonz,PavelPecina,MattPost,HerveSaint- andcomprehend. Preprint,arXiv:1506.03340.
+Amand,RaduSoricut,LuciaSpecia,andAlešTam-
+chyna. 2014. Findings of the 2014 workshop on Mosh Levy, Alon Jacoby, and Yoav Goldberg. 2024.
+statisticalmachinetranslation. InProceedingsofthe Sametask,moretokens:theimpactofinputlengthon
+NinthWorkshoponStatisticalMachineTranslation, thereasoningperformanceoflargelanguagemodels.
+pages12–58,Baltimore,Maryland,USA.Associa- arXivpreprintarXiv:2402.14848.
+tionforComputationalLinguistics.
+Gili Lior, Eliya Habba, Shahar Levy, Avi Caciularu,
+MohnaChakraborty,AdithyaKulkarni,andQiLi.2023. andGabrielStanovsky.2025. Reliableeval: Arecipe
+Zero-shotapproachtoovercomeperturbationsensi- forstochasticllmevaluationviamethodofmoments.
+tivityofprompts. arXivpreprintarXiv:2305.15689. arXivpreprintarXiv:2505.22169.
+NelsonF.Liu,KevinLin,JohnHewitt,AshwinParan- In Proceedings of the 2013 Conference on Empiri-
+jape,MicheleBevilacqua,FabioPetroni,andPercy calMethodsinNaturalLanguageProcessing,pages
+Liang.2023. Lostinthemiddle: Howlanguagemod- 1631–1642,Seattle,Washington,USA.Association
+elsuselongcontexts. Preprint,arXiv:2307.03172. forComputationalLinguistics.
+YaoLu,MaxBartolo,AlastairMoore,SebastianRiedel, HarshTrivedi,NiranjanBalasubramanian,TusharKhot,
+and Pontus Stenetorp. 2021. Fantastically ordered and Ashish Sabharwal. 2022. Musique: Multi-
+prompts and where to find them: Overcoming hopquestionsviasingle-hopquestioncomposition.
+few-shot prompt order sensitivity. arXiv preprint Preprint,arXiv:2108.00573.
+arXiv:2104.08786.
+Chenxing Wei, Yao Shu, Mingwen Ou, Ying Tiffany
+MoranMizrahi,GuyKaplan,DanMalkin,RotemDror, He,andFeiRichardYu.2025. Paft:Prompt-agnostic
+DafnaShahaf, andGabrielStanovsky.2024. State fine-tuning. Preprint,arXiv:2502.12859.
+ofwhatart? acallformulti-promptllmevaluation.
+TransactionsoftheAssociationforComputational A ExampleAppendix
+Linguistics,12:933–949.
+A.1 Task-SpecificPerturbations
+ItaiMondshine,TzufPaz-Argaman,andReutTsarfaty.
+Formultiplechoicequestions,multi-documentor
+2025. Beyondenglish: Theimpactofprompttrans-
+lationstrategiesacrosslanguagesandtasksinmulti- anytasksthatincludesalistasinputweofferper-
+lingualllms. arXivpreprintarXiv:2502.09331. turbations of said list, presented in Table 2. This
+includessupportforenumeratingthelistitems,as
+Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev,
+wellasshufflingtheorder(whilechangingthegold
+and Percy Liang. 2016a. Squad: 100,000+ ques-
+tionsformachinecomprehensionoftext. Preprint, answeraccordingly,ifapplicable).
+arXiv:1606.05250.
+PranavRajpurkar,JianZhang,KonstantinLopyrev,and
+Percy Liang. 2016b. SQuAD: 100,000+ questions
+formachinecomprehensionoftext. InProceedings
+ofthe2016ConferenceonEmpiricalMethodsinNat-
+uralLanguageProcessing,pages2383–2392,Austin,
+Texas.AssociationforComputationalLinguistics.
+Abhilasha Ravichander, Siddharth Dalmia, Maria
+Ryskina,FlorianMetze,EduardHovy,andAlanW
+Black. 2021. Noiseqa: Challenge set evalua-
+tion for user-centric question answering. Preprint,
+arXiv:2102.08345.
+Yuval Reif and Roy Schwartz. 2024. Beyond perfor-
+mance: Quantifyingandmitigatinglabelbiasinllms.
+Preprint,arXiv:2405.02743.
+DavidRein,BettyLiHou,AsaCooperStickland,Jack-
+sonPetty,RichardYuanzhePang,JulienDirani,Ju-
+lianMichael,andSamuelRBowman.2024. Gpqa:
+Agraduate-levelgoogle-proofq&abenchmark. In
+FirstConferenceonLanguageModeling.
+Yarik Menchaca Resendiz and Roman Klinger.
+2024. Mopo: Multi-objective prompt optimiza-
+tion for affective text generation. arXiv preprint
+arXiv:2412.12948.
+MelanieSclar,YejinChoi,YuliaTsvetkov,andAlane
+Suhr.2023. Quantifyinglanguagemodels’sensitiv-
+itytospuriousfeaturesinpromptdesignor: Howi
+learned to start worrying about prompt formatting.
+arXivpreprintarXiv:2310.11324.
+Richard Socher, Alex Perelygin, Jean Wu, Jason
+Chuang,ChristopherD.Manning,AndrewNg,and
+ChristopherPotts.2013. Recursivedeepmodelsfor
+semanticcompositionalityoverasentimenttreebank.
+PerturbationType Applicable Description
+Fields
+Enumerate lists, comma addsenumerationtoaspecifiedfield,suchasmultiple-
+separated val- choiceoptions,byprependingeachitemwithanumber
+ues orletter(e.g.,1.,A.,a.). Following(Habbaetal.,2025)
+Shuffle lists shufflestheitemsinalistandupdatesthegoldfieldto
+reflectthenewindexofthecorrectanswer. Forexample,
+if the correct answer was originally at position B and
+ismovedtopositionCaftershuffling,thegoldlabelis
+updatedaccordingly. Following(Habbaetal.,2025)
+Table2: Task-specificperturbationtypesinPromptSuite. The"ApplicableFields"columnindicateswhichtypesof
+datacolumntheperturbationworkson.
+Benchmark/Task Questions Variations Total(Q×V)
+MMLUMultipleChoice(12subjects,10questionseach) 120 50 6000
+GSM8KOpenMathProblems 50 25 1250
+HumanEvalCodeGeneration 50 25 1250
+SSTSentimentAnalysis 50 50 2500
+WMT14Translation (CS/HI/RU↔EN) 60 50 3000
+CNN-DailyMailSummarization 50 25 1250
+MuSiQueMultihopQuestions 50 25 1250
+SQuADReadingComprehension 50 25 1250
+GPQA–DiamondGoogle-ProofMath 50 25 1250
+Totalacrossbothmodels – – 37,375
+Table3: Numberofevaluatedexamplesperbenchmark. Eachrowindicatesthenumberofbasequestionsand
+variations,withthetotalcomputedastheirproduct. Note: ValuesshownreflecttheGPT-4ominiconfiguration.
+ForLLaMA-3-3.7B,theMuSiQuedatasetincludedonly25basequestions(insteadof50)duetolimitedcontext
+windowconstraints,yieldingatotalof625examplesforthattask. Totalreflectsthecombinednumberofevaluations
+acrossbothmodels.
+75
+70
+65
+60
+55
+50
+45
+Demonstrations Prompt Format Instruction Instance Content
+Editing Formatting Paraphrase Formatting
+)%(
+1F
+droW
+SQuAD
+GPT-4o mini 100
+Llama-3.3-70B
+95
+90
+85
+80
+75
+70
+Demonstrations Prompt Format Instruction Instance Content
+Editing Formatting Paraphrase Formatting
+)%(
+ycaruccA
+GSM8K
+GPT-4o mini
+Llama-3.3-70B
+Figure5: AnalysisofhowperturbationstoindividualpromptcomponentsaffectmodelsensitivityonSQuADand
+GSM8K.Eachboxplotrepresentsanexperimentinwhichasinglepromptcomponentwasvariedwhileallothers
+remainedfixed.
+Benchmark/Task InputTokens OutputTokens
+GPT-4omini Llama-3.370B GPT-4omini Llama-3.370B
+MMLUMultipleChoice 1389791 1391104 68403 173011
+GSM8KOpenMathProblems 722880 731987 223225 135769
+HumanEvalCodeGeneration 7259990 7228940 285569 285313
+SSTSentimentAnalysis 479750 487721 10934 108987
+WMT14Translation 409989 422709 34478 95237
+CNN-DailyMailSummarization 3888319 3940895 167329 155074
+MuSiQueMultihopQuestions 8586023 8102151 17371 14525
+SQuADReadingComprehension 1279578 1288793 10099 9787
+GPQA–DiamondGoogle-ProofMath 1658817 1679053 384586 461600
+Table4: TokenusageperbenchmarkacrossGPT-4ominiandLlama-3.370B.Thetableshowsthenumberofinput
+andoutputtokensconsumedforeachbenchmark.

@@ -518,44 +518,24 @@ export function clusterColumns(
   const unclustered = columnsToCluster.filter(c => !clusteredColumns.has(c.name));
 
   if (unclustered.length > 0) {
-    // Group unclustered by domain if possible, otherwise put in "Other"
-    const domainGroups = new Map<string, ColumnInfo[]>();
-    const other: ColumnInfo[] = [];
+    // Put all unclustered columns in a single "Other" cluster
+    // Name it based on the content of the columns
+    const unclusteredIndices = unclustered.map(col =>
+      columnsToCluster.findIndex(c => c.name === col.name)
+    ).filter(idx => idx !== -1);
 
-    unclustered.forEach(col => {
-      const domain = getDomainCategory(col);
-      if (domain) {
-        const group = domainGroups.get(domain) || [];
-        group.push(col);
-        domainGroups.set(domain, group);
-      } else {
-        other.push(col);
-      }
+    const clusterName = unclustered.length === 1
+      ? titleCase(tokenizeName(unclustered[0].name).slice(0, 3).join(' '))
+      : generateClusterLabel(columnsToCluster, unclusteredIndices);
+
+    algorithmClusters.push({
+      id: `algo_${Date.now()}_other`,
+      name: clusterName || 'Other',
+      description: `${unclustered.length} columns`,
+      color: '#6B7280', // gray
+      collapsed: false,
+      column_names: unclustered.map(c => c.name)
     });
-
-    // Add domain-based groups
-    domainGroups.forEach((cols, domain) => {
-      algorithmClusters.push({
-        id: `algo_${Date.now()}_domain_${domain.toLowerCase()}`,
-        name: domain,
-        description: `${cols.length} columns`,
-        color: CLUSTER_COLORS[algorithmClusters.length % CLUSTER_COLORS.length],
-        collapsed: false,
-        column_names: cols.map(c => c.name)
-      });
-    });
-
-    // Add "Other" cluster if needed
-    if (other.length > 0) {
-      algorithmClusters.push({
-        id: `algo_${Date.now()}_other`,
-        name: 'Other',
-        description: `${other.length} uncategorized columns`,
-        color: '#6B7280', // gray
-        collapsed: false,
-        column_names: other.map(c => c.name)
-      });
-    }
   }
 
   // Merge with user clusters

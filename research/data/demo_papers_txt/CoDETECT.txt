@@ -1,0 +1,913 @@
+5202
+luJ
+7
+]LC.sc[
+1v01050.7052:viXra
+Co-DETECT: Collaborative Discovery of Edge Cases in Text Classification
+ChenfeiXiongZ* JingweiNiEZ* YuFanE* VilémZouharE
+DonyaRooeinBE LorenaCalvo-BartoloméC AlexanderHoyleE
+ZhijingJinT MrinmayaSachanE MarkusLeippoldZ
+DirkHovyB MennatallahEl-AssadyE ElliottAshE
+EETHZürich ZUniversityofZürich
+BBocconiUniversity TUniversityofToronto CUniversidadCarlosIII
+{jingni, yufan, ashe}@ethz.ch
+Abstract Firstly,itischallengingevenfordomainexperts
+todevelopreliablecodebook(HaltermanandKeith,
+We introduce Co-DETECT (Collaborative
+2025). To start with, ambiguity and subjectivity
+Discovery of Edge cases in TExt
+areinherentobstacles,asinterpretingcomplexhu-
+ClassificaTion), a novel mixed-initiative
+annotation framework that integrates human man behaviors and communications often yields
+expertisewithautomaticannotationguidedby multiplevalidperspectives,leadingtoedgecases
+largelanguagemodels(LLMs). Co-DETECT thatneedspecificrulestohandle(Fornaciarietal.,
+starts with an initial, sketch-level codebook 2021;Fuchsetal.,2021;Fleisigetal.,2023;Fan
+and dataset provided by a domain expert, etal.,2025b). Evenwithedgecaseidentified,the
+then leverages the LLM to annotate the data
+expertmaystruggletoexplicitlyarticulatethesub-
+and identify edge cases that are not well
+tleties and intuitions that guide their knowledge
+describedbytheinitialcodebook. Specifically,
+andexpertise,aphenomenoncommonlyknownas
+Co-DETECT flags challenging examples,
+induceshigh-level,generalizabledescriptions Polanyi’s paradox2 (Autor, 2014; Fügener et al.,
+ofedgecases,andassistsuserinincorporating 2022). Asaresult,althoughdomainexpertsmay
+edge case handling rules to improve the possessrichimplicitunderstandingsofcertainso-
+codebook. Thisiterativeprocessenablesmore cial phenomena, they face significant challenges
+effective handling of nuanced phenomena
+when attempting to capture and codify this tacit
+through compact, generalizable annotation
+knowledge within verbal, structured annotation
+rules. Extensive user study, qualitative and
+frameworks.
+quantitativeanalysesprovetheeffectivenessof
+Co-DETECT.1 Secondly, large-scale human annotation is of-
+ten not feasible in many use cases (e.g., Xie and
+1 Introduction
+Zhang, 2024). Employing qualified annotators is
+Socialscientistsoftenfindthemselvesinsituations costly, especially when the task requires domain-
+requiring data annotation based on human judg- specific expertise. Furthermore, domain-specific
+mentandspecificexpertise(WilkersonandCasas, datafrequentlyinvolvenuancedandcomplexcon-
+2017;Kennedyetal.,2018;Demszkyetal.,2020; texts (e.g., Ziems et al., 2024; Fan et al., 2025a;
+Drápaletal.,2023). Forexample,apoliticalscien- Zhaoetal.,2025),whichdemandgreatercognitive
+tiststudyinghatespeechonsocialmediamayneed effortandlongerannotationtimestoensurehigh
+to develop a codebook that clearly defines what quality. Asaresult,large-scalehumanannotation
+constituteshatespeechinthesocialmediascenario is often prohibitively expensive, both in terms of
+with illustrative positive and negative examples. costandtime. Toaddressthischallenge,recentre-
+Afterdevelopingsuchacodebook,theresearcher searchexploresleveragingLLMsforautomatican-
+mayneedtorecruitannotatorspossessingsufficient notation(Gilardietal.,2023;Pangakisetal.,2023;
+domainexpertisetoappropriatelyapplytheestab- Dingetal.,2023;Heetal.,2024b,a;Dunivin,2024;
+lishedguidelinestoactualsocialmediacontent. Törnberg, 2024). These approaches typically as-
+However, both tasks—codebook development sumetheavailabilityofwell-developedcodebooks
+and data annotation—involve significant human forLLMprompting(HaltermanandKeith,2025;
+effort. Xiao et al., 2023). However, how codebook de-
+*Equalcontributions.
+1Frontend: codetect.vercel.app;codeanddemonstration 2Ineverydaylanguage,thisphenomenonisoftensumma-
+video:github.com/EdisonNi-hku/Co-DETECT rizedbythephrase:“Wecanknowmorethanwecantell.”
+Traditional Text Co-DETECT: Text Classification with
+Classification Automatic Edge Case Discovery Annotation with High Confidence
+Workflow
+Annotate: Hate Speech or not? We could charge you double this
+way....good idea.
+If well-defined by Yes
+LLM analysis: no assaults on dignity, no calls for violence, no
+Human Expert Draft LLM Annotation & guideline? offensive language. Therefore, not a hate speech according to Next Iteration
+Initial Codebook Report Uncertainty guideline. of LLM
+No Annotation: negative Annotation
+Confidence: 100% with refined
+Codebook
+c
+P
+ro
+ilo
+w
+t
+d
+A
+w
+n
+o
+n
+r
+o
+k
+t
+e
+a
+r
+t
+&
+io
+R
+n
+e
+w
+p
+i
+o
+th
+rt
+A
+LL
+n
+M
+no
+a
+t
+n
+a
+a
+te
+ly
+:
+s
+H
+i
+R
+s
+a
+:
+t
+e
+e
+'B
+p
+S
+e
+o
+p
+a
+r
+e
+t
+t
+e
+a
+P
+c
+l
+h
+o
+e f
+t
+o
+t
+e
+i
+r
+s
+n
+n
+t'
+t
+o
+i
+i
+s
+t
+a
+?
+a
+l
+A
+m
+E
+lw
+d
+bi
+a
+g
+g
+y
+e
+u
+s
+o
+C
+h
+u
+a
+a
+s
+p
+—
+s
+p
+e
+c
+e
+o
+n
+w
+u
+s
+i
+l
+t
+w
+d
+h
+h
+i m
+L
+en
+o
+p l
+w
+y
+y
+o
+v
+u
+C
+io
+b
+o
+l
+e
+e
+n
+a
+n
+f
+t
+c
+i d
+a
+e
+e
+l
+o
+e
+n
+r
+f t
+d
+c
+is
+e
+e
+t
+b
+,
+a
+a
+t
+l
+e
+w
+;
+a
+la
+ys
+c
+.
+k s
+noitazilausiV
+Uncertainty explicit incitement. Visualization Direct Editing
+Annotation: Ambiguous
+Confidence: 60% Expert-in-the-loop
+E vi d o g le e n C ce a s o e r : p a r o p t o e s c t t e m d e s n t t a io tu n s s 'beating' a political group without clear context of gnitidE noisivrepuS
+Edge Case After checking &
+Discovery by Cluster 1: Edge Cases Handling Rules: Editing, Human
+Expert E C d lu g s e t e C r a in s g e C i i C d n n i a a s s re s s u ti c e e l t t u t e 1 2 n ti d : : o o U O n a n s - f t s f p e a , e r w n o o p s f t i o t e i o h v l c i f e o t f t i e u e c o n d t a r s … l v g i g u v r r o e l o g u l u a a p p r n s l g . a o . u . n r a g g u e a g to e R p ( e g s e p r x o u o . p e g s l u e l e . t i , p c c t 1 p a s i h t o r ( ) - f s g l > r i l e t o u c i t c m r s l s a a n s l t C o a g s l n r r i u f g o - y s e p u a t t r p e i o s n s r t g 0 ) e 1 w c p ( ) n : t r i t e o o w h d t h h o e g a e u c r t n t t o e e u t d h p e s E e h b o d a r x e i p n g g a e e i d p n r l c a p t in s a l e g s C c n e a r d o u n d t l e o e s s e b t h l o t e o e o c k t
+C K o M n e s a tr n a s in t e o d LL R M e a In s d o u n c in ti g o n C C w l a it u s h s e o t u e 1 t r : c … 2 l : e d a o r g t w ar h g i e s t t i l n e g ( e o . f g a ., p "s ro h t e e k c e t l e s d ") R am ul b e i g 2 u ( o fr u o s m re C fe lu re s n te ce r s 2 ) t : o w hen
+Co E d H d e a g b e n o d C o li k a n s w g e i th Num C C o b lu n e s r t t r / e o r S l ize g C re r a o fe s u r e p e . 2 n : c … e b in u d t i n re o c e t x p p r l o ic te it c s t l e u d r. g .. roup p d no r e o m h te a e c t a e t n e s i d n p g g e r e l o a c u n h p g ( u s 0 a l ) a g c e k - > e x c p la li s c s it i fy as
+Figure1: traditionalworkflowoftextannotation,whereexpertsrelyontheirownorcrowdworkerstoidentify
+edgecasesandupdatecodebookbasedonthediscoveredprevalentedgecases. Co-DETECTmixed-initiative
+workflow of edge case discovery, where LLMs propose prevalent and representative edge cases and the visual
+interfaceassistshumanexperttoverifytheproposededgecases.
+velopment and the annotation process interact— respectivestrengthsthroughcollaboration. Fügener
+and,crucially,howexpertknowledgeshapesthis etal.(2022)andEvansandFoster(2011)showthat
+interaction—remains underexplored. In practice, humansstruggletoidentifyedgecasesduetoalack
+domain experts often go back and forth between ofmetaknowledge—theabilitytoassesstheirown
+thecodebookandtheannotationresults,updating capabilitiesandtheboundariesoftheirownknowl-
+thecodebookbasedoninsightsgatheredduringthe edge. In contrast, AIs can help to discover edge
+annotationprocess(e.g.,Kirstenetal.,2025). This cases,whiletheirabilitytohandlethemislimited
+iterativeapproachisessentialfordiscoveringedge (Nietal.,2025a). Itisthereforeadvisabletoadopt
+cases that the previous codebook may overlook, an expert-in-the-loop approach, leveraging AI to
+allowingexpertstoaddressthesecasesbyupdating discoveredgecasesandenrichthecodebookunder
+thecodebookaccordingly. humansupervision. Insummary,ourcontributions
+are:
+To address these gaps, we introduce Co-
+1. We develop Co-DETECT for domain experts
+DETECT,amixed-initiativetextanalysistoolde-
+thatiterativelyupdatesthecodebookunderhu-
+signed to support human domain experts in dis-
+man supervision. Consists of an LLM-based
+covering and managing edge cases, as shown in
+induction algorithm suggesting representative
+Figure1. Co-DETECTtakesannotationguidelines
+edgecasesandauser-friendlyinterfaceenabling
+(codebooks) and a target annotation corpus from
+domainexpertstomoreeffectivelyhandleedge
+theuserasinput. Itthenidentifiesedgecases(data
+cases.
+pointspoorlydefinedbytheprovidedcodebook),
+strategicallyclustersthem,andsuggestsaggregated 2. We conduct user studies with domain experts
+edgecategoriesalongwithrepresentativeexamples. fromdiversebackgrounds,sheddinglightonthe
+Theuserevaluatesthesesuggestededgecases,de- effectivenessofCo-DETECTanddirectionsfor
+terminestheirvalidity,andupdatesthecodebook futurework.
+accordinglywithclearhandlingrules. Theusercan
+2 FrontendandUserWorkFlow
+thenproceedtoanewiterationofannotationusing
+therevisedcodebook.
+Inthissection,weprovideadetailedintroductionto
+Thisexpert-in-the-loopapproachallowshumans theuserworkflow(illustratedinfig.1),including
+andAItocomplementeachother,leveragingtheir a preparation stage section 2.1 and a dashboard
+Figure2: UserInterface–AnalysisDashboard
+analysisstagesection2.2. ExploringAnnotationResults. Attheuppermid-
+dle of the dashboard, we provide a scatter plot
+2.1 PreparationStage
+showingallannotatedtextsamples. Eachpointrep-
+resentsanexample,clusteredaccordingtoembed-
+Onboarding. Toensureasmoothonboardingexpe-
+dingsimilarity. Differentcolorsindicatedifferent
+rience,thefirstlaunchofCo-DETECTtriggersan
+annotationlabels,andpointsizedenotesannotation
+intro.jstourthatguidesusersthroughtheinputand
+uncertainty—howlikelythesamplesbelongcertain
+dashboardpages. Furthermore,userscanalsoclick
+edgecases. Clickingonpointsinthescatterplot,
+“LoadDemoData”toexploreasampleusecasein
+the annotationdetails ofthe corresponding items
+annotatinghatespeechfromsocialmedia.
+willpopoutontheupperright“AllExamples”list,
+InputPage. AfterfamiliarizedwithCo-DETECT,
+including LLM analysis, annotation confidence,
+theusercanstartfromtheinputpagewherethey
+andedgecasesuggestions.
+needtoprovideainitialdraftofthecodebook,in-
+cluding(1)ataskdefinition(e.g.,apostcontains Analyzing Edge Cases. Either clicking large
+hatespeechifitcontainsassaultsonhumandignity, points (uncertain annotations) in the upper scat-
+callsforviolence,orvulgarity.);(2)classification terplotor“Edge”itemsintheupperrightlistwill
+labels (e.g., 1 for hate speech and 0 for no hate connect the user to the lower middle scatter plot
+speech);and(3)ataskIDwhichisusefulforsav- andlowerrightlist. Thelowermiddleplotpresents
+ingallannotationoutcomes,edgecases,andcode- theclustersofpotentialedgecasesthatmayrequire
+bookstothebackend. Besidesthecodebook, the attention. Thesesamplesareautomaticallyidenti-
+useralsoneedtoprovideacsvfilecontaining500 fiedbythesystemaschallengingorrequiringmore
+to 1000 target texts to be annotated. We suggest precise annotation guidelines. The panel named
+this number of texts to ensure the representative- “SuggestedEdgeCases”onthelowerrightoutlines
+ness of edge cases with reasonable budget. With high-level descriptions of each edge case cluster,
+theinputprepared,theusercanclick“send”topass andexamplesineachcluster.
+the inputs to the LLM analysts. A screen shot of
+EdgeCaseHandlingandIterativeOptimization.
+theinputpageisillustratedinFigure7.
+Once users find any cluster in “Suggested Edge
+Cases” reasonable, they can add the correspond-
+2.2 DashboardAnalysisStage
+ingedgecasehandlingruletothelowerleftpanel
+CurrentGuidelines. Attheupperleft-handsideof “EdgeCaseHandling”. Forexample,clustersAand
+thedashboard,theuser-providedcodebookisdis- Careaddedinfig.2. Userscanalsoedittheedge
+played,allowinguserstooptimizetheirannotation casehandlingrulesfreely. Oncetheyaresatisfied
+taskdescriptionsandmanagelabels. withtheaddedrules,theycanclick“Iterate”onthe
+toplefttore-annotatethecorpuswiththecodebook ing logical similarities between reasons for am-
+augmentedwith“EdgeCaseHandling”. Codebook biguity. Therefore,weemployaSOTAreasoning
+ofpreviousiterationswillbesavedinthetopleft LLM—DeepSeek-R1(DeepSeek-AI,2025)toclus-
+panel—“PreviousGuidelines”. ter[Case Description]andgeneratehigh-level
+edgecasesandhandlingrules. Specifically,weex-
+3 BackendAlgorithmforEdgeCase tracttheitem-level[Case Description],embed
+Discovery themwithsemanticembeddingmodels4,andclus-
+terthemwithconstrainedKMeans(Levy-Kramer,
+Problem Formulation. As illustrated in fig. 1, 2018). Eachclusterof[Case Description]and
+either traditional text annotation or Co-DETECT corresponding[Action]arefedtoDeepSeek-R1
+requiresatargetcorpusandtaskdefinition(i.e.,ini- togenerateCluster-wiseEdgeCases. Constrained
+tialcodebook)asinputs. Atthisstage,theusermay KMeans ensures that all clusters have 10 to 20
+lack insights about the corpus, including limited samples, so that the input (i.e., each cluster) to
+edgecasehandlingsinthecodebook. Co-DETECT DeepSeek-R1 will not be too large or small, as
+aims at discovering edge cases that are ambigu- weempiricallyfindthatlargeclusters(>20)may
+ously defined by the codebook. The edge cases increasethereasoningburdenandleadtohallucina-
+proposedbyCo-DETECTshouldbe: tion,whilesmallclusters(<5)maygenerateover-
+• Descriptive: capture the core features of exact specific edge cases. Cluster-level edge cases are
+edgecasesamplesandthereasonwhytheyare alsocompaniedwith[Action]tohandlingthem.
+ambiguous.
+Step3: MergeCluster-LevelEdgeCases. Since
+• High-Level: while being descriptive, the edge
+eachclustermayhaveoverlappededgecases,we
+casedescriptionsshouldnotoverspecificallyde-
+finally call DeepSeek-R1 again to merge cluster-
+scribe certain samples. Only then can they be
+leveledgecasesandtheirhandlingrules. Thisalso
+addedtothecodebookandgeneralizedtounseen
+ensuresthatsimilaredgecasesarenothandledwith
+datapoints.
+differentrules.
+Tofulfillthesedesiderata,theedgecasediscovery
+algorithmofCo-DETECTdetailsasfollows: 4 UserStudy
+Step 1: Item-Level Edge Cases. We start from
+ToevaluateCo-DETECT’seffectivenessandcol-
+usinganon-reasoningLLM3(e.g.,inourcaseGPT-
+lectfeedbackforfurtherimprovement,weconduct
+4.1)toquicklyannotatealldatapoints. Weprompt
+asystematicuserstudywithdomainexperts. Prior
+theLLMto(1)annotate,(2)provideaconfidence
+to the study, participants were asked to prepare
+scorereflectingtheannotationcorrectness(follow-
+a text annotation task and an accompanying cor-
+ing Tian et al. (2023b)), and (3) explain why the
+pus from their own research domains (i.e., areas
+caseisanedgecaseiftheconfidenceislow. Theex-
+wheretheypossessdomainexpertise). Atthebe-
+planationsareinaformofedgecasehandlingrules
+ginning of the user study, participants first com-
+like“when[Case Description],do[Action]”.
+pleteapre-interactionsurveygatheringtheirback-
+[Case Description] describes why the sample
+ground information. Then, they interact with the
+isambiguouslydefined,soitmightbetoospecific
+systemforapproximately45minutes,includingthe
+and low-level. [Action] is an LLM suggested
+LLMresponsetime. Finally,theycompleteapost-
+handlingfortheedgecase.
+interactionsurvey,collectingcomprehensiveuser
+Step 2: Cluster-Level Edge Cases. To avoid feedback. We recruit 10users in total. 5 of them
+over specific [Case Description] that fails to arenotinvolvedinthedesignofCo-DETECT.The
+generalize to other samples, we need to aggre- remainingfiveareco-authorsofthepaperbutwere
+gate item-level edge cases with similar ambigu- notfamiliarizedwiththeworkflowbeforetheuser
+ity and describe them in a higher level. This study.
+is a challenging task requiring (1) covering all
+item-level edge cases; and (2) strategically find- 4.1 Pre-InteractionSurveyTakeaways
+We summarize the key findings from the pre-
+3WeusereasoningLLMsreferringtoLLMswithtest-time
+longCoTreasoning(e.g.,DeepSeek-R1(DeepSeek-AI,2025) interactionsurveybelow. Forthefullsurveyform,
+andOpenAIO3(OpenAI,2025b));andnon-reasoningLLMs
+referringtothoseanswerimmediately(e.g.,GPT-4.1(OpenAI, 4Inourproject,weuseOpenAItext-embedding-3-large
+2025a)). (OpenAI,2024)forconvenience.
+Target Texts Pointwise Edge Cases Clustered Edge Cases Summarize Edge Cases of each Cluster into High-
+level (Cluster-wise) and Merge Similar Cases
+Raw Text 1 When [Case 1] do … Case 1
+High-level High-level
+Raw Text 2 When [Case 2] do … Case 2 Case 1 Case 1
+High-level Left
+Raw Text 3 When [Case 3] do … Case 3 Case 2.1 Merge unmerged
+LLM Constraint Summarize Similar
+Raw Text 4 annotation When [Case 4] do … KMeans Case 4 Clusters Cases Merged
+Raw Text n E R d e g p w e o i C t r h t a in s g e When [Case n] do … B E D a n i l v a s i u n si r c o e e n s d Case n Re L a w L s i M o th n s ing H C ig a h se -l e 2 v .2 el Rea L w L s i M o th n s ing H C ig a h s -l e e v 2 el
+Figure3: Co-DETECT’sbackendalgorithmforautomaticallydiscoverrepresentativeedgecases. Firstly,anLLM
+annotatorreportpointwiseedgecases. Secondly, areasoningLLMaggregatesitem-wiseedgecasesintomore
+representativehigh-leveledgecases,withthehelpofclusteringalgorithms.
+pleaserefertoAppendixA. ample,oneparticipantreportedthattheedgecase
+handlingrulessuggestedare“clear,realistic,and
+DiverseExperienceandBackgroundofthePar-
+concise”, and directly inform their acceptance or
+ticipants. Ourparticipantshaveabroadacademic
+rejectiondecisions,pointingoutwaystoimprove
+background in social science, computational lin-
+the precision and coverage of these suggestions.
+guistics,andinterdisciplinarytraining. Theyalso
+90%ofparticipantsreportthatCo-DETECTmay
+exhibit diverse experience in both social science
+help discover new edge cases beyond their prior
+qualitative coding and LLM-assisted annotation,
+knowledgeofthedataset.
+fromnoexperiencetoexpertlevel.
+HeavyRelianceonManualEffortforEdgeCase UsefulIterativeWorkflowandOverallSatisfac-
+Discovery. Concerning common workflows for tion. 80%ofparticipantsfindtheiterativefeature
+identifyingedgecases,80%ofparticipantsmanu- ofCo-DETECTusefulforrefiningtheirannotation
+allyreviewsubsetsofdatatodetectpotentialedge guidelines. Allparticipantsweresatisfiedwiththe
+cases. Some also report employing other human Co-DETECTsystem’ssupportingeneratinganno-
+(e.g., crowdworkers) or AI annotators to do pilot tationguidelinesandidentifyingnewedgecases.
+annotationandflagpotentialedgecases. ConstructiveCritiques. Besidesthegenerallypos-
+ModeratePriorKnowledgeofEdgeCases. 70% itivefeedbackonuserexperienceofCo-DETECT,
+ofparticipantsreportknowingcertainedgecases thepost-interactionsurveyalsogivesusvaluable
+intheirintendeddatasets. Therefore, itwouldbe critiques, highlighting areas for future improve-
+valuabletocheckifCo-DETECTcanminealready- mentofCo-DETECT.40%ofparticipantsexpress
+knownedgecasesordiscovernewedgecases. concernthatCo-DETECTmayoverlookpotential
+edgecasesalthoughtheidentifiededgecasesseem
+4.2 Post-InteractionSurveyTakeaways reasonable. Forinstance,oneparticipantalsoindi-
+Below, we highlight the main insights from the catedthattherewasroomtoenhancethecoherence
+post-interactionsurvey,whichcenteronfourkey anddescriptiveclarityoftheedgecases.
+aspectsofuserexperiencewithCo-DETECT:ease
+4.3 QuantitativeHumanEvaluationonEdge
+of use, interpretability of visualizations, validity
+CaseValidity
+of edge cases, and overall satisfaction and feed-
+back. Forthefullsurveyform,pleaserefertoAp- Wefurtherconductedaquantitativehumanevalua-
+pendixB. tionwiththreeparticipants5. Eachparticipantwas
+The Majority Finds Co-DETECT Workflow askedtorandomlyselect1to2samplesfromeach
+Easy to Follow. The survey results reveal gener- edgecaseclusterandmanuallyassesshowmany
+allypositivefeedbackoninterfaceeaseofuseand were accurately captured by the Co-DETECT-
+taskclarity,withmostparticipants(80%)finding suggestededgecasedescriptions. Among41ran-
+navigationintuitiveandinteractionstraightforward. domlyselectedsamples,33(80.5%)werereported
+Somerequestedadditionalvisualizations(e.g.,den- as well-described by the suggested edge case de-
+sitydistributionoftheconfidencescores)orexport scriptions. The edge case descriptions are also
+featuresforenhancedusability. found to be sufficiently high-level to cover more
+than one samples. We further find that it often
+Co-DETECTCanIdentifyRelevantEdgeCases.
+60%ofparticipantsapprovedCo-DETECT’sabil-
+5Duetotheoriginaluserstudyisalreadytime-intensive,
+itytoclearlyidentifyrelevantedgecases. Forex- participationinthequantitativeevaluationwasoptional.
+6 RelatedWork
+Dataset 1stIter. 2ndIter.
+GabHateCorpus 0.2144 0.2523
+Annotation with LLM Assistance. Both NLP
+GoEmotions-Positive 0.0300 0.3297
+(Kimetal.,2024;Nietal.,2024,2025b)andHCI
+GoEmotions-Negative 0.2823 0.3046
+(Heetal.,2024b;Törnberg,2023)communityhave
+widelyexploredhuman-AIcollaborationsfortext
+Table1:ClassificationF1Scoresusingtheoriginalcode-
+classification. Tianetal.(2023a)findthatthever-
+book(fromthe1stiteration)andtheimprovedcodebook
+balized confidence of LLMs indicates classifica-
+afteroneCo-DETECTiteration(fromthe2nditeration).
+tion quality, and annotations where LLM reports
+high annotation confidence may outperform hu-
+man annotator (Ni et al., 2024, 2025b; Törnberg,
+takeslessthan5secondsforanexperttoidentifyif
+2023). Wefollowthisstreamofworktocalibrate
+asampleiscoveredbyanedgecasedescriptionor
+the quality of LLM annotation using verbalized
+not,indicatingthatCo-DETECTmaynotimpose
+confidencescores. InHuman-AIinteraction,Wang
+aheavycognitiveloadonuserswhensupervising
+etal.(2024)andKimetal.(2024)developmixed-
+suggestededgecaseclusters.
+initiative tools to enhance automatic annotation
+withminimalhumansupervision. However,these
+methodsfocusonannotationaccuracyandassume
+5 CanImprovedCodebookBenefit
+apredefinedcodebook. Incontrast, ourworktar-
+AutomaticAnnotation?
+getsefficiencyincodebookdevelopmentandedge-
+casediscovery,criticalstepsespeciallyintheinitial
+The main goal of Co-DETECT is to help experts
+stagesoftextclassification(Törnberg,2024).
+improve codebooks, but does a better codebook
+Goal-DrivenClusteringinNLP.Onecriticalstep
+actuallyenhanceautomaticannotation? Toinves-
+of our edge case discovery algorithm is to clus-
+tigate this, we provide GPT-4.1 with codebooks
+ter low-level specific edge cases into high-level
+before and after Co-DETECT enhancement and
+representativeedgecases. Suchgoal-drivenclus-
+compareitsclassificationF1,varyingonlythecode-
+tering (Wang et al., 2023) is essentially relevant
+book. Westrategicallypickahatespeechdetection
+to many NLP sub-fields, such as topic modeling
+dataset—GabHateCorpus (Kennedy et al., 2021)
+(Phametal.,2024),inductivereasoning(Lametal.,
+andanemotionclassification—GoEmotions(Dem-
+2024), corpus comparison (Zhong et al., 2023),
+szkyetal.,2020;Positive/NegativeEmotionDe-
+information retrieval (Ni et al., 2025b) etc. In
+tection)forthisevaluation,becausethesetasksare
+such tasks, LLM plays an important role in un-
+highly subjective (Davani et al., 2022; Ni et al.,
+derstanding users’ goal and steering / interpret-
+2025a)andthuschallengingforcodebookdrafting.
+ingtheclusteringaccordingly(Zhangetal.,2023;
+TheyarethereforechallengingforadvancedLLMs
+Viswanathanetal.,2024;Movvaetal.,2025). Our
+likeGPT-4.1thataresmartenoughtounderstand
+workcontributestoadaptinggoal-drivenclustering
+thenuancedperturbationswithinthecodebook. It
+toedgecasediscovery,leveraginganalyticalskills
+isalsochallengingforhumanexpertstomanually
+ofreasoningmodels(DeepSeek-AI,2025).
+improve codebook as it is hard for individuals to
+capturevarioussubjectivity.
+7 Conclusion
+The results are exhibited in table 1, where we
+observe an increase in F1 scores across different WedevelopedCo-DETECTtosystematicallyiden-
+datasets. Notably, Co-DETECT only augments tifiesdescriptiveandgeneralizableedgecasesand
+codebookbyappendingedgecasehandlingrules. collaborativelyimprovecodebookwithhumanex-
+TheinitialcodebookforGoEmotion-Positivehas pert. Toachievethis,Co-DETECTinducesrepre-
+verylowF1scoreduetoanextremelylowrecall— sentativeedgecasesleveragingmulti-stepcluster-
+themodelrarelypredictspositiveemotionsthatare ingandreasoningLLMs. Thentheusercansuper-
+notexplicitlystatedbytherawcodebook. Thereby, visethequalityofsuggestededgecasesanddecide
+weshowcasethatCo-DETECTcanimproveclassi- whethertoincludethemintothecodebookornot.
+ficationoutcomeswithimprovedcodebook,even Comprehensive user study, and other qualitative
+for subjective tasks that are both challenging for and quanititative evaluations prove the effective-
+LLMsandindividualexperts. nessofCo-DETECT.
+EthicsStatement Acknowledgment
+This research involved voluntary participation in We would like to express our gratitude to Cong
+user studies, during which participants provided Jiang,FelixRiechmann,YangTian,TingyuYu,and
+professionalbackgroundinformationandevaluated DaryaZarefortheirgeneroussupportthroughout
+interfacefunctionalityforannotationandedge-case thisstudy.
+identification tasks. Participants were clearly in-
+formedaboutthestudyobjectives,tasks,andtheir
+References
+righttowithdrawatanytime. Collecteddatawere
+securelystored,anonymized,andanalyzedcollec- David Autor. 2014. Polanyi’s paradox and the shape
+tively to ensure confidentiality and privacy. The ofemploymentgrowth. Technicalreport,National
+BureauofEconomicResearch.
+studyposedminimalriskstoparticipants,aligned
+withstandardprofessionalactivities,andadhered AidaMostafazadehDavani,MarkDíaz,andVinodku-
+closely to ethical guidelines for human-centered marPrabhakaran.2022. Dealingwithdisagreements:
+Lookingbeyondthemajorityvoteinsubjectivean-
+research.
+notations. TransactionsoftheAssociationforCom-
+putationalLinguistics,10:92–110.
+BroaderImpactStatement
+DeepSeek-AI. 2025. Deepseek-r1: Incentivizing rea-
+Oursystempipelineemphasizesaninteractiveand
+soningcapabilityinllmsviareinforcementlearning.
+iterative approach designed to enhance annota- Preprint,arXiv:2501.12948.
+tion accuracy and generalization through the sys-
+DorottyaDemszky,DanaMovshovitz-Attias,Jeongwoo
+tematic management of challenging edge cases.
+Ko,AlanCowen,GauravNemade,andSujithRavi.
+Thisapproachisbasedontheassumptionthatim- 2020. GoEmotions: Adatasetoffine-grainedemo-
+provedconfidencemetricsinamodelcorrelatewith tions. InProceedingsofthe58thAnnualMeetingof
+enhanced annotation performance. Nevertheless,
+theAssociationforComputationalLinguistics,pages
+4040–4054,Online.AssociationforComputational
+analogoustotheCleverHansphenomenon—where
+Linguistics.
+anintelligentsystemidentifiesunintendedcuesin-
+steadofgenuinelylearningunderlyingknowledge— Bosheng Ding, Chengwei Qin, Linlin Liu, Yew Ken
+Chia,BoyangLi,ShafiqJoty,andLidongBing.2023.
+itiscrucialtocriticallyassesstherobustnessofthis
+Is GPT-3 a good data annotator? In Proceedings
+pipeline against potential biases and unintended
+of the 61st Annual Meeting of the Association for
+shortcuts that may result from repeated feedback ComputationalLinguistics(Volume1: LongPapers),
+loopsandrule-inductionprocesses. pages11173–11195,Toronto,Canada.Association
+forComputationalLinguistics.
+One potential concern involves deriving edge-
+caserulesprimarilyfrommodelconfidencemetrics Jakub Drápal, Hannes Westermann, Jaromir Savelka,
+and automatically suggested edge-case instances. et al. 2023. Using large language models to sup-
+Ifthemodel’sselectionandclusteringoftheseedge portthematicanalysisinempiricallegalstudies. In
+JURIX,pages197–206.
+casesrelypredominantlyuponinternallygenerated
+confidencemeasures,thereisariskthatinductively ZackaryOkunDunivin.2024. Scalablequalitativecod-
+derivedrulesmayreinforcemodel-specificbiases ingwithllms: Chain-of-thoughtreasoningmatches
+human performance in some hermeneutic tasks.
+ratherthanreflectgenuinelygeneralizableconcep-
+Preprint,arXiv:2401.15170.
+tual regularities. For example, the model might
+inadvertently identify clusters based on spurious JamesAEvansandJacobGFoster.2011. Metaknowl-
+correlationsbetweeninputtextsandtargetlabelsin- edge. Science,331(6018):721–725.
+steadofaddressinggenuineannotationchallenges.
+Yu Fan, Jingwei Ni, Jakob Merane, Etienne Sal-
+Therefore,suchrisksnecessitateincreasedcau- imbeni, Yang Tian, Yoan Hermstrüwer, Yinya
+tion. Systemsoptimizedexclusivelywithininternal Huang,MubasharaAkhtar,FlorianGeering,Oliver
+Dreyer,DanielBrunner,MarkusLeippold,Mrinmaya
+frameworksmayachievesuperficiallyimpressive
+Sachan,AlexanderStremitzer,ChristophEngel,El-
+performance improvements without truly acquir-
+liottAsh,andJoelNiklaus.2025a. Lexam: Bench-
+ing underlying domain expertise. Consequently, markinglegalreasoningon340lawexams. Preprint,
+we emphasize the critical importance of human arXiv:2505.12864.
+domain expertise. Users should ensure that only
+YuFan,YangTian,ShauliRavfogel,MrinmayaSachan,
+rulesverifiedbydomainexpertsareincludedwhen
+Elliott Ash, and Alexander Hoyle. 2025b. The
+updatingthecodebook. medium is not the message: Deconfounding text
+embeddings via linear concept erasure. Preprint, Brendan Kennedy, Mohammad Atari, Aida
+arXiv:2507.01234. Mostafazadeh Davani, Yehsong Kim, Kris
+Coombs, Gwenyth Portillo-Wightman, Shreya
+EveFleisig,RedietAbebe,andDanKlein.2023. When
+Havaldar, Elaine Gonzalez, Joseph Hoover, Aida
+themajorityiswrong: Modelingannotatordisagree-
+Azatian,GabrielCardenas,AlyzehHussain,Austin
+mentforsubjectivetasks. InProceedingsofthe2023
+Lara, Adam Omary, Christina Park, Xin Wang,
+Conference on Empirical Methods in Natural Lan-
+ClarisaWijaya,YongZhang,BethMeyerowitz,and
+guageProcessing,pages6715–6726,Singapore.As-
+MortezaDehghani.2021. TheGabHateCorpus: a
+sociationforComputationalLinguistics.
+collection of 27k posts annotated for hate speech.
+OSFPreprint. 27,665postsfromGabannotatedby
+TommasoFornaciari,AlexandraUma,SilviuPaun,Bar-
+multipleannotators;CC-BY4.0.
+baraPlank,DirkHovy,andMassimoPoesio.2021.
+Beyond black & white: Leveraging annotator dis-
+HannahKim,KushanMitra,RafaelLiChen,Sajjadur
+agreementviasoft-labelmulti-tasklearning. InPro-
+Rahman, and Dan Zhang. 2024. MEGAnno+: A
+ceedingsofthe2021ConferenceoftheNorthAmer-
+human-LLM collaborative annotation system. In
+icanChapteroftheAssociationforComputational
+Proceedingsofthe18thConferenceoftheEuropean
+Linguistics: HumanLanguageTechnologies,pages
+Chapter of the Association for Computational Lin-
+2591–2597,Online.AssociationforComputational
+guistics: SystemDemonstrations,pages168–176,St.
+Linguistics.
+Julians,Malta.AssociationforComputationalLin-
+Lukas M Fuchs, Yu Fan, and Christian von Scheve. guistics.
+2021. Valuedifferencesbetweenrefugeesandger-
+mancitizens: insightsfromarepresentativesurvey. ElisabethKirsten,AnnalinaBuckmann,LeonaLassak,
+InternationalMigration,59(5):59–81. NeleBorgert,AbrahamMhaidli,andSteffenBecker.
+2025. Fromassistancetoautonomy–aresearcher
+Andreas Fügener, Jörn Grahl, Alok Gupta, and Wolf- study on the potential of ai support for qualitative
+gangKetter.2022. Cognitivechallengesinhuman– dataanalysis. Preprint,arXiv:2501.19275.
+artificialintelligencecollaboration: Investigatingthe
+pathtowardproductivedelegation. InformationSys- MichelleS.Lam, JaniceTeoh, JamesA.Landay, Jef-
+temsResearch,33(2):678–696. freyHeer,andMichaelS.Bernstein.2024. Concept
+induction: Analyzing unstructured text with high-
+Fabrizio Gilardi, Meysam Alizadeh, and Maël Kubli. level concepts using lloom. In Proceedings of the
+2023. Chatgpt outperforms crowd workers for CHI Conference on Human Factors in Computing
+text-annotationtasks. ProceedingsoftheNational Systems,CHI’24,page1–28.ACM.
+AcademyofSciences,120(30):e2305016120.
+JoshLevy-Kramer.2018. k-means-constrained.
+Andrew Halterman and Katherine A. Keith. 2025.
+Codebook llms: Evaluating llms as measurement
+RajivMovva,KennyPeng,NikhilGarg,JonKleinberg,
+tools for political science concepts. Preprint,
+andEmmaPierson.2025. Sparseautoencodersfor
+arXiv:2407.10747.
+hypothesisgeneration. Preprint,arXiv:2502.04382.
+XingweiHe,ZhenghaoLin,YeyunGong,A-LongJin,
+Jingwei Ni, Yu Fan, Vilém Zouhar, Donya Rooein,
+HangZhang,ChenLin,JianJiao,SiuMingYiu,Nan
+AlexanderHoyle,MrinmayaSachan,MarkusLeip-
+Duan,andWeizhuChen.2024a. AnnoLLM:Making
+pold,DirkHovy,andElliottAsh.2025a. Canlarge
+largelanguagemodelstobebettercrowdsourcedan-
+languagemodelscapturehumanannotatordisagree-
+notators. InProceedingsofthe2024Conferenceof
+ments? Preprint,arXiv:2506.19467.
+theNorthAmericanChapteroftheAssociationfor
+ComputationalLinguistics: HumanLanguageTech-
+Jingwei Ni, Tobias Schimanski, Meihong Lin, Mrin-
+nologies(Volume6: IndustryTrack),pages165–190,
+maya Sachan, Elliott Ash, and Markus Leippold.
+MexicoCity,Mexico.AssociationforComputational
+2025b. DIRAS:EfficientLLMannotationofdocu-
+Linguistics.
+ment relevance for retrieval augmented generation.
+ZeyuHe, Chieh-YangHuang, Chien-KuangCornelia In Proceedings of the 2025 Conference of the Na-
+Ding, Shaurya Rohatgi, and Ting-Hao Kenneth tionsoftheAmericasChapteroftheAssociationfor
+Huang. 2024b. If in a crowdsourced data annota- ComputationalLinguistics: HumanLanguageTech-
+tion pipeline, a gpt-4. In Proceedings of the 2024 nologies(Volume1:LongPapers),pages5238–5258,
+CHI Conference on Human Factors in Computing Albuquerque,NewMexico.AssociationforCompu-
+Systems,CHI’24,NewYork,NY,USA.Association tationalLinguistics.
+forComputingMachinery.
+JingweiNi,MinjingShi,DominikStammbach,Mrin-
+Brendan Kennedy, Mohammad Atari, maya Sachan, Elliott Ash, and Markus Leippold.
+Aida Mostafazadeh Davani, Leigh Yeh, Ali 2024. AFaCTA:Assistingtheannotationoffactual
+Omrani, Yehsong Kim, Kris Coombs, Shreya claim detection with reliable LLM annotators. In
+Havaldar, Gwenyth Portillo-Wightman, Elaine Proceedingsofthe62ndAnnualMeetingoftheAs-
+Gonzalez, et al. 2018. The gab hate corpus: A sociationforComputationalLinguistics(Volume1:
+collection of 27k posts annotated for hate speech. LongPapers),pages1890–1912,Bangkok,Thailand.
+PsyArXiv.July,18. AssociationforComputationalLinguistics.
+OpenAI. 2024. New embedding mod- labels. InProceedingsofthe2024CHIConference
+els and api updates: text-embedding- onHumanFactorsinComputingSystems,CHI’24,
+3-large. https://openai.com/index/ New York, NY, USA. Association for Computing
+new-embedding-models-and-api-updates/. Machinery.
+Introduced text-embedding-3-large (3072-dim),
+offersstrongestperformanceonMIRACL(54.9 Zihan Wang, Jingbo Shang, and Ruiqi Zhong. 2023.
+Goal-drivenexplainableclusteringvialanguagede-
+OpenAI. 2025a. Introducing gpt-4.1, gpt-4.1 mini & scriptions. Preprint,arXiv:2305.13749.
+nano. https://openai.com/index/gpt-4-1/. Released
+JohnWilkersonandAndreuCasas.2017. Large-scale
+April14,2025;includesfull,mini,andnanovariants
+computerizedtextanalysisinpoliticalscience: Op-
+(1Mtokencontextwindow;optimizedforcodingand
+portunitiesandchallenges. AnnualReviewofPoliti-
+instruction-following).
+calScience,20(1):529–544.
+OpenAI. 2025b. Introducing openai o3 and o4-mini.
+ZiangXiao,XingdiYuan,QVeraLiao,RaniaAbdel-
+O3 is a reasoning-focused generative model with
+ghani, and Pierre-Yves Oudeyer. 2023. Support-
+advancedcapabilitiesincoding,math,andvisualper-
+ingqualitativeanalysiswithlargelanguagemodels:
+ception;systemcardprovidesdetailedbenchmarks
+Combiningcodebookwithgpt-3fordeductivecod-
+andsafetyevaluations.
+ing. InCompanionproceedingsofthe28thinterna-
+NicholasPangakis,SamuelWolken,andNeilFasching. tionalconferenceonintelligentuserinterfaces,pages
+2023. Automatedannotationwithgenerativeaire- 75–78.
+quiresvalidation. ArXiv,abs/2306.00176.
+Tian Xie and Xueru Zhang. 2024. Automating data
+annotationunderstrategichumanagents: Risksand
+ChauMinhPham,AlexanderHoyle,SimengSun,Philip
+potentialsolutions. Preprint,arXiv:2405.08027.
+Resnik,andMohitIyyer.2024. TopicGPT:Aprompt-
+basedtopicmodelingframework. InProceedingsof
+Yuwei Zhang, Zihan Wang, and Jingbo Shang. 2023.
+the2024ConferenceoftheNorthAmericanChap-
+ClusterLLM:Largelanguagemodelsasaguidefor
+teroftheAssociationforComputationalLinguistics:
+textclustering. InProceedingsofthe2023Confer-
+Human Language Technologies (Volume 1: Long
+enceonEmpiricalMethodsinNaturalLanguagePro-
+Papers),pages2956–2984,MexicoCity,Mexico.As-
+cessing,pages13903–13920,Singapore.Association
+sociationforComputationalLinguistics.
+forComputationalLinguistics.
+Katherine Tian, Eric Mitchell, Allan Zhou, Archit
+ChengshuaiZhao,ZhenTan,Chau-WaiWong,Xinyan
+Sharma,RafaelRafailov,HuaxiuYao,ChelseaFinn,
+Zhao,TianlongChen,andHuanLiu.2025. SCALE:
+andChristopherManning.2023a. Justaskforcali-
+Towardscollaborativecontentanalysisinsocialsci-
+bration: Strategiesforelicitingcalibratedconfidence
+encewithlargelanguagemodelagentsandhuman
+scoresfromlanguagemodelsfine-tunedwithhuman
+intervention. Preprint,arXiv:2502.10937.
+feedback. In Proceedings of the 2023 Conference
+onEmpiricalMethodsinNaturalLanguageProcess- RuiqiZhong,PeterZhang,SteveLi,JinwooAhn,Dan
+ing, pages 5433–5442, Singapore. Association for Klein,andJacobSteinhardt.2023. Goaldrivendis-
+ComputationalLinguistics. coveryofdistributionaldifferencesvialanguagede-
+scriptions. InAdvancesinNeuralInformationPro-
+Katherine Tian, Eric Mitchell, Allan Zhou, Archit cessing Systems, volume 36, pages 40204–40237.
+Sharma,RafaelRafailov,HuaxiuYao,ChelseaFinn, CurranAssociates,Inc.
+andChristopherD.Manning.2023b. Justaskforcal-
+ibration:Strategiesforelicitingcalibratedconfidence CalebZiems,WilliamHeld,OmarShaikh,JiaaoChen,
+scoresfromlanguagemodelsfine-tunedwithhuman ZhehaoZhang,andDiyiYang.2024. Canlargelan-
+feedback. Preprint,arXiv:2305.14975. guage models transform computational social sci-
+ence? ComputationalLinguistics,50(1):237–291.
+PetterTörnberg.2024. Bestpracticesfortextannotation
+withlargelanguagemodels. ArXiv,abs/2402.05129.
+A Pre-InteractionSurveyQuestions
+Petter Törnberg. 2023. Chatgpt-4 outperforms ex-
+pertsandcrowdworkersinannotatingpoliticaltwit- Inthepre-interactionsurvey,weincludedfollowing
+ter messages with zero-shot learning. Preprint, questions:
+arXiv:2304.06588.
+(1)GeneralUserBackground
+Vijay Viswanathan, Kiril Gashteovski, Kiril Gash-
+teovski,CarolinLawrence,TongshuangWu,andGra- • Please briefly describe your profes-
+hamNeubig.2024. Largelanguagemodelsenable sional/academic background and current
+few-shotclustering. TransactionsoftheAssociation
+researchareas.
+forComputationalLinguistics,12:321–333.
+• What is your previous experience with data
+XinruWang,HannahKim,SajjadurRahman,Kushan
+annotationandqualitativecoding? (None,Be-
+Mitra,andZhengjieMiao.2024. Human-llmcollabo-
+rativeannotationthrougheffectiveverificationofllm ginner,Intermediate,Advanced,Expert)
+Figure4: UserInterface–Homepage.
+• Have you used annotation support or interface? (Five-level Likert item, strongly
+guideline-generation tools previously? (Yes, agreetostronglydisagree)
+No)
+• Did you encounter any difficulty navigating
+throughdifferentinterfacecomponents(home-
+(2)Expectation
+pagetoanalysisdashboard)? (Yes,No)
+• Whatisyournormalworkflowofidentifying
+• Ifyes,pleasebrieflyexplainyourdifficulty.
+edgecasesintextannotation?
+(2)AnnotationResultsVisualizationandInter-
+• In the dataset that you plan to analyze with
+pretation
+AutoDETECT,didyoualreadyknowanyedge
+• Were you able to clearly interpret and inter-
+cases? (Yes,No)
+act with the annotation results displayed in
+B Post-InteractionSurveyQuestions the scatter plots ("All Examples" and "Sug-
+gestedEdgeCases")? (Five-levelLikertitem,
+In the post-interaction survey, we included
+stronglyagreetostronglydisagree)
+followingquestions:
+• Didinteractivefeatures(e.g.,clickingpoints
+to highlight examples across lists and plots)
+(1)TaskCompleteness,Clarity,andEaseofUse
+supportyourunderstandingofannotationre-
+• Wereyouclearlyabletounderstandthesteps sultseffectively? (Five-levelLikertitem,sup-
+for configuring an annotation task using the portsfullytodoesn’tsupportatall)
+• Would you prefer alternative ways of visu- • Whatfeatures,ifany,doyouthinkaremissing
+alizingorinteractingwithannotationresults orneedimprovementinthistool?
+visually? (Yes,No)
+(6) Open-ended Feedback and Improvement
+• Ifyes,pleasedescribebriefly.
+Suggestions
+(3)EdgeCaseIdentificationandHandling • What did you like the most about the user
+interfaceanditsfunctionality?
+• Was the component provided by the system
+• What improvements or additions would you
+clearlyidentifyingrelevantandhelpfuledge
+proposetoenhancetheusabilityorfunction-
+cases(casesthatrequireadditionalannotation
+alityofthecurrentinterface?
+guidance)inyourcorpus? (Five-levelLikert
+item,stronglyagreetostronglydisagree)
+• (Optional)Anyadditionalcommentsorsug-
+gestionsaboutthetooloryourexperienceus-
+• Do the edge cases make sense? (Five-level
+ingit?
+Likertitem,makestotalsensetomakesabso-
+lutelynosense)
+• Aretheproposedruleseasytofollow? (Five-
+levelLikertitem,veryeasytoverydifficult)
+• Pleasedescribebrieflyyourreasoningforac-
+ceptingorrejectingsuggestededge-caserules.
+What information or criteria were the most
+importantforyourdecisions?
+(4)IterativeOptimizationSupport
+• Didyoufindtheiterativeapproach("Iterate"
+buttonfunctionality)helpfulforprogressively
+refining your annotation guidelines and la-
+bels? (Five-levelLikertitem, veryhelpfulto
+nothelpfulatall)
+• Howmanyiterations(approximately)didyou
+perform? Didsubsequentiterationshelpsig-
+nificantlyinclarifyingyourannotationguide-
+lines? Pleasebrieflyexplain.
+(5)GeneralUserExperienceandSatisfaction
+• DidCo-DETECThelpyoutofindsomenew
+edgecasesthatyoudidn’tnoticebefore? (Yes,
+No,Maybe)
+• How satisfied are you overall with the func-
+tionalitythatthistooloffersyouindeveloping
+codebooksandannotationguidelines? (Five-
+levelLikertitem,verysatisfiedtonotsatisfied
+atall)
+• Doyoustillhaveconcernthate.g. thereare
+missingedgecasesnotidentifiedbythesys-
+tem? (Yes,No,Maybe)
