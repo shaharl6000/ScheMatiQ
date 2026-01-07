@@ -141,16 +141,21 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             print(f"DEBUG: Cannot recompute statistics - session {session_id} not found")
             return
 
-        # Debug: print all column names before deduplication
-        print(f"DEBUG: session.columns before dedup ({len(session.columns)}): {[c.name for c in session.columns]}")
+        # Debug: print all column names before filtering
+        print(f"DEBUG: session.columns before filtering ({len(session.columns)}): {[c.name for c in session.columns]}")
 
         # Deduplicate session.columns by name (keep first occurrence)
+        # AND filter out _excerpt columns for statistics counting
         seen_names = set()
         unique_columns = []
+        non_excerpt_columns = []
         for col in session.columns:
             if col.name and col.name not in seen_names:
                 seen_names.add(col.name)
                 unique_columns.append(col)
+                # Only count non-excerpt columns for statistics
+                if not col.name.lower().endswith('_excerpt'):
+                    non_excerpt_columns.append(col)
             elif col.name:
                 print(f"DEBUG: Removing duplicate column: {col.name}")
 
@@ -159,7 +164,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             session.columns = unique_columns
             self.session_manager.update_session(session)
 
-        actual_column_count = len(unique_columns)
+        # Use non-excerpt count for statistics (this is what users care about)
+        actual_column_count = len(non_excerpt_columns)
+        print(f"DEBUG: Non-excerpt columns for statistics: {actual_column_count} (total with excerpts: {len(unique_columns)})")
 
         session_dir = self._get_data_dir() / session_id
         data_file = session_dir / "data.jsonl"
@@ -250,9 +257,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 return False
             return value != "None" and value != "" and value != "[]"
 
-        # Compute statistics for each column
+        # Compute statistics for each column (excluding _excerpt columns)
         columns = []
-        for col in session.columns:
+        for col in non_excerpt_columns:
             non_null_count = 0
             unique_values = set()
 
@@ -976,9 +983,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     if not any(c.name == new_col.name for c in session.columns):
                         session.columns.append(new_col)
 
-                # Get actual unique column count after adding new columns
-                actual_unique_count = len(session.columns)
-                print(f"DEBUG: Column count after adding new columns: {actual_unique_count}")
+                # Count only non-excerpt columns for statistics (what users care about)
+                non_excerpt_count = sum(1 for c in session.columns if c.name and not c.name.lower().endswith('_excerpt'))
+                actual_unique_count = non_excerpt_count
+                print(f"DEBUG: Column count after adding new columns: {actual_unique_count} (non-excerpt), {len(session.columns)} (total with excerpts)")
 
                 # Add null values for new columns in data.jsonl
                 data_file = self._get_data_dir() / operation.session_id / "data.jsonl"
@@ -1013,15 +1021,18 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     docs_dir = self._get_data_dir() / operation.session_id / "documents"
                     doc_names = [f.name for f in docs_dir.glob("*") if f.is_file()][:10] if docs_dir.exists() else []
 
+                    # Filter out any excerpt columns from new_columns list
+                    non_excerpt_new_cols = [col["name"] for col in new_columns if not col["name"].lower().endswith('_excerpt')]
+
                     new_snapshot = SessionSchemaSnapshot(
                         iteration=next_iteration,
                         documents_processed=doc_names,
-                        total_columns=actual_unique_count,  # Use deduplicated count
-                        new_columns=[col["name"] for col in new_columns],
+                        total_columns=actual_unique_count,  # Use non-excerpt count
+                        new_columns=non_excerpt_new_cols,
                         cumulative_documents=operation.total_batches
                     )
                     stats_evolution.snapshots.append(new_snapshot)
-                    print(f"DEBUG: Created snapshot with total_columns={actual_unique_count}")
+                    print(f"DEBUG: Created snapshot with total_columns={actual_unique_count}, new_columns={len(non_excerpt_new_cols)}")
 
                     # Update column sources with actual document name (not generic iteration)
                     for col_data in new_columns:
