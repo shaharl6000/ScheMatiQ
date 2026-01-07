@@ -92,6 +92,12 @@ async def load_template(template_name: str):
         parser = FileParser()
         result = await parser.parse_file(session_id, None)
 
+        # Extract query from metadata if available
+        if "extracted_metadata" in result:
+            metadata = result["extracted_metadata"]
+            if metadata.get('query'):
+                session.schema_query = metadata['query']
+
         # Update session with parsed data
         session.columns = result["columns"]
         session.statistics = result["statistics"]
