@@ -715,11 +715,12 @@ export function assignColumnToCluster(
   targetClusterId: string | null,
   currentClusters: ColumnCluster[]
 ): ColumnCluster[] {
-  // Remove column from all clusters first
+  // Remove column from all clusters first, but DON'T filter out empty clusters yet
+  // (the target cluster might be empty and we need to add the column to it first)
   let updatedClusters = currentClusters.map(cluster => ({
     ...cluster,
     column_names: cluster.column_names.filter(name => name !== columnName)
-  })).filter(cluster => cluster.column_names.length > 0);
+  }));
 
   if (targetClusterId === null) {
     // Create new user cluster for this column
@@ -738,7 +739,8 @@ export function assignColumnToCluster(
     );
   }
 
-  return updatedClusters;
+  // NOW filter out empty clusters (after column was added to target)
+  return updatedClusters.filter(cluster => cluster.column_names.length > 0);
 }
 
 /**
