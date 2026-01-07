@@ -221,6 +221,28 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     toast({ title: 'Schema exported', description: 'Schema with clusters saved to JSON file' });
   }, [localColumns, clusters, sessionId, query, toast]);
 
+  // Reset clusters (clear localStorage and recalculate)
+  const handleResetClusters = useCallback(() => {
+    if (sessionId) {
+      localStorage.removeItem(`schema-clusters-${sessionId}`);
+    }
+    // Filter out excerpt columns
+    const columnsToCluster = localColumns.filter(col =>
+      !col.name.toLowerCase().endsWith('_excerpt') &&
+      !col.name.toLowerCase().includes('excerpt')
+    );
+    if (columnsToCluster.length > 0) {
+      const result = clusterColumns(columnsToCluster, [], {
+        similarityThreshold: 0.35,
+        minClusterSize: 1,
+        maxClusters: 10,
+        respectUserClusters: false // Force recalculation
+      });
+      setClusters(result.clusters);
+      toast({ title: 'Clusters reset', description: 'Clusters have been recalculated from scratch' });
+    }
+  }, [localColumns, sessionId, toast]);
+
   // Import clusters from JSON file
   const handleImportClusters = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -481,13 +503,21 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   // Run clustering when columns change (only after localStorage is checked)
   useEffect(() => {
     if (clusteringEnabled && localColumns.length > 0 && clustersInitialized) {
-      const result = clusterColumns(localColumns, clusters, {
-        similarityThreshold: 0.5,
-        minClusterSize: 1,
-        maxClusters: 10,
-        respectUserClusters: true
-      });
-      setClusters(result.clusters);
+      // Filter out excerpt columns - they shouldn't be clustered with main columns
+      const columnsToCluster = localColumns.filter(col =>
+        !col.name.toLowerCase().endsWith('_excerpt') &&
+        !col.name.toLowerCase().includes('excerpt')
+      );
+
+      if (columnsToCluster.length > 0) {
+        const result = clusterColumns(columnsToCluster, clusters, {
+          similarityThreshold: 0.35, // Lower threshold for better separation
+          minClusterSize: 1,
+          maxClusters: 10,
+          respectUserClusters: true
+        });
+        setClusters(result.clusters);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localColumns, clusteringEnabled, clustersInitialized]); // Don't include clusters to avoid infinite loop
@@ -1182,6 +1212,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
                       <Upload className="h-4 w-4 mr-2" />
                       Import Clusters
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleResetClusters}>
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Reset Clusters
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
