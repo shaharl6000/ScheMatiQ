@@ -12,7 +12,7 @@ pandas>=2.2.0
 numpy>=2.0.0
 
 # PDF processing
-pdfplumber>=0.10.0
+pymupdf4llm>=0.2.8
 PyPDF2>=3.0.0
 
 # QBSD dependencies (for LLM and embedding)

@@ -1,26 +1,24 @@
-"""PDF text extraction utilities."""
+"""PDF text extraction utilities using pymupdf4llm for better multi-column support."""
 
-import pdfplumber
+import pymupdf4llm
 from pathlib import Path
 from typing import Optional
 
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
-    """Extract text from a PDF file.
+    """Extract text from a PDF file using pymupdf4llm.
+
+    Uses pymupdf4llm for better handling of multi-column layouts
+    common in academic papers.
 
     Args:
         pdf_path: Path to the PDF file
 
     Returns:
-        Extracted text content
+        Extracted text content in markdown format
     """
     try:
-        with pdfplumber.open(pdf_path) as pdf:
-            full_text = ""
-            for page in pdf.pages:
-                text = page.extract_text() or ""
-                full_text += text + "\n"
-        return full_text
+        return pymupdf4llm.to_markdown(str(pdf_path))
     except Exception as e:
         raise ValueError(f"Failed to extract text from PDF: {e}")
 
