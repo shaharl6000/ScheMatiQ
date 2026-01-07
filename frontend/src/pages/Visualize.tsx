@@ -926,6 +926,17 @@ const Visualize = () => {
         <TabsContent value="data" className="mt-4">
           {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || isQBSDStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
             <div className="relative">
+              {/* Query Display */}
+              {session?.schema_query && (
+                <Card className="mb-4">
+                  <CardHeader className="py-3">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Query</CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <p className="text-sm">{session.schema_query}</p>
+                  </CardContent>
+                </Card>
+              )}
               <DataTable
                 sessionId={sessionId!}
                 sessionType={mode}
