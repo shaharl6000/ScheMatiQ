@@ -60,7 +60,8 @@ import {
   ReprocessingStatus,
   SchemaValidationResult as SchemaValidationResultType,
   WebSocketMessageExtended,
-  SchemaChangeStatus
+  SchemaChangeStatus,
+  ColumnCluster
 } from '../../types';
 import { formatColumnName } from '../../utils/formatting';
 import { copyToClipboard } from '../../utils/clipboard';
@@ -72,6 +73,13 @@ import ContinueDiscoveryDialog from '../SchemaEditor/ContinueDiscoveryDialog';
 import ContinueDiscoveryMonitor from '../SchemaEditor/ContinueDiscoveryMonitor';
 import LLMConfigDisplay from '../LLMConfigDisplay';
 import SchemaColumnDetailPanel from './SchemaColumnDetailPanel';
+import { clusterColumns } from './clustering';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from '@/components/ui/accordion';
 
 interface SchemaViewerProps {
   columns: ColumnInfo[];
@@ -127,6 +135,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [sortBy, setSortBy] = useState<'name' | 'type' | 'completeness' | 'modified'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedDetailColumn, setSelectedDetailColumn] = useState<ColumnInfo | null>(null);
+
+  // Clustering state
+  const [clusters, setClusters] = useState<ColumnCluster[]>([]);
+  const clusteringEnabled = true; // TODO: Add toggle UI for this
 
   // Helper function to extract error message from API errors (handles Pydantic validation errors)
   const extractErrorMessage = (error: any, fallback: string): string => {
@@ -227,6 +239,20 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   useEffect(() => {
     setLocalColumns(columns || []);
   }, [columns]);
+
+  // Run clustering when columns change
+  useEffect(() => {
+    if (clusteringEnabled && localColumns.length > 0) {
+      const result = clusterColumns(localColumns, clusters, {
+        similarityThreshold: 0.5,
+        minClusterSize: 1,
+        maxClusters: 10,
+        respectUserClusters: true
+      });
+      setClusters(result.clusters);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localColumns, clusteringEnabled]); // Don't include clusters to avoid infinite loop
 
   // Set up WebSocket listener for real-time updates
   useEffect(() => {
@@ -541,6 +567,43 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     });
     return cols;
   }, [filteredColumns, sortBy, sortOrder, schemaChanges]);
+
+  // Group columns by cluster
+  const groupedColumns = useMemo(() => {
+    if (!clusteringEnabled || clusters.length === 0) {
+      return [{ cluster: null, columns: sortedColumns }];
+    }
+
+    const groups: Array<{ cluster: ColumnCluster | null; columns: ColumnInfo[] }> = [];
+    const assignedColumns = new Set<string>();
+
+    // Add columns in cluster order
+    clusters.forEach(cluster => {
+      const clusterColumns = sortedColumns.filter(col =>
+        cluster.column_names.includes(col.name)
+      );
+      if (clusterColumns.length > 0) {
+        groups.push({ cluster, columns: clusterColumns });
+        clusterColumns.forEach(col => assignedColumns.add(col.name));
+      }
+    });
+
+    // Add any unclustered columns at the end
+    const unclustered = sortedColumns.filter(col => !assignedColumns.has(col.name));
+    if (unclustered.length > 0) {
+      groups.push({
+        cluster: {
+          id: 'unclustered',
+          name: 'Uncategorized',
+          color: '#6B7280',
+          column_names: unclustered.map(c => c.name)
+        },
+        columns: unclustered
+      });
+    }
+
+    return groups;
+  }, [sortedColumns, clusters, clusteringEnabled]);
 
   const getValidationSeverity = (): 'success' | 'warning' | 'destructive' => {
     if (!validationResult) return 'success';
@@ -878,44 +941,280 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     Columns ({sortedColumns.length})
                   </h4>
                   <ScrollArea className="h-[calc(100vh-300px)]">
-                    <div className="space-y-1 pr-2">
-                      {sortedColumns.map((column) => {
-                        const isModified = schemaChanges?.changed_columns?.includes(column.name);
-                        const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
-                        const isSelected = selectedColumns.includes(column.name);
-                        return (
-                          <button
-                            key={column.name}
-                            onClick={() => {
-                              const element = document.getElementById(`column-${column.name}`);
-                              element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            }}
-                            className={cn(
-                              "w-full text-left px-2 py-2 rounded-md text-sm transition-colors",
-                              "hover:bg-muted",
-                              isSelected && "bg-primary/10 font-medium",
-                              isModified && "text-amber-600 dark:text-amber-400",
-                              isNew && "text-green-600 dark:text-green-400"
-                            )}
-                          >
-                            <span className="truncate block">{formatColumnName(column.name)}</span>
-                          </button>
-                        );
-                      })}
+                    <div className="space-y-3 pr-2">
+                      {groupedColumns.map(({ cluster, columns: groupCols }) => (
+                        <div key={cluster?.id || 'all'}>
+                          {cluster && clusteringEnabled && (
+                            <div className="flex items-center gap-2 mb-1 px-2">
+                              <span
+                                className="w-2 h-2 rounded-full flex-shrink-0"
+                                style={{ backgroundColor: cluster.color }}
+                              />
+                              <span className="text-xs font-medium text-muted-foreground truncate">
+                                {cluster.name}
+                              </span>
+                              <Badge variant="outline" className="text-[10px] h-4 px-1 ml-auto">
+                                {groupCols.length}
+                              </Badge>
+                            </div>
+                          )}
+                          <div className="space-y-0.5">
+                            {groupCols.map((column) => {
+                              const isModified = schemaChanges?.changed_columns?.includes(column.name);
+                              const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
+                              const isSelected = selectedColumns.includes(column.name);
+                              return (
+                                <button
+                                  key={column.name}
+                                  onClick={() => {
+                                    const element = document.getElementById(`column-${column.name}`);
+                                    element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                  }}
+                                  className={cn(
+                                    "w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors",
+                                    "hover:bg-muted",
+                                    cluster && clusteringEnabled && "pl-4",
+                                    isSelected && "bg-primary/10 font-medium",
+                                    isModified && "text-amber-600 dark:text-amber-400",
+                                    isNew && "text-green-600 dark:text-green-400"
+                                  )}
+                                >
+                                  <span className="truncate block">{formatColumnName(column.name)}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </ScrollArea>
                 </div>
               </div>
             )}
 
-            {/* Main Grid */}
-            <div className={cn(
-              "grid gap-3 flex-1",
-              viewMode === 'compact'
-                ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-                : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
-            )}>
-            {sortedColumns.map((column) => {
+            {/* Main Grid with Clusters */}
+            <div className="flex-1">
+              {clusteringEnabled && groupedColumns.length > 1 ? (
+                <Accordion
+                  type="multiple"
+                  defaultValue={groupedColumns.map(g => g.cluster?.id || 'all')}
+                  className="space-y-2"
+                >
+                  {groupedColumns.map(({ cluster, columns: groupCols }) => (
+                    <AccordionItem
+                      key={cluster?.id || 'all'}
+                      value={cluster?.id || 'all'}
+                      className="border rounded-lg px-4"
+                    >
+                      <AccordionTrigger className="hover:no-underline py-3">
+                        <div className="flex items-center gap-3">
+                          {cluster && (
+                            <span
+                              className="w-3 h-3 rounded-full flex-shrink-0"
+                              style={{ backgroundColor: cluster.color }}
+                            />
+                          )}
+                          <span className="font-semibold">{cluster?.name || 'All Columns'}</span>
+                          <Badge variant="outline" className="ml-2">
+                            {groupCols.length}
+                          </Badge>
+                        </div>
+                      </AccordionTrigger>
+                      <AccordionContent>
+                        <div className={cn(
+                          "grid gap-3 pt-2",
+                          viewMode === 'compact'
+                            ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+                            : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+                        )}>
+                          {groupCols.map((column) => {
+                            const isModified = schemaChanges?.changed_columns?.includes(column.name);
+                            const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
+                            const isProcessing = processingColumns?.has(column.name);
+
+                            // Compact view card
+                            if (viewMode === 'compact') {
+                              return (
+                                <Card
+                                  key={column.name}
+                                  className={cn(
+                                    "relative cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all",
+                                    selectedColumns.includes(column.name) && "ring-2 ring-primary",
+                                    isModified && "border-amber-400 dark:border-amber-600 border-2",
+                                    isNew && "border-green-400 dark:border-green-600 border-2",
+                                    isProcessing && "border-blue-400 dark:border-blue-600 border-2 animate-pulse"
+                                  )}
+                                  onClick={() => setSelectedDetailColumn(column)}
+                                >
+                                  <CardContent className="pt-3 pb-2 px-3">
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                      {!readonly && (
+                                        <Checkbox
+                                          className="h-3.5 w-3.5"
+                                          checked={selectedColumns.includes(column.name)}
+                                          onCheckedChange={(checked) =>
+                                            handleColumnSelection(column.name, checked as boolean)
+                                          }
+                                          onClick={(e) => e.stopPropagation()}
+                                        />
+                                      )}
+                                      <h4 className="font-medium text-xs truncate flex-1">
+                                        {formatColumnName(column.name)}
+                                      </h4>
+                                      {isModified && <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Modified" />}
+                                      {isNew && <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="New" />}
+                                      {isProcessing && <Loader2 className="h-3 w-3 animate-spin text-blue-500 flex-shrink-0" />}
+                                    </div>
+                                    <div className="flex items-center gap-1 mb-1">
+                                      {column.data_type && (
+                                        <Badge variant="outline" className="h-4 text-[10px] px-1">
+                                          {column.data_type}
+                                        </Badge>
+                                      )}
+                                      {column.allowed_values && column.allowed_values.length > 0 && (
+                                        <Badge variant="outline" className="h-4 text-[10px] px-1 bg-purple-50 dark:bg-purple-950">
+                                          {column.allowed_values.length} val
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    <p className="text-[10px] text-muted-foreground line-clamp-1">
+                                      {column.definition || 'No definition'}
+                                    </p>
+                                  </CardContent>
+                                </Card>
+                              );
+                            }
+
+                            // Detailed view card
+                            return (
+                              <Card
+                                key={column.name}
+                                id={`column-${column.name}`}
+                                className={cn(
+                                  "relative",
+                                  selectedColumns.includes(column.name) && "ring-2 ring-primary",
+                                  isModified && "border-amber-400 dark:border-amber-600 border-2",
+                                  isNew && "border-green-400 dark:border-green-600 border-2",
+                                  isProcessing && "border-blue-400 dark:border-blue-600 border-2 animate-pulse"
+                                )}
+                              >
+                                <CardContent className="pt-4">
+                                  <div className="flex justify-between items-start mb-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      {!readonly && (
+                                        <Checkbox
+                                          checked={selectedColumns.includes(column.name)}
+                                          onCheckedChange={(checked) =>
+                                            handleColumnSelection(column.name, checked as boolean)
+                                          }
+                                        />
+                                      )}
+                                      <h4 className="font-semibold text-sm">
+                                        {formatColumnName(column.name)}
+                                      </h4>
+                                      {isModified && (
+                                        <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300">
+                                          Modified
+                                        </Badge>
+                                      )}
+                                      {isNew && (
+                                        <Badge variant="outline" className="text-xs bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 border-green-300">
+                                          New
+                                        </Badge>
+                                      )}
+                                      {isProcessing && (
+                                        <Badge variant="outline" className="text-xs bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border-blue-300">
+                                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                          Extracting...
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    {!readonly && (
+                                      <div className="flex gap-1">
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-8 w-8"
+                                              onClick={() => handleEditColumn(column)}
+                                            >
+                                              <Pencil className="h-4 w-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Edit column</TooltipContent>
+                                        </Tooltip>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-8 w-8 text-destructive"
+                                              onClick={() => handleDeleteColumn(column.name)}
+                                            >
+                                              <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent>Delete column</TooltipContent>
+                                        </Tooltip>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {column.data_type && <Badge className="mb-2">{column.data_type}</Badge>}
+                                  {column.definition && (
+                                    <div className="mb-3 p-3 bg-muted rounded-md">
+                                      <p className="text-xs font-semibold text-primary mb-1">Definition</p>
+                                      <p className="text-sm">{column.definition}</p>
+                                    </div>
+                                  )}
+                                  {column.rationale && (
+                                    <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
+                                      <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">Rationale</p>
+                                      <p className="text-sm">{column.rationale}</p>
+                                    </div>
+                                  )}
+                                  {column.allowed_values && column.allowed_values.length > 0 ? (
+                                    <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-950 rounded-md border border-purple-200 dark:border-purple-800">
+                                      <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-2">Allowed Values</p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {column.allowed_values.map((value, idx) => (
+                                          <Badge key={idx} variant="outline" className="text-xs">{value}</Badge>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="mb-3 p-2 bg-gray-50 dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700">
+                                      <p className="text-xs text-gray-500 dark:text-gray-400 italic">Free-form</p>
+                                    </div>
+                                  )}
+                                  {(column.non_null_count !== undefined || column.unique_count !== undefined) && (
+                                    <div className="flex gap-2 mt-2">
+                                      {column.non_null_count !== undefined && (
+                                        <Badge variant="outline">{column.non_null_count} non-null</Badge>
+                                      )}
+                                      {column.unique_count !== undefined && (
+                                        <Badge variant="outline">{column.unique_count} unique</Badge>
+                                      )}
+                                    </div>
+                                  )}
+                                </CardContent>
+                              </Card>
+                            );
+                          })}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              ) : (
+                // No clustering - flat grid
+                <div className={cn(
+                  "grid gap-3",
+                  viewMode === 'compact'
+                    ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+                    : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
+                )}>
+                  {sortedColumns.map((column) => {
               const isModified = schemaChanges?.changed_columns?.includes(column.name);
               const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
               const isProcessing = processingColumns?.has(column.name);
@@ -1181,6 +1480,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               </Card>
               );
             })}
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
