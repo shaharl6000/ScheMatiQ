@@ -14,9 +14,10 @@ import { ColumnInfo, ColumnCluster, ClusteringConfig } from '../../types';
 // ==================== TYPES ====================
 
 export interface ClusteringOptions {
-  similarityThreshold?: number;  // Default: 0.5
+  similarityThreshold?: number;  // Default: 0.25
   minClusterSize?: number;       // Default: 1
   maxClusters?: number;          // Default: 10
+  maxClusterSize?: number;       // Default: 8 - prevents giant clusters
   respectUserClusters?: boolean; // Default: true
 }
 
@@ -116,9 +117,37 @@ const STOP_WORDS = new Set([
 ]);
 
 /**
- * Compute TF-IDF scores for all columns
+ * Find terms that appear in too many columns (not discriminative)
  */
-function computeTFIDF(columns: ColumnInfo[]): Map<string, Map<string, number>> {
+function findCommonTerms(columns: ColumnInfo[], threshold: number = 0.5): Set<string> {
+  const termCount = new Map<string, number>();
+
+  columns.forEach(col => {
+    const tokens = new Set(tokenizeName(col.name));
+    tokens.forEach(token => {
+      termCount.set(token, (termCount.get(token) || 0) + 1);
+    });
+  });
+
+  const commonTerms = new Set<string>();
+  const minAppearances = Math.ceil(columns.length * threshold);
+
+  termCount.forEach((count, term) => {
+    if (count >= minAppearances) {
+      commonTerms.add(term);
+    }
+  });
+
+  return commonTerms;
+}
+
+/**
+ * Compute TF-IDF scores for all columns, excluding overly common terms
+ */
+function computeTFIDF(
+  columns: ColumnInfo[],
+  excludeTerms: Set<string> = new Set()
+): Map<string, Map<string, number>> {
   // Document frequency for each term
   const df = new Map<string, number>();
 
@@ -128,7 +157,7 @@ function computeTFIDF(columns: ColumnInfo[]): Map<string, Map<string, number>> {
       ...tokenizeName(col.name),
       ...tokenizeText(col.definition || ''),
       ...tokenizeText(col.rationale || '')
-    ];
+    ].filter(t => !excludeTerms.has(t)); // Filter out common terms
 
     // Count term frequency
     const tf = new Map<string, number>();
@@ -170,18 +199,6 @@ function computeTFIDF(columns: ColumnInfo[]): Map<string, Map<string, number>> {
 function matchesDomain(column: ColumnInfo, keywords: string[]): boolean {
   const text = `${column.name} ${column.definition || ''} ${column.rationale || ''}`.toLowerCase();
   return keywords.some(kw => text.includes(kw));
-}
-
-/**
- * Get domain category for a column (if any)
- */
-function getDomainCategory(column: ColumnInfo): string | null {
-  for (const [category, keywords] of Object.entries(DOMAIN_KEYWORDS)) {
-    if (matchesDomain(column, keywords)) {
-      return category;
-    }
-  }
-  return null;
 }
 
 /**
@@ -293,11 +310,13 @@ function averageLinkage(
 
 /**
  * Hierarchical agglomerative clustering with average linkage
+ * Now with max cluster size constraint
  */
 function hierarchicalClustering(
   columns: ColumnInfo[],
   simMatrix: number[][],
-  threshold: number
+  threshold: number,
+  maxClusterSize: number = 8
 ): ClusterNode[] {
   // Initialize: each column is its own cluster
   let clusters: ClusterNode[] = columns.map((_, i) => ({
@@ -314,6 +333,11 @@ function hierarchicalClustering(
 
     for (let i = 0; i < clusters.length; i++) {
       for (let j = i + 1; j < clusters.length; j++) {
+        // Skip if merged cluster would exceed max size
+        if (clusters[i].members.length + clusters[j].members.length > maxClusterSize) {
+          continue;
+        }
+
         const sim = averageLinkage(clusters[i], clusters[j], simMatrix);
         if (sim > maxSim) {
           maxSim = sim;
@@ -323,8 +347,8 @@ function hierarchicalClustering(
       }
     }
 
-    // Stop if best similarity is below threshold
-    if (maxSim < threshold) {
+    // Stop if no valid merge found or best similarity is below threshold
+    if (mergeI === -1 || mergeJ === -1 || maxSim < threshold) {
       break;
     }
 
@@ -354,17 +378,25 @@ function titleCase(str: string): string {
 }
 
 /**
- * Generate a label for a cluster based on centroid of its members
- * Uses the most representative terms from actual column content
+ * Generate a label for a cluster based on discriminative terms
+ * Excludes common terms that appear across the entire dataset
  */
-function generateClusterLabel(columns: ColumnInfo[], memberIndices: number[]): string {
+function generateClusterLabel(
+  columns: ColumnInfo[],
+  memberIndices: number[],
+  commonTerms: Set<string> = new Set()
+): string {
   const members = memberIndices.map(i => columns[i]);
 
   if (members.length === 1) {
-    // Single column - use shortened name
+    // Single column - use shortened name, excluding common terms
     const name = members[0].name;
-    const tokens = tokenizeName(name);
-    return titleCase(tokens.slice(0, 3).join(' '));
+    const tokens = tokenizeName(name).filter(t => !commonTerms.has(t));
+    if (tokens.length > 0) {
+      return titleCase(tokens.slice(0, 3).join(' '));
+    }
+    // Fallback to full tokens if all are common
+    return titleCase(tokenizeName(name).slice(0, 3).join(' '));
   }
 
   // Extract all tokens from column names with their frequencies
@@ -372,7 +404,7 @@ function generateClusterLabel(columns: ColumnInfo[], memberIndices: number[]): s
   const tokenInColumns = new Map<string, Set<number>>(); // Track which columns contain each token
 
   members.forEach((member, idx) => {
-    const tokens = tokenizeName(member.name);
+    const tokens = tokenizeName(member.name).filter(t => !commonTerms.has(t));
     const seenInThisColumn = new Set<string>();
 
     tokens.forEach(token => {
@@ -422,7 +454,7 @@ function generateClusterLabel(columns: ColumnInfo[], memberIndices: number[]): s
     return titleCase(topTokens.join(' & '));
   }
 
-  // Fallback: use first two words from the first column name
+  // Fallback: use first two words from the first column name (including common terms)
   const firstTokens = tokenizeName(members[0].name);
   if (firstTokens.length > 0) {
     return titleCase(firstTokens.slice(0, 2).join(' '));
@@ -442,9 +474,10 @@ export function clusterColumns(
   options: ClusteringOptions = {}
 ): ClusteringResult {
   const {
-    similarityThreshold = 0.5,
+    similarityThreshold = 0.25,  // Lower threshold for better separation
     minClusterSize = 1,
     maxClusters = 10,
+    maxClusterSize = 8,  // Prevent giant clusters
     respectUserClusters = true
   } = options;
 
@@ -478,10 +511,13 @@ export function clusterColumns(
     };
   }
 
-  // Compute TF-IDF
-  const tfidf = computeTFIDF(columnsToCluster);
+  // Find overly common terms (appear in >50% of columns) - these are not discriminative
+  const commonTerms = findCommonTerms(columnsToCluster, 0.5);
 
-  // Build vocabulary (union of all terms)
+  // Compute TF-IDF excluding common terms
+  const tfidf = computeTFIDF(columnsToCluster, commonTerms);
+
+  // Build vocabulary (union of all terms, excluding common ones)
   const vocabulary = new Set<string>();
   tfidf.forEach(scores => {
     scores.forEach((_, term) => vocabulary.add(term));
@@ -497,8 +533,13 @@ export function clusterColumns(
   // Compute similarity matrix
   const simMatrix = computeSimilarityMatrix(columnsToCluster, features);
 
-  // Perform hierarchical clustering
-  const clusterNodes = hierarchicalClustering(columnsToCluster, simMatrix, similarityThreshold);
+  // Perform hierarchical clustering with max cluster size constraint
+  const clusterNodes = hierarchicalClustering(
+    columnsToCluster,
+    simMatrix,
+    similarityThreshold,
+    maxClusterSize
+  );
 
   // Convert to ColumnCluster format
   const algorithmClusters: ColumnCluster[] = clusterNodes
@@ -506,7 +547,7 @@ export function clusterColumns(
     .slice(0, maxClusters)
     .map((node, idx) => ({
       id: `algo_${Date.now()}_${idx}`,
-      name: generateClusterLabel(columnsToCluster, node.members),
+      name: generateClusterLabel(columnsToCluster, node.members, commonTerms),
       description: `${node.members.length} columns (similarity: ${(node.similarity * 100).toFixed(0)}%)`,
       color: CLUSTER_COLORS[idx % CLUSTER_COLORS.length],
       collapsed: false,
@@ -518,23 +559,30 @@ export function clusterColumns(
   const unclustered = columnsToCluster.filter(c => !clusteredColumns.has(c.name));
 
   if (unclustered.length > 0) {
-    // Put all unclustered columns in a single "Other" cluster
-    // Name it based on the content of the columns
-    const unclusteredIndices = unclustered.map(col =>
-      columnsToCluster.findIndex(c => c.name === col.name)
-    ).filter(idx => idx !== -1);
+    // Group unclustered columns into smaller chunks if too many
+    const unclusteredChunks: ColumnInfo[][] = [];
+    for (let i = 0; i < unclustered.length; i += maxClusterSize) {
+      unclusteredChunks.push(unclustered.slice(i, i + maxClusterSize));
+    }
 
-    const clusterName = unclustered.length === 1
-      ? titleCase(tokenizeName(unclustered[0].name).slice(0, 3).join(' '))
-      : generateClusterLabel(columnsToCluster, unclusteredIndices);
+    unclusteredChunks.forEach((chunk, chunkIdx) => {
+      const chunkIndices = chunk.map(col =>
+        columnsToCluster.findIndex(c => c.name === col.name)
+      ).filter(idx => idx !== -1);
 
-    algorithmClusters.push({
-      id: `algo_${Date.now()}_other`,
-      name: clusterName || 'Other',
-      description: `${unclustered.length} columns`,
-      color: '#6B7280', // gray
-      collapsed: false,
-      column_names: unclustered.map(c => c.name)
+      const clusterName = chunk.length === 1
+        ? titleCase(tokenizeName(chunk[0].name).filter(t => !commonTerms.has(t)).slice(0, 3).join(' ')) ||
+          titleCase(tokenizeName(chunk[0].name).slice(0, 3).join(' '))
+        : generateClusterLabel(columnsToCluster, chunkIndices, commonTerms);
+
+      algorithmClusters.push({
+        id: `algo_${Date.now()}_other_${chunkIdx}`,
+        name: clusterName || 'Other',
+        description: `${chunk.length} columns`,
+        color: CLUSTER_COLORS[(algorithmClusters.length + chunkIdx) % CLUSTER_COLORS.length],
+        collapsed: false,
+        column_names: chunk.map(c => c.name)
+      });
     });
   }
 
@@ -558,13 +606,16 @@ export function suggestClusterForColumn(
   column: ColumnInfo,
   existingClusters: ColumnCluster[],
   allColumns: ColumnInfo[],
-  threshold: number = 0.4
+  threshold: number = 0.3
 ): ColumnCluster | null {
   if (existingClusters.length === 0) return null;
 
+  // Find common terms
+  const commonTerms = findCommonTerms(allColumns, 0.5);
+
   // Compute TF-IDF including the new column
   const columnsWithNew = [...allColumns, column];
-  const tfidf = computeTFIDF(columnsWithNew);
+  const tfidf = computeTFIDF(columnsWithNew, commonTerms);
 
   // Build vocabulary
   const vocabulary = new Set<string>();
