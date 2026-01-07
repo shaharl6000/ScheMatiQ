@@ -25,6 +25,7 @@ import {
   FolderPlus,
   Download,
   Upload,
+  Layers,
 } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -142,7 +143,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   // Clustering state
   const [clusters, setClusters] = useState<ColumnCluster[]>([]);
-  const clusteringEnabled = true; // TODO: Add toggle UI for this
+  const [clusteringEnabled, setClusteringEnabled] = useState(() => {
+    // Load from localStorage, default to true
+    const saved = localStorage.getItem('schemaViewer.clusteringEnabled');
+    return saved !== null ? saved === 'true' : true;
+  });
   const [editingClusterId, setEditingClusterId] = useState<string | null>(null);
   const [editingClusterName, setEditingClusterName] = useState('');
   const [showNewClusterDialog, setShowNewClusterDialog] = useState(false);
@@ -802,6 +807,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     localStorage.setItem('schemaViewer.viewMode', viewMode);
   }, [viewMode]);
 
+  // Persist clustering enabled state to localStorage
+  useEffect(() => {
+    localStorage.setItem('schemaViewer.clusteringEnabled', String(clusteringEnabled));
+  }, [clusteringEnabled]);
+
   // Filter out excerpt columns for display
   const displayColumns = (localColumns || []).filter(column => {
     return column &&
@@ -1103,6 +1113,24 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   Detailed
                 </Button>
               </div>
+
+              {/* Clustering Toggle */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={clusteringEnabled ? 'default' : 'outline'}
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setClusteringEnabled(!clusteringEnabled)}
+                  >
+                    <Layers className="h-3.5 w-3.5 mr-1" />
+                    Clusters
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {clusteringEnabled ? 'Disable clustering view' : 'Enable clustering view'}
+                </TooltipContent>
+              </Tooltip>
             </div>
           </div>
 
