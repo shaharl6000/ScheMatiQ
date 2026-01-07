@@ -930,10 +930,10 @@ const Visualize = () => {
               {session?.schema_query && (
                 <Card className="mb-4">
                   <CardHeader className="py-3">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">Query</CardTitle>
+                    <CardTitle className="text-lg font-semibold">Query</CardTitle>
                   </CardHeader>
                   <CardContent className="pt-0">
-                    <p className="text-sm">{session.schema_query}</p>
+                    <p className="text-base">{session.schema_query}</p>
                   </CardContent>
                 </Card>
               )}
