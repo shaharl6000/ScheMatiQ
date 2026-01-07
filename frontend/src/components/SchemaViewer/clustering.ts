@@ -345,74 +345,90 @@ function hierarchicalClustering(
 // ==================== CLUSTER LABELING ====================
 
 /**
- * Generate a label for a cluster based on its members
+ * Capitalize first letter of each word
+ */
+function titleCase(str: string): string {
+  return str.split(' ')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
+}
+
+/**
+ * Generate a label for a cluster based on centroid of its members
+ * Uses the most representative terms from actual column content
  */
 function generateClusterLabel(columns: ColumnInfo[], memberIndices: number[]): string {
   const members = memberIndices.map(i => columns[i]);
 
-  // 1. Check if all members match a domain category
-  const categories = members.map(getDomainCategory).filter(Boolean);
-  if (categories.length === members.length && new Set(categories).size === 1) {
-    return categories[0]!;
+  if (members.length === 1) {
+    // Single column - use shortened name
+    const name = members[0].name;
+    const tokens = tokenizeName(name);
+    return titleCase(tokens.slice(0, 3).join(' '));
   }
 
-  // 2. Check majority domain category
-  const categoryCounts = new Map<string, number>();
-  categories.forEach(cat => {
-    if (cat) categoryCounts.set(cat, (categoryCounts.get(cat) || 0) + 1);
+  // Extract all tokens from column names with their frequencies
+  const tokenFreq = new Map<string, number>();
+  const tokenInColumns = new Map<string, Set<number>>(); // Track which columns contain each token
+
+  members.forEach((member, idx) => {
+    const tokens = tokenizeName(member.name);
+    const seenInThisColumn = new Set<string>();
+
+    tokens.forEach(token => {
+      if (token.length > 2) {
+        tokenFreq.set(token, (tokenFreq.get(token) || 0) + 1);
+        if (!seenInThisColumn.has(token)) {
+          seenInThisColumn.add(token);
+          if (!tokenInColumns.has(token)) {
+            tokenInColumns.set(token, new Set());
+          }
+          tokenInColumns.get(token)!.add(idx);
+        }
+      }
+    });
   });
 
-  let maxCount = 0;
-  let dominantCategory: string | null = null;
-  categoryCounts.forEach((count, cat) => {
-    if (count > maxCount && count >= members.length / 2) {
-      maxCount = count;
-      dominantCategory = cat;
+  // Score tokens by how many columns contain them (not raw frequency)
+  // This finds terms that appear across multiple columns = centroid
+  const tokenScores: Array<{ token: string; score: number; coverage: number }> = [];
+
+  tokenInColumns.forEach((columnSet, token) => {
+    const coverage = columnSet.size / members.length;
+    // Prefer tokens that appear in many columns but aren't too generic
+    const score = coverage * (tokenFreq.get(token) || 0);
+    tokenScores.push({ token, score, coverage });
+  });
+
+  // Sort by coverage first, then by score
+  tokenScores.sort((a, b) => {
+    if (Math.abs(a.coverage - b.coverage) > 0.1) {
+      return b.coverage - a.coverage;
     }
+    return b.score - a.score;
   });
 
-  if (dominantCategory) {
-    return dominantCategory;
-  }
-
-  // 3. Check data type homogeneity
-  const dataTypes = new Set(members.map(m => m.data_type?.toLowerCase()));
-  if (dataTypes.size === 1) {
-    const dt = Array.from(dataTypes)[0];
-    if (dt === 'number') return 'Numeric Values';
-    if (dt === 'string') return 'Text Fields';
-    if (dt === 'boolean') return 'Boolean Flags';
-    if (dt === 'date') return 'Dates';
-  }
-
-  // 4. Find common tokens in names
-  const allTokens = members.flatMap(m => tokenizeName(m.name));
-  const tokenCounts = new Map<string, number>();
-  allTokens.forEach(token => {
-    tokenCounts.set(token, (tokenCounts.get(token) || 0) + 1);
-  });
-
-  let commonToken: string | null = null;
-  let maxTokenCount = 1;
-  tokenCounts.forEach((count, token) => {
-    if (count > maxTokenCount && token.length > 2) {
-      maxTokenCount = count;
-      commonToken = token;
+  // Get top 2 distinct tokens for the label
+  const topTokens: string[] = [];
+  for (const { token, coverage } of tokenScores) {
+    if (topTokens.length >= 2) break;
+    // Only include if it appears in at least 30% of columns
+    if (coverage >= 0.3 || topTokens.length === 0) {
+      topTokens.push(token);
     }
-  });
-
-  if (commonToken !== null && maxTokenCount >= members.length / 2) {
-    const token = commonToken as string;
-    return `${token.charAt(0).toUpperCase() + token.slice(1)} Related`;
   }
 
-  // 5. Fallback: use first column's dominant domain or generic label
-  const firstDomain = getDomainCategory(members[0]);
-  if (firstDomain) {
-    return `${firstDomain} & Related`;
+  if (topTokens.length > 0) {
+    return titleCase(topTokens.join(' & '));
   }
 
-  return `Group ${String.fromCharCode(65 + Math.floor(Math.random() * 26))}`;
+  // Fallback: use first two words from the first column name
+  const firstTokens = tokenizeName(members[0].name);
+  if (firstTokens.length > 0) {
+    return titleCase(firstTokens.slice(0, 2).join(' '));
+  }
+
+  return `Cluster ${memberIndices[0] + 1}`;
 }
 
 // ==================== MAIN CLUSTERING FUNCTION ====================
