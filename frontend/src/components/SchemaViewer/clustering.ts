@@ -379,7 +379,7 @@ function titleCase(str: string): string {
 
 /**
  * Generate a label for a cluster based on discriminative terms
- * Excludes common terms that appear across the entire dataset
+ * STRICTLY excludes common terms that appear across the entire dataset
  */
 function generateClusterLabel(
   columns: ColumnInfo[],
@@ -388,46 +388,32 @@ function generateClusterLabel(
 ): string {
   const members = memberIndices.map(i => columns[i]);
 
-  if (members.length === 1) {
-    // Single column - use shortened name, excluding common terms
-    const name = members[0].name;
-    const tokens = tokenizeName(name).filter(t => !commonTerms.has(t));
-    if (tokens.length > 0) {
-      return titleCase(tokens.slice(0, 3).join(' '));
-    }
-    // Fallback to full tokens if all are common
-    return titleCase(tokenizeName(name).slice(0, 3).join(' '));
-  }
-
-  // Extract all tokens from column names with their frequencies
+  // Collect ALL discriminative tokens from all members (excluding common terms)
   const tokenFreq = new Map<string, number>();
-  const tokenInColumns = new Map<string, Set<number>>(); // Track which columns contain each token
+  const tokenInColumns = new Map<string, Set<number>>();
 
   members.forEach((member, idx) => {
-    const tokens = tokenizeName(member.name).filter(t => !commonTerms.has(t));
+    // STRICTLY filter out common terms
+    const tokens = tokenizeName(member.name).filter(t => !commonTerms.has(t) && t.length > 2);
     const seenInThisColumn = new Set<string>();
 
     tokens.forEach(token => {
-      if (token.length > 2) {
-        tokenFreq.set(token, (tokenFreq.get(token) || 0) + 1);
-        if (!seenInThisColumn.has(token)) {
-          seenInThisColumn.add(token);
-          if (!tokenInColumns.has(token)) {
-            tokenInColumns.set(token, new Set());
-          }
-          tokenInColumns.get(token)!.add(idx);
+      tokenFreq.set(token, (tokenFreq.get(token) || 0) + 1);
+      if (!seenInThisColumn.has(token)) {
+        seenInThisColumn.add(token);
+        if (!tokenInColumns.has(token)) {
+          tokenInColumns.set(token, new Set());
         }
+        tokenInColumns.get(token)!.add(idx);
       }
     });
   });
 
-  // Score tokens by how many columns contain them (not raw frequency)
-  // This finds terms that appear across multiple columns = centroid
+  // Score tokens by coverage across cluster members
   const tokenScores: Array<{ token: string; score: number; coverage: number }> = [];
 
   tokenInColumns.forEach((columnSet, token) => {
     const coverage = columnSet.size / members.length;
-    // Prefer tokens that appear in many columns but aren't too generic
     const score = coverage * (tokenFreq.get(token) || 0);
     tokenScores.push({ token, score, coverage });
   });
@@ -444,8 +430,7 @@ function generateClusterLabel(
   const topTokens: string[] = [];
   for (const { token, coverage } of tokenScores) {
     if (topTokens.length >= 2) break;
-    // Only include if it appears in at least 30% of columns
-    if (coverage >= 0.3 || topTokens.length === 0) {
+    if (coverage >= 0.25 || topTokens.length === 0) {
       topTokens.push(token);
     }
   }
@@ -454,13 +439,9 @@ function generateClusterLabel(
     return titleCase(topTokens.join(' & '));
   }
 
-  // Fallback: use first two words from the first column name (including common terms)
-  const firstTokens = tokenizeName(members[0].name);
-  if (firstTokens.length > 0) {
-    return titleCase(firstTokens.slice(0, 2).join(' '));
-  }
-
-  return `Cluster ${memberIndices[0] + 1}`;
+  // If no discriminative tokens found, use a descriptive fallback based on member count
+  // Never fall back to common terms
+  return `Group ${memberIndices[0] + 1}`;
 }
 
 // ==================== MAIN CLUSTERING FUNCTION ====================
@@ -551,21 +532,22 @@ export function clusterColumns(
 
       // Ensure unique names by appending a suffix if needed
       if (usedNames.has(name)) {
-        // Try to find a more specific name using the first column
-        const firstCol = columnsToCluster[node.members[0]];
-        const altTokens = tokenizeName(firstCol.name).filter(t => !commonTerms.has(t));
-        if (altTokens.length > 0) {
-          const altName = titleCase(altTokens.slice(0, 2).join(' '));
-          if (!usedNames.has(altName)) {
-            name = altName;
-          } else {
-            // Add numeric suffix
-            let suffix = 2;
-            while (usedNames.has(`${name} ${suffix}`)) suffix++;
-            name = `${name} ${suffix}`;
+        // Try to find alternative names from member columns (excluding common terms)
+        let foundAlt = false;
+        for (const memberIdx of node.members) {
+          const col = columnsToCluster[memberIdx];
+          const altTokens = tokenizeName(col.name).filter(t => !commonTerms.has(t) && t.length > 2);
+          if (altTokens.length >= 2) {
+            const altName = titleCase(altTokens.slice(0, 2).join(' '));
+            if (!usedNames.has(altName)) {
+              name = altName;
+              foundAlt = true;
+              break;
+            }
           }
-        } else {
-          // Add numeric suffix
+        }
+        if (!foundAlt) {
+          // Add numeric suffix as last resort
           let suffix = 2;
           while (usedNames.has(`${name} ${suffix}`)) suffix++;
           name = `${name} ${suffix}`;
@@ -599,27 +581,30 @@ export function clusterColumns(
         columnsToCluster.findIndex(c => c.name === col.name)
       ).filter(idx => idx !== -1);
 
+      // Generate name strictly excluding common terms
       let clusterName = chunk.length === 1
-        ? titleCase(tokenizeName(chunk[0].name).filter(t => !commonTerms.has(t)).slice(0, 3).join(' ')) ||
-          titleCase(tokenizeName(chunk[0].name).slice(0, 3).join(' '))
+        ? titleCase(tokenizeName(chunk[0].name).filter(t => !commonTerms.has(t) && t.length > 2).slice(0, 3).join(' '))
         : generateClusterLabel(columnsToCluster, chunkIndices, commonTerms);
 
+      // Ensure we have a valid name (no common terms allowed)
+      if (!clusterName) clusterName = `Group ${algorithmClusters.length + chunkIdx + 1}`;
+
       // Ensure unique name
-      if (!clusterName) clusterName = 'Other';
       if (usedNames.has(clusterName)) {
-        // Try alternative from first column
-        const firstCol = chunk[0];
-        const altTokens = tokenizeName(firstCol.name).filter(t => !commonTerms.has(t));
-        if (altTokens.length > 0) {
-          const altName = titleCase(altTokens.slice(0, 2).join(' '));
-          if (!usedNames.has(altName)) {
-            clusterName = altName;
-          } else {
-            let suffix = 2;
-            while (usedNames.has(`${clusterName} ${suffix}`)) suffix++;
-            clusterName = `${clusterName} ${suffix}`;
+        // Try alternatives from chunk columns (excluding common terms)
+        let foundAlt = false;
+        for (const col of chunk) {
+          const altTokens = tokenizeName(col.name).filter(t => !commonTerms.has(t) && t.length > 2);
+          if (altTokens.length >= 2) {
+            const altName = titleCase(altTokens.slice(0, 2).join(' '));
+            if (!usedNames.has(altName)) {
+              clusterName = altName;
+              foundAlt = true;
+              break;
+            }
           }
-        } else {
+        }
+        if (!foundAlt) {
           let suffix = 2;
           while (usedNames.has(`${clusterName} ${suffix}`)) suffix++;
           clusterName = `${clusterName} ${suffix}`;
