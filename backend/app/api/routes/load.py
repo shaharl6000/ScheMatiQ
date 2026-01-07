@@ -715,20 +715,20 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # Allow both upload sessions (various states) and completed QBSD sessions
+        # Allow both upload sessions (various states) and QBSD sessions (created or completed)
         is_valid_upload_session = (
             session.type == SessionType.UPLOAD and
             session.status in [SessionStatus.SCHEMA_EXTRACTED, SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]
         )
         is_valid_qbsd_session = (
             session.type == SessionType.QBSD and
-            session.status == SessionStatus.COMPLETED
+            session.status in [SessionStatus.CREATED, SessionStatus.COMPLETED]
         )
 
         if not (is_valid_upload_session or is_valid_qbsd_session):
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot upload documents for session type '{session.type}' in status '{session.status}'. Upload sessions need schema extracted/completed, QBSD sessions must be completed."
+                detail=f"Cannot upload documents for session type '{session.type}' in status '{session.status}'. Upload sessions need schema extracted/completed, QBSD sessions must be created or completed."
             )
         
         print(f"DEBUG: Session status: {session.status}, extracted schema available")

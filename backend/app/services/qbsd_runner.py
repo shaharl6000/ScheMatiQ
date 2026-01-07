@@ -282,11 +282,30 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         return qbsd_config
 
     async def _resolve_docs_paths(self, config: QBSDConfig, session_id: str) -> List[str]:
-        """Resolve document paths - download from Supabase if needed."""
+        """Resolve document paths - download from Supabase if needed, or use uploaded files."""
         session_dir = self.work_dir / session_id
         session_dir.mkdir(parents=True, exist_ok=True)
 
+        # Check for uploaded documents in pending_documents/ directory
+        pending_dir = session_dir / "pending_documents"
+        if pending_dir.exists() and any(pending_dir.iterdir()):
+            # Use uploaded files - return the pending_documents directory as the source
+            uploaded_files = [str(f.absolute()) for f in sorted(pending_dir.iterdir())
+                            if f.is_file() and not f.name.startswith('.')]
+            if uploaded_files:
+                print(f"✓ Using {len(uploaded_files)} uploaded documents from pending_documents/")
+                # Return the directory containing the files, not individual files
+                return [str(pending_dir.absolute())]
+
+        # No uploaded files - resolve from config.docs_path
         docs_paths = config.docs_path if isinstance(config.docs_path, list) else [config.docs_path]
+        # Filter out None and empty values
+        docs_paths = [p for p in docs_paths if p]
+
+        if not docs_paths:
+            print("Warning: No document paths configured and no uploaded documents found")
+            return []
+
         resolved_docs_paths = []
 
         for path in docs_paths:
