@@ -1,0 +1,2402 @@
+Published as a conference paper at ICLR 2024
+
+# MUSR: TESTING THE LIMITS OF CHAIN-OF-THOUGHT
+## WITH MULTISTEP SOFT REASONING
+
+
+**Zayne Sprague, Xi Ye, Kaj Bostrom, Swarat Chaudhuri, Greg Durrett**
+Department of Computer Science
+The University of Texas in Austin
+zayne@utexas.edu
+
+
+ABSTRACT
+
+
+While large language models (LLMs) equipped with techniques like chain-ofthought prompting have demonstrated impressive capabilities, they still fall short
+in their ability to reason robustly in complex settings. However, evaluating
+LLM reasoning is challenging because system capabilities continue to grow while
+benchmark datasets for tasks like logical deduction have remained static. We introduce MuSR, a dataset for evaluating language models on multistep soft reasoning tasks specified in a natural language narrative. This dataset has two crucial features. First, it is created through a novel neurosymbolic synthetic-to-natural generation algorithm, enabling the construction of complex reasoning instances that
+challenge GPT-4 (e.g., murder mysteries roughly 1000 words in length) and which
+can be scaled further as more capable LLMs are released. Second, our dataset
+instances are free text narratives corresponding to real-world domains of reasoning; this makes it simultaneously much more challenging than other syntheticallycrafted benchmarks while remaining realistic and tractable for human annotators
+to solve with high accuracy. We evaluate a range of LLMs and prompting techniques on this dataset and characterize the gaps that remain for techniques like
+chain-of-thought to perform robust reasoning. [1]
+
+
+1 INTRODUCTION
+
+
+A great remaining challenge for large language models (LLMs) is the ability to do reasoning and
+planning (Valmeekam et al., 2023; Tang et al., 2023; Dziri et al., 2023) Numerous methods have
+been proposed to augment models’ capabilities on this front, including prompting strategies like
+chain-of-thought (Wei et al., 2022), integration with tools (Schick et al., 2023; Lyu et al., 2023; Ye
+et al., 2023), and embedding models in search loops (Bostrom et al., 2022; Creswell et al., 2023).
+
+
+Do these approaches suitably address the shortcomings of LLMs? This is difficult to measure.
+Math reasoning tasks can be approached in a two-stage fashion (Gao et al., 2022; Ye et al., 2023):
+the LLM translates the problem into a formal specification which is then solved with conventional
+tools. Other datasets like RuleTakers (Clark et al., 2020) and CLUTRR (Sinha et al., 2019) are
+solvable with rule-based systems (Kazemi et al., 2023a; Ye et al., 2023; Poesia et al., 2023). Finally,
+datasets like SocialIQA (Sap et al., 2019) or StrategyQA (Geva et al., 2021) that involve more
+nuanced commonsense are often structurally simple (i.e., only involve 1-2 steps of reasoning). What
+is lacking is a benchmark involving **both** sophisticated natural language and sophisticated reasoning.
+
+
+In this work, we present MuSR: Multistep Soft Reasoning, a dataset focused on tasks involving
+reasoning based on text narratives. The narratives in our dataset are hundreds of words long and
+present evidence in ways that require commonsense knowledge to unpack. Then, when all of the
+evidence is assessed, coming to a final answer requires “System 2”-style deliberation, which takes a
+different form for each domain of interest. The domains we address here, murder mysteries, object
+placement, and team assignment, involve commonsense reasoning about physical (Bisk et al., 2020)
+and social situations (Sap et al., 2019), theory-of-mind, and more. Crucially, these types of reasoning
+_arise naturally_ from text descriptions of each problem.
+
+
+[1Project website can be found at https://github.com/Zayne-Sprague/MuSR](https://github.com/Zayne-Sprague/MuSR)
+
+
+1
+
+
+Published as a conference paper at ICLR 2024
+
+
+**Sample a problem…** **Build a reasoning tree…** **Generate a narrative…**
+
+
+
+
+
+
+
+Recursively sample from an LLM to
+
+
+
+_Only_ use a small set of observed facts
+
+
+for each section:
+
+
+_Write part of a murder mystery describing_
+_Detective Winston interacting with the_
+_following people and learning the following_
+_facts:_
+
+
+_Sophia has a grudge due to her lost fortune_
+
+_Emily stole Sophia’s inheritance…_
+
+
+iterate until
+
+
+
+
+
+
+
+valid
+
+
+
+Validation (e.g., that
+
+**facts** are included)
+
+
+
+
+
+
+
+
+
+
+
+**LLM to be tested**
+
+
+_Please identify the killer in this murder_
+_mystery. Killers have a motive, means, and_
+_opportunity […]_
+
+
+|establish reasoning behind conclusions<br>Fact Sampling Model<br>Sophia is the murderer.<br>Create a murder mystery outline. Generate<br>the name of the victim, two suspects, … Sophia has a motive.<br>Tree construction<br>- The victim is Emily Gold facts F da uc et : to S hh ee r h la os s ta f og rr tu ud ng ee<br>- Emily was murdered in the park<br>Fact: Emily stole<br>- Sophia murdered Emily Sophia’s inheritance<br>- Sophia never forgot the fortune Emily stole<br>from her Commonsense: A grudge<br>can be a motive.<br>- Richie felt angry when John fired him…<br>Sophia has an<br>opportunity<br>Emily took her final stroll in the park last night, forever, when her life was snufefd out under the mask Ca<br>of night. The cause of death was a single fatal shot from a pistol. Detective Winston was on the<br>case and began to look at his first suspect, Sophia.<br>Sophia had a string of bad luck recently when someone who she thought was a friend, Emily, stole<br>her entire inheritance. Her evening strolls in the park became frantic pacing while she reconciled the<br>fortune she lost. Detective Winston took a long sip of his cofefe and began to question Sophia.<br>‘Quite the marksmen I see’ - pointing to a picture of her holding a recently shot buck up.<br>‘Yeah, my dad loved taking me shooting’ - Sophia replied sheepishly.|Col2|
+|---|---|
+|_Emily took her fnal stroll in the park last night, forever, when her life was snufed out under the mask_<br>_of night.  The cause of death was a single fatal shot from a pistol.  Detectve Winston was on the_<br>_case and began to look at his frst suspect, Sophia._<br>_Sophia had a string of bad luck recently when someone who she thought was a friend, Emily, stole_<br>_her entre inheritance.  Her evening strolls in the park became frantc pacing while she reconciled the_<br>_fortune she lost.  Detectve Winston took a long sip of his cofee and began to queston Sophia._<br>_‘Quite the marksmen I see’ - pointng to a picture of her holding a recently shot buck up._<br>_‘Yeah, my dad loved taking me shootng’ - Sophia replied sheepishly._|_Emily took her fnal stroll in the park last night, forever, when her life was snufed out under the mask_<br>_of night.  The cause of death was a single fatal shot from a pistol.  Detectve Winston was on the_<br>_case and began to look at his frst suspect, Sophia._<br>_Sophia had a string of bad luck recently when someone who she thought was a friend, Emily, stole_<br>_her entre inheritance.  Her evening strolls in the park became frantc pacing while she reconciled the_<br>_fortune she lost.  Detectve Winston took a long sip of his cofee and began to queston Sophia._<br>_‘Quite the marksmen I see’ - pointng to a picture of her holding a recently shot buck up._<br>_‘Yeah, my dad loved taking me shootng’ - Sophia replied sheepishly._|
+|_Emily took her fnal stroll in the park last night, forever, when her life was snufed out under the mask_<br>_of night.  The cause of death was a single fatal shot from a pistol.  Detectve Winston was on the_<br>_case and began to look at his frst suspect, Sophia._<br>_Sophia had a string of bad luck recently when someone who she thought was a friend, Emily, stole_<br>_her entre inheritance.  Her evening strolls in the park became frantc pacing while she reconciled the_<br>_fortune she lost.  Detectve Winston took a long sip of his cofee and began to queston Sophia._<br>_‘Quite the marksmen I see’ - pointng to a picture of her holding a recently shot buck up._<br>_‘Yeah, my dad loved taking me shootng’ - Sophia replied sheepishly._||
+
+
+
+Figure 1: Dataset construction process for MuSR. First, we generate gold facts that are used to
+deduce the correct answer (the murderer in this case). Then, using an LLM, we create a reasoning
+tree leading to those deductions from facts in a story combined with commonsense. Finally, we
+iteratively generate a narrative one chunk at a time using the facts generated in step 2, validating the
+generations for fact consistency and recall.
+
+
+The congruence between the reasoning and the text itself allows us to generate these datasets automatically with the aid of LLMs, using supporting logic to elicit examples that _the LLMs themselves_
+cannot reliably solve. Our novel neurosymbolic dataset generation procedure is shown in Figure 1.
+Recovering the reasoning from the final narrative itself is a hard problem, solvable by humans but
+not by GPT-4 using any of a number of prompting strategies and neurosymbolic approaches we
+tried. Notably, these properties do not hold when creating narratives with more basic prompting
+strategies: asking GPT-4 to define and write a murder mystery in a single shot leads to unnatural,
+homogeneous stories that may include inconsistencies, as we show later.
+
+
+Our contributions are as follows: (1) We introduce a new reasoning benchmark, MuSR, consisting of
+756 total examples across three domains that challenge state-of-the-art models such as GPT-4, Llama
+2, and Vicuna. (2) We propose an algorithm for generating natural language narratives grounded in
+reasoning trees. (3) We analyze the performance of LLMs on our dataset, focusing on variants of
+chain-of-thought prompting and existing neurosymbolic approaches for these problems.
+
+
+2 BACKGROUND AND MOTIVATION
+
+
+We survey past dataset efforts in Table 1, using our analysis to establish the need for a new textual
+reasoning benchmark. First, a number of prior benchmarks do not have **natural text** . Others do not
+blend **commonsense** and **multistep** reasoning. Finally, we want a dataset that contains ground-truth
+**intermediate structure** and which is not **solvable with rules** .
+
+
+Many past datasets are simply too artificial, including bAbI (Weston et al., 2016), BigTOM (Gandhi
+et al., 2023), ToMi (Le et al., 2019), RuleTakers (Clark et al., 2020), ProntoQA (Saparov & He, 2023;
+Saparov et al., 2023), and CLUTRR (Sinha et al., 2019). These datasets are generally designed
+to test some aspect of language model reasoning, but they are only challenging for “pure” LLM
+approaches; many are solvable with rule-based methods. Furthermore, many of these do not involve
+any commonsense reasoning, a key feature of reasoning from text.
+
+
+EntailmentBank (Dalvi et al., 2021), Everyday Norms: Why Not (Sprague et al., 2022), and
+BoardgameQA (Kazemi et al., 2023b) present somewhat more challenging multistep settings, but
+consist of isolated collections of facts, not grounded in complex narratives. LLMs can solve the
+former two datasets quite easily even without consulting ground truth facts. As these datasets are
+
+
+2
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 1: Recent reasoning datasets used for benchmarking LLMs and neurosymbolic systems compared across various dataset qualities. To the best of our knowledge, no previous dataset encompasses all of these qualities. The _∼_ symbol denotes datasets that partially qualify for the property.
+More details about how we define and classify these features can be found in Appendix B.
+
+
+Properties
+
+
+Dataset Natural Text Commonsense Multistep Intermediate structure Not solvable w/rules
+
+
+MuSR ✓ ✓ ✓ ✓ ✓
+
+
+designed to be solved using explicit step-by-step deduction, they tend to avoid softer kinds of inferences prevalent in commonsense reasoning. Past commonsense datasets (Sap et al., 2019; Talmor
+et al., 2019; 2021), conversely, often do not involve multistep reasoning.
+
+
+**Techniques** Many reasoning systems have been built to handle specific axes of reasoning that we
+list in Table 1, but cannot handle a dataset which exhibits them all. Several past systems employ
+an LLM in a search loop that enumerates a list of facts, generating conclusions deductively or abductively until a goal is reached (Bostrom et al., 2022; Creswell et al., 2023; Kazemi et al., 2023a;
+Sprague et al., 2022; Hong et al., 2022). However, these systems do not handle natural contexts
+where facts can be distributed among sentences across a long narrative. Other systems involve tools
+or neurosymbolic algorithms to help solve reasoning problems (Sclar et al., 2023; Gao et al., 2022;
+Ye et al., 2023); however, these are often run on artificial datasets that can be easily translated into
+formal specifications, and have limited ability to handle soft reasoning types like commonsense.
+
+
+One versatile technique is prompting, including various chain-of-thought strategies (Wei et al., 2022;
+Yao et al., 2023) and techniques to measure consistency (Wang et al., 2023; Jung et al., 2022). Using
+these approaches to solve reasoning problems end-to-end has shown to be challenging (Ye & Durrett,
+2022; Zhang et al., 2023; Xue et al., 2023; Valmeekam et al., 2023). Our dataset is ideally suited to
+test the limits of these approaches: a system must extract facts from our stories, apply appropriate
+commonsense to interpret those facts, and finally use multistep reasoning to arrive at an answer.
+
+
+**Why a synthetic benchmark** One alternative to the approach we describe could be to use human
+authoring. Our murder mystery domain is represented in the recent True Detective (Del & Fishel,
+2022) dataset, which collects human-authored murder mysteries from 5minutemystery.com.
+We argue that a synthetic benchmark is preferable for two reasons. First, it is scalable and can be
+renewed as more capable LLMs are produced. For example, if the mysteries on the aforementioned
+website are solved by future LLMs, it will be costly and challenging to collect a new dataset, whereas
+a synthetic benchmark can be refreshed with more complex reasoning and longer narratives. The
+disentangling of logical reasoning and text generation gives us a reusable lever for producing instances more complex than what systems themselves can solve. Second, because our dataset can be
+regenerated, issues with dataset leakage and exposure to test data become less of a concern. Finally,
+note that while our benchmark involves GPT-4 generated narratives, the scaffolding of the construction process and the hidden facts involved mean that the final generated outputs are not trivially
+solvable with GPT-4. As long as the underlying information is faithfully preserved in the narrative,
+we believe our data instances are valid test cases for any well-behaved reasoning system, which we
+verify by measuring human performance.
+
+
+3
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Figure 2: Partial reasoning trees showing gold facts _F_, story facts _S_ ( _T_ ), and commonsense facts
+_C_ ( _T_ ) for each of our three domains. Dotted lines indicate incomplete trees. Each deduction sampled
+from an LLM will yield two scenario facts and one commonsense fact in our setup.
+
+
+3 CREATING MUSR
+
+
+MuSR is composed of multi-step reasoning problems, each rooted in a specific domain with a unique
+logical structure to its solutions. To generate these problems, we have a construction method with
+three stages: **Tree Template Construction**, responsible for the reasoning strategy and initial gold
+fact set _F_ ; **Reasoning Tree Completion**, which generates a tree _T_ of intermediate reasoning steps
+expanding upon _F_ ; and **Story Generation**, which embeds the facts generated from the trees into a
+natural narrative **x** . This process is described here and is represented in Figure 1.
+
+
+The construction algorithm finally yields tuples ( _F, T,_ **x** _, {q_ 1 _, . . ., qn}, {a_ 1 _, . . ., an}_ ). Formally,
+the reasoning task is to predict answers _ai_ given the narrative **x** and the question to answer _qi_ . The
+gold fact set _F_ and reasoning tree _T_ are used as part of the generation process but are generally
+_not_ provided to an LLM at test time. Throughout the process, we use Prompt to denote using a
+prompted LLM to sample an output conditioned on another variable.
+
+
+3.1 TREE TEMPLATE CONSTRUCTION
+
+
+Each of our domains starts with a high-level fact set _F_, and a set of question-answer pairs
+(( _q_ 1 _, a_ 1) _, . . .,_ ( _qn, an_ )). For example, in our murder mysteries, the only question is “who is the
+murderer?” and _F_ contains ground-truth information about each suspect ( _John is the murderer_,
+_John has an opportunity_ ). Information for each domain is in Section 4, with facts shown in Figure 2.
+
+
+More formally, _F_ is a structured object with the requirement that there exists some program Φ
+such that Φ( _F, qi_ ) = _ai_ for all _i_ . _F_ can also be represented in natural language through templated
+expansion. Our questions _q_ and answers _a_ are templated. At this stage, we also generate additional
+facts _G_ to increase diversity and help expand the story later. This is done by sampling from curated
+lists or by sampling from LLMs (e.g., when a coherent set of objects needs to be generated for object
+placement). These facts differ from those in _F_ in that they are not templated but instead actual facts
+that must be included in the narrative. The output of this stage is a tuple ( _F, G_ ) which contains the
+core facts used to answer the question and a set of diversity facts used to give each question unique
+storylines.
+
+
+4
+
+
+Published as a conference paper at ICLR 2024
+
+
+3.2 REASONING TREE COMPLETION
+
+
+Once the collection of facts _F_ has been constructed, we produce reasoning trees for each individual
+fact, _fi_, in the set _F_ . A reasoning tree _T_ = ( **s** _, T_ 1 _, . . ., Tm_ ) is a recursive data structure representing
+a statement **s** supported by a collection of other statements: it must be the case that **s** is logically
+entailed by **s** _T_ 1 _, . . .,_ **s** _Tm_ . The root of each tree is a fact _sT_ 1 = _fi_ where _fi ∈_ _F_ . We include the facts
+from _G_ while prompting the language model so that the generated facts include diverse information
+and ultimately help create interesting stories in the later stages.
+
+
+These trees are automatically produced from root facts _fi_ via recursively sampling from an LLM, in
+our case GPT-4. This process is shown in Algorithm 1 in Appendix G.1. We repeat this process to
+a specified depth, ultimately producing a set of leaf facts that deductively yield the original fact _fi_
+but require multi-step reasoning to do so. These facts are divided into two types: scenario-specific
+facts, which must be included in the ultimate narrative, and commonsense facts, which will not be
+stated but should be facts that most people would agree are true. We denote these sets of scenario
+facts and commonsense facts by _S_ ( _T_ ) and _C_ ( _T_ ), respectively, as shown in Figure 2.
+
+
+Our generation process involves controlling the depth and shape of trees generated. We also want
+to ensure that there are no vacuous transitions in our trees (e.g., the fact _fi_ being explicitly stated
+in a leaf node) or reasoning “shortcuts.” To ensure this, we use a collection of **tree validators**,
+_V_ = ( _v_ 1 _, . . ., vk_ ), per domain. These are often simple keyword lookups that prevent the keywords
+from appearing in the deduction, for example, preventing “motive” from appearing in a lower-level
+deduction in the murder mystery domain so that the reader is forced to deduce a motive. For more
+details on validators for each domain, see Appendix G.
+
+
+At each step in the tree, for a node with text **s** we sample _T_ 1 _, . . ., Tm ∼_ PromptLM( _T_ 1 _, . . ., Tm |_
+**s** ). We then filter this output against the validators _V_ . We retry this prompt up to three times, and if
+we are not able to draw a valid sample, prune the branch of the reasoning tree, making the current
+deduction a leaf node. We repeat this process until the tree is at the target depth. Figure 2 shows an
+example of the resulting trees.
+
+
+3.3 STORY GENERATION
+
+
+In the last stage, we use the scenario-specific leaf facts _S_ ( _T_ ) from the reasoning tree. Our goal is to
+generate a narrative by sampling ˆ **x** _∼_ Prompt( **x** _| S_ ( _T_ )) from an LLM with an appropriate prompt.
+However, for a long and complex narrative, _S_ ( _T_ ) is not always reflected accurately in **x** ; some facts
+may be dropped as the model produces more of a summary of the situation, for example.
+
+
+To address this, we instead divide _S_ ( _T_ ) into chunks relating to a specific answer choice (e.g., the
+information related to a specific possible murderer). We can then use this subset to prompt GPT4
+for a “chapter” with a smaller list of facts. Once every chapter has been created, we concatenate all
+the chapters together into one narrative. Some domains use additional prompts to “smooth” the final
+narrative when necessary. Because our narratives do not need to be produced by one LLM call, they
+can scale to be over 1000 words (in this dataset) and theoretically to be even longer. We refer this
+process as **chaptering** ; the overall process is broadly inspired by Yang et al. (2022).
+
+
+4 MUSR DOMAINS
+
+
+4.1 MURDER MYSTERIES: SOCIAL AND PHYSICAL DEDUCTIVE REASONING
+
+
+Murder mysteries are a classic domain requiring a variety of reasoning types. They have been explored in the context of LLM reasoning before (Frermann et al., 2018; Del & Fishel, 2022); however,
+ours is the first work to approach the scale of human-written murder mysteries with synthetic challenge data. Murder mysteries elicit physical and social reasoning in the fact sets _S_ ( _T_ ) and _C_ ( _T_ ).
+Specifically, unique and complex social scenarios arise naturally in murder mysteries that lead to
+motives for murder and can require understanding social norms. Solving a murder mystery also
+requires temporal reasoning about a person having an opportunity to commit the crime.
+
+
+In this domain, Φ( _F, qi_ ) is defined as an algorithm that can find the suspect with three facts in _F_ .
+Specifically, the murderer and answer _ai_ is the suspect with the facts “ _x has a means_ ”, “ _x has a_
+_motive_ ”, and “ _x has an opportunity_ ”. To construct _F_ such that Φ( _F, qi_ ) will produce the correct
+
+
+5
+
+
+Published as a conference paper at ICLR 2024
+
+
+answer _ai_, we create two suspects and randomly assign one as the murderer. We then populate the
+set _F_ with the three facts proving a means, motive, and opportunity. For the innocent suspect, we
+randomly chose two of the facts used to prove guilt, then add these and one additional “suspicious
+fact” to the set _F_, creating a set that does not establish guilt. A suspicious fact has no impact on
+Φ( _F, qi_ ) and should not add any additional information relevant to the murder; for example, “ _x is_
+_affiliated with a gang, and this is suspicious_ ”.
+
+
+In total, _F_ is composed of three facts per suspect that are passed to the reasoning tree creation stage.
+The reasoning tree will expand upon the descriptions for these facts, _G_, such as the fact that someone
+could have had an opportunity to murder a victim in their study by having a key to the study, which
+can be recursively expanded to describe _why_ they had a key to the study. More details about the
+construction can be found in Appendix G.2.
+
+
+4.2 OBJECT PLACEMENTS: OBSERVATIONAL AND THEORY OF MIND REASONING
+
+
+Inspired by theory-of-mind datasets (Le et al., 2019; Gandhi et al., 2023) we chose a domain that
+focuses on a group of people moving items around to different locations. Other people in the story
+either see each item move or not for various reasons. The reader is then asked where a person would
+look for an item if asked to search for it, where the last move they saw is the most likely place
+they’d begin to search. Because of this, Object Placements requires spatial and physical reasoning
+as well as reasoning about people’s awareness in _S_ ( _T_ ) and _C_ ( _T_ ). The reader is tested further by
+having to determine the observations of a specific person, modeling their belief state of where an
+item is. Notably, our dataset features longer narratives and more sophisticated scenarios than past
+theory-of-mind datasets.
+
+
+In this domain, _qi_ asks where a person believes an item to be in the story. The answer, _ai_, is then
+the last location the person saw the item move in the story, or where the item was originally if they
+never saw the item move. Φ( _F, qi_ ) is backed by a set of sequential moves _F_, where each move
+is a collection of observations denoting whether each person in the story saw the move or not. A
+move is denoted as a fact “ _P_ moves _I_ to _L_ ” where _P_ is a person, _I_ is an item, and _L_ is a location,
+respectively. For every move, each person other than the one moving the item is given a chance _c_
+(set to 0.33 for our experiments) to see the move, which will add either “ _P_ _[′]_ saw _I_ move to _L_ .” or
+“ _P_ _[′]_ did not see _I_ move to _L_ .” to _F_ .
+
+
+The reasoning trees then focus on explaining why someone may or may not have observed a move.
+This integrates commonsense reasoning: for example, a barista was busy doing latte art for a customer and didn’t observe the manager moving an item from the fridge to the storage room. More
+details can be found in Appendix G.3.
+
+
+4.3 TEAM ALLOCATION: SOCIAL AND CONSTRAINT REASONING
+
+
+Team Allocation takes inspiration from assignment and MAX-SAT problems (Pan et al., 2023). In
+this domain, the reader must determine the most optimal assignment of people to tasks where each
+person can be assigned to one task. Because there are three people and two tasks, two people must
+work together, adding a social dynamic to the assignment. _S_ ( _T_ ) and _C_ ( _T_ ) often involve inferring
+about past experiences and personal preferences of an individual as to why they do or do not perform
+a skill well. They also include reasoning over the strength of a relationship between two people in a
+workplace setting, which requires social reasoning.
+
+
+_F_ represents these relations through numeric scores corresponding to each person’s skill for a
+task and numerical teamwork score. Specifically, three people are each assigned score values
+for task capabilities (0, 1, or 2) and for their pairwise relationships. To solve a Team Allocation question, Φ( _F, qi_ ) can enumerate the assignments adding the skill level and teamwork scores
+as a score for the overall assignment and then take the assignment that maximizes this score,
+_ai_ = Φ( _F, qi_ ) = max _ai∈A_ skill( _ai_ ) + teamwork( _ai_ ). We found that using a small number of
+values for skills translated well into soft natural language statements where the decision of human
+annotators respects the hard underlying reasoning process. We further enforce that the optimal assignment outperforms all other assignments by a score of at least 2.
+
+
+The reasoning tree then describes factors that contribute to these skills and relationships. More
+details can be found in Appendix G.4.
+
+
+6
+
+
+Published as a conference paper at ICLR 2024
+
+
+5 EXPERIMENTS
+
+
+5.1 DATASET VALIDATION
+
+
+We generate our three datasets comprising MuSR using GPT-4 following the procedure outlined
+in the previous sections. See Appendix C for a discussion of using models other than GPT-4. Table 2 describes the statistics of our generated datasets. We provide examples from each dataset in
+Appendix F.
+
+
+
+We do not aim to formally evaluate
+
+Table 2: Dataset statistics for MuSR, including the num
+fluency or coherence of our gener
+ber of instances, number of steps, number of commonsense
+
+ated stories. GPT-4 generates sto
+facts, and performance of a rule-based system on the do
+ries that are, based on our inspec
+main.
+
+tion, very strong according to these
+
+Size # Steps # CS
+
+attributes. We also do not evaluate intrinsic “sensibility” of commonsense, Murder Mystery 250 10 9
+which we also found to be very high; Object Placements 256 11 6
+
+Team Allocations 250 10 9
+
+we opt instead to evaluate this in an
+end-to-end fashion based on whether humans can correctly reason about the right answer.
+
+
+
+Table 2: Dataset statistics for MuSR, including the number of instances, number of steps, number of commonsense
+facts, and performance of a rule-based system on the domain.
+
+
+
+Size # Steps # CS Rule-based
+
+
+
+Murder Mystery 250 10 9 50.0
+Object Placements 256 11 6 35.9
+Team Allocations 250 10 9 
+
+
+**Rule-based Performance** Table 2 also shows the performance of two rule-based systems we developed to sanity-check our datasets. The Murder Mystery rule baseline looks for which suspect has
+the longest chapter in the context. Object Placements looks for the location that is mentioned the
+most. We find that each of these is near random chance (reported in Table 5).
+
+
+**Human performance** To validate that the answers derived from _F_ actually match what can be
+derived from our narratives, we conducted a human evaluation of dataset quality. A total of 7
+annotators were used, 4 of whom were authors of the paper and 3 of whom were hired undergraduate
+students not familiar with the datasets. Annotators were given the exact “chain-of-thought+” prompt
+that we evaluated the LLMs with, described in the next section.
+
+
+We triply-annotated between 34 in- Table 3: A granular view of the human annotation scores
+stances for Murder Mystery and for each domain including the lowest score, highest score,
+Team Allocation and 40 instances for average score, and the majority vote score. No model or
+Object Placements. Table 3 displays prompt variant scores higher than any of our annotators.
+the annotators’ scores broken down
+
+Lowest Highest Average Majority
+
+by the lowest, highest, and average
+scores for each annotator; the average Murder Mystery 88.2 94.1 92.1 94.1
+is based on all (instance, annotator) Object Placements 85.0 95.0 90.0 95.0
+
+Team Allocations 91.1 100.0 95.1 100.0
+
+pairs, over 100 for each domain. Our
+best annotator across all domains was
+one of the undergraduate students not familiar with the dataset construction procedure. We also display the majority annotation. Crucially, the majority is higher than the average annotator, showing
+that many annotator errors are simply due to inattentiveness and our panel of three annotators is able
+to collectively arrive at the right answer via voting. Overall, we believe this majority is reflective of
+the ceiling for human performance on these datasets, demonstrating that it is very high.
+
+
+
+Table 3: A granular view of the human annotation scores
+for each domain including the lowest score, highest score,
+average score, and the majority vote score. No model or
+prompt variant scores higher than any of our annotators.
+
+
+
+Lowest Highest Average Majority
+
+
+
+Murder Mystery 88.2 94.1 92.1 94.1
+Object Placements 85.0 95.0 90.0 95.0
+Team Allocations 91.1 100.0 95.1 100.0
+
+
+
+**Ablating our creation process** Finally, we aim to establish that the procedure we have presented
+so far in this paper is in fact necessary to produce high-quality data. Table 4 shows a set of ablations
+on our construction procedure on 25 examples per domain, measured with several metrics. First,
+we track the length ( **Len** ) and diversity ( **Div** ) of the context, measured by self-BLEU of a sentence
+from one narrative compared with all other narratives. We also compute Fact Recall (R), which is a
+percentage of the number of facts entailed in the context from the gold reasoning trees leaf nodes,
+using GPT-4 to check for entailment of each fact. Finally, we evaluate GPT-4’s performance. Although our goal is to make a challenging dataset, in the context of this table, low GPT-4 performance
+usually means that the examples are ambiguous or unsolvable.
+
+
+Basic prompting for any domain yields extremely short stories (often ten sentences in length). They
+are also usually very similar. The GPT-4 performance is quite low; anecdotally, we found these
+stories to have spurious solutions. Using diversity sampling to improve the reasoning gives a better
+
+
+7
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 4: Variations of our dataset creation process. We compare against a simple one-shot prompting
+approach and an approach using seed facts _G_ to add diversity, which produce simple and poorquality narratives. We then ablate chaptering and tree validators, showing that these lower length,
+fact recall in the narrative, and accuracy; the latter usually indicates inconsistent narratives.
+
+
+Murder Mysteries Object Placements Team Allocation
+
+
+Ablation Len Div R Acc Len Div R Acc Len Div R Acc
+
+
+Prompt Only 280 0.30    - 76 200 0.26    - 64 172 0.34    - 80
+Diversity Sampling 422 0.25   - 60 404 0.24   - 39 448 0.26   - 84
+
+
+MuSR _−_ chapt _−_ validators 428 0.24 67 60 380 0.27 83 78 - - - MuSR _−_ validators 924 0.24 93 60 793 0.25 82 65  -  -  -  MuSR 900 0.25 95 84 777 0.25 87 58 503 0.25 81 68
+
+
+set of reasoning examples including a minor boost in length, but again, the problems are not always
+solvable, nor are the solutions always consistent with the underlying ground truth.
+
+
+When we introduce reasoning trees (the three MuSR variants), we can see GPT-4’s performance still
+remains low. This is because prompting GPT-4 to generate a story from all the facts often leads to
+shorter stories and can elide facts: only 62% of the facts from the original reasoning trees are entailed
+in the resulting story for murder mysteries. By introducing “chaptering,” we can see that fact recall
+increases and the story length nearly doubles in size while maintaining high diversity. Finally, the
+added tree validators to ensure the reasoning tree is constructed according to a set of rules (like not
+mentioning key items in deductions) fact recall increases slightly and GPT-4’s performance increases
+substantially for Murder Mystery. Team Allocation did not require chaptering or validators to create
+good examples and thus has no ablations for these components.
+
+
+5.2 BENCHMARKING WITH MUSR
+
+
+
+We now evaluate a series of LLMs (Brown et al.,
+2020; OpenAI, 2023; Touvron et al.; Chiang et al.,
+2023) with multiple prompting strategies. Specifically,
+we compare single-shot prompting, chain-of-thought
+(Wei et al., 2022, CoT), and a variant of chain-ofthought we call “CoT+”. CoT+ uses an engineered
+textual description of the domain’s reasoning strategy
+described in Section 3. Prompts for CoT+ can be seen
+in Appendix I.1 Finally, we test multiple neurosymbolic algorithms on domains that best match the settings those algorithms were designed for.
+
+
+
+GPT-4 80.4 60.9 68.4
+GPT-3.5 61.6 46.9 40.4
+Llama2 70b Chat 48.8 42.2 44.8
+Llama2 7b Chat 50.8 29.3 36.8
+Vicuna 7b v1.5 48.4 29.7 26.4
+Vicuna 13b v1.5 50.8 34.4 32.0
+Vicuna 33b v1.3 49.6 31.2 30.0
+
+
+
+Table 5: Scores for LLMs on each domain
+in MuSR as well as the human evaluation
+using the COT+ strategy.
+
+
+MM OP TA
+
+
+random 50.0 24.6 33.3
+
+
+
+**Zero-shot results on LLMs** We first focus on the
+ability of large language models to solve this dataset Human Eval
+zero-shot, given only the prompt. We constructed the
+dataset with this scenario in mind, but also evaluate a 1-shot prompt in Table 7.
+
+
+
+Human Eval 94.1 95.0 100.0
+
+
+
+Table 5 shows results over our LLMs with the CoT+ prompt as well as human performance. Llama
+2 and Vicuna-based language models are able to get above chance for each domain but only slightly.
+Although these models are often compared to GPT variants, they are unable to surpass GPT-3.5 on
+two out of the three domains, with Team Allocation being the only one where the Vicuna models
+outperform slightly. GPT-4 performs the best out of all the models we tested, but still underperforms
+compared to humans. Although GPT-4 was instrumental in creating this dataset, it does not have
+the reasoning capabilities to solve it end-to-end. A small qualitative analysis of some of the error
+classes exhibited by the GPT-3.5-turbo and GPT-4 are discussed in Appendix D.
+
+
+**Results on Prompt Variants** Table 7 shows GPT-3.5 and GPT-4, the two models that did best on
+MuSR, evaluated with different prompting strategies. Overall, the best performance is seen when the
+model is given a single-shot example with the “1-shot CoT+” or “Few-shot CoT+” prompt variants.
+However, adding more examples is not always better. Despite significant jumps in performance on
+some domains, the models still underperform compared to the human majority.
+
+
+8
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 7: Evaluations of different popular prompting strategies for GPT-3.5 and GPT-4, our strongest
+models. “Regular” supplies only the context and question. “CoT” asks the model to think step-bystep. “CoT+” includes a textual description of the reasoning strategy, and “1-Shot CoT+” includes
+a solved example. “Few-Shot CoT+” extends “1-Shot CoT+” with 3 examples (3 examples hits the
+token limit for GPT-4)
+
+
+Murder Mystery Object Placements Team Allocation
+
+
+GPT-3.5 GPT-4 GPT-3.5 GPT-4 GPT-3.5 GPT-4
+
+
+Regular 59.2 64.8 44.5 43.0 41.2 64.0
+CoT 56.0 65.6 48.4 41.8 46.4 64.4
+CoT+ 61.6 80.4 46.9 60.9 40.4 68.4
+1-Shot CoT+ 70.0 86.0 56.2 72.3 50.4 88.4
+Few-Shot CoT+ 68.4 84.8 58.2 71.5 78.8 89.6
+
+
+
+**Results on Neurosymbolic Approaches** We believe
+that this dataset is an ideal testbed for different neurosymbolic approaches. Besides basic chain-of-thought, we are
+not aware of a single approach that naturally handles all
+the reasoning types in our dataset and scales to examples of the difficulty we present. As a result, we present
+three different methods in Table 6 each tailored to one
+domain and evaluated in that domain. We describe these
+approaches here and in Appendix E
+
+
+
+Table 6: Scores for a selection of reasoning systems on the domain that best
+ft their capabilities.
+
+
+Murder mysteries
+
+
+GPT-4 CoT+ 80.4
+Decomposed Prompting 77.6
+Decomposed Prompting 1-Shot 86.0
+
+
+Object Placements
+
+
+
+GPT-4 CoT+ 60.9
+SymbolicTOM 23.8
+
+
+
+In the Murder Mystery domain, we implement a variation
+of Decomposed Prompting (Khot et al., 2023) by manually imposing the breakdown of motive, means, and opportunity and prompt GPT-4 to decide on each suspect
+for each fact. We then decide the murderer based on who PAL
+has the most facts proving guilt, with random selection
+in case of ties. Despite aligning well with the reasoning
+strategy, the accuracy is lower than prompting GPT-4 end-to-end.
+
+
+
+Team Allocation
+
+
+
+GPT-4 CoT+ 68.4
+PAL 77.2
+PAL 1-Shot 87.2
+
+
+
+Next we used SymbolicTOM (Sclar et al., 2023) on the Object Placements domain with minor
+adjustments. Specifically, we use GPT-3.5 to produce the resulting state of a sentence that is then
+used in the graph creation algorithm. The low accuracy of SymbolicTOM is mostly attributed to
+selecting key entities from sentences that are not as templated as the original dataset (Le et al.,
+2019). Because the contexts are more natural, entities’ actions and observations can span multiple
+paragraphs rather than be isolated in one sentence. This introduces a new level of complexity for
+these neurosymbolic methods, and past approaches on ToM cannot generalize here.
+
+
+Finally, we run a variant of Program-Aided Language Models (Gao et al., 2022) on the Team Allocation domain. From the story, PAL must deduce numerical values for the skill and teamwork levels
+of each person and pair. Once this is done, we give it a description of the reasoning strategy for Team
+Allocation, which it implements in a program and solves returning the assignment with the highest
+score. We find that this solution pairs quite well with the domain, outperforming the end-to-end
+models on both zero and single-shot settings, but falling short of aggregate human performance.
+
+
+6 CONCLUSION
+
+
+In this paper, we introduced Multistep Soft Reasoning (MuSR) a reasoning dataset written with
+natural narratives presenting complex reasoning scenarios involving various reasoning strategies.
+We presented a neurosymbolic dataset generation method for constructing instances of our dataset,
+which can be scaled in complexity as more powerful models emerge. Human evaluation and other
+intrinsic validations shows that the construction method is sound for sufficiently large models. Our
+results show that LLMs are currently unable to match human performance on specific types of reasoning like multi-step and commonsense in our three domains. This dataset presents a challenge for
+both the largest and smaller language models: we believe it can serve as (1) a benchmark for LLMs;
+(2) a benchmark for general neurosymbolic approaches over language; (3) a general construction
+procedure for generating challenging datasets as models improve.
+
+
+9
+
+
+Published as a conference paper at ICLR 2024
+
+
+7 REPRODUCIBILITY OF MUSR
+
+
+To aid in reproducing the datasets for each domain in MuSR, we’ve included high-level details of
+the construction procedure in Sections 3 and 4. We further detail each domain’s reasoning strategy
+and algorithms as well as give the prompts verbatim for all parts of the construction procedure in
+Appendix G. Implementation details, including hyperparameters and model design choices, can be
+found in Appendix H. For our neurosymoblic evaluations, we provide relevant details on their implementations in Section 5.2 and with further detail in Appendix E. Finally, all data will be publicly
+available, including the code used to generate and evaluate the dataset in future versions of this
+paper.
+
+
+ACKNOWLEDGMENTS
+
+
+This work was supported by NSF CAREER Award IIS-2145280, a grant from Open Philanthropy,
+and by the NSF AI Institute for Foundations of Machine Learning (IFML). This material is also
+based on research that is in part supported by the Air Force Research Laboratory (AFRL), DARPA,
+for the KAIROS program under agreement number FA8750-19-2-1003. Thanks to Kathryn Kazanas
+and Keziah Reina for providing human judgments on MuSR. Thanks to Juan Diego Rodriguez and
+members of the UT TAUR lab for helpful discussion and feedback.
+
+
+REFERENCES
+
+
+Yonatan Bisk, Rowan Zellers, Ronan Le Bras, Jianfeng Gao, and Yejin Choi. PIQA: Reasoning
+about Physical Commonsense in Natural Language. In _Proceedings of the Conference on Artificial_
+_Intelligence (AAAI)_, 2020.
+
+
+Kaj Bostrom, Zayne Sprague, Swarat Chaudhuri, and Greg Durrett. Natural language deduction
+through search over statement compositions. In _Findings of the Association for Computational_
+_Linguistics: EMNLP 2022_, pp. 4871–4883, Abu Dhabi, United Arab Emirates, December 2022.
+Association for Computational Linguistics. doi: 10.18653/v1/2022.findings-emnlp.358. URL
+[https://aclanthology.org/2022.findings-emnlp.358.](https://aclanthology.org/2022.findings-emnlp.358)
+
+
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom Henighan, Rewon Child, Aditya Ramesh,
+Daniel Ziegler, Jeffrey Wu, Clemens Winter, Chris Hesse, Mark Chen, Eric Sigler, Mateusz
+Litwin, Scott Gray, Benjamin Chess, Jack Clark, Christopher Berner, Sam McCandlish, Alec
+Radford, Ilya Sutskever, and Dario Amodei. Language models are few-shot learners. In
+H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin (eds.), _Advances in Neu-_
+_ral Information Processing Systems_, volume 33, pp. 1877–1901. Curran Associates, Inc.,
+2020. [URL https://proceedings.neurips.cc/paper_files/paper/2020/](https://proceedings.neurips.cc/paper_files/paper/2020/file/1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf)
+[file/1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf.](https://proceedings.neurips.cc/paper_files/paper/2020/file/1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf)
+
+
+Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng, Zhanghao Wu, Hao Zhang, Lianmin Zheng,
+Siyuan Zhuang, Yonghao Zhuang, Joseph E. Gonzalez, Ion Stoica, and Eric P. Xing. Vicuna:
+An Open-Source Chatbot Impressing GPT-4 with 90%* ChatGPT Quality, March 2023. URL
+[https://lmsys.org/blog/2023-03-30-vicuna/.](https://lmsys.org/blog/2023-03-30-vicuna/)
+
+
+Peter Clark, Oyvind Tafjord, and Kyle Richardson. Transformers as soft reasoners over language. In _International Joint Conference on Artificial Intelligence_, 2020. [URL https:](https://api.semanticscholar.org/CorpusID:211126663)
+[//api.semanticscholar.org/CorpusID:211126663.](https://api.semanticscholar.org/CorpusID:211126663)
+
+
+Antonia Creswell, Murray Shanahan, and Irina Higgins. Selection-inference: Exploiting large
+language models for interpretable logical reasoning. In _The Eleventh International Confer-_
+_ence on Learning Representations_ [, 2023. URL https://openreview.net/forum?id=](https://openreview.net/forum?id=3Pf3Wg6o-A4)
+[3Pf3Wg6o-A4.](https://openreview.net/forum?id=3Pf3Wg6o-A4)
+
+
+Bhavana Dalvi, Peter Jansen, Oyvind Tafjord, Zhengnan Xie, Hannah Smith, Leighanna Pipatanangkura, and Peter Clark. Explaining answers with entailment trees. _EMNLP_, 2021.
+
+
+10
+
+
+Published as a conference paper at ICLR 2024
+
+
+Maksym Del and Mark Fishel. True Detective: A Deep Abductive Reasoning Benchmark Undoable for GPT-3 and Challenging for GPT-4. In _STARSEM_, 2022. [URL https://api.](https://api.semanticscholar.org/CorpusID:259064331)
+[semanticscholar.org/CorpusID:259064331.](https://api.semanticscholar.org/CorpusID:259064331)
+
+
+Tim Dettmers, Mike Lewis, Sam Shleifer, and Luke Zettlemoyer. 8-bit optimizers via block-wise
+quantization. _9th International Conference on Learning Representations, ICLR_, 2022.
+
+
+Nouha Dziri, Ximing Lu, Melanie Sclar, Xiang Lorraine Li, Liwei Jiang, Bill Yuchen Lin, Peter
+West, Chandra Bhagavatula, Ronan Le Bras, Jena D. Hwang, Soumya Sanyal, Sean Welleck,
+Xiang Ren, Allyson Ettinger, Zaid Harchaoui, and Yejin Choi. Faith and Fate: Limits of Transformers on Compositionality. _arXiv eprint 2305.18654_, 2023.
+
+
+Lea Frermann, Shay B. Cohen, and Mirella Lapata. Whodunnit? crime drama as a case for natural
+language understanding. _Transactions of the Association for Computational Linguistics_, 6:1–15,
+2018. doi: 10.1162/tacl ~~a 0~~ [0001. URL https://aclanthology.org/Q18-1001.](https://aclanthology.org/Q18-1001)
+
+
+Kanishk Gandhi, Jan-Philipp Fr¨anken, Tobias Gerstenberg, and Noah D Goodman. Understanding
+social reasoning in language models with language models. _arXiv preprint arXiv:2306.15448_,
+2023.
+
+
+Luyu Gao, Aman Madaan, Shuyan Zhou, Uri Alon, Pengfei Liu, Yiming Yang, Jamie Callan, and
+Graham Neubig. PAL: Program-aided Language Models. _arXiv preprint arXiv:2211.10435_, 2022.
+
+
+Mor Geva, Daniel Khashabi, Elad Segal, Tushar Khot, Dan Roth, and Jonathan Berant. Did Aristotle
+use a laptop? A question answering benchmark with implicit reasoning strategies. _Transactions_
+_of the Association for Computational Linguistics_, 9:346–361, February 2021. ISSN 2307-387X.
+doi: 10.1162/tacl ~~a 0~~ 0370.
+
+
+Ruixin Hong, Hongming Zhang, Xintong Yu, and Changshui Zhang. METGEN: A module-based
+entailment tree generation framework for answer explanation. In _Findings of the Association_
+_for Computational Linguistics: NAACL 2022_, pp. 1887–1905, Seattle, United States, July 2022.
+Association for Computational Linguistics. doi: 10.18653/v1/2022.findings-naacl.145. URL
+[https://aclanthology.org/2022.findings-naacl.145.](https://aclanthology.org/2022.findings-naacl.145)
+
+
+Albert Q. Jiang, Alexandre Sablayrolles, Antoine Roux, Arthur Mensch, Blanche Savary, Chris
+Bamford, Devendra Singh Chaplot, Diego de Las Casas, Emma Bou Hanna, Florian Bressand, Gianna Lengyel, Guillaume Bour, Guillaume Lample, L’elio Renard Lavaud, Lucile
+Saulnier, Marie-Anne Lachaux, Pierre Stock, Sandeep Subramanian, Sophia Yang, Szymon Antoniak, Teven Le Scao, Th´eophile Gervet, Thibaut Lavril, Thomas Wang, Timoth´ee Lacroix,
+and William El Sayed. Mixtral of experts. _ArXiv_, abs/2401.04088, 2024. [URL https:](https://api.semanticscholar.org/CorpusID:266844877)
+[//api.semanticscholar.org/CorpusID:266844877.](https://api.semanticscholar.org/CorpusID:266844877)
+
+
+Jaehun Jung, Lianhui Qin, Sean Welleck, Faeze Brahman, Chandra Bhagavatula, Ronan Le Bras,
+and Yejin Choi. Maieutic prompting: Logically consistent reasoning with recursive explanations.
+In _Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing_,
+pp. 1266–1279, Abu Dhabi, United Arab Emirates, December 2022. Association for Computa[tional Linguistics. doi: 10.18653/v1/2022.emnlp-main.82. URL https://aclanthology.](https://aclanthology.org/2022.emnlp-main.82)
+[org/2022.emnlp-main.82.](https://aclanthology.org/2022.emnlp-main.82)
+
+
+Mehran Kazemi, Najoung Kim, Deepti Bhatia, Xin Xu, and Deepak Ramachandran. LAMBADA: Backward chaining for automated reasoning in natural language. In _Proceedings of_
+_the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long_
+_Papers)_, pp. 6547–6568, Toronto, Canada, July 2023a. Association for Computational Linguistics. doi: 10.18653/v1/2023.acl-long.361. [URL https://aclanthology.org/2023.](https://aclanthology.org/2023.acl-long.361)
+[acl-long.361.](https://aclanthology.org/2023.acl-long.361)
+
+
+Mehran Kazemi, Quan Yuan, Deepti Bhatia, Najoung Kim, Xin Xu, Vaiva Imbrasaite, and Deepak
+Ramachandran. BoardgameQA: A Dataset for Natural Language Reasoning with Contradictory
+Information. _arXiv preprint arXiv:2306.07934_, 2023b.
+
+
+Tushar Khot, Harsh Trivedi, Matthew Finlayson, Yao Fu, Kyle Richardson, Peter Clark, and
+Ashish Sabharwal. Decomposed prompting: A modular approach for solving complex tasks.
+In _The Eleventh International Conference on Learning Representations_ [, 2023. URL https:](https://openreview.net/forum?id=_nGgzQjzaRy)
+[//openreview.net/forum?id=_nGgzQjzaRy.](https://openreview.net/forum?id=_nGgzQjzaRy)
+
+
+11
+
+
+Published as a conference paper at ICLR 2024
+
+
+Matthew Le, Y-Lan Boureau, and Maximilian Nickel. Revisiting the evaluation of theory of mind
+through question answering. In _Proceedings of the 2019 Conference on Empirical Methods in Nat-_
+_ural Language Processing and the 9th International Joint Conference on Natural Language Pro-_
+_cessing (EMNLP-IJCNLP)_, pp. 5872–5877, Hong Kong, China, November 2019. Association for
+[Computational Linguistics. doi: 10.18653/v1/D19-1598. URL https://aclanthology.](https://aclanthology.org/D19-1598)
+[org/D19-1598.](https://aclanthology.org/D19-1598)
+
+
+Qing Lyu, Shreya Havaldar, Adam Stein, Li Zhang, Delip Rao, Eric Wong, Marianna Apidianaki,
+and Chris Callison-Burch. Faithful chain-of-thought reasoning. _arXiv preprint arXiv:2301.13379_,
+2023.
+
+
+OpenAI. GPT-4 Technical Report. _ArXiv_, abs/2303.08774, 2023. [URL https://api.](https://api.semanticscholar.org/CorpusID:257532815)
+[semanticscholar.org/CorpusID:257532815.](https://api.semanticscholar.org/CorpusID:257532815)
+
+
+Liangming Pan, Alon Albalak, Xinyi Wang, and William Yang Wang. Logic-LM: Empowering Large Language Models with Symbolic Solvers for Faithful Logical Reasoning. _ArXiv_, abs/2305.12295, 2023. [URL https://api.semanticscholar.org/](https://api.semanticscholar.org/CorpusID:258833332)
+[CorpusID:258833332.](https://api.semanticscholar.org/CorpusID:258833332)
+
+
+Gabriel Poesia, Kanishk Gandhi, E. Zelikman, and Noah D. Goodman. Certified Reasoning with
+Language Models. _ArXiv_ [, abs/2306.04031, 2023. URL https://api.semanticscholar.](https://api.semanticscholar.org/CorpusID:259095869)
+[org/CorpusID:259095869.](https://api.semanticscholar.org/CorpusID:259095869)
+
+
+Maarten Sap, Hannah Rashkin, Derek Chen, Ronan Le Bras, and Yejin Choi. Social IQa: Commonsense reasoning about social interactions. In _Proceedings of the 2019 Conference on Em-_
+_pirical Methods in Natural Language Processing and the 9th International Joint Conference on_
+_Natural Language Processing (EMNLP-IJCNLP)_, pp. 4463–4473, Hong Kong, China, November 2019. Association for Computational Linguistics. doi: 10.18653/v1/D19-1454. URL
+[https://aclanthology.org/D19-1454.](https://aclanthology.org/D19-1454)
+
+
+Abulhair Saparov and He He. Language models are greedy reasoners: A systematic formal analysis
+of chain-of-thought. In _The Eleventh International Conference on Learning Representations_,
+[2023. URL https://openreview.net/forum?id=qFVVBzXxR2V.](https://openreview.net/forum?id=qFVVBzXxR2V)
+
+
+Abulhair Saparov, Richard Yuanzhe Pang, Vishakh Padmakumar, Nitish Joshi, Seyed Mehran
+Kazemi, Najoung Kim, and He He. Testing the general deductive reasoning capacity of large
+language models using OOD examples. _CoRR_, abs/2305.15269, 2023. doi: 10.48550/arXiv.
+[2305.15269. URL https://doi.org/10.48550/arXiv.2305.15269.](https://doi.org/10.48550/arXiv.2305.15269)
+
+
+Timo Schick, Jane Dwivedi-Yu, Roberto Dessi, Roberta Raileanu, Maria Lomeli, Luke Zettlemoyer,
+Nicola Cancedda, and Thomas Scialom. Toolformer: Language models can teach themselves to
+use tools. 2023.
+
+
+Melanie Sclar, Sachin Kumar, Peter West, Alane Suhr, Yejin Choi, and Yulia Tsvetkov. Minding
+language models’ (lack of) theory of mind: A plug-and-play multi-character belief tracker. In
+_Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume_
+_1: Long Papers)_, pp. 13960–13980, Toronto, Canada, July 2023. Association for Computational
+Linguistics. doi: 10.18653/v1/2023.acl-long.780. [URL https://aclanthology.org/](https://aclanthology.org/2023.acl-long.780)
+[2023.acl-long.780.](https://aclanthology.org/2023.acl-long.780)
+
+
+Koustuv Sinha, Shagun Sodhani, Jin Dong, Joelle Pineau, and William L. Hamilton. CLUTRR:
+A Diagnostic Benchmark for Inductive Reasoning from Text. _Empirical Methods of Natural_
+_Language Processing (EMNLP)_, 2019.
+
+
+Zayne Sprague, Kaj Bostrom, Swarat Chaudhuri, and Greg Durrett. Natural language deduction
+with incomplete information. In _Proceedings of the 2022 Conference on Empirical Methods in_
+_Natural Language Processing_, pp. 8230–8258, Abu Dhabi, United Arab Emirates, December
+2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.emnlp-main.564. URL
+[https://aclanthology.org/2022.emnlp-main.564.](https://aclanthology.org/2022.emnlp-main.564)
+
+
+Alon Talmor, Jonathan Herzig, Nicholas Lourie, and Jonathan Berant. CommonsenseQA: A question answering challenge targeting commonsense knowledge. In _Proceedings of the 2019 Con-_
+_ference of the North American Chapter of the Association for Computational Linguistics: Human_
+
+
+12
+
+
+Published as a conference paper at ICLR 2024
+
+
+_Language Technologies, Volume 1 (Long and Short Papers)_, pp. 4149–4158, Minneapolis, Minnesota, June 2019. Association for Computational Linguistics. doi: 10.18653/v1/N19-1421. URL
+[https://aclanthology.org/N19-1421.](https://aclanthology.org/N19-1421)
+
+
+Alon Talmor, Ori Yoran, Ronan Le Bras, Chandra Bhagavatula, Yoav Goldberg, Yejin Choi, and
+Jonathan Berant. CommonsenseQA 2.0: Exposing the limits of AI through gamification. In
+_Thirty-fifth Conference on Neural Information Processing Systems Datasets and Benchmarks_
+_Track (Round 1)_ [, 2021. URL https://openreview.net/forum?id=qF7FlUT5dxa.](https://openreview.net/forum?id=qF7FlUT5dxa)
+
+
+Xiaojuan Tang, Zilong Zheng, Jiaqi Li, Fanxu Meng, Song-Chun Zhu, Yitao Liang, and Muhan
+Zhang. Large Language Models are In-Context Semantic Reasoners rather than Symbolic Reasoners. _arXiv eprint 2305.14825_, 2023.
+
+
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timoth´ee
+Lacroix, Baptiste Rozi`ere, Naman Goyal, Eric Hambro, Faisal Azhar, et al. LLaMA: open and
+efficient foundation language models, 2023. _URL https://arxiv. org/abs/2302.13971_ .
+
+
+Karthik Valmeekam, Alberto Olmo, Sarath Sreedharan, and Subbarao Kambhampati. Large Language Models Still Can’t Plan (A Benchmark for LLMs on Planning and Reasoning about
+Change). In _Proceedings of the NeurIPS workshop on Foundation Models for Decision Mak-_
+_ing_, 2023.
+
+
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V Le, Ed H. Chi, Sharan Narang, Aakanksha
+Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in language
+models. In _The Eleventh International Conference on Learning Representations_, 2023. URL
+[https://openreview.net/forum?id=1PL1NIMMrw.](https://openreview.net/forum?id=1PL1NIMMrw)
+
+
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny
+Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. _Advances in_
+_Neural Information Processing Systems_, 35:24824–24837, 2022.
+
+
+Jason Weston, Antoine Bordes, Sumit Chopra, and Tom´as Mikolov. Towards AI-Complete Question
+Answering: A Set of Prerequisite Toy Tasks. In Yoshua Bengio and Yann LeCun (eds.), _4th_
+_International Conference on Learning Representations, ICLR 2016, San Juan, Puerto Rico, May_
+_2-4, 2016, Conference Track Proceedings_ [, 2016. URL http://arxiv.org/abs/1502.](http://arxiv.org/abs/1502.05698)
+[05698.](http://arxiv.org/abs/1502.05698)
+
+
+Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue, Anthony Moi,
+Pierric Cistac, Tim Rault, Remi Louf, Morgan Funtowicz, Joe Davison, Sam Shleifer, Patrick
+von Platen, Clara Ma, Yacine Jernite, Julien Plu, Canwen Xu, Teven Le Scao, Sylvain Gugger,
+Mariama Drame, Quentin Lhoest, and Alexander Rush. Transformers: State-of-the-art natural
+language processing. In _Proceedings of the 2020 Conference on Empirical Methods in Natu-_
+_ral Language Processing: System Demonstrations_, pp. 38–45, Online, October 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.emnlp-demos.6. [URL https:](https://aclanthology.org/2020.emnlp-demos.6)
+[//aclanthology.org/2020.emnlp-demos.6.](https://aclanthology.org/2020.emnlp-demos.6)
+
+
+Tianci Xue, Ziqi Wang, Zhenhailong Wang, Chi Han, Pengfei Yu, and Heng Ji. RCOT: Detecting and Rectifying Factual Inconsistency in Reasoning by Reversing Chain-of-Thought. _ArXiv_,
+abs/2305.11499, 2023.
+
+
+Kevin Yang, Yuandong Tian, Nanyun Peng, and Dan Klein. Re3: Generating longer stories with
+recursive reprompting and revision. In Yoav Goldberg, Zornitsa Kozareva, and Yue Zhang (eds.),
+_Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing_, pp.
+4393–4479, Abu Dhabi, United Arab Emirates, December 2022. Association for Computational
+[Linguistics. doi: 10.18653/v1/2022.emnlp-main.296. URL https://aclanthology.org/](https://aclanthology.org/2022.emnlp-main.296)
+[2022.emnlp-main.296.](https://aclanthology.org/2022.emnlp-main.296)
+
+
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Thomas L. Griffiths, Yuan Cao, and Karthik
+Narasimhan. Tree of Thoughts: Deliberate problem solving with large language models, 2023.
+
+
+Xi Ye and Greg Durrett. The Unreliability of Explanations in Few-shot Prompting for Textual
+Reasoning. In _Advances in Neural Information Processing Systems_, 2022.
+
+
+13
+
+
+Published as a conference paper at ICLR 2024
+
+
+Xi Ye, Qiaochu Chen, Isil Dillig, and Greg Durrett. Satisfiability-aided language models using
+declarative prompting. In _Proceedings of NeurIPS_, 2023.
+
+
+Muru Zhang, Ofir Press, William Merrill, Alisa Liu, and Noah A Smith. How language model
+hallucinations can snowball. _arXiv preprint arXiv:2305.13534_, 2023.
+
+
+14
+
+
+Published as a conference paper at ICLR 2024
+
+
+A MUSR LIMITATIONS
+
+
+A.1 TREE CONSTRUCTION
+
+
+Although our method can create reasoning trees of varying depths, we found that shallower trees
+(of depth one or two) provide the best level of detail for creating a narrative. GPT-4 often failed to
+create complex enough facts that could be broken down recursively to a larger depth. We believe
+that prompting and better LLMs may increase the depth of acceptable deductions and is an important
+area of future work for our method.
+
+
+A.2 HUMAN EVALUATION
+
+
+We experimented with validation on Amazon Mechanical Turk, but found that many workers performed very badly in qualification rounds. When we collected justifications to try to improve the
+quality of their judgments, we found many justifications which we suspected were written by ChatGPT.
+
+
+B DATASET FEATURES EXPLAINED
+
+
+In this section, we elaborate on the features employed to evaluate the datasets as illustrated in Table 1.
+
+
+**Natural Text:** This denotes datasets containing organically constructed text, not created by templates. For instance, bAbI generates text by filling in predefined templates. True Detective is humanauthored. Datasets like EntailmentBank and ENWN, while incorporating natural text, present them
+in specialized “premises” rather than contexts, hence the notation _∼_ . SocialIQA uses ATOMIC to
+create templates for the questions, and while it aims to test commonsense reasoning in social situations, the questions and answers might not always reflect natural English. MuSR produces natural
+contexts with language prompted from an LLM without any templating.
+
+
+**Commonsense:** Refers to datasets that require commonsense knowledge to answer questions. EntailmentBank and RuleTakers supply all the necessary facts to answer a question in the input, requiring no commonsense. BigTOM is harder to classify as nearly all the facts required to answer the
+question are given, but understanding what it means for someone to have a “belief” could require
+non-trivial commonsense from the reader. MuSR intentionally omits certain commonsense facts
+during its construction, compelling users to draw on their inherent knowledge for problem-solving.
+
+
+**Multistep:** Denotes datasets requiring a layered reasoning approach to deduce answers. Each
+reasoning layer involves merging multiple premises to generate interim conclusions, which then
+contribute to the final inference. SocialIQA is not designed to require such intermediate conclusions.
+In contrast, MuSR, through its design, compels users to recreate the reasoning tree used in the
+questions creation (or something similar to it) for comprehensive understanding.
+
+
+**Intermediate Structures:** This captures datasets with underlying structure (chains of facts, etc.)
+that can potentially assist in deducing answers. True Detective was written by humans and thus
+lacks an intermediate structure. MuSR has the reasoning trees used to create each example given for
+every question.
+
+
+**Not solvable with rules:** This category represents datasets resilient to systematic, rule-based solutions without the need for a language model. Datasets like Babi and ToMi, given their textual templates, may reveal patterns that can be reverse-engineered to facilitate solutions. Contrarily, datasets
+such as MuSR, True Detective, and SocialIQA lack easily identifiable patterns, safeguarding them
+against oversimplified, template-based resolutions.
+
+
+15
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 8: Results of prompting LLMs to solve the 50 murder mysteries created by GPT-3.5-turbo.
+The 1-shot example was taken from a murder mystery example created by GPT-4 and solved by a
+human annotator.
+
+Murder Mystery
+
+
+GPT-3.5 GPT-4
+
+
+CoT+ 62.0 80.0
+1-Shot CoT+ 64.0 76.0
+
+
+C CREATING MUSR WITH OTHER MODELS
+
+
+Quality MuSR examples require a language model that can follow prompt instructions. A model
+with more limited reasoning ability may not be able to perform the subtasks needed to construct
+MuSR examples adequately. We highlight this by exploring GPT-3.5-turbo, Llama2-70B-Chat (Touvron et al.), and Mixtral (Jiang et al., 2024) to create MuSR examples.
+
+
+For weaker models to create examples approaching the quality of GPT-4, we had to minorly edit the
+prompts, introduce more detailed self-refine prompts, increase the temperature iteratively per retry,
+and increase the total number of retries.
+
+
+We created 50 murder mysteries using GPT-3.5-turbo. The results of the CoT+ and 1-Shot CoT+
+systems running on these are shown in Table 8. The overall performance of LLMs on them is similar
+to our main MuSR dataset.
+
+
+Despite being able to use the same workflow as GPT-4 and producing some examples of high quality,
+many still include major flaws in the reasoning tree that do not stand up to our inspection. For
+example, some exhibit common reasoning errors seen in smaller language models like hallucination.
+Examples of invalid deductions from GPT-3.5-turbo that were erroneously considered “valid” in the
+workflow are shown in Listing 1.
+
+
+Listing 1: Murder Mystery Logic Tree from GPT-3.5-turbo
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Llama2-70B-Chat and Mixtral were incapable of following the prompt instructions and could not
+complete the deductions required to create MuSR examples at all, despite significant edits to the
+format of the construction prompts to match their expected formats. Two examples of Llama2-70BChat failing to understand the prompt and produce a deduction are shown in Listing 2
+
+
+Listing 2: Llama2-70b-Chat failure outputs for creating reasoning tree deductions
+
+
+
+
+
+16
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+While further prompt engineering or using stronger models for validation (as opposed to generation)
+could lead to more effective generation for these smaller models, we believe that using the strongest
+LLMs is the best practice for creating a dataset like this.
+
+
+D QUALITATIVE ERROR ANALYSIS
+
+
+Five examples from each domain were selected and used to generate chains-of-thought from GPT-4
+and GPT-3.5-turbo. Each of those chains-of-thought were then examined by hand and annotated for
+errors. Below are the major categories of errors we saw in the GPT models when solving MuSR
+problems.
+
+
+**Pre-committing to an answer:** A large portion of the answers suffer from giving an answer before
+the reasoning, which biases the subsequent reasoning. A more subtle error but still frequent in the
+responses is “silently” pre-committing to an answer where the model will produce only relevant
+evidence for one answer and not the other, leaving out important and relevant facts that should be
+included.
+
+
+**Ignoring instructions:** Many responses included reasoning and logic that went against the prompt
+details, i.e., selecting a murderer on a strong motive solely because the strength of that motive rather
+than the definition of a murderer being someone with a motive, means, and opportunity. Team
+allocation also has multiple examples of the model asserting that two people can work together
+despite being assigned to different jobs, contradicting the prompt.
+
+
+**Hallucination and invalid logic:** Hallucinations appear in various ways within the chains of
+thought, including assumptions of characters’ locations or actions as well as confusing pronouns
+and entity relations, i.e., confusing what one person did with another person. Furthermore, invalid
+claims or reasoning, i.e., stating unsound deductions or stating deductions with no evidence, are
+frequent as well. A few times these hallucinations and invalid claims would lead the model to contradict their previous logic resulting in contradicting answers that did not align with the reasoning
+trace.
+
+
+E STRUCTURED BASELINE IMPLEMENTATION DETAILS
+
+
+E.1 DECOMPOSED PROMPTING
+
+
+We test Decomposed Prompting (Khot et al., 2023) on the Murder Mystery domain. As each murder
+mystery can be solved using the same high-level logical procedure (determining which suspect has
+or is most likely to have a means, motive, and opportunity), we omit the Decomposer Prompt stage,
+and use a fixed set of three sub-task prompts, each of which are specialized to identify one of means,
+motive, or opportunity. The results of these sub-task prompts are then aggregated to determine the
+system’s overall answer; in the event that both suspects are predicted to satisfy the same number of
+criteria, the system guesses at random between them.
+
+
+17
+
+
+Published as a conference paper at ICLR 2024
+
+
+E.2 SYMBOLICTOM
+
+
+We test SymbolicTOM (Sclar et al., 2023) on the Object Placements domain. We use the model as
+implemented by the authors with two changes. First, the resulting states that are used in creating the
+graph are not precomputed and are instead queried on-the-fly using GPT-3.5. Second, if the model
+abstains from answering, we randomly sample one of the answer choices. The data format originally
+intended for SymbolicTOM was the format for ToMI (Le et al., 2019); however, our data is easily
+translated into the format for SymbolicTOM through simple manipulation.
+
+
+E.3 PAL
+
+
+We test program-aided language models (Gao et al., 2022) on the Team Allocation domain. Given a
+question, we first prompt LLMs to generate a Python program, and then execute the program using
+the Python interpreter to obtain the final answer. We test PAL in both zero-shot setting and one-shot
+settings.
+
+
+For the zero-shot setting, we provide detailed instructions on how the program should be organized
+for solving a question. As shown in Listing 32, the prompt asks for a program containing three
+steps: (1) assign a value to the variables representing each person’s skill level on one of the two
+tasks; (2) assign a value to the variables representing how well two people work together, and (3)
+compute the scores for each of the options by adding up the scores for each person’s skill level
+and the teamwork score. For the one-shot setting, we provide one demonstration of the questionprogram pair in addition to the detailed instructions, which leads to better performance compared to
+the zero-shot setting.
+
+
+F DATASET EXAMPLES
+
+
+F.1 MURDER MYSTERIES
+
+
+Listing 3: Murder Mystery Example 1
+
+
+
+
+
+
+
+
+
+18
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+19
+
+
+Published as a conference paper at ICLR 2024
+
+
+Listing 4: Murder Mystery Example 1 Reasoning Tree
+
+
+20
+
+
+Published as a conference paper at ICLR 2024
+
+
+Listing 5: Murder Mystery Example 2
+
+
+
+
+
+
+
+
+
+
+
+
+
+21
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+22
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+Listing 6: Murder Mystery Example 2 Reasoning Tree
+
+
+23
+
+
+Published as a conference paper at ICLR 2024
+
+
+F.2 OBJECT PLACEMENTS
+
+
+Listing 7: Object Placement Example 1
+
+
+24
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+25
+
+
+Published as a conference paper at ICLR 2024
+
+
+Listing 8: Object Placement Example 1 Reasoning Tree
+
+
+Listing 9: Object Placement Example 2
+
+
+26
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+Listing 10: Object Placement Example 2 Reasoning Tree
+
+
+27
+
+
+Published as a conference paper at ICLR 2024
+
+
+F.3 TEAM ALLOCATION
+
+
+Listing 11: Team Allocation Example 1
+
+
+28
+
+
+Published as a conference paper at ICLR 2024
+
+
+Listing 12: Team Allocation Example 1 Reasoning Tree
+
+
+29
+
+
+Published as a conference paper at ICLR 2024
+
+
+Listing 13: Team Allocation Example 2
+
+
+30
+
+
+Published as a conference paper at ICLR 2024
+
+
+Listing 14: Team Allocation Example 2 Reasoning Tree
+
+
+31
+
+
+Published as a conference paper at ICLR 2024
+
+
+G BUILDING THE DOMAINS
+
+
+G.1 TREE CONSTRUCTION ALGORITHM
+
+
+**Algorithm 1** The recursive reasoning tree expansion algorithm.
+
+
+**Input:** The scenario **s** . The current reasoning tree _T_ . **Output:** Tree is expanded in-place.
+**function** CREATEDEDUCTION( _T,_ node _,_ max ~~d~~ epth _,_ depth)
+
+**for** child **in** node.children **do**
+
+child.children _←_ PromptLM( _T_ 1 _, . . ., Tm |_ **s** _,_ child _, G_ )
+**if** VALIDATE(child.children) **and** depth _<_ max ~~d~~ epth **then**
+
+CREATEDEDUCTION( _T,_ child _,_ max ~~d~~ epth _,_ depth + 1)
+
+
+G.2 MURDER MYSTERY
+
+
+Tree construction prompt (per deduction)
+
+
+Listing 15: Murder Mystery Deduction Prompt for the Tree Completion stage
+
+
+
+
+
+32
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+33
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+34
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+Validator prompt for GPT-3 and GPT-4
+
+
+Listing 16: Murder Mystery Deduction Validation Prompt for the Tree Completion stage
+
+
+
+
+
+Intro prompt (introduce victim and suspects)
+
+
+Listing 17: Murder Mystery Intro Creation for Story Generation
+
+
+
+
+
+
+
+
+
+Chapter prompts
+
+
+Listing 18: Murder Mystery Chapter Prompt for the Story Generation stage
+
+
+35
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+36
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+During the Tree Template Construction stage, we sample the victim’s name, the murder weapon,
+and the crime scene. For every suspect, we also sample the suspect’s name, motive, a suspicious
+fact, and their role in the story (usually a job or relation to the victim). We can use the sampled
+information from the Tree Template Construction stage to create the gold fact set _F_ .
+
+
+Once we have all these sample, we choose one suspect to be the murderer; this suspect will have the
+facts: “[suspect] has a means”, “suspect has a motive”, and “suspect has an opportunity” to the gold
+set of facts _F_ . All other suspects have two of the “MMO” facts (the ones listed above); the third fact
+for innocent suspects is suspicious facts that do not contribute to solving the murder (for example,
+“[suspect] enjoys reading murder mystery novels.”)
+
+
+Once each suspect has three facts in the set _F_, we can begin the tree construction process. However,
+in the prompt, we ensure that the details of the suspect (like their motive) are included so that when
+we build a tree for the fact “[suspect] has a motive,” the reasons for having a motive are still linked
+to the sampled motive from the Tree Template Construction stage.
+
+
+Because many of the trees are already made for each suspect, we will create a “contrastive example”
+for each mystery where we simply set the murderer to another suspect. We can then reuse most of
+the trees from the previous mystery and only have to prove two new ones and then generate the story.
+
+
+37
+
+
+Published as a conference paper at ICLR 2024
+
+
+We use validators during the reasoning tree construction process ensure that the deductions being
+generated are correct and meaningful. When proving a means, we check the generation from GPT-4
+for any mention of “motive” or “opportunity” including key items in the story that might relate to
+them (like the crime scene). If these are mentioned, we re-prompt GPT-4 for another deduction. We
+repeat this process for motive and opportunity.
+
+
+To further increase the validity of the murder mysteries generated, we also implemented a story
+validator during the narrative generation. The story validator prompts GPT-4 to check the entailment
+of each scenario-specific fact _S_ ( _T_ ) given the story. If any fact is not entailed by the story, we prompt
+GPT-4 to rewrite the story and ensure that fact is entailed.
+
+
+**Suspicious Facts** The suspicious facts were useful to control for a length bias where the murderer
+was described in longer and more explicit terms than the non-murderer. We also considered negations of facts like “ _Sophia has no motive to kill Emily_ ”, but these often led to easy mysteries where
+GPT-4 would explicitly rule out a suspect. Suspicious facts blend in with the narrative, provide
+balance, and do not modify the ground-truth reasoning.
+
+
+G.3 OBJECT PLACEMENTS
+
+
+Listing 19: OP scenario creation for generating items, people, roles, etc. in the Domain Injection
+stage
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+38
+
+
+Published as a conference paper at ICLR 2024
+
+
+_Output:_
+
+
+Listing 20: OP Prompt for generating plausible moves in the Domain Injection stage.
+
+
+
+
+
+
+
+
+
+
+
+
+
+39
+
+
+Published as a conference paper at ICLR 2024
+
+
+Listing 21: OP deduction prompt for the Entailment Tree Construction stage.
+
+
+
+
+
+
+
+40
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+41
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+Listing 22: OP Intro generation prompt for the Story Generation stage
+
+
+
+
+
+
+
+
+
+42
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+Listing 23: OP Prompt for generating a short description of why and how someone moved an item.
+
+
+
+
+
+43
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Listing 24: OP prompt for creating a paragraph on people’s observations.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+44
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+45
+
+
+Published as a conference paper at ICLR 2024
+
+
+To generate the fact set _F_, we sample a collection of people, items, and locations. Only two items
+can be used and we incorporate three moves which will force one item to be moved twice. We then
+sample three plausible moves using GPT-4 that take the form of “x moves [item] to [location]”. For
+everyone else not moving the item, they have a chance to see the move, “y sees [item] move to
+
+[location]” or to not see the move, “y does not see [item] move to [location]”. We set the chance of
+seeing a move to 0.33. These facts are grouped into the move and added to the fact set _F_ .
+
+
+During the reasoning tree construction, we apply a keyword lookup validator to ensure the deductions being created are correct and meaningful. Specifically, we disallow any deductions that
+mention key locations or key items in the story. This ensures the deductions are not vacuous and
+state facts that could trivially solve the problem.
+
+
+G.4 TEAM ALLOCATION
+
+
+Listing 25: Constructing the scenario for Team Allocation
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Listing 26: Team Allocation Deduction prompt for the Tree Construction stage
+
+
+
+
+
+46
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+47
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+48
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+Listing 27: Team Allocation story creation prompt for the Story Generation stage
+
+
+
+
+
+
+
+
+
+
+
+49
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+Listing 28: Team Allocation introduction rewrite for the Story Generation stage
+
+
+
+
+
+
+
+
+
+50
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+In the Tree Template Construction stage, we build a matrix _M_ where the first two columns are scores
+for each person’s abilities on a task, and the last three are their relationship scores. Once we have
+that matrix, we can generate facts for each person’s skill level and relationship score.
+
+
+For skill level facts, we look at each person’s proficiency at a skill and set it either to “bad”, “okay”,
+or “good”, then add to the fact set _F_, “[person] is [skill level label] at [skill]”.
+
+
+For relationship scores, we look at each unique pair’s score and label it as either “badly”, “okay”, or
+“well”. We can then add the fact, “[person 1] and [person 2] work [relationship label] together.” to
+the fact set _F_ .
+
+
+Once we have all the facts in _F_ we can pass these to the Reasoning Tree Construction stage. Team
+Allocation required no validators in the construction of the reasoning tree nor the story to create
+valid contexts.
+
+
+H IMPLEMENTATION DETAILS, API COST
+
+
+H.1 IMPLEMENTATION DETAILS: CREATING AND EVALUATING MUSR
+
+
+**Creating MuSR** GPT-4 is used in all creation prompts for creating MuSR. We do not change any
+parameters from the defaults when prompting GPT-4. Temperature and top-p are set to 1.0.
+
+
+For the Murder Mystery domain, we set the maximum depth of the reasoning tree to 4. Only two
+suspects are allowed to be included in the generation process. To add diversity, we sample a victim’s
+name, a murder weapon, a crime scene, suspect names, suspect motives, suspect roles in the story,
+and suspicious facts. All of these facts are used in the tree construction stage to guide the created
+deductions to include more diversity.
+
+
+For Object Placements, we set the maximum depth of the reasoning tree to 3. Only three moves are
+allowed to be included in a story, and only two items which forces one item to be moved twice. The
+chance for a person to see a move is set to 33%. To include diversity, we sample scenarios where
+people need to move items around, then we sample their names, moves, and motivations for moving
+the item.
+
+
+Finally, for Team Allocation, we set the maximum depth of reasoning to 2. We sample a scenario
+for diversity similar to Object Placements, then sample tasks and people’s names.
+
+
+**Evaluating MuSR** During evaluation, we use the “gpt-4” and “gpt-3.5-turbo” chat endpoints.
+For Llama2 and Vicuna models, we use Hugging Face’s implementations (Wolf et al., 2020) and
+use bitsandbytes quantization (Dettmers et al., 2022) when running inference. [2] No changes to the
+inference parameters were made when sampling from the models. For all local models, we ran them
+on on a machine with 4xNVIDIA RTX A6000 48GB cards.
+
+
+2We did not see any significant performance increases in some of the smaller models when we did not use
+quantization.
+
+
+51
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 9: Estimates of how long it takes to run one of our dataset domains as well as cost. All prices
+and times are based off of GPT4 and the CoT+ 1-Shot prompt variant.
+
+
+Murder Mystery Object Placements Team Allocation
+
+
+Time Cost Time Cost Time Cost
+
+
+2:00:00 $27 1:40:00 $23 2:10:00 $17
+
+
+H.2 API COSTS AND TIMES
+
+
+Table 9 shows the average costs and times to run the evaluation of each domain using GPT4 with
+the CoT+ 1-Shot prompt variant.
+
+
+I EVALUATION PROMPTS AND OUTPUTS
+
+
+I.1 EVAL PROMPTS
+
+
+**Murder Mystery** CoT+ evaluation prompt for Murder Mysteries.
+
+
+Listing 29: Murder Mystery COT+ Prompt
+
+
+
+
+
+
+
+**Object Placement** CoT+ evaluation prompt for Object Placements.
+
+
+Listing 30: Object Placements COT+ Prompt
+
+
+
+
+
+
+
+
+
+
+
+52
+
+
+Published as a conference paper at ICLR 2024
+
+
+**Team Allocation** CoT+ evaluation prompt for Team Allocation.
+
+
+Listing 31: Team Allocation COT+ Prompt
+
+
+
+
+
+Listing 32: Team Allocation PAL Prompt
+
+
+
+
+
+
+
+
+
+
+
+
+
+53
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+I.2 INCORRECT EVALUATIONS FROM GPT-4
+
+
+Listing 33: Murder Mystery Reasoning Error
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+54
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+55
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+Listing 34: Team Allocation Reasoning Error
+
+
+56
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Listing 35: Object Placements Reasoning Error
+
+
+57
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+58
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+59
+
+

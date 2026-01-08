@@ -1129,7 +1129,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   className="text-xs font-medium cursor-pointer flex items-center gap-1"
                 >
                   <Layers className="h-3.5 w-3.5" />
-                  Clusters
+                  Show Clusters
                 </Label>
               </div>
             </div>
