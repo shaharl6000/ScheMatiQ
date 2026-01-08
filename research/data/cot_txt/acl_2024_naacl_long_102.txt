@@ -1,0 +1,4474 @@
+# **Reasoning or Reciting? Exploring the Capabilities and Limitations of** **Language Models Through Counterfactual Tasks**
+
+
+
+**Zhaofeng Wu** [�] **Linlu Qiu** [�] **Alexis Ross** [�] **Ekin Akyürek** [�] **Boyuan Chen** [�]
+
+
+
+**Bailin Wang** [�] **Najoung Kim** [�] **Jacob Andreas** [�] **Yoon Kim** [�]
+
+
+
+�MIT �Boston University
+zfw@csail.mit.edu
+
+
+
+Code Exec.
+
+
+sorted(
+
+
+
+
+
+Code Gen.
+
+
+
+Basic Syntax
+
+
+
+Logic
+
+
+
+GPT-4
+Performance
+
+
+Default
+
+
+Counterfactual
+
+
+Spatial
+
+
+
+Arithmetic
+random
+
+
+
+
+
+
+
+
+
+
+
+and substantially underperforms on counterfactual variants compared to default task instantiations.
+
+
+
+**Abstract**
+
+The impressive performance of recent language
+models across a wide range of tasks suggests
+that they possess a degree of abstract reasoning
+skills. Are these skills general and transferable, or specialized to specific tasks seen during pretraining? To disentangle these effects,
+we propose an evaluation framework based on
+“counterfactual” task variants that deviate from
+the default assumptions underlying standard
+tasks. Across a suite of 11 tasks, we observe
+nontrivial performance on the counterfactual
+
+
+
+variants, but nevertheless find that performance
+substantially and consistently degrades compared to the default conditions. This suggests
+that while current LMs may possess abstract
+task-solving skills to an extent, they often also
+rely on narrow, non-transferable procedures for
+task-solving. These results motivate a more
+careful interpretation of language model performance that teases apart these aspects.
+
+
+We release our code, all synthetically generated data, and
+[LM interactions (prompts and responses) at https://github.](https://github.com/ZhaofengWu/counterfactual-evaluation)
+[com/ZhaofengWu/counterfactual-evaluation.](https://github.com/ZhaofengWu/counterfactual-evaluation)
+
+
+1819
+
+
+
+_Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics:_
+_Human Language Technologies (Volume 1: Long Papers)_, pages 1819–1862
+June 16-21, 2024 ©2024 Association for Computational Linguistics
+
+
+**1** **Introduction**
+
+
+The striking empirical successes of language models (LMs) suggest that next-word prediction at scale
+may be a viable approach for distilling the knowledge embedded in large-scale text corpora into
+general-purpose interactive agents. LMs obtain impressive results on various NLP benchmarks (OpenAI, 2023; Anil et al., 2023; Anthropic, 2023; _i.a._ )
+and display surprising abilities that suggest a nontrivial understanding of the world (Bubeck et al.,
+2023), even purportedly surpassing human performance on tasks that require nontrivial reasoning (Chowdhery et al., 2022; Hoffmann et al., 2022;
+Malinka et al., 2023; _i.a._ ).
+Ideally, we expect a general-purpose LM to be
+able to _generalize_ not only to unseen instances of
+known tasks, but to new tasks. Humans, for example, can transfer their knowledge to new instances
+and also flexibly adapt to novel tasks (Singley and
+Anderson, 1989). While much past work has focused on instance-level generalization, we ask: to
+what extent does the performance of current LMs
+derive from their ability to deploy task-general reasoning skills (Li et al., 2022; Mishra et al., 2022),
+versus their ability to recognize and recall specific
+tasks seen frequently in pre-training?
+We propose to measure such task-level generalizability by taking tasks on which LMs perform well,
+and altering the conditions under which these tasks
+are performed. The general reasoning procedure
+for these variants remains the same, but the inputoutput mapping functions differ. We call the new
+tasks _counterfactual tasks_, as they deviate from
+the default, generally assumed conditions for these
+tasks. For example, while arithmetic is by default
+performed in base-10, we consider a counterfactual task requiring additions in base-9. If models
+implement a general and transferable task-solving
+procedure, we expect comparable performance on
+counterfactual and default tasks; if they employ
+procedures tailored to default task conditions, we
+expect a drop in the counterfactual performance.
+We design a suite of 11 counterfactual evaluation
+tasks, illustrated in Figure 1 (appendix), to measure
+an LM’s flexibility to adapt to new task variants
+across multiple categories and domains. In each,
+the original task under the default conditions and
+its counterfactual variants share the same reasoning
+procedure. We consider traditional tasks such as
+deductive reasoning, non-language tasks that are
+nonetheless commonly evaluated such as code gen
+
+
+eration, as well as non-standard tasks such as drawing and spatial reasoning. The latter extralinguistic
+tasks test whether LMs learn conceptual structures
+that mirror the structure of the non-linguistic world,
+which has been suggested by recent work (Patel
+and Pavlick, 2022; Bubeck et al., 2023; _i.a._ ).
+We evaluate GPT-4 (OpenAI, 2023), GPT-3.5,
+Claude (Anthropic, 2023), and PaLM-2 (Anil et al.,
+2023) on tasks under both the default and counterfactual conditions. We observe above-random
+counterfactual performance for most tasks, indicating some degree of task generalizability. However, performance on counterfactual task variants
+consistently and substantially degrades relative to
+the performance on the default settings. A systematic study of model behavior on default and
+counterfactual tasks (§5) reveals that while chainof-thought prompting and few-shot demonstrations
+generally improve performance, they do not close
+the default-counterfactual gap. We further find
+that counterfactual performance is affected by the
+commonness of the counterfactual conditions, but
+correlates with the default task performance. These
+results collectively suggest that LMs’ abilities on
+these tasks are supported at least in part by nontransferable, default-condition-specific behaviors
+rather than generalizable reasoning skills.
+
+
+**2** **Counterfactual Tasks**
+
+
+We informally conceptualize a task as a function
+_fw_ : _X →_ _Y_ that maps an **input** _x ∈_ _X_ under a
+**world model** _w ∈_ _W_ to an **output** _y ∈_ _Y_ . World
+models encapsulate the conditions for the function
+evaluation. For example, in arithmetic, _w_ could
+represent the set of conditions required for an arithmetic operation, such as the number base. We refer
+to the set of assumed default conditions, including
+but not limited to the base’s being 10, as the **de-**
+**fault world**, or _w_ [default] . Intuitively, for any task,
+_w_ [default] corresponds to the set of conditions underlying most task instances in pretraining corpora.
+Traditional machine learning evaluations assess
+how closely a model’s learned hypothesis _h_ estimates _fw_ by independently sampling training and
+test sets from the population distribution and only
+exposing the model to the former for learning _h_ .
+However, in datasets of web text, these evaluations are subject to potential data contamination
+issues (Brown et al., 2020; Magar and Schwartz,
+2022; _i.a._ ). These issues may be more severe in
+recent LMs: the ever-growing pretraining datasets
+
+
+
+1820
+
+
+potentially expose the models to more evaluation
+instances, and recent LMs with increasing sizes are
+more capable of memorizing these instances.
+We hence consider another dimension of generalization: to new task variants in **counterfactual**
+**worlds** _w_ [cf], instead of new inputs _x_ . This allows
+us to measure the extent to which a model’s _fw_ default
+performance is specific to _w_ [default] or attributable
+to a general implementation of the task _f_ . For
+arithmetic, _w_ [cf] could be one that was the same as
+_w_ [default] but assumed a base other than base-10. We
+expect a model with general arithmetic ability to
+perform similarly in other bases. We stress that
+our goal is not to find counterfactual world models
+outside human experience. Base-9 addition, for example, is not a novel concept. Nor do we aim that
+the counterfactual world models are unobserved
+in pretraining. Instead, counterfactuals are simply
+variations on the _default_ conditions for a task.
+We assess an LM’s task performance with 0-shot
+prompting. We specify the task _f_, the test instance
+_x_, and the world model _w_ in a prompt, and parse the
+LM’s output. We denote the LM’s implementation
+of _fw_ for a given instance _x_ to be,
+
+
+
+
+            _h_ ( _f, w, x_ ) = arg max _P_ LM _y_ _[′]_ prompt _f_ ( _f, x_ ) _,_
+_y_ _[′]_ _|_          
+
+
+
+      prompt _w_ ( _w_ ) _,_
+
+
+
+where the arg max is computed with approximate
+decoding and prompt _f_ and prompt _w_ describe
+tasks and world models respectively. For each task,
+we devise one or more _w_ [cf] that deviate from the default world conditions and compare _h_ ( _f, w_ [default] _, x_ )
+and _h_ ( _f, w_ [cf] _, x_ ). If we control _fw_ ( _x_ ) to be similarly hard between _w_ [default] and _w_ [cf], we can attribute
+the performance difference to an LM overfitting to
+the default instantiation of the task.
+
+**Counterfactual Comprehension Check.** One
+potential confounder is that an LM may fail at
+a particular counterfactual task by failing to understand the prompt component that specifies the
+counterfactual conditions prompt _w_ ( _w_ [cf] ), and keep
+reasoning in _w_ [default] . This failure mode would not
+reflect a lack of generalizable task abilities. We
+control for this with task-specific **counterfactual**
+**comprehension checks** ( **CCC** s) that test an LM’s
+surface understanding of the specified counterfactual world. For each ( _w_ [default] _, w_ [cf] ) pair, we introduce another control task _gw_ with input _x_ _[′]_ and
+output _y_ _[′]_ that is much simpler than _fw_ but still allows for the discrimination of _w_ [default] from _w_ [cf] (i.e.,
+_gw_ cf( _x_ _[′]_ ) = _gw_ default( _x_ _[′]_ )). A high performance of
+_̸_
+
+
+
+_P_ LM( _y_ _[′]_ prompt _g_ ( _g, x_ _[′]_ ) _,_ prompt _w_ ( _w_ [cf] )) would
+_|_
+indicate that prompt _w_ is effective at making the
+LM perform a task in _w_ [cf] . In the arithmetic example, for a base-9 counterfactual world, we use
+the same prompt _w_ (base-9) to specify the counterfactual world, and check that it facilitates an
+understanding of _w_ = base-9 by asking what the
+next integer after _x_ _[′]_ is. If, for example, it consistently carries over digits greater than 8 and does not
+carry over otherwise, this would show the effectiveness of prompt _w_ (base-9). Our CCC designs are
+heuristic: as with control tasks in the probing literature (Hewitt and Liang, 2019), we rely on intuition
+to craft a _gw_ that is “simpler” than _fw_ . [1]
+
+
+**3** **Tasks**
+
+
+In this section, we give a quick overview of the
+tasks we consider. See §A for the full description
+of each task and §C for all the prompts used.
+
+
+**Arithmetic.** Modern LMs have been shown
+to possess basic numerical reasoning abilities (Lewkowycz et al., 2022), with Brown et al.
+(2020) even reporting near-perfect GPT-3 accuracy
+for two-digit additions. On the other hand, Razeghi
+et al. (2022) find that LMs perform significantly
+better with numbers that occur more frequently in
+the pretraining data, and Li et al. (2023b) show
+that symbol replacement affects LMs’ mathematical ability; both findings point to overfitting and
+memorization effects. We consider the same twodigit addition task, the simplest arithmetic task in
+Brown et al. (2020), but inspect a model’s accuracy
+in different bases. We use base-8, 9, 11, and 16
+as the counterfactual setup, which were chosen to
+control for task difficulty and also to test for how
+relatively uncommon (9 & 11) and common (8 &
+16) bases affect performance (see §5.1). The CCC
+evaluates the successor relation under each base.
+
+
+**Programming.** The inclusion of code corpora in
+LM pretraining (Gao et al., 2021; Chowdhery et al.,
+2022; Touvron et al., 2023; _i.a._ ) allows LMs to possess coding capabilities, sometimes even at stateof-the-art level (Sobania et al., 2023). Nevertheless,
+Miceli-Barone et al. (2023) show that GPT-3 and
+related models are fragile under identifier swaps in
+programs, suggesting only a shallow understanding
+of code. Here, we inspect an LM’s programming
+
+
+1For some tasks, it is more natural to query about
+the task and CCC jointly in the same prompt, i.e.,
+_P_ LM( _y, y_ _[′]_ prompt _f_ ( _f, x_ ) _,_ prompt _g_ ( _g, x_ _[′]_ ) _,_ prompt _w_ ( _w_ [cf] )).
+_|_
+
+
+
+1821
+
+
+ability through a deeper counterfactual perturbation: contrary to the traditional 0-based indexing in
+Python, we instruct the LM to evaluate or generate
+Python programs under 1-based indexing using the
+HumanEval dataset (Chen et al., 2021). 1-based
+indexing is a common assumption for other programming languages such as MATLAB and R and
+hence provides a fair testbed. The CCC here involves the same program execution task but on
+much simpler inputs, such as simple list indexing.
+
+**Basic Syntactic Reasoning.** Mahowald et al.
+(2023) distinguish between two types of LM capabilities: _formal competence_ that encompasses
+the knowledge of language, and _functional compe-_
+_tence_ which involves using language, potentially
+combined with extralinguistic capacities, to interact with the world. While our other tasks assess
+functional competence, we include an evaluation
+on formal competence. We revisit the attested syntactic knowledge of LMs (Yu et al., 2020; Linzen
+and Baroni, 2021; Belinkov, 2022; _i.a._ ) with a
+meta-linguistic task (Beguš et al., 2023; Hu and
+Levy, 2023; _i.a._ ): evaluating LMs in synthetic versions of English with different word orders from
+English’s subject-verb-object (SVO) ordering, obtained from manipulating dependency trees (Ravfogel et al., 2019). We ask the LM to identify the
+main subject and the main verb of a sentence under
+both the original and counterfactual orders. The
+CCC requires the model to revert simple reordered
+sentences to the original SVO ordering, equivalent
+to identifying these elements in a sentence.
+
+**Natural Language Reasoning with First-Order**
+**Logic.** We next consider a deductive reasoning
+task, again based on natural language. Deductive
+logical reasoning is a prerequisite ability for many
+complex tasks (McCarthy, 1959) and has received
+much recent focus (Clark et al., 2020; Tafjord et al.,
+2021; Saparov and Mitchell, 2022; Saparov and
+He, 2023; _i.a._ ). Nevertheless, LMs struggle with
+reasoning with premises that are inconsistent with
+common sense (Dasgupta et al., 2022; Yu et al.,
+2023; Tang et al., 2023). Here, we undertake a
+similar study from the perspective of counterfactual analysis to disentangle the effect of common
+sense from a model’s actual logical reasoning capability. Following prior work, we ask LMs if a
+series of premises entails a conclusion. We use the
+FOLIO dataset (Han et al., 2022), whose premises
+are mostly consistent with common sense. For
+the counterfactual version we manually rewrite
+
+
+
+them to violate common sense, and study if LM
+performance is affected by the truthfulness of the
+premises under which they operate. The CCC directly asks the model if the original or post-rewrite
+premise is true, when presented both as options.
+
+**Spatial Reasoning.** A major debate around LMs
+is whether grounded representations of meaning
+can be learned from form alone (Bender and Koller,
+2020; Piantadosi and Hill, 2022). Studies have
+shown that LMs can learn meaningful representations of certain concepts through text-only training,
+with Patel and Pavlick (2022) finding that LMs
+learn representations of spatial relations and cardinal directions that can be aligned to grounded
+conceptual spaces. We similarly investigate an understanding of cardinal directions, but instead of
+evaluating whether a model can _induce_ structured
+conceptual spaces, we ask if it can _apply_ conceptual spaces to reason about object locations. Specifically, we ask an LM for the coordinates of objects
+whose positions are described using cardinal directions, under a conventional 2D coordinate system
+(e.g., where east corresponds to (1 _,_ 0)) versus coordinate systems with swapped, rotated, and randomly permuted axes. We expect a robust representation to not be sensitive to such transformations.
+The CCC involves asking the model to directly
+output the counterfactual cardinal directions.
+
+**Drawing.** LMs have been shown to structure
+their representations of perceptual concepts such
+as size and color in a way that credibly mirrors
+the physical world (Abdou et al., 2021; Patel and
+Pavlick, 2022; Zhang et al., 2020; Ilharco et al.,
+2021; _i.a._ ). Recent LMs can even directly generate
+plausible drawings of objects using code such as
+TikZ and SVG (Bubeck et al., 2023; Zhang et al.,
+2023b). We evaluate the visual understanding of
+LMs by asking them to generate code for drawing various objects programmatically. Inspired by
+psychological studies that show humans’ ability to
+rotate mental representations of objects (Shepard
+and Metzler, 1971; Vandenberg and Kuse, 1978),
+we ask the LM to generate code that draws the
+same object, but rotated or vertically flipped as our
+counterfactual settings. For the CCC, we ask the
+model to draw a straight line at the top of the canvas
+in addition to the object; a flipped/rotated line thus
+signifies an understanding of the transformations.
+
+**Music.** Recent work has shown the potential of
+large-scale models for music infilling (Huang et al.,
+2019a,b) and generation (Agostinelli et al., 2023;
+
+
+
+1822
+
+
+GPT-4 GPT-3.5 Claude PaLM-2
+
+
+
+100
+
+
+50
+
+
+0
+8 9 10 11 16 8 9 10 11 16
+
+
+100
+
+
+50
+
+
+0
+0 1 0 1
+
+
+
+100
+
+
+50
+
+
+0
+8 9 10 11 16 8 9 10 11 16
+
+
+100
+
+
+50
+
+
+0
+0 1 0 1
+
+
+
+100
+
+
+50
+
+
+0
+8 9 10 11 16 8 9 10 11 16
+
+
+PaLM-2’s short context
+length often results in
+truncated output
+
+
+
+Arithmetic
+
+Two-digit addition
+
+
+Code Exec.
+
+Python program
+evaluation
+
+
+Code Gen.
+
+Python program
+generation
+
+
+Basic Syntax
+
+Main subject and verb
+identification
+
+
+Logic
+
+First-order logic
+deduction in
+natural language
+
+
+Spatial
+
+Object coordinate
+identification
+
+
+Drawing
+
+Object sketch
+generation
+
+
+Chords: Guitar
+
+Fret placement
+for chords
+
+
+Chords: Ukulele
+
+Fret placement
+for chords
+
+
+
+100
+
+
+50
+
+
+0
+8 9 10 11 16 8 9 10 11 16
+
+Base
+
+
+100
+
+
+50
+
+
+0
+0 1 0 1
+
+Index From
+
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+
+
+
+100
+
+
+50
+
+
+
+100
+
+
+50
+
+
+
+100
+
+
+50
+
+
+
+100
+
+
+50
+
+
+
+100
+
+
+50
+
+
+
+100
+
+
+50
+
+
+
+100
+
+
+50
+
+
+
+100
+
+
+50
+
+
+
+0 1 0 1
+
+
+
+0 1 0 1
+
+
+
+0 1
+
+
+
+0 1 0 1
+
+
+
+0 1
+
+
+
+0 1 0 1
+
+
+
+0 1
+
+
+
+0 1
+
+
+
+0
+
+
+
+0
+
+
+
+0
+
+
+
+0
+
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+
+Index From
+
+
+Word Order
+
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+100
+
+
+50
+
+
+0
+
+
+PaLM-2 often generates
+malformated code
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+
+
+
+0
+Y N Y N
+
+Follow Common Sense?
+
+
+100
+
+
+50
+
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+
+
+100
+
+
+50
+
+
+0
+
+
+
+Orientation
+
+
+Orientation
+
+
+Tuning
+
+
+
+Tuning
+
+w/o 0-CoT w/ 0-CoT CCC Random
+
+**Figure 2:** Main results. The blue and orange bars represent the default and counterfactual conditions respectively,
+either with or without 0-shot chain-of-thought (0-CoT) (except code generation; see §A.2). CCC is the counterfactual
+comprehension check (§2), but when applicable, we report it for the default setting too. Random performance is
+marked whenever nontrivial. Counterfactual performance is consistently lower than the default task performance,
+while CCC is usually high. §D reports numeric results.
+
+
+1823
+
+
+GPT-4 GPT-3.5 Claude PaLM-2
+
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+
+
+Melody
+
+_n_ -th note retrieval
+in a melody
+
+
+Chess
+
+Opening sequence
+legality identification
+
+
+SET Game
+
+Identification of
+the missing card
+from a SET
+
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+C Major?
+
+
+**100**
+
+
+**50**
+
+
+**0**
+**Y** **N** **Y** **N**
+
+Regular Board State?
+
+
+100
+
+
+50
+
+
+0
+Y N Y N
+
+Regular Rule?
+
+
+
+w/o 0-CoT w/ 0-CoT CCC Random
+
+**Figure 3:** Main results (continued). The blue and orange bars represent the default and counterfactual conditions
+respectively, either with or without 0-shot chain-of-thought (0-CoT). CCC is the counterfactual comprehension
+check (§2), but when applicable, we report it for the default setting too. Counterfactual performance is consistently
+lower than the default task performance, while CCC is usually high. §D reports numeric results.
+
+
+
+Copet et al., 2023; Ren et al., 2020). Bubeck et al.
+(2023) show that even a text-only LM exhibits
+some musical abilities. We investigate the extent
+of LMs’ musical abilities through two tasks.
+In the _chord placement_ task, we evaluate whether
+LMs can provide the correct chord fret placements
+for string instruments with standard or altered
+string tunings. The altered tunings, known as _scor-_
+_datura_, are typical in music to evoke specific effects. In the counterfactual setting, we instruct
+LMs to provide fret placements for a special guitar/ukulele where one or two of the strings are altered. To check whether the model has understood
+the tunings, we ask for the first three notes on each
+string (including open string) as the CCC.
+In the _note retreival_ task, we evaluate whether
+LMs can retrieve notes from famous melodies. The
+process of re-writing melodies in different keys,
+referred to as “transposition,” is common in music.
+We evaluate LMs’ musical abilities under transpositions by prompting them to retrieve the _n_ -th note
+in a melody in either its canonical key or a different
+key. We ask the LMs to retrieve the _n_ -th note of
+the scale of the given key as the CCC.
+
+
+**Chess.** Chess-playing has long been regarded as
+a testbed for AI (Silver et al., 2017; Tomasev et al.,
+2020), and modern LMs have exhibited abilities
+that imply an understanding of chess rules (Srivastava et al., 2023; Du et al., 2023). We test this understanding by asking for the legality of a 4-move
+
+
+
+opening. In the counterfactual setting, we swap the
+initial positions of knights and bishops—a setup
+present in a real-world chess variant “Chess 960”—
+and similarly ask LMs for opening legality under
+this new starting configuration. The CCC asks for
+the starting positions of the knights and bishops.
+
+
+**SET Game.** SET is a popular card game where
+each card has 4 attributes (color, shape, shading,
+and number) with 3 different values for each attribute. A player finds a SET of 3 cards on a
+board whose values for each attribute are **either** _all_
+_the same_ **or** _all unique_ . This game has been thoroughly studied in computer science, from the perspective of coding theory and combinatorics (Davis
+and Maclagan, 2003), linear algebra (Coleman and
+Hartshorn, 2012), and complexity theory (Chaudhuri et al., 2003). We suspect this popularity makes
+it susceptible to overfitting by LMs and investigate
+this possibility. We ask the LM to identify the card
+on a board that completes a 3-card SET with two
+given cards. In the counterfactual setup, we invert
+the rule for the _number_ attribute, requiring its values to be **neither** _all the same_ **nor** _all unique_ . For
+the CCC, we ask the model for the validity of a SET
+under the original and the counterfactual rules.
+
+
+**4** **Results**
+
+
+We evaluate GPT-4 (gpt-4-0314; OpenAI,
+2023), GPT-3.5 (gpt-3.5-turbo-0301), Claude
+(claude-v1.3; Anthropic, 2023), and PaLM-2
+
+
+
+1824
+
+
+(text-bison-001; Anil et al., 2023). [2] We experiment both with and without encouraging step-bystep reasoning with the phrase “Let’s think step
+by step.” (Kojima et al., 2023; Reynolds and McDonell, 2021). We refer to this step-by-step setup
+as zero-shot chain-of-thought prompting ( **0-CoT** ;
+Kojima et al., 2023). We include all prompts in §C.
+Figures 2 and 3 show our results. The numeric
+version are in §D. LMs consistently and substantially perform worse on the counterfactual variants,
+both with and without 0-shot CoT. For most cases,
+LMs exhibit an above-random counterfactual performance, suggesting some degree of the targeted
+ability. However, when the CCC accuracy is high,
+as is usually the case for GPT-4 and select settings
+for other models too, the gaps in default vs. counterfactual performance demonstrate limitations in
+their abstract capacity for the target task. When
+the CCC accuracy is lower, the failure of counterfactual world comprehension confounds this conclusion, but often the gaps are so large (sometimes
+between near-perfect and near-zero, e.g. for arithmetic) that they are nonetheless strongly indicative
+of non-transferable, default-condition-specific task
+implementations. The fact that the LMs sometimes
+do not evaluate the CCC well under counterfactual
+conditions, but can do so under the default conditions (for arithmetic, programming, drawing, etc.)
+itself also points to overfitting to the latter.
+
+**5** **Analysis**
+
+We investigate how a variety of factors affect the
+performance trends in §4. Unless otherwise specified, we only consider GPT-4 with 0-shot CoT as
+this is generally the best-performing setup. We
+provide additional analyses in §B.
+
+
+**5.1** **“Commonness” of Counterfactuals**
+Our counterfactual worlds are not designed to be
+completely alien to the LMs but only less common
+than the assumed default case. The counterfactualness of task variants is hence only relative, and
+here we take a more nuanced look at how the commonness of these counterfactual conditions affects
+the default-counterfactual performance gap. For
+arithmetic, all models perform better in bases 8
+and 16, likely due to their relative abundance compared to bases 9 and 11. In spatial reasoning, the
+smallest counterfactual performance degradation is
+usually from when the north and south directions
+
+
+2The largest PaLM-2 model is not publicly accessible, and
+we can only test the second-largest version.
+
+
+
+are swapped, potentially because some programming libraries use an inverted _y_ -axis (matplotlib,
+ggplot, D3, etc.; see §A.5). For chord fingering,
+the common alternative drop-D tuning of guitars
+(DADGBE) leads to the highest counterfactual performance for GPT-4. These correlations between
+the counterfactual performance and the commonness of these worlds paint a more fine-grained picture than a binary real vs. counterfactual distinction
+and point to a memorization-like effect where LMs
+perform better under more common conditions.
+
+
+**5.2** **Proximity between Default and**
+**Counterfactual Conditions**
+
+Another axis along which the counterfactual worlds
+differ is in their proximity to the default conditions. For example, for the different arithmetic
+bases, bases 9 and 11 are _closer_ to base 10, but _less_
+_common_ than bases 8 and 16. While the defaultcounterfactual gap is most affected by commonness
+for the arithmetic task, for the guitar and ukulele
+tunings (other than the drop-D tuning), the LM performance generally decreases monotonically with
+increasing distance from the original tunings.
+The FOLIO dataset (Han et al., 2022) enables
+another analysis of how proximity to the default
+conditions affects the model performance, _with-_
+_out_ counterfactual perturbations. This dataset was
+constructed to mostly follow common sense, with
+premises and conclusions that are deemed true in
+the real world. However, this is not always the case,
+with premises such as “John can make meals which
+are popular at the party,” whose factuality cannot
+be determined alone.
+In §B.1, we use this feature to shows that a
+LM’s reasoning ability is inversely related to the
+distance between the (LM-believed) real world and
+the world state described by the premises (occasionally counterfactual to the LM), by training a
+predictive model given features approximating this
+distance. Overall, these results show that LMs tend
+to perform better on task variants that are closer to
+the default instantiation of a task.
+
+
+**5.3** **Default vs. Counterfactual Performance**
+
+Recalling our formalization _h_ LM( _f, w, x_ ) in §2,
+§5.1 analyzed how the commonness of _w_ affects
+the observed patterns. Here, we explore how the
+counterfactual performance correlates with the default task performance when the other three elements vary: the task _f_, the input _x_, and the LM.
+
+
+
+1825
+
+
+**(a)** Addition accuracy with
+varying numbers of digits in
+the operands.
+
+
+
+**(b)** Melody note recall accuracy broken down by the index
+of the note.
+
+
+
+**(c)** SET identification accuracy
+when needing to find different
+numbers of cards in a SET.
+
+
+
+**(d)** Fret placement accuracy by
+chord type. The _y_ -axis averages over all altered tunings.
+
+
+
+**Figure 4:** Investigating the relationship between the default task performance and counterfactual performance,
+broken down by different factors. Only GPT-4 with 0-shot CoT results are shown. There is a consistent defaultcounterfactual correlation across task variants when varying different factors.
+
+
+
+We first consider different task variants with various difficulties. For arithmetic, beyond 2-digit addition, we also measure GPT-4’s 3- and 4-digit addition performance (Figure 4a). For note retrieval
+from melodies, we use the index of the inquired
+note as the proxy for difficulty (Figure 4b). For
+SET, while our original task shows two cards and
+asks a model to find the missing one from a 3-card
+SET, we change the task to instead show one or
+none of the cards in a SET, while still requiring the
+model to identify the SET (Figure 4c). For all these
+task variants, we see a strong correlation between
+the original and counterfactual world performance.
+
+
+We also see this effect when breaking down results by test instances _x_ . In Figure 4d, we separate
+the chord types, and observe that the default and
+counterfactual task performance correlates. Similarly, for most tasks, stronger models under default
+conditions are also stronger under counterfactual
+conditions, and vice versa. These correlations indicate that the default task performance can be a
+good indicator of its counterfactual performance,
+and hence its utility should not be discounted.
+
+
+Occasionally, this default-counterfactual correlation is reversed. In the spatial reasoning task,
+for example, GPT-4 has the best default-condition
+accuracy with 0-shot CoT, but it also degrades the
+most facing counterfactuals. PaLM-2 performs
+worse under default conditions, but is the most
+robust to counterfactual perturbations. McKenzie
+et al. (2023), who found a similar trend with respect
+to pretraining FLOPs and termed it “inverse scaling,” provided a memorization-based explanation:
+they observed that when a task contradicts with pretraining texts, similar to how our counterfactuals
+deviate from the default conditions in pretraining,
+larger LMs tend to rely on the pretraining text and,
+in turn, fail at the contradictory task.
+
+
+
+**5.4** **The Effect of Prompts**
+
+**0-shot CoT.** Consistent with prior findings (Chen
+et al., 2022; Dasgupta et al., 2022; _i.a._ ), we generally observe 0-shot CoT to be helpful for most
+cases. There are, however, exceptions, for example
+on PaLM-2’s base-10 and 16 addition, and GPT-4’s
+chord-playing performance. This may be due to a
+model pragmatically inferring that a task is more
+difficult than it actually is when explicitly asked
+to “think step by step”, and this “overthinking”
+on simple tasks could lead to mistakes (Kojima
+et al., 2023). It is also possible that these are due
+to memorization: the model could have memorized
+the specific input-output mapping of a task without
+understanding how to derive the output from the
+input, and when explicitly asked to spell out that
+process, it makes more errors (Zhang et al., 2023a).
+
+**Few-shot Demonstrations.** We study if additional demonstration examples using in-context
+learning (Brown et al., 2020) bridges the defaultcounterfactual gap. For the arithmetic task, we
+construct few-shot CoT prompts (Nye et al., 2021;
+Wei et al., 2022) and prepend up to 16 samples. As
+shown in Figure 5 (appendix), while the gap is reduced, it is still substantial for bases 9, 11, and 16,
+and plateauing towards the 16-shot setting. Therefore, the default-counterfactual gap is unlikely to
+be eliminated simply with more demonstrations.
+
+
+**6** **Discussion**
+
+**Do humans also perform worse with unfamil-**
+**iar counterfactual conditions?** It is possible that
+humans may have lower performance under the
+counterfactual conditions with a fixed time budget, but not necessarily when given ample time to
+reason and revise. Analogous to the classic competence/performance distinction in linguistics (Chomsky, 1965, §1.1), we hypothesize that humans have
+the _competence_ to generalize to new task condi
+
+
+1826
+
+
+tions, even though it may sometimes require sufficient execution budget to realize it as robust _perfor-_
+_mance_ . [3] In fact, there is increasing evidence from
+cognitive science that human reasoning is scaffolded by rich causal models of the world (Pearl,
+1988; Lake et al., 2017), and that humans can intervene on these models to perform rapid and flexible
+counterfactual simulations (Lagnado et al., 2013;
+Gerstenberg et al., 2017, 2021). However, stepping
+back, replicating or modeling human intelligence
+need not be a main goal of LMs in the first place,
+and human behavior is largely orthogonal to the
+desiderata we set for these models.
+**Is task-specific reasoning bad?** It is not necessarily bad when solving familiar tasks, but an
+ideal system should also possess general reasoning abilities that, when prompted, can be used to
+generalize to novel situations. Our point is that
+memorization is an often-overlooked confounding
+factor in interpreting LMs’ reasoning abilities.
+**Why do we care about counterfactual worlds?**
+**Isn’t the default-task model still useful?** It is certainly useful. However, many of the counterfactual
+worlds that we investigate are not very distant so
+that model performance under them still bears utility. Moreover, we are mostly only interested in
+the counterfactual tasks insofar as performance on
+these tasks can serve as a measurable proxy for the
+generalizability of these models and their underlying reasoning capabilities.
+**Aren’t these trends trivial? The default task**
+**variant is likely the most frequent in pretraining,**
+**so of course an LM performs better under it.** Indeed, our results parallel the classic train-test gap in
+machine learning. However, an ideal learner with
+the right inductive biases should be able to structure their internal parameters and representations to
+implement general-purpose abstractions (e.g., the
+concept of addition), and use these abstractions to
+generalize to counterfactual conditions, analogous
+to physicists using mathematics to make predictions about universes that are substantially different
+from our own, or more generally to humans who
+can generalize to new stimuli (Lagnado et al., 2013;
+Gerstenberg et al., 2017, 2021).
+**Can some more carefully designed prompts**
+**eliminate the default-counterfactual gap?** We
+can never tractably rule out this possibility. Never
+
+3It is arguable if our evaluation setting provides sufficient
+execution budget (Lampinen, 2023). Our in-context learning
+experiment (§5.4) may be thought of as increasing this budget,
+and yet the default-counterfactual gap is still sizeable there.
+
+
+
+theless, given the consistency of the gap across the
+different tasks (which use different prompts) and
+the setting of 0-shot CoT, we believe that a prompt
+that _completely_ bridges the default-counterfactual
+gap is unlikely. Our in-context learning experiment
+(§5.4) further shows that while this gap could be
+reduced by more informative prompts, it cannot be
+not fully removed.
+
+**7** **Related Work**
+
+**Causal Analysis.** Our counterfactual perturbations can be informally viewed as interventions in
+causal inference (Pearl, 2009). This relationship
+has been explored in machine learning and NLP
+for commonsense reasoning (Kıcıman et al., 2023),
+interpretability (Elazar et al., 2021; Geiger et al.,
+2021, 2022), spurious correlation detection (Veitch
+et al., 2021; Eisenstein, 2022), and fairness (Kusner et al., 2017; Nabi and Shpitser, 2018). Under
+this perspective, the degradation from counterfactuals can be viewed as a failure to robustly learn the
+causal effects of world states.
+
+**Counterfactual Evaluation.** “Counterfactuals”
+is an informally-used term in NLP and has been
+used to refer to different types of perturbations.
+One line of work concerns counterfactuals to a
+certain event or situation that is still licensed in a
+default world model (Qin et al., 2019, 2020; Yang
+et al., 2020; Frohberg and Binder, 2022; _i.a._ ), in
+contrast to our counterfactual world states that deviate from the default. Another body of work examines the robustness of model predictions using
+counterfactual data (Kaushik et al., 2020, 2021;
+Gardner et al., 2020). Closer to us, Li et al. (2023a)
+showed that while LMs seem to be able to perform
+some reasoning in counterfactual worlds, this is
+largely affected by superficial lexical cues.
+
+**8** **Conclusion**
+
+Through our counterfactual evaluation on 11 tasks,
+we identified consistent and substantial degradation of LM performance under counterfactual conditions. We attribute this gap to overfitting to the
+default task variants, and thus encourage future LM
+analyses to explicitly consider abstract task ability
+as detached from observed task performance. Furthermore, insofar as this degradation is a result of
+the LMs’ being trained only on surface form text,
+it would also be interesting future work to see if
+more grounded LMs (grounded in the “real” world,
+or some semantic representation, etc.) are more
+robust to task variations.
+
+
+
+1827
+
+
+**Limitations**
+
+
+Despite our attempt to devise novel counterfactual
+conditions to gauge an LM’s “true” reasoning ability, it may not be precisely reflected by the counterfactual performance due to several factors.
+
+
+**Underestimation**
+
+For our main evaluations, we aim to construct counterfactual tasks that have the same difficulty as
+the default variants so that task difficulty does not
+confound our comparisons. This is not always
+possible—in fact, an objective difficulty measure
+may not even exist. One could, for example, argue that base-11 addition is harder than base-10
+because it requires reasoning with one additional
+digit, or base-9 is harder than base-10 because on
+average the sums would consist of more digits.
+Retrieving notes in melodies in different keys
+faces a similar issue. We expect similar retrieval
+difficulty under different keys if the model recalls
+a melody as a series of abstract relations in a scale
+and directly maps them onto notes in a target key.
+However, an alternative strategy would be to first
+retrieve the note in a canonical key and then _trans-_
+_pose_ it to the desired uncommon key. This 2-step
+process is a natural one that is often employed by
+musicians. And with this strategy, the counterfactual task consists of 2 steps and is harder than
+(and requires first) completing the 1-step original
+task. The counterfactual setup thus introduces a
+confounder: low performance may be driven by
+the increased difficulty of the counterfactual task,
+rather than overfitting to melodies in their canonical keys, _if_ models are employing two-step strategy.
+However, since both strategies are available to models and we do not prompt them to use a particular
+one, reliance on this two-step strategy may itself
+be indicative of overfitting to the original canonical
+keys.
+
+
+**Overestimation**
+
+We can never be certain of how rarely particular
+counterfactual conditions are encountered during
+pretraining. It is quite likely that there is text online
+that, for example, draws rotated versions of various
+objects used in our study. Consequently, the effect
+of overfitting could also manifest in our counterfactual conditions, and the default-counterfactual gap
+could actually be larger for some genuinely unseen
+conditions.
+
+
+
+We also distinguish between two types of counterfactual perturbations. One type fundamentally
+affects the operation of the world model and necessitates an understanding of the counterfactual
+world to perform the task in it (e.g., arithmetic base
+or 1-based indexing [4] ). On the other hand, some
+perturbations are more superficial and may admit a
+shortcut where the model first figures out a simple
+mapping of the input back to the default conditions and performs the task (potentially leveraging
+instance-level memorization) under those. In some
+of our tasks, this mapping may be simple, such
+as the word replacements in the natural language
+logical reasoning task [5] and the transformation functions for the drawing task (see §A.6), which could
+potentially be exploited by the models. We explicitly disallow this in our prompt for the drawing task
+(Table 7) but did not identify a good way to forbid
+this for logical reasoning, potentially accounting
+for its generally high counterfactual performance.
+Finally, we reiterate from §4 that a non-perfect
+CCC accuracy does not allow us to perfectly tease
+apart counterfactual performance and a failure of
+counterfactual condition comprehension. But often
+the default-counterfactual gap is so prominent that
+it is still strongly suggestive of overfitting to the default conditions. Also, recall from §2 that the CCC
+itself is also a nontrivial task. For ThonPy, for example, the CCC also involves program evaluation,
+albeit with simpler statements that involve less reasoning, such as print("qrstu"[4]). We do not
+see an easy way to introduce ThonPy CCC that
+is entirely disentangled from program evaluation.
+This conflation would result in the CCC accuracy’s
+being lower than what would reflect the model’s
+understanding of the counterfactual conditions.
+
+
+**Acknowledgments**
+
+We thank, alphabetically, Alex Gu, Alisa Liu, Belinda Li, Chenghao Yang, Han Guo, Hao Peng,
+
+4It may be tempting to consider a simple replacement
+strategy [i]→[i-1] to map back to 0-based indexing. But
+this does not work for the dictionary type. There are other
+complications; see Table 2.
+5To be more concrete, imagine that a model memorizes
+an instance with nine premises on dogs involving complex
+logical relationships, and that it entails a given conclusion.
+For the counterfactual instance, we replace the word “dogs”
+with another object, say “headphones,” to make the premises
+no longer factually true. Instead of performing the reasoning
+over premises with headphones such as how they are, counterfactually, the cutest creatures, a model could identify the
+mapping “dogs” _→_ “headphones”, revert it (i.e., replace all
+“headphones” back to “dogs”), and perform the task under the
+default common-sense-complying conditions.
+
+
+
+1828
+
+
+Heyun Li, Jesse Dodge, Pratyusha Sharma, Tiwa
+Eisape, and Yizhong Wang for helpful discussions
+and feedback for this work. We are also grateful
+to Simeng Han for providing us with an updated
+version of the FOLIO dataset. Our drawing evaluation would not have been possible without our
+annotators Alex Hu, Ananya Harsh Jha, Belinda
+Li, Erjia Cao, Ha-na Park, Huirong Wen, Jiangjie
+Chen, Kabir Swain, Ka Wai Chan, Lucy Li, Simran Swain, Tejas Srinivasan, Tianyu Liu, Yue Bai,
+Yutaro Yamada, and Ziwei Wei. Zhaofeng would
+like to thank Jiamin Zhang for the guitar lessons,
+which were short but helpful for the relevant components of this paper. Figure 1 uses icons from
+flaticon.com. This study was supported by funds
+from the MIT–IBM Watson AI Lab, the MIT Quest
+for Intelligence, and the National Science Foundation under grants IIS-2212310 and IIS-2238240.
+
+
+**References**
+
+Mostafa Abdou, Artur Kulmizev, Daniel Hershcovich,
+Stella Frank, Ellie Pavlick, and Anders Søgaard.
+[2021. Can language models encode perceptual struc-](https://doi.org/10.18653/v1/2021.conll-1.9)
+[ture without grounding? a case study in color. In](https://doi.org/10.18653/v1/2021.conll-1.9)
+_Proceedings of the 25th Conference on Computa-_
+_tional Natural Language Learning_, pages 109–132,
+Online. Association for Computational Linguistics.
+
+
+Andrea Agostinelli, Timo I. Denk, Zalán Borsos,
+Jesse Engel, Mauro Verzetti, Antoine Caillon,
+Qingqing Huang, Aren Jansen, Adam Roberts, Marco
+Tagliasacchi, Matt Sharifi, Neil Zeghidour, and Chris[tian Frank. 2023. MusicLM: Generating music from](http://arxiv.org/abs/2301.11325)
+[text.](http://arxiv.org/abs/2301.11325)
+
+
+Rohan Anil, Andrew M. Dai, Orhan Firat, Melvin Johnson, Dmitry Lepikhin, Alexandre Passos, Siamak
+Shakeri, Emanuel Taropa, Paige Bailey, Zhifeng
+Chen, Eric Chu, Jonathan H. Clark, Laurent El
+Shafey, Yanping Huang, Kathy Meier-Hellstern, Gaurav Mishra, Erica Moreira, Mark Omernick, Kevin
+Robinson, Sebastian Ruder, Yi Tay, Kefan Xiao,
+Yuanzhong Xu, Yujing Zhang, Gustavo Hernandez
+Abrego, Junwhan Ahn, Jacob Austin, Paul Barham,
+Jan Botha, James Bradbury, Siddhartha Brahma,
+Kevin Brooks, Michele Catasta, Yong Cheng, Colin
+Cherry, Christopher A. Choquette-Choo, Aakanksha
+Chowdhery, Clément Crepy, Shachi Dave, Mostafa
+Dehghani, Sunipa Dev, Jacob Devlin, Mark Díaz,
+Nan Du, Ethan Dyer, Vlad Feinberg, Fangxiaoyu
+Feng, Vlad Fienber, Markus Freitag, Xavier Garcia, Sebastian Gehrmann, Lucas Gonzalez, Guy GurAri, Steven Hand, Hadi Hashemi, Le Hou, Joshua
+Howland, Andrea Hu, Jeffrey Hui, Jeremy Hurwitz, Michael Isard, Abe Ittycheriah, Matthew Jagielski, Wenhao Jia, Kathleen Kenealy, Maxim Krikun,
+Sneha Kudugunta, Chang Lan, Katherine Lee, Benjamin Lee, Eric Li, Music Li, Wei Li, YaGuang Li,
+
+
+
+Jian Li, Hyeontaek Lim, Hanzhao Lin, Zhongtao Liu,
+Frederick Liu, Marcello Maggioni, Aroma Mahendru,
+Joshua Maynez, Vedant Misra, Maysam Moussalem,
+Zachary Nado, John Nham, Eric Ni, Andrew Nystrom, Alicia Parrish, Marie Pellat, Martin Polacek,
+Alex Polozov, Reiner Pope, Siyuan Qiao, Emily Reif,
+Bryan Richter, Parker Riley, Alex Castro Ros, Aurko Roy, Brennan Saeta, Rajkumar Samuel, Renee
+Shelby, Ambrose Slone, Daniel Smilkov, David R.
+So, Daniel Sohn, Simon Tokumine, Dasha Valter,
+Vijay Vasudevan, Kiran Vodrahalli, Xuezhi Wang,
+Pidong Wang, Zirui Wang, Tao Wang, John Wieting, Yuhuai Wu, Kelvin Xu, Yunhan Xu, Linting
+Xue, Pengcheng Yin, Jiahui Yu, Qiao Zhang, Steven
+Zheng, Ce Zheng, Weikang Zhou, Denny Zhou, Slav
+[Petrov, and Yonghui Wu. 2023. PaLM 2 technical](http://arxiv.org/abs/2305.10403)
+[report.](http://arxiv.org/abs/2305.10403)
+
+
+[Anthropic. 2023. Introducing Claude.](https://www.anthropic.com/index/introducing-claude)
+
+
+Yuntao Bai, Andy Jones, Kamal Ndousse, Amanda
+Askell, Anna Chen, Nova DasSarma, Dawn Drain,
+Stanislav Fort, Deep Ganguli, Tom Henighan,
+Nicholas Joseph, Saurav Kadavath, Jackson Kernion,
+Tom Conerly, Sheer El-Showk, Nelson Elhage, Zac
+Hatfield-Dodds, Danny Hernandez, Tristan Hume,
+Scott Johnston, Shauna Kravec, Liane Lovitt, Neel
+Nanda, Catherine Olsson, Dario Amodei, Tom
+Brown, Jack Clark, Sam McCandlish, Chris Olah,
+[Ben Mann, and Jared Kaplan. 2022. Training a help-](http://arxiv.org/abs/2204.05862)
+[ful and harmless assistant with reinforcement learn-](http://arxiv.org/abs/2204.05862)
+[ing from human feedback.](http://arxiv.org/abs/2204.05862)
+
+
+Gašper Beguš, Maksymilian D ˛abkowski, and Ryan
+Rhodes. 2023. [Large linguistic models: Analyz-](https://arxiv.org/abs/2305.00948)
+[ing theoretical linguistic abilities of LLMs.](https://arxiv.org/abs/2305.00948) _ArXiv_
+_preprint_, abs/2305.00948.
+
+
+[Yonatan Belinkov. 2022. Probing classifiers: Promises,](https://doi.org/10.1162/coli_a_00422)
+[shortcomings, and advances.](https://doi.org/10.1162/coli_a_00422) _Computational Linguis-_
+_tics_, 48(1):207–219.
+
+
+[Emily M. Bender and Alexander Koller. 2020. Climbing](https://doi.org/10.18653/v1/2020.acl-main.463)
+[towards NLU: On meaning, form, and understanding](https://doi.org/10.18653/v1/2020.acl-main.463)
+[in the age of data. In](https://doi.org/10.18653/v1/2020.acl-main.463) _Proceedings of the 58th Annual_
+_Meeting of the Association for Computational Lin-_
+_guistics_, pages 5185–5198, Online. Association for
+Computational Linguistics.
+
+
+Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, Sandhini Agarwal, Ariel Herbert-Voss,
+Gretchen Krueger, Tom Henighan, Rewon Child,
+Aditya Ramesh, Daniel M. Ziegler, Jeffrey Wu,
+Clemens Winter, Christopher Hesse, Mark Chen, Eric
+Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess,
+Jack Clark, Christopher Berner, Sam McCandlish,
+Alec Radford, Ilya Sutskever, and Dario Amodei.
+[2020. Language models are few-shot learners. In](https://proceedings.neurips.cc/paper/2020/hash/1457c0d6bfcb4967418bfb8ac142f64a-Abstract.html) _Ad-_
+_vances in Neural Information Processing Systems 33:_
+_Annual Conference on Neural Information Process-_
+_ing Systems 2020, NeurIPS 2020, December 6-12,_
+_2020, virtual_ .
+
+
+
+1829
+
+
+Sébastien Bubeck, Varun Chandrasekaran, Ronen Eldan, Johannes Gehrke, Eric Horvitz, Ece Kamar, Peter Lee, Yin Tat Lee, Yuanzhi Li, Scott Lundberg,
+Harsha Nori, Hamid Palangi, Marco Tulio Ribeiro,
+[and Yi Zhang. 2023. Sparks of artificial general in-](http://arxiv.org/abs/2303.12712)
+[telligence: Early experiments with GPT-4.](http://arxiv.org/abs/2303.12712)
+
+
+Kamalika Chaudhuri, Brighten Godfrey, and David
+Ratajczak. 2003. On the complexity of the game
+of SET.
+
+
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming
+Yuan, Henrique Ponde de Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph,
+Greg Brockman, Alex Ray, Raul Puri, Gretchen
+Krueger, Michael Petrov, Heidy Khlaaf, Girish Sastry, Pamela Mishkin, Brooke Chan, Scott Gray,
+Nick Ryder, Mikhail Pavlov, Alethea Power, Lukasz
+Kaiser, Mohammad Bavarian, Clemens Winter,
+Philippe Tillet, Felipe Petroski Such, Dave Cummings, Matthias Plappert, Fotios Chantzis, Elizabeth Barnes, Ariel Herbert-Voss, William Hebgen
+Guss, Alex Nichol, Alex Paino, Nikolas Tezak, Jie
+Tang, Igor Babuschkin, Suchir Balaji, Shantanu Jain,
+William Saunders, Christopher Hesse, Andrew N.
+Carr, Jan Leike, Josh Achiam, Vedant Misra, Evan
+Morikawa, Alec Radford, Matthew Knight, Miles
+Brundage, Mira Murati, Katie Mayer, Peter Welinder,
+Bob McGrew, Dario Amodei, Sam McCandlish, Ilya
+[Sutskever, and Wojciech Zaremba. 2021. Evaluating](http://arxiv.org/abs/2107.03374)
+[large language models trained on code.](http://arxiv.org/abs/2107.03374)
+
+
+Wenhu Chen, Xueguang Ma, Xinyi Wang, and
+William W Cohen. 2022. [Program of thoughts](https://arxiv.org/abs/2211.12588)
+[prompting: Disentangling computation from reason-](https://arxiv.org/abs/2211.12588)
+[ing for numerical reasoning tasks.](https://arxiv.org/abs/2211.12588) _ArXiv preprint_,
+abs/2211.12588.
+
+
+Noam Chomsky. 1965. _Aspects of the Theory of Syntax_ .
+The MIT Press, Cambridge.
+
+
+Aakanksha Chowdhery, Sharan Narang, Jacob Devlin,
+Maarten Bosma, Gaurav Mishra, Adam Roberts,
+Paul Barham, Hyung Won Chung, Charles Sutton,
+Sebastian Gehrmann, Parker Schuh, Kensen Shi,
+Sasha Tsvyashchenko, Joshua Maynez, Abhishek
+Rao, Parker Barnes, Yi Tay, Noam Shazeer, Vinodkumar Prabhakaran, Emily Reif, Nan Du, Ben
+Hutchinson, Reiner Pope, James Bradbury, Jacob
+Austin, Michael Isard, Guy Gur-Ari, Pengcheng Yin,
+Toju Duke, Anselm Levskaya, Sanjay Ghemawat,
+Sunipa Dev, Henryk Michalewski, Xavier Garcia,
+Vedant Misra, Kevin Robinson, Liam Fedus, Denny
+Zhou, Daphne Ippolito, David Luan, Hyeontaek Lim,
+Barret Zoph, Alexander Spiridonov, Ryan Sepassi,
+David Dohan, Shivani Agrawal, Mark Omernick, Andrew M. Dai, Thanumalayan Sankaranarayana Pillai, Marie Pellat, Aitor Lewkowycz, Erica Moreira,
+Rewon Child, Oleksandr Polozov, Katherine Lee,
+Zongwei Zhou, Xuezhi Wang, Brennan Saeta, Mark
+Diaz, Orhan Firat, Michele Catasta, Jason Wei, Kathy
+Meier-Hellstern, Douglas Eck, Jeff Dean, Slav Petrov,
+[and Noah Fiedel. 2022. PaLM: Scaling language](http://arxiv.org/abs/2204.02311)
+[modeling with pathways.](http://arxiv.org/abs/2204.02311)
+
+
+
+Peter Clark, Oyvind Tafjord, and Kyle Richardson. 2020.
+
+[Transformers as soft reasoners over language. In](https://doi.org/10.24963/ijcai.2020/537)
+_Proceedings of the Twenty-Ninth International Joint_
+_Conference on Artificial Intelligence, IJCAI 2020_,
+pages 3882–3890. ijcai.org.
+
+
+[Ben Coleman and Kevin Hartshorn. 2012. Game, set,](https://doi.org/10.4169/math.mag.85.2.083)
+[math.](https://doi.org/10.4169/math.mag.85.2.083) _Mathematics Magazine_, 85(2):83–96.
+
+
+Jade Copet, Felix Kreuk, Itai Gat, Tal Remez, David
+Kant, Gabriel Synnaeve, Yossi Adi, and Alexandre
+[Défossez. 2023. Simple and controllable music gen-](http://arxiv.org/abs/2306.05284)
+[eration.](http://arxiv.org/abs/2306.05284)
+
+
+Ishita Dasgupta, Andrew K. Lampinen, Stephanie
+C. Y. Chan, Antonia Creswell, Dharshan Kumaran,
+[James L. McClelland, and Felix Hill. 2022. Lan-](http://arxiv.org/abs/2207.07051)
+[guage models show human-like content effects on](http://arxiv.org/abs/2207.07051)
+[reasoning.](http://arxiv.org/abs/2207.07051)
+
+
+[Benjamin Lent Davis and Diane Maclagan. 2003. The](https://doi.org/10.1007/BF02984846)
+[card game SET.](https://doi.org/10.1007/BF02984846) _The Mathematical Intelligencer_,
+25:33–40.
+
+
+Yilun Du, Shuang Li, Antonio Torralba, Joshua B Tenen[baum, and Igor Mordatch. 2023. Improving factual-](https://arxiv.org/abs/2305.14325)
+[ity and reasoning in language models through multia-](https://arxiv.org/abs/2305.14325)
+[gent debate.](https://arxiv.org/abs/2305.14325) _ArXiv preprint_, abs/2305.14325.
+
+
+Bradley Efron and Robert J. Tibshirani. 1993. _An Intro-_
+_duction to the Bootstrap_ . Number 57 in Monographs
+on Statistics and Applied Probability. Chapman &
+Hall/CRC, Boca Raton, Florida, USA.
+
+
+[Jacob Eisenstein. 2022. Informativeness and invariance:](https://doi.org/10.18653/v1/2022.naacl-main.321)
+[Two perspectives on spurious correlations in natural](https://doi.org/10.18653/v1/2022.naacl-main.321)
+[language. In](https://doi.org/10.18653/v1/2022.naacl-main.321) _Proceedings of the 2022 Conference of_
+_the North American Chapter of the Association for_
+_Computational Linguistics: Human Language Tech-_
+_nologies_, pages 4326–4331, Seattle, United States.
+Association for Computational Linguistics.
+
+
+Yanai Elazar, Shauli Ravfogel, Alon Jacovi, and Yoav
+[Goldberg. 2021. Amnesic probing: Behavioral expla-](https://doi.org/10.1162/tacl_a_00359)
+[nation with amnesic counterfactuals.](https://doi.org/10.1162/tacl_a_00359) _Transactions of_
+_the Association for Computational Linguistics_, 9:160–
+175.
+
+
+[Jörg Frohberg and Frank Binder. 2022. CRASS: A](https://aclanthology.org/2022.lrec-1.229)
+[novel data set and benchmark to test counterfactual](https://aclanthology.org/2022.lrec-1.229)
+[reasoning of large language models. In](https://aclanthology.org/2022.lrec-1.229) _Proceedings_
+_of the Thirteenth Language Resources and Evalua-_
+_tion Conference_, pages 2126–2140, Marseille, France.
+European Language Resources Association.
+
+
+Leo Gao, Stella Biderman, Sid Black, Laurence Golding, Travis Hoppe, Charles Foster, Jason Phang,
+Horace He, Anish Thite, Noa Nabeshima, Shawn
+Presser, and Connor Leahy. 2021. [The Pile: An](https://arxiv.org/abs/2101.00027)
+[800GB dataset of diverse text for language modeling.](https://arxiv.org/abs/2101.00027)
+_ArXiv preprint_, abs/2101.00027.
+
+
+Matt Gardner, Yoav Artzi, Victoria Basmov, Jonathan
+Berant, Ben Bogin, Sihao Chen, Pradeep Dasigi,
+Dheeru Dua, Yanai Elazar, Ananth Gottumukkala,
+Nitish Gupta, Hannaneh Hajishirzi, Gabriel Ilharco,
+
+
+
+1830
+
+
+Daniel Khashabi, Kevin Lin, Jiangming Liu, Nelson F. Liu, Phoebe Mulcaire, Qiang Ning, Sameer
+Singh, Noah A. Smith, Sanjay Subramanian, Reut
+Tsarfaty, Eric Wallace, Ally Zhang, and Ben Zhou.
+[2020. Evaluating models’ local decision boundaries](https://doi.org/10.18653/v1/2020.findings-emnlp.117)
+[via contrast sets.](https://doi.org/10.18653/v1/2020.findings-emnlp.117) In _Findings of the Association_
+_for Computational Linguistics: EMNLP 2020_, pages
+1307–1323, Online. Association for Computational
+Linguistics.
+
+
+Atticus Geiger, Hanson Lu, Thomas Icard, and Christo[pher Potts. 2021. Causal abstractions of neural net-](https://proceedings.neurips.cc/paper/2021/hash/4f5c422f4d49a5a807eda27434231040-Abstract.html)
+[works. In](https://proceedings.neurips.cc/paper/2021/hash/4f5c422f4d49a5a807eda27434231040-Abstract.html) _Advances in Neural Information Process-_
+_ing Systems 34: Annual Conference on Neural In-_
+_formation Processing Systems 2021, NeurIPS 2021,_
+_December 6-14, 2021, virtual_, pages 9574–9586.
+
+
+Atticus Geiger, Zhengxuan Wu, Hanson Lu, Josh
+Rozner, Elisa Kreiss, Thomas Icard, Noah D. Good[man, and Christopher Potts. 2022. Inducing causal](https://proceedings.mlr.press/v162/geiger22a.html)
+[structure for interpretable neural networks. In](https://proceedings.mlr.press/v162/geiger22a.html) _Inter-_
+_national Conference on Machine Learning, ICML_
+_2022, 17-23 July 2022, Baltimore, Maryland, USA_,
+volume 162 of _Proceedings of Machine Learning_
+_Research_, pages 7324–7338. PMLR.
+
+
+Tobias Gerstenberg, Noah D. Goodman, David A.
+Lagnado, and Joshua B. Tenenbaum. 2021. A counterfactual simulation model of causal judgments for
+physical events. _Psychological review_ .
+
+
+Tobias Gerstenberg, Matthew Peterson, Noah D. Goodman, David A. Lagnado, and Joshua B. Tenenbaum.
+2017. Eye-tracking causality. _Psychological Science_,
+28:1731 – 1744.
+
+
+Simeng Han, Hailey Schoelkopf, Yilun Zhao, Zhenting
+Qi, Martin Riddell, Luke Benson, Lucy Sun, Ekaterina Zubova, Yujie Qiao, Matthew Burtell, David
+Peng, Jonathan Fan, Yixin Liu, Brian Wong, Malcolm Sailor, Ansong Ni, Linyong Nan, Jungo Kasai,
+Tao Yu, Rui Zhang, Shafiq Joty, Alexander R. Fabbri, Wojciech Kryscinski, Xi Victoria Lin, Caiming
+[Xiong, and Dragomir Radev. 2022. FOLIO: Natural](http://arxiv.org/abs/2209.00840)
+[language reasoning with first-order logic.](http://arxiv.org/abs/2209.00840)
+
+
+[John Hewitt and Percy Liang. 2019. Designing and in-](https://doi.org/10.18653/v1/D19-1275)
+[terpreting probes with control tasks. In](https://doi.org/10.18653/v1/D19-1275) _Proceedings_
+_of the 2019 Conference on Empirical Methods in Nat-_
+_ural Language Processing and the 9th International_
+_Joint Conference on Natural Language Processing_
+_(EMNLP-IJCNLP)_, pages 2733–2743, Hong Kong,
+China. Association for Computational Linguistics.
+
+
+Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch,
+Elena Buchatskaya, Trevor Cai, Eliza Rutherford,
+Diego de Las Casas, Lisa Anne Hendricks, Johannes
+Welbl, Aidan Clark, Tom Hennigan, Eric Noland,
+Katie Millican, George van den Driessche, Bogdan
+Damoc, Aurelia Guy, Simon Osindero, Karen Simonyan, Erich Elsen, Jack W. Rae, Oriol Vinyals,
+[and Laurent Sifre. 2022. Training compute-optimal](http://arxiv.org/abs/2203.15556)
+[large language models.](http://arxiv.org/abs/2203.15556)
+
+
+
+Jennifer Hu and Roger Levy. 2023. [Prompt-based](https://arxiv.org/abs/2305.13264)
+[methods may underestimate large language mod-](https://arxiv.org/abs/2305.13264)
+[els’ linguistic generalizations.](https://arxiv.org/abs/2305.13264) _ArXiv preprint_,
+abs/2305.13264.
+
+
+Cheng-Zhi Anna Huang, Tim Cooijmans, Adam
+Roberts, Aaron C. Courville, and Douglas Eck.
+[2019a. Counterpoint by convolution.](https://arxiv.org/abs/1903.07227) _ArXiv preprint_,
+abs/1903.07227.
+
+
+Cheng-Zhi Anna Huang, Curtis Hawthorne, Adam
+Roberts, Monica Dinculescu, James Wexler, Leon
+[Hong, and Jacob Howcroft. 2019b. The bach doo-](http://arxiv.org/abs/1907.06637)
+[dle: Approachable music composition with machine](http://arxiv.org/abs/1907.06637)
+[learning at scale.](http://arxiv.org/abs/1907.06637)
+
+
+Gabriel Ilharco, Rowan Zellers, Ali Farhadi, and Han[naneh Hajishirzi. 2021. Probing contextual language](https://doi.org/10.18653/v1/2021.naacl-main.422)
+[models for common ground with visual representa-](https://doi.org/10.18653/v1/2021.naacl-main.422)
+[tions. In](https://doi.org/10.18653/v1/2021.naacl-main.422) _Proceedings of the 2021 Conference of_
+_the North American Chapter of the Association for_
+_Computational Linguistics: Human Language Tech-_
+_nologies_, pages 5367–5377, Online. Association for
+Computational Linguistics.
+
+
+Divyansh Kaushik, Eduard H. Hovy, and Zachary Chase
+[Lipton. 2020. Learning the difference that makes a](https://openreview.net/forum?id=Sklgs0NFvr)
+[difference with counterfactually-augmented data. In](https://openreview.net/forum?id=Sklgs0NFvr)
+_8th International Conference on Learning Represen-_
+_tations, ICLR 2020, Addis Ababa, Ethiopia, April_
+_26-30, 2020_ . OpenReview.net.
+
+
+Divyansh Kaushik, Amrith Setlur, Eduard H. Hovy, and
+[Zachary Chase Lipton. 2021. Explaining the efficacy](https://openreview.net/forum?id=HHiiQKWsOcV)
+[of counterfactually augmented data. In](https://openreview.net/forum?id=HHiiQKWsOcV) _9th Inter-_
+_national Conference on Learning Representations,_
+_ICLR 2021, Virtual Event, Austria, May 3-7, 2021_ .
+OpenReview.net.
+
+
+Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yu[taka Matsuo, and Yusuke Iwasawa. 2023. Large lan-](http://arxiv.org/abs/2205.11916)
+[guage models are zero-shot reasoners.](http://arxiv.org/abs/2205.11916)
+
+
+Matt J. Kusner, Joshua R. Loftus, Chris Russell, and
+[Ricardo Silva. 2017. Counterfactual fairness. In](https://proceedings.neurips.cc/paper/2017/hash/a486cd07e4ac3d270571622f4f316ec5-Abstract.html) _Ad-_
+_vances in Neural Information Processing Systems 30:_
+_Annual Conference on Neural Information Process-_
+_ing Systems 2017, December 4-9, 2017, Long Beach,_
+_CA, USA_, pages 4066–4076.
+
+
+Emre Kıcıman, Robert Ness, Amit Sharma, and Chen[hao Tan. 2023. Causal reasoning and large language](http://arxiv.org/abs/2305.00050)
+[models: Opening a new frontier for causality.](http://arxiv.org/abs/2305.00050)
+
+
+David A. Lagnado, Tobias Gerstenberg, and Ro’i Zultan. 2013. Causal responsibility and counterfactuals.
+_Cognitive Science_, 37:1036 – 1073.
+
+
+Brenden M. Lake, Tomer D. Ullman, Joshua B. Tenen[baum, and Samuel J. Gershman. 2017. Building ma-](https://doi.org/10.1017/s0140525x16001837)
+[chines that learn and think like people.](https://doi.org/10.1017/s0140525x16001837) _Behavioral_
+_and Brain Sciences_, 40.
+
+
+[Andrew Kyle Lampinen. 2023. Can language models](http://arxiv.org/abs/2210.15303)
+[handle recursively nested grammatical structures? A](http://arxiv.org/abs/2210.15303)
+[case study on comparing models and humans.](http://arxiv.org/abs/2210.15303)
+
+
+
+1831
+
+
+Aitor Lewkowycz, Anders Andreassen, David Dohan,
+Ethan Dyer, Henryk Michalewski, Vinay Ramasesh,
+Ambrose Slone, Cem Anil, Imanol Schlag, Theo
+Gutman-Solo, Yuhuai Wu, Behnam Neyshabur, Guy
+[Gur-Ari, and Vedant Misra. 2022. Solving quantita-](http://arxiv.org/abs/2206.14858)
+[tive reasoning problems with language models.](http://arxiv.org/abs/2206.14858)
+
+
+Belinda Li, Jane Yu, Madian Khabsa, Luke Zettlemoyer,
+[Alon Halevy, and Jacob Andreas. 2022. Quantify-](https://doi.org/10.18653/v1/2022.naacl-main.346)
+[ing adaptability in pre-trained language models with](https://doi.org/10.18653/v1/2022.naacl-main.346)
+[500 tasks. In](https://doi.org/10.18653/v1/2022.naacl-main.346) _Proceedings of the 2022 Conference of_
+_the North American Chapter of the Association for_
+_Computational Linguistics: Human Language Tech-_
+_nologies_, pages 4696–4715, Seattle, United States.
+Association for Computational Linguistics.
+
+
+Jiaxuan Li, Lang Yu, and Allyson Ettinger. 2023a.
+
+[Counterfactual reasoning: Testing language models’](http://arxiv.org/abs/2305.16572)
+[understanding of hypothetical scenarios.](http://arxiv.org/abs/2305.16572)
+
+
+Weixian Waylon Li, Yftah Ziser, Maximin Coavoux,
+[and Shay B. Cohen. 2023b. BERT is not the count:](https://aclanthology.org/2023.eacl-main.260)
+[Learning to match mathematical statements with](https://aclanthology.org/2023.eacl-main.260)
+[proofs. In](https://aclanthology.org/2023.eacl-main.260) _Proceedings of the 17th Conference of_
+_the European Chapter of the Association for Compu-_
+_tational Linguistics_, pages 3581–3593, Dubrovnik,
+Croatia. Association for Computational Linguistics.
+
+
+Tal Linzen and Marco Baroni. 2021. Syntactic structure
+from deep learning. _Annual Review of Linguistics_,
+7:195–212.
+
+
+[Inbal Magar and Roy Schwartz. 2022. Data contamina-](https://doi.org/10.18653/v1/2022.acl-short.18)
+[tion: From memorization to exploitation. In](https://doi.org/10.18653/v1/2022.acl-short.18) _Proceed-_
+_ings of the 60th Annual Meeting of the Association_
+_for Computational Linguistics (Volume 2: Short Pa-_
+_pers)_, pages 157–165, Dublin, Ireland. Association
+for Computational Linguistics.
+
+
+Kyle Mahowald, Anna A Ivanova, Idan A Blank, Nancy
+Kanwisher, Joshua B Tenenbaum, and Evelina Fe[dorenko. 2023. Dissociating language and thought](https://arxiv.org/abs/2301.06627)
+[in large language models: a cognitive perspective.](https://arxiv.org/abs/2301.06627)
+_ArXiv preprint_, abs/2301.06627.
+
+
+Kamil Malinka, Martin Perešíni, Anton Firc, Ondˇrej
+[Hujˇnák, and Filip Januš. 2023. On the educational](http://arxiv.org/abs/2303.11146)
+[impact of ChatGPT: Is artificial intelligence ready to](http://arxiv.org/abs/2303.11146)
+[obtain a university degree?](http://arxiv.org/abs/2303.11146)
+
+
+Mitchell P. Marcus, Beatrice Santorini, and Mary Ann
+[Marcinkiewicz. 1993. Building a large annotated cor-](https://aclanthology.org/J93-2004)
+[pus of English: The Penn Treebank.](https://aclanthology.org/J93-2004) _Computational_
+_Linguistics_, 19(2):313–330.
+
+
+[John McCarthy. 1959. Programs with common sense.](http://www-formal.stanford.edu/jmc/mcc59.html)
+In _Proceedings of the Teddington Conference on the_
+_Mechanization of Thought Processes_, pages 75–91.
+
+
+Ian R. McKenzie, Alexander Lyzhov, Michael Pieler,
+Alicia Parrish, Aaron Mueller, Ameya Prabhu, Euan
+McLean, Aaron Kirtland, Alexis Ross, Alisa Liu,
+Andrew Gritsevskiy, Daniel Wurgaft, Derik Kauffman, Gabriel Recchia, Jiacheng Liu, Joe Cavanagh,
+Max Weiss, Sicong Huang, The Floating Droid, Tom
+Tseng, Tomasz Korbak, Xudong Shen, Yuhui Zhang,
+
+
+
+Zhengping Zhou, Najoung Kim, Samuel R. Bowman,
+[and Ethan Perez. 2023. Inverse scaling: When bigger](http://arxiv.org/abs/2306.09479)
+[isn’t better.](http://arxiv.org/abs/2306.09479)
+
+
+Antonio Valerio Miceli-Barone, Fazl Barez, Ioannis
+[Konstas, and Shay B. Cohen. 2023. The larger they](http://arxiv.org/abs/2305.15507)
+[are, the harder they fail: Language models do not](http://arxiv.org/abs/2305.15507)
+[recognize identifier swaps in Python.](http://arxiv.org/abs/2305.15507)
+
+
+Swaroop Mishra, Daniel Khashabi, Chitta Baral, and
+[Hannaneh Hajishirzi. 2022. Cross-task generaliza-](https://doi.org/10.18653/v1/2022.acl-long.244)
+[tion via natural language crowdsourcing instructions.](https://doi.org/10.18653/v1/2022.acl-long.244)
+In _Proceedings of the 60th Annual Meeting of the_
+_Association for Computational Linguistics (Volume_
+_1: Long Papers)_, pages 3470–3487, Dublin, Ireland.
+Association for Computational Linguistics.
+
+
+[Razieh Nabi and Ilya Shpitser. 2018. Fair inference](https://www.aaai.org/ocs/index.php/AAAI/AAAI18/paper/view/16683)
+[on outcomes. In](https://www.aaai.org/ocs/index.php/AAAI/AAAI18/paper/view/16683) _Proceedings of the Thirty-Second_
+_AAAI Conference on Artificial Intelligence, (AAAI-_
+_18), the 30th innovative Applications of Artificial_
+_Intelligence (IAAI-18), and the 8th AAAI Symposium_
+_on Educational Advances in Artificial Intelligence_
+_(EAAI-18), New Orleans, Louisiana, USA, February_
+_2-7, 2018_, pages 1931–1940. AAAI Press.
+
+
+Joakim Nivre, Marie-Catherine de Marneffe, Filip Ginter, Yoav Goldberg, Jan Hajiˇc, Christopher D. Manning, Ryan McDonald, Slav Petrov, Sampo Pyysalo,
+Natalia Silveira, Reut Tsarfaty, and Daniel Zeman.
+[2016. Universal Dependencies v1: A multilingual](https://aclanthology.org/L16-1262)
+[treebank collection. In](https://aclanthology.org/L16-1262) _Proceedings of the Tenth In-_
+_ternational Conference on Language Resources and_
+_Evaluation (LREC’16)_, pages 1659–1666, Portorož,
+Slovenia. European Language Resources Association
+(ELRA).
+
+
+Maxwell Nye, Anders Johan Andreassen, Guy Gur-Ari,
+Henryk Michalewski, Jacob Austin, David Bieber,
+David Dohan, Aitor Lewkowycz, Maarten Bosma,
+David Luan, Charles Sutton, and Augustus Odena.
+[2021. Show your work: Scratchpads for intermediate](http://arxiv.org/abs/2112.00114)
+[computation with language models.](http://arxiv.org/abs/2112.00114)
+
+
+[OpenAI. 2023. GPT-4 technical report.](http://arxiv.org/abs/2303.08774)
+
+
+[Roma Patel and Ellie Pavlick. 2022. Mapping language](https://openreview.net/forum?id=gJcEM8sxHK)
+[models to grounded conceptual spaces. In](https://openreview.net/forum?id=gJcEM8sxHK) _The Tenth_
+_International Conference on Learning Representa-_
+_tions, ICLR 2022, Virtual Event, April 25-29, 2022_ .
+OpenReview.net.
+
+
+Judea Pearl. 1988. _Probabilistic Reasoning in Intelli-_
+_gent Systems: Networks of Plausible Inference_ . Morgan Kaufmann Publishers Inc., San Francisco, CA,
+USA.
+
+
+Judea Pearl. 2009. _[Causality](https://doi.org/10.1017/CBO9780511803161)_, 2nd edition. Cambridge
+University Press.
+
+
+[Steven Piantadosi and Felix Hill. 2022. Meaning with-](https://openreview.net/forum?id=nRkJEwmZnM)
+[out reference in large language models. In](https://openreview.net/forum?id=nRkJEwmZnM) _NeurIPS_
+_2022 Workshop on Neuro Causal and Symbolic AI_
+_(nCSI)_ .
+
+
+
+1832
+
+
+Lianhui Qin, Antoine Bosselut, Ari Holtzman, Chandra
+Bhagavatula, Elizabeth Clark, and Yejin Choi. 2019.
+[Counterfactual story reasoning and generation. In](https://doi.org/10.18653/v1/D19-1509)
+_Proceedings of the 2019 Conference on Empirical_
+_Methods in Natural Language Processing and the_
+_9th International Joint Conference on Natural Lan-_
+_guage Processing (EMNLP-IJCNLP)_, pages 5043–
+5053, Hong Kong, China. Association for Computational Linguistics.
+
+
+Lianhui Qin, Vered Shwartz, Peter West, Chandra Bhagavatula, Jena D. Hwang, Ronan Le Bras, Antoine
+[Bosselut, and Yejin Choi. 2020. Back to the future:](https://doi.org/10.18653/v1/2020.emnlp-main.58)
+[Unsupervised backprop-based decoding for counter-](https://doi.org/10.18653/v1/2020.emnlp-main.58)
+[factual and abductive commonsense reasoning. In](https://doi.org/10.18653/v1/2020.emnlp-main.58)
+_Proceedings of the 2020 Conference on Empirical_
+_Methods in Natural Language Processing (EMNLP)_,
+pages 794–805, Online. Association for Computational Linguistics.
+
+
+Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sastry, Amanda Askell, Pamela Mishkin, Jack Clark,
+[Gretchen Krueger, and Ilya Sutskever. 2021. Learn-](http://proceedings.mlr.press/v139/radford21a.html)
+[ing transferable visual models from natural language](http://proceedings.mlr.press/v139/radford21a.html)
+[supervision. In](http://proceedings.mlr.press/v139/radford21a.html) _Proceedings of the 38th International_
+_Conference on Machine Learning, ICML 2021, 18-24_
+_July 2021, Virtual Event_, volume 139 of _Proceedings_
+_of Machine Learning Research_, pages 8748–8763.
+PMLR.
+
+
+Shauli Ravfogel, Yoav Goldberg, and Tal Linzen. 2019.
+
+[Studying the inductive biases of RNNs with synthetic](https://doi.org/10.18653/v1/N19-1356)
+[variations of natural languages. In](https://doi.org/10.18653/v1/N19-1356) _Proceedings of_
+_the 2019 Conference of the North American Chap-_
+_ter of the Association for Computational Linguistics:_
+_Human Language Technologies, Volume 1 (Long and_
+_Short Papers)_, pages 3532–3542, Minneapolis, Minnesota. Association for Computational Linguistics.
+
+
+Yasaman Razeghi, Robert L Logan IV, Matt Gardner,
+[and Sameer Singh. 2022. Impact of pretraining term](https://aclanthology.org/2022.findings-emnlp.59)
+[frequencies on few-shot numerical reasoning.](https://aclanthology.org/2022.findings-emnlp.59) In
+_Findings of the Association for Computational Lin-_
+_guistics: EMNLP 2022_, pages 840–854, Abu Dhabi,
+United Arab Emirates. Association for Computational Linguistics.
+
+
+Yi Ren, Jinzheng He, Xu Tan, Tao Qin, Zhou Zhao, and
+[Tie-Yan Liu. 2020. Popmag: Pop music accompani-](https://doi.org/10.1145/3394171.3413721)
+[ment generation. In](https://doi.org/10.1145/3394171.3413721) _MM ’20: The 28th ACM Inter-_
+_national Conference on Multimedia, Virtual Event /_
+_Seattle, WA, USA, October 12-16, 2020_, pages 1198–
+1206.
+
+
+Laria Reynolds and Kyle McDonell. 2021. [Prompt](https://doi.org/10.1145/3411763.3451760)
+[programming for large language models: ddddd the](https://doi.org/10.1145/3411763.3451760)
+[few-shot paradigm. In](https://doi.org/10.1145/3411763.3451760) _Extended Abstracts of the_
+_2021 CHI Conference on Human Factors in Com-_
+_puting Systems_, CHI EA ’21, New York, NY, USA.
+Association for Computing Machinery.
+
+
+Abulhair Saparov and He He. 2023. Language models
+are greedy reasoners: A systematic formal analysis
+of chain-of-thought. In _Proceedings of ICLR_ .
+
+
+
+[Abulhair Saparov and Tom M. Mitchell. 2022. Towards](https://doi.org/10.1162/tacl_a_00463)
+[general natural language understanding with proba-](https://doi.org/10.1162/tacl_a_00463)
+[bilistic worldbuilding.](https://doi.org/10.1162/tacl_a_00463) _Transactions of the Associa-_
+_tion for Computational Linguistics_, 10:325–342.
+
+
+Sebastian Schuster and Christopher D. Manning. 2016.
+
+[Enhanced English Universal Dependencies: An im-](https://aclanthology.org/L16-1376)
+[proved representation for natural language under-](https://aclanthology.org/L16-1376)
+[standing tasks. In](https://aclanthology.org/L16-1376) _Proceedings of the Tenth Inter-_
+_national Conference on Language Resources and_
+_Evaluation (LREC’16)_, pages 2371–2378, Portorož,
+Slovenia. European Language Resources Association
+(ELRA).
+
+
+Pratyusha Sharma, Tamar Rott Shaham, Manel Baradad,
+Stephanie Fu, Adrian Rodriguez-Munoz, Shivam
+[Duggal, Phillip Isola, and Antonio Torralba. 2024. A](http://arxiv.org/abs/2401.01862)
+[vision check-up for language models.](http://arxiv.org/abs/2401.01862)
+
+
+Roger N Shepard and Jacqueline Metzler. 1971. Mental rotation of three-dimensional objects. _Science_,
+171(3972):701–703.
+
+
+David Silver, Thomas Hubert, Julian Schrittwieser, Ioannis Antonoglou, Matthew Lai, Arthur Guez, Marc
+Lanctot, Laurent Sifre, Dharshan Kumaran, Thore
+Graepel, Timothy P. Lillicrap, Karen Simonyan, and
+[Demis Hassabis. 2017. Mastering chess and Shogi](https://arxiv.org/abs/1712.01815)
+[by self-play with a general reinforcement learning](https://arxiv.org/abs/1712.01815)
+[algorithm.](https://arxiv.org/abs/1712.01815) _ArXiv preprint_, abs/1712.01815.
+
+
+Mark K Singley and John Robert Anderson. 1989. _The_
+_transfer of cognitive skill_ . 9. Harvard University
+Press.
+
+
+Dominik Sobania, Martin Briesch, Carol Hanna, and
+Justyna Petke. 2023. An analysis of the automatic
+bug fixing performance of ChatGPT. In _Proceedings_
+_of the 45th International Conference on Software_
+_Engineering_ .
+
+
+Aarohi Srivastava, Abhinav Rastogi, Abhishek Rao,
+Abu Awal Md Shoeb, Abubakar Abid, Adam
+Fisch, Adam R. Brown, Adam Santoro, Aditya
+Gupta, Adrià Garriga-Alonso, Agnieszka Kluska,
+Aitor Lewkowycz, Akshat Agarwal, Alethea Power,
+Alex Ray, Alex Warstadt, Alexander W. Kocurek,
+Ali Safaya, Ali Tazarv, Alice Xiang, Alicia Parrish, Allen Nie, Aman Hussain, Amanda Askell,
+Amanda Dsouza, Ambrose Slone, Ameet Rahane,
+Anantharaman S. Iyer, Anders Andreassen, Andrea
+Madotto, Andrea Santilli, Andreas Stuhlmüller, Andrew Dai, Andrew La, Andrew Lampinen, Andy
+Zou, Angela Jiang, Angelica Chen, Anh Vuong,
+Animesh Gupta, Anna Gottardi, Antonio Norelli,
+Anu Venkatesh, Arash Gholamidavoodi, Arfa Tabassum, Arul Menezes, Arun Kirubarajan, Asher Mullokandov, Ashish Sabharwal, Austin Herrick, Avia
+Efrat, Aykut Erdem, Ayla Karaka¸s, B. Ryan Roberts,
+Bao Sheng Loe, Barret Zoph, Bartłomiej Bojanowski,
+Batuhan Özyurt, Behnam Hedayatnia, Behnam
+Neyshabur, Benjamin Inden, Benno Stein, Berk
+Ekmekci, Bill Yuchen Lin, Blake Howald, Bryan
+Orinion, Cameron Diao, Cameron Dour, Catherine Stinson, Cedrick Argueta, César Ferri Ramírez,
+
+
+
+1833
+
+
+Chandan Singh, Charles Rathkopf, Chenlin Meng,
+Chitta Baral, Chiyu Wu, Chris Callison-Burch, Chris
+Waites, Christian Voigt, Christopher D. Manning,
+Christopher Potts, Cindy Ramirez, Clara E. Rivera,
+Clemencia Siro, Colin Raffel, Courtney Ashcraft,
+Cristina Garbacea, Damien Sileo, Dan Garrette, Dan
+Hendrycks, Dan Kilman, Dan Roth, Daniel Freeman, Daniel Khashabi, Daniel Levy, Daniel Moseguí
+González, Danielle Perszyk, Danny Hernandez,
+Danqi Chen, Daphne Ippolito, Dar Gilboa, David Dohan, David Drakard, David Jurgens, Debajyoti Datta,
+Deep Ganguli, Denis Emelin, Denis Kleyko, Deniz
+Yuret, Derek Chen, Derek Tam, Dieuwke Hupkes,
+Diganta Misra, Dilyar Buzan, Dimitri Coelho Mollo,
+Diyi Yang, Dong-Ho Lee, Dylan Schrader, Ekaterina
+Shutova, Ekin Dogus Cubuk, Elad Segal, Eleanor
+Hagerman, Elizabeth Barnes, Elizabeth Donoway, Ellie Pavlick, Emanuele Rodola, Emma Lam, Eric Chu,
+Eric Tang, Erkut Erdem, Ernie Chang, Ethan A. Chi,
+Ethan Dyer, Ethan Jerzak, Ethan Kim, Eunice Engefu Manyasi, Evgenii Zheltonozhskii, Fanyue Xia,
+Fatemeh Siar, Fernando Martínez-Plumed, Francesca
+Happé, Francois Chollet, Frieda Rong, Gaurav
+Mishra, Genta Indra Winata, Gerard de Melo, Germán Kruszewski, Giambattista Parascandolo, Giorgio Mariani, Gloria Wang, Gonzalo JaimovitchLópez, Gregor Betz, Guy Gur-Ari, Hana Galijasevic, Hannah Kim, Hannah Rashkin, Hannaneh Hajishirzi, Harsh Mehta, Hayden Bogar, Henry Shevlin,
+Hinrich Schütze, Hiromu Yakura, Hongming Zhang,
+Hugh Mee Wong, Ian Ng, Isaac Noble, Jaap Jumelet,
+Jack Geissinger, Jackson Kernion, Jacob Hilton, Jaehoon Lee, Jaime Fernández Fisac, James B. Simon,
+James Koppel, James Zheng, James Zou, Jan Koco´n,
+Jana Thompson, Janelle Wingfield, Jared Kaplan,
+Jarema Radom, Jascha Sohl-Dickstein, Jason Phang,
+Jason Wei, Jason Yosinski, Jekaterina Novikova,
+Jelle Bosscher, Jennifer Marsh, Jeremy Kim, Jeroen
+Taal, Jesse Engel, Jesujoba Alabi, Jiacheng Xu, Jiaming Song, Jillian Tang, Joan Waweru, John Burden, John Miller, John U. Balis, Jonathan Batchelder,
+Jonathan Berant, Jörg Frohberg, Jos Rozen, Jose
+Hernandez-Orallo, Joseph Boudeman, Joseph Guerr,
+Joseph Jones, Joshua B. Tenenbaum, Joshua S. Rule,
+Joyce Chua, Kamil Kanclerz, Karen Livescu, Karl
+Krauth, Karthik Gopalakrishnan, Katerina Ignatyeva,
+Katja Markert, Kaustubh D. Dhole, Kevin Gimpel, Kevin Omondi, Kory Mathewson, Kristen Chiafullo, Ksenia Shkaruta, Kumar Shridhar, Kyle McDonell, Kyle Richardson, Laria Reynolds, Leo Gao,
+Li Zhang, Liam Dugan, Lianhui Qin, Lidia ContrerasOchando, Louis-Philippe Morency, Luca Moschella,
+Lucas Lam, Lucy Noble, Ludwig Schmidt, Luheng
+He, Luis Oliveros Colón, Luke Metz, Lütfi Kerem
+¸Senel, Maarten Bosma, Maarten Sap, Maartje ter
+Hoeve, Maheen Farooqi, Manaal Faruqui, Mantas
+Mazeika, Marco Baturan, Marco Marelli, Marco
+Maru, Maria Jose Ramírez Quintana, Marie Tolkiehn,
+Mario Giulianelli, Martha Lewis, Martin Potthast,
+Matthew L. Leavitt, Matthias Hagen, Mátyás Schubert, Medina Orduna Baitemirova, Melody Arnaud,
+Melvin McElrath, Michael A. Yee, Michael Cohen, Michael Gu, Michael Ivanitskiy, Michael Star
+
+
+ritt, Michael Strube, Michał Sw˛edrowski, Michele
+Bevilacqua, Michihiro Yasunaga, Mihir Kale, Mike
+Cain, Mimee Xu, Mirac Suzgun, Mitch Walker,
+Mo Tiwari, Mohit Bansal, Moin Aminnaseri, Mor
+Geva, Mozhdeh Gheini, Mukund Varma T, Nanyun
+Peng, Nathan A. Chi, Nayeon Lee, Neta Gur-Ari
+Krakover, Nicholas Cameron, Nicholas Roberts,
+Nick Doiron, Nicole Martinez, Nikita Nangia, Niklas
+Deckers, Niklas Muennighoff, Nitish Shirish Keskar,
+Niveditha S. Iyer, Noah Constant, Noah Fiedel, Nuan
+Wen, Oliver Zhang, Omar Agha, Omar Elbaghdadi,
+Omer Levy, Owain Evans, Pablo Antonio Moreno
+Casares, Parth Doshi, Pascale Fung, Paul Pu Liang,
+Paul Vicol, Pegah Alipoormolabashi, Peiyuan Liao,
+Percy Liang, Peter Chang, Peter Eckersley, Phu Mon
+Htut, Pinyu Hwang, Piotr Miłkowski, Piyush Patil,
+Pouya Pezeshkpour, Priti Oli, Qiaozhu Mei, Qing
+Lyu, Qinlang Chen, Rabin Banjade, Rachel Etta
+Rudolph, Raefer Gabriel, Rahel Habacker, Ramon
+Risco, Raphaël Millière, Rhythm Garg, Richard
+Barnes, Rif A. Saurous, Riku Arakawa, Robbe
+Raymaekers, Robert Frank, Rohan Sikand, Roman
+Novak, Roman Sitelew, Ronan LeBras, Rosanne
+Liu, Rowan Jacobs, Rui Zhang, Ruslan Salakhutdinov, Ryan Chi, Ryan Lee, Ryan Stovall, Ryan
+Teehan, Rylan Yang, Sahib Singh, Saif M. Mohammad, Sajant Anand, Sam Dillavou, Sam Shleifer,
+Sam Wiseman, Samuel Gruetter, Samuel R. Bowman, Samuel S. Schoenholz, Sanghyun Han, Sanjeev Kwatra, Sarah A. Rous, Sarik Ghazarian, Sayan
+Ghosh, Sean Casey, Sebastian Bischoff, Sebastian
+Gehrmann, Sebastian Schuster, Sepideh Sadeghi,
+Shadi Hamdan, Sharon Zhou, Shashank Srivastava,
+Sherry Shi, Shikhar Singh, Shima Asaadi, Shixiang Shane Gu, Shubh Pachchigar, Shubham Toshniwal, Shyam Upadhyay, Shyamolima, Debnath,
+Siamak Shakeri, Simon Thormeyer, Simone Melzi,
+Siva Reddy, Sneha Priscilla Makini, Soo-Hwan Lee,
+Spencer Torene, Sriharsha Hatwar, Stanislas Dehaene, Stefan Divic, Stefano Ermon, Stella Biderman, Stephanie Lin, Stephen Prasad, Steven T. Piantadosi, Stuart M. Shieber, Summer Misherghi, Svetlana Kiritchenko, Swaroop Mishra, Tal Linzen, Tal
+Schuster, Tao Li, Tao Yu, Tariq Ali, Tatsu Hashimoto,
+Te-Lin Wu, Théo Desbordes, Theodore Rothschild,
+Thomas Phan, Tianle Wang, Tiberius Nkinyili, Timo
+Schick, Timofei Kornev, Titus Tunduny, Tobias Gerstenberg, Trenton Chang, Trishala Neeraj, Tushar
+Khot, Tyler Shultz, Uri Shaham, Vedant Misra, Vera
+Demberg, Victoria Nyamai, Vikas Raunak, Vinay
+Ramasesh, Vinay Uday Prabhu, Vishakh Padmakumar, Vivek Srikumar, William Fedus, William Saunders, William Zhang, Wout Vossen, Xiang Ren, Xiaoyu Tong, Xinran Zhao, Xinyi Wu, Xudong Shen,
+Yadollah Yaghoobzadeh, Yair Lakretz, Yangqiu Song,
+Yasaman Bahri, Yejin Choi, Yichi Yang, Yiding
+Hao, Yifu Chen, Yonatan Belinkov, Yu Hou, Yufang
+Hou, Yuntao Bai, Zachary Seid, Zhuoye Zhao, Zijian Wang, Zijie J. Wang, Zirui Wang, and Ziyi Wu.
+[2023. Beyond the imitation game: Quantifying and](http://arxiv.org/abs/2206.04615)
+[extrapolating the capabilities of language models.](http://arxiv.org/abs/2206.04615)
+
+
+Oyvind Tafjord, Bhavana Dalvi, and Peter Clark. 2021.
+
+[ProofWriter: Generating implications, proofs, and](https://doi.org/10.18653/v1/2021.findings-acl.317)
+
+
+
+1834
+
+
+[abductive statements over natural language. In](https://doi.org/10.18653/v1/2021.findings-acl.317) _Find-_
+_ings of the Association for Computational Linguis-_
+_tics: ACL-IJCNLP 2021_, pages 3621–3634, Online.
+Association for Computational Linguistics.
+
+
+Xiaojuan Tang, Zilong Zheng, Jiaqi Li, Fanxu Meng,
+Song-Chun Zhu, Yitao Liang, and Muhan Zhang.
+[2023. Large language models are in-context semantic](http://arxiv.org/abs/2305.14825)
+[reasoners rather than symbolic reasoners.](http://arxiv.org/abs/2305.14825)
+
+
+Nenad Tomasev, Ulrich Paquet, Demis Hassabis, and
+[Vladimir Kramnik. 2020. Assessing game balance](https://arxiv.org/abs/2009.04374)
+[with AlphaZero: Exploring alternative rule sets in](https://arxiv.org/abs/2009.04374)
+[chess.](https://arxiv.org/abs/2009.04374) _ArXiv preprint_, abs/2009.04374.
+
+
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier
+Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal
+Azhar, Aurelien Rodriguez, Armand Joulin, Edouard
+[Grave, and Guillaume Lample. 2023. LLaMA: Open](http://arxiv.org/abs/2302.13971)
+[and efficient foundation language models.](http://arxiv.org/abs/2302.13971)
+
+
+Steven G Vandenberg and Allan R Kuse. 1978. Mental
+rotations, a group test of three-dimensional spatial
+visualization. _Perceptual and motor skills_, 47(2):599–
+604.
+
+
+Victor Veitch, Alexander D’Amour, Steve Yadlowsky,
+[and Jacob Eisenstein. 2021. Counterfactual invari-](https://proceedings.neurips.cc/paper/2021/hash/8710ef761bbb29a6f9d12e4ef8e4379c-Abstract.html)
+[ance to spurious correlations in text classification.](https://proceedings.neurips.cc/paper/2021/hash/8710ef761bbb29a6f9d12e4ef8e4379c-Abstract.html)
+In _Advances in Neural Information Processing Sys-_
+_tems 34: Annual Conference on Neural Information_
+_Processing Systems 2021, NeurIPS 2021, December_
+_6-14, 2021, virtual_, pages 16196–16208.
+
+
+Yizhong Wang, Hamish Ivison, Pradeep Dasigi, Jack
+Hessel, Tushar Khot, Khyathi Raghavi Chandu,
+David Wadden, Kelsey MacMillan, Noah A. Smith,
+[Iz Beltagy, and Hannaneh Hajishirzi. 2023. How far](http://arxiv.org/abs/2306.04751)
+[can camels go? Exploring the state of instruction](http://arxiv.org/abs/2306.04751)
+[tuning on open resources.](http://arxiv.org/abs/2306.04751)
+
+
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, brian ichter, Fei Xia, Ed H. Chi, Quoc V Le,
+[and Denny Zhou. 2022. Chain of thought prompt-](https://openreview.net/forum?id=_VjQlMeSB_J)
+[ing elicits reasoning in large language models. In](https://openreview.net/forum?id=_VjQlMeSB_J)
+_Advances in Neural Information Processing Systems_ .
+
+
+Frank F. Xu, Uri Alon, Graham Neubig, and Vincent Jo[sua Hellendoorn. 2022. A systematic evaluation of](https://doi.org/10.1145/3520312.3534862)
+[large language models of code. In](https://doi.org/10.1145/3520312.3534862) _Proceedings of the_
+_6th ACM SIGPLAN International Symposium on Ma-_
+_chine Programming_, MAPS 2022, page 1–10, New
+York, NY, USA. Association for Computing Machinery.
+
+
+Xiaoyu Yang, Stephen Obadinma, Huasha Zhao, Qiong
+Zhang, Stan Matwin, and Xiaodan Zhu. 2020.
+[SemEval-2020 task 5: Counterfactual recognition. In](https://doi.org/10.18653/v1/2020.semeval-1.40)
+_Proceedings of the Fourteenth Workshop on Semantic_
+_Evaluation_, pages 322–335, Barcelona (online). International Committee for Computational Linguistics.
+
+
+Charles Yu, Ryan Sie, Nicolas Tedeschi, and Leon
+[Bergen. 2020. Word frequency does not predict gram-](https://doi.org/10.18653/v1/2020.emnlp-main.331)
+[matical knowledge in language models. In](https://doi.org/10.18653/v1/2020.emnlp-main.331) _Proceed-_
+_ings of the 2020 Conference on Empirical Methods_
+
+
+
+_in Natural Language Processing (EMNLP)_, pages
+4040–4054, Online. Association for Computational
+Linguistics.
+
+
+Wenhao Yu, Meng Jiang, Peter Clark, and Ashish Sab[harwal. 2023. IfQA: A dataset for open-domain ques-](http://arxiv.org/abs/2305.14010)
+[tion answering under counterfactual presuppositions.](http://arxiv.org/abs/2305.14010)
+
+
+Muru Zhang, Ofir Press, William Merrill, Alisa Liu,
+[and Noah A. Smith. 2023a. How language model](http://arxiv.org/abs/2305.13534)
+[hallucinations can snowball.](http://arxiv.org/abs/2305.13534)
+
+
+Tianjun Zhang, Yi Zhang, Vibhav Vineet, Neel
+Joshi, and Xin Wang. 2023b. [Controllable text-](https://arxiv.org/abs/2305.18583)
+[to-image generation with GPT-4.](https://arxiv.org/abs/2305.18583) _ArXiv preprint_,
+abs/2305.18583.
+
+
+Xikun Zhang, Deepak Ramachandran, Ian Tenney,
+[Yanai Elazar, and Dan Roth. 2020. Do language](https://doi.org/10.18653/v1/2020.blackboxnlp-1.27)
+[embeddings capture scales? In](https://doi.org/10.18653/v1/2020.blackboxnlp-1.27) _Proceedings of the_
+_Third BlackboxNLP Workshop on Analyzing and In-_
+_terpreting Neural Networks for NLP_, pages 292–299,
+Online. Association for Computational Linguistics.
+
+
+
+1835
+
+
+**Figure 5:** Two-digit addition accuracy when given different numbers of demonstration examples. The defaultcounterfactual gap reduces, but is not eliminated.
+
+
+**A** **Full Setups**
+Unless otherwise specified, we use temperature=0
+when sampling from the LMs.
+
+
+**A.1** **Arithmetic**
+
+We randomly sample 1,000 two-digit addition expressions and evaluate them in bases 8, 9, 10, 11,
+and 16. Each base is sampled separately—for bases
+other than base-10, we make sure all expressions
+evaluate to a different result in that base compared
+to base-10 so that these expressions discriminate
+between the bases. To ensure the LMs understand
+these bases, we design the CCC to ask the model
+what the number following a given number is. We
+want the model to know when to carry over and
+when not to, so we take the 100 smallest numbers
+in the given basis that ends with the maximum digit
+in that base, and 100 that end with 0.
+
+
+**A.2** **Programming**
+
+We use the HumanEval dataset (Chen et al., 2021)
+which has short Python programs and is commonly
+used to assess the coding ability of LMs (Bai et al.,
+2022; Xu et al., 2022; Wang et al., 2023; _i.a._ ). It
+was designed as a code- _generation_ dataset, where a
+model writes a function from a specification and is
+evaluated against test cases with input-output pairs.
+Different from our other tasks, we follow prior
+work (Touvron et al., 2023; Wang et al., 2023) and
+(1) use temperature 0.1 when evaluating pass@1
+and 0.8 for pass@10, (2) sample 50 responses, and
+(3) only evaluate without 0-shot CoT. While the
+original work (Chen et al., 2021) recommended
+sampling 200 responses, this is very expensive, and
+we follow Wang et al. (2023) and only sample 50.
+In Figure 2, we only show the performance on the
+subset of HumanEval where a 1-based execution of
+the ground-truth program fails the unit tests. These
+
+
+
+are the instances that distinguish between 0- and
+1-based indexing. We also report results on the full
+HumanEval dataset in Table 21.
+We also consider another setup—code _execution_,
+where we give the LM the ground-truth program
+and ask the LM for the output of the test cases given
+the input. We remove four programs in HumanEval
+that are not compatible with this format (ID: 32, 38,
+50, and 53), only for this execution task. Because
+the program would have a different functionality
+under 1-based indexing, we remove the docstring
+that is the function description, and also rename the
+function to the uninformative function, to avoid
+confusing the LM. Some programs also become
+invalid under 1-based indexing, specifically, those
+that perform any indexing using 0. We remove
+all test cases that involve indexing with 0 and programs that do not have test cases left after this
+removal. 150 programs and 969 test cases remain.
+Some of these test cases may not distinguish between 0- and 1-based indexing. So for our main
+task (i.e., not CCC), we only consider test cases
+whose outputs are different under 0- vs. 1-based
+indexing, and there are 113 of them.
+Because we use the same prompt to indicate
+the counterfactual conditions for both code generation and execution, and because we want to
+maintain comparability with prior work for the
+former, we only include CCC in the execution
+setup. We believe they reflect the LMs’ understanding of 1-based indexing in the generation setup
+too. We ask the LM for the output of simple tests
+about 1-based indexing such as "qrstu"[4] and
+"qrs"[:2]. They do not require sophisticated reasoning under the counterfactual conditions and yet
+are sufficient to discriminate between the default
+and the counterfactual conditions. We append 5
+such checks after each of the 150 programs, totaling 750 CCC.
+For the execution task, we do not consider PaLM2, because it only has a maximum of 1,024 output
+context length and leads to truncated, unparseable
+results for most test instances, especially under 0shot CoT.
+
+
+**A.3** **Basic Syntactic Reasoning**
+
+
+We follow Ravfogel et al. (2019) and create synthetic variants of English with all six orderings of
+the subject, verb, and object. Given a dependency
+tree of a regular English sentence, we alter the order of subject and object nodes with respect to the
+
+
+
+1836
+
+
+corresponding verb. The subtrees rooted at subject or object nodes are moved as a whole, whereas
+other non-core dependent nodes (e.g., prepositional
+phrases) are kept in the original positions. We use
+100 sentences from English Penn Treebank (Marcus et al., 1993), and convert the original phrasestructure trees into Universal Dependencies (Nivre
+et al., 2016) using the Stanford converter (Schuster
+and Manning, 2016).
+Our task is to identify the main verb and the
+main subject of a sentence. We only choose sentences where the main subject contains a single
+word. Ravfogel et al. (2019)’s data generation
+procedure sometimes results in sentences in the
+SVO order to be unnatural English sentences. To
+eliminate this complexity, we retain only sentences
+whose SVO variant according to Ravfogel et al.
+(2019)’s data generation procedure is identical to
+the original English sentence.
+We designed the CCC to assess how well LMs
+understand the instruction that explains the difference of word orders in the counterfactual settings.
+We synthetically generate 100 simple three-word
+sentences (e.g., “anna saw john”) in five counterfactual word orders (e.g., “anna john saw” in
+SOV), and ask LMs to reconstruct the original English sentences in SVO order. Conceptually, this
+is equivalent to asking the model to identify the
+subject, verb, and object in the perturbed order, but
+using a format that is more familiar to the LM.
+To generate the simple sentences for the CCC,
+we designed a simple context-free grammar where
+the subject and the object are sampled from the
+vocabulary of person names, and the verb is sampled from the set _{_ saw, loves, calls, knows,
+sees _}_ . A key feature of the sentences generated
+from this approach is their retained plausibility
+when the subject and object are interchanged. This
+means that given a counterfactual sentence (e.g.,
+“anna john saw”), there are two natural English
+sentences as candidates for reconstruction (i.e.,
+“anna saw john” and “john saw anna”). Due to
+this inherent ambiguity, LMs cannot default to the
+heuristic of treating the synthetic sentence as bagof-words and then reconstructing the most natural
+ordering of those words in real English. The random baseline chooses a random noun as the main
+subject and a random verb as the main verb.
+
+
+**A note on CCC results.** The results for this task
+are shown in Table 22. Generally, the models
+pass our crafted CCC challenge with decent ac
+
+
+curacy, but we observed that, in a few cases, the
+LMs are confused by the reconstruction ambiguity
+explained above. GPT-3.5 and Claude fail in the
+OVS settings where they often directly copy the
+original sentence—e.g., instead of reconstructing
+“anna saw john” to “john saw anna”, they simply copy the original sentence “anna saw john” as
+the output. Similarly, PaLM-2 often incorrectly reverses the subject and object in the SOV and VSO
+settings—e.g., instead of reconstructing “calls
+tom lucas” to “tom calls lucas”, it outputs
+“lucas calls tom”.
+
+
+**A.4** **Natural Language Reasoning with**
+**First-Order Logic**
+
+We use the FOLIO dataset (Han et al., 2022) that
+contains premises most of which are consistent
+with common sense and are hence amenable to
+our counterfactual study. We use the full dataset,
+combining the training and development sets for a
+total of 1,204 instances, for the logistic regression
+analysis in §5.1. But for our counterfactual study,
+automatically altering the premises to violate common sense is not trivial, so one author manually
+rewrote the premises of a subset of 81 instances
+to be counterfactual, and another author verified
+the rewrite. Considering the analysis in §5.1, we
+chose this subset by including every instance with
+premises all of which GPT-4 believes to be true
+and whose conclusion whose GPT-4-believed truth
+value matches the entailment label.
+We explicitly instruct the model to use no common sense or world knowledge (§C), thereby requiring symbolic reasoning. For the CCC, we ask
+the model if the unaltered or the altered premise
+is true, when both are presented as options, and
+expect the latter.
+While the FOLIO dataset has a public release,
+the authors have made subsequent updates which,
+at the time of this paper, have not been made public.
+We hence do not release the LM interaction data for
+this task, and use a fictional example in Table 5.
+
+
+**A.5** **Spatial Reasoning**
+
+We ask the LM for the coordinates of objects in
+a room. We randomly sample 100 rooms, each
+with 3 different objects placed in 3 different cardinal directions specified using unit vectors (out
+of north (0 _, −_ 1), south (0 _,_ 1), east (1 _,_ 0), and west
+( _−_ 1 _,_ 0) as the default conditions). Though using
+a downward-facing _y_ -axis as the default condition
+may be counter-intuitive, it is natural when draw
+
+
+1837
+
+
+ing top-to-bottom and is the convention in most image processing libraries such as OpenCV (Python),
+Pillow (Python), and Processing (Java, JavaScript,
+Python), as well as graphic design applications
+such as Adobe Illustrator. We believe this system is
+the most often encountered during LM pretraining.
+However, other libraries with an upward-facing _y_ axis also exist, such as matplotlib (Python), ggplot
+(R), and D3 (JavaScript).
+For the counterfactual setting, we alter the
+direction–unit vector mapping, and ask for the
+object coordinates in the new system. We consider two direction-swapped worlds (north-south
+and east-west), three rotated worlds (by 90°, 180°,
+and 270°), and a randomly permuted world. We
+evaluate the relative positions of objects and report
+the instance-level accuracy that requires all 3 objects in a room to be located correctly as the main
+metric. The random accuracy is around 16.7%. [6]
+
+We also report the object-level accuracy in Table 24.
+As the CCC, we make sure that the LM understands
+the permuted world by asking it to also specify the
+coordinates of the unit vectors representing the 4
+cardinal directions in the output.
+
+
+**A.6** **Drawing**
+
+We choose 100 objects from five Emoji [7] categories:
+activity, travel & places, animals & nature, food
+& drink, and objects. Since LMs cannot generate
+images at the pixel level, we use code as an intermediate abstraction for sketch generation. We
+do our best to select objects that are easy to draw
+using code, verified by multiple authors. We consider the Processing language for our experiment
+which supports a variety of shapes and colors and
+is widely used in visualization and which Sharma
+et al. (2024) found the LMs to be more adept
+in. Our initial experiments found this language to
+achieve the best drawing performance compared to
+other graphics and image processing frameworks,
+including TikZ, SVG, and matplotlib.
+For the counterfactual settings, we ask the LMs
+to draw the same object, but vertically flipped (i.e.,
+upside-down), or rotated by 90°or 180°. We also
+ask the LMs to avoid using any transformation functions such as rotate and scale to avoid shortcuts.
+Before our quantitative evaluation, we flip/rotate
+back the generated drawing.
+
+
+6When not considering cases where objects are placed in
+the same line, there are 24 permutations for placing 3 objects
+in 4 different directions, of which 4 can be considered correct.
+[7https://getemoji.com](https://getemoji.com)
+
+
+
+We use human evaluation by asking human annotators to determine whether the drawing matches
+the object (detailed in §E). We instruct the annotators to consider orientation as part of correctness
+and for objects that have a canonical orientation,
+they must be drawn in that orientation. We average the results over 4 annotators. We also show a
+breakdown of accuracy depending on whether an
+object has a canonical orientation or not, as judged
+by the annotators, in Table 26. In addition, we
+consider multi-class classification accuracy using
+CLIP (Radford et al., 2021) as an automatic metric, where we ask CLIP to classify the drawing
+into our 100 categories in a 0-shot fashion. We
+include the CLIP multi-class classification accuracy in Table 25. We note that the accuracy of
+the CLIP model for our setup is not guaranteed:
+first, our generated sketches may be distributionally different from the predominantly photorealistic
+images in CLIP’s training data; also, CLIP might
+be insensitive to the object’s orientation, but that
+distinguishes between our default and counterfactual settings. Therefore, to verify the reliability of
+this automatic evaluation, we randomly sample 10
+objects for each model and for each default/counterfactual setting, and perform human evaluation
+on the 240 generated images. We find that CLIP’s
+judgment aligns with human annotators’ 84% of
+the time, suggesting the reliability of this evaluation.
+For this task, we do not consider PaLM-2 due to
+its limited context length. Our preliminary experiments also found PaLM-2 to struggle in generating
+parseable Processing code, even in the default setting.
+We construct the CCC baseline by requiring the
+LMs to additionally draw a line at the top of the
+figure and flip/rotate it as well. A successful flipping/rotation of the line, as judged by the annotators and verified in the generated code if necessary,
+demonstrates an understanding of the counterfactual world.
+
+
+**A.7** **Music**
+
+**A.7.1** **Playing Chords on Instruments**
+We measure LMs’ abilities to give correct fret
+placements for ukulele and guitar chords in an existing database. [8][,][9] We include the following kinds of
+
+
+[8https://github.com/tombatossals/chords-db](https://github.com/tombatossals/chords-db)
+9We heuristically filter out incorrect datapoints by filtering
+out chords that either have the wrong number of notes or lack
+the root note.
+
+
+
+1838
+
+
+chords from the database: sus2 (suspended second
+chord), sus4 (suspended fourth chord), min triad
+(minor triad), maj triad (major triad), dim7 (diminished seventh chord), aug7 (augmented seventh
+chord), maj7 (major seventh chord), min7 (minor
+seventh chord), dom7 (dominant seventh chord), 5
+(fifth interval), and 6 (sixth chord).
+In the counterfactual setting, we instruct LMs
+to provide fret placements for a “special” ukulele
+or guitar where one of the strings is altered. We
+experiment with perturbations of different sizes:
+For guitar, we experiment with one-string changes
+by one note ( _E_ _**A**_ _DGBE →_ _E_ _**B**_ _DGBE_ ; _**E**_ _ADGBE →_
+_**F**_ _ADGBE_ ), one-string changes by two notes ( _→_
+_E_ _**C**_ _DGBE_ ), and two string changes ( _→_ _E_ _**CF**_ _GBE_ ).
+We also experiment with a one-string change that
+corresponds to a common alternate tuning of a
+guitar called drop-D tuning ( _→_ _**D**_ _ADGBE_ ). For
+ukulele, we experiment with one-string changes by
+one note ( _**G**_ _CEA →_ _**F**_ _CEA_ ; _→_ _**A**_ _CEA_ ), one-string
+change by two notes ( _→_ _**B**_ _CEA_ ), and two-string
+changes by two notes ( _→_ _**BE**_ _EA_ ). The generated
+fret placements for a chord are considered _correct_
+if all and only the notes in the corresponding chord
+(e.g., _C, E, G_ for a C major triad) are produced,
+irrespective of order.
+As the CCC, we assess LMs’ understanding of
+the given instrument’s strings by asking them to
+identify what notes a given sequence of frets corresponds to; for the CCC, the sequences are either all
+fret 0, all fret 1, or all fret 2. We compute CCC accuracy at the fret level (as opposed to the sequence
+level).
+
+
+**A.7.2** **Retrieving Notes of Famous Melodies**
+
+For 8 famous melodies, we prompt LMs to retrieve
+the _n_ -th note in the melody, where _n_ is between 1
+and 7 (inclusive). In the counterfactual setting, we
+prompt the LM to do the same but in a different
+key. The list of melodies and keys we experiment
+with is below.
+We use _C Major_ as the key for songs as the
+default condition given its popularity for famous
+melodies like children’s songs. We use other keys
+as the counterfactual keys. [10]
+
+
+10We note that some songs may have multiple canonical
+keys (e.g., “Twinkle Twinkle Little Star” is also frequently
+performed in keys like G major or D Major.) In some initial
+exploration, we validated that C Major was at least one of
+the canonical keys for the melodies chosen, both by verifying
+that popular sheet music for these songs was written in C
+Major, and by asking GPT-3.5 to generate the melodies in an
+unspecified key and verifying that the generated key was C
+
+
+
+As the CCC, we assess LMs’ understanding of
+the given keys by asking them to retrieve the _n_ -th
+note of the scale of the given key.
+
+
+**Melodies:** Twinkle Twinkle Little Star, Mary
+Had a Little Lamb, Happy Birthday to You, Somewhere Over the Rainbow, Row Row Row Your
+Boat, Old Macdonald Had a Farm, Itsy Bitsy Spider, London Bridge is Falling Down.
+
+
+**Counterfactual Keys:** B# major, C# major, Db
+major, D major, D# major, Eb major, Fb major, E
+major, E# major, F major, F# major, Gb major, G
+major, G# major, Ab major, A major, A# major, Bb
+major, Cb major, B major.
+
+
+**A.8** **Chess**
+
+We evaluate an LM’s ability to understand chess
+rules by checking if it can determine whether a
+4-move opening follows the rules of chess or not.
+In the counterfactual setting, we swap the position
+of bishops and knights on the board and evaluate
+the same task. For each setting, we randomly sample 400 unique chess openings via a procedural
+generation algorithm: 200 are legal for the default
+setting but not for the counterfactual setting, and
+vice versa for the other 200, ensuring a more balanced and fair classification problem. We represent
+the moves as the LM input using the PGN format,
+the standard for chess moves description.
+For the CCC, we ask an LM for the starting positions of the four knights and four bishops on the
+board to make sure it understands the new initial
+board. For both the default and counterfactual settings, we ask for the positions of white knights,
+white bishops, black knights, and black bishops, totaling 8 pieces, and evaluate using accuracy. Since
+concluding the effectiveness of our counterfactual
+prompt using merely 8 CCC may not be statistically
+significant, we sample 15 LM responses using temperature=0.1 for asking about each piece.
+
+
+**A.9** **SET Game**
+
+We synthetically generate SET boards, consisting
+of 12 cards, each with exactly one 3-card SET
+that satisfies the game rules in §3. We represent each card with a string representation, e.g.,
+(3|open|red|diamond). In preliminary experiments, we tried to ask the LMs to find the SET
+directly, but found that they cannot perform this
+task well (see Figure 4c, “Number of Cards to
+
+
+Major.
+
+
+
+1839
+
+
+|GPT-4 GPT-3.5 Claude PaLM-2<br>1.25<br>1.00<br>Value<br>0.75<br>0.50 Coefficient<br>0.25<br>0.00<br>0.25<br># Premises % True % False % Unknown Concl. Truth.|GPT-4 GPT-3.5 Claude PaLM-2|Col3|Col4|
+|---|---|---|---|
+|# Premises<br>% True<br>% False<br>% Unknown Concl. Truth<br>0.25<br>0.00<br>0.25<br>0.50<br>0.75<br>1.00<br>1.25<br>GP~~T-~~4<br>GP~~T-~~3.5<br>Claude<br>PaLM~~-~~2<br>Coefficient Value||||
+|# Premises<br>% True<br>% False<br>% Unknown Concl. Truth<br>0.25<br>0.00<br>0.25<br>0.50<br>0.75<br>1.00<br>1.25<br>GP~~T-~~4<br>GP~~T-~~3.5<br>Claude<br>PaLM~~-~~2<br>Coefficient Value||lse<br>% Unknown Concl.|Truth|
+
+
+**Figure 6:** Logistic regression coefficients of features
+that predict whether an LM correctly predicts the label
+of an instance. “Concl. Truth. Match” is a binary feature
+that is 1 iff the instance label matches the (LM-believed)
+truthfulness of the conclusion. The 95% confidence
+intervals are also shown. LMs tend to predict more
+correctly when there are more true premises, when the
+instance label matches the conclusion truthfulness, but
+less correctly with more false and unknown premises.
+
+
+Find”= 3). Therefore, in our main evaluation, we
+expose 2 cards in the SET and ask the LM to identify the missing one that completes the SET.
+In the counterfactual setting, we invert the rule
+for the _number_ attribute to require that two cards in
+the SET should have the same number but the other
+card should be different. For the CCC, we ask the
+model to verify the validity of a given SET instead
+of finding it. In each CCC instance, we either give
+a valid SET from the board, or 3 randomly sampled
+cards that do not constitute a valid SET. We ask the
+model to classify whether the given combination
+is valid or invalid. We note that our counterfactual perturbation ensures that the each SET cannot
+be simultaneously valid in the default setting and
+the counterfactual setting, and hence this CCC is
+discriminative between the two settings.
+
+
+**B** **Additional Analysis**
+
+
+In this section, we provided additional analysis to
+§5.
+
+
+**B.1** **LMs’ Logical Ability Correlates With the**
+**Proximity between Default and**
+**Counterfactual Conditions**
+
+In §5.2, we mentioned that the commonsenseabiding tendency of most statements in the FOLIO
+dataset (Han et al., 2022) enables us to quantify
+how the a LM performs when the premises and
+the conclusion increasingly deviate from the real
+
+
+
+world (as believed by the LM), without artificial
+counterfactual perturbations.
+Concretely, for each test instance in FOLIO, we
+ask the LMs whether the premises and conclusion
+are true, false, or uncertain. We train a logistic
+regression model to predict LM correctness on each
+test instance, using as features the total number of
+premises in an input, the proportion of the premises
+that are true/false/uncertain, as encoded by the LM,
+as well as whether the LM-predicted truthfulness
+of the conclusion matches the label of the instance.
+Figure 6 shows the learned coefficients of these
+features, as well as their 95% confidence interval
+bootstrapping with 1,000 iterations (Efron and Tibshirani, 1993). Ideally, a robust model should predict solely based on symbolic deduction and extralinguistic truthfulness information should not
+affect its accuracy. In other words, these features
+should all have coefficients 0 and have no predictive power with respect to the model’s correctness.
+However, all LMs predict more correctly with more
+realistic (true) premises, and when the conclusion’s
+LM-predicted truthfulness matches the label (indicating a tendency to predict the label solely based
+on the conclusion, ignore premises). On the other
+hand, they tend to perform worse when there are
+more false or uncertain premises. Most of these
+trends are statistically significant. This means that
+the reasoning ability of LMs is affected by the distance between the (LM-believed) real world and
+the world state under which the LMs are expected
+to reason.
+
+
+**B.2** **Qualitative Analysis of Drawing Results**
+
+We conduct a qualitative error analysis on the drawing task and show some examples in Figure 7. We
+first note that GPT-4 successfully passes the CCC
+for these cases (see §3; but not displayed here),
+indicating that it understands the flip/rotation instructions. However, the objects in the counterfactual worlds are often not flipped or rotated. Even
+when they are transformed appropriately, the resulting drawing is often simplified or of worse quality
+(e.g., Unicorn, Cake). We also observed much
+more syntactically invalid programs in the counterfactual cases for GPT-3.5. [11] These results indicate
+that even when a model can perform a task in the
+counterfactual setup, its capabilities are reduced.
+
+
+11On average, the number of parseable programs generated
+by GPT-3.5 drops from 99% in the default condition to 62%,
+71%, and 75% for the vertically flipped, 90° rotated, and 180°
+rotated settings, respectively.
+
+
+
+1840
+
+
+**Figure 7:** Visualizations of objects drawn by GPT-4
+under the default (upright) and counterfactual conditions: vertical flip (Vflip, i.e. upside-down), rotates 90
+degrees (R90), and 180 degrees (R180). In all cases, the
+CCC (not shown) passes. We show the original output,
+without flipping/rotating back as in our quantitative evaluation (§A.6). For the counterfactual settings, GPT-4
+either does not transform the objects as instructed (e.g.,
+house and penguin) or struggles to draw meaningful
+objects (e.g., cake and unicorn).
+
+
+**C** **Prompts**
+
+
+We provide the exact prompts that we used to query
+the LMs in Tables 1 to 17. For clarity, we give a
+concrete prompt that embeds a test instance, rather
+than a template. We explain minor design decisions
+in the respective captions. We do not use the system
+message field for any model.
+
+
+**D** **Raw Results**
+
+
+We show the numeric results in Tables 18 to 34.
+
+
+**E** **Human Annotation Details**
+
+
+Our human annotators are all current students from
+American, Asian, and European institutions, to
+whom we explained the purpose of the annotation.
+We show the exact instruction of our drawing evaluation in Figure 8.
+
+
+1841
+
+
+Mode Prompt
+
+
+You are a mathematician. Assuming that all numbers are in base-11 where the
+Test digits are "0123456789A", what is 59+37? **{Let’s think step by step, and }** end
+the response with the result in "\boxed{result}".
+
+
+
+CCC
+
+
+Few-Shot CoT
+
+
+
+You are a mathematician. Assuming that all numbers are in base-11 where the
+digits are "0123456789A", what is the next number after 11A? Do this by
+counting the few preceding numbers and completing the sequence. End
+the response with the result.
+
+
+You are a mathematician. Assuming that all numbers are in base-11 where the
+digits are "0123456789A", what is 25+68? Let’s think step by step, and end
+the response with the result in "\boxed{result}". We add the ones digits first.
+In base-11, 5+8=12. So the ones digit of the final sum is 2. We need to carry
+over the 1 to the tens place. Then we add the tens digits. In base-11, 2+6=8.
+Since we carried over the 1, 8+1=9. So the tens digit of the final sum is 9.
+Putting the digits of the final sum together, we get \boxed{92}.
+...[optionally more demonstrations in the same format]...
+You are a mathematician. Assuming that all numbers are in base-11 where the
+digits are "0123456789A", what is 59+37? Let’s think step by step, and end
+the response with the result in "\boxed{result}".
+
+
+
+**Table 1:** Prompts for the arithmetic task. **{Let’s think step by step, and }** is added only if 0-shot CoT is
+used (and the following e is capitalized without 0-shot CoT). We use the \boxed{result} syntax to wrap results
+because we found in preliminary experiments that the models tend to use this format even without this specification.
+The Few-Shot CoT prompt is used for the analysis in §5.4.
+
+
+1842
+
+
+Mode Prompt
+
+
+You are an expert programmer. What does the following code snippet in
+Python 3.7 print?
+````` python
+def function(lst):
+return sum([lst[i] for i in range(1, len(lst), 2) if lst[i] % 2 == 0])
+
+
+
+Default
+
+
+CF
+
+
+
+print([function([4, 88])])
+print([function([4, 5, 6, 7, 2, 122])])
+print([function([4, 0, 6, 7])])
+print([function([4, 4, 6, 8])])
+print([list(range(3))])
+print([[4, 5, 6].pop(2)])
+print(["qrs"[:2]])
+print(["qrstu"[4]])
+print([list(enumerate("qrstuv"))])
+```
+```
+```
+
+**{Let’s think step by step. Write out intermediate results and reasoning**
+**processes as needed. }** End the response by saying "The final output is:"
+and a unified summary ````` python ````` code block with *ALL* the output, in
+which each line represents the output of each print statement.
+
+
+You are an expert programmer who can readily adapt to new programming
+languages. There is a new programming language, ThonPy, which is identical to
+Python 3.7 except all variables of the ``` list ```, ``` tuple ```, and ``` str ``` types use
+1-based indexing, like in the MATLAB and R languages, where sequence indices
+start from 1. That is, index ``` n ``` represents the ``` n ``` -th element in a sequence,
+NOT the ``` n+1 ``` -th as in 0-based indexing. This change only affects when the
+index is non-negative. When the index is negative, the behavior is the same
+as Python 3.7. This also affects methods of these classes such as ``` index ``` and
+``` pop ``` . The built-in functions ``` enumerate ``` and ``` range ``` also use 1-based
+indexing: by default, the index of ``` enumerate ``` starts from 1, and so does the
+lower bound of ``` range ``` when not supplied (the higher bound is unchanged).
+
+
+For example,
+````` thonpy
+assert (7, 8, 9)[1] == 7
+assert ["abc", "def", "ghi"][3] == "ghi"
+assert "abcde"[4] == "d"
+assert "abc"[:2] == "a"
+assert [7, 8, 9][1:] == [7, 8, 9][1:5] == [7, 8, 9][1::1] == [7, 8, 9][:4]
+== [9, 8, 7][::-1] == [9, 8, 7, 6][3::-1] == [7, 8, 9]
+assert list(enumerate([7, 8, 9])) == [(1, 7), (2, 8), (3, 9)]
+assert list(range(2)) == [1]
+assert list(range(2, 4)) == [2, 3]
+assert {0: 7, 1: 8, 2: 9}[1] == 8
+assert [7, 8, 9].index(8) == 2
+```
+```
+
+```
+
+What does the following code snippet in ThonPy print?
+````` thonpy
+def function(lst):
+return sum([lst[i] for i in range(1, len(lst), 2) if lst[i] % 2 == 0])
+
+
+print([function([4, 88])])
+print([function([4, 5, 6, 7, 2, 122])])
+print([function([4, 0, 6, 7])])
+print([function([4, 4, 6, 8])])
+print([list(range(3))])
+print([[4, 5, 6].pop(2)])
+print(["qrs"[:2]])
+print(["qrstu"[4]])
+print([list(enumerate("qrstuv"))])
+```
+```
+```
+
+**{Let’s think step by step. Write out intermediate results and reasoning**
+**processes as needed. }** End the response by saying "The final output is:"
+and a unified summary ````` thonpy ````` code block with *ALL* the output, in
+which each line represents the output of each print statement.
+
+
+
+**Table 2:** Prompts for the program execution task. **{Let’s think step by step. Write out intermediate**
+**results and reasoning processes as needed. }** is added only if 0-shot CoT is used. All the print statements
+wrap the expression in a singleton list for the ease of parsing, so that (a) each output always takes a single line even
+with line breaks in the middle, and (b) we can distinguish between a string representation of e.g. an integer and the
+integer type.
+
+
+1843
+
+
+Mode Prompt
+
+
+You are an expert programmer. Complete the following function in Python 3.7. Please
+only output the code for the completed function.
+
+
+
+Default
+
+
+CF
+
+
+
+def add(lst):
+"""Given a non-empty list of integers lst. add the even elements that are at odd
+indices..
+
+
+Examples:
+add([4, 2, 6, 7]) ==> 2
+"""
+
+
+You are an expert programmer who can readily adapt to new programming
+languages. There is a new programming language, ThonPy, which is identical to
+Python 3.7 except all variables of the ``` list ```, ``` tuple ```, and ``` str ``` types use
+1-based indexing, like in the MATLAB and R languages, where sequence indices
+start from 1. That is, index ``` n ``` represents the ``` n ``` -th element in a sequence,
+NOT the ``` n+1 ``` -th as in 0-based indexing. This change only affects when the
+index is non-negative. When the index is negative, the behavior is the same
+as Python 3.7. This also affects methods of these classes such as ``` index ``` and
+``` pop ``` . The built-in functions ``` enumerate ``` and ``` range ``` also use 1-based
+indexing: by default, the index of ``` enumerate ``` starts from 1, and so does the
+lower bound of ``` range ``` when not supplied (the higher bound is unchanged).
+
+
+For example,
+````` thonpy
+assert (7, 8, 9)[1] == 7
+assert ["abc", "def", "ghi"][3] == "ghi"
+assert "abcde"[4] == "d"
+assert "abc"[:2] == "a"
+assert [7, 8, 9][1:] == [7, 8, 9][1:5] == [7, 8, 9][1::1] == [7, 8, 9][:4]
+== [9, 8, 7][::-1] == [9, 8, 7, 6][3::-1] == [7, 8, 9]
+assert list(enumerate([7, 8, 9])) == [(1, 7), (2, 8), (3, 9)]
+assert list(range(2)) == [1]
+assert list(range(2, 4)) == [2, 3]
+assert {0: 7, 1: 8, 2: 9}[1] == 8
+assert [7, 8, 9].index(8) == 2
+```
+```
+
+```
+
+Complete the following function in ThonPy. Please only output the code for the
+completed function.
+
+
+def add(lst):
+"""Given a non-empty list of integers lst. add the even elements that are at odd
+indices..
+
+
+Examples:
+add([4, 2, 6, 7]) ==> 2
+"""
+
+
+**Table 3:** Prompts for the program generation task.
+
+
+1844
+
+
+Mode Prompt
+
+
+
+Default
+
+
+CF
+
+
+CCC
+
+
+
+You are an expert in linguistics. Your task is to identify the main verb and the main subject
+of a sentence in English. Show the main verb (a single word) and its subject (also a single word) after
+the prefix ‘Main verb and subject: ’.
+Sentence: japan had just opened its doors to the world after about 250 years of isolation .
+**{Let’s think step by step. }**
+
+
+You are an expert in linguistics. Imagine a language that is the same as English with the only
+exception being that it uses the verb-object-subject order instead of the subject-verb-object order.
+Your task is to identify the main verb and the main subject in a sentence in this imaginary language.
+Show the main verb (a single word) and its subject (also a single word) after the prefix
+‘Main verb and subject: ’.
+Sentence: had just opened its doors japan to the world after about 250 years of isolation .
+**{Let’s think step by step. }**
+
+
+You are an expert in linguistics. Imagine a language that is the same as English with the only
+exception being that it uses the verb-subject-object order instead of the subject-verb-object order.
+Your task is to reconstruct the original sentence in English. You should only use the words in the same
+form as they appear in the given sentence.
+Sentence: saw anna john
+Show the original sentence at the end after the prefix ‘Original sentence: ’.
+**{Let’s think step by step. }**
+
+
+
+**Table 4:** Prompts for the basic syntactic reasoning task. **{Let’s think step by step. }** is added only if 0-shot
+CoT is used.
+
+
+Mode Prompt
+
+
+
+Test
+
+
+CCC
+
+
+
+Consider the following premises: "All corgis are reptiles. All reptiles are plants."
+Assuming no other commonsense or world knowledge, is the sentence "All corgis are
+plants." necessarily true, necessarily false, or neither? **{Let’s think step by step,**
+**and }** end the response with either "necessarily true", "necessarily false", or "neither".
+
+
+Consider the following premises: "All corgis are reptiles. All reptiles are plants."
+Assuming no other commonsense or world knowledge, which sentence between (a) "All
+corgis are reptiles." and (b) "All corgis are mammals." is definitely true? Answer just
+"(a)" or "(b)" and nothing else. You MUST choose one and only one, so DO NOT say neither
+or both.
+
+
+
+**Table 5:** Prompts for the natural language reasoning task. **{Let’s think step by step, and }** is added only if
+0-shot CoT is used (and the following e is capitalized without 0-shot CoT). We only use a made-up example here
+rather than one in the dataset due to the non-publicness of the dataset (§A.4). Default and counterfactual tasks share
+the same test template, but the instances themselves are changed to be counterfactual. For the CCC, we separate
+each changed premise in an instance into a separate prompt. The default statement and the counterfactual statement
+are matched to (a) and (b) randomly. We do not distinguish between CCC with or without 0-shot CoT.
+
+
+1845
+
+
+Mode Prompt
+
+
+You are in the middle of a kitchen. There is a microwave on the south side. There is a
+fridge on the west side. There is a coffee machine on the north side. We define the
+following directions. The north direction is (0, -1). The south direction is (0, 1).
+The east direction is (1, 0). The west direction is (-1, 0). What’s the layout of the
+room in the following format? You can estimate the size of the objects.
+
+
+
+Default
+
+
+CF
+
+
+
+````` json
+{"name": "??", "width": 500, "height": 500, "directions": {"north": "??", "south": "??",
+"east": "??", "west": "??"}, "objects": [{"name": "??", "x": "??", "y": "??"}]}
+```
+```
+
+```
+
+**{Let’s think step by step.}**
+
+
+You are in the middle of a kitchen. There is a microwave on the south side. There is a
+fridge on the west side. There is a coffee machine on the north side. We define the
+following directions. The north direction is (-1, 0). The south direction is (1, 0).
+The east direction is (0, -1). The west direction is (0, 1). What’s the layout of the
+room in the following format? You can estimate the size of the objects.
+
+
+````` json
+{"name": "??", "width": 500, "height": 500, "directions": {"north": "??", "south": "??",
+"east": "??", "west": "??"}, "objects": [{"name": "??", "x": "??", "y": "??"}]}
+```
+```
+
+```
+
+**{Let’s think step by step.}**
+
+
+
+**Table 6:** Prompts for the spatial reasoning task. **{Let’s think step by step.}** is added only if 0-shot CoT is
+used.
+
+
+1846
+
+
+Mode Prompt
+
+
+
+Default 1
+
+
+Default 2
+
+
+CF 1
+
+
+CF 2
+
+
+
+You are an expert programmer and drawer. Imagine an image: there is a line at the top
+and a house in the middle. Can you try your best to draw this image using the
+``` processing ``` language? Please do not use any built-in transformation functions, such as
+``` rotate ``` and ``` scale ``` . Also, avoid defining any custom transformation functions yourself.
+Do not load any existing images. Please include as many details of the house as
+possible and put everything together in the end.
+
+
+**{Let’s think step by step.}**
+
+
+You are an expert programmer and drawer. Imagine an image: there is a line at the top
+and a house in the middle. Can you try your best to draw the line and the house
+using the ``` processing ``` language? Please do not use any built-in transformation
+functions, such as ``` rotate ```, ``` scale ```, and ``` translate ``` . Also, avoid defining any
+custom transformation functions yourself. Do not load any existing images. Please
+include as many details of the house as possible and put everything together in the
+end.
+
+
+**{Let’s think step by step.}**
+
+
+You are an expert programmer and drawer. Imagine an image: there is a line at the top
+and a house in the middle. Can you rotate this image 180 degrees and try your best to
+draw it using the ``` processing ``` language? Please do not use any built-in transformation
+functions, such as ``` rotate ``` and ``` scale ``` . Also, avoid defining any custom transformation
+functions yourself. Do not load any existing images. Do not draw the original objects.
+Please include as many details of the house as possible and put everything together
+in the end.
+
+
+**{Let’s think step by step.}**
+
+
+You are an expert programmer and drawer. Imagine an image: there is a line at the top
+and a house in the middle. Can you rotate this image 180 degrees and try your best to
+draw the 180-degree rotated line and the 180-degree rotated house using the ``` processing ```
+language? Please do not use any built-in transformation functions, such as ``` rotate ```,
+``` scale ```, and ``` translate ``` . Also, avoid defining any custom transformation functions
+yourself. Do not load any existing images. Do not draw the original objects. Please
+include as many details of the house as possible and put everything together in the
+end.
+
+
+**{Let’s think step by step.}**
+
+
+
+**Table 7:** Prompts for the drawing task. **{Let’s think step by step.}** is added only if 0-shot CoT is used.
+We use prompt 1 for GPT-4 and prompt 2 for GPT-3.5 and Claude. We chose the prompt based on the best CCC
+accuracy for each respective model. In our preliminary experiments, we found that switching the prompt hurts CCC
+accuracy by more than 20% for both GPT-4 and GPT-3.5. Claude does not follow our instructions when using
+prompt 1, leading to almost 0% CCC’s accuracy.
+
+
+1847
+
+
+Mode Prompt
+
+
+You are an expert guitar player. I have a guitar with standard strings E-A-D-G-B-E.
+
+
+I want you to tell me how I could play the E minor triad on this guitar.
+
+
+Make sure to choose one final answer, which you should start with ’ANSWER:’ and specify in
+the following format:
+
+
+
+Default
+
+
+CF
+
+
+
+ANSWER:
+E string: fret FRET
+A string: fret FRET
+D string: fret FRET
+G string: fret FRET
+B string: fret FRET
+E string: fret FRET
+
+
+Use fret 0 to indicate an open string and fret X to indicate not playing a string. Each
+increase in fret corresponds to an increase in half a note.
+
+
+**{Let’s think step by step.}**
+
+
+You are an expert guitar player. I have a special guitar with strings tuned to
+E-C-F-G-B-E instead of the standard E-A-D-G-B-E. Note that what is the standard A string
+is instead tuned to C, and the standard D string is instead tuned to F. All other strings
+are the same.
+
+
+I want you to tell me how I could play the E minor triad on this guitar.
+
+
+Make sure to choose one final answer, which you should start with ’ANSWER:’ and specify in
+the following format:
+
+
+ANSWER:
+E string: fret FRET
+C string: fret FRET
+F string: fret FRET
+G string: fret FRET
+B string: fret FRET
+E string: fret FRET
+
+
+Use fret 0 to indicate an open string and fret X to indicate not playing a string. Each
+increase in fret corresponds to an increase in half a note.
+
+
+**{Let’s think step by step.}**
+
+
+
+**Table 8:** Prompts for chord fingering: guitar. **{Let’s think step by step.}** is added only if 0-shot CoT is used.
+
+
+1848
+
+
+Mode Prompt
+
+
+You are an expert guitar player. I have a guitar with standard strings E-A-D-G-B-E.
+
+
+I want you to tell me what notes the following sequences of finger positions corresponds to:
+
+
+
+Default
+
+
+CF
+
+
+
+E string: fret 0
+A string: fret 0
+D string: fret 0
+G string: fret 0
+B string: fret 0
+E string: fret 0
+
+
+Note that fret 0 indicates an open string, and each increase in fret corresponds to an
+increase in half a note.
+
+
+Make sure to choose one final answer, which you should start with ’ANSWER:’ and format
+with dash-separated notes in the order of strings E-A-D-G-B-E.
+
+
+**{Let’s think step by step.}**
+
+
+You are an expert guitar player. I have a special guitar with strings tuned to
+E-C-F-G-B-E instead of the standard E-A-D-G-B-E. Note that what is the standard A string
+is instead tuned to C, and the standard D string is instead tuned to F. All other strings
+are the same.
+
+
+I want you to tell me what notes the following sequences of finger positions corresponds to:
+
+
+E string: fret 0
+C string: fret 0
+F string: fret 0
+G string: fret 0
+B string: fret 0
+E string: fret 0
+
+
+Note that fret 0 indicates an open string, and each increase in fret corresponds to an
+increase in half a note.
+
+
+Make sure to choose one final answer, which you should start with ’ANSWER:’ and format
+with dash-separated notes in the order of strings E-C-F-G-B-E.
+
+
+**{Let’s think step by step.}**
+
+
+
+**Table 9:** CCC prompts for chord fingering: guitar. **{Let’s think step by step.}** is added only if 0-shot CoT is
+used.
+
+
+1849
+
+
+Mode Prompt
+
+
+You are an expert ukulele player. I have a ukulele with standard strings G-C-E-A.
+
+
+I want you to tell me how I could play the E minor triad on this ukulele.
+
+
+Make sure to choose one final answer, which you should start with ’ANSWER:’ and specify in
+the following format:
+
+
+
+Default
+
+
+CF
+
+
+
+ANSWER:
+G string: fret FRET
+C string: fret FRET
+E string: fret FRET
+A string: fret FRET
+
+
+Use fret 0 to indicate an open string and fret X to indicate not playing a string. Each
+increase in fret corresponds to an increase in half a note.
+
+
+**{Let’s think step by step.}**
+
+
+You are an expert ukulele player. I have a special ukulele with strings tuned to F-C-E-A
+instead of the standard G-C-E-A. Note that what is the standard G string is instead tuned to F.
+All other strings are the same.
+
+
+I want you to tell me how I could play the E minor triad on this ukulele.
+
+
+Make sure to choose one final answer, which you should start with ’ANSWER:’ and specify in
+the following format:
+
+
+ANSWER:
+F string: fret FRET
+C string: fret FRET
+E string: fret FRET
+A string: fret FRET
+
+
+Use fret 0 to indicate an open string and fret X to indicate not playing a string. Each
+increase in fret corresponds to an increase in half a note.
+
+
+**{Let’s think step by step.}**
+
+
+
+**Table 10:** Prompts for chord fingering: ukulele. **{Let’s think step by step.}** is added only if 0-shot CoT is
+used.
+
+
+1850
+
+
+Mode Prompt
+
+
+You are an expert ukulele player. I have a ukulele with standard strings G-C-E-A.
+
+
+I want you to tell me what notes the following sequences of finger positions corresponds to:
+
+
+
+Default
+
+
+CF
+
+
+
+G string: fret 0
+C string: fret 0
+E string: fret 0
+A string: fret 0
+
+
+Note that fret 0 indicates an open string, and each increase in fret corresponds to an
+increase in half a note.
+
+
+Make sure to choose one final answer, which you should start with ’ANSWER:’ and format
+with dash-separated notes in the order of strings G-C-E-A.
+
+
+**{Let’s think step by step.}**
+
+
+You are an expert ukulele player. I have a special ukulele with strings tuned to F-C-E-A
+instead of the standard G-C-E-A. Note that what is the standard G string is instead tuned to F.
+All other strings are the same.
+
+
+I want you to tell me what notes the following sequences of finger positions corresponds to:
+
+
+F string: fret 0
+C string: fret 0
+E string: fret 0
+A string: fret 0
+
+
+Note that fret 0 indicates an open string, and each increase in fret corresponds to an
+increase in half a note.
+
+
+Make sure to choose one final answer, which you should start with ’ANSWER:’ and format
+with dash-separated notes in the order of strings F-C-E-A.
+
+
+**{Let’s think step by step.}**
+
+
+
+**Table 11:** CCC prompts for chord fingering: ukulele. **{Let’s think step by step.}** is added only if 0-shot
+CoT is used.
+
+
+Mode Prompt
+
+
+
+Default
+
+
+CF
+
+
+
+You are an expert musician. What is the second note of the melody of the song ’Twinkle Twinkle
+Little Star’ in **C major** ? Make sure to choose one final answer, which you should start with
+’ANSWER:’ and specify in the following format: NOTE={note}.
+
+
+**{Let’s think step by step.}**
+
+
+You are an expert musician. What is the second note of the melody of the song ’Twinkle Twinkle
+Little Star’ in **Db major** ? Make sure to choose one final answer, which you should start with
+’ANSWER:’ and specify in the following format: NOTE={note}.
+
+
+**{Let’s think step by step.}**
+
+
+
+**Table 12:** Prompts for melody retrieval. **{Let’s think step by step.}** is added only if 0-shot CoT is used.
+
+
+1851
+
+
+Mode Prompt
+
+
+
+Default
+
+
+CF
+
+
+
+You are an expert musician. What is the second note of the C major scale? Make sure to
+choose one final answer, which you should start with ’ANSWER:’ and specify in the
+following format: NOTE={note}.
+
+
+**{Let’s think step by step.}**
+
+
+You are an expert musician. What is the second note of the Db major scale? Make sure to
+choose one final answer, which you should start with ’ANSWER:’ and specify in the
+following format: NOTE={note}.
+
+
+**{Let’s think step by step.}**
+
+
+
+**Table 13:** CCC prompts for melody retrieval. **{Let’s think step by step.}** is added only if 0-shot CoT is
+used.
+
+
+Mode Prompt
+
+
+
+Default
+
+
+CF
+
+
+
+You are a chess player. Given an opening, determine whether the opening is legal. The
+opening doesn’t need to be a good opening. Answer "yes" if all moves are legal. Answer "no"
+if the opening violates any rules of chess. Is the new opening "1. e4 e6 2. Be2 Bc5" legal?
+**{Let’s think step by step}**
+
+
+You are a chess player. You are playing a chess variant where the starting positions for
+knights and bishops are swapped. For each color, the knights are at placed that where
+bishops used to be and the bishops are now placed at where knights used to be. Given an
+opening, determine whether the opening is legal. The opening doesn’t need to be a good
+opening. Answer "yes" if all moves are legal. Answer "no" if the opening violates any
+rules of chess. Under the custom variant, is the new opening "1. e4 e6 2. Nfe2 Nc5" legal?
+**{Let’s think step by step}**
+
+
+
+**Table 14:** Prompts for the chess task. **{Let’s think step by step}** is added only if 0-shot CoT is used.
+
+
+Mode Prompt
+
+
+Default You are a chess player. Question: The two bishops on the board should be initially at
+which squares? Answer: **{Let’s think step by step}**
+
+
+
+CF
+
+
+
+You are a chess player. You are playing a chess variant where the starting positions for
+knights and bishops are swapped. For each color, the knights are at placed that where
+bishops used to be and the bishops are now placed at where knights used to be. Question:
+In this chess variant, the two bishops on the board should be initially at which squares?
+Answer: **{Let’s think step by step}**
+
+
+
+**Table 15:** CCC prompts for the chess task. **{Let’s think step by step}** is added only if 0-shot CoT is used.
+
+
+1852
+
+
+Mode Prompt
+
+
+You will be shown 12 cards. Each card has a figure and a number.
+A figure is a combination of a color, a shape, and a fill.
+Set of colors are: red, green, blue .
+Set of shapes are: squiggle, diamond, oval .
+
+
+Set of fills are: solid, striped, open .
+
+
+
+Default
+
+
+CF
+
+
+
+–THE RULE OF THE GAME–
+A GAME-SET is set of three cards: For each attribute, (color, shape, fill, number),
+the three cards should either be ALL the SAME or NONE the SAME (=ALL DIFFERENT,
+e.g. if 2 of the cards have
+the same value, and 1 of them has a different value, the set is NOT valid; for example,
+(blue, green, blue) is MIXED and does not satisfy any of the rule,
+whereas (oval, diamond, squiggle) is all different.
+
+
+Here is the board:
+(2 | green | oval | open) ... [truncated]
+
+
+You can pick a set by typing the cards in the below format:
+First card: CARD1
+Second card: CARD2
+Third card: CARD3
+Now remember the rule and tell me which three cards here constitutes a GAME-SET
+in the same format.
+I will give you 2 cards as a hint, and you tell me the third one.
+First card: (2 | green | oval | open)
+Second card: (1 | green | diamond | solid)
+**{Let’s think step by step.}**
+
+
+You will be shown 12 cards. Each card has a figure and a number.
+A figure is a combination of a color, a shape, and a fill.
+Set of colors are: red, green, blue .
+Set of shapes are: squiggle, diamond, oval .
+
+
+Set of fills are: solid, striped, open .
+
+
+–THE RULE OF THE GAME–
+(This is not the original SET game. It has a tweaked rule.)
+In this version, a GAME-SET is a set of three cards:
+
+- For each figure attribute except the number (color, shape, fill), the three cards
+should either be ALL the SAME or NONE the SAME (=ALL DIFFERENT, e.g. if 2 of the cards
+have the same value, and 1 of them has a different value, the set is NOT valid;
+for example, (blue, green, blue) is MIXED and does not satisfy any of the rule, whereas
+(oval, diamond, squiggle) is all different.
+
+- But only for the number attribute, 2 of the cards should have the same number,
+and 1 of them should have a different number in order for the set to be valid.
+
+
+Here is the board:
+(2 | green | oval | open) ... [truncated]
+
+
+You can pick a set by typing the cards in the below format:
+First card: CARD1
+Second card: CARD2
+Third card: CARD3
+Now remember the rule and tell me which three cards here constitutes a GAME-SET
+in the same format.
+I will give you 2 cards as a hint, and you tell me the third one.
+First card: (2 | green | oval | open)
+Second card: (1 | green | diamond | solid)
+**{Let’s think step by step.}**
+
+
+
+**Table 16:** Prompts for the SET task. **{Let’s think step by step}** is added only if 0-shot CoT is used.
+
+
+1853
+
+
+Mode Prompt
+
+
+Each card has a figure and a number.
+A figure is a combination of a color, a shape, and a fill.
+Set of colors are: red, green, blue .
+Set of shapes are: squiggle, diamond, oval .
+
+
+Set of fills are: solid, striped, open .
+
+
+
+Default
+
+
+CF
+
+
+
+–THE RULE OF THE GAME–
+A GAME-SET is set of three cards: For each attribute, (color, shape, fill, number),
+the three cards should either be ALL the SAME or NONE the SAME (=ALL DIFFERENT,
+e.g. if 2 of the cards have
+the same value, and 1 of them has a different value, the set is NOT valid; for example,
+(blue, green, blue) is MIXED and does not satisfy any of the rule,
+whereas (oval, diamond, squiggle) is all different.
+
+
+I will give you three cards from the board, and you will tell me whether this
+constitutes a GAME-SET.
+
+
+First card: (1 | blue | oval | striped)
+Second card: (2 | red | squiggle | striped)
+Third card: (3 | green | diamond | striped)
+
+
+Is this a GAME-SET? **{Answer with yes or no in the last line.**
+**Let’s verify rules for each attribute step-by-step:}**
+
+
+Each card has a figure and a number.
+A figure is a combination of a color, a shape, and a fill.
+Set of colors are: red, green, blue .
+Set of shapes are: squiggle, diamond, oval .
+
+
+Set of fills are: solid, striped, open .
+
+
+–THE RULE OF THE GAME–
+(This is not the original SET game. It has a tweaked rule.)
+In this version, a GAME-SET is a set of three cards:
+
+- For each figure attribute except the number (color, shape, fill), the three cards
+should either be ALL the SAME or NONE the SAME (=ALL DIFFERENT, e.g. if 2 of the cards
+have the same value, and 1 of them has a different value, the set is NOT valid;
+for example, (blue, green, blue) is MIXED and does not satisfy any of the rule, whereas
+(oval, diamond, squiggle) is all different.
+
+- But only for the number attribute, 2 of the cards should have the same number,
+and 1 of them should have a different number in order for the set to be valid.
+
+
+I will give you three cards from the board, and you will tell me whether this
+constitutes a GAME-SET.
+
+
+First card: (1 | blue | oval | striped)
+Second card: (2 | red | squiggle | striped)
+Third card: (3 | green | diamond | striped)
+
+
+Is this a GAME-SET? **{Answer with yes or no in the last line.**
+**Let’s verify rules for each attribute step-by-step:}**
+
+
+
+**Table 17:** CCC prompts for the SET experiments. **{bold text}** is added only if 0-shot CoT is used. Note that we
+removed the board information for simplicity as it is not required for this CCC test.
+
+
+1854
+
+
+Tests
+CCC
+w/o 0-CoT w/ 0-CoT
+
+Base 8 9 10 11 16 8 9 10 11 16 8 9 10 11 16
+
+# instances 1,000 200
+
+GPT-4 82.3 23.4 100.0 38.4 63.0 60.2 38.6 98.2 56.5 74.0 98.0 90.0 100.0 91.0 100.0
+GPT-3.5 8.3 6.6 100.0 3.8 17.7 12.6 9.8 99.0 2.7 17.7 96.5 77.0 100.0 56.0 95.5
+Claude 22.3 0.2 99.8 6.6 32.4 1.4 0.9 98.7 4.0 6.6 64.5 47.5 100.0 41.0 77.5
+PaLM-2 6.4 2.2 98.7 3.4 23.4 1.1 0.6 82.2 0.5 1.2 51.5 53.5 100.0 72.0 93.5
+
+
+**Table 18:** Results for the arithmetic task (in accuracy; %).
+
+
+# digits # shots 8 9 10 11 16
+
+2 0 60.2 38.6 98.2 56.5 74.0
+3 0 56.8 32.2 87.1 24.2 33.2
+4 0 24.0 14.6 83.4 8.9 9.1
+2 1 97.3 48.1 99.7 25.7 49.1
+2 2 99.1 67.0 99.9 44.0 57.8
+2 4 99.4 79.7 99.9 68.4 70.6
+2 8 99.7 85.8 100.0 79.6 83.5
+2 16 99.9 88.4 99.9 86.9 88.7
+
+
+**Table 19:** Results for the arithmetic task for various analyses in §5 (in accuracy; %). Only for GPT-4 with 0-shot
+CoT.
+
+
+Tests CCC
+
+w/o 0-CoT w/ 0-CoT w/o 0-CoT w/ 0-CoT
+
+Default CF Default CF Default CF Default CF
+
+# instances 113 750
+
+GPT-4 58.4 18.6 73.5 24.8 95.3 78.1 99.7 90.9
+GPT-3.5 39.8 9.7 54.0 10.6 97.1 21.3 94.1 25.9
+Claude 35.4 13.3 36.3 6.2 96.5 31.1 85.1 37.3
+
+
+**Table 20:** Results for the programming execution task (in accuracy; %).
+
+
+HumanEval (All) HumanEval (Subset)
+
+pass@1 pass@10 pass@1 pass@10
+
+Default CF Default CF Default CF Default CF
+
+# instances 164 53
+
+GPT-4 87.4 68.2 95.3 83.4 82.5 40.5 93.3 64.9
+GPT-3.5 73.8 41.8 88.4 67.6 68.9 25.1 81.0 45.8
+Claude 53.7 39.6 78.1 64.2 47.6 15.7 74.0 41.9
+PaLM-2 27.3 20.8 55.8 42.6 29.2 7.4 55.3 21.0
+
+
+**Table 21:** Results for the programming generation task (in pass@1 and pass@10; %). We report both the results
+on the entire HumanEval dataset for comparability with other work, as well as the subset on which evaluating the
+original program under 1-based indexing would not pass the test cases. Figure 2 only showed the results on this
+subset.
+
+
+1855
+
+
+Test Accuracy
+
+w/o 0-CoT w/ 0-CoT
+
+
+SVO SOV VSO VOS OVS OSV SVO SOV VSO VOS OVS OSV
+
+# instances 100
+
+GPT-4 88.0 63.0 66.0 63.0 68.0 68.0 76.0 66.0 69.0 70.0 70.0 68.0
+GPT-3.5 72.0 51.0 60.0 39.0 41.0 64.0 50.0 51.0 63.0 44.0 27.0 51.0
+Claude 55.0 58.0 65.0 62.0 59.0 56.0 51.0 57.0 62.0 62.0 62.0 59.0
+PaLM-2 40.0 22.0 48.0 28.0 37.0 23.0 35.0 29.0 56.0 29.0 22.0 19.0
+
+CCC
+
+w/o 0-CoT w/ 0-CoT
+
+
+SVO SOV VSO VOS OVS OSV SVO SOV VSO VOS OVS OSV
+
+# instances 100
+
+GPT-4 - 100.0 92.0 98.0 100.0 94.0 - 95.0 95.0 99.0 96.0 100.0
+GPT-3.5 - 88.0 72.0 25.0 61.0 64.0 - 68.0 40.0 37.0 5.0 31.0
+Claude - 89.0 60.0 97.0 99.0 98.0 - 79.0 91.0 80.0 8.0 87.0
+PaLM-2 - 7.0 8.0 96.0 100.0 62.0 - 28.0 29.0 91.0 94.0 70.0
+
+
+**Table 22:** Results for the basic syntactic reasoning task (in accuracy; %).
+
+
+Tests
+CCC
+w/o 0-CoT w/ 0-CoT
+
+Default CF Default CF
+
+# instances 81 310
+
+GPT-4 93.8 74.1 98.8 82.7 97.4
+GPT-3.5 79.0 43.2 65.4 42.0 90.3
+Claude 27.2 16.0 40.7 17.3 55.2
+PaLM-2 84.0 66.7 88.9 74.1 70.6
+
+
+**Table 23:** Results for the logical reasoning task (in accuracy; %).
+
+
+1856
+
+
+Tests Accuracy
+
+w/o 0-CoT w/ 0-CoT
+
+Default S-NS S-WE R90 R180 R270 Rand. Default S-NS S-WE R90 R180 R270 Rand.
+
+# instances 100 100
+
+GPT-4 79.0 57.0 29.0 34.0 6.0 22.0 34.0 98.0 71.0 23.0 24.0 9.0 13.0 13.0
+GPT-3.5 87.0 56.0 32.0 27.0 12.0 17.0 15.0 82.0 66.0 36.0 27.0 29.0 22.0 22.0
+Claude 86.0 51.0 72.0 35.0 45.0 15.0 51.0 85.0 50.0 71.0 30.0 49.0 11.0 39.0
+PaLM-2 90.0 88.0 86.0 50.0 93.0 39.0 64.0 84.0 95.0 80.0 38.0 91.0 38.0 54.0
+
+Tests Object-level Accuracy
+
+w/o 0-CoT w/ 0-CoT
+
+Default S-NS S-WE R90 R180 R270 Rand. Default S-NS S-WE R90 R180 R270 Rand.
+
+# instances 100 100
+
+GPT-4 86.0 74.3 55.7 56.0 34.0 53.0 61.7 99.0 85.3 57.0 49.7 36.0 46.3 46.0
+GPT-3.5 92.3 77.7 62.3 54.7 41.3 42.3 47.0 92.7 82.7 64.0 53.0 50.7 54.7 53.3
+Claude 93.7 75.3 87.7 65.7 70.3 46.7 76.0 91.7 74.7 86.3 63.0 73.0 44.0 69.3
+PaLM-2 96.3 95.7 94.3 71.3 97.7 64.7 79.7 94.0 98.3 91.0 63.7 96.0 64.0 75.0
+
+CCC
+
+w/o 0-CoT w/ 0-CoT
+
+Default S-NS S-WE R90 R180 R270 Rand. Default S-NS S-WE R90 R180 R270 Rand.
+
+# instances 100 100
+
+GPT-4 100.0 99.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0
+GPT-3.5 100.0 100.0 92.0 83.0 90.0 100.0 99.0 98.0 89.0 88.0 83.0 78.0 94.0 92.0
+Claude 100.0 100.0 100.0 100.0 100.0 100.0 99.0 100.0 100.0 100.0 100.0 100.0 100.0 91.0
+PaLM-2 100.0 100.0 100.0 100.0 100.0 39.0 100.0 100.0 100.0 100.0 100.0 100.0 59.0 100.0
+
+
+**Table 24:** Results for the spatial reasoning task (in accuracy; %). The first section (Tests Accuracy) requires all 3
+objects to be correctly placed. The second section (Test Object-Level Accuracy) refers to accuracy averaged over
+objects. ‘S’ denotes to swapping, ‘R’ denotes to rotation, ‘Rand.’ denotes to random permutation.
+
+
+1857
+
+
+Human Evaluation Binary Classification Test Accuracy
+
+w/o 0-CoT w/ 0-CoT
+
+Default VFlip R90 R180 Default Flip R90 R180
+
+# instances 100
+
+GPT-4 82.0 57.0 59.0 53.0 86.0 51.0 47.0 52.0
+GPT-3.5 31.0 19.0 9.0 8.0 46.0 7.0 5.0 8.0
+Claude 42.0 13.0 15.0 13.0 34.0 15.0 30.0 12.0
+
+CLIP Evaluation Multi-class Classification Tests Accuracy
+
+w/o 0-CoT w/ 0-CoT
+
+Default VFlip R90 R180 Default Flip R90 R180
+
+# instances 100
+
+GPT-4 58.0 30.0 23.0 31.0 53.0 26.0 33.0 28.0
+GPT-3.5 20.0 9.0 7.0 8.0 32.0 4.0 6.0 6.0
+Claude 19.0 11.0 9.0 8.0 18.0 9.0 13.0 8.0
+
+CCC Accuracy
+
+w/o 0-CoT w/ 0-CoT
+
+Default VFlip R90 R180 Default Flip R90 R180
+
+# instances 100
+
+GPT-4 100.0 99.0 55.0 89.0 100.0 99.0 87.0 87.0
+GPT-3.5 78.0 56.0 53.0 44.0 99.0 62.0 43.0 46.0
+Claude 100.0 84.0 86.0 57.0 99.0 90.0 99.0 54.0
+
+
+**Table 25:** Results for the drawing task (in accuracy; %). VFlip corresponds to vertical flipping, R90 and R180
+correspond to rotation by 90 degrees and 180 degrees, respectively.
+
+
+Accuracy for Objects w/o Canonical Orientation
+
+w/o 0-CoT w/ 0-CoT
+
+Default VFlip R90 R180 Default Flip R90 R180
+
+GPT-4 72.1 68.6 67.3 57.4 76.2 58.0 69.8 63.3
+GPT-3.5 31.8 22.0 14.3 13.0 39.0 4.8 7.1 7.0
+Claude 51.1 22.9 20.9 23.3 39.5 27.9 34.8 19.1
+
+Accuracy for Objects w/ Canonical Orientation
+
+w/o 0-CoT w/ 0-CoT
+
+Default VFlip R90 R180 Default Flip R90 R180
+
+GPT-4 89.5 44.9 50.0 49.1 93.1 44.0 21.3 41.2
+GPT-3.5 30.4 16.0 5.2 3.7 50.8 8.6 3.4 8.8
+Claude 34.5 3.8 10.5 5.3 29.8 5.3 25.9 5.7
+
+
+**Table 26:** Results for the drawing task, as measured by human evaluation accuracy (%), broken down by objects
+with or without a canonical orientation as judged by human annotators. If an object has a canonical orientation,
+such as the house in Figure 7, it is only considered correct if the orientation is correct.
+
+
+1858
+
+
+Test Accuracy
+
+w/o 0-CoT w/ 0-CoT
+
+
+Default **D** AD- **F** AD- E **B** D- E **C** D- E **CF**        - Default **D** AD- **F** AD- E **B** D- E **C** D- E **CF**        
+# instances 120
+
+GPT-4 47.5 22.5 11.7 18.3 7.5 1.7 42.5 25.8 12.5 24.2 14.2 10.0
+GPT-3.5 30.8 4.2 5.0 5.8 3.3 1.7 30.8 5.0 5.0 0.8 1.7 1.7
+Claude 5.0 0.8 0.8 0.8 0.8 1.7 10.0 5.8 4.2 5.8 5.0 0.8
+PaLM-2 0.8 0.0 0.0 0.0 0.0 0.0 0.8 0.0 0.0 0.0 0.8 0.8
+
+CCC
+
+w/o 0-CoT w/ 0-CoT
+
+
+Default **D** AD- **F** AD- E **B** D- E **C** D- E **CF**        - Default **D** AD- **F** AD- E **B** D- E **C** D- E **CF**        
+# instances 18
+
+GPT-4 100.0 100.0 94.4 94.4 100.0 83.3 100.0 100.0 100.0 100.0 100.0 100.0
+GPT-3.5 50.0 27.8 11.1 44.4 50.0 61.1 94.4 66.7 88.9 88.9 94.4 77.8
+Claude 77.8 38.9 55.6 55.6 50.0 50.0 100.0 38.9 55.6 55.6 50.0 50.0
+PaLM-2 33.3 33.3 33.3 38.9 50.0 38.9 33.3 33.3 50.0 38.9 38.9 38.9
+
+
+**Table 27:** Results for the chord fingering task (in accuracy; %): guitar. Default corresponds to EADGBE.
+Counterfactuals show the first three strings (the remaining three strings, GBE, are the same).
+
+
+Test Accuracy
+
+w/o 0-CoT w/ 0-CoT
+
+
+Default **D** AD- **F** AD- E **B** D- E **C** D- E **CF**        - Default **D** AD- **F** AD- E **B** D- E **C** D- E **CF**        
+# instances 12
+
+maj triad 66.7 50.0 33.3 41.7 8.3 0.0 58.3 41.7 8.3 41.7 8.3 0.0
+min triad 58.3 33.3 25.0 41.7 25.0 0.0 58.3 25.0 16.7 25.0 16.7 8.3
+5 83.3 41.7 33.3 16.7 0.0 0.0 75.0 50.0 25.0 33.3 33.3 50.0
+dom7 25.0 25.0 16.7 8.3 25.0 0.0 33.3 16.7 8.3 25.0 16.7 0.0
+6 25.0 16.7 0.0 16.7 0.0 0.0 33.3 25.0 8.3 16.7 8.3 8.3
+sus4 50.0 33.3 0.0 33.3 0.0 0.0 58.3 33.3 16.7 33.3 25.0 25.0
+dim7 25.0 0.0 0.0 0.0 8.3 16.7 0.0 0.0 8.3 16.7 0.0 0.0
+aug7 0.0 0.0 0.0 0.0 0.0 0.0 8.3 0.0 0.0 16.7 16.7 0.0
+sus2 58.3 0.0 8.3 16.7 0.0 0.0 58.3 50.0 16.7 25.0 16.7 8.3
+min7 83.3 25.0 0.0 8.3 8.3 0.0 41.7 16.7 16.7 8.3 0.0 0.0
+
+
+**Table 28:** Results broken down by chords for the chord fingering task as analyzed in §5 (in accuracy; %): guitar,
+GPT-4. Default corresponds to EADGBE. Counterfactuals show the first three strings (the remaining three strings,
+GBE, are the same).
+
+
+1859
+
+
+Test Accuracy
+
+w/o 0-CoT w/ 0-CoT
+
+
+Default **F** C- **A** C- **B** C- **BE**             - Default **F** C- **A** C- **B** C- **BE**             
+# instances 108
+
+GPT-4 39.8 1.9 1.9 2.8 0.9 20.4 2.8 16.7 11.1 10.2
+GPT-3.5 14.8 0.0 2.8 3.7 0.0 6.5 1.9 2.8 1.9 0.0
+Claude 0.0 1.9 0.0 0.0 0.9 6.5 0.0 2.8 1.9 2.8
+PaLM-2 0.0 0.0 0.0 0.0 0.0 0.9 0.0 1.9 0.9 0.0
+
+CCC
+
+w/o 0-CoT w/ 0-CoT
+
+
+Default **F** C- **A** C- **B** C- **BE**             - Default **F** C- **A** C- **B** C- **BE**             
+# instances 12
+
+GPT-4 100.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0 100.0
+GPT-3.5 33.3 41.7 91.7 41.7 100.0 91.7 83.3 100.0 75.0 75.0
+Claude 58.3 50.0 50.0 41.7 33.3 100.0 100.0 75.0 66.7 50.0
+PaLM-2 41.7 41.7 41.7 50.0 33.3 41.7 50.0 41.7 58.3 33.3
+
+
+**Table 29:** Results for the chord fingering task (in accuracy; %): ukulele. Default corresponds to GCEA. Counterfactuals show the first two strings (the remaining two strings, EA, are the same).
+
+
+Tests CCC
+
+w/o 0-CoT w/ 0-CoT w/o 0-CoT w/ 0-CoT
+
+Default CF Default CF Default CF Default CF
+
+# instances 56 1120 56 1120 7 140 7 140
+
+GPT-4 48.2 20.4 64.3 44.9 100.0 87.1 100.0 94.3
+GPT-3.5 17.9 17.4 44.6 21.8 100.0 70.0 100.0 95.7
+Claude 17.9 17.2 16.1 20.1 100.0 74.3 100.0 80.7
+PaLM-2 28.6 19.5 19.6 19.3 100.0 48.6 100.0 47.1
+
+
+**Table 30:** Results for the melody retrieval task (in accuracy; %). Default corresponds to C major, and CF corresponds
+to other keys.
+
+
+Tests CCC
+
+w/o 0-CoT w/ 0-CoT w/o 0-CoT w/ 0-CoT
+
+Default CF Default CF Default CF Default CF
+
+# instances 8 160 8 160 1 20 1 20
+
+1 87.5 63.1 87.5 70.0 100.0 95.0 100.0 95.0
+2 87.5 10.6 62.5 46.9 100.0 95.0 100.0 100.0
+3 12.5 11.9 62.5 51.2 100.0 80.0 100.0 90.0
+4 25.0 21.2 62.5 42.5 100.0 100.0 100.0 85.0
+5 50.0 3.1 37.5 35.0 100.0 95.0 100.0 100.0
+6 37.5 5.0 75.0 38.8 100.0 75.0 100.0 95.0
+7 37.5 27.5 62.5 30.0 100.0 70.0 100.0 95.0
+
+
+**Table 31:** Results broken down by _n_ for the melody retrieval task as analyzed in §5 (in accuracy; %): GPT-4.
+Default corresponds to C major, and CF corresponds to other keys.
+
+
+1860
+
+
+Tests CCC
+
+w/o 0-CoT w/ 0-CoT w/o 0-CoT w/ 0-CoT
+
+Default CF Default CF Default CF Default CF
+
+# instances 400 120
+
+GPT-4 73.8 50.0 87.8 53.6 100.0 100.0 100.0 100.0
+GPT-3.5 60.1 54.4 60.2 48.9 85.8 90.0 91.7 93.3
+Claude 59.2 50.0 60.2 50.4 100.0 50.0 76.7 100.0
+PaLM-2 48.0 51.5 48.5 51.2 61.7 23.3 50.0 23.3
+
+
+**Table 32:** Results for the chess task with 4 moves (in accuracy; %). CF refers to the setting where the initial
+positions of knights and bishops are swapped. We generate a balanced classification problem with 400 openings via
+procedure generation.
+
+
+Tests CCC
+
+w/o 0-CoT w/ 0-CoT w/o 0-CoT w/ 0-CoT
+
+Default CF Default CF Default CF Default CF
+
+# instances 100 100
+
+GPT-4 100.0 21.0 100.0 61.0 89.0 74.0 100.0 96.0
+GPT-3.5 73.0 4.0 37.0 7.0 68.0 55.0 77.0 78.0
+Claude 55.0 21.0 64.0 35.0 92.0 62.0 59.0 65.0
+PaLM-2 55.0 17.0 62.0 13.0 67.0 68.0 47.0 46.0
+
+
+**Table 33:** Results for the SET game (in accuracy; %).
+
+
+Tests
+
+Default (c=1) CF (c=1) Default (c=2) CF (c=2) Default (c=3) CF (c=3)
+
+# instances 100
+
+GPT-4 100.0 61.0 24.0 6.0 15.0 3.0
+GPT-3.5 37.0 7.0 7.0 0.0 1.0 0.0
+Claude 64.0 35.0 10.0 4.0 5.0 1.0
+PaLM-2 62.0 13.0 10.0 1.0 3.0 1.0
+
+
+**Table 34:** Breakdown for the SET game test results (with 0-CoT) when the model needs to find different number of
+cards (c) in a SET as analyzed in §5 (in accuracy; %).
+
+
+1861
+
+
+In the beginning, you need to specify:
+
+  - Canonical Orientation? Use 1 if you believe the object has one or more canonical orientation, such
+as a “house”. Use 0 if it doesn’t, such as a “pen”.
+If an object is considered to have a canonical orientation, it is ONLY CORRECT if it’s displayed in the
+right orientation.
+For each image, you need to specify the following:
+
+  - Correct? (Input: 0 or 1) Determine if the object is correct. Use 0 for False and 1 for True.
+
+  - Control? (Input: 0 or 1 or 2) Determine if the control has been passed. Use 1 if there is an almost
+horizontal line at the TOP. Use 0 if there is a standalone line but is either not horizontal or is at the
+center or bottom (even if the object appears beneath it). Use 2 if there is no such line.
+Examples: _[some examples, omitted here for brevity]_
+
+**Figure 8:** The drawing evaluation instruction given to our human annotators. “Control” was a prior name for our
+CCC in this project.
+
+
+1862
+
+

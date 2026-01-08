@@ -1,0 +1,1218 @@
+# **CoMM: Collaborative Multi-Agent, Multi-Reasoning-Path Prompting** **for Complex Problem Solving**
+
+**Pei Chen** [1] _[∗]_ **Boran Han** [2] **Shuai Zhang** [2] _[†]_
+
+1
+Department of Computer Science and Engineering, Texas A&M University
+2
+Amazon Web Services
+chenpei@tamu.edu
+{boranhan, shuaizs}@amazon.com
+
+
+
+**Abstract**
+
+
+Large Language Models (LLMs) have shown
+great ability in solving traditional natural language tasks and elementary reasoning tasks
+with appropriate prompting techniques. However, their ability is still limited in solving complicated science problems. In this work, we
+aim to push the upper bound of the reasoning capability of LLMs by proposing a collaborative multi-agent, multi-reasoning-path
+(CoMM) prompting framework. Specifically,
+we prompt LLMs to play different roles in a
+problem-solving team, and encourage different role-play agents to collaboratively solve the
+target task. In particular, we discover that applying different reasoning paths for different
+roles is an effective strategy to implement fewshot prompting approaches in the multi-agent
+scenarios. Empirical results demonstrate the
+effectiveness of the proposed methods on two
+college-level science problems over competitive baselines. Our further analysis shows the
+necessity of prompting LLMs to play different
+roles or experts independently.
+
+
+**1** **Introduction**
+
+
+Large Language Models (LLMs) such as
+GPT (Brown et al., 2020; OpenAI, 2023),
+LLaMA (Touvron et al., 2023a,b) and
+PaLM (Chowdhery et al., 2022), have shown
+remarkable proficiency in solving many downstream tasks (Liu et al., 2021), without furthering
+fine-tuning the model parameters. However, their
+ability is limited to solving reasoning and mathematical problems (Wei et al., 2022b), especially
+complicated science problems (Ma et al., 2023; Xu
+et al., 2023; Ling et al., 2023a). In consideration of
+this limitation, and the costly fine-tuning overhead
+of the LLMs with billion-level parameters, many
+prompting methods emerge, i.e., the process of
+carefully crafting input queries to effectively
+
+
+_∗_ Work done as an intern at Amazon Web Services.
+
+_†_ Corresponding author.
+
+
+
+communicate with LLMs and obtain desired
+outputs. Apart from the benefit of exempting
+from manipulating the parameters of the LLMs,
+these prompting methods seamlessly integrate
+the pre-trained models into downstream tasks by
+eliciting desired model behaviors (Sahoo et al.,
+2024).
+Among these endeavored prompting approaches,
+some of them prompt LLMs to reason with multiple middle-steps or subproblems for reasoning
+tasks (Wei et al., 2022b; Wang et al., 2023b; Yao
+et al., 2023; Hao et al., 2023; Zhou et al., 2023),
+some of them prompt LLMs to take advantage of
+external tools (Gao et al., 2023; Chen et al., 2023).
+Despite that these methods have further pushed the
+upper-bound reasoning and math abilities of LLMs,
+their potential for complicated science problems
+is still awaiting further improvement. Take the
+college-level physical problem in Figure 1 as an
+example, we can observe that the Chain-of-thought
+prompting method still suffers from knowledge
+and factual errors (incorrect equations used for the
+given problem) and computing errors (incorrect
+calculations).
+Recently, agent-based prompting methods that
+prompt an LLM to play a specific role or act as an
+intelligent agent further unlock the ability of LLMs
+to solve complicated problems. For example, Xu
+et al. (2023) prompt an LLM to play as a domain
+expert and successfully elicits the LLM to answer
+domain questions. Huang et al. (2022); Shinn et al.
+(2023); Madaan et al. (2023) prompt LLMs to do
+self-reflection or self-refinement to correct the mistakes. Wang et al. (2023a); Sun et al. (2023) prompt
+LLMs to do planning before solving a specific task.
+Wang et al. (2023c) prompts a single agent to play
+multiple roles with different personas, and Liang
+et al. (2023); Chan et al. (2023); Du et al. (2023)
+prompt LLMs to play different roles in debating
+for problem-solving.
+Following these works, we propose a collabora
+
+
+1720
+
+_Findings of the Association for Computational Linguistics: NAACL 2024_, pages 1720–1738
+June 16-21, 2024 ©2024 Association for Computational Linguistics
+
+
+Figure 1: Chain-of-thought still makes Knowledge and Computing Errors in Solving the Complex Science Problem.
+
+
+
+tive multi-agent framework (CoMM) that prompts
+LLMs to play different roles with different domain knowledge or task-solving duties for problemsolving. In particular, we propose a multi-path reasoning method that enables few-shot learning in the
+multi-agent framework. Empirical results on multiple complicated college-level science problems
+show that our method significantly outperforms
+strong baselines. Our further analysis shows that
+it is beneficial to include multiple agents for the
+collaboration, instead of prompting one agent to
+play multiple roles altogether.
+
+
+**2** **Related Work**
+
+LLMs have shown remarkable proficiency in solving many downstream tasks (Qu et al., 2020b;
+Chen et al., 2021; Xu et al., 2024c,b), paving
+the way towards Artificial General Intelligence.
+With the advent of GPT-3 (Brown et al., 2020)
+and its emergent abilities (Wei et al., 2022a) in
+solving downstream tasks on both zero-shot and
+few-shot settings, many decoder-only LLMs follow (Ling et al., 2023b), such as PaLM (Chowdhery et al., 2022), LLaMA (Brown et al., 2020;
+OpenAI, 2023), BLOOM (Workshop et al., 2023),
+Claude (Bai et al., 2022), OPT (Zhang et al., 2022),
+Mistral (Jiang et al., 2023), Falcon (Penedo et al.,
+2023) etc. Considering the inference speed and economic expenditure, we choose GPT-3.5 as the back
+
+
+bone model for all the baselines and our CoMM
+approach.
+In order to unlock the potential of the LLMs in
+solving downstream tasks (Yi and Qu, 2022; Chen
+et al., 2022; Qu et al., 2020a; Zhang et al., 2023;
+Yu et al., 2024; Xu et al., 2024a), many prompting approaches arise, exempting from manipulating the billion-level parameters (Li et al., 2023c).
+Among these prompting methods, ordinary prompting methods follow Brown et al. (2020) and employ
+task descriptions and sample demonstrations (fewshot) as the prompts for downstream tasks. To alleviate the difficulty of directly outputting the answer
+for LLMs, many prompting methods simplify the
+process by predicting the middle reasoning steps
+(chain-of-thought (Wei et al., 2022b)) or answering
+the decomposed sub-problems first (Wang et al.,
+2023b; Yao et al., 2023; Hao et al., 2023; Zhou
+et al., 2023; Ling et al., 2024). To overcome the
+lack of computing ability and outdated knowledge
+base, some work prompt LLMs to utilize external
+tools (Gao et al., 2023; Chen et al., 2023).
+To further unlock the ability of LLMs in solving
+complicated problems, agent-based methods that
+prompt LLMs to play specific roles trend. Among
+them, singe-agent methods only use one instance
+of LLMs. ExpertPrompt (Xu et al., 2023) prompts
+an LLM to play as a domain expert and successfully elicits the LLM to answer domain questions.
+
+
+
+1721
+
+
+Given a task '
+
+
+
+**I solve the problem as a**
+**physicist, with physical**
+
+**reasoning path.**
+
+
+
+
+
+Step 1: Explain the environment and task as the system
+message prompt !!= "!(!).
+
+
+Step 2: Prompt the three agents %"(&), %#(&), %$ & to play
+the domain experts and summarizer, with their role name,
+responsibility and principles.
+
+
+Step 3: Each role will respond based on the current
+discussions, and when necessary, multi-turn dialogues are
+facilitated.
+
+
+
+
+
+
+
+Answer
+
+Figure 2: Overall Framework of CoMM: An Example from College Physics with the Few-shot Setting.
+
+
+
+EmotionPrompt (Li et al., 2023a) improves the
+performance of agents with emotional prompts.
+Huang et al. (2022); Shinn et al. (2023); Madaan
+et al. (2023) prompts LLMs to do self-reflection or
+self-refinement to correct the mistakes. Wang et al.
+(2023a); Sun et al. (2023) prompts LLMs to do
+planning before solving a specific task. Wang et al.
+(2023c) prompts a single agent to play multiple
+roles with different personas.
+
+Another branch of agent-based approaches are
+with multi-agents. For example, Liang et al. (2023);
+Chan et al. (2023); Du et al. (2023) prompt LLMs
+to play different roles in debating for problemsolving. ChatEval (Chan et al., 2023) uses multiple agents debating for automatic LLM evaluation.
+MathChat (Wu et al., 2023b) proposed a conversational framework to solve math problems with
+the user and LLM agent’s interactions. Park et al.
+(2023) and Li et al. (2023b) prompts LLMs to play
+as different agents for simulating human behaviors.
+Our work is closely related to these works, but our
+aim is to prompt LLMs to play different domain
+experts in a collaborative framework on complicated reasoning problems, and how to embed the
+few-shot examples into the multi-agent framework.
+
+Along with the agent-based prompting methods,
+many open-sourced applications come out. For example, AutoGPT (Wu et al., 2023a) plays as AI
+agents that will attempt to achieve a given goal by
+breaking it into sub-tasks and using the internet
+and other tools in an automatic loop. AutoGen (Wu
+et al., 2023a) designs a framework for building
+LLM applications based on multi-agent conversations. MetaGPT (Hong et al., 2023) prompts
+multi-agent to play product managers, architects,
+project managers, and engineers for a software
+project. SkyAGI (Park et al., 2023) emerges human
+
+
+behavior simulation capability in LLM. While sharing the same multi-agent framework, our work focuses on exploring the effectiveness of the framework, i.e., we aim to answer whether multi-agent
+is necessary and how to prompt multiple agents to
+work collaboratively.
+
+
+**3** **Methods**
+
+
+In this section, we first formally define the singleagent prompting framework, and then introduce
+the formal definition of the multi-agent prompting
+framework, and its adaptions to both zero-shot and
+few-shot settings (CoMM).
+
+
+**Single-agent Prompting** Given a language
+model _P_ ( _θ_ ) and input text _x_, single-agent prompting takes a function that is applied to the input
+text _x_ _[′]_ = _fprompt_ ( _x_ ) (usually defines the target
+problem or task) and then predict the answer _y_ by
+the language model that plays as a single problemsolving agent _P_ ( _y|x_ _[′]_ ; _θ_ ). In the zero-shot setting,
+the prompting function _f_ does not contain any
+demonstration examples, while in the few-shot setting, the prompting function contains a few examples.
+
+
+**Multi-agent** **Prompting** For multi-agent
+prompting, we will have _n_ language models
+_P_ 1( _θ_ 1), _P_ 2( _θ_ 2), ..., _Pn_ ( _θn_ ) that play different
+agents or roles in the framework. These language
+models can be the same ( _θ_ 1 = _θ_ 2 _..._ = _θn_ ) or different ( _θ_ 1! = _θ_ 2 _..._ ! = _θn_ ). For input text _x_, each agent
+_i_ will have its own prompting functions _fprompt_ _[i]_ [(] _[x]_ [)]
+that formats the input task or problem for the agent.
+We define the interactions of these agents as a
+non-parametric function _ϕ_ ( _y_ _g_ 1 _, g_ 2 _, ..., gn_ ) where
+_|_
+_gi_ = _Pi_ ( _yi|fprompt_ _[i]_ [(] _[x]_ [);] _[ θ][i]_ [)][ and] _[ y][i]_ [is the output]
+from agent _i_ and _y_ is the final answer.
+
+
+
+1722
+
+
+Zero-shot Few-shot
+Prompting Methods
+
+Moral Scenarios College Physics Moral Scenarios College Physics
+
+Standard (Brown et al., 2020) 38.65 44.12 38.21 48.04
+CoT (Wei et al., 2022b) 45.58 50.00 64.92 56.86
+Thought (Ma et al., 2023) 49.39 - 56.42 
+CoMM **52.17** (+ 2.78) **54.90** (+ 4.90) **65.03** (+ 0.11) **64.71** (+ 7.85)
+
+
+Table 1: Main Test Results (Accuracy, %). Numbers in the parentheses are performance gains of the CoMM over
+previous state-of-the-art.
+
+
+
+**Collaborative Zero-shot Scenario** In our collaborative multi-agent setting, we restrict the multiple agents to inherit from the same language models and the count of agents to be three. Then we
+have three language models _P_ 1( _θ_ ) _, P_ 2( _θ_ ) _, P_ 3( _θ_ ) as
+the agents: _P_ 1( _θ_ ) and _P_ 2( _θ_ ) as the problem-solving
+experts and _P_ 3( _θ_ ) as the summarizar, as shown in
+Figure 2.
+Specifically, for a given input problem _x_, we
+use a prompt function to turn it into a system message that defines the collaborative team-working
+environment _xs_ = _fs_ ( _x_ ). For each agent, we define prompting functions to characterize its role
+and prompt it to give its solution accordingly. In
+particular, for the first expert agent, the prompting function formats the problem and the system message as _x_ 1 = _f_ 1( _x, xs_ ), and then gives
+its output _P_ 1( _y_ 1 _x_ 1; _θ_ ). For the second expert
+_|_
+agent, the prompting function formats the problem, the system message, and the output from _y_ 1
+as _x_ 2 = _f_ 2( _x, xs, y_ 1), and then give its output
+_P_ 1( _y_ 1 _x_ 1; _θ_ ). For the third summarizer, the prompt_|_
+ing function will also consider the outputs from the
+two experts _x_ 3 = _f_ 3( _x, xs, y_ 1 _, y_ 2) and then the
+agent gives the final answer _P_ 3( _y_ _x_ 3; _θ_ ).
+_|_
+For certain specific input tasks, multi-turn discussions are necessary. In this case, the output of the
+second expert agent will circulate back to the first
+agent as the input prompt again, and then repeat
+the afore-mentioned discussions, as demonstrated
+in the Figure 2.
+
+
+**Collaborative Few-shot Scenario** In a multiagent setting, it is not trivial to add the few-shot
+examples to the various agents. **Which agent**
+**should we give the few-shot examples?** We adopt
+a multi-path reasoning approach that gives the fewshot examples to the different agents. In particular, different agents will have their own expertisebased reasoning path in the few-shot demonstra
+
+
+tions. Formally, the two expert prompting functions _x_ 1 = _f_ 1( _x, xs, e_ 1) and _x_ 2 = _f_ 2( _x, xs, e_ 2 _, y_ 1)
+will take exemplars _e_ 1 and _e_ 2 as inputs. Take Figure 2 as an example, the few-shot examples will be
+added to both the physicist and the mathematician
+agents, but with different reasoning paths. More
+details can be found in the Appendix A.
+
+
+**4** **Experiments**
+
+
+In this section, we will first introduce the evaluation
+datasets and benchmark that focus on complicated
+science problems. After that, we introduce the
+strong baseline prompting methods for comparison.
+At last, we introduce the results of our methods and
+the baselines on the benchmark.
+
+
+**4.1** **Datasets**
+
+
+**College Physics** is a dataset from Massive Multitask Language Understanding (MMLU), which
+covers 57 subjects across different domain knowledge. It focuses on college-level physics problems.
+These problems are still very challenging and far
+from satisfying performance with large language
+models. Like the example from Figure 3, LLMs
+are still suffering from the lack of knowledge and
+computing ability.
+
+
+**Moral** **Scenarios** is aother dataset from
+MMLU (Hendrycks et al., 2020). Moral Scenarios
+focus on advanced professional-level social science problems that are yet challenging for large
+language models, which is among the worst performing tasks for many language models (Ma et al.,
+2023).
+Both datasets are multiple choice questions, and
+we use the correct rate (Accuracy) as the metric for
+comparison.
+
+
+
+1723
+
+
+**4.2** **Baselines**
+
+
+**Standard** (Brown et al., 2020) is the first work
+that introduced performing tasks without any taskspecific training or examples, relying solely on its
+general pre-training with prompting. In this work,
+we format each problem as "Q: {question} A:" at
+zero-shot settings, and as "Q: {question example
+1)} A: {answer example 1} ... Q: {question example _n_ } A: {answer example _n_ } Q: {question)}
+A:" for the few-shot setting with _n_ demonstration
+examples.
+
+
+**Chain-of-thought (CoT)** (Wei et al., 2022b)
+improves the Standard prompting approaches by introducing a series of intermediate natural language
+reasoning steps that lead to the final output (chain
+of thought). It hypothesize that giving the LLMs
+longer predicting window, they have better chance
+to reach the answer, in comparison with directly
+requiring them to output the answer. For zero-shot
+implementation, we follow the Zero-shot-CoT proposed by Wang et al. (2023a), and add "Let’s think
+step by step" prompt before the answer, i.e., "Q:
+{question} A: Let’s think step by step.". As for the
+few-shot implementation, we follow the indigenous
+settings from Wei et al. (2022b), i.e., "Q: {question
+example 1} A: Let’s think step by step. {answer
+example 1 with chain of thought} ... Q: {question
+example _n_ } A: Let’s think step by step. {answer
+example _n_ with chain of thought} Q: {question} A:
+Let’s think step by step." for the few-shot setting
+with _n_ demonstration examples.
+
+
+**Thought Experiment (Thought)** (Ma et al.,
+2023) is a reasoning framework that is specialized
+in better moral reasoning by using counterfactual
+reasoning. It is a multi-agent framework with multistep prompting, and each step involves prompting
+the LLMs to solve a specific task. Specifically, this
+method involves employing counterfactual thinking
+to envision various, often hypothetical, situations,
+and then deliberating on the consequences of these
+imagined circumstances. By processing these scenarios, it aids in consolidating intermediate reflections, thereby leading to a deeper comprehension
+of the issue at hand and guiding towards the most
+appropriate solution. We adopt the same settings
+for both zero-shot and few-shot as provided by the
+Ma et al. (2023).
+
+
+
+**4.3** **Settings**
+
+
+**Backbone Model** For a fair comparison, we
+use gpt-3.5-turbo-0613 [1] as the backbone
+model, and set the temperature to be 0 in all our
+experiments.
+
+
+**Settings for College Physics** We prompt the first
+agent _P_ 1( _θ_ ) to be a physicist, the second agent
+_P_ 2( _θ_ ) to be a mathematician, and the third agent
+_P_ 3( _θ_ ) to be the summarizer. In the zero-shot setting, we do not provide demonstration examples,
+while in the few-shot setting, we give the same 5
+examples for the two experts, but with different reasoning paths, i.e., the reasoning path of a physicist
+role and the reasoning path of a mathematician role
+individually. We only prompt the group to discuss
+once for this benchmark. More details can be found
+in the Appendix A.
+
+
+**Settings for Moreal Scenarios** In the zero-shot
+setting, we prompt the first agent _P_ 1( _θ_ ) to be a task
+decomposer, the second agent _P_ 2( _θ_ ) to be a subproblem solver, and the third agent _P_ 3( _θ_ ) to be the
+summarize. In the few-shot setting, we also give
+each expert 5 examples, and we prompt the first
+agent _P_ 1( _θ_ ) to be a chain-of-thought reasoner with
+CoT reasoning path, the second agent _P_ 2( _θ_ ) to be
+a Thought reasoner with thought experiment path,
+and the third agent _P_ 3( _θ_ ) to be the summarize. We
+prompt the group to discuss twice for this benchmark. More details can be found in the Appendix
+A.
+
+
+**4.4** **Main Results**
+
+
+The main experimental results are shown in Table 1. It is saliently observable that the proposed
+CoMM approach can outperform the state-of-theart baselines on both zero-shot and few-shot settings. In detail, it improves with absolute average
+improvements of 3.84% at zero-shot setting and
+8.23% at few-shot setting. CoMM improves more
+in few-shot settings, further demonstrating the effectiveness of applying the multi-path reasoning
+approaches in the multi-agent framework. Also,
+CoMM improves more on the complicated College
+Physics dataset that requires more domain knowledge, further showcasing the efficacy of CoMM in
+solving complex problems.
+
+
+1https://openai.com/
+
+
+
+1724
+
+
+Benchmark Settings Single Agent Multiple Agents
+
+Zero-shot 27.71 **52.17** (+24.46)
+Moral Scenarios
+Few-shot 42.68 **65.03** (+22.35)
+
+Zero-shot 42.16 **54.90** (+12.74)
+College Physics
+Few-shot 56.86 **64.71** (+07.85)
+
+
+Table 2: Single Agent v.s. Multiple Agents, (Accuracy, %). Numbers in the parentheses are the performance gains.
+
+
+Settings Zero-shot Few-shot
+
+CoT (Wei et al., 2022b) 50.00 56.86
+
+One Physicist Only 47.06 44.12
+One Mathematician Only 42.16 58.82
+Two Physicists 47.05 50.98
+Two Mathematicians 52.94 59.80
+
+Both Experts (CoMM) **54.90** (+1.96) **64.71** (+4.91)
+
+
+Table 3: Single Expert v.s. Multiple Experts on College Physics, (Accuracy, %). Numbers in the parentheses are the
+performance gains.
+
+
+
+**5** **Analysis**
+
+
+In this section, this work will demonstrate the necessity of multiple "multiples": multiple agents,
+multiple experts, multiple path reasoning, and multiple turns discussions with empirical evidence.
+
+
+**5.1** **Are Multiple Independent Agents**
+**Necessary?**
+
+Our proposed CoMM approach prompts multiple
+instances of LLMs to play different agents. But
+why not prompt one single instance of LLMs to
+play different roles altogether to solve the target
+problem? This is similar to the multi-agent framework proposed by Wang et al. (2023c).
+We experiment with the same prompting text of
+CoMM using a single instance of LLMs, and the
+results are shown in Table 2. Apparently, the performance of multiple agents (CoMM) significantly
+outperforms the single-agent approach, across all
+benchmarks and settings. We hypothesize the possible reason is that a single instance of LLMs tends
+to be self-consistent, and prompting it to switch
+among different roles confuses the model to make
+the right predictions. Our results are in line with
+the findings from Xu et al. (2023).
+
+
+**5.2** **Are Multiple Domain Experts Necessary?**
+
+In the benchmark of College Physics, we prompt
+the LLMs to play two experts: one physicist and
+
+
+
+one mathematician, aiming at utilizing their domain knowledge independently in solving the problem collaboratively and complementarily. We hope
+the physicist agent can elicit the domain knowledge of physics and the mathematician agent can
+overcome the computing errors. Here we empirically demonstrate whether the multiple domain
+experts are collaborating. As shown in Table 3, the
+single-expert approach shows poor performance,
+and could not beat the CoT benchmark. Furthermore, we prompt the LLMs to play multiple experts
+but with the same expertise. The results shown in
+Table 3 demonstrate that such settings will improve
+over single-expert cases, but still under-perform
+over the multiple different experts settings. Overall,
+the results empirically demonstrate the necessity
+and efficacy of the multiple-expert collaborative
+framework.
+
+
+**5.3** **Are Multiple Turns Discussions**
+**Necessary?**
+
+As mentioned in Section 3, our proposed CoMM
+framework supports multiple turns discussion,
+which means that the agents can discuss multiple
+times to reach a final answer. So are multipleturn discussions necessary? We experiment on the
+benchmark with one-turn discussions and two-turn
+discussions, as shown in Table 4.
+It turns out that the turns of discussions depend
+on the benchmark or dataset. For the Moral Sce
+
+
+1725
+
+
+Benchmark Settings One Turn (Acc%) Two Turns (Acc%)
+
+Zero-shot 48.27 **52.17**
+Moral Scenarios
+Few-shot 64.92 **65.03**
+
+Zero-shot **54.90** 45.09
+College Physics
+Few-shot **64.71** 55.88
+
+
+Table 4: Single Turn v.s. Multiple Turns.
+
+
+
+narios dataset, two-turn discussions perform better,
+while the one-turn discussion performs better on
+the College Physics dataset. We hypothesize that
+the possible rationale could be that the rigorous
+science problems in College Physics require the
+reasoning paths to be concise and clear. A plethora
+of discussions may bring confusion and hallucinations that are not beneficial to such problems. However, the social science problems from the Moral
+Scenarios benchmark naturally benefit from thorough discussions, as many of the truths from social
+science originated from human discussions to reach
+a consensus.
+
+
+**6** **Case Study**
+
+
+In this Section, we provide case study of CoMM
+on different benchmarks.
+In Figure 3, we show the reasoning results of the
+same problem from Figure 1 on College Physics,
+in which the CoT approach is suffering from incorrect knowledge and incorrect calculations. In our
+CoMM framework, the physicist agent also makes
+calculation errors. However, the error is corrected
+by the mathematician, and finally the team reaches
+a correct answer. We can observe that our framework successfully elicit the domain physics knowledge from the physicist agent and the calculation
+ability from the mathematician agent. Also, the
+three agents closely collaborated with each other,
+and the physicist provide domain knowledge, the
+mathematician take advantage of the knowledge
+and correct the calculations, and the summerizer
+gives the final answer based on the discussions.
+In Figure 4, we delve into a detailed case study
+conducted on the Moral Scenarios, specifically focusing on a few-shot learning setting. Notably,
+the CoT baseline encounters difficulties in correctly identifying the moral correctness of the action "trash dog’s poop while walking." This limitation highlights the challenges faced by LLMs in
+understanding and judging moral scenarios. Our
+model, the CoMM, introduces a more layered ap
+
+
+proach to this issue. In the initial phase of our study,
+both the CoT reasoner and the Thought reasoner
+within CoMM failed to accurately assess the moral
+aspect of the scenario. This initial failure underscores the intricacies of moral reasoning and the
+need for more advanced reasoning capabilities in
+the models. However, the scenario undergoes a significant shift following the first round of discussion
+within CoMM. After this collaborative reflection,
+both reasoners – the CoT and the Thought – adjust their initial assessments and correctly identify
+the scenario as morally correct. Additionally, the
+summarizer in CoMM plays a crucial role at this
+point, affirming the correct conclusion reached by
+the reasoners and providing a definitive final answer that aligns with their revised understanding.
+This case study effectively showcases the initial
+challenges and the eventual success of CoMM in
+moral reasoning, emphasizing the value of iterative
+and collaborative reasoning LLM agents.
+
+
+**7** **Conclusion**
+
+
+This study underscores the significant strides
+made in enhancing the reasoning capabilities of
+LLMs through the innovative CoMM prompting framework. By leveraging a multi-agent,
+multi-reasoning-path approach, we successfully
+prompted LLMs to assume varied roles within a
+problem-solving team, fostering a collaborative environment crucial for tackling complex science
+problems. The empirical results obtained from
+two college-level science tasks not only validate
+the efficacy of our method but also highlight the
+potential of few-shot prompting in multi-agent contexts. More importantly, our analysis reveals the
+indispensable role of distinct role-play in achieving
+more nuanced and sophisticated problem-solving
+strategies. This research paves the way for future
+explorations into the realm of advanced AI reasoning, particularly in the application of LLMs to
+intricate and specialized tasks.
+
+
+
+1726
+
+
+Figure 3: Example results of CoMM on College Physics (the same problem as in Figure 1).
+
+
+
+**8** **Limitations**
+
+
+Even though our proposed CoMM framework has
+further pushed the upper bound of the reasoning
+ability of LLMs, the framework is still suffering
+from limitations. The proposed CoMM framework
+still requires task-specific design to define the experts and reasoning examples. However, this is
+a common limitation for all the CoT-style (Wei
+et al., 2022b) approaches. For example, the CoT
+approach needs specific designs for the few-shot
+examples with the chain of reasoning steps; the
+Thought baseline (Ma et al., 2023) requires specific thought experiment designs, and it only works
+on one specific benchmark (the Moral Scenario
+from MMLU (Hendrycks et al., 2020)). We leave
+the automatic prompting design for the CoMM
+framework as future work.
+
+
+**References**
+
+Yuntao Bai, Saurav Kadavath, Sandipan Kundu,
+Amanda Askell, Jackson Kernion, Andy Jones, Anna
+Chen, Anna Goldie, Azalia Mirhoseini, Cameron
+McKinnon, Carol Chen, Catherine Olsson, Christopher Olah, Danny Hernandez, Dawn Drain, Deep
+Ganguli, Dustin Li, Eli Tran-Johnson, Ethan Perez,
+Jamie Kerr, Jared Mueller, Jeffrey Ladish, Joshua
+Landau, Kamal Ndousse, Kamile Lukosuite, Liane
+Lovitt, Michael Sellitto, Nelson Elhage, Nicholas
+Schiefer, Noemi Mercado, Nova DasSarma, Robert
+Lasenby, Robin Larson, Sam Ringer, Scott Johnston, Shauna Kravec, Sheer El Showk, Stanislav Fort,
+Tamera Lanham, Timothy Telleen-Lawton, Tom Con
+
+
+erly, Tom Henighan, Tristan Hume, Samuel R. Bowman, Zac Hatfield-Dodds, Ben Mann, Dario Amodei,
+Nicholas Joseph, Sam McCandlish, Tom Brown, and
+[Jared Kaplan. 2022. Constitutional ai: Harmlessness](http://arxiv.org/abs/2212.08073)
+[from ai feedback.](http://arxiv.org/abs/2212.08073)
+
+
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, Sandhini Agarwal, Ariel Herbert-Voss,
+Gretchen Krueger, Tom Henighan, Rewon Child,
+Aditya Ramesh, Daniel Ziegler, Jeffrey Wu, Clemens
+Winter, Chris Hesse, Mark Chen, Eric Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess, Jack
+Clark, Christopher Berner, Sam McCandlish, Alec
+Radford, Ilya Sutskever, and Dario Amodei. 2020.
+[Language models are few-shot learners.](https://proceedings.neurips.cc/paper_files/paper/2020/file/1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf) In _Ad-_
+_vances in Neural Information Processing Systems_,
+volume 33, pages 1877–1901. Curran Associates,
+Inc.
+
+
+Chi-Min Chan, Weize Chen, Yusheng Su, Jianxuan Yu,
+Wei Xue, Shanghang Zhang, Jie Fu, and Zhiyuan Liu.
+[2023. Chateval: Towards better llm-based evaluators](http://arxiv.org/abs/2308.07201)
+[through multi-agent debate.](http://arxiv.org/abs/2308.07201)
+
+
+Pei Chen, Haibo Ding, Jun Araki, and Ruihong Huang.
+2021. [Explicitly capturing relations between en-](https://doi.org/10.18653/v1/2021.acl-short.93)
+[tity mentions via graph neural networks for domain-](https://doi.org/10.18653/v1/2021.acl-short.93)
+[specific named entity recognition. In](https://doi.org/10.18653/v1/2021.acl-short.93) _Proceedings_
+_of the 59th Annual Meeting of the Association for_
+_Computational Linguistics and the 11th International_
+_Joint Conference on Natural Language Processing_
+_(Volume 2: Short Papers)_, pages 735–742, Online.
+Association for Computational Linguistics.
+
+
+Pei Chen, Haotian Xu, Cheng Zhang, and Ruihong
+Huang. 2022. Crossroads, buildings and neighborhoods: A dataset for fine-grained location recognition. In _Proceedings of the 2022 Conference of the_
+
+
+
+1727
+
+
+Figure 4: Example results of CoMM on Moral Scenarios with few-shot setting.
+
+
+1728
+
+
+_North American Chapter of the Association for Com-_
+_putational Linguistics: Human Language Technolo-_
+_gies_, pages 3329–3339.
+
+
+Wenhu Chen, Xueguang Ma, Xinyi Wang, and
+William W. Cohen. 2023. [Program of thoughts](http://arxiv.org/abs/2211.12588)
+[prompting: Disentangling computation from reason-](http://arxiv.org/abs/2211.12588)
+[ing for numerical reasoning tasks.](http://arxiv.org/abs/2211.12588)
+
+
+Aakanksha Chowdhery, Sharan Narang, Jacob Devlin,
+Maarten Bosma, Gaurav Mishra, Adam Roberts,
+Paul Barham, Hyung Won Chung, Charles Sutton,
+Sebastian Gehrmann, Parker Schuh, Kensen Shi,
+Sasha Tsvyashchenko, Joshua Maynez, Abhishek
+Rao, Parker Barnes, Yi Tay, Noam Shazeer, Vinodkumar Prabhakaran, Emily Reif, Nan Du, Ben
+Hutchinson, Reiner Pope, James Bradbury, Jacob
+Austin, Michael Isard, Guy Gur-Ari, Pengcheng Yin,
+Toju Duke, Anselm Levskaya, Sanjay Ghemawat,
+Sunipa Dev, Henryk Michalewski, Xavier Garcia,
+Vedant Misra, Kevin Robinson, Liam Fedus, Denny
+Zhou, Daphne Ippolito, David Luan, Hyeontaek Lim,
+Barret Zoph, Alexander Spiridonov, Ryan Sepassi,
+David Dohan, Shivani Agrawal, Mark Omernick, Andrew M. Dai, Thanumalayan Sankaranarayana Pillai, Marie Pellat, Aitor Lewkowycz, Erica Moreira,
+Rewon Child, Oleksandr Polozov, Katherine Lee,
+Zongwei Zhou, Xuezhi Wang, Brennan Saeta, Mark
+Diaz, Orhan Firat, Michele Catasta, Jason Wei, Kathy
+Meier-Hellstern, Douglas Eck, Jeff Dean, Slav Petrov,
+[and Noah Fiedel. 2022. Palm: Scaling language mod-](http://arxiv.org/abs/2204.02311)
+[eling with pathways.](http://arxiv.org/abs/2204.02311)
+
+
+Yilun Du, Shuang Li, Antonio Torralba, Joshua B.
+[Tenenbaum, and Igor Mordatch. 2023. Improving](http://arxiv.org/abs/2305.14325)
+[factuality and reasoning in language models through](http://arxiv.org/abs/2305.14325)
+[multiagent debate.](http://arxiv.org/abs/2305.14325)
+
+
+Luyu Gao, Aman Madaan, Shuyan Zhou, Uri Alon,
+Pengfei Liu, Yiming Yang, Jamie Callan, and Gra[ham Neubig. 2023. Pal: Program-aided language](http://arxiv.org/abs/2211.10435)
+[models.](http://arxiv.org/abs/2211.10435)
+
+
+Shibo Hao, Yi Gu, Haodi Ma, Joshua Jiahua Hong,
+Zhen Wang, Daisy Zhe Wang, and Zhiting Hu. 2023.
+[Reasoning with language model is planning with](http://arxiv.org/abs/2305.14992)
+[world model.](http://arxiv.org/abs/2305.14992)
+
+
+Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou,
+Mantas Mazeika, Dawn Song, and Jacob Steinhardt.
+[2020. Measuring massive multitask language under-](http://arxiv.org/abs/2009.03300)
+[standing.](http://arxiv.org/abs/2009.03300) _CoRR_, abs/2009.03300.
+
+
+Sirui Hong, Xiawu Zheng, Jonathan Chen, Yuheng
+Cheng, Jinlin Wang, Ceyao Zhang, Zili Wang, Steven
+Ka Shing Yau, Zijuan Lin, Liyang Zhou, Chenyu Ran,
+[Lingfeng Xiao, and Chenglin Wu. 2023. Metagpt:](http://arxiv.org/abs/2308.00352)
+[Meta programming for multi-agent collaborative](http://arxiv.org/abs/2308.00352)
+[framework.](http://arxiv.org/abs/2308.00352)
+
+
+Jiaxin Huang, Shixiang Shane Gu, Le Hou, Yuexin Wu,
+Xuezhi Wang, Hongkun Yu, and Jiawei Han. 2022.
+[Large language models can self-improve.](http://arxiv.org/abs/2210.11610)
+
+
+
+Albert Q. Jiang, Alexandre Sablayrolles, Arthur Mensch, Chris Bamford, Devendra Singh Chaplot, Diego
+de las Casas, Florian Bressand, Gianna Lengyel, Guillaume Lample, Lucile Saulnier, Lélio Renard Lavaud,
+Marie-Anne Lachaux, Pierre Stock, Teven Le Scao,
+Thibaut Lavril, Thomas Wang, Timothée Lacroix,
+[and William El Sayed. 2023. Mistral 7b.](http://arxiv.org/abs/2310.06825)
+
+
+Cheng Li, Jindong Wang, Yixuan Zhang, Kaijie Zhu,
+Wenxin Hou, Jianxun Lian, Fang Luo, Qiang Yang,
+[and Xing Xie. 2023a. Large language models under-](http://arxiv.org/abs/2307.11760)
+[stand and can be enhanced by emotional stimuli.](http://arxiv.org/abs/2307.11760)
+
+
+Guohao Li, Hasan Abed Al Kader Hammoud, Hani
+Itani, Dmitrii Khizbullin, and Bernard Ghanem.
+[2023b. Camel: Communicative agents for "mind"](http://arxiv.org/abs/2303.17760)
+[exploration of large language model society.](http://arxiv.org/abs/2303.17760)
+
+
+Ming Li, Yong Zhang, Zhitao Li, Jiuhai Chen, Lichang
+Chen, Ning Cheng, Jianzong Wang, Tianyi Zhou, and
+Jing Xiao. 2023c. From quantity to quality: Boosting
+llm performance with self-guided data selection for
+instruction tuning. _arXiv preprint arXiv:2308.12032_ .
+
+
+Tian Liang, Zhiwei He, Wenxiang Jiao, Xing Wang,
+Yan Wang, Rui Wang, Yujiu Yang, Zhaopeng Tu, and
+[Shuming Shi. 2023. Encouraging divergent thinking](http://arxiv.org/abs/2305.19118)
+[in large language models through multi-agent debate.](http://arxiv.org/abs/2305.19118)
+
+
+Chen Ling, Xuchao Zhang, Xujiang Zhao, Yanchi Liu,
+Wei Cheng, Mika Oishi, Takao Osaki, Katsushi Matsuda, Haifeng Chen, and Liang Zhao. 2023a. Openended commonsense reasoning with unrestricted answer candidates. In _The 2023 Conference on Empiri-_
+_cal Methods in Natural Language Processing_ .
+
+
+Chen Ling, Xujiang Zhao, Wei Cheng, Yanchi Liu,
+Yiyou Sun, Xuchao Zhang, Mika Oishi, Takao Osaki, Katsushi Matsuda, Jie Ji, et al. 2024. Uncertainty decomposition and quantification for incontext learning of large language models. _arXiv_
+_preprint arXiv:2402.10189_ .
+
+
+Chen Ling, Xujiang Zhao, Jiaying Lu, Chengyuan Deng,
+Can Zheng, Junxiang Wang, Tanmoy Chowdhury,
+Yun Li, Hejie Cui, et al. 2023b. Domain specialization as the key to make large language models
+disruptive: A comprehensive survey. _arXiv preprint_
+_arXiv:2305.18703_ .
+
+
+Jiachang Liu, Dinghan Shen, Yizhe Zhang, Bill Dolan,
+Lawrence Carin, and Weizhu Chen. 2021. [What](http://arxiv.org/abs/2101.06804)
+[makes good in-context examples for gpt-3?](http://arxiv.org/abs/2101.06804)
+
+
+Xiao Ma, Swaroop Mishra, Ahmad Beirami, Alex Beu[tel, and Jilin Chen. 2023. Let’s do a thought ex-](http://arxiv.org/abs/2306.14308)
+[periment: Using counterfactuals to improve moral](http://arxiv.org/abs/2306.14308)
+[reasoning.](http://arxiv.org/abs/2306.14308)
+
+
+Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler
+Hallinan, Luyu Gao, Sarah Wiegreffe, Uri Alon,
+Nouha Dziri, Shrimai Prabhumoye, Yiming Yang,
+Shashank Gupta, Bodhisattwa Prasad Majumder,
+Katherine Hermann, Sean Welleck, Amir Yazdan[bakhsh, and Peter Clark. 2023. Self-refine: Iterative](http://arxiv.org/abs/2303.17651)
+[refinement with self-feedback.](http://arxiv.org/abs/2303.17651)
+
+
+
+1729
+
+
+[OpenAI. 2023. Gpt-4 technical report.](http://arxiv.org/abs/2303.08774)
+
+
+Joon Sung Park, Joseph C. O’Brien, Carrie J. Cai,
+Meredith Ringel Morris, Percy Liang, and Michael S.
+[Bernstein. 2023. Generative agents: Interactive sim-](http://arxiv.org/abs/2304.03442)
+[ulacra of human behavior.](http://arxiv.org/abs/2304.03442)
+
+
+Guilherme Penedo, Quentin Malartic, Daniel Hesslow,
+Ruxandra Cojocaru, Alessandro Cappelli, Hamza
+Alobeidli, Baptiste Pannier, Ebtesam Almazrouei,
+[and Julien Launay. 2023. The refinedweb dataset for](http://arxiv.org/abs/2306.01116)
+[falcon llm: Outperforming curated corpora with web](http://arxiv.org/abs/2306.01116)
+[data, and web data only.](http://arxiv.org/abs/2306.01116)
+
+
+Xiaodong Qu, Peiyan Liu, Zhaonan Li, and Timothy
+Hickey. 2020a. Multi-class time continuity voting
+for eeg classification. In _Brain Function Assessment_
+_in Learning: Second International Conference, BFAL_
+_2020, Heraklion, Crete, Greece, October 9–11, 2020,_
+_Proceedings 2_, pages 24–33. Springer.
+
+
+Xiaodong Qu, Qingtian Mei, Peiyan Liu, and Timothy
+Hickey. 2020b. Using eeg to distinguish between
+writing and typing for the same cognitive task. In
+_Brain Function Assessment in Learning: Second_
+_International Conference, BFAL 2020, Heraklion,_
+_Crete, Greece, October 9–11, 2020, Proceedings 2_,
+pages 66–74. Springer.
+
+
+Pranab Sahoo, Ayush Kumar Singh, Sriparna Saha,
+Vinija Jain, Samrat Mondal, and Aman Chadha. 2024.
+[A systematic survey of prompt engineering in large](http://arxiv.org/abs/2402.07927)
+[language models: Techniques and applications.](http://arxiv.org/abs/2402.07927)
+
+
+Noah Shinn, Federico Cassano, Edward Berman, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao.
+[2023. Reflexion: Language agents with verbal rein-](http://arxiv.org/abs/2303.11366)
+[forcement learning.](http://arxiv.org/abs/2303.11366)
+
+
+Simeng Sun, Yang Liu, Shuohang Wang, Chenguang
+[Zhu, and Mohit Iyyer. 2023. Pearl: Prompting large](http://arxiv.org/abs/2305.14564)
+[language models to plan and execute actions over](http://arxiv.org/abs/2305.14564)
+[long documents.](http://arxiv.org/abs/2305.14564)
+
+
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier
+Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal
+Azhar, Aurelien Rodriguez, Armand Joulin, Edouard
+[Grave, and Guillaume Lample. 2023a. Llama: Open](http://arxiv.org/abs/2302.13971)
+[and efficient foundation language models.](http://arxiv.org/abs/2302.13971)
+
+
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay
+Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti
+Bhosale, Dan Bikel, Lukas Blecher, Cristian Canton
+Ferrer, Moya Chen, Guillem Cucurull, David Esiobu,
+Jude Fernandes, Jeremy Fu, Wenyin Fu, Brian Fuller,
+Cynthia Gao, Vedanuj Goswami, Naman Goyal, Anthony Hartshorn, Saghar Hosseini, Rui Hou, Hakan
+Inan, Marcin Kardas, Viktor Kerkez, Madian Khabsa,
+Isabel Kloumann, Artem Korenev, Punit Singh Koura,
+Marie-Anne Lachaux, Thibaut Lavril, Jenya Lee, Diana Liskovich, Yinghai Lu, Yuning Mao, Xavier Martinet, Todor Mihaylov, Pushkar Mishra, Igor Molybog, Yixin Nie, Andrew Poulton, Jeremy Reizenstein, Rashi Rungta, Kalyan Saladi, Alan Schelten,
+
+
+
+Ruan Silva, Eric Michael Smith, Ranjan Subramanian, Xiaoqing Ellen Tan, Binh Tang, Ross Taylor, Adina Williams, Jian Xiang Kuan, Puxin Xu,
+Zheng Yan, Iliyan Zarov, Yuchen Zhang, Angela Fan,
+Melanie Kambadur, Sharan Narang, Aurelien Rodriguez, Robert Stojnic, Sergey Edunov, and Thomas
+[Scialom. 2023b. Llama 2: Open foundation and](http://arxiv.org/abs/2307.09288)
+[fine-tuned chat models.](http://arxiv.org/abs/2307.09288)
+
+
+Lei Wang, Wanyu Xu, Yihuai Lan, Zhiqiang Hu,
+Yunshi Lan, Roy Ka-Wei Lee, and Ee-Peng Lim.
+[2023a. Plan-and-solve prompting: Improving zero-](http://arxiv.org/abs/2305.04091)
+[shot chain-of-thought reasoning by large language](http://arxiv.org/abs/2305.04091)
+[models.](http://arxiv.org/abs/2305.04091)
+
+
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc
+Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery,
+[and Denny Zhou. 2023b. Self-consistency improves](http://arxiv.org/abs/2203.11171)
+[chain of thought reasoning in language models.](http://arxiv.org/abs/2203.11171)
+
+
+Zhenhailong Wang, Shaoguang Mao, Wenshan Wu, Tao
+[Ge, Furu Wei, and Heng Ji. 2023c. Unleashing cogni-](http://arxiv.org/abs/2307.05300)
+[tive synergy in large language models: A task-solving](http://arxiv.org/abs/2307.05300)
+[agent through multi-persona self-collaboration.](http://arxiv.org/abs/2307.05300)
+
+
+Jason Wei, Yi Tay, Rishi Bommasani, Colin Raffel,
+Barret Zoph, Sebastian Borgeaud, Dani Yogatama,
+Maarten Bosma, Denny Zhou, Donald Metzler, Ed H.
+Chi, Tatsunori Hashimoto, Oriol Vinyals, Percy
+[Liang, Jeff Dean, and William Fedus. 2022a. Emer-](http://arxiv.org/abs/2206.07682)
+[gent abilities of large language models.](http://arxiv.org/abs/2206.07682)
+
+
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, Ed H. Chi, Quoc Le, and Denny Zhou. 2022b.
+[Chain of thought prompting elicits reasoning in large](http://arxiv.org/abs/2201.11903)
+[language models.](http://arxiv.org/abs/2201.11903) _CoRR_, abs/2201.11903.
+
+
+BigScience Workshop, :, Teven Le Scao, Angela Fan,
+Christopher Akiki, Ellie Pavlick, Suzana Ili´c, Daniel
+Hesslow, Roman Castagné, Alexandra Sasha Luccioni, François Yvon, Matthias Gallé, Jonathan
+Tow, Alexander M. Rush, Stella Biderman, Albert
+Webson, Pawan Sasanka Ammanamanchi, Thomas
+Wang, Benoît Sagot, Niklas Muennighoff, Albert Villanova del Moral, Olatunji Ruwase, Rachel Bawden,
+Stas Bekman, Angelina McMillan-Major, Iz Beltagy, Huu Nguyen, Lucile Saulnier, Samson Tan, Pedro Ortiz Suarez, Victor Sanh, Hugo Laurençon,
+Yacine Jernite, Julien Launay, Margaret Mitchell,
+Colin Raffel, Aaron Gokaslan, Adi Simhi, Aitor
+Soroa, Alham Fikri Aji, Amit Alfassy, Anna Rogers,
+Ariel Kreisberg Nitzav, Canwen Xu, Chenghao Mou,
+Chris Emezue, Christopher Klamm, Colin Leong,
+Daniel van Strien, David Ifeoluwa Adelani, Dragomir
+Radev, Eduardo González Ponferrada, Efrat Levkovizh, Ethan Kim, Eyal Bar Natan, Francesco De
+Toni, Gérard Dupont, Germán Kruszewski, Giada
+Pistilli, Hady Elsahar, Hamza Benyamina, Hieu Tran,
+Ian Yu, Idris Abdulmumin, Isaac Johnson, Itziar
+Gonzalez-Dios, Javier de la Rosa, Jenny Chim, Jesse
+Dodge, Jian Zhu, Jonathan Chang, Jörg Frohberg,
+Joseph Tobing, Joydeep Bhattacharjee, Khalid Almubarak, Kimbo Chen, Kyle Lo, Leandro Von Werra,
+Leon Weber, Long Phan, Loubna Ben allal, Ludovic Tanguy, Manan Dey, Manuel Romero Muñoz,
+
+
+
+1730
+
+
+Maraim Masoud, María Grandury, Mario Šaško,
+Max Huang, Maximin Coavoux, Mayank Singh,
+Mike Tian-Jian Jiang, Minh Chien Vu, Mohammad A. Jauhar, Mustafa Ghaleb, Nishant Subramani,
+Nora Kassner, Nurulaqilla Khamis, Olivier Nguyen,
+Omar Espejel, Ona de Gibert, Paulo Villegas, Peter Henderson, Pierre Colombo, Priscilla Amuok,
+Quentin Lhoest, Rheza Harliman, Rishi Bommasani,
+Roberto Luis López, Rui Ribeiro, Salomey Osei,
+Sampo Pyysalo, Sebastian Nagel, Shamik Bose,
+Shamsuddeen Hassan Muhammad, Shanya Sharma,
+Shayne Longpre, Somaieh Nikpoor, Stanislav Silberberg, Suhas Pai, Sydney Zink, Tiago Timponi Torrent, Timo Schick, Tristan Thrush, Valentin Danchev,
+Vassilina Nikoulina, Veronika Laippala, Violette
+Lepercq, Vrinda Prabhu, Zaid Alyafeai, Zeerak Talat, Arun Raja, Benjamin Heinzerling, Chenglei Si,
+Davut Emre Ta¸sar, Elizabeth Salesky, Sabrina J.
+Mielke, Wilson Y. Lee, Abheesht Sharma, Andrea
+Santilli, Antoine Chaffin, Arnaud Stiegler, Debajyoti Datta, Eliza Szczechla, Gunjan Chhablani, Han
+Wang, Harshit Pandey, Hendrik Strobelt, Jason Alan
+Fries, Jos Rozen, Leo Gao, Lintang Sutawika, M Saiful Bari, Maged S. Al-shaibani, Matteo Manica, Nihal Nayak, Ryan Teehan, Samuel Albanie, Sheng
+Shen, Srulik Ben-David, Stephen H. Bach, Taewoon
+Kim, Tali Bers, Thibault Fevry, Trishala Neeraj, Urmish Thakker, Vikas Raunak, Xiangru Tang, ZhengXin Yong, Zhiqing Sun, Shaked Brody, Yallow Uri,
+Hadar Tojarieh, Adam Roberts, Hyung Won Chung,
+Jaesung Tae, Jason Phang, Ofir Press, Conglong Li,
+Deepak Narayanan, Hatim Bourfoune, Jared Casper,
+Jeff Rasley, Max Ryabinin, Mayank Mishra, Minjia
+Zhang, Mohammad Shoeybi, Myriam Peyrounette,
+Nicolas Patry, Nouamane Tazi, Omar Sanseviero,
+Patrick von Platen, Pierre Cornette, Pierre François
+Lavallée, Rémi Lacroix, Samyam Rajbhandari, Sanchit Gandhi, Shaden Smith, Stéphane Requena, Suraj
+Patil, Tim Dettmers, Ahmed Baruwa, Amanpreet
+Singh, Anastasia Cheveleva, Anne-Laure Ligozat,
+Arjun Subramonian, Aurélie Névéol, Charles Lovering, Dan Garrette, Deepak Tunuguntla, Ehud Reiter,
+Ekaterina Taktasheva, Ekaterina Voloshina, Eli Bogdanov, Genta Indra Winata, Hailey Schoelkopf, JanChristoph Kalo, Jekaterina Novikova, Jessica Zosa
+Forde, Jordan Clive, Jungo Kasai, Ken Kawamura,
+Liam Hazan, Marine Carpuat, Miruna Clinciu, Najoung Kim, Newton Cheng, Oleg Serikov, Omer
+Antverg, Oskar van der Wal, Rui Zhang, Ruochen
+Zhang, Sebastian Gehrmann, Shachar Mirkin, Shani
+Pais, Tatiana Shavrina, Thomas Scialom, Tian Yun,
+Tomasz Limisiewicz, Verena Rieser, Vitaly Protasov,
+Vladislav Mikhailov, Yada Pruksachatkun, Yonatan
+Belinkov, Zachary Bamberger, Zdenˇek Kasner, Alice Rueda, Amanda Pestana, Amir Feizpour, Ammar
+Khan, Amy Faranak, Ana Santos, Anthony Hevia,
+Antigona Unldreaj, Arash Aghagol, Arezoo Abdollahi, Aycha Tammour, Azadeh HajiHosseini, Bahareh
+Behroozi, Benjamin Ajibade, Bharat Saxena, Carlos Muñoz Ferrandis, Daniel McDuff, Danish Contractor, David Lansky, Davis David, Douwe Kiela,
+Duong A. Nguyen, Edward Tan, Emi Baylor, Ezinwanne Ozoani, Fatima Mirza, Frankline Onon
+
+
+iwu, Habib Rezanejad, Hessie Jones, Indrani Bhattacharya, Irene Solaiman, Irina Sedenko, Isar Nejadgholi, Jesse Passmore, Josh Seltzer, Julio Bonis
+Sanz, Livia Dutra, Mairon Samagaio, Maraim Elbadri, Margot Mieskes, Marissa Gerchick, Martha
+Akinlolu, Michael McKenna, Mike Qiu, Muhammed
+Ghauri, Mykola Burynok, Nafis Abrar, Nazneen Rajani, Nour Elkott, Nour Fahmy, Olanrewaju Samuel,
+Ran An, Rasmus Kromann, Ryan Hao, Samira Alizadeh, Sarmad Shubber, Silas Wang, Sourav Roy,
+Sylvain Viguier, Thanh Le, Tobi Oyebade, Trieu Le,
+Yoyo Yang, Zach Nguyen, Abhinav Ramesh Kashyap,
+Alfredo Palasciano, Alison Callahan, Anima Shukla,
+Antonio Miranda-Escalada, Ayush Singh, Benjamin
+Beilharz, Bo Wang, Caio Brito, Chenxi Zhou, Chirag
+Jain, Chuxin Xu, Clémentine Fourrier, Daniel León
+Periñán, Daniel Molano, Dian Yu, Enrique Manjavacas, Fabio Barth, Florian Fuhrimann, Gabriel Altay,
+Giyaseddin Bayrak, Gully Burns, Helena U. Vrabec,
+Imane Bello, Ishani Dash, Jihyun Kang, John Giorgi,
+Jonas Golde, Jose David Posada, Karthik Rangasai Sivaraman, Lokesh Bulchandani, Lu Liu, Luisa
+Shinzato, Madeleine Hahn de Bykhovetz, Maiko
+Takeuchi, Marc Pàmies, Maria A Castillo, Marianna Nezhurina, Mario Sänger, Matthias Samwald,
+Michael Cullan, Michael Weinberg, Michiel De
+Wolf, Mina Mihaljcic, Minna Liu, Moritz Freidank,
+Myungsun Kang, Natasha Seelam, Nathan Dahlberg,
+Nicholas Michio Broad, Nikolaus Muellner, Pascale
+Fung, Patrick Haller, Ramya Chandrasekhar, Renata
+Eisenberg, Robert Martin, Rodrigo Canalli, Rosaline
+Su, Ruisi Su, Samuel Cahyawijaya, Samuele Garda,
+Shlok S Deshmukh, Shubhanshu Mishra, Sid Kiblawi, Simon Ott, Sinee Sang-aroonsiri, Srishti Kumar, Stefan Schweter, Sushil Bharati, Tanmay Laud,
+Théo Gigant, Tomoya Kainuma, Wojciech Kusa, Yanis Labrak, Yash Shailesh Bajaj, Yash Venkatraman,
+Yifan Xu, Yingxin Xu, Yu Xu, Zhe Tan, Zhongli
+Xie, Zifan Ye, Mathilde Bras, Younes Belkada, and
+Thomas Wolf. 2023. [Bloom: A 176b-parameter](http://arxiv.org/abs/2211.05100)
+[open-access multilingual language model.](http://arxiv.org/abs/2211.05100)
+
+
+Qingyun Wu, Gagan Bansal, Jieyu Zhang, Yiran Wu,
+Beibin Li, Erkang Zhu, Li Jiang, Xiaoyun Zhang,
+Shaokun Zhang, Jiale Liu, Ahmed Hassan Awadallah, Ryen W White, Doug Burger, and Chi Wang.
+[2023a. Autogen: Enabling next-gen llm applications](http://arxiv.org/abs/2308.08155)
+[via multi-agent conversation.](http://arxiv.org/abs/2308.08155)
+
+
+Yiran Wu, Feiran Jia, Shaokun Zhang, Hangyu Li,
+Erkang Zhu, Yue Wang, Yin Tat Lee, Richard Peng,
+[Qingyun Wu, and Chi Wang. 2023b. An empirical](http://arxiv.org/abs/2306.01337)
+[study on challenging math problem solving with gpt-](http://arxiv.org/abs/2306.01337)
+[4.](http://arxiv.org/abs/2306.01337)
+
+
+Benfeng Xu, An Yang, Junyang Lin, Quan Wang, Chang
+Zhou, Yongdong Zhang, and Zhendong Mao. 2023.
+[Expertprompting: Instructing large language models](http://arxiv.org/abs/2305.14688)
+[to be distinguished experts.](http://arxiv.org/abs/2305.14688)
+
+
+Liyan Xu, Jiangnan Li, Mo Yu, and Jie Zhou. 2024a.
+Graph representation of narrative context: Coherence dependency via retrospective questions. _arXiv_
+_preprint arXiv:2402.13551_ .
+
+
+
+1731
+
+
+Liyan Xu, Zhenlin Su, Mo Yu, Jin Xu, Jinho D Choi,
+Jie Zhou, and Fei Liu. 2024b. Identifying factual
+inconsistency in summaries: Towards effective utilization of large language model. _arXiv preprint_
+_arXiv:2402.12821_ .
+
+
+Xiaohan Xu, Ming Li, Chongyang Tao, Tao Shen,
+Reynold Cheng, Jinyang Li, Can Xu, Dacheng Tao,
+[and Tianyi Zhou. 2024c. A survey on knowledge](http://arxiv.org/abs/2402.13116)
+[distillation of large language models.](http://arxiv.org/abs/2402.13116)
+
+
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran,
+Thomas L. Griffiths, Yuan Cao, and Karthik
+Narasimhan. 2023. [Tree of thoughts: Deliberate](http://arxiv.org/abs/2305.10601)
+[problem solving with large language models.](http://arxiv.org/abs/2305.10601)
+
+
+Long Yi and Xiaodong Qu. 2022. Attention-based cnn
+capturing eeg recording’s average voltage and local
+change. In _International Conference on Human-_
+_Computer Interaction_, pages 448–459. Springer.
+
+
+Mo Yu, Qiujing Wang, Shunchi Zhang, Yisi Sang, Kangsheng Pu, Zekai Wei, Han Wang, Liyan Xu, Jing Li,
+[Yue Yu, and Jie Zhou. 2024. Few-shot character](http://arxiv.org/abs/2211.04684)
+[understanding in movies as an assessment to meta-](http://arxiv.org/abs/2211.04684)
+[learning of theory-of-mind.](http://arxiv.org/abs/2211.04684)
+
+
+Susan Zhang, Stephen Roller, Naman Goyal, Mikel
+Artetxe, Moya Chen, Shuohui Chen, Christopher Dewan, Mona Diab, Xian Li, Xi Victoria Lin, Todor Mihaylov, Myle Ott, Sam Shleifer, Kurt Shuster, Daniel
+Simig, Punit Singh Koura, Anjali Sridhar, Tianlu
+[Wang, and Luke Zettlemoyer. 2022. Opt: Open pre-](http://arxiv.org/abs/2205.01068)
+[trained transformer language models.](http://arxiv.org/abs/2205.01068)
+
+
+Zeyu Zhang, Thuy Vu, and Alessandro Moschitti. 2023.
+Double retrieval and ranking for accurate question
+answering. In _Findings of the Association for Compu-_
+_tational Linguistics: EACL 2023_, pages 1751–1762.
+
+
+Denny Zhou, Nathanael Schärli, Le Hou, Jason Wei,
+Nathan Scales, Xuezhi Wang, Dale Schuurmans,
+Claire Cui, Olivier Bousquet, Quoc Le, and Ed Chi.
+[2023. Least-to-most prompting enables complex rea-](http://arxiv.org/abs/2205.10625)
+[soning in large language models.](http://arxiv.org/abs/2205.10625)
+
+
+**A** **Appendix**
+
+
+Here are the prompts we use for all the settings and
+benchmarks.
+
+
+1732
+
+
+Figure 5: Prompts for College Physics.
+1733
+
+
+Figure 6: Prompts for Moral Scenarios.1734
+
+
+Figure 7: Few Shot Examples for Physicist.
+
+
+1735
+
+
+Figure 8: Few Shot Examples for Mathematician.
+1736
+
+
+Figure 9: Few Shot Examples for CoT on Moral Scenarios.1737
+
+
+Figure 10: Few Shot Examples for Thought on Moral Scenarios.1738
+
+

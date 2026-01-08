@@ -1,0 +1,2166 @@
+Published as a conference paper at ICLR 2024
+
+# CABINET: CONTENT RELEVANCE BASED NOISE REDUCTION FOR TABLE QUESTION ANSWERING
+
+
+_∗_ + **Sohan Patnaik** 1 _,_ 2 **,** _∗_ + **Heril Changwal** 3 **,** _∗_ **Milan Aggarwal** 1 **, Sumit Bhatia** 1 **,**
+**Yaman Kumar Singla** [1] **, & Balaji Krishnamurthy** [1]
+
+1MDSR Lab, Adobe; 2IIT Kharagpur; 3IIT Roorkee
+_{_ sohanpatnaik106, changwalheril _}_ @gmail.com
+_{_ milaggar, sumbhati, ykumar, kbalaji _}_ @adobe.com
+
+
+ABSTRACT
+
+
+Table understanding capability of Large Language Models (LLMs) has been extensively studied through the task of question-answering (QA) over tables. Typically, only a small part of the whole table is relevant to derive the answer for a
+given question. The irrelevant parts act as noise and are _distracting information_,
+resulting in sub-optimal performance due to the vulnerability of LLMs to noise.
+To mitigate this, we propose **CABINET** ( **C** ontent Relev **A** nce- **B** ased No **I** se Reductio **N** for Tabl **E** Ques **T** ion-Answering) – a framework to enable LLMs to focus
+on relevant tabular data by suppressing extraneous information. CABINET comprises an Unsupervised Relevance Scorer (URS), trained differentially with the
+QA LLM, that weighs the table content based on its relevance to the input question before feeding it to the question-answering LLM (QA LLM). To further aid
+the relevance scorer, CABINET employs a weakly supervised module that generates a parsing statement describing the criteria of rows and columns relevant to
+the question and highlights the content of corresponding table cells. CABINET
+significantly outperforms various tabular LLM baselines, as well as GPT3-based
+in-context learning methods, is more robust to noise, maintains outperformance
+on tables of varying sizes, and establishes new SoTA performance on WikiTQ,
+[FeTaQA, and WikiSQL datasets. We release our code and datasets here.](https://github.com/Sohanpatnaik106/CABINET_QA)
+
+
+1 INTRODUCTION
+
+
+Understanding tabular data through ML models has been extensively explored through various tasks
+such as question-answering (QA) (Chen et al., 2022; Cheng et al., 2022; Nan et al., 2022), factverification (Chen et al., 2020b; Wang et al., 2021; Aly et al., 2021), table-to-description generation (Chen et al., 2020a; Parikh et al., 2020; Chen et al., 2020c; Suadaa et al., 2021; Nan et al., 2021)
+and table grounded dialogue (Nakamura et al., 2022). Table QA has been studied with a specific
+focus as it allows to conveniently query the table in natural language to extract desired information.
+Large Language Models (LLMs), which have shown remarkable generalization on various Natural
+Language Processing (NLP) tasks, have also been used to reason over tables achieving impressive
+performance (Yu et al., 2021; Neeraja et al., 2021; Gu et al., 2022; Chen, 2023).
+
+
+Tables contain information organized in rows and columns, and typical transformer-based LLMs
+such as BERT (Devlin et al., 2019), T5 (Raffel et al., 2020), and GPT (Brown et al., 2020) trained
+over unstructured natural language text using standard language modeling objectives do not account
+for the table structure and underlying compositionality of data (Yu et al., 2021). Many works on
+table understanding therefore, adapt LLMs for tables through joint learning over tabular and text
+content (Yin et al., 2020), pre-training on table semantic parsing (Liu et al., 2022; Jiang et al., 2022)
+and synthesizing template-based questions to improve reasoning skills over tables (Gu et al., 2022).
+Typically, only a small number of cells contain the information required to derive the answer for
+a question. The irrelevant tabular data acts as _distracting information_ or noise, resulting in suboptimal performance since LLMs are susceptible to noise in the input (Kumar et al., 2023; Chen
+et al., 2023a). Performance degradation is further amplified in large tables due to presence of even
+more data as illustrated in Figure 4 in Section 4.3.
+
+
+*equal contribution; +work done during internship at Adobe Media and Data Science Research Lab
+
+
+1
+
+
+Published as a conference paper at ICLR 2024
+
+
+**Question:**
+**What is the highest amount of points scored in a**
+
+
+
+
+
+
+
+
+
+
+
+**lost game by an opponent?**
+
+
+
+
+
+|week|date|opponent|score|result|Col6|Col7|record|
+|---|---|---|---|---|---|---|---|
+|1|aug 28|at toronto argonauts|13–6||loss||0–1|
+|…|…|…|…|…|…|…|…|
+|5|sept 25|vs. hamilton tiger-cats|38–12|loss|loss|loss|1–5|
+|6|oct 2|at hamilton tiger-cats|45–0|loss|loss|loss|1–6|
+|7|oct 9|vs. montreal alouettes|25–11|loss|loss|loss|1–7|
+|…|…|…|…|…|…|…|…|
+|13|nov 13|vs. montreal alouettes|14–12|win|win|win|2–12|
+
+
+**Table**
+
+
+
+|Sub-Table week date opponent score result record<br>5 sept 25 vs. hamilton tiger-cats 38–12 loss 1–5<br>(DeD coA mTE pR os er) (RD eA aT soE nR An 3s 8wer<br>Question e r)<br>Question Answer<br>QA LLM 45<br>CABINET|week|date|opponent|score|result|record|
+|---|---|---|---|---|---|---|
+|**Question**<br>**Sub-Table**<br>**Answer**<br>**38**<br>**DATER**<br>**(Decomposer)**<br>**week**<br>**date**<br>**opponent**<br>**score**<br>**result**<br>**record**<br>5<br>sept 25<br>vs. hamilton tiger-cats<br>38–12<br>loss<br>1–5<br>**DATER**<br>**(Reasoner)**<br>**CABINET**<br>**QA LLM**<br>**Answer**<br>**45**<br>**Question**|5|sept 25|vs. hamilton tiger-cats|38–12|loss|1–5|
+
+
+**Relevance Score**
+
+**Weighted Table**
+
+
+
+
+
+
+
+Figure 1: Comparison between CABINETand DATER (a GPT-3 based in-context learning method).
+For the given example, DATER extracts a wrong sub-table through hard decomposition (resulting in
+loss of useful information) that causes QA reasoner to answer incorrectly. CABINET weighs relevant table parts higher without removing content explicitly allowing QA LLM to answer correctly.
+
+
+Significant efforts have been made to mitigate the issue of noise by pruning tabular data, albeit at cost
+of accuracy (Krichene et al., 2021), and by retrieving content from table for QA (Wang et al., 2022;
+Lei et al., 2023; Kumar et al., 2023). DATER (Ye et al., 2023), one of the state-of-the-art methods
+for table QA, proposed decomposing a table into simpler sub-tables containing information needed
+to answer the question by providing in-context examples to GPT-3 based Codex (Chen et al., 2021).
+
+
+Such a question-conditioned hard decomposition of table is sub-optimal as the subsequent QA model
+cannot correct the error made during decomposition if relevant information is not selected (as shown
+in Figure 1). To mitigate this, we propose CABINET ( **C** ontent Relev **A** nce- **B** ased No **I** se Reductio **N**
+for Tabl **E** Ques **T** ion-Answering) – a framework for table QA that weighs different table parts based
+on their relevance to the question without explicitly removing any content. CABINET comprises
+a relevance scorer (§ 3.1), which takes question and table as input to provide a relevance score to
+table content. The score is used to weigh corresponding content passed to the QA LLM, allowing
+it to focus more on the relevant content. The relevance scorer is unsupervised and trained with QA
+LLM differentiably due to lack of annotations denoting relevant table information. Although answer
+generation loss enables learning of relevance scorer, it acts as an indirect training signal.
+
+
+Hence, to aid relevance scorer, inspired by how humans process tables, CABINET employs a parsing
+statement generator (§ 3.2) that describes which rows and columns are relevant to the question.
+For instance, consider the example in Figure 1, CABINET generates “consider rows with result
+as ’loss’, and note the higher value in the ’score’ column”. The parsing statement is then used
+to identify corresponding cells, and their content is given more weight during relevance scoring.
+CABINET establishes new SoTA on three challenging table QA datasets (WikiTQ, FeTaQA and
+WikiSQL) significantly outperforming various strong baselines (§ 4.1). We show that CABINET is
+more robust to noise in tables and structural biases i.e. row and column ordering (§ 4.2). Further,
+the performance gains achieved by CABINET are even more pronounced for larger tables (§ 4.3),
+indicating that it successfully mitigates noisy table information irrelevant to a given question.
+
+
+2 RELATED WORK
+
+
+**Table Specific Architecture:** Tables contain information in a structured format, organized in rows
+and columns. Hence, many works have focused on developing table-specific models to utilize the semantics of table structure through its description. TabBERT (Yin et al., 2020) pre-trains BERT (Devlin et al., 2019) on paired table-text samples through masked language modeling (MLM). Deng
+et al. (2020) modified the bidirectional attention in BERT to incorporate table structure while performing MLM. TAPAS (Herzig et al., 2020) utilizes positional embeddings for rows and columns
+to explicitly capture cell location. Yang et al. (2022) noted that methods using positional embeddings are vulnerable to column and row permutations. To address this, they introduce TableFormer,
+a table-text encoding architecture that incorporates tabular structure through learnable attention biases. We show that LLMs become less susceptible to such permutations by learning to focus on
+relevant table parts through CABINET (§ 4.2).
+
+
+2
+
+
+Published as a conference paper at ICLR 2024
+
+
+**Table QA Specific Pre-training** : Eisenschlos et al. (2020) argued that the MLM objective to just
+fill in the blanks of table cells and descriptions is insufficient to capture relations between cells
+and associated text needed to perform table QA. They introduced additional pre-training tasks that
+require explicit question-table reasoning and complex table operations (such as aggregation). Other
+improvements include handling of numeric tokens (Han et al., 2022), temporal relations (Zhao et al.,
+2022), and selectively masking tokens that require table based reasoning (Gu et al., 2022). Methods
+like TAPEX (Liu et al., 2022), OmniTab (Jiang et al., 2022) etc. typically involve joint training over
+natural language-SQL pairs so that the underlying model learns to map the information implied in
+the question to the required table operations. However, as discussed in experiments (§ 4.2 and 4.3),
+these methods suffer significant performance drop when dealing with large and noisy tables owing
+to their limited capability at identifying information relevant to question.
+
+
+**Few/Zero-Shot Learning with Large Language Models:** Given the remarkable performance of
+LLMs on various tasks without any task-specific training, their use for table understanding has also
+been explored extensively. Chen (2023) have shown that LLMs perform strongly on various table
+QA tasks using Chain of Thought (CoT) (Wei et al., 2022; Wang et al., 2023) prompting. Since typical LLMs are trained over unstructured text data, models specifically designed to handle structured
+data, such as StructGPT (Jiang et al., 2023) have also been used for table QA. LEVER (Ni et al.,
+2023) and BINDER (Cheng et al., 2023) utilized code-optimized GPT-Codex (Chen et al., 2021) to
+generate SQL statements that can be executed to answer questions over tabular data. DATER (Ye
+et al., 2023) uses Codex to break table into sub-tables conditioned on a given question through incontext learning. Such methods have no way to recover relevant table part to generate the correct
+answer in case it is omitted while generating sub-tables (as discussed in Figure 1).
+
+
+3 METHODOLOGY
+
+
+We summarize the architecture of CABINET in Figure 2. It comprises two components: **1) Unsu-**
+**pervised Relevance Scorer**, an unsupervised module comprising a transformer encoder that takes
+question and table as input and tokenizes them (steps 1 and 2 in Fig. 2) followed by assigning a
+relevance score to each table token (step 3 in Fig. 2). The relevance score is then multiplied with
+the corresponding token embedding at the time of giving it as input to QA LLM encoder (step 7
+in Fig. 2). This ensures that noisy content with lower relevance score get suppressed and the QA
+LLM can focus on relevant tokens. The unsupervised relevance scorer is connected to QA LLM in
+a differentiable manner enabling it to be trained through answer generation loss (step 8 in Fig. 2).
+
+
+Even though answer generation loss enables learning of unsupervised relevance scorer, it acts as
+an indirect training signal. To aid relevance scoring, we propose a weakly supervised module:
+**2) Relevant Cell Predictor through Table Parsing** that parses table conditioned on question to
+highlight cells containing relevant information (steps 4 and 5 in Fig. 2). It comprises two substeps where we first train a _Parsing Statement Generator_ that describes criteria in natural language
+about which rows and columns should be used to derive the answer (step 4 in Fig. 2). Table cells
+corresponding to the criteria described in the parsing statement (step 5 in Fig. 2) are highlighted
+such that score for content tokens in highlighted cells is boosted by combining it with unsupervised
+relevance score through a linear combination (step 6 in Fig. 2). We conduct extensive ablations to
+establish efficacy for different modules (§ 4.4). We now discuss the details of each component.
+
+
+3.1 UNSUPERVISED RELEVANCE SCORER
+
+The unsupervised relevance scorer is used to assign a score to table content tokens. Since annotating
+cells of a table relevant to a given question is tedious, the relevance scorer is unsupervised and
+gets trained along with QA LLM through answer generation loss. Formally, consider a pair of
+table _T_ and a question _Q_ about _T_ . _Qtokens_ = _{q_ 1 _, q_ 2 _, ..., q|Q|}_ represents the question tokens,
+_T_ = _{cij|_ 1 _≤_ _i ≤_ N _row,_ 1 _≤_ _j ≤_ N _col}_, where N _row_ and N _col_ indicate number of rows and
+columns in _T_ respectively, and _cij_ represents string in cell in the _i_ _[th]_ row and _j_ _[th]_ column. To make
+_T_ suitable to be fed as input to a transformer-based LLM, we follow the commonly used linearising
+scheme (Liu et al., 2022) where table is flattened as (step 1 in Fig. 2):
+
+
+_Tflattened_ = [ _HEAD_ ] : _c_ 11 _| c_ 12 _| · · · | c_ 1 _Ncol |_ [ _ROW_ ]1 : _c_ 21 _| · · · | c_ 2 _Ncol |_ [ _ROW_ ]2 : _· · ·_ (1)
+
+
+[ _HEAD_ ] and [ _ROW_ ] _k_ indicate start of column header row and _k_ _[th]_ data row respectively. We
+separate special tokens and cell content using pipe symbol ‘ _|_ ’. The string in Equation 1 is tokenized
+
+
+3
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+|Question + Flattened Table|Col2|Col3|Col4|Col5|Col6|
+|---|---|---|---|---|---|
+|<br>**week**<br>**date**<br>**opponent**<br>**score**<br>**result**<br>**record**<br>1<br>aug 28<br>at toronto argonauts<br>13–6<br>loss<br>0–1<br>…<br>…<br>…<br>…<br>…<br>…<br>5<br>sept 25<br>vs. hamilton tiger-cats<br>38–12<br>loss<br>1–5<br>6<br>oct 2<br>at hamilton tiger-cats<br>45–0<br>loss<br>1–6<br>7<br>oct 9<br>vs. montreal alouettes<br>25–11<br>loss<br>1–7<br>…<br>…<br>…<br>…<br>…<br>…<br>13<br>nov 13<br>vs. montreal alouettes<br>14–12<br>win<br>2–12<br>**Table**<br>**Question:**<br>**What is the highest amount of points**<br>**scored in a game by an opponent?**<br>**What is the highest .... opponent? [HEAD] | week | date | ... record | [ROW]1 | 1 | aug 28 | ... 0-1 | ... [ROW]13 | nov 13 | ... | 2-12**<br> <br>**Embedding**<br>**Unsupervised**<br>**Relevance**<br>**Scorer**<br>**Parsing**<br>**Statement**<br>**Generator**<br>**"consider rows with result**<br>** as'****`loss`', and note the**<br>**`higher` value in the**<br>**'****`score`' column "**<br>**Cell**<br>**Highlighter**<br>**"38-12 || loss || ... 45-0 || loss || ..."**<br>**Answer: 45**<br>**1**<br>**2**<br>**3**<br>**4**<br>**5**<br>**6**<br>**7**<br>**8**<br>+<br>**QA LLM**<br>**Embedded**<br>**Tokens**<br>**Embedding**<br>**Shared**<br>**Embedding**<br>**Relevant Cell Predictor through Table Parsing**|<br>**week**<br>**date**<br>**opponent**<br>**score**<br>**result**<br>**record**<br>1<br>aug 28<br>at toronto argonauts<br>13–6<br>loss<br>0–1<br>…<br>…<br>…<br>…<br>…<br>…<br>5<br>sept 25<br>vs. hamilton tiger-cats<br>38–12<br>loss<br>1–5<br>6<br>oct 2<br>at hamilton tiger-cats<br>45–0<br>loss<br>1–6<br>7<br>oct 9<br>vs. montreal alouettes<br>25–11<br>loss<br>1–7<br>…<br>…<br>…<br>…<br>…<br>…<br>13<br>nov 13<br>vs. montreal alouettes<br>14–12<br>win<br>2–12<br>**Table**<br>**Question:**<br>**What is the highest amount of points**<br>**scored in a game by an opponent?**<br>**What is the highest .... opponent? [HEAD] | week | date | ... record | [ROW]1 | 1 | aug 28 | ... 0-1 | ... [ROW]13 | nov 13 | ... | 2-12**<br> <br>**Embedding**<br>**Unsupervised**<br>**Relevance**<br>**Scorer**<br>**Parsing**<br>**Statement**<br>**Generator**<br>**"consider rows with result**<br>** as'****`loss`', and note the**<br>**`higher` value in the**<br>**'****`score`' column "**<br>**Cell**<br>**Highlighter**<br>**"38-12 || loss || ... 45-0 || loss || ..."**<br>**Answer: 45**<br>**1**<br>**2**<br>**3**<br>**4**<br>**5**<br>**6**<br>**7**<br>**8**<br>+<br>**QA LLM**<br>**Embedded**<br>**Tokens**<br>**Embedding**<br>**Shared**<br>**Embedding**<br>**Relevant Cell Predictor through Table Parsing**|<br>**week**<br>**date**<br>**opponent**<br>**score**<br>**result**<br>**record**<br>1<br>aug 28<br>at toronto argonauts<br>13–6<br>loss<br>0–1<br>…<br>…<br>…<br>…<br>…<br>…<br>5<br>sept 25<br>vs. hamilton tiger-cats<br>38–12<br>loss<br>1–5<br>6<br>oct 2<br>at hamilton tiger-cats<br>45–0<br>loss<br>1–6<br>7<br>oct 9<br>vs. montreal alouettes<br>25–11<br>loss<br>1–7<br>…<br>…<br>…<br>…<br>…<br>…<br>13<br>nov 13<br>vs. montreal alouettes<br>14–12<br>win<br>2–12<br>**Table**<br>**Question:**<br>**What is the highest amount of points**<br>**scored in a game by an opponent?**<br>**What is the highest .... opponent? [HEAD] | week | date | ... record | [ROW]1 | 1 | aug 28 | ... 0-1 | ... [ROW]13 | nov 13 | ... | 2-12**<br> <br>**Embedding**<br>**Unsupervised**<br>**Relevance**<br>**Scorer**<br>**Parsing**<br>**Statement**<br>**Generator**<br>**"consider rows with result**<br>** as'****`loss`', and note the**<br>**`higher` value in the**<br>**'****`score`' column "**<br>**Cell**<br>**Highlighter**<br>**"38-12 || loss || ... 45-0 || loss || ..."**<br>**Answer: 45**<br>**1**<br>**2**<br>**3**<br>**4**<br>**5**<br>**6**<br>**7**<br>**8**<br>+<br>**QA LLM**<br>**Embedded**<br>**Tokens**<br>**Embedding**<br>**Shared**<br>**Embedding**<br>**Relevant Cell Predictor through Table Parsing**|<br>**week**<br>**date**<br>**opponent**<br>**score**<br>**result**<br>**record**<br>1<br>aug 28<br>at toronto argonauts<br>13–6<br>loss<br>0–1<br>…<br>…<br>…<br>…<br>…<br>…<br>5<br>sept 25<br>vs. hamilton tiger-cats<br>38–12<br>loss<br>1–5<br>6<br>oct 2<br>at hamilton tiger-cats<br>45–0<br>loss<br>1–6<br>7<br>oct 9<br>vs. montreal alouettes<br>25–11<br>loss<br>1–7<br>…<br>…<br>…<br>…<br>…<br>…<br>13<br>nov 13<br>vs. montreal alouettes<br>14–12<br>win<br>2–12<br>**Table**<br>**Question:**<br>**What is the highest amount of points**<br>**scored in a game by an opponent?**<br>**What is the highest .... opponent? [HEAD] | week | date | ... record | [ROW]1 | 1 | aug 28 | ... 0-1 | ... [ROW]13 | nov 13 | ... | 2-12**<br> <br>**Embedding**<br>**Unsupervised**<br>**Relevance**<br>**Scorer**<br>**Parsing**<br>**Statement**<br>**Generator**<br>**"consider rows with result**<br>** as'****`loss`', and note the**<br>**`higher` value in the**<br>**'****`score`' column "**<br>**Cell**<br>**Highlighter**<br>**"38-12 || loss || ... 45-0 || loss || ..."**<br>**Answer: 45**<br>**1**<br>**2**<br>**3**<br>**4**<br>**5**<br>**6**<br>**7**<br>**8**<br>+<br>**QA LLM**<br>**Embedded**<br>**Tokens**<br>**Embedding**<br>**Shared**<br>**Embedding**<br>**Relevant Cell Predictor through Table Parsing**|<br>**week**<br>**date**<br>**opponent**<br>**score**<br>**result**<br>**record**<br>1<br>aug 28<br>at toronto argonauts<br>13–6<br>loss<br>0–1<br>…<br>…<br>…<br>…<br>…<br>…<br>5<br>sept 25<br>vs. hamilton tiger-cats<br>38–12<br>loss<br>1–5<br>6<br>oct 2<br>at hamilton tiger-cats<br>45–0<br>loss<br>1–6<br>7<br>oct 9<br>vs. montreal alouettes<br>25–11<br>loss<br>1–7<br>…<br>…<br>…<br>…<br>…<br>…<br>13<br>nov 13<br>vs. montreal alouettes<br>14–12<br>win<br>2–12<br>**Table**<br>**Question:**<br>**What is the highest amount of points**<br>**scored in a game by an opponent?**<br>**What is the highest .... opponent? [HEAD] | week | date | ... record | [ROW]1 | 1 | aug 28 | ... 0-1 | ... [ROW]13 | nov 13 | ... | 2-12**<br> <br>**Embedding**<br>**Unsupervised**<br>**Relevance**<br>**Scorer**<br>**Parsing**<br>**Statement**<br>**Generator**<br>**"consider rows with result**<br>** as'****`loss`', and note the**<br>**`higher` value in the**<br>**'****`score`' column "**<br>**Cell**<br>**Highlighter**<br>**"38-12 || loss || ... 45-0 || loss || ..."**<br>**Answer: 45**<br>**1**<br>**2**<br>**3**<br>**4**<br>**5**<br>**6**<br>**7**<br>**8**<br>+<br>**QA LLM**<br>**Embedded**<br>**Tokens**<br>**Embedding**<br>**Shared**<br>**Embedding**<br>**Relevant Cell Predictor through Table Parsing**|<br>**week**<br>**date**<br>**opponent**<br>**score**<br>**result**<br>**record**<br>1<br>aug 28<br>at toronto argonauts<br>13–6<br>loss<br>0–1<br>…<br>…<br>…<br>…<br>…<br>…<br>5<br>sept 25<br>vs. hamilton tiger-cats<br>38–12<br>loss<br>1–5<br>6<br>oct 2<br>at hamilton tiger-cats<br>45–0<br>loss<br>1–6<br>7<br>oct 9<br>vs. montreal alouettes<br>25–11<br>loss<br>1–7<br>…<br>…<br>…<br>…<br>…<br>…<br>13<br>nov 13<br>vs. montreal alouettes<br>14–12<br>win<br>2–12<br>**Table**<br>**Question:**<br>**What is the highest amount of points**<br>**scored in a game by an opponent?**<br>**What is the highest .... opponent? [HEAD] | week | date | ... record | [ROW]1 | 1 | aug 28 | ... 0-1 | ... [ROW]13 | nov 13 | ... | 2-12**<br> <br>**Embedding**<br>**Unsupervised**<br>**Relevance**<br>**Scorer**<br>**Parsing**<br>**Statement**<br>**Generator**<br>**"consider rows with result**<br>** as'****`loss`', and note the**<br>**`higher` value in the**<br>**'****`score`' column "**<br>**Cell**<br>**Highlighter**<br>**"38-12 || loss || ... 45-0 || loss || ..."**<br>**Answer: 45**<br>**1**<br>**2**<br>**3**<br>**4**<br>**5**<br>**6**<br>**7**<br>**8**<br>+<br>**QA LLM**<br>**Embedded**<br>**Tokens**<br>**Embedding**<br>**Shared**<br>**Embedding**<br>**Relevant Cell Predictor through Table Parsing**|
+|**week**<br>|**date**<br>|**opponent**<br>|**score**<br>|**result**<br>|**record**<br>|
+|1<br>…|aug 28<br>…|at toronto argonauts<br>…|13–6<br>…|loss<br>…|0–1<br>…|
+|5<br>6|sept 25<br>oct 2|vs. hamilton tiger-cats<br>at hamilton tiger-cats|38–12<br>45–0|loss<br>loss|1–5<br>1–6|
+|7|<br>oct 9|<br>vs. montreal alouettes|25–11|loss|1–7|
+|…<br>13|…<br>nov 13|…<br>vs. montreal alouettes|…<br>14–12|…<br>win|…<br>2–12|
+
+
+
+Figure 2: Overview of architecture of CABINET. The table is linearized (step 1) and embedded
+along with question through embedding layer of the underlying QA LLM (step 2). The embedded
+sequence is passed to the unsupervised relevance scorer that assigns a relevance score to each table
+token (step3). In parallel, the parsing statement generator describes the criteria for rows and columns
+relevant to deriving the answer (step 4) that is used to identify corresponding cells and assign a cellbased relevance score (step 5). The unsupervised and cell-based relevance is combined (step 6) and
+used to weigh the table content (step 7) to the QA LLM which generates the answer (step 8).
+
+
+using the tokenizer of underlying QA LLM to obtain table tokens _Ttokens_ = _{t_ 1 _, t_ 2 _, ..., t|Ttokens|}_ .
+_Ttokens_ is concatenated to _Qtokens_ to obtain _Itokens_ = ( _Qtokens_ ; _Ttokens_ ) which is given as input
+(steps 2 and 3 in Fig. 2) to Unsupervised Relevance Scorer (URS) comprising a transformer encoder
+_TEURS_ . The contextualized representation _hp ∈R_ _[d]_ of the _p_ _[th]_ token is estimated as:
+
+_e_ _[URS]_ 1 _, e_ _[URS]_ 2 _, · · ·,e_ _[URS]_ _|Itokens|_ [=] _[ Embedding][URS]_ [(] _[I][tokens]_ [)] (2)
+
+_h_ 1 _, · · ·, hp, · · ·, h|Itokens|_ = _TEURS_ ( _e_ _[URS]_ 1 _, e_ _[URS]_ 2 _, · · ·, e_ _[URS]_ _|Itokens|_ [)] (3)
+
+
+We aim to predict relevance score for each table token, however, since annotations for relevant table
+parts are unavailable, token relevance is not explicitly observable and we consider it as a latent
+variable. Further, we hypothesize that the representation space of table tokens can be structured
+better for modeling relevance by clustering their encodings into two categories - relevant and nonrelevant. Variational Inference (VI) has been commonly used to estimate latent variable probability
+and group data points on the basis of latent topics (Srivastava & Sutton, 2017). Hence, we estimate
+relevance _ηp_ _[uns]_ of table token _tp_ ( _|Qtokens|_ + 1 _≤_ _p ≤|Qtokens|_ + _|Ttokens|_ ) as (step 3 in Fig. 2):
+
+_µp_ = _ϕµ_ ( _hp_ ); _σp_ = _ϕσ_ ( _hp_ ) (4)
+_ηp_ _[uns]_ = _sigmoid_ ( _zp_ ); _zp_ = _µp_ + _s ∗_ _σp_ (5)
+
+_s_ is sampled from standard normal distribution, _ϕµ_ and _ϕσ_ are FC layers with weights _Wµ ∈R_ _[d][×]_ [1]
+
+and _Wσ ∈R_ _[d][×]_ [1], _sigmoid_ is applied to normalize the relevance score in the range 0 to 1. To
+enable the relevance scorer to assign appropriate scores, we structure the latent space of _TEURS_
+by clustering table tokens into relevant and non-relevant. We use the method of van der Maaten
+& Hinton (2008) (details in appendix A.1) which performs clustering in a trainable manner using
+clustering loss _Lclu_ . We apply _Lclu_ over latent representation _hp_ of tokens which enables us to
+tune _TEURS_ for clustering. During experiments, we observed that unit vectors for cluster centroids
+_µ_ _[clu]_ _relevant_ [and] _[ µ]_ _irrelevant_ _[clu]_ [are not well separated. To mitigate this, we enforce a separation loss] _[ L][sep]_
+that increases the distance between unit vectors representing cluster centroids:
+
+
+2
+_Lsep_ = 2 _−_ ������ _µclurelevant_ _[−]_ _[µ]_ _irrelevant_ _[clu]_ ������ (6)
+
+Further, it is desirable that relevance scores for tokens in one cluster (corresponding to irrelevant
+tokens) are low. To achieve this, we apply a sparsification loss _Lsparse_ where the score logit _zp_ is
+exponentiated with a negative coefficient to push logit values for relevant and irrelevant clusters to
+_∞_ and _−∞_ respectively that enables final score (after applying _sigmoid_ ) to be close to 1 and 0:
+
+
+
+1
+_Lsparse_ =
+_|Ttokens|_
+
+
+
+
+- e _[−][z]_ _p_ [2] ; _|Qtokens|_ + 1 _≤_ _p ≤|Qtokens|_ + _|Ttokens|_ (7)
+
+
+_p_
+
+
+
+At the time of providing question and table as input to transformer encoder _TEQA_ of the QA LLM,
+_′_
+embedding ( _ep_ [) corresponding to question tokens is used as is while embedding of each table token]
+
+
+4
+
+
+Published as a conference paper at ICLR 2024
+
+
+is multiplied by its corresponding relevance score (steps 7 and 8 in Fig. 2):
+_e_ 1 _, e_ 2 _, · · ·, e|Itokens|_ = _EmbeddingQA_ ( _Itokens_ ) (8)
+
+
+_′_
+_ep_ [=] _[ η][p]_ _[⊙]_ _[e][p]_ [;] _[ |Q][tokens][|]_ [+1] _[ ≤]_ _[p][ ≤|Q][tokens][|]_ [ +] _[ |T][tokens][|]_ (9)
+
+
+_′_ _′_ _′_ _′_ _′_
+_h_ 1 _[,][ · · ·][, h]_ _|Itokens|_ [=] _[ TE][QA]_ [(] _[e]_ 1 _[, e]_ 2 _[,][ · · ·][, e]_ _|Itokens|_ [)] (10)
+
+
+_′_ _′_
+_a_ 1 _, a_ 2 _, · · ·, aN_ = _TDQA_ ( _h_ 1 _[,][ · · ·][, h]_ _|Itokens|_ [)] (11)
+‘ _⊙_ ’ indicates scalar multiplication with vector operation, _TDQA_ represents the transformer decoder
+of the QA LLM that generates the answer tokens _an_ sequentially. _TEURS_, _TEQA_ and _TDQA_
+are trained in an end-to-end manner through cross-entropy loss _LCE_ between the generated and
+ground-truth answer tokens. Thus, the total loss _L_ becomes:
+_L_ = _LCE_ + _λclu ∗Lclu_ + _λsep ∗Lsep_ + _λsparse ∗Lsparse_ (12)
+The answer generation loss acts as an indirect training signal for relevance scorer. To aid unsupervised scorer, we propose a weakly-supervised module (trained separately from URS and QA LLM)
+that highlights relevant cells (discussed in next subsection). Table tokens for highlighted cells are
+assigned cell-based score _ηp_ _[cell]_ that is combined with unsupervised relevance score _ηp_ _[uns]_ through
+linear combination (step 6 in Fig. 2). Thus, final relevance score _ηp_ used in Eq. 9 is:
+_ηp_ = _λuns ∗_ _ηp_ _[uns]_ + _λcell ∗_ _ηp_ _[cell]_ (13)
+
+
+3.2 RELEVANT CELL PREDICTOR THROUGH TABLE PARSING
+
+
+As discussed above, we train a separate module to highlight table cells relevant to a given question
+in a weakly-supervised manner. Since there is no Table QA dataset that contains annotations for
+table cells useful to answer a given question, we adopt a two-stage approach where we first train a
+_Parsing Statement Generator_ (step 4 in Fig. 2) to generate a natural language text describing criteria
+for rows and columns relevant to the given question. Subsequently, we train another model that takes
+the parsing statement and table as input to identify the cells matching the criteria (step 5 in Fig. 2).
+
+
+**Parsing Statement Generator (PSG)** comprises a pre-trained LLM - Flan T5-xl (Chung et al.,
+2022a) that is fine-tuned to take the question and table as input ( _Itokens_ ) to generate a parsing
+statement _textparse_ (step 4 in Fig. 2). The statement describes criteria stating which rows and
+columns are useful to derive the answer. To bootstrap training of PSG, we manually annotate very
+few ( _∼_ 300) question-table pairs with parsing statement. For instance, for table and question shown
+in Figure 2, we annotate parsing statement as ‘ _To derive answer, note the values of higher score in_
+_rows with result as loss_ ’. To circumvent annotating samples for each table QA dataset, we choose
+WikiTableQuestions (WikiTQ) dataset (Pasupat & Liang, 2015) to select the samples for annotation
+since it is the most complex QA dataset containing a variety of samples. We sample diverse set of
+questions for annotation (please refer appendix A.2 for details and examples). The sampled question
+along with its table are manually annotated with parsing statement which is used to fine-tune PSG.
+The trained PSG model is then used to generate parsing statement for any question-table pair from
+datasets studied for experiments. We release the dataset of manually annotated parsing statements.
+
+
+**Cell Highlighting based on Parsing Statement:** To identify table cells for the criteria described in
+the parsing statement _textparse_, we need a way to map the statement to corresponding cells. To this
+end, we use ToTTo dataset (Parikh et al., 2020) that contains samples of (table, list of highlighted
+cell coordinates) pairs. Each pair is accompanied by a text description summarising the content
+of the corresponding list of cells. We fine-tune a cell highlighting model _Cell_ ~~_H_~~ _ighlighterLLM_
+comprising of Flan T5-xl on ToTTo dataset where the table and summarising text are given as input
+to generate the content of corresponding highlighted cells. Once _Cell_ ~~_H_~~ _ighlighterLLM_ is trained,
+we provide the table and _textparse_ as input to identify and generate content of corresponding cells.
+For instance, consider example in Figure 2, given the parsing statement shown in figure as input, the
+cell predictor generates _[′]_ 38 _−_ 12 _∥_ _loss ∥_ 45 _−_ 0 _∥_ _loss ∥..._ _[′]_ (step 5). More formally,
+
+_c_ _[highlighted]_ 1 _|| · · · || c_ _[highlighted]_ _M_ = _Cell_ ~~_H_~~ _ighlighterLLM_ ( _T, textparse_ ) (14)
+
+_c_ _[highlighted]_ _r_ represents the string of _r_ _[th]_ highlighted cell predicted based on parsing statement. _M_ is
+a variable number, ‘ _||_ ’ is a delimiter to separate cell content. For 1 _≤_ _r ≤_ _M_, if _c_ _[highlighted]_ _r_ exactly
+matches with the content of some cell in _T_, then the tokens _tp_ of matching cell is assigned a cell
+relevance score ( _ηp_ _[cell]_ ) of 1. _ηp_ _[cell]_ is set to 0 for table tokens belonging to cells in _T_ whose content
+does not match with any _c_ _[highlighted]_ _r_ . _ηp_ _[cell]_ is then combined with unsupervised relevance score _ηp_ _[uns]_
+as in Eq. 13. We now discuss experiments performed to validate the efficacy of our approach.
+
+
+5
+
+
+Published as a conference paper at ICLR 2024
+
+
+4 EXPERIMENTS AND EVALUATION
+
+
+**Implementation Details:** For the encoder ( _TEQA_ ) and decoder ( _TDQA_ ) of the QA LLM, we
+employ the OmniTab (Jiang et al., 2022) backbone (pre-trained for table understanding) comprising
+of BART-Large (Lewis et al., 2020). The embeddings of unsupervised relevance scorer (URS),
+_EmbeddingURS_, and QA model, _EmbeddingQA_, are shared. URS encoder ( _TEURS_ ) is initialized
+with the architecture and weights of QA LLM encoder ( _TEQA_ ), though they do not share weights
+during QA training. Consequently, the hidden dimension _d_ of _TEURS_ is 1024. We train CABINET
+and baselines (wherever needed) for 30 epochs on an effective batch size (BS) of 128 using 8 80GB
+A100 GPUs (BS of 8/GPU with gradient accumulation 2) using a learning rate of 1 _e_ _[−]_ [5] with cosine
+annealing (Loshchilov & Hutter, 2017) through AdamW optimizer (Loshchilov & Hutter, 2019).
+
+
+**Datasets and Evaluation Metrics:** We evaluate CABINET on three commonly used datasets –
+_(i)_ **WikiTableQuestion (WikiTQ)** (Pasupat & Liang, 2015) which is one of the most commonly
+used and highly complex datasets consisting of about 2100 HTML tables from Wikipedia and about
+22 _,_ 033 questions that require complex operations such as comparison, aggregation, and arithmetic
+operations to arrive at the answer; _(ii)_ **FeTaQA** (Nan et al., 2022), a challenging dataset consisting of about 10 _,_ 000 questions that have a long-form natural language answer (18 words on average) such that it requires fetching multiple entities from the table, aggregating and reasoning over
+these entities, and structuring the inferred information to produce a coherent answer; and _(iii)_ **Wik-**
+**iSQL** (Zhong et al., 2017) that comprises roughly 80 _,_ 654 questions over 24 _,_ 241 Wikipedia tables.
+It also provides the equivalent SQL query for each question to obtain the correct answer. While we
+do not generate SQL (or other implicit logical forms) and only use the natural language questions
+and answers from this dataset, it serves as a useful benchmark to compare CABINET with table
+understanding methods that generate explicit logical forms to extract relevant answers from table.
+The ground-truth answers in both WikiTQ and WikiSQL datasets are short (1-2 words). Hence, we
+use exact-match accuracy (Acc.) to compare various methods. For FetaQA dataset, ground-truth answers being long-form ( _≈_ 18 words on average), we employ commonly used overlap-based metric
+Sacre-BLEU (S-BLEU) (Post, 2018). We report performance on test split for all datasets.
+
+
+4.1 PERFORMANCE OF CABINET ON TABLE QA
+
+
+
+We present a detailed comparative analysis of results
+achieved by CABINET with a variety of baselines.
+We consider three different categories of methods
+
+- _(i)_ LLMs specifically pre-trained for table understanding and fine-tuned for QA, such as TAPEX (Liu
+et al., 2022), ReasTAP (Zhao et al., 2022) and OmniTab (Jiang et al., 2022); _(ii)_ fine-tuning LLMs (pretrained on text only) such as T5-3b (Raffel et al.,
+2020) and Flan T5-xl (Chung et al., 2022b); and
+_(iii)_ few or zero shot prompting of LLMs like StructGPT (Jiang et al., 2023) and approaches that employ
+such LLMs for in-context learning like LEVER (Ni
+et al., 2023), BINDER (Cheng et al., 2023) and
+DATER (Ye et al., 2023).
+
+
+Table 1 presents the performance of various methods
+on the WikiTQ dataset, and we can observe CABINET with an accuracy of **69** _._ **1** % outperforms the
+best-performing baselines in each of the three categories and establishes new state-of-the-art. Specifically, CABINET outperforms OmniTab, DATER,
+and fine-tuned Flan T5-xl by 6 _._ 4%, 3 _._ 2% and 4 _._ 7%,
+in absolute terms, respectively. Also, note that simple prompting of ChatGPT does not work well for
+Table QA. We want to highlight that CABINET
+performs much better than GPT-3 and Codex-based
+SoTA in-context learning methods despite containing orders of magnitude fewer parameters.
+
+
+6
+
+
+
+Table 1: Comparison of CABINET with
+different baselines on WikiTQ. CABINET
+achieves significantly better accuracy.
+
+
+**Method** **Acc.** **# params**
+
+
+**Fine-tuning Table-specific LLMs**
+TAPAS (Herzig et al., 2020) 48.8 345 M
+TaBERT (Yin et al., 2020) 52.3 345 M
+MATE (Eisenschlos et al., 2021) 51.5 340 M
+GraPPa (Yu et al., 2021) 52.7 355 M
+DoT (Krichene et al., 2021) 54.0 299 M
+TableFormer (Yang et al., 2022) 52.6 345 M
+TAPEX (Liu et al., 2022) 55.5 405 M
+ReasTAP (Zhao et al., 2022) 58.6 406 M
+TaCube (Zhou et al., 2022) 60.8 406 M
+OmniTab (Jiang et al., 2022) 62.7 406 M
+
+
+**Fine-tuning text-based LLMs**
+T5-3b (Xie et al., 2022)) 49.3 2.9 B
+FlanT5-xl (Chung et al., 2022a) 64.4 2.9 B
+
+
+**Few/zero shot Prompting of LLMs**
+Codex (Ye et al., 2023) 47.6 175 B
+Codex-COT (Chen, 2023) 48.8 175 B
+Binder (Cheng et al., 2023) 64.6 175 B
+LEVER (Ni et al., 2023) 65.8 175 B
+DATER (Ye et al., 2023) 65.9 175 B
+ChatGPT (Jiang et al., 2023) 43.3 175 B
+StructGPT (Jiang et al., 2023) 48.4 175 B
+
+
+**CABINET (Ours)** **69.1** 560 M
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 2: Comparison with different categories
+of baselines on FeTaQA. CABINET achieves
+significantly better Sacre-BLEU (S-BLEU).
+
+
+**Method** **S-BLEU** **# params**
+
+
+**Fine-tuning Table-specific LLMs**
+PeaQA (Pal et al., 2022) 33.5 406 M
+TAPEX (Liu et al., 2022) 34.7 406 M
+OmniTab (Jiang et al., 2022) 34.9 406 M
+
+
+**Fine-tuning text-based LLMs**
+T5-small (Nan et al., 2022) 21.6 60 M
+T5-base (Nan et al., 2022) 28.1 222 M
+T5-large (Nan et al., 2022) 30.5 738 M
+T5-3b (Xie et al., 2022) 33.4 2.9 B
+FlanT5-xl 36.2 2.9 B
+
+
+**Few/zero shot Prompting of LLMs**
+Codex-COT (Chen, 2023) 27.0 175 B
+Codex (Ye et al., 2023) 27.9 175 B
+DATER (Ye et al., 2023) 30.9 175 B
+
+
+**CABINET (Ours)** **40.5** 560 M
+
+
+
+Table 3: Comparison with different categories of
+baselines on WikiSQL. CABINET achieves better Accuracy (Acc.).
+
+
+**Method** **Acc.** **# params**
+
+
+**Fine-tuning Table-specific LLMs**
+TAPAS (Herzig et al., 2020) 86.4 345 M
+GraPPa (Yu et al., 2021) 84.7 355 M
+DoT (Krichene et al., 2021) 85.5 299 M
+TAPEX (Liu et al., 2022) 86.4 406 M
+OmniTab (Jiang et al., 2022) 87.9 406 M
+UTP (Chen et al., 2023b) 88.1 345 M
+ReasTAP (Zhao et al., 2022) 88.8 406 M
+
+
+**Fine-tuning text-based LLMs**
+T5-3b (Xie et al., 2022) 85.9 2.9 B
+FlanT5-xl 87.8 2.9 B
+
+
+**Few/zero shot Prompting of LLMs**
+ChatGPT (Jiang et al., 2023) 51.6 175 B
+StructGPT (Jiang et al., 2023) 54.4 175 B
+
+
+**CABINET (Ours)** **89.5** 560 M
+
+
+
+Similar observations hold for FeTaQA (Table 2) and WikiSQL (Table 3) datasets where CABINET
+achieves new SoTA performance. For generating long descriptive answers for questions in FeTaQA,
+CABINET achieves SoTA S-BLEU of **40** _._ **5** outperforming OmniTab, fine-tuned Flan T5-xl and
+DATER by a margin of 5 _._ 6, 4 _._ 3 and 9 _._ 6 absolute percentage points, respectively. We report performance only for baselines that have explored the dataset in their work (except for T5 and Flan
+T5). We use their code/API for evaluation if available or else specify performance as reported in
+their paper. Similarly, for WikiSQL dataset, CABINET pushes the SoTA by 0 _._ 7% on already high
+performance of ReasTAP (current SoTA). Since best performance on WikiSQL is already high, the
+absolute performance gains of 0 _._ 7% should be interpreted as a proportion of scope of further improvement possible, i.e., 0 _._ 7 _/_ (100 _−_ 88 _._ 8), which is _≈_ 6%.
+
+
+4.2 HOW ROBUST IS CABINET TO NOISE AND IRRELEVANT INFORMATION?
+
+
+Despite the remarkable success of transformer-based models on table understanding, they are sensitive to noise and perturbations to the tabular data (Pi et al., 2022; Yang et al., 2022; Zhao et al.,
+2023). We examine the robustness and sensitivity of CABINET towards noise while performing Table QA. We introduce noise by perturbing tables in test split and report the relative percentage drop
+in performance. We perform four types of perturbations: **1) Row Addition (RA):** insert noise into
+a table by adding rows from another table that contains same number of columns; **2) Row Permu-**
+**tation (RP):** randomly permute ordering of rows (Pi et al., 2022); **3) Column Permutation (CP):**
+randomly permute column ordering; and **(4) Cell Replacement (CR):** replace content of certain
+cells with content from some other table. We perform each perturbation separately to obtain four
+perturbed test splits for each dataset. Please see appendix A.5 for further details about the procedure.
+
+
+Figure 3 summarizes the relative drop in performance of CABINET and the dataset-specific best
+baseline for the three datasets. Note that for all the perturbation categories, CABINET leads to significantly less drop in performance when compared with the corresponding baseline, highlighting
+the robustness and ability of CABINET to identify the relevant portions of the underlying table.
+Specifically, CABINET is significantly less sensitive to row and column permutations (RP and CP),
+indicating that relevance scoring of tokens helps the QA LLM to focus more on relevant information and reduces the potential ordering biases commonly observed in models pre-trained on tabular
+data (Yang et al., 2022). For the cell replacement (CR) and row addition (RA) perturbations, where
+extraneous information is explicitly added to the table, the drop in performance suffered by CABINET is significantly less compared to the baselines owing to the superior ability of CABINET to
+identify relevant information. For instance, in the case of WikiTQ, the relative drop in performance
+for RA is _≈_ 19% for OmniTab, almost 40% higher than CABINET ( _≈_ 11 _._ 5%). This consistent
+trend holds for FeTaQA and WikiSQL datasets as well.
+
+
+7
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+-2
+
+
+-4
+
+
+-6
+
+
+-8
+
+
+
+
+
+
+
+-5
+
+
+-10
+
+
+-15
+
+
+-20
+
+
+
+
+
+
+
+
+
+
+
+
+
+-5
+
+
+-10
+
+
+-15
+
+
+-20
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+(a) WikiTQ
+
+
+
+(b) FeTaQA
+
+
+
+(c) WikiSQL
+
+
+
+Figure 3: Relative performance drop (%) with perturbations (RA - Row Addition, RP - Row Permutation, CP - Column Permutation, CR - Cell Replacement). We compare CABINET ( ~~g~~ reen) with
+OmniTab (red) on WikiTQ and FeTaQA ; and against ReasTAP (red) on WikiSQL. C ~~A~~ BINET is
+more robust to addition of noise to table and shuffling of row and column ordering.
+
+
+
+80
+70
+60
+50
+40
+30
+20
+
+
+
+|Col1|Col2|Col3|4|42|OmniTab CABINET enter your text here enter your text here enter your text here|
+|---|---|---|---|---|---|
+|<br>37|<br> <br>41<br>|<br> <br>37<br>41|<br> <br><br>38<br>|<br> <br>42|<br> <br> <br>23<br>34<br>15<br>36<br>36<br>18<br>CABINET<br> <br>enter your text here|
+|<br>37|<br> <br>41<br>|<br> <br>37<br>41|<br> <br><br>38<br>|<br> <br>42|<br> <br>23|
+
+
+(b) ~~F~~ eTaQA
+
+
+
+(c) WikiSQL
+
+
+
+90
+
+80
+
+70
+
+60
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+50
+
+
+40
+
+
+30
+
+
+20
+
+
+10
+
+
+
+
+
+
+
+
+
+(a) ~~W~~ ikiTQ
+
+
+
+Figure 4: Varia ~~t~~ ion in performance with table si ~~z~~ e (# cells). We compare CABINET (green) with
+OmniTab (red) on WikiTQ (left) and FeTaQA (middle), and against ReasTAP (red) for WikiSQL
+(right). It can be seen that CABINET performs much better than the baselines on larger tables.
+
+
+4.3 IMPACT OF TABLE SIZE ON PERFORMANCE
+
+
+We now study how CABINET performs with tables of different sizes. Tables typically comprise a
+large amount of data, so the entire information is usually not required to answer a given question
+and acts as _distracting information_ (Neeraja et al., 2021). This noise or irrelevant dat ~~a~~ poses a severe
+challenge for table understanding models and leads to poor generalization for larger tables (Kumar
+et al., 2023; Chen, 2023). We consider the number of cells in the table as a proxy for its size and bin
+all the questions in the three datasets into six categories based on the number of cells (Figure 4) and
+compare the performance of CABINET with dataset-specific best-performing baseline. We note that
+for all the datasets, while model performance drops with increasing table size, CABINET consistently and significantly outperforms the baseline methods across all table size categories. Moreover,
+the differences become starker for larger tables. For instance, for the largest tables in FeTaQA, CABINET achieves double the S-BLEU scores compared to OmniTab (36 vs. 18). Similarly, for the other
+two datasets, CABINET achieves significantly high performance for the largest tables ( _>_ 500 cells)
+compared to the baselines – accuracy of 38 vs. OmniTab’s 28 for WikiTQ and 79 vs. ReasTAP’s
+70 for WikiSQL. These empirical observations provide further evidence for CABINET’s ability to
+identify relevant content, making the QA LLM relatively robust to table size.
+
+
+4.4 DISCUSSION ON THE IMPACT OF DIFFERENT DESIGN CHOICES FOR CABINET
+
+
+**Effect of Clustering Table Tokens:** We study the impact of clustering the table tokens using their
+latent representations (discussed in Section 3.1). To do so, we toggle the clustering loss ( _Lclu_ ),
+cluster centroids separation loss ( _Lsep_ ), and score sparsification loss ( _Lsparse_ ) by setting their weight
+( _λclu_, _λsep_, _λsparse_ ) to 0 or 1. For this study, we only use unsupervised relevance scorer by turning
+off weakly supervised cell predictor to eliminate other influencing factors. Results are summarized
+in Table 4 where we can observe that applying all three losses yields the best performance (row
+6). Specifically, for WikiSQL, clustering improves performance when score sparsification loss is
+applied (row 4 vs. row 3) which is due to the fact that sparsification enables categorizing scores
+into low and high. For WikiTQ and FeTaQA, adding the cluster centroids separation loss further
+increases the efficacy of clustering and sparsification yielding the best results.
+
+
+**Combining Unsupervised Relevance Scorer with Cell Predictor:** We vary the relative importance
+given to relevance score predicted by unsupervised relevance scorer and weakly-supervised cell predictor by varying _λuns_ and _λcell_ in Eq. 13. Table 5 shows that combining the two modules yields
+much better accuracy for WikiTQ and FeTaQA compared to just using unsupervised relevance scorer
+(row 1 vs. row 2). This highlights that the weakly-supervised cell predictor complements unsuper
+
+8
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 4: Effect of applying clustering ( _Lclu_ ),
+centroid separation ( _Lsep_ ) and relevance score
+sparsification loss ( _Lsparse_ ). Clustering table tokens by enforcing sparsity in relevance
+scores and distance between cluster centroids
+improves performance.
+
+|Lclu Lsep Lsparse|WikiTQ FeTaQA WikiSQL|
+|---|---|
+|✗<br>✗<br>✗<br>✗<br>✗<br>✓<br>✓<br>✗<br>✗<br>✓<br>✗<br>✓<br>✓<br>✓<br>✗<br>✓<br>✓<br>✓|60.8<br>35.1<br>86.2<br>60.9<br>35.1<br>86.3<br>62.7<br>35.0<br>88.9<br>61.0<br>35.0<br>**89.5**<br>61.0<br>35.1<br>89.1<br>**65.6**<br>**35.8**<br>89.3|
+
+
+
+**Question:**
+**What is the total number of awards (nominations**
+
+**and wins) for two and a half men?**
+
+
+
+Table 5: Impact of combining unsupervised
+relevance score (weight _λuns_ ) and weaklysupervised cell-based relevance score (weight
+_λcell_ ). Fusing the relevance from both components gives optimal performance.
+
+
+|λ λ<br>uns cell|WikiTQ FeTaQA, WikiSQL|
+|---|---|
+|1<br>0<br>0.7<br>0.3<br>0.5<br>0.5<br>0.3<br>0.7<br>0<br>1|65.6<br>35.8<br>**89.2**<br>**69.1**<br>**40.5**<br>**89.2**<br>68.6<br>**40.5**<br>88.9<br>67.0<br>38.9<br>88.8<br>37.6<br>24.2<br>34.1|
+
+
+
+
+
+**won || golden icon award best actor -**
+
+**comedy series || two and a half men**
+
+
+
+
+
+
+|year|result|award|film|
+|---|---|---|---|
+|…|…|…|…|
+|1989|won|bronze wrangler theatrical motion picture|young guns|
+|1999|nominated|sag award outstanding performance by a cast in...|being john malkovich|
+|1999<br>2001|nominated<br>nominated|online film critics society award for best cast<br>alma award outstanding actor in a television s...|being john malkovich<br>spin city|
+|2002|won|<br>golden globe award best performance by an acto...|<br>spin city|
+|2002|nominated|kids' choice awards favorite television actor|two and a half men|
+|2006|won|golden icon award best actor - comedy series|two and a half men|
+|2006|nominated|emmy award for outstanding lead actor - comedy...|two and a half men|
+|2006|nominated|golden globe award for best actor – television...|two and a half men|
+|…|…|…|…|
+
+
+
+Figure 5: Visualisation depicting that Unsupervised Relevance Scorer (URS) assigns higher score to
+table parts relevant to the question (rows where “two and a half men” either won or got nominated for
+an award). Further, the weakly-supervised parsing statement based relevant cell predictor identifies
+the cells for the row missed by URS (year 2006, golden icon award best actor - comedy series)
+
+
+vised scorer by identifying further relevant table content (Figure 5 depicts qualitative visualisation
+for the same). For WikiSQL, same performance is observed with and without the cell predictor. Further it is observed that using only the cell predictor (last row) achieves significantly low performance
+due to the fact that the number of cells highlighted by the cell predictor is much lesser resulting in
+assigning a score of zero to most table content in cases where it misses to identify important cells.
+
+
+We show CABINET can be used with TAPEX backbone (instead of OmniTab) to improve it’s performance showing generality of our framework (Appendix A.7). We show that giving parsing statement
+as input to QA LLM, replacing URS with BERT based similarity metric for relevance scoring, and
+using question directly instead of parsing statement to generate highlighted cells gives sub-optimal
+performance compared to CABINET, justifying our design choice (Appendix A.8). Appendix A.10
+shows case study depicting how clustering losses interact to yield improvements. Appendix A.11
+shows that CABINET can be used to improve other NLP tasks like reading comprehension.
+
+
+5 CONCLUSIONS
+
+
+We studied the problem of question-answering over tables and focused on identifying the relevant
+portions of the table to derive the answer. Generally, only a small subset of the tabular data is
+required to answer the question, and owing to the vulnerability of LLMs to noise, the extraneous
+information leads to sub-optimal performance. This problem is further exacerbated in the case
+of large tables. Our proposed framework, CABINET addresses this issue by weighing the table
+content based on its relevance to the question, identifying the relevant rows and columns, and highlighting the content of the relevant cells. CABINET establishes new SoTA on three commonly used
+challenging benchmarks, outperforming table-specific models, as well as methods that employ incontext learning with much larger GPT-3 scale models. We show empirically that CABINET is more
+robust to noise and generalizes well for larger tables, indicating its efficacy in mitigating noise and
+overcoming table structural biases typically learned during training.
+
+
+9
+
+
+Published as a conference paper at ICLR 2024
+
+
+6 ETHICS AND REPRODUCIBILITY STATEMENT
+
+
+We use publicly available datasets and LLMs (which are commonly used) to conduct the study in
+our work. The only data that we annotate is _∼_ 300 samples of table-question pairs with parsing
+statement describing rows and columns relevant to question. The parsing statement were written
+keeping in mind the safety and ethics guidelines without any potential concerns. To encourage
+reproducibility, we release our code and datasets (including manually written parsing statements) at
+[this link. We describe the details of the datasets in § 4 (under ‘Datasets and Evaluation Metrics’)](https://github.com/Sohanpatnaik106/CABINET_QA)
+and the LLMs used in § 4 (under ‘Implementation Details’) and § 3.2. Further, we provide the
+implementation details of our method in § 4 (under ‘Implementation Details’) and discuss baselines
+used for comparison in § 4.1. Finally, we elaborate further details of our method in Appendix Trainable clustering over latent representation of table tokens (A.1), Details of parsing statement
+annotation procedure (A.2) and Further details on table perturbation procedure (A.5).
+
+
+REFERENCES
+
+
+Rami Aly, Zhijiang Guo, Michael Schlichtkrull, James Thorne, Andreas Vlachos, Christos Christodoulopoulos, Oana Cocarascu, and Arpit Mittal. Feverous: Fact extraction and verification over unstructured and structured information. In J. Vanschoren and S. Yeung (eds.), _Proceedings of the Neural Information Processing Sys-_
+_tems Track on Datasets and Benchmarks_, volume 1. Curran, 2021. [URL https:](https://datasets-benchmarks-proceedings.neurips.cc/paper_files/paper/2021/file/68d30a9594728bc39aa24be94b319d21-Paper-round1.pdf)
+[//datasets-benchmarks-proceedings.neurips.cc/paper_files/paper/](https://datasets-benchmarks-proceedings.neurips.cc/paper_files/paper/2021/file/68d30a9594728bc39aa24be94b319d21-Paper-round1.pdf)
+[2021/file/68d30a9594728bc39aa24be94b319d21-Paper-round1.pdf.](https://datasets-benchmarks-proceedings.neurips.cc/paper_files/paper/2021/file/68d30a9594728bc39aa24be94b319d21-Paper-round1.pdf)
+
+
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal, Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, Sandhini Agarwal, Ariel Herbert-Voss, Gretchen Krueger, Tom Henighan, Rewon Child, Aditya Ramesh,
+Daniel Ziegler, Jeffrey Wu, Clemens Winter, Chris Hesse, Mark Chen, Eric Sigler, Mateusz
+Litwin, Scott Gray, Benjamin Chess, Jack Clark, Christopher Berner, Sam McCandlish, Alec
+Radford, Ilya Sutskever, and Dario Amodei. Language models are few-shot learners. In
+H. Larochelle, M. Ranzato, R. Hadsell, M.F. Balcan, and H. Lin (eds.), _Advances in Neu-_
+_ral Information Processing Systems_, volume 33, pp. 1877–1901. Curran Associates, Inc.,
+2020. [URL https://proceedings.neurips.cc/paper_files/paper/2020/](https://proceedings.neurips.cc/paper_files/paper/2020/file/1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf)
+[file/1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf.](https://proceedings.neurips.cc/paper_files/paper/2020/file/1457c0d6bfcb4967418bfb8ac142f64a-Paper.pdf)
+
+
+Jiawei Chen, Hongyu Lin, Xianpei Han, and Le Sun. Benchmarking large language models in
+retrieval-augmented generation, 2023a.
+
+
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Pond´e de Oliveira Pinto, Jared
+Kaplan, Harrison Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, Alex Ray, Raul Puri,
+Gretchen Krueger, Michael Petrov, Heidy Khlaaf, Girish Sastry, Pamela Mishkin, Brooke Chan,
+Scott Gray, Nick Ryder, Mikhail Pavlov, Alethea Power, Lukasz Kaiser, Mohammad Bavarian, Clemens Winter, Philippe Tillet, Felipe Petroski Such, Dave Cummings, Matthias Plappert, Fotios Chantzis, Elizabeth Barnes, Ariel Herbert-Voss, William Hebgen Guss, Alex Nichol,
+Alex Paino, Nikolas Tezak, Jie Tang, Igor Babuschkin, Suchir Balaji, Shantanu Jain, William
+Saunders, Christopher Hesse, Andrew N. Carr, Jan Leike, Joshua Achiam, Vedant Misra, Evan
+Morikawa, Alec Radford, Matthew Knight, Miles Brundage, Mira Murati, Katie Mayer, Peter Welinder, Bob McGrew, Dario Amodei, Sam McCandlish, Ilya Sutskever, and Wojciech
+Zaremba. Evaluating large language models trained on code. _CoRR_, abs/2107.03374, 2021.
+[URL https://arxiv.org/abs/2107.03374.](https://arxiv.org/abs/2107.03374)
+
+
+Nuo Chen, Linjun Shou, Ming Gong, Jian Pei, Chenyu You, Jianhui Chang, Daxin Jiang, and Jia Li.
+Bridge the gap between language models and tabular understanding, 2023b.
+
+
+Wenhu Chen. Large language models are few(1)-shot table reasoners. In _Findings of the Association_
+_for Computational Linguistics: EACL 2023_, pp. 1120–1130, Dubrovnik, Croatia, May 2023.
+[Association for Computational Linguistics. URL https://aclanthology.org/2023.](https://aclanthology.org/2023.findings-eacl.83)
+[findings-eacl.83.](https://aclanthology.org/2023.findings-eacl.83)
+
+
+Wenhu Chen, Jianshu Chen, Yu Su, Zhiyu Chen, and William Yang Wang. Logical natural
+language generation from open-domain tables. In _Proceedings of the 58th Annual Meeting_
+
+
+10
+
+
+Published as a conference paper at ICLR 2024
+
+
+_of the Association for Computational Linguistics_, pp. 7929–7942, Online, July 2020a. Association for Computational Linguistics. doi: 10.18653/v1/2020.acl-main.708. [URL https:](https://aclanthology.org/2020.acl-main.708)
+[//aclanthology.org/2020.acl-main.708.](https://aclanthology.org/2020.acl-main.708)
+
+
+Wenhu Chen, Hongmin Wang, Jianshu Chen, Yunkai Zhang, Hong Wang, Shiyang Li, Xiyou Zhou,
+and William Yang Wang. Tabfact: A large-scale dataset for table-based fact verification. In
+_International Conference on Learning Representations_ [, 2020b. URL https://openreview.](https://openreview.net/forum?id=rkeJRhNYDH)
+[net/forum?id=rkeJRhNYDH.](https://openreview.net/forum?id=rkeJRhNYDH)
+
+
+Zhiyu Chen, Wenhu Chen, Hanwen Zha, Xiyou Zhou, Yunkai Zhang, Sairam Sundaresan, and
+William Yang Wang. Logic2Text: High-fidelity natural language generation from logical forms.
+In _Findings of the Association for Computational Linguistics: EMNLP 2020_, pp. 2096–2111,
+Online, November 2020c. Association for Computational Linguistics. doi: 10.18653/v1/2020.
+findings-emnlp.190. [URL https://aclanthology.org/2020.findings-emnlp.](https://aclanthology.org/2020.findings-emnlp.190)
+[190.](https://aclanthology.org/2020.findings-emnlp.190)
+
+
+Zhiyu Chen, Shiyang Li, Charese Smiley, Zhiqiang Ma, Sameena Shah, and William Yang Wang.
+ConvFinQA: Exploring the chain of numerical reasoning in conversational finance question
+answering. In _Proceedings of the 2022 Conference on Empirical Methods in Natural Lan-_
+_guage Processing_, pp. 6279–6292, Abu Dhabi, United Arab Emirates, December 2022. Asso[ciation for Computational Linguistics. doi: 10.18653/v1/2022.emnlp-main.421. URL https:](https://aclanthology.org/2022.emnlp-main.421)
+[//aclanthology.org/2022.emnlp-main.421.](https://aclanthology.org/2022.emnlp-main.421)
+
+
+Zhoujun Cheng, Haoyu Dong, Zhiruo Wang, Ran Jia, Jiaqi Guo, Yan Gao, Shi Han, Jian-Guang
+Lou, and Dongmei Zhang. HiTab: A hierarchical table dataset for question answering and natural language generation. In _Proceedings of the 60th Annual Meeting of the Association for_
+_Computational Linguistics (Volume 1: Long Papers)_, pp. 1094–1110, Dublin, Ireland, May
+2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.acl-long.78. URL
+[https://aclanthology.org/2022.acl-long.78.](https://aclanthology.org/2022.acl-long.78)
+
+
+Zhoujun Cheng, Tianbao Xie, Peng Shi, Chengzu Li, Rahul Nadkarni, Yushi Hu, Caiming Xiong,
+Dragomir Radev, Mari Ostendorf, Luke Zettlemoyer, Noah A. Smith, and Tao Yu. Binding language models in symbolic languages. In _The Eleventh International Conference on Learning_
+_Representations_ [, 2023. URL https://openreview.net/forum?id=lH1PV42cbF.](https://openreview.net/forum?id=lH1PV42cbF)
+
+
+Hyung Won Chung, Le Hou, Shayne Longpre, Barret Zoph, Yi Tay, William Fedus, Eric Li, Xuezhi
+Wang, Mostafa Dehghani, Siddhartha Brahma, et al. Scaling instruction-finetuned language models. _arXiv preprint arXiv:2210.11416_, 2022a.
+
+
+Hyung Won Chung, Le Hou, Shayne Longpre, Barret Zoph, Yi Tay, William Fedus, Eric Li, Xuezhi
+Wang, Mostafa Dehghani, Siddhartha Brahma, et al. Scaling instruction-finetuned language models. _arXiv preprint arXiv:2210.11416_, 2022b.
+
+
+Xiang Deng, Huan Sun, Alyssa Lees, You Wu, and Cong Yu. Turl: table understanding through
+representation learning. _Proceedings of the VLDB Endowment_, 14(3):307–319, 2020.
+
+
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova. BERT: Pre-training of deep
+bidirectional transformers for language understanding. In _Proceedings of the 2019 Conference of_
+_the North American Chapter of the Association for Computational Linguistics: Human Language_
+_Technologies, Volume 1 (Long and Short Papers)_, pp. 4171–4186, Minneapolis, Minnesota, June
+[2019. Association for Computational Linguistics. doi: 10.18653/v1/N19-1423. URL https:](https://aclanthology.org/N19-1423)
+[//aclanthology.org/N19-1423.](https://aclanthology.org/N19-1423)
+
+
+Julian Eisenschlos, Syrine Krichene, and Thomas M¨uller. Understanding tables with intermediate pre-training. In _Findings of the Association for Computational Linguistics: EMNLP_
+_2020_, pp. 281–296, Online, November 2020. Association for Computational Linguistics.
+doi: 10.18653/v1/2020.findings-emnlp.27. [URL https://aclanthology.org/2020.](https://aclanthology.org/2020.findings-emnlp.27)
+[findings-emnlp.27.](https://aclanthology.org/2020.findings-emnlp.27)
+
+
+Julian Eisenschlos, Maharshi Gor, Thomas M¨uller, and William Cohen. MATE: Multi-view attention
+for table transformer efficiency. In _Proceedings of the 2021 Conference on Empirical Methods_
+_in Natural Language Processing_, pp. 7606–7619, Online and Punta Cana, Dominican Republic,
+
+
+11
+
+
+Published as a conference paper at ICLR 2024
+
+
+November 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.emnlp-main.
+[600. URL https://aclanthology.org/2021.emnlp-main.600.](https://aclanthology.org/2021.emnlp-main.600)
+
+
+Siddhant Garg, Thuy Vu, and Alessandro Moschitti. Tanda: Transfer and adapt pre-trained transformer models for answer sentence selection. In _Proceedings of the AAAI conference on artificial_
+_intelligence_, volume 34, pp. 7780–7788, 2020.
+
+
+Zihui Gu, Ju Fan, Nan Tang, Preslav Nakov, Xiaoman Zhao, and Xiaoyong Du. PASTA: Tableoperations aware fact verification via sentence-table cloze pre-training. In _Proceedings of_
+_the 2022 Conference on Empirical Methods in Natural Language Processing_, pp. 4971–4983,
+Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguis[tics. doi: 10.18653/v1/2022.emnlp-main.331. URL https://aclanthology.org/2022.](https://aclanthology.org/2022.emnlp-main.331)
+[emnlp-main.331.](https://aclanthology.org/2022.emnlp-main.331)
+
+
+Hongwei Han, Jialiang Xu, Mengyu Zhou, Yijia Shao, Shi Han, and Dongmei Zhang. Luna: Language understanding with number augmentations on transformers via number plugins and pretraining. _arXiv preprint arXiv:2212.02691_, 2022.
+
+
+Pengcheng He, Jianfeng Gao, and Weizhu Chen. DeBERTav3: Improving deBERTa using
+ELECTRA-style pre-training with gradient-disentangled embedding sharing. In _The Eleventh_
+_International Conference on Learning Representations_ [, 2023. URL https://openreview.](https://openreview.net/forum?id=sE7-XhLxHA)
+[net/forum?id=sE7-XhLxHA.](https://openreview.net/forum?id=sE7-XhLxHA)
+
+
+Jonathan Herzig, Pawel Krzysztof Nowak, Thomas M¨uller, Francesco Piccinno, and Julian Eisenschlos. TaPas: Weakly supervised table parsing via pre-training. In _Proceedings of the 58th_
+_Annual Meeting of the Association for Computational Linguistics_, pp. 4320–4333, Online, July
+2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.acl-main.398. URL
+[https://aclanthology.org/2020.acl-main.398.](https://aclanthology.org/2020.acl-main.398)
+
+
+Roshni Iyer, Thuy Vu, Alessandro Moschitti, and Yizhou Sun. Question-answer sentence graph for
+joint modeling answer selection. In Andreas Vlachos and Isabelle Augenstein (eds.), _Proceedings_
+_of the 17th Conference of the European Chapter of the Association for Computational Linguistics_,
+pp. 968–979, Dubrovnik, Croatia, May 2023. Association for Computational Linguistics. doi: 10.
+[18653/v1/2023.eacl-main.68. URL https://aclanthology.org/2023.eacl-main.](https://aclanthology.org/2023.eacl-main.68)
+[68.](https://aclanthology.org/2023.eacl-main.68)
+
+
+Jinhao Jiang, Kun Zhou, Zican Dong, Keming Ye, Wayne Xin Zhao, and Ji-Rong Wen. Structgpt:
+A general framework for large language model to reason over structured data, 2023.
+
+
+Zhengbao Jiang, Yi Mao, Pengcheng He, Graham Neubig, and Weizhu Chen. OmniTab: Pretraining with natural and synthetic data for few-shot table-based question answering. In _Proceed-_
+_ings of the 2022 Conference of the North American Chapter of the Association for Computa-_
+_tional Linguistics: Human Language Technologies_, pp. 932–942, Seattle, United States, July
+2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.naacl-main.68. URL
+[https://aclanthology.org/2022.naacl-main.68.](https://aclanthology.org/2022.naacl-main.68)
+
+
+Syrine Krichene, Thomas M¨uller, and Julian Eisenschlos. DoT: An efficient double transformer
+for NLP tasks with tables. In _Findings of the Association for Computational Linguistics: ACL-_
+_IJCNLP 2021_, pp. 3273–3283, Online, August 2021. Association for Computational Linguis[tics. doi: 10.18653/v1/2021.findings-acl.289. URL https://aclanthology.org/2021.](https://aclanthology.org/2021.findings-acl.289)
+[findings-acl.289.](https://aclanthology.org/2021.findings-acl.289)
+
+
+Vishwajeet Kumar, Yash Gupta, Saneem Chemmengath, Jaydeep Sen, Soumen Chakrabarti,
+Samarth Bharadwaj, and Feifei Pan. Multi-row, multi-span distant supervision for Table+Text
+question answering. In _Proceedings of the 61st Annual Meeting of the Association for Com-_
+_putational Linguistics (Volume 1: Long Papers)_, pp. 8080–8094, Toronto, Canada, July 2023.
+[Association for Computational Linguistics. doi: 10.18653/v1/2023.acl-long.449. URL https:](https://aclanthology.org/2023.acl-long.449)
+[//aclanthology.org/2023.acl-long.449.](https://aclanthology.org/2023.acl-long.449)
+
+
+Fangyu Lei, Xiang Li, Yifan Wei, Shizhu He, Yiming Huang, Jun Zhao, and Kang Liu. S3HQA: A
+three-stage approach for multi-hop text-table hybrid question answering. In _Proceedings of the_
+_61st Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Papers)_,
+
+
+12
+
+
+Published as a conference paper at ICLR 2024
+
+
+pp. 1731–1740, Toronto, Canada, July 2023. Association for Computational Linguistics. doi: 10.
+[18653/v1/2023.acl-short.147. URL https://aclanthology.org/2023.acl-short.](https://aclanthology.org/2023.acl-short.147)
+[147.](https://aclanthology.org/2023.acl-short.147)
+
+
+Mike Lewis, Yinhan Liu, Naman Goyal, Marjan Ghazvininejad, Abdelrahman Mohamed, Omer
+Levy, Veselin Stoyanov, and Luke Zettlemoyer. BART: Denoising sequence-to-sequence pretraining for natural language generation, translation, and comprehension. In _Proceedings of_
+_the 58th Annual Meeting of the Association for Computational Linguistics_, pp. 7871–7880, Online, July 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.acl-main.703.
+[URL https://aclanthology.org/2020.acl-main.703.](https://aclanthology.org/2020.acl-main.703)
+
+
+Qian Liu, Bei Chen, Jiaqi Guo, Morteza Ziyadi, Zeqi Lin, Weizhu Chen, and Jian-Guang Lou.
+TAPEX: Table pre-training via learning a neural SQL executor. In _International Confer-_
+_ence on Learning Representations_ [, 2022. URL https://openreview.net/forum?id=](https://openreview.net/forum?id=O50443AsCP)
+[O50443AsCP.](https://openreview.net/forum?id=O50443AsCP)
+
+
+Ilya Loshchilov and Frank Hutter. SGDR: Stochastic gradient descent with warm restarts. In _In-_
+_ternational Conference on Learning Representations_ [, 2017. URL https://openreview.](https://openreview.net/forum?id=Skq89Scxx)
+[net/forum?id=Skq89Scxx.](https://openreview.net/forum?id=Skq89Scxx)
+
+
+Ilya Loshchilov and Frank Hutter. Decoupled weight decay regularization. In _International Confer-_
+_ence on Learning Representations_ [, 2019. URL https://openreview.net/forum?id=](https://openreview.net/forum?id=Bkg6RiCqY7)
+[Bkg6RiCqY7.](https://openreview.net/forum?id=Bkg6RiCqY7)
+
+
+Kai Nakamura, Sharon Levy, Yi-Lin Tuan, Wenhu Chen, and William Yang Wang. HybriDialogue:
+An information-seeking dialogue dataset grounded on tabular and textual data. In _Findings of_
+_the Association for Computational Linguistics: ACL 2022_, pp. 481–492, Dublin, Ireland, May
+2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.findings-acl.41. URL
+[https://aclanthology.org/2022.findings-acl.41.](https://aclanthology.org/2022.findings-acl.41)
+
+
+Linyong Nan, Dragomir Radev, Rui Zhang, Amrit Rau, Abhinand Sivaprasad, Chiachun Hsieh,
+Xiangru Tang, Aadit Vyas, Neha Verma, Pranav Krishna, Yangxiaokang Liu, Nadia Irwanto,
+Jessica Pan, Faiaz Rahman, Ahmad Zaidi, Mutethia Mutuma, Yasin Tarabar, Ankit Gupta, Tao
+Yu, Yi Chern Tan, Xi Victoria Lin, Caiming Xiong, Richard Socher, and Nazneen Fatema Rajani. DART: Open-domain structured data record to text generation. In _Proceedings of the 2021_
+_Conference of the North American Chapter of the Association for Computational Linguistics:_
+_Human Language Technologies_, pp. 432–447, Online, June 2021. Association for Computational
+[Linguistics. doi: 10.18653/v1/2021.naacl-main.37. URL https://aclanthology.org/](https://aclanthology.org/2021.naacl-main.37)
+[2021.naacl-main.37.](https://aclanthology.org/2021.naacl-main.37)
+
+
+Linyong Nan, Chiachun Hsieh, Ziming Mao, Xi Victoria Lin, Neha Verma, Rui Zhang, Wojciech
+Kry´sci´nski, Hailey Schoelkopf, Riley Kong, Xiangru Tang, Mutethia Mutuma, Ben Rosand, Isabel Trindade, Renusree Bandaru, Jacob Cunningham, Caiming Xiong, Dragomir Radev, and
+Dragomir Radev. FeTaQA: Free-form table question answering. _Transactions of the Asso-_
+_ciation for Computational Linguistics_, 10:35–49, 2022. doi: 10.1162/tacl ~~a 0~~ 0446. URL
+[https://aclanthology.org/2022.tacl-1.3.](https://aclanthology.org/2022.tacl-1.3)
+
+
+J. Neeraja, Vivek Gupta, and Vivek Srikumar. Incorporating external knowledge to enhance tabular
+reasoning. In _Proceedings of the 2021 Conference of the North American Chapter of the Asso-_
+_ciation for Computational Linguistics: Human Language Technologies_, pp. 2799–2809, Online,
+June 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.naacl-main.224.
+[URL https://aclanthology.org/2021.naacl-main.224.](https://aclanthology.org/2021.naacl-main.224)
+
+
+Ansong Ni, Srini Iyer, Dragomir Radev, Ves Stoyanov, Wen-tau Yih, Sida I Wang, and Xi Victoria
+Lin. Lever: Learning to verify language-to-code generation with execution. In _Proceedings of the_
+_40th International Conference on Machine Learning (ICML’23)_, 2023.
+
+
+Vaishali Pal, Evangelos Kanoulas, and Maarten Rijke. Parameter-efficient abstractive question answering over tables or text. In _Proceedings of the Second DialDoc Workshop on Document-_
+_grounded Dialogue and Conversational Question Answering_, pp. 41–53, Dublin, Ireland, May
+2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.dialdoc-1.5. URL
+[https://aclanthology.org/2022.dialdoc-1.5.](https://aclanthology.org/2022.dialdoc-1.5)
+
+
+13
+
+
+Published as a conference paper at ICLR 2024
+
+
+Ankur Parikh, Xuezhi Wang, Sebastian Gehrmann, Manaal Faruqui, Bhuwan Dhingra, Diyi Yang,
+and Dipanjan Das. ToTTo: A controlled table-to-text generation dataset. In _Proceedings of the_
+_2020 Conference on Empirical Methods in Natural Language Processing (EMNLP)_, pp. 1173–
+1186, Online, November 2020. Association for Computational Linguistics. doi: 10.18653/v1/
+[2020.emnlp-main.89. URL https://aclanthology.org/2020.emnlp-main.89.](https://aclanthology.org/2020.emnlp-main.89)
+
+
+Panupong Pasupat and Percy Liang. Compositional semantic parsing on semi-structured tables.
+_CoRR_ [, abs/1508.00305, 2015. URL http://arxiv.org/abs/1508.00305.](http://arxiv.org/abs/1508.00305)
+
+
+Xinyu Pi, Bing Wang, Yan Gao, Jiaqi Guo, Zhoujun Li, and Jian-Guang Lou. Towards robustness
+of text-to-SQL models against natural and realistic adversarial table perturbation. In _Proceed-_
+_ings of the 60th Annual Meeting of the Association for Computational Linguistics (Volume 1:_
+_Long Papers)_, pp. 2007–2022, Dublin, Ireland, May 2022. Association for Computational Lin[guistics. doi: 10.18653/v1/2022.acl-long.142. URL https://aclanthology.org/2022.](https://aclanthology.org/2022.acl-long.142)
+[acl-long.142.](https://aclanthology.org/2022.acl-long.142)
+
+
+Matt Post. A call for clarity in reporting BLEU scores. In _Proceedings of the Third Con-_
+_ference on Machine Translation: Research Papers_, pp. 186–191, Brussels, Belgium, October 2018. Association for Computational Linguistics. doi: 10.18653/v1/W18-6319. URL
+[https://aclanthology.org/W18-6319.](https://aclanthology.org/W18-6319)
+
+
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi
+Zhou, Wei Li, and Peter J. Liu. Exploring the limits of transfer learning with a unified text-totext transformer. _Journal of Machine Learning Research_ [, 21(140):1–67, 2020. URL http:](http://jmlr.org/papers/v21/20-074.html)
+[//jmlr.org/papers/v21/20-074.html.](http://jmlr.org/papers/v21/20-074.html)
+
+
+Akash Srivastava and Charles Sutton. Autoencoding variational inference for topic models. In
+_International Conference on Learning Representations_ [, 2017. URL https://openreview.](https://openreview.net/forum?id=BybtVK9lg)
+[net/forum?id=BybtVK9lg.](https://openreview.net/forum?id=BybtVK9lg)
+
+
+Lya Hulliyyatus Suadaa, Hidetaka Kamigaito, Kotaro Funakoshi, Manabu Okumura, and Hiroya
+Takamura. Towards table-to-text generation with numerical reasoning. In _Proceedings of the 59th_
+_Annual Meeting of the Association for Computational Linguistics and the 11th International Joint_
+_Conference on Natural Language Processing (Volume 1: Long Papers)_, pp. 1451–1465, Online,
+August 2021. Association for Computational Linguistics. doi: 10.18653/v1/2021.acl-long.115.
+[URL https://aclanthology.org/2021.acl-long.115.](https://aclanthology.org/2021.acl-long.115)
+
+
+Laurens van der Maaten and Geoffrey Hinton. Visualizing data using t-sne. _Journal of Ma-_
+_chine Learning Research_ [, 9(86):2579–2605, 2008. URL http://jmlr.org/papers/v9/](http://jmlr.org/papers/v9/vandermaaten08a.html)
+[vandermaaten08a.html.](http://jmlr.org/papers/v9/vandermaaten08a.html)
+
+
+Nancy X. R. Wang, Diwakar Mahajan, Marina Danilevsky, and Sara Rosenthal. SemEval-2021
+task 9: Fact verification and evidence finding for tabular data in scientific documents (SEM-TABFACTS). In _Proceedings of the 15th International Workshop on Semantic Evaluation (SemEval-_
+_2021)_, pp. 317–326, Online, August 2021. Association for Computational Linguistics. doi: 10.
+[18653/v1/2021.semeval-1.39. URL https://aclanthology.org/2021.semeval-1.](https://aclanthology.org/2021.semeval-1.39)
+[39.](https://aclanthology.org/2021.semeval-1.39)
+
+
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V Le, Ed H. Chi, Sharan Narang, Aakanksha
+Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in language
+models. In _The Eleventh International Conference on Learning Representations_, 2023. URL
+[https://openreview.net/forum?id=1PL1NIMMrw.](https://openreview.net/forum?id=1PL1NIMMrw)
+
+
+Yingyao Wang, Junwei Bao, Chaoqun Duan, Youzheng Wu, Xiaodong He, and Tiejun Zhao.
+MuGER2: Multi-granularity evidence retrieval and reasoning for hybrid question answering.
+In _Findings of the Association for Computational Linguistics: EMNLP 2022_, pp. 6687–6697,
+Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguistics.
+[doi: 10.18653/v1/2022.findings-emnlp.498. URL https://aclanthology.org/2022.](https://aclanthology.org/2022.findings-emnlp.498)
+[findings-emnlp.498.](https://aclanthology.org/2022.findings-emnlp.498)
+
+
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, brian ichter, Fei Xia, Ed H. Chi,
+Quoc V Le, and Denny Zhou. Chain of thought prompting elicits reasoning in large language
+
+
+14
+
+
+Published as a conference paper at ICLR 2024
+
+
+models. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and Kyunghyun Cho (eds.), _Ad-_
+_vances in Neural Information Processing Systems_ [, 2022. URL https://openreview.net/](https://openreview.net/forum?id=_VjQlMeSB_J)
+[forum?id=_VjQlMeSB_J.](https://openreview.net/forum?id=_VjQlMeSB_J)
+
+
+Tianbao Xie, Chen Henry Wu, Peng Shi, Ruiqi Zhong, Torsten Scholak, Michihiro Yasunaga,
+Chien-Sheng Wu, Ming Zhong, Pengcheng Yin, Sida I. Wang, Victor Zhong, Bailin Wang,
+Chengzu Li, Connor Boyle, Ansong Ni, Ziyu Yao, Dragomir Radev, Caiming Xiong, Lingpeng
+Kong, Rui Zhang, Noah A. Smith, Luke Zettlemoyer, and Tao Yu. UnifiedSKG: Unifying and
+multi-tasking structured knowledge grounding with text-to-text language models. In _Proceed-_
+_ings of the 2022 Conference on Empirical Methods in Natural Language Processing_, pp. 602–
+631, Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguis[tics. doi: 10.18653/v1/2022.emnlp-main.39. URL https://aclanthology.org/2022.](https://aclanthology.org/2022.emnlp-main.39)
+[emnlp-main.39.](https://aclanthology.org/2022.emnlp-main.39)
+
+
+Jingfeng Yang, Aditya Gupta, Shyam Upadhyay, Luheng He, Rahul Goel, and Shachi Paul. TableFormer: Robust transformer modeling for table-text encoding. In _Proceedings of the 60th Annual_
+_Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pp. 528–537,
+Dublin, Ireland, May 2022. Association for Computational Linguistics. doi: 10.18653/v1/2022.
+[acl-long.40. URL https://aclanthology.org/2022.acl-long.40.](https://aclanthology.org/2022.acl-long.40)
+
+
+Yunhu Ye, Binyuan Hui, Min Yang, Binhua Li, Fei Huang, and Yongbin Li. Large language models
+are versatile decomposers: Decomposing evidence and questions for table-based reasoning. In
+_Proceedings of the 46th International ACM SIGIR Conference on Research and Development_
+_in Information Retrieval_, SIGIR ’23, pp. 174–184, New York, NY, USA, 2023. Association for
+[Computing Machinery. ISBN 9781450394086. doi: 10.1145/3539618.3591708. URL https:](https://doi.org/10.1145/3539618.3591708)
+[//doi.org/10.1145/3539618.3591708.](https://doi.org/10.1145/3539618.3591708)
+
+
+Pengcheng Yin, Graham Neubig, Wen-tau Yih, and Sebastian Riedel. TaBERT: Pretraining for
+joint understanding of textual and tabular data. In _Proceedings of the 58th Annual Meeting_
+_of the Association for Computational Linguistics_, pp. 8413–8426, Online, July 2020. Association for Computational Linguistics. doi: 10.18653/v1/2020.acl-main.745. [URL https:](https://aclanthology.org/2020.acl-main.745)
+[//aclanthology.org/2020.acl-main.745.](https://aclanthology.org/2020.acl-main.745)
+
+
+Tao Yu, Chien-Sheng Wu, Xi Victoria Lin, bailin wang, Yi Chern Tan, Xinyi Yang, Dragomir
+Radev, richard socher, and Caiming Xiong. Gra _{_ pp _}_ a: Grammar-augmented pre-training for
+table semantic parsing. In _International Conference on Learning Representations_, 2021. URL
+[https://openreview.net/forum?id=kyaIeYj4zZ.](https://openreview.net/forum?id=kyaIeYj4zZ)
+
+
+Zeyu Zhang, Thuy Vu, and Alessandro Moschitti. Joint models for answer verification in question
+answering systems. In Chengqing Zong, Fei Xia, Wenjie Li, and Roberto Navigli (eds.), _Proceed-_
+_ings of the 59th Annual Meeting of the Association for Computational Linguistics and the 11th_
+_International Joint Conference on Natural Language Processing (Volume 1: Long Papers)_, pp.
+3252–3262, Online, August 2021. Association for Computational Linguistics. doi: 10.18653/v1/
+[2021.acl-long.252. URL https://aclanthology.org/2021.acl-long.252.](https://aclanthology.org/2021.acl-long.252)
+
+
+Yilun Zhao, Linyong Nan, Zhenting Qi, Rui Zhang, and Dragomir Radev. ReasTAP: Injecting
+table reasoning skills during pre-training via synthetic reasoning examples. In _Proceedings of_
+_the 2022 Conference on Empirical Methods in Natural Language Processing_, pp. 9006–9018,
+Abu Dhabi, United Arab Emirates, December 2022. Association for Computational Linguis[tics. doi: 10.18653/v1/2022.emnlp-main.615. URL https://aclanthology.org/2022.](https://aclanthology.org/2022.emnlp-main.615)
+[emnlp-main.615.](https://aclanthology.org/2022.emnlp-main.615)
+
+
+Yilun Zhao, Chen Zhao, Linyong Nan, Zhenting Qi, Wenlin Zhang, Xiangru Tang, Boyu Mi, and
+Dragomir Radev. Robut: A systematic study of table qa robustness against human-annotated
+adversarial perturbations. _arXiv preprint arXiv:2306.14321_, 2023.
+
+
+Victor Zhong, Caiming Xiong, and Richard Socher. Seq2sql: Generating structured queries from
+natural language using reinforcement learning. _CoRR_, abs/1709.00103, 2017.
+
+
+Fan Zhou, Mengkang Hu, Haoyu Dong, Zhoujun Cheng, Fan Cheng, Shi Han, and Dongmei
+Zhang. TaCube: Pre-computing data cubes for answering numerical-reasoning questions over
+
+
+15
+
+
+Published as a conference paper at ICLR 2024
+
+
+tabular data. In _Proceedings of the 2022 Conference on Empirical Methods in Natural Lan-_
+_guage Processing_, pp. 2278–2291, Abu Dhabi, United Arab Emirates, December 2022. Associ[ation for Computational Linguistics. doi: 10.18653/v1/2022.emnlp-main.145. URL https:](https://aclanthology.org/2022.emnlp-main.145)
+[//aclanthology.org/2022.emnlp-main.145.](https://aclanthology.org/2022.emnlp-main.145)
+
+
+A APPENDIX
+
+
+A.1 CLUSTERING LATENT VECTORS
+
+
+As discussed in Section 3.1, the table tokens are clustered in a trainable manner (van der Maaten
+& Hinton, 2008) using their latent representations encoded through Unsupervised Relevance Scorer
+(URS). We discuss the details of the trainable clustering algorithm.
+
+
+Formally, the probability of latent vector _hp_ corresponding to the _p_ _[th]_ token belonging to _j_ _[th]_ cluster
+is given by Equation 15
+
+
+
+(1 + _||hp_ _−_ _µ_ _[clu]_ _j_ _||_ [2] _/α_ ) _[−]_ _[α]_ [+1] 2
+_qpj_ =
+
+_[α]_
+
+
+
+
+[+1] (15)
+
+2
+
+
+
+_p_ _j_ 2
+
+~~�~~ _[clu]_ [2] _[−]_
+
+
+
+_j_ _[′]_ [(1 +] _[ ||][h][p][ −]_ _[µ][clu]_ _j_ _[′][ ||]_ [2] _[/α]_ [)] _[−]_ _[α]_ [+1] 2
+
+
+
+Here, _hp_ is the contextualised latent vector of the _p_ _[th]_ token obtained using _TEURS_, _α_ is the degrees
+of freedom of the Student’s t distribution, _µ_ _[clu]_ _j_ is the centroid of the _j_ _[th]_ cluster and _j ∈{_ 0 _,_ 1 _}_ . Here,
+_µ_ _[clu]_ 0 = _µ_ _[clu]_ _relevant_ [and] _[ µ]_ 1 _[clu]_ = _µ_ _[clu]_ _irrelevant_ [. Moreover, the cluster centroids are learnable.]
+
+
+The clustering process is iteratively refined by enforcing KL divergence minimization between the
+probability distribution for each token and a pseudo distribution generated using _qpj_ . Mathematically, the clustering loss is
+
+
+
+_Lclu_ = [1]
+
+_B_
+
+
+
+_KL_ ( _Z||Q_ ) = [1]
+
+_B_
+
+_b_
+
+
+
+_B_
+
+
+
+
+
+
+
+
+
+
+_p_
+
+
+
+
+
+
+
+_zpjlog_ _[z][pj]_
+
+_qpj_
+
+_j_
+
+
+
+(16)
+_qpj_
+
+
+
+
+
+
+_b_
+
+
+
+where _b ∈{_ 1 _,_ 2 _, · · ·, B}_, _B_ is the batch size, and _Z_ is the target distribution. A naive approach to
+model _Z_ would be setting each _zp_ to a delta distribution (to the nearest centroid) for representations
+above a confidence threshold and ignoring the rest. However, because _qp_ are soft assignments, it is
+more natural and flexible to use softer probabilistic targets. So, we model _zpj_ with Equation 17
+
+
+
+_qpj_ [2] _[/f][pj]_
+_zpj_ = ~~�~~ [2]
+
+
+
+_qpj_ is the soft cluster frequency (17)
+_p_
+
+
+
+_pj_  
+_j_ _[′][ q]_ _pj_ [2] _[′][/f][pj][′]_ [, where] _[ f][pj]_ [ =]
+
+
+
+A.2 DETAILS OF ANNOTATING TABLE PARSING STATEMENT
+
+
+As discussed in Section 3.2, we train a parsing statement generator that generates a criteria describing which rows and columns contain information relevant to the table. The generated parsing
+statement is used to identify corresponding cells which are then combined with the relevant table part detected by the unsupervised relevance scorer through relevance scoring. To bootstrap the
+training of the parsing statement generator, we manually annotate _∼_ 300 question-table pairs from
+the WikiTQ dataset with parsing statement. To select samples to be annotated, we sample questions
+from WikiTQ as it consists of a diverse and complex set of reasoning questions over tables, thereby
+sampling questions from this dataset allows us to select a set that is representative of questions in
+other datasets for Table QA.
+
+
+To select a diverse set of questions from WikiTQ for annotation, we group questions into 5 clusters by clustering their representations such that we randomly sample an equal number of questions
+from each cluster. Specifically, we use an encoder-only model DeBERTa-V2 to encode the questions. Since the questions pertain to tables, we embed questions in train split of WikiTQ through an
+LLM possessing table understanding - DeBERTaV2 (He et al., 2023) initialized with weights tuned
+through table understanding task proposed by PASTA (Gu et al., 2022).
+
+
+Once the questions are clustered, we sample a small subset (2.5%) from each cluster to manually
+annotate with the parsing statement. Some examples of questions, the parsing statement and the
+corresponding answer from each cluster can be seen in Table 6.
+
+
+16
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 6: Examples of parsing statement annotated manually for questions sampled from each cluster.
+
+
+**Cluster** **Question** **Answer** **Parsing Statement**
+
+
+1 how many episodes had a 3 to find number of episodes with nightly rank
+nightly rank of 11? of 11, we need to look at the column named
+”nightly rank” and count number of times the
+value 11 occurs.
+
+
+
+how many games during
+this season were aired on
+cbs?
+
+
+2 which season was more
+successful, 1995/96 or
+1996/97?
+
+
+did john howard serve as
+prime minister for more or
+less time than julia gillard?
+
+
+
+3 to find number of games aired on cbs, we need
+to look at the column tv and retrieve the rows
+having value cbs. from table, there are 3 occurences of cbs in tv column.
+
+
+1996/97 to compare between success of the seasons
+1995/96 or 1996/97, we need to look at the final
+place in both the seasons. from table, place corresponding to season 1995/96 is 19th, which is
+bad compared to the place 1st corresponding to
+season 1996/1997.
+
+
+more for answering this question, we need to look at
+total time in office for both john howard and
+julia gillard. for prime minister john howard
+total time in office is 4,284 days which more
+than 1,099 days i.e., total time in office for julia
+gillard.
+
+
+
+3 which party won the top Australian to find party with top place in the election, we
+place in the election? Labor Party need to compare the seats of each party. from
+table, australian labor party has the maximum
+number of seats.
+
+
+which role is the most com- Salesman most common title refers to title which occurs
+mon from all the titles? the most number of times. from table, in the
+column role, the value salesman occurs the most
+number of times.
+
+
+4 what publication is listed Nintendo from table, in the column publication, the row
+before play magazine? Power before play magazine has the value nintendo
+power
+
+
+what college has the top en- Cornell Uni- to find the top enrollment, we need to find
+rollment? versity college with maximum number of enrollment.
+from table, the maximum value of enrollment
+column is 20,400 corresponding to the institution cornell university.
+
+
+
+5 what is the difference between the caps of henry
+carlsson and borge leander?
+
+
+what was the difference in
+time between the 8th place
+finisher and the first place
+finisher?
+
+
+
+1 to find difference of caps between henry carlson and borge leander, we need to first obtain
+the caps values. from table, caps of name henry
+carlson i.e., henry ”garvis” carlson is 5 and caps
+of borje leander is 4. so difference is 1.
+
+
++17.32 to find difference between 8th place finisher and
+first place finisher, we need to look at the difference column corresponding to rank 8 in the
+table. from table, the value is +17.32.
+
+
+17
+
+
+Published as a conference paper at ICLR 2024
+
+
+A.3 ADDITIONAL RELATED WORK
+
+
+Graphs have been used to capture table structure and similarity between table-question samples
+across the dataset (Iyer et al., 2023). TANDA (Garg et al., 2020) performs the task of answer
+sentence selection (AS2) for a given question by fine-tuning the transformer-based model to select
+the right candidate from answer candidates. They first fine-tune an LLM on the AS2 task followed
+by adapting it to a specific domain. Zhang et al. (2021) built over TANDA by considering remaining
+answer candidates as evidence while deciding the appropriateness of a particular answer candidate.
+This was further extended by Iyer et al. (2023) who modeled the relation between other similar
+question samples and corresponding answers in the dataset with the given question and answer
+candidates using a graph. In our current work, we mainly focussed on identifying relevant parts
+of the table useful to derive the answer to the question, however, a similar method can also be
+explored as future work that utilizes a graph to capture the table structure (positioning of different
+cells in the table) for a given sample and also model the similarity between multiple question-table
+pairs across the dataset. Another direction focuses on applying semantic parsing over the input text
+(question) and table to generate a logical form (such as SQL) which when executed fetches relevant
+information (Yu et al., 2021).
+
+
+A.4 PERFORMANCE ON NUMERIC VS NON-NUMERIC & RETRIEVAL VS
+AGGREGATION-BASED ANSWERS
+
+
+We analyse the performance of CABINET on generating answers of distinct types by categorizing
+them into four categories: _numeric_, _non-numeric_, _retrieval_, and _non-retrieval (aggregation)_ . This
+meticulous categorization allows us to gain a nuanced understanding of how CABINET performs
+
+
+
+80
+
+
+70
+
+
+60
+
+
+50
+
+
+
+
+
+
+
+|Col1|Col2|
+|---|---|
+|||
+
+
+(b) WikiSQL
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+|Col1|74.7<br>3|
+|---|---|
+|<br><br>71.|<br><br>71.|
+
+
+|Col1|Col2|
+|---|---|
+|||
+
+
+(a) WikiTQ
+
+
+
+
+|Col1|Col2|
+|---|---|
+|||
+
+
+|Col1|Col2|
+|---|---|
+|||
+
+
+|Col1|Col2|
+|---|---|
+|<br>|<br>|
+
+
+
+Figure 6: Performance comparison between CABINET with OmniTab on WikiTQ and with
+ReasTAP on WikiSQL when test samples are categorised based on the answer type - retrieval, nonretrieval (aggregation), numeric and non-numeric. We see CABINET provides significantly better
+performance on all answer type categories. It’s noteworthy to mention that this analysis excludes
+FeTaQA, as it comprises of free-form long answers, hence categorization is not possible.
+
+
+Figure 6 summarises the results. For both WikiTQ and WikiSQL, our method consistently demonstrates better performance for all four categories. We see an improvement of around 8 _−_ 10% for
+WikiTQ and around 3 _−_ 5% for WikiSQL for numeric and non-retrieval type answers, thereby highlighting the improved aggregation capabilities using CABINET.
+
+
+A.5 DETAILS OF TABLE PERTURBATION
+
+
+In Section 4.2, we discussed the impact of perturbing the tables on performance. We discuss the
+detailed steps that we followed to inject the 4 types of perturbation separately in the tables. **For**
+**Row Addition**, we create sets of table with same number of columns. Further, based on the number
+of cells _m_ in a table, we insert _n_ rows from another table with the same number of columns at
+a random position. The exact scheme followed is, 1) _n_ = 1 if _m ≤_ 150, 2) _n_ = 2 if _m >_
+150 & _m ≤_ 300, 3) _n_ = 5 if _m >_ 300 & _m ≤_ 450 and 4) _n_ = 8 if _m >_ 450. For **row**
+**permutation** and **column per** ~~**mn**~~ **utation**, we randomly permute the rows and columns respectively
+without any specific conditioning over the number of rows and columns present in the table. For
+
+
+18
+
+
+Published as a conference paper at ICLR 2024
+
+
+**cell replacement**, we divide the dataset again into the 4 buckets same as that of row addition and
+randomly replace 0 _._ 02%, 0 _._ 05%,0 _._ 1% and 0 _._ 12% of the total number of cells in the table.
+
+
+A.6 ADDITIONAL IMPLEMENTATION DETAILS
+
+
+As stated in section 4 (under implementation details) of the main paper, we employ the OmniTab
+backbone built over BART-Large architecture for the encoder ( _TEQA_ ) and decoder ( _TDQA_ ) of the
+QA LLM. Further, URS encoder ( _TEURS_ ) is initialized with the architecture and weights of QA
+LLM encoder ( _TEQA_ ), though, they do not share weights during training. However, the embedding
+layers _EmbeddingURS_ and _EmbeddingQA_ share weights. The hidden dimension _d_ of _TEURS_
+is 1024, similar to that of both _TEQA_ and _TDQA_ . We train CABINET and other baselines for 30
+epochs on an effective batch size (BS) of 128 using 8 80 GB A100 GPUs (BS of 8/GPU with gradient
+accumulation 2) using learning rate of 1 _e_ _[−]_ [5] with Cosine Annealing through AdamW optimizer. We
+carry out hyper-parameter tuning based on the validation set to come up with the optimal values of
+learning rate (1 _e_ _[−]_ [5] ), scheduler (Cosine Annealing), batch size (8), gradient accumulation steps (2)
+and the optimizer (AdamW). We leverage text pre-trained Flan T5-xl as the backbone for Parsing
+Statement Generator (PSG) and the Cell Highlighter LLM. The Parsing Statement Generator is
+trained for 50 epochs on the 300 manually annotated question-table-parsing statement triplets with
+hyper-parameters setting same as that of CABINET, however the only difference being the effective
+batch size of 16 (BS of 2/GPU with 8 GPUs without gradient accumulation). On a similar note,
+the Cell Highlighter LLM is trained for 3 epochs on the ToTTo dataset to generate highlighted
+cells given the table and a natural language statement describing a subpart of the table as the input.
+During the inference phase of generating answer, parsing statements and highlighted cells, we use
+beam search decoding with a beam size of 3.
+
+
+A.7 CAN CABINET BE USED WITH OTHER QA LLM BACKBONES TO IMPROVE
+PERFORMANCE?
+
+
+To verify the generality of CABINET as a framework that can be used with any encoder-decoder
+style Table QA method, we use TAPEX (Liu et al., 2022) as the backbone to initialise the unsupervised contextual relevance scorer (instead of OmniTab). TAPEX is also used as the underlying QA
+LLM. Table 7 summarises the results where it can be seen that the performance improves on all the
+three datasets. This highlights the generality of CABINET in improving performance.
+
+
+Table 7: Performance improvement achieved through CABINET over TAPEX by using TAPEX as
+the underlying QA LLM (instead of OmniTab). Further, the encoder of TAPEX is used to initialise
+the unsupervised relevance scorer (instead of OmniTab). This highlights the generality of CABINET
+as a framework for improving performance.
+
+
+**Method** **WikiTQ** **FeTaQA** **WikiSQL**
+
+
+TAPEX 55.5 34.6 86.4
+
+
+**CABINET w TAPEX Backbone** **62.7** **37.8** **87.3**
+
+
+A.8 ABLATIONS ON ALTERNATE DESIGN CHOICES FOR CABINET
+
+
+We discuss several explorations on alternate ways of utlising the different components of CABINET
+framework. The results pertaining to those can be seen in table 8.
+
+
+1. Instead of using the generated parsing statement to highlight cells for our cell-based scoring
+mechanism, we feed the parsing statement in the input to the QA LLM along with the question and table in order to verify if parsing statement alone can improve the QA performance
+when directly used as an instruction to the model. We use the unsupervised relevance scorer
+along with the QA LLM. Table 8 summarises the results. It can be seen that using the parsing statement as input to the QA model gives significantly sub-optimal performance (row 2
+vs row 7 in Table 8) compared to highlighting cells to obtain the corresponding scores that
+can be combined with the relevance scores predicted by the unsupervised relevance scorer.
+
+
+19
+
+
+Published as a conference paper at ICLR 2024
+
+
+2. As an alternate to URS, we explore similarity between semantic embeddings of question
+and table row for estimating relevance of tokens. Precisely, to perform this ablation, we
+encode the question and each row in the table with BERT. Subsequently, we compute the
+similarity score between the encoding of each table row and question encoding through
+cosine similarity. Each token in a given table row is then assigned a relevance score equal
+to the cosine similarity between the row and question encodings. This relevance score is
+then used (instead of URS) with CABINET. Clearly from 8, replacing URS with BERTbased similarity results in sub-optimal performance when compared against CABINET
+with URS and without cell highlighter (row 3 vs row 6), hence validating the importance
+URS.
+
+
+3. Further, we experiment with another configuration where the weakly supervised cell highlighter is used with off the shelf BERT based encoding similarity for relevance scoring and
+compare the performance with CABINET (with URS and cell highlighter). Here, a similar
+trend is observed where it is seen that CABINET with URS and cell highlighter performs
+much better than CABINET with BERT based relevance scoring and cell highlighter (row
+4 vs row 7).
+
+
+4. Utilising the question directly to generate the highlighted cells, it can be observed that
+there is a significant decline in performance for the task of TableQA compared to using
+the parsing statement as input to the cell highlighter to generate the relevant cells which is
+then used to determine relevance score for table tokens for performing QA (row 5 vs row
+7). This indicates that the parsing statement describing the criteria of rows and columns
+relevant to the question is essential to achieve the performance gains.
+
+
+Table 8: Performance analysis for different design choices explored over CABINET. OmniTab as
+a baseline (row 1), ablation on using parsing statement as input to QA LLM instead of higlighting
+corresponding cells (row 2), leveraging BERT based relevance scoring (row 3 and 4), directly using
+question as input to cell higlighter LLM (row 5), produce sub-optimal performance when compared
+with CABINET.
+
+
+**Method** **WikiTQ** **FeTaQA** **WikiSQL**
+
+
+OmniTab 63.1 35.9 85.8
+
+
+CABINET w parsing statement as input to QA model
+instead of highlighting corresponding cells 66.2 34.9 85.9
+
+
+CABINET with BERT based relevance scoring
+(as discussed above) without cell highlighter 61.8 34.9 83.7
+
+
+CABINET with BERT based relevance scoring
+(as discussed above) with cell highlighter 64.5 36.7 85.1
+
+
+CABINET with question as input to cell highlighter 63.7 34.4 85.7
+
+
+CABINET with URS only and without cell highlighter 65.6 35.8 89.3
+
+
+**CABINET** **69.1** **40.5** **89.5**
+
+
+A.9 DATASET STATISTICS
+
+
+In this section, we tabulate the number of samples in the training, validation and test set of all the
+three datasets in table 9.
+
+
+A.10 CASE STUDY ON HOW CLUSTERING LOSSES INTERACT TO YIELD IMPROVEMENTS
+
+
+We now discuss a case study depicting how the loss functions interact to yield improvements:
+
+
+20
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 9: Dataset Statistics
+
+
+**Dataset** **# Train samples** **# Validation samples** **# Test samples**
+WikiTQ 11321 2831 4344
+WikiSQL 56355 8421 15878
+FeTaQA 7326 1001 2003
+
+
+Consider the example in figure 2 in the paper pdf - we plot the histogram of relevance score assigned
+to table tokens during inference for this example for 4 differently trained variants of CABINET
+
+- a) URS trained w/o any clustering losses, b) URS trained with clustering loss, c) URS trained
+with clustering and cluster mean separation loss, and d) URS trained with clustering, cluster mean
+separation and relevance score sparsification loss. The histogram plots depicting count of table
+tokens against relevance score assigned during inference for the 4 variants are shown in figure 7, we
+summarise our observations below:
+
+
+1. From the sub-plot figure 7(a), it can be seen that when URS is trained without any of the
+three losses, the relevance score for most of the tokens is in the range 0.7 - 0.9 which
+is undesirable since many tokens which are irrelevant are also assigned a decently high
+relevance score which is roughly equivalent to passing the table to the QA LLM as it is.
+
+
+2. When URS is trained with clustering loss (sub-plot figure 7(b)), the frequency distribution
+of relevance scores becomes bi-modal with the majority of tokens corresponding to the
+first mode assigned a relevance score in the range 0.6-0.7 and for the second mode around
+0.8-0.9. This shows that clustering loss trains the URS in structuring the latent space representation into two categories, however, still there are many tokens with a relevance score
+around 0.7 between the two modes which means that many irrelevant tokens are still assigned decently high relevance.
+
+
+3. When URS is trained with clustering and cluster mean separation loss (figure 7(c)), the
+first mode corresponding to a relatively lower relevance score is observed around 0.55-0.65
+while the second mode corresponding to a higher relevance score is observed around 0.80.9. This shows that URS trained with cluster mean separation loss amplifies the effect
+of clustering loss by pushing more tokens into lower relevance category resulting in more
+tokens assigned lower relevance around the first mode. Also note that the number of tokens
+in the range 0.7-0.8 also reduces owing to the increased gap between token representations
+belonging to two categories.
+
+
+4. Finally when URS is additionally trained with relevance score sparsification loss (figure 7(d)), we observe that magnitude of relevance score assigned to tokens in low relevance
+score cluster decreases further which is useful since irrelevant tokens gets suppressed further and the downstream QA LLM can focus better on relevant parts. Further, more irrelevant tokens are assigned a low relevance score. This can be seen in figure 7(d) where more
+tokens are assigned relevance score in the range 0.45-0.6.
+
+
+Further, since the URS is trained end-to-end with QA LLM differentiably, tokens in higher score
+category are likely to be relevant in order to enable the QA LLM to be able to generate the correct
+answer. Additionally, in figure 8, we visualise the t-SNE plots (corresponding to the same example
+in figure 2 as discussed above) of the latent representation of table tokens encoded during inference
+by URS corresponding to the 4 variants trained differently - a) URS trained w/o any clustering losses
+(figure 8(a)), b) URS trained with clustering loss (figure 8(b)), c) URS trained with clustering and
+cluster mean separation loss (figure 8(c)), and d) URS trained with clustering, cluster mean separation and relevance score sparsification losses (figure 8(d)). The table tokens having relevance score
+greater than the average relevance score (assigned to table tokens in this example) are depicted as
+relevant tokens (in red) while those tokens having score less than the average relevance are depicted
+as non-relevant (in blue). It can be seen that URS model trained with clustering loss, cluster means
+separation loss and relevance score sparsification loss is better able to segregate the table tokens into
+two categories and assign lower relevance to tokens in one category while assigning higher relevance to tokens in the second category. Further, since the URS is trained end-to-end with QA LLM
+differentiably, tokens in higher score category are likely to be relevant in order to enable the QA
+LLM to be able to generate the correct answer.
+
+
+21
+
+
+Published as a conference paper at ICLR 2024
+
+
+(a) Histogram plot of count of table tokens against
+relevance score assigned during inference by URS
+trained without any clustering losses.
+
+
+(c) Histogram plot of count of table tokens against
+relevance score assigned during inference by URS
+trained with clustering loss and clusters mean separation loss.
+
+
+
+(b) Histogram plot of count of table tokens against
+relevance score assigned during inference by URS
+trained with clustering loss.
+
+
+(d) Histogram plot of count of table tokens against
+relevance score assigned during inference by URS
+trained with clustering loss, clusters mean separation
+loss and relevance score sparsification loss.
+
+
+
+Figure 7: Histogram plots of relevance score assigned during inference to table tokens corresponding to the
+example in the figure 2 in the main paper. The 4 plots correspond to variants of CABINET trained with
+different combination of loss functions for URS - a) URS trained w/o any clustering losses; b) URS trained
+with clustering loss; c) URS trained with clustering and cluster mean separation loss; and d) URS trained with
+clustering, cluster mean separation and relevance score sparsification loss. It can be seen that the three losses
+acts in a complementary manner to enable URS to segregate table tokens better into two categories and assign
+low relevance to tokens in one category and a high relevance to tokens in the second category. Further, since
+the URS is trained end-to-end with QA LLM differentiably, tokens in higher score category are likely to be
+relevant in order to enable the QA LLM to be able to generate the correct answer.
+
+
+22
+
+
+Published as a conference paper at ICLR 2024
+
+
+(a) t-SNE plot of latent representation of table tokens encoded during inference by URS trained without any clustering losses.
+
+
+(c) t-SNE plot of latent representation of table tokens
+encoded during inference by URS trained with clustering loss and cluster means separation loss.
+
+
+
+(b) t-SNE plot of latent representation of table tokens
+encoded during inference by URS trained with clustering loss only.
+
+
+(d) t-SNE plot of latent representation of table tokens
+encoded during inference by URS trained with clustering loss, cluster means separation and relevance
+score sparsification loss.
+
+
+
+Figure 8: t-SNE plots (corresponding to the same example as in figure 2) of the latent representation of table
+tokens encoded during inference by URS corresponding to the 4 variants trained differently - a) URS trained
+w/o any clustering losses (sub-plot figure 8(a)), b) URS trained with clustering loss only (sub-plot figure 8(b)),
+c) URS trained with clustering and cluster mean separation loss (sub-plot figure 8(c)), and d) URS trained
+with clustering, cluster mean separation and relevance score sparsification loss (sub-plot figure 8(d)). The
+table tokens having relevance score greater than the average relevance score (assigned to table tokens in this
+example) are depicted as relevant tokens (in red) while those tokens having score less than the average relevance
+are depicted as non-relevant (in blue). It can be seen that URS model trained with clustering loss, cluster means
+separation loss and relevance score sparsification loss is better able to segregate the table tokens into two
+categories and assign lower relevance to tokens in one category while assigning higher relevance to tokens in
+the second category. Further, since the URS is trained end-to-end with QA LLM differentiably, tokens in higher
+score category are likely to be relevant in order to enable the QA LLM to be able to generate the correct answer.
+
+
+23
+
+
+Published as a conference paper at ICLR 2024
+
+
+A.11 CAN CABINET BE USED FOR IMPROVING OTHER NLP TASKS LIKE READING
+COMPREHENSION?
+
+
+We employ CABINET on the reading comprehension task, where given a paragraph and a corresponding question, LLMs need to answer the question based on the paragraph. Drawing an analogy
+from the Table QA task, certain tokens in the paragraph are more relevant for answering the given
+question. To achieve this, we employ the URS component of CABINET on top of pre-trained
+BART-Large. We experiment with a commonly used benchmark SQuAD-v2 and report accuracy on
+the test set (Table 10), hence validating the task-level generality of CABINET. It can be seen that
+using CABINET helps in improving the performance of vanilla BART-large LLM for the reading
+comprehension task.
+
+
+Table 10: Performance improvement achieved upon employing URS of CABINET over BART for
+the Reading Comprehension task on SQuAD-v2
+
+
+**Method** **SQuAD-v2 Test Accuracy**
+
+
+BART-large 42.9
+**URS of CABINET + BART-large** **48.0**
+
+
+24
+
+

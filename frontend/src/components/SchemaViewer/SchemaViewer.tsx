@@ -36,6 +36,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -1115,22 +1117,21 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               </div>
 
               {/* Clustering Toggle */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant={clusteringEnabled ? 'default' : 'outline'}
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => setClusteringEnabled(!clusteringEnabled)}
-                  >
-                    <Layers className="h-3.5 w-3.5 mr-1" />
-                    Clusters
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {clusteringEnabled ? 'Disable clustering view' : 'Enable clustering view'}
-                </TooltipContent>
-              </Tooltip>
+              <div className="flex items-center gap-2 px-2 py-1 border rounded-lg bg-muted/50">
+                <Switch
+                  id="clustering-toggle"
+                  checked={clusteringEnabled}
+                  onCheckedChange={setClusteringEnabled}
+                  className="scale-75"
+                />
+                <Label
+                  htmlFor="clustering-toggle"
+                  className="text-xs font-medium cursor-pointer flex items-center gap-1"
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                  Clusters
+                </Label>
+              </div>
             </div>
           </div>
 

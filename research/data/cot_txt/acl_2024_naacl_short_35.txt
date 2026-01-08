@@ -1,0 +1,2254 @@
+# **EchoPrompt: Instructing the Model to Rephrase Queries** **for Improved In-context Learning**
+
+
+
+**Rajasekhar Reddy Mekala** [*] **Yasaman Razeghi** _[∗]_
+
+rmekala@uci.edu yrazeghi@uci.edu
+
+
+
+**Rajasekhar Reddy Mekala** [*]
+
+
+
+**Yasaman Razeghi** _[∗]_ **Sameer Singh**
+
+yrazeghi@uci.edu sameer@uci.edu
+
+
+
+**Abstract**
+
+
+Language models are achieving impressive
+performance on various tasks by aggressively
+adopting inference-time prompting techniques,
+such as zero-shot and few-shot prompting. In
+this work, we introduce _EchoPrompt_, a simple yet effective approach that prompts the
+model to rephrase its queries before answering them. EchoPrompt is tailored for four
+scenarios, including standard and chain-ofthought prompting, in both zero-shot and fewshot settings. Experimental results show that
+EchoPrompt yields substantial improvements
+across all these settings for four families of
+causal language models. These improvements
+are observed across various numerical reasoning (e.g., GSM8K, SVAMP), reading comprehension (e.g., DROP), and logical reasoning (e.g., Coin flipping) tasks. On average,
+EchoPrompt improves the Zero-shot-CoT performance of code-davinci-002 by 5% in numerical tasks and 13% in reading comprehension tasks. Our empirical results indicate that
+EchoPrompt is an effective technique that enhances in-context learning performance. [1]
+
+
+**1** **Introduction**
+
+
+Large language models have revolutionized natural
+language task-solving through prompting (Brown
+et al., 2020). This technique involves conditioning
+the language model with an instruction (zero-shot)
+or augmenting the prompt with a small set of taskspecific examples (few-shot), resulting in the model
+generalizing and responding effectively to tasks.
+A rapidly advancing body of research has introduced techniques to enhance these prompting
+methodologies. Notably, chain-of-thought prompting (Wei et al., 2023; Kojima et al., 2022) has
+emerged as a powerful method for enhancing
+
+
+  - First two authors contributed equally.
+[1Our code is available at https://rajasekharmekala.](https://rajasekharmekala.github.io/echoprompt/)
+[github.io/echoprompt/.](https://rajasekharmekala.github.io/echoprompt/)
+
+
+
+Q: Kelly has 5 quarters and 2 dimes. If she buys a can of pop
+for 55 cents, how many cents will she have left?
+
+
+**Zero-Shot-CoT**
+A: Let's think step by step. _Kelly has 5 quarters and 2 dimes._
+_So, she has 5 quarters and 2 dimes left. 5 quarters = 5 x 25_
+_cents = 125 cents and 2 dimes = 2 x 10 cents = 20 cents. So,_
+_she has 125 + 20 = 145 cents left._
+Therefore, the answer is _145 cents._ ✗
+
+
+**Zero-Shot-CoT + EchoPrompt**
+A: Let's repeat the question and also think step by step. _Kelly_
+_has 5 quarters and 2 dimes. She buys a can of pop for 55_
+_cents. How many cents will she have left? Let's start with the_
+_first step. Kelly has 5 quarters and 2 dimes. We can represent_
+_this as: 5 quarters = 5 x 25 cents = 125 cents. 2 dimes = 2 x_
+_10 cents = 20 cents. So, Kelly has 125 + 20 = 145 cents. She_
+_buys a can of pop for 55 cents. We can represent this as: 55_
+_cents. So, Kelly has 145 - 55 = 90 cents left._
+Therefore, the answer is _90 cents._ ✔
+
+
+Figure 1: Comparison of prompts in Zero-shot-CoT
+with and without EchoPrompt, highlighting the modification in prompts. Zero-shot-CoT with EchoPrompt
+uses the prompt “Let’s repeat the question and also think
+step by step” to aid the model in recalling the query before solving it.
+
+
+language model performance in reasoning tasks.
+Least-to-most prompting (Zhou et al., 2022a) and
+Tree of Thoughts (Yao et al., 2023) further support chain-of-thought by breaking down complex
+problems into simpler subproblems.
+In this paper, we propose EchoPrompt, a prompting strategy that builds upon existing prompting
+approaches by incorporating _query-rephrasing_ as a
+preliminary task in the in-context learning process.
+EchoPrompt draws inspiration from the innate cognitive strategies employed by humans, precisely the
+act of self-questioning, when answering queries.
+By verbalizing queries before answering them, humans establish a cognitive checkpoint to refine their
+thoughts (Joseph and Ross, 2018; Joseph et al.,
+2019). Figure 1 provides an illustrative example
+of EchoPrompt in Zero-shot-CoT settings. While
+the approach proposed by (Kojima et al., 2022)
+
+
+
+399
+
+_Proceedings of the 2024 Conference of the North American Chapter of the Association for Computational Linguistics:_
+_Human Language Technologies (Volume 2: Short Papers)_, pages 399–432
+June 16-21, 2024 ©2024 Association for Computational Linguistics
+
+
+**Standard Prompting** **Standard Prompting + Echo Prompt**
+Q: If Pam is currently twice as Q: If Pam is currently twice as young as Rena is, and in 10 years Rena will be 5 years older than her, how
+young as Rena is, and in 10 years old is Pam now?
+Rena will be 5 years older than A: Rewriting in simple words, the question is: "Given that Pam is currently twice as young as Rena and that
+her, how old is Pam now? in 10 years Rena will be 5 years older than Pam, how old is Pam now?"
+A: The answer is 5. Now, to answer the rewritten question, the answer is 5.
+
+[more exemplars] [more exemplars]
+Q: Kelly has 5 quarters and 2 Q: Kelly has 5 quarters and 2 dimes. If she buys a can of pop for 55 cents, how many cents will she have
+dimes. If she buys a can of pop left?
+for 55 cents, how many cents will A: _Rewriting in simple words, the question is: "Given that Kelly has 5 quarters and 2 dimes, and she buys a_
+she have left? _can of pop for 55 cents, how many cents will she have left?"_
+A: _The answer is 145_ . ✗ _Now, to answer the rewritten question, the answer is 90._ ✔
+
+Figure 2: Example of EchoPrompt with compound sentence rephrasing. EchoPrompt incorporates a _query-rephrase_
+step, where the exemplars showcase a rephrased version of the query along with the answering format.
+
+
+
+uses the prompt _“Let’s think step by step."_ to elicit
+chain-of-thought reasoning and extracts the answer
+using the prompt _“Therefore, the answer is"_, we
+modify the first prompt to _“Let’s repeat the ques-_
+_tion and also think step by step."_ or similar texts.
+This modification guides the model to generate a
+version of the original query before solving it.
+We empirically evaluate our approach against
+the most popular prompting baselines using a wide
+variety of model families with different sizes, including code-davinci-002, GPT-3.5-Turbo, ensuring our method’s relevance in common real-world
+scenarios. Our results show that EchoPrompt significantly improves the performance of language
+models on arithmetic, reading comprehension, and
+logical reasoning tasks. We observe substantial
+performance gains with both standard and chain-ofthought prompting, particularly in zero-shot scenarios for large language models (code-davinci-002,
+GPT-3.5-turbo, CodeLlama-Instruct-34B) and with
+standard prompting on smaller models (Starcoder15B, and GPT-J-6B). For example, EchoPrompt
+improves the chain-of-thought performance from
+59.7% to 65.2% on DROP (Break) and from 76.1%
+to 82.6% on GSM8K on GPT-3.5-Turbo. Overall, our study indicates that EchoPrompt fundamentally improves in-context learning performance
+and finds broad applicability as a building block in
+emerging complex techniques that leverage prompting in multiple stages.
+
+
+**2** **EchoPrompt**
+
+
+EchoPrompt teaches language models to generate
+a version of the query before solving it. The finegrained details of this technique are explained in
+the following subsections, with examples.
+
+
+**2.1** **Zero-shot EchoPrompt**
+
+In zero-shot prompting, the standard approach relies on a single prompt, _“Therefore, the answer is"_,
+
+
+
+to directly extract the answer. In contrast, zero-shot
+EchoPrompt introduces a two-stage prompting process. The language model is initially instructed to
+rephrase the query using a task-agnostic prompt,
+_“Let’s repeat the question. “"_, and then the answer
+is extracted using the same prompt as in zero-shot
+prompting.
+Similarly, in Zero-shot-CoT (Kojima et al.,
+2022), the conventional approach involves using
+the prompt _“Let’s think step by step."_ to guide
+the model in generating its reasoning steps before producing the final answer. However, in
+Zero-shot-CoT with EchoPrompt, we introduce a
+query-rephrasing subtask by employing prompts
+like _“Let’s repeat the question and also think step_
+_by step."_ . This modification encourages the model
+to generate the query in its own words and then
+engage in reasoning. The prompt used for answer
+extraction remains consistent across all zero-shot
+methodologies. Figure 1 shows an example, highlighting the key differences between the two approaches.
+
+
+**2.2** **Few-shot EchoPrompt**
+
+In few-shot learning, we teach the language model
+to rephrase the test query in a particular structure
+before answering the query. We do this by providing exemplars demonstrating the rephrase structure
+(Figure 2) and corresponding responses to example
+queries. Figure 4 in appendix shows an example
+with all the rephrasing formats, for a given query.
+We examine three distinct rephrasing structures in
+addition to teaching the model to repeat the exact
+query in the following formats:
+
+
+   - **Rephrased to** _**Compound Sentences**_ : Queries
+are formulated using compound sentences incorporating multiple clauses or phrases.
+
+
+   - **Rephrased to** _**Question First**_ : Queries are
+structured to present the final question at the
+
+
+
+400
+
+
+Datasets Arithmetic GSM8K, SVAMP, SingleOp, MultiArith, AQuA, MMLU-h, GSMIC-4k
+Logical Reasoning Date Understanding, Shuffled Objects, LogiQA, Coin flipping
+Reading Comprehension DROP (Football, Non-football, Census, Break), SQuAD
+Commonsense Reasoning StrategyQA, Winogrande
+
+Language Models - Codex, GPT-3.5-Turbo, CodeLlama-Instruct, StarCoder-15B, GPT-J-6B
+~~Table 1: Evaluation setup used for Echoprompt~~
+
+
+
+beginning, followed by contextual information.
+
+
+  - **Rephrased to** _**Short and Simple Sentences**_ :
+Queries are constructed by breaking down the
+original problem’s context into simpler and
+shorter sentences.
+
+
+  - _**Repetition**_ : Repeating the original query itself
+can serve as a fundamental form of rephrasing, and we consider it one of the rephrase
+structures.
+
+
+**3** **Evaluation Setup**
+
+
+Our evaluation setup ensures a comprehensive analysis of EchoPrompt’s performance across diverse
+benchmarks and language models. We assess the
+performance of EchoPrompt on various tasks, spanning across numerical reasoning, logical reasoning,
+reading comprehension, and commonsense reasoning. We chose four popular ways of using language
+models to evaluate EchoPrompt on popular evaluation benchmarks, ensuring our method’s relevance
+in common real-world scenarios. Including, zeroshot prompting with and without CoT and fewshot prompting with and without CoT. The four
+modes of prompting that we have chosen to evaluate EchoPrompt are not arbitrary; This deliberate
+selection ensures that our method is tested against
+the real-world scenarios of using language models,
+encompassing a wide range of applications. Table 1
+summarizes the datasets and language models used
+as part of our evaluation. Please refer to Appendix
+B for additional details regarding the datasets and
+prompts used.
+
+
+**4** **Results**
+
+
+We conduct an extensive comparison of our approach against zero-shot, Zero-shot-CoT, few-shot,
+and few-shot-CoT prompting strategies. Figure
+3 (and Table 10 in the appendix) summarizes the
+overall performance of EchoPrompt, while detailed
+analysis and extended results are available in Appendix A and D respectively. The findings on individual models are summarized below.
+
+
+
+**Code-davinci-002** Overall, we observe that
+EchoPrompt performs well regardless of the baseline prompting strategy. Notably, EchoPrompt
+shows significant improvements in zero-shot scenarios, especially for tasks with longer query contexts, such as different DROP and SQuAD subsets
+containing extraneous information. For example,
+we observe an 18.5% improvement in accuracy on
+the DROP (Census) for zero-shot prompting. Similarly, EchoPrompt with Zero-shot-CoT on SVAMP
+achieves a 7.4% improvement in accuracy, making the overall accuracy comparable to few-shotCoT prompting. However, it is worth noting that
+EchoPrompt does not yield any improvements in
+cases where the baseline method cannot solve the
+task, as it is not a standalone strategy but rather
+an approach to reduce errors in the reasoning process. For example, in the Shuffled Objects task,
+EchoPrompt shows a slight drop in zero-shot performance (36.4% to 35.2%), which is close to random choice (33.3%). Nevertheless, it considerably
+improves the accuracy of Zero-shot-CoT (42.4%
+to 58.2%) when the model can partially solve the
+task. We also do not observe significant improvements in commonsense reasoning tasks, where the
+ability to answer relies more on the model’s inherent capabilities rather than deducing information
+explicitly from the queries. Similarly, in tasks involving multiple-choice questions, such as AQuARAT, MMLU, and LogiQA, EchoPrompt does not
+exhibit substantial gains as these tasks necessitate
+selecting the correct option among several choices
+rather than an unbiased answer generation.
+
+
+**GPT-3.5-Turbo and CodeLlama-Instruct-34B**
+To evaluate the effectiveness of EchoPrompt on
+models with performance comparable to Codedavinci-002, we conduct experiments using GPT3.5-Turbo and CodeLlama-Instruct models on a
+selected subset of tasks. Detailed results can be
+found in Table 10 in the appendix. Overall, our
+findings align with our previous experiments on
+code-davinci-002. Notably, EchoPrompt led to
+significant accuracy improvements, with a 6.5%
+increase for GPT-3.5-Turbo and a 4.6% increase
+
+
+
+401
+
+
+few-shot settings. Experiments on some datasets were limited to certain models, to manage computational costs.
+EchoPrompt consistently achieves performance gains across different prompting strategies, particularly in zero-shot
+scenarios. For details, see Table 10.
+
+
+
+GSM8K SVAMP DROP
+
+Repeat SubTask 63.5 77.6 70.0
+Augment 63.4 76.3 69.3
+~~Compound~~ ~~SubTask~~ ~~65.9~~ ~~79.0~~ ~~69.6~~
+Augment 64.2 77.2 69.7
+T ~~able 2:~~ ~~**code-davinci-002**~~ ~~A comparison betwee~~ n
+EchoPrompt and query augmentation, indicating similar
+performance improvements for both approaches.
+
+
+for CodeLlama-Instruct models in few-shot-CoT
+settings. However, it is worth noting that manual
+qualitative analysis of false negatives was required
+for GPT-3.5-Turbo due to its tendency to generate
+descriptive responses rather than instruction-based,
+extractable answers.
+
+
+**StarCoder-15B, GPT-J-6B** Similarly, we evaluate EchoPrompt on smaller and publicly available
+models: StarCoder-15B and GPT-J-6B. Since these
+models are less capable of challenging reasoning
+tasks, we evaluate our approach on coin-flipping,
+SingleOp, SVAMP, and date-understanding tasks.
+The results are summarized in Table 10 in the appendix. We observe that EchoPrompt improves
+performance with standard prompting, although we
+observe inconsistent results with chain-of-thought
+reasoning. This finding is not surprising, as chainof-thought is considered an emergent phenomenon
+in larger language models (Wei et al., 2023).
+
+
+
+**5** **Analysis**
+
+
+To gain a deeper understanding of the factors that
+contribute to the success of EchoPrompt, we perform a series of ablation studies. In this section, we
+present a subset of these studies. For a comprehensive set of ablation studies on EchoPrompt, please
+refer to Appendix A
+
+
+**Generating vs Augmenting the rephrases** To
+study whether EchoPrompt can be considered as
+an augmentation technique, we compare the performance of EchoPrompt with directly augmenting the
+original question using a rephrase. In EchoPrompt,
+the model generates both the rephrase and the answer, while in query augmentation, the query is
+provided to the language model beforehand, and
+the model only generates the answer. The result of
+this experiment is summarized in Table 2, demonstrating that both approaches yield comparable improvements. This result indicates that although
+we introduce EchoPrompt as a subtask within incontext learning, it can also be considered a queryaugmentation technique.
+
+
+**Stacking multiple rephrases for EchoPrompt**
+The benefits observed with query-rephrasing in
+EchoPrompt naturally prompts us to investigate
+the effects of having the language model generate
+multiple rephrases. The summarized results in Table 3 show a drop in performance as the number of
+rephrases increases. When manually examining the
+
+
+
+402
+
+
+times GSM8K SVAMP DROP
+
+Repeat 1 **63.5** **77.6** **70.3**
+3 59.8 77.8 69.3
+5 59.9 76.9 67.5
+
+Compound 1 **65.9** **79.0** **69.6**
+2 63.7 77.9 68.8
+3 63.2 78.9 67.9
+T ~~able 3:~~ ~~**code-davinci-002**~~ ~~The accuracies drop as th~~ e
+number of rephrases/repetitions increases when generating multiple rephrases with EchoPrompt.
+
+
+generated answers, we observe a tendency towards
+repetition in the CoT reasoning despite successfully generating the desired number of rephrases.
+This repetition phenomenon is prominent when
+the question requires longer multi-hop reasoning.
+This observation aligns with expectations since the
+task’s focus shifts from reasoning to rephrase generation when the number of rephrases is increased
+in EchoPrompt. Consequently, the model prioritizes generating the requested number of rephrases
+rather than the reasoning process.
+
+
+**6** **Related Work**
+
+
+**Prompting** The success of LLMs has sparked
+interest in improving task performance through
+prompting techniques (Brown et al., 2020). Recent studies focus on task-based instruction tuning, by fine-tuning the entire model (Raffel et al.,
+2020; Wei et al., 2021; Sanh et al., 2021; Wang
+et al., 2022b; Huang et al., 2022), maintaining taskspecific parameters (Li and Liang, 2021; Lester
+et al., 2021), and optimization strategies (Yang
+et al., 2023; Prasad et al., 2022; Xu et al., 2022;
+Zhou et al., 2023). Our work is a general prompting
+approach that improves in-context learning abilities and falls into the domain of works inspired by
+human cognitive processes (Yasunaga et al., 2023;
+Webb et al., 2023; Li et al., 2023a)
+
+
+**Intermediate steps** The concept of employing
+language models to generate intermediate steps
+for process supervision has been extensively examined in the context of solving reasoning tasks,
+whether through training (Nye et al., 2021; Zelikman et al., 2022), zero-shot (Kojima et al., 2022),
+few-shot prompting (Wei et al., 2022) or action
+planning (Yao et al., 2022). Recent works focus
+on problem decomposition and teaching the language model to answer the subtasks to eventually
+answer complex problems (Zhou et al., 2022a; Dua
+et al., 2022; Wang et al., 2023a, 2022a; Zhou et al.,
+
+
+
+2022b). EchoPrompt is orthogonal to these approaches, augmenting the input query rather than
+rationale generation. Consequently, it can be easily
+extended with any of these prompting strategies.
+Please refer to Appendix C for additional related
+works
+
+
+**7** **Discussion and Limitations**
+
+
+In this paper, we show EchoPrompt’s capacity
+to enhance the effectiveness of widely utilized
+and real-world prompting strategies, such as InContext Learning (ICL) and Chain-of-Thought
+(CoT). Given our findings, we believe that integrating EchoPrompt with orthogonal prompt optimization techniques, such as (Ye and Durrett, 2023;
+Cheng et al., 2023), is a promising approach for
+achieving even greater improvements, and thus represents an important avenue for future work.
+Despite its advantages, EchoPrompt has limitations. While the ablation studies (Appendix A)
+helped us unravel its functionality, the intricate reasons for its consistent performance improvements,
+especially in standard prompting, remain elusive,
+which provides an important direction for future
+work. Additionally, it is worth noting that our approach involves regenerating the entire query before solving the tasks. Consequently, the model
+must generate many tokens when dealing with long
+queries, leading to increased compute requirements
+and time delays. Finally, EchoPrompt’s reliance
+on echoing user’s queries might increase bias or
+generate offensive outputs due to the amplification
+of bias or toxicity present in the original prompts.
+
+
+**8** **Conclusion**
+
+
+We introduce EchoPrompt, a simple yet effective
+approach that builds upon existing prompting approaches and integrates query-rephrasing as a subtask in the in-context learning process. It enables
+the language model to recall the query before attempting to solve it. EchoPrompt offers a direct
+approach to enhance in-context learning in pretrained language models without fine-tuning, making it a simple and powerful approach to achieving
+performance boosts.
+
+
+
+403
+
+
+**9** **Acknowledgment**
+
+
+We would like to thank the members of UCINLP, Yanai Elazar, Shivanshu Gupta, Pouya
+Pezeshkpour, and Matt Gardner for valuable discussions and feedback on this work. This material is
+sponsored in part by the DARPA MCS program under Contract No. N660011924033 with the United
+States Office Of Naval Research and the NSF CAREER award number IIS-2046873.
+
+
+**10** **Reproducibility Statement**
+
+
+Our primary results are on Code-davinci-002 and
+GPT-3.5-Turbo [2] . While code-davinci-002 has been
+deprecated, GPT-3.5-Turbo is still publicly accessible. For other models employed in our experiments, we make use of transformer models available through HuggingFace [3] . The football subset of the DROP dataset was curated by applying
+keyword-based filtering with the keyword “yard"
+(Zhou et al., 2022a), and the census subset was
+created by selectively filtering passages that contained the terms “population" and “census." For
+all the experiments, we employed greedy decoding with top_p=1 and no presence or repetition
+penalties. The number of tokens generated varies,
+ranging from 50 to 600 tokens from the models,
+depending on the task and considering the query
+length at each stage. To increase reproducibility, we have included prompts for all the tasks in
+[the appendix. Our code is available at https://](https://rajasekharmekala.github.io/echoprompt/)
+[rajasekharmekala.github.io/echoprompt/.](https://rajasekharmekala.github.io/echoprompt/)
+
+
+**References**
+
+2019. Winogrande: An adversarial winograd schema
+challenge at scale.
+
+
+Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, Sandhini Agarwal, Ariel Herbert-Voss,
+Gretchen Krueger, Tom Henighan, Rewon Child,
+Aditya Ramesh, Daniel M. Zieglxer, Jeffrey Wu,
+Clemens Winter, Christopher Hesse, Mark Chen, Eric
+Sigler, Mateusz Litwin, Scott Gray, Benjamin Chess,
+Jack Clark, Christopher Berner, Sam McCandlish,
+Alec Radford, Ilya Sutskever, and Dario Amodei.
+[2020. Language models are few-shot learners.](http://arxiv.org/abs/2005.14165)
+
+
+Bei Chen, Fengji Zhang, Anh Nguyen, Daoguang Zan,
+Zeqi Lin, Jian-Guang Lou, and Weizhu Chen. 2022.
+
+
+[2https://openai.com/blog/chatgpt/. We use gpt-3.5-](https://openai.com/blog/chatgpt/)
+turbo-0301 snapshot from March 2023
+[3Source code at https://huggingface.co/](https://huggingface.co/)
+
+
+
+Codet: Code generation with generated tests. _arXiv_
+_preprint arXiv:2207.10397_ .
+
+
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming
+Yuan, Henrique Ponde de Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph,
+Greg Brockman, et al. 2021. Evaluating large
+language models trained on code. _arXiv preprint_
+_arXiv:2107.03374_ .
+
+
+Jiale Cheng, Xiao Liu, Kehan Zheng, Pei Ke, Hongning
+Wang, Yuxiao Dong, Jie Tang, and Minlie Huang.
+2023. [Black-box prompt optimization: Aligning](http://arxiv.org/abs/2311.04155)
+[large language models without model training.](http://arxiv.org/abs/2311.04155)
+
+
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian,
+Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias
+Plappert, Jerry Tworek, Jacob Hilton, Reiichiro
+Nakano, Christopher Hesse, and John Schulman.
+[2021. Training verifiers to solve math word prob-](http://arxiv.org/abs/2110.14168)
+[lems.](http://arxiv.org/abs/2110.14168)
+
+
+Roi Cohen, May Hamri, Mor Geva, and Amir Glober[son. 2023. Lm vs lm: Detecting factual errors via](http://arxiv.org/abs/2305.13281)
+[cross examination.](http://arxiv.org/abs/2305.13281)
+
+
+Yilun Du, Shuang Li, Antonio Torralba, Joshua B.
+[Tenenbaum, and Igor Mordatch. 2023. Improving](http://arxiv.org/abs/2305.14325)
+[factuality and reasoning in language models through](http://arxiv.org/abs/2305.14325)
+[multiagent debate.](http://arxiv.org/abs/2305.14325)
+
+
+Dheeru Dua, Shivanshu Gupta, Sameer Singh, and
+Matt Gardner. 2022. Successive prompting for
+decomposing complex questions. _arXiv preprint_
+_arXiv:2212.04092_ .
+
+
+Dheeru Dua, Yizhong Wang, Pradeep Dasigi, Gabriel
+Stanovsky, Sameer Singh, and Matt Gardner. 2019.
+[Drop: A reading comprehension benchmark requir-](http://arxiv.org/abs/1903.00161)
+[ing discrete reasoning over paragraphs.](http://arxiv.org/abs/1903.00161)
+
+
+Yao Fu, Hao Peng, Tushar Khot, and Mirella Lapata.
+[2023. Improving language model negotiation with](http://arxiv.org/abs/2305.10142)
+[self-play and in-context learning from ai feedback.](http://arxiv.org/abs/2305.10142)
+
+
+Mor Geva, Daniel Khashabi, Elad Segal, Tushar Khot,
+Dan Roth, and Jonathan Berant. 2021. Did aristotle
+use a laptop? a question answering benchmark with
+implicit reasoning strategies. _Transactions of the_
+_Association for Computational Linguistics_, 9:346–
+361.
+
+
+Ahmad Ghazal, Tilmann Rabl, Minqing Hu, Francois
+Raab, Meikel Poess, Alain Crolotte, and Hans-Arno
+Jacobsen. 2013. Bigbench: Towards an industry standard benchmark for big data analytics. In _Proceed-_
+_ings of the 2013 ACM SIGMOD international confer-_
+_ence on Management of data_, pages 1197–1208.
+
+
+Shibo Hao, Yi Gu, Haodi Ma, Joshua Jiahua Hong,
+Zhen Wang, Daisy Zhe Wang, and Zhiting Hu. 2023.
+[Reasoning with language model is planning with](http://arxiv.org/abs/2305.14992)
+[world model.](http://arxiv.org/abs/2305.14992)
+
+
+
+404
+
+
+Dan Hendrycks, Collin Burns, Steven Basart, Andrew
+Critch, Jerry Li, Dawn Song, and Jacob Steinhardt.
+2021a. Aligning ai with shared human values. _Pro-_
+_ceedings of the International Conference on Learning_
+_Representations (ICLR)_ .
+
+
+Dan Hendrycks, Collin Burns, Steven Basart, Andy
+Zou, Mantas Mazeika, Dawn Song, and Jacob Steinhardt. 2021b. Measuring massive multitask language
+understanding. _Proceedings of the International Con-_
+_ference on Learning Representations (ICLR)_ .
+
+
+Jiaxin Huang, Shixiang Shane Gu, Le Hou, Yuexin Wu,
+Xuezhi Wang, Hongkun Yu, and Jiawei Han. 2022.
+[Large language models can self-improve.](http://arxiv.org/abs/2210.11610)
+
+
+Shima Imani, Liang Du, and Harsh Shrivastava. 2023.
+Mathprompter: Mathematical reasoning using large
+language models. _arXiv preprint arXiv:2303.05398_ .
+
+
+[Shuyang Jiang, Yuhao Wang, and Yu Wang. 2023. Self-](http://arxiv.org/abs/2306.02907)
+[evolve: A code evolution framework via large lan-](http://arxiv.org/abs/2306.02907)
+[guage models.](http://arxiv.org/abs/2306.02907)
+
+
+Laurice M Joseph, Sheila Alber-Morgan, Leigh Ann
+Amspaugh, Kelsey Ross, Maria Helton, Moira Konrad, and Carrie Davenport. 2019. Stop to ask and
+respond: Effects of a small-group self-questioning
+intervention on reading comprehension performance.
+_Research and Practice in the Schools: The Official_
+_Journal of the Texas Association of School Psycholo-_
+_gists_, 6(1):27.
+
+
+Laurice M Joseph and Kelsey M Ross. 2018. Teaching
+middle school students with learning disabilities to
+comprehend text using self-questioning. _Intervention_
+_in School and Clinic_, 53(5):276–282.
+
+
+Jaehun Jung, Lianhui Qin, Sean Welleck, Faeze Brahman, Chandra Bhagavatula, Ronan Le Bras, and
+Yejin Choi. 2022. Maieutic prompting: Logically
+consistent reasoning with recursive explanations.
+_arXiv preprint arXiv:2205.11822_ .
+
+
+Muhammad Khalifa, Lajanugen Logeswaran, Moontae Lee, Honglak Lee, and Lu Wang. 2023.
+[Discriminator-guided multi-step reasoning with lan-](http://arxiv.org/abs/2305.14934)
+[guage models.](http://arxiv.org/abs/2305.14934)
+
+
+Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. 2022. Large language models are zero-shot reasoners. _arXiv preprint_
+_arXiv:2205.11916_ .
+
+
+Brian Lester, Rami Al-Rfou, and Noah Constant. 2021.
+
+[The power of scale for parameter-efficient prompt](https://doi.org/10.18653/v1/2021.emnlp-main.243)
+[tuning. In](https://doi.org/10.18653/v1/2021.emnlp-main.243) _Proceedings of the 2021 Conference on_
+_Empirical Methods in Natural Language Processing_,
+pages 3045–3059, Online and Punta Cana, Dominican Republic. Association for Computational Linguistics.
+
+
+Cheng Li, Jindong Wang, Kaijie Zhu, Yixuan Zhang,
+Wenxin Hou, Jianxun Lian, and Xing Xie. 2023a.
+Emotionprompt: Leveraging psychology for large
+language models enhancement via emotional stimulus. _arXiv preprint arXiv:2307.11760_ .
+
+
+
+Raymond Li, Loubna Ben Allal, Yangtian Zi, Niklas
+Muennighoff, Denis Kocetkov, Chenghao Mou, Marc
+Marone, Christopher Akiki, Jia Li, Jenny Chim,
+Qian Liu, Evgenii Zheltonozhskii, Terry Yue Zhuo,
+Thomas Wang, Olivier Dehaene, Mishig Davaadorj,
+Joel Lamy-Poirier, João Monteiro, Oleh Shliazhko,
+Nicolas Gontier, Nicholas Meade, Armel Zebaze,
+Ming-Ho Yee, Logesh Kumar Umapathi, Jian Zhu,
+Benjamin Lipkin, Muhtasham Oblokulov, Zhiruo
+Wang, Rudra Murthy, Jason Stillerman, Siva Sankalp
+Patel, Dmitry Abulkhanov, Marco Zocca, Manan Dey,
+Zhihan Zhang, Nour Fahmy, Urvashi Bhattacharyya,
+Wenhao Yu, Swayam Singh, Sasha Luccioni, Paulo
+Villegas, Maxim Kunakov, Fedor Zhdanov, Manuel
+Romero, Tony Lee, Nadav Timor, Jennifer Ding,
+Claire Schlesinger, Hailey Schoelkopf, Jan Ebert, Tri
+Dao, Mayank Mishra, Alex Gu, Jennifer Robinson,
+Carolyn Jane Anderson, Brendan Dolan-Gavitt, Danish Contractor, Siva Reddy, Daniel Fried, Dzmitry
+Bahdanau, Yacine Jernite, Carlos Muñoz Ferrandis,
+Sean Hughes, Thomas Wolf, Arjun Guha, Leandro
+[von Werra, and Harm de Vries. 2023b. Starcoder:](http://arxiv.org/abs/2305.06161)
+[may the source be with you!](http://arxiv.org/abs/2305.06161)
+
+
+[Xiang Lisa Li and Percy Liang. 2021. Prefix-tuning:](https://doi.org/10.18653/v1/2021.acl-long.353)
+[Optimizing continuous prompts for generation. In](https://doi.org/10.18653/v1/2021.acl-long.353)
+_Proceedings of the 59th Annual Meeting of the Asso-_
+_ciation for Computational Linguistics and the 11th_
+_International Joint Conference on Natural Language_
+_Processing (Volume 1: Long Papers)_, pages 4582–
+4597, Online. Association for Computational Linguistics.
+
+
+Wang Ling, Dani Yogatama, Chris Dyer, and Phil Blun[som. 2017. Program induction by rationale genera-](https://doi.org/10.18653/v1/P17-1015)
+[tion: Learning to solve and explain algebraic word](https://doi.org/10.18653/v1/P17-1015)
+[problems. In](https://doi.org/10.18653/v1/P17-1015) _Proceedings of the 55th Annual Meet-_
+_ing of the Association for Computational Linguistics_
+_(Volume 1: Long Papers)_, pages 158–167, Vancouver,
+Canada. Association for Computational Linguistics.
+
+
+Jian Liu, Leyang Cui, Hanmeng Liu, Dandan Huang,
+Yile Wang, and Yue Zhang. 2020. Logiqa: A
+challenge dataset for machine reading comprehension with logical reasoning. _arXiv preprint_
+_arXiv:2007.08124_ .
+
+
+Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler
+Hallinan, Luyu Gao, Sarah Wiegreffe, Uri Alon,
+Nouha Dziri, Shrimai Prabhumoye, Yiming Yang,
+Shashank Gupta, Bodhisattwa Prasad Majumder,
+Katherine Hermann, Sean Welleck, Amir Yazdan[bakhsh, and Peter Clark. 2023. Self-refine: Iterative](http://arxiv.org/abs/2303.17651)
+[refinement with self-feedback.](http://arxiv.org/abs/2303.17651)
+
+
+Aman Madaan and Amir Yazdanbakhsh. 2022. Text
+and patterns: For effective chain of thought, it takes
+two to tango. _arXiv preprint arXiv:2209.07686_ .
+
+
+Ning Miao, Yee Whye Teh, and Tom Rainforth. 2023.
+
+[Selfcheck: Using llms to zero-shot check their own](http://arxiv.org/abs/2308.00436)
+[step-by-step reasoning.](http://arxiv.org/abs/2308.00436)
+
+
+Shen-Yun Miao, Chao-Chun Liang, and Keh-Yih Su.
+[2021. A diverse corpus for evaluating and developing](http://arxiv.org/abs/2106.15772)
+[english math word problem solvers.](http://arxiv.org/abs/2106.15772)
+
+
+
+405
+
+
+Ansong Ni, Srini Iyer, Dragomir Radev, Ves Stoyanov,
+Wen tau Yih, Sida I. Wang, and Xi Victoria Lin. 2023.
+[Lever: Learning to verify language-to-code genera-](http://arxiv.org/abs/2302.08468)
+[tion with execution.](http://arxiv.org/abs/2302.08468)
+
+
+Maxwell Nye, Anders Johan Andreassen, Guy Gur-Ari,
+Henryk Michalewski, Jacob Austin, David Bieber,
+David Dohan, Aitor Lewkowycz, Maarten Bosma,
+David Luan, et al. 2021. Show your work: Scratchpads for intermediate computation with language
+models. _arXiv preprint arXiv:2112.00114_ .
+
+
+Arkil Patel, Satwik Bhattamishra, and Navin Goyal.
+[2021. Are nlp models really able to solve simple](http://arxiv.org/abs/2103.07191)
+[math word problems?](http://arxiv.org/abs/2103.07191)
+
+
+Archiki Prasad, Peter Hase, Xiang Zhou, and Mohit
+Bansal. 2022. Grips: Gradient-free, edit-based instruction search for prompting large language models.
+_arXiv preprint arXiv:2203.07281_ .
+
+
+Colin Raffel, Noam Shazeer, Adam Roberts, Katherine
+Lee, Sharan Narang, Michael Matena, Yanqi Zhou,
+[Wei Li, and Peter J. Liu. 2020. Exploring the limits](http://arxiv.org/abs/1910.10683)
+[of transfer learning with a unified text-to-text trans-](http://arxiv.org/abs/1910.10683)
+[former.](http://arxiv.org/abs/1910.10683)
+
+
+Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev, and
+[Percy Liang. 2016. Squad: 100,000+ questions for](http://arxiv.org/abs/1606.05250)
+[machine comprehension of text.](http://arxiv.org/abs/1606.05250)
+
+
+[Subhro Roy and Dan Roth. 2016. Solving general arith-](http://arxiv.org/abs/1608.01413)
+[metic word problems.](http://arxiv.org/abs/1608.01413)
+
+
+Baptiste Roziere, Jonas Gehring, Fabian Gloeckle, Sten
+Sootla, Itai Gat, Xiaoqing Ellen Tan, Yossi Adi,
+Jingyu Liu, Tal Remez, Jérémy Rapin, et al. 2023.
+Code llama: Open foundation models for code. _arXiv_
+_preprint arXiv:2308.12950_ .
+
+
+Victor Sanh, Albert Webson, Colin Raffel, Stephen H
+Bach, Lintang Sutawika, Zaid Alyafeai, Antoine
+Chaffin, Arnaud Stiegler, Teven Le Scao, Arun
+Raja, et al. 2021. Multitask prompted training enables zero-shot task generalization. _arXiv preprint_
+_arXiv:2110.08207_ .
+
+
+Freda Shi, Xinyun Chen, Kanishka Misra, Nathan
+Scales, David Dohan, Ed Chi, Nathanael Schärli, and
+[Denny Zhou. 2023. Large language models can be](http://arxiv.org/abs/2302.00093)
+[easily distracted by irrelevant context.](http://arxiv.org/abs/2302.00093)
+
+
+Noah Shinn, Federico Cassano, Beck Labash, Ashwin
+Gopinath, Karthik Narasimhan, and Shunyu Yao.
+[2023. Reflexion: Language agents with verbal rein-](http://arxiv.org/abs/2303.11366)
+[forcement learning.](http://arxiv.org/abs/2303.11366)
+
+
+Ben Wang and Aran Komatsuzaki. 2021. GPT-J6B: A 6 Billion Parameter Autoregressive Lan[guage Model. https://github.com/kingoflolz/](https://github.com/kingoflolz/mesh-transformer-jax)
+[mesh-transformer-jax.](https://github.com/kingoflolz/mesh-transformer-jax)
+
+
+Boshi Wang, Xiang Deng, and Huan Sun. 2022a. Iteratively prompt pre-trained language models for chain
+of thought. _arXiv preprint arXiv:2203.08383_ .
+
+
+
+Lei Wang, Wanyu Xu, Yihuai Lan, Zhiqiang Hu,
+Yunshi Lan, Roy Ka-Wei Lee, and Ee-Peng Lim.
+[2023a. Plan-and-solve prompting: Improving zero-](http://arxiv.org/abs/2305.04091)
+[shot chain-of-thought reasoning by large language](http://arxiv.org/abs/2305.04091)
+[models.](http://arxiv.org/abs/2305.04091)
+
+
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc
+Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery,
+[and Denny Zhou. 2023b. Self-consistency improves](http://arxiv.org/abs/2203.11171)
+[chain of thought reasoning in language models.](http://arxiv.org/abs/2203.11171)
+
+
+Yizhong Wang, Swaroop Mishra, Pegah Alipoormolabashi, Yeganeh Kordi, Amirreza Mirzaei,
+Anjana Arunkumar, Arjun Ashok, Arut Selvan
+Dhanasekaran, Atharva Naik, David Stap, Eshaan
+Pathak, Giannis Karamanolakis, Haizhi Gary Lai, Ishan Purohit, Ishani Mondal, Jacob Anderson, Kirby
+Kuznia, Krima Doshi, Maitreya Patel, Kuntal Kumar Pal, Mehrad Moradshahi, Mihir Parmar, Mirali Purohit, Neeraj Varshney, Phani Rohitha Kaza,
+Pulkit Verma, Ravsehaj Singh Puri, Rushang Karia,
+Shailaja Keyur Sampat, Savan Doshi, Siddhartha
+Mishra, Sujan Reddy, Sumanta Patro, Tanay Dixit,
+Xudong Shen, Chitta Baral, Yejin Choi, Noah A.
+Smith, Hannaneh Hajishirzi, and Daniel Khashabi.
+[2022b. Super-naturalinstructions: Generalization via](http://arxiv.org/abs/2204.07705)
+[declarative instructions on 1600+ nlp tasks.](http://arxiv.org/abs/2204.07705)
+
+
+Taylor Webb, Keith J Holyoak, and Hongjing Lu. 2023.
+Emergent analogical reasoning in large language
+models. _Nature Human Behaviour_, 7(9):1526–1541.
+
+
+Jason Wei, Maarten Bosma, Vincent Y Zhao, Kelvin
+Guu, Adams Wei Yu, Brian Lester, Nan Du, Andrew M Dai, and Quoc V Le. 2021. Finetuned language models are zero-shot learners. _arXiv preprint_
+_arXiv:2109.01652_ .
+
+
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, Ed Chi, Quoc Le, and Denny Zhou. 2022.
+Chain of thought prompting elicits reasoning in large
+language models. _arXiv preprint arXiv:2201.11903_ .
+
+
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, Brian Ichter, Fei Xia, Ed Chi, Quoc Le, and
+[Denny Zhou. 2023. Chain-of-thought prompting elic-](http://arxiv.org/abs/2201.11903)
+[its reasoning in large language models.](http://arxiv.org/abs/2201.11903)
+
+
+Yixuan Weng, Minjun Zhu, Fei Xia, Bin Li, Shizhu
+[He, Kang Liu, and Jun Zhao. 2023. Large language](http://arxiv.org/abs/2212.09561)
+[models are better reasoners with self-verification.](http://arxiv.org/abs/2212.09561)
+
+
+Tomer Wolfson, Mor Geva, Ankit Gupta, Matt Gardner, Yoav Goldberg, Daniel Deutch, and Jonathan
+Berant. 2020. Break it down: A question understanding benchmark. _Transactions of the Association for_
+_Computational Linguistics_, 8:183–198.
+
+
+Yuxi Xie, Kenji Kawaguchi, Yiran Zhao, Xu Zhao, Min[Yen Kan, Junxian He, and Qizhe Xie. 2023. De-](http://arxiv.org/abs/2305.00633)
+[composition enhances reasoning via self-evaluation](http://arxiv.org/abs/2305.00633)
+[guided decoding.](http://arxiv.org/abs/2305.00633)
+
+
+Hanwei Xu, Yujun Chen, Yulun Du, Nan Shao, Yanggang Wang, Haiyu Li, and Zhilin Yang. 2022. Gps:
+Genetic prompt search for efficient few-shot learning.
+_arXiv preprint arXiv:2210.17041_ .
+
+
+
+406
+
+
+Chengrun Yang, Xuezhi Wang, Yifeng Lu, Hanxiao Liu,
+Quoc V. Le, Denny Zhou, and Xinyun Chen. 2023.
+[Large language models as optimizers.](http://arxiv.org/abs/2309.03409)
+
+
+[Kevin Yang and Dan Klein. 2021. FUDGE: Controlled](https://doi.org/10.18653/v1/2021.naacl-main.276)
+[text generation with future discriminators. In](https://doi.org/10.18653/v1/2021.naacl-main.276) _Pro-_
+_ceedings of the 2021 Conference of the North Amer-_
+_ican Chapter of the Association for Computational_
+_Linguistics: Human Language Technologies_, pages
+3511–3535, Online. Association for Computational
+Linguistics.
+
+
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran,
+Thomas L Griffiths, Yuan Cao, and Karthik
+Narasimhan. 2023. Tree of thoughts: Deliberate
+problem solving with large language models. _arXiv_
+_preprint arXiv:2305.10601_ .
+
+
+Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak
+Shafran, Karthik Narasimhan, and Yuan Cao. 2022.
+React: Synergizing reasoning and acting in language
+models. _arXiv preprint arXiv:2210.03629_ .
+
+
+Michihiro Yasunaga, Xinyun Chen, Yujia Li, Panupong
+Pasupat, Jure Leskovec, Percy Liang, Ed H. Chi,
+[and Denny Zhou. 2023. Large language models as](http://arxiv.org/abs/2310.01714)
+[analogical reasoners.](http://arxiv.org/abs/2310.01714)
+
+
+[Xi Ye and Greg Durrett. 2023. Explanation selection](http://arxiv.org/abs/2302.04813)
+[using unlabeled data for chain-of-thought prompting.](http://arxiv.org/abs/2302.04813)
+
+
+Eric Zelikman, Yuhuai Wu, Jesse Mu, and Noah Goodman. 2022. Star: Bootstrapping reasoning with reasoning. _Advances in Neural Information Processing_
+_Systems_, 35:15476–15488.
+
+
+Denny Zhou, Nathanael Schärli, Le Hou, Jason Wei,
+Nathan Scales, Xuezhi Wang, Dale Schuurmans,
+Claire Cui, Olivier Bousquet, Quoc Le, and Ed Chi.
+[2022a. Least-to-most prompting enables complex](http://arxiv.org/abs/2205.10625)
+[reasoning in large language models.](http://arxiv.org/abs/2205.10625)
+
+
+Hattie Zhou, Azade Nova, Hugo Larochelle, Aaron
+Courville, Behnam Neyshabur, and Hanie Sedghi.
+2022b. Teaching algorithmic reasoning via incontext learning. _arXiv preprint arXiv:2211.09066_ .
+
+
+Yongchao Zhou, Andrei Ioan Muresanu, Ziwen Han,
+Keiran Paster, Silviu Pitis, Harris Chan, and Jimmy
+[Ba. 2023. Large language models are human-level](http://arxiv.org/abs/2211.01910)
+[prompt engineers.](http://arxiv.org/abs/2211.01910)
+
+
+407
+
+
+EchoPrompt? Stage-1 Prompt GSM8K SVAMP MultiArith SingleOp
+
+|Zero-shot|Col2|
+|---|---|
+|✗<br>-<br>✓<br>Let’s repeat the question. “<br>✓<br>Let’s reiterate the question. “<br>✓<br>Let’s restate the question. “<br>✓<br>Let’s summarize the question. “|16.4<br>66.8<br>31.0<br>91.6<br>**20.7**(+4_._3)** 74.7**(+7_._9) 48.5(+17_._5) 91.8(+0_._2)<br>19.7(+3_._3) 73.4(+6_._6)** 51.0**(+20_._0) 93.0(+1_._4)<br>19.2(+2_._8) 74.6(+7_._8) 47.7(+16_._7) 89.6(_−_2_._0)<br>20.6(+4_._2) 73.2(+6_._4) 48.8(+17_._8)** 93.7**(+2_._1)|
+|**Zero-shot-CoT**<br>✗<br>Let’s think step by step.<br>✓<br>Let’s repeat the question and also think step by step.<br>✓<br>Let’s reiterate the question and also think step by step.<br>✓<br>Let’s repeat the question and also think step by step. “<br>✓<br>Let’s restate the question and also think step by step.<br>|49.3<br>66.5<br>76.0<br>82.9<br>44.6(_−_4_._7)** 74.7**(+8_._2) 70.9(_−_5_._1) 92.3(+9_._4)<br>**51.1**(+1_._8) 73.9(+7_._4) 78.7(+2_._7)** 92.4**(+9_._5)<br>42.0(_−_7_._3) 60.4(_−_6_._1) 78.1(+2_._1) 88.3(+5_._4)<br>47.0(_−_2_._3) 73.9(+7_._4)** 79.3**(+3_._3) 90.2(+7_._3)<br>|
+
+
+
+the prompts improve the performance in zero-shot setting. However, we find that only the prompt “Let’s reiterate
+the question and also think step by step." consistently outperforms baseline Zero-shot-CoT.
+
+
+EchoPrompt GSM8K SVAMP MultiArith DROP DROP DROP SQuAD(F1)
+(Census) (Break) (Football)
+
+Standard  - 19.2 69.8 44.0 56.8 55.5 63.7 88.7
+Repeat 21.4(+2 _._ 2) 75.8(+6 _._ 6) 53.8(+9 _._ 8) 65.9(+9 _._ 1) **63.1** (+7 _._ 6) **69.2** (+5 _._ 5) 91.3(+2 _._ 6)
+Compound 20.8(+1 _._ 6) 75.1(+5 _._ 3) 54.0(+10 _._ 0) **67.3** (+10 _._ 5) 62.7(+6 _._ 9) 67.7(+4 _._ 0) 90.6(+1 _._ 9)
+Question First 20.9(+1 _._ 7) 75.0(+5 _._ 2) 53.6(+9 _._ 6) 65.2(+8 _._ 4) 59.7(+3 _._ 9) 63.1( 0 _._ 6) **92.2** (+3 _._ 5)
+
+_−_
+Simple **21.5** (+2 _._ 3) **76.6** (+6 _._ 8) **55.6** (+11 _._ 6) 65.1(+8 _._ 3) **63.1** (+7 _._ 6) 67.1(+3 _._ 4) 90.9(+2 _._ 2)
+
+CoT - 61.1 75.2 96.1 70.0 65.3 67.3 90.5
+Repeat 63.5(+2 _._ 4) 77.6(+2 _._ 4) 98.8(+2 _._ 7) 71.6(+1 _._ 6) **70.0** (+4 _._ 7) 71.3(+4 _._ 0)       Compound **65.9** (+4 _._ 8) **79.0** (+3 _._ 8) 97.8(+1 _._ 7) **75.4** (+5 _._ 4) 69.6(+4 _._ 3) 70.8(+3 _._ 5) 90.8(+0 _._ 3)
+Question First 64.4(+3 _._ 3) 77.0(+1 _._ 8) 98.3(+2 _._ 2) 75.3(+5 _._ 3) 68.1(+2 _._ 8) **72.0** (+4 _._ 7)        Simple 63.6(+2 _._ 5) 76.9(+1 _._ 7) **99.0** (+2 _._ 9) 73.5(+3 _._ 5) 67.7(+2 _._ 4) 71.2(+3 _._ 9)       LTM - 63.2(+2 _._ 1) **82.2** (+7 _._ 0) 93.7( 2 _._ 4) 73.8(+3 _._ 8) 61.2(+4 _._ 1) 66.2(+1 _._ 1) 
+_−_
+~~Table 5:~~ ~~**code-davinci-002**~~ ~~Evaluation of EchoPrompt using the proposed rephrase structures and query-repetition.~~
+We compare these approaches with baseline methods in arithmetic and reading comprehension tasks. The results
+showcase improvements across all rephrase structures, with no single structure consistently outperforming the
+others.
+
+
+Query Structure GSM8K SVAMP DROP DROP DROP
+(Census) (Break) (Football)
+
+Standard Original 19.2 69.8 56.8 55.5 63.7
+Compound 19.9(+0 _._ 7) 71.8(+2 _._ 0) 59.1(+2 _._ 3) 54.1( _−_ 1 _._ 4) 65.1(+1 _._ 4)
+Question First 14.6( _−_ 4 _._ 6) 58.5( _−_ 11 _._ 3) 28.2( _−_ 28 _._ 6) 36.2( _−_ 19 _._ 3) 48.8( _−_ 14 _._ 9)
+Simple 19.7(+0 _._ 5) 70.9(+1 _._ 1) 56.5( _−_ 0 _._ 3) 55.5(+0 _._ 0) 62.7( _−_ 1 _._ 0)
+Standard+ Repeat    - **21.5** **76.6** **65.1** **63.1** **67.1**
+
+CoT Original 61.1 75.2 69.6 65.3 67.3
+Compound 62.1(+1 _._ 0) 78.0(+2 _._ 8) 71.9(+2 _._ 3) 66.7(+1 _._ 4) 68.2(+0 _._ 9)
+Question First 55.1( _−_ 6 _._ 0) 66.6( _−_ 8 _._ 6) 48.1( _−_ 21 _._ 5) 64.5( _−_ 0 _._ 8) 57.8( _−_ 9 _._ 5)
+Simple 61.3(+0 _._ 2) 75.8(+0 _._ 6) 70.3(+0 _._ 7) 67.3(+2 _._ 0) 67.1( _−_ 0 _._ 2)
+CoT+ Compound   - **65.9** **79.0** **74.3** **69.6** **70.8**
+Tabl ~~e 6:~~ ~~**Standalone Rephrases: code-davinci-002 Standalone Rephrases**~~ ~~Compound Sentence rephra~~ sing
+performs better than the original queries, while Question-First rephrasing performs worse. We observe information
+loss in the rephrases for certain tasks, indicating that the performance gains of EchoPrompt are due to the combination
+of rephrasing and having multiple versions.
+
+
+408
+
+
+**A** **More Analysis**
+
+**Effect of prompts on zero-shot EchoPrompt**
+To investigate the impact of prompts used to instruct the language model for rephrasing queries in
+zero-shot settings, we experiment with a variety of
+prompts on arithmetic tasks, including both standard and chain-of-thought prompting. The results
+shown in Table 4 indicate that EchoPrompt consistently enhances performance when compared
+to the baseline method, regardless of the chosen
+prompt. However, we observe a difference in performance with various prompt selections in the
+Zero-shot-CoT setting. The prompt “Let’s reiterate
+the question and also think step by step." achieves
+the best results.
+
+**Effect of rephrases on few-shot EchoPrompt**
+In the few-shot setting, we assess the performance
+of the proposed rephrase structures compared to
+baseline techniques, focusing on arithmetic and
+reading comprehension tasks that require explicit
+answer generation. The results, as shown in Table 5, reveal that although there is variance among
+the performances, all the rephrase structures outperform the standard and chain-of-thought prompting, highlighting the effectiveness of EchoPrompt.
+Notably, no single rephrase structure consistently
+outperforms the others.
+
+**Are rephrased queries self-sufficient?** To assess whether the EchoPrompt performance gains
+are solely due to the rephrased queries or if both
+the original and rephrased queries are essential, we
+isolate the LM-generated rephrases. This process
+involves two steps. First, we generate the rephrased
+query using the same method as before and with the
+same exemplars through in-context learning. Then,
+we prompt the language model with the revised
+exemplars that match the rephrased query structure. We only provide the rephrased queries for
+the model to answer. The results in Table 6 show
+that standalone rephrases yield lower accuracy than
+EchoPrompt. Although rephrased queries can improve accuracy compared to baseline prompting
+(compound sentence rephrases), the improvements
+are still considerably lower than those achieved
+with EchoPrompt. This suggests that the primary
+source of improvement in EchoPrompt lies in the
+provision of two query versions.
+
+**Robustness to irrelevant text** Recent work (Shi
+et al., 2023) has shed light on the sensitivity of large
+language models (LLMs) to irrelevant information
+
+
+
+~~Table 7:~~ ~~**code-davinci-002**~~ ~~Performance of EchoPrompt~~
+on GSMIC-4k(which contains irrelevant context in
+queries). EchoPrompt improves performance on both
+chain-of-thought and least-to-most prompting, even
+though it repeats the perturbation sentence in the
+rephrase.
+
+
+using various prompting methods, including the
+CoT reasoning. Intuitively, EchoPrompt could be
+particularly prone to such distractions, given that
+it rephrases or regenerates the query, including
+the distractions. To evaluate if EchoPrompt technique works even in the presence of such perturbations, we study the performance of EchoPrompt on
+GSMIC-4k dataset (Shi et al., 2023). The evaluation results in Table 7 demonstrate that EchoPrompt
+maintains its improvements, even in the presence
+of perturbations.
+
+
+**B** **Evaluation Setup**
+
+
+**B.1** **Benchmarks**
+
+We evaluate EchoPrompt across a range of natural
+language processing tasks, specifically focusing on
+four types, including fourteen widely recognized
+benchmarks. We experiment with four categories
+of causal language models to ensure a broad and
+thorough evaluation. In this section, we delve into
+the details of our evaluation setup.
+
+
+**Numerical Reasoning** We evaluate numerical
+reasoning tasks from (Wei et al., 2023) for a
+fair comparison between the methods, including
+**GSM8K** (Cobbe et al., 2021), **SVAMP** (Patel
+et al., 2021), **AQUA-RAT** (Ling et al., 2017), **Sin-**
+**gleOp**, and **MultiArith** subsets from (Roy and
+Roth, 2016) . Additionally, we examine the performance of EchoPrompt on the high school mathematics subset of the **MMLU** dataset (Hendrycks
+et al., 2021a,b) and the **GSMIC-4k** dataset (Shi
+et al., 2023), which focuses explicitly on queries
+containing perturbations.
+
+
+
+Standard CoT LTM
+EchoPrompt?✗ ✓ ✗ ✓ ✗ ✓
+
+
+
+Zero-shot 23.7 30.1
+
+
+
+46.7 52.8
+
+(+6 _._ 4) (+6 _._ 1
+
+
+72.6 77.2
+
+(+2 _._ 0) (+4 _._ 6
+
+
+77.4 81.8
+
+(+5 _._ 8) (+4 _._ 4
+
+
+
+(+1 _._ 1)
+
+
+
+1-shot 27.1 29.1
+
+
+
+(+7 _._ 5)
+
+
+
+4-shot 25.2 31.0
+
+
+
+N/A N/A
+
+(+6 _._ 1)
+
+
+73.8 81.3
+
+(+4 _._ 6) (+7 _._ 5
+
+
+84.3 85.4
+
+(+4 _._ 4) (+1 _._ 1
+
+
+
+409
+
+
+**Logical Reasoning** For logical reasoning, we
+assess the **Date Understanding**, **Shuffled Ob-**
+**jects** (tracking three objects) tasks from bigBench
+(Ghazal et al., 2013), **LogiQA** (Liu et al., 2020)
+and generate 1000 random samples with two trials
+of flipping for the **Coin Flipping** task (Wei et al.,
+2023).
+
+
+**Reading Comprehension** While we evaluate
+multiple numerical subsets of **DROP** (Dua et al.,
+2019), (including Football, Non-football, Census,
+and Break(Wolfson et al., 2020) from the **QDMR**
+dev subset) that could also be included in the arithmetic benchmarks, we group them with **SQuAD**
+(Rajpurkar et al., 2016) based on the query style.
+We evaluate EchoPrompt on **DROP** (Dua et al.,
+
+2019) and **SQuAD** (Rajpurkar et al., 2016) as two
+standard reading comprehension benchmarks.
+
+
+**Commonsense Reasoning** For commonsense
+reasoning, we use **StrategyQA** (Geva et al., 2021),
+**Winogrande** (ai2, 2019) datasets to assess the performance of EchoPrompt on tasks that involve simpler queries but require factual knowledge.
+
+
+**B.2** **Language models**
+
+For our experiments, we use code-davinci-002
+(Chen et al., 2021) as the primary model for all
+tasks since this model is free to evaluate and has
+strong in-context learning ability. Additionally, we
+present the results on a subset of datasets on GPT3.5-Turbo and CodeLlama-Instruct-34B (Roziere
+et al., 2023), models that are comparable in performance to Codex and are also instruction tuned.
+We also experiment with the smaller and publicly
+available models, such as StarCoder-15B (Li et al.,
+2023b), and GPT-J-6B (Wang and Komatsuzaki,
+2021), specifically on synthetic and simpler tasks.
+
+
+**B.3** **Prompts**
+
+**Few-shot Exemplars** For a fair comparison of
+methods, we use the same exemplars introduced
+in (Wei et al., 2023) for the GSM8K, SVAMP,
+SingleOp, MultiArith, Date Understanding, and
+Coin-Flipping tasks across all models. Additionally, we evaluate with the prompts suggested by
+(Zhou et al., 2022a) for GSM8K, SVAMP, MultiArith, and DROP subsets. Furthermore, we provide
+a new set of prompts specifically for the DROP
+Census subset since no prior proposals exist.
+
+
+**Zero-shot-CoT Prompts** As proposed in (Kojima et al., 2022), we employ the prompt _“Let’s_
+
+
+
+_think step by step."_ in stage 1. In stage 2, we extract
+the answer using different prompts depending on
+the type of task. For multiple-choice tasks, we utilize prompts like “From (a) through (e), the answer
+is." For other tasks, we use the phrase “Therefore,
+the answer is."
+
+
+**C** **Additional Related works**
+
+**Interpretability, consistency and outcome cor-**
+**rection** Another related research direction involves exploring interpretability and consistency
+in the rationale generated by large-scale models.
+Recent works (Imani et al., 2023; Miao et al.,
+2023; Madaan and Yazdanbakhsh, 2022) help improve the interpretability of arithmetic and reasoning tasks through validation. Although these approaches are not directly tied to the EchoPrompt
+technique, they utilize chain-of-thought prompting, where we have shown that EchoPrompt exhibits promising results, particularly in zero-shot
+scenarios. In the domain of outcome correction,
+approaches such as (Jung et al., 2022; Wang et al.,
+2023b; Yao et al., 2023; Miao et al., 2021; Xie et al.,
+2023) leverage consistency among multiple generated rationales, while (Weng et al., 2023; Khalifa
+et al., 2023; Yang and Klein, 2021; Ni et al., 2023;
+Chen et al., 2022) prioritize the ranking of plausible
+generations to enhance performance across arithmetic, reasoning, and code-generation tasks. Building upon these foundations, self-correction methodologies like (Madaan et al., 2023; Jiang et al., 2023;
+Hao et al., 2023; Shinn et al., 2023), which employ feedback loops for refinement and multi-agent
+debating strategies (Du et al., 2023; Cohen et al.,
+2023; Fu et al., 2023) have evolved. EchoPrompt
+distinguishes itself from these approaches by focusing on single rationale generation rather than
+considering multiple generated responses.
+
+
+**D** **Additional details**
+
+
+
+410
+
+
+**Original Question:**
+If Pam is currently twice as young as Rena is, and in 10 years Rena will be 5 years older than her, how old is Pam now?
+**Compound Sentence Rephrase**
+_Given that Pam is currently twice as young as Rena and that in 10 years Rena will be 5 years older than Pam, how old is Pam now?_
+**Question First Rephrase**
+_What is Pam's current age if Rena is twice as old as Pam and in 10 years Rena will be 5 years older than Pam?_
+**Simple Sentence Rephrase**
+_Currently, Pam is twice as young as Rena. In 10 years, Rena will be 5 years older than Pam. So, how old is Pam now?_
+**Repeatition**
+_If Pam is currently twice as young as Rena is, and in 10 years Rena will be 5 years older than her, how old is Pam now?_
+Figure 4: Example of rephrases used for the proposed rephrase structures in few-shot exemplars. The Rephrases of
+exemplars are generated using ChatGPT based on prompts in Table 8.
+
+
+Rephrase Prompt
+
+Compound Rephrase the following query using compound sentences without loss of details,
+starting with “Given that" and ending with the question in the query:
+**<Question>**
+
+Question First Rephrase the following query by asking the question in the query first, without loss
+of details:
+**<Question>**
+
+Short and simple sentences Rephrase the following query using short and simple sentences, without loss of
+details:
+**<Question>**
+~~Table 8: Prompts used to create rephrases for exemplars, using ChatGPT~~
+
+
+GSM8k SVAMP DROP
+(Break)
+
+Standard      - 17.0 67.6 56.1
+Repeat 16.7 72.0 **63.3**
+Compound **19.2** 72.2 61.3
+Question First 18.4 71.1 56.9
+Simple 18.2 **72.4** 59.9
+
+CoT     - 66.9 74.7 70.6
+Repeat 68.2 75.4 72.0
+Compound **69.3** **76.4** **67.9**
+Question First 68.4 76.2 **72.2**
+Simple 68.2 75.3 71.6
+Table 9: ~~**code-davinci-002: Effect of exemplar selection**~~ ~~: While Table 5 utilized exemplars proposed in (W~~ ei et al.,
+2023; Zhou et al., 2022a) that showcase simpler reasoning, this table employs exemplars demonstrating longer
+reasoning chains. The results indicate that although EchoPrompt provides higher gains with simpler exemplars;
+choosing better exemplars achieves higher overall accuracies, highlighting the significance of exemplar selection.
+
+
+411
+
+
+|Model|Dataset|zero-shot|Col4|few-shot|Col6|
+|---|---|---|---|---|---|
+|~~Model~~|~~Dataset~~<br>|~~Standard~~<br>~~CoT~~<br><br><br><br>|~~Standard~~<br>~~CoT~~<br><br><br><br>|~~Standard~~<br>~~CoT~~<br><br><br><br>|~~Standard~~<br>~~CoT~~<br><br><br><br>|
+|Code-davinci-002|~~EchoPrompt ?~~<br>|~~✗~~<br>~~✓~~<br>|~~✗~~<br>~~✓~~<br>|~~✗~~<br>~~✓~~<br><br>|~~✗~~<br>~~✓~~<br><br>|
+|Code-davinci-002|~~GSM8K~~<br>SVAMP<br>MultiArith<br>SingleOp<br>~~Shuffed~~ ~~Objec~~t~~s~~<br>Coin Flip<br>Date<br>~~DROP(Footbal~~l~~)~~<br>DROP(Nonfootball)<br>DROP(Census)<br>DROP(Break)<br>SQuAD(F1)<br>~~AQUA-RAT~~<br>MMLU-h<br>logiQA<br>~~Winogrande~~<br>StrategyQA<br>|~~16.4 20.7~~(+4_._3)<br>66.8 74.7(+7_._9)<br>31.0 48.5(+17_._5)<br>91.6 91.8(+0_._2)<br>~~36.4 35.2~~(_−_1_._2)<br>47.7 47.2(_−_0_._5)<br>44.2 43.8(_−_0_._4)<br>~~50.8 58.3~~(+7_._5)<br>43.2 57.1(+13_._9)<br>45.9 66.3(+20_._4)<br>43.7 55.8(+12_._1)<br>65.7 69.8(+4_._1)<br>~~21.2 23.3~~(+2_._1)<br>31.8 36.7(+4_._9)<br>42.5 41.6(_−_0_._9)<br>~~-~~<br>~~-~~<br>-<br>-<br>|~~49.3 51.1~~(+1_._8)<br>66.5 73.9(+7_._4)<br>76.0 78.7(+2_._7)<br>82.9 92.4(+9_._5)<br>~~42.4 58.2~~(+15_._8)<br>58.5 60.1(+1_._6)<br>39.0 46.8(+7_._8)<br>~~44.1 58.0~~(+13_._9)<br>39.7 52.6(+12_._9)<br>30.0 53.3(+23_._3)<br>38.2 51.2(+13_._0)<br>52.6 54.4(+1_._8)<br>~~37.0 35.4~~(_−_1_._6)<br>42.5 41.7(_−_0_._8)<br>37.0 40.9(+3_._9)<br>~~-~~<br>~~-~~<br>-<br>-<br>|~~19.2~~<br>~~21.4~~(+2_._2)<br>69.8<br>75.8(+6_._0)<br>44.0<br>53.8(+9_._8)<br>93.2<br>94.2(+1_._0)<br>~~34~~.~~8~~<br>~~36.7~~(+1_._9)<br>99.6<br>100.0(+0_._4)<br>49.3<br>50.4(+1_._1)<br>~~63~~.~~7~~<br>~~69.2~~(+5_._5)<br>57.1<br>63.3(+6_._2)<br>56.8<br>65.9(+9_._1)<br>55.5<br>63.1(+7_._6)<br>88.7<br>91.3(+2_._6)<br>~~30~~.~~7~~<br>~~31.4~~(+0_._7)<br>36.7<br>39.3(+2_._6)<br>45.3<br>46.6(+1_._3)<br>~~71~~.~~9~~<br>~~70.8~~(_−_1_._1)<br>74.8<br>74.5(_−_0_._3)<br><br>|~~61.1~~<br>~~65.9~~(+4_._8)<br>75.2<br>79.0(+3_._8)<br>96.1<br>97.8(+1_._7)<br>92.8<br>94.7(+1_._9)<br>~~66.0~~<br>~~68~~.~~9~~(+2_._9)<br>100.0 100.0(+0_._0)<br>65.6<br>68.1(+2_._5)<br>~~67.3~~<br>~~70~~.~~8~~(+3_._5)<br>69.2<br>72.2(+3_._0)<br>69.6<br>75.4(+5_._8)<br>65.3<br>69.6(+4_._3)<br>90.5<br>90.8(+0_._3)<br>~~46.1~~<br>~~43~~.~~3~~(_−_2_._8)<br>43.7<br>40.2(_−_3_._5)<br>40.9<br>41.0(+0_._1)<br>~~68.5~~<br>~~67~~.~~4~~(_−_1_._1)<br>79.4<br>79.3(_−_0_._1)<br><br>|
+|GPT-3.5<br>(Turbo)|~~GSM8K~~<br>SVAMP<br>MultiArith<br>SingleOp<br>~~Shuffed~~ ~~Objec~~t~~s~~<br>Coin Flip<br>Date<br>~~DROP(Break)~~<br>SQuAD(F1)<br>~~AQUA-RAT~~<br>MMLU-h<br>logiQA<br>|~~15.6 24.8~~(+9_._2)<br>65.5 77.5(+12_._0)<br>76.5 83.7(+7_._2)<br>92.6 96.8(+4_._2)<br>~~26.9 21.6~~(_−_5_._3)<br>76.7 86.8(+10_._1)<br>50.1 48.6(_−_1_._5)<br>~~46.1 52.7~~(+6_._6)<br>79.1 80.6(+1_._5)<br>~~31.5 28.4~~(_−_3_._1)<br>35.5 35.9(+0_._4)<br>36.2 38.2(+2_._0)<br><br>|~~80.2 81.5~~(+1_._3)<br>80.5 83.0(+2_._5)<br>96.2 97.3(+1_._1)<br>94.3 96.8(+2_._5)<br>~~79.5 82.2~~(+2_._7)<br>99.8 98.6(_−_1_._2)<br>53.1 55.5(+2_._4)<br>~~63.4 62.3~~(_−_1_._1)<br>62.1 59.4(_−_2_._7)<br>~~55.8 58.9~~(+3_._1)<br>55.9 57.7(+1_._8)<br>37.6 39.0(+1_._4)<br>|~~31.3~~<br>~~32.1~~(+0_._8)<br>76.1<br>78.4(+2_._3)<br>83.4<br>90.5(+7_._1)<br>93.9<br>96.2(+2_._3)<br>~~30~~.~~6~~<br>~~34.6~~(+4_._0)<br>90.0<br>95.6(+5_._6)<br>50.4<br>49.3(_−_1_._1)<br>~~56~~.~~2~~<br>~~64.3~~(+8_._1)<br>76.4<br>83.2(+6_._8)<br>~~33~~.~~4~~<br>~~35.8~~(+2_._4)<br>34.1<br>34.8(+0_._7)<br>45.1<br>43.3(_−_1_._8)<br><br>|~~76.1~~<br>~~82.6~~(+6_._5)<br>80.8<br>83.3(+2_._5)<br>97.8<br>98.5(+0_._7)<br>95.7<br>96.5(+0_._8)<br>~~68.8~~<br>~~74~~.~~3~~(+5_._5)<br>100.0 100.0(+0_._0)<br>64.5<br>66.2(+1_._7)<br>~~59.7~~<br>~~65~~.~~2~~(+5_._5)<br>85.3<br>86.1(+0_._8)<br>~~42.9~~<br>~~57~~.~~1~~(+14_._2)<br>37.0<br>50.8(+13_._8)<br>32.5<br>32.3(_−_0_._2)<br><br>|
+|CodeLlama-<br>Instruct-(34B)|~~GSM8K~~<br>SVAMP<br>MultiArith<br>Singleop<br>~~Coin Flip~~<br>Date<br>~~DROP(Break)~~<br>|~~9.4~~<br>~~9.7~~(+0_._3)<br>60.6 64.5(+3_._9)<br>23.8 22.9(_−_0_._7)<br>90.9 93.6(+2_._7)<br>~~51.7 72.5~~(+20_._8)<br>36.3 39.2(+2_._9)<br>~~40.5 48.3~~(+7_._8)<br>|~~47.1 49.3~~(+2_._2)<br>65.2 69.3(+4_._1)<br>85.3 86.1(+0_._8)<br>88.4 90.8(+2_._4)<br>~~82.0 79.2~~(_−_2_._8)<br>43.8 43.1(_−_0_._7)<br>~~53.3 52.1~~(_−_1_._2)<br>|~~8.6~~<br>~~9.7~~(+1_._1)<br>56.3<br>62.9(+6_._6)<br>11.3<br>16.5(+5_._2)<br>88.4<br>90.9(+2_._5)<br>~~94~~.~~8~~<br>~~96.2~~(+1_._4)<br>40.1<br>40.9(+0_._8)<br>~~37~~.~~4~~<br>~~43.3~~(+5_._9)<br><br>|~~40.8~~<br>~~45.4~~(+4_._6)<br>68.8<br>69.3(+0_._5)<br>86.3<br>90.3(+4_._0)<br>90.0<br>92.0(+2_._0)<br>~~100.0 100.0~~(+0_._0)<br>56.6<br>57.4(+0_._8)<br>~~53.7~~<br>~~57~~.~~6~~(+3_._9)<br><br>|
+|Starcoder<br>(15B)|~~SingleOp~~<br>SVAMP<br>~~Coin Flip~~<br>Date<br>|~~63.1 66.9~~(+3_._8)<br>35.6 37.9(+2_._3)<br>~~55.4 54.3~~(_−_1_._1)<br>15.9 19.2(+3_._3)<br><br>|~~53.5 66.5~~(+13_._0)<br>30.9 36.7(+5_._8)<br>~~51.6 51.0~~(_−_0_._6)<br>20.6 19.9(_−_0_._7)<br><br>|~~64.0~~<br>~~70.1~~(+6_._1)<br>32.4<br>37.2(+4_._8)<br>~~98~~.~~6~~<br>~~99.8~~(+1_._2)<br>24.4<br>26.6(+2_._2)<br><br>|~~68.8~~<br>~~73.6~~(+4_._8)<br>30.2<br>36.2(+6_._0)<br>~~100.0 100.0~~(+0_._0)<br>38.4<br>33.8(_−_4_._6)<br><br>|
+|GPT-J<br>(6B)<br>|~~SingleOp~~<br>SVAMP<br>~~Coin Flip~~<br>Date<br>|~~-~~<br>~~-~~<br>-<br>-<br>~~-~~<br>~~-~~<br>-<br>-<br>|~~-~~<br>~~-~~<br>-<br>-<br>~~-~~<br>~~-~~<br>-<br>-<br>|~~37.2~~<br>~~39.9~~(+2_._7)<br>8.9<br>10.1(+1_._2)<br>~~81~~.~~3~~<br>~~81.3~~(+0_._0)<br>13.2<br>13.6(+0_._4)<br>|~~45.3~~<br>~~44.5~~(_−_0_._8)<br>21.1<br>19.8(_−_1_._3)<br>~~80.6~~<br>~~96~~.~~4~~(+15_._8)<br>11.1<br>15.8(+4_._7)<br>|
+
+
+across different prompting strategies, showing significant improvements in zero-shot prompting scenarios. It
+outperforms the prior state-of-the-art in numerical reasoning and reading comprehension tasks. However, we do not
+see consistent improvements in multiple-choice tasks.
+
+
+
+412
+
+
+Query chain-of-thought chain-of-thought + EchoPrompt
+~~Q: Martha is planning her~~ ~~A: Martha invited 2 families with 6~~
+
+
+
+~~A: Martha invited 2 families with 6~~
+
+
+
+
+
+
+
+
+
+
+
+
+
+~~x3A: Rewriting in simple words, the question is: “Given that~~
+
+
+
+|2 families with 6 people and<br>3 families with 4 people. 8<br>people couldn’t come due to<br>illness, and 1/4 that number<br>had previous commitments.<br>How many people show up<br>for Martha’s party?|That is 2 x 6 + 3 x 4 = 24 + 12 = 36<br>people. 8 people couldn’t come due<br>to illness, and 1/4 that number had<br>previous commitments. So 8 + 8/4<br>= 8 + 2 = 10 people couldn’t come.<br>So 36 - 10 = 26 people showed up.<br>The answer is 26. ✗(Calculation<br>error)|4 people, and 8 people couldn’t come due to illness, and 1/4<br>that number had previous commitments, how many people show<br>up for Martha’s party?" Now, to answer the rewritten question,<br>Martha invited 2 families with 6 people and 3 families with 4<br>people. That is 2 x 6 + 3 x 4 = 12 + 12 = 24 people. 8 people<br>couldn’t come due to illness. 1/4 that number had previous<br>commitments. So 1/4 of 8 is 2. So 2 people had previous<br>commitments. So 24 - 8 - 2 = 14 people show up for Martha’s<br>party. The answer is 14. ✓|
+|---|---|---|
+|Q: Solo has to read 4 pages<br>from his Science textbook,<br>20 pages from his Social<br>Studies textbook, 7 pages<br>from his History textbook<br>and 8 pages from his Geog-<br>raphy textbook. Solo read<br>15 pages on Monday. If he<br>has 4 more days to complete<br>all his reading, how many<br>pages does he need to read,<br>on average, in one day?|A: Solo has to read 4 + 20 + 7 + 8 =<br>39 pages. He has 4 days to complete<br>all his reading. So he has to read 39<br>/ 4 = 9.75 pages per day. The answer<br>is 9.75. ✗**(1-Step missing error)**|A:Rewriting in simple words, the question is: “Given that Solo<br>has to read 4 pages from his Science textbook, 20 pages from<br>his Social Studies textbook, 7 pages from his History textbook<br>and 8 pages from his Geography textbook, and he read 15 pages<br>on Monday, and he has 4 more days to complete all his reading,<br>how many pages does he need to read, on average, in one day?"<br>Now, to answer the rewritten question, Solo has to read 4 + 20<br>+ 7 + 8 = 39 pages. He read 15 pages on Monday. So he has<br>39 - 15 = 24 pages left. He has 4 more days to complete all his<br>reading. So he has to read 24 / 4 = 6 pages per day. The answer<br>is 6. ✓|
+|Q:<br>Rose<br>bought<br>fve<br>dozens<br>of<br>eggs<br>for<br>2_._40_adozen.Shewillsellitf_<br>for 3 eggs. How much will<br>be Rose’s proft?|_or_1<br>A: Rose bought 5 dozens of eggs for<br>2.40 dollars each. So she spent 5 x<br>2.40 = 12 dollars. She will sell it for<br>1 dollar for 3 eggs. So she will get<br>12 dollars for 4 eggs. So she will get<br>12 / 4 = 3 dollars for each egg. So<br>she will get 3 x 12 = 36 dollars. So<br>her proft is 36 - 12 = 24 dollars. The<br>answer is 24. ✗**(Symbol-mapping**<br>**error)**|A:<br>Rewriting<br>in<br>simple<br>words,<br>the<br>question<br>is:<br>“Given<br>that<br>Rose<br>bought<br>fve<br>dozens<br>of<br>eggs<br>for<br>2_._40_adozen, andshewillsellitfor_1 for 3 eggs, how much will<br>be Rose’s proft?" Now, to answer the rewritten question, Rose<br>bought 5 dozens of eggs for 2.40 dollars each. So she spent 5 x<br>2.40 = 12 dollars. She will sell it for 1 dollar for 3 eggs. So she<br>will get 12 / 3 = 4 dollars for each dozen. So she will get 5 x 4 =<br>20 dollars. So her proft is 20 - 12 = 8 dollars. The answer is 8.<br>✓|
+|Q: Adam has $100 and<br>wants to spend it to open<br>a rock stand. He can buy<br>rocks for $5 each and sell<br>them for $7 each. If he in-<br>vests all his money in the<br>rock stand but only sells<br>60% of his inventory, how<br>much money does he lose?|A: Adam has 100 dollars. He can<br>buy rocks for 5 dollars each. He can<br>sell them for 7 dollars each. He in-<br>vests all his money in the rock stand.<br>He sells 60% of his inventory. He<br>loses money.✗**(Generic error)**|A: Rewriting in simple words, the question is: “Given that Adam<br>has $100 and wants to spend it to open a rock stand, and he<br>can buy rocks for $5 each and sell them for $7 each, and he<br>invests all his money in the rock stand but only sells 60% of his<br>inventory, how much money does he lose?" Now, to answer the<br>rewritten question, Adam has 100 dollars. He can buy rocks for<br>5 dollars each. So he can buy 100 / 5 = 20 rocks. He can sell<br>them for 7 dollars each. So he can sell 20 x 7 = 140 dollars worth<br>of rocks. But he only sells 60% of his inventory. So he sells 60%<br>of 140 dollars, which is 140 * 0.6 = 84 dollars worth of rocks.<br>He loses 100 - 84 = 16 dollars. The answer is 16.✓|
+|Q: Mark has $50 in his bank<br>account. He earns $10 per<br>day at his work. If he wants<br>to buy a bike that costs $300,<br>how many days does Mark<br>have to save his money?<br>|A: Mark has 50 dollars. He earns 10<br>dollars per day. So he can save 50<br>+ 10 = 60 dollars per day. 300 / 60<br>= 5. The answer is 5.✗**(Reasoning**<br>**error)**<br>|A: Rewriting in simple words, the question is: “Given that Mark<br>has $50 in his bank account, he earns $10 per day at his work,<br>and he wants to buy a bike that costs $300, how many days does<br>Mark have to save his money?" Now, to answer the rewritten<br>question, Mark has 50 dollars. He earns 10 dollars per day. So<br>he needs 300 - 50 = 250 dollars more. He earns 10 dollars per<br>day. So he needs 250 / 10 = 25 days. The answer is 25.✓<br>|
+
+
+predictions
+
+
+
+
+
+
+
+413
+
+
+Query chain-of-thought chain-of-thought + EchoPrompt
+
+
+
+
+
+
+
+
+
+
+
+|Q: There are 88 candies<br>in a box. Lisa has 18<br>candies in a bag. Diana<br>takes 6 candies out of the<br>box. How many candies<br>are left in the box?|A: There were 88 candies in the box.<br>Lisa had 18 candies in a bag. So there<br>were 88 - 18 = 70 candies left in the<br>box. After Diana took 6 candies, there<br>were 70 - 6 = 64 candies left. The<br>answer is 64. ✗ (Symbol-mapping<br>error)|A: Rewriting in simple words, the question is:<br>“Given that there are 88 candies in a box, Lisa has<br>18 candies in a bag, and Diana takes 6 candies out<br>of the box, how many candies are left in the box?"<br>Now, to answer the rewritten question, There are 88<br>candies in the box. Diana takes 6 candies out of the<br>box. So there are 88 - 6 = 82 candies left in the box.<br>The answer is 82. ✓|
+|---|---|---|
+|Q: Joyce has 8 eggs.<br>Marie gives Joyce 6 more.<br>Later,<br>Joyce buys 13<br>erasers at the store. How<br>many eggs does Joyce<br>have in all?|A: Joyce started with 8 eggs. Marie<br>gave her 6 more. So she has 8 + 6 = 14<br>eggs. Then she bought 13 erasers. So<br>she has 14 - 13 = 1 egg. The answer is<br>1. ✗**(Symbol-mapping error)**|A: Rewriting in simple words, the question is:<br>“Given that Joyce has 8 eggs, Marie gives Joyce<br>6 more, and Joyce buys 13 erasers at the store, how<br>many eggs does Joyce have in all?" Now, to answer<br>the rewritten question, Joyce started with 8 eggs.<br>Marie gave her 6 more. So she has 8 + 6 = 14 eggs.<br>She bought 13 erasers. So she has 14 eggs and 13<br>erasers. The answer is 14. ✓|
+||||
+
+
+correct predictions
+
+
+
+Query chain-of-thought chain-of-thought + EchoPrompt
+
+
+
+
+
+
+
+
+
+
+
+|Q: Ten stalls have 20<br>cows each. Mr. Sylas<br>buys 40 cows and divides<br>them equally, putting an<br>equal number of the new<br>cows into each of the<br>twenty stalls. How many<br>cows are in 8 of the stalls?|A: There are 10 stalls with 20<br>cows each. So there are 10 x<br>20 = 200 cows. Mr. Sylas buys<br>40 more cows. So there are 200<br>+ 40 = 240 cows. If he divides<br>them equally, then there are 240<br>/ 10 = 24 cows in each stall. 8 of<br>the stalls will have 8 x 24 = 192<br>cows. The answer is 192. ✓|Rewriting in simple words, the question is: “Given that<br>there are 10 stalls with 20 cows each, and Mr. Sylas<br>buys 40 cows and divides them equally, putting an equal<br>number of the new cows into each of the 20 stalls, how<br>many cows are in 8 of the stalls?" Now, to answer the<br>rewritten question, There are 10 stalls with 20 cows each.<br>So there are 10 x 20 = 200 cows. Mr. Sylas buys 40 more<br>cows. So there are 200 + 40 = 240 cows. If he divides<br>them equally, then each stall will have 240 / 20 = 12 cows.<br>So 8 stalls will have 8 x 12 = 96 cows. The answer is 96.<br>✗(Symbol-mapping error)|
+|---|---|---|
+|Q: Jen works for 7.5<br>hours a day 6 days a week.<br>Her hourly rate is $1.5.<br>Jen also receives an addi-<br>tional $10 if she has com-<br>plete attendance.<br>Sup-<br>pose Jen did not incur any<br>absences for April, and<br>there are exactly 4 weeks<br>in April, how much will<br>she receive?|A: Jen works 7.5 hours a day for<br>6 days a week. So she works 7.5<br>* 6 = 45 hours a week. There are<br>4 weeks in April. So she works<br>45 * 4 = 180 hours in April. She<br>gets $1.5 per hour. So she gets<br>180 * 1.5 = 270 dollars. She<br>also gets $10 for complete atten-<br>dance. So she gets 270 + 10 =<br>280 dollars. The answer is 280.<br>✓|Rewriting in simple words, the question is: “Given that<br>Jen works for 7.5 hours a day 6 days a week, her hourly<br>rate is $1.5, and she receives an additional $10 if she has<br>complete attendance, and she did not incur any absences<br>for April, and there are exactly 4 weeks in April, how<br>much will she receive?" Now, to answer the rewritten<br>question, Jen works 7.5 hours a day 6 days a week. So<br>she works 7.5 * 6 = 45 hours a week. She gets $1.5 per<br>hour. So she gets $1.5 * 45 = $67.5 per week. She gets<br>an additional $10 if she has complete attendance. So she<br>gets $67.5 + $10 = $77.5 per week. There are 4 weeks in<br>April. So she gets $77.5 * 4 = $310 for April. The answer<br>is $310. ✗**(Calculation error)**|
+|Q: Max plans to watch<br>two movies this week-<br>end. The frst movie is 1<br>hour and 30 minutes long<br>while the second movie<br>is 2 hours and 5 minutes<br>long. How many minutes<br>will it take Max to watch<br>the two movies?<br>|A: The frst movie is 1 hour and<br>30 minutes. The second movie<br>is 2 hours and 5 minutes. So the<br>total time is 1 hour and 30 min-<br>utes plus 2 hours and 5 minutes.<br>That is 3 hours and 35 minutes.<br>3 hours and 35 minutes is 3 * 60<br>+ 35 = 215 minutes. The answer<br>is 215. ✓<br>|A: Rewriting in simple words, the question is: “Given that<br>Max plans to watch two movies this weekend, the frst<br>movie is 1 hour and 30 minutes long while the second<br>movie is 2 hours and 5 minutes long, how many minutes<br>will it take Max to watch the two movies?" Now, to answer<br>the rewritten question, The frst movie is 1 hour and 30<br>minutes long. The second movie is 2 hours and 5 minutes<br>long. So the total time is 1 hour and 30 minutes plus 2<br>hours and 5 minutes. That is 1 hour and 30 minutes plus 2<br>hours and 5 minutes. That is 3 hours and 35 minutes. The<br>answer is 3 hours and 35 minutes. ✗**(Format error)**<br>|
+
+
+in-correct predictions.
+
+
+
+
+
+
+
+414
+
+
+~~**Q:**~~ ~~There are 15 trees in the grove. Grove workers will plant trees in the grove today. After they are done,~~
+there will be 21 trees. How many trees did the grove workers plant today?
+A: Rewriting in simple words, the question is: “Given that there are currently 15 trees in the grove, and
+after the grove workers plant some more trees, there will be 21 trees, how many trees did the grove
+workers plant today?"
+Now, to answer the rewritten question, There are 15 trees originally. Then there were 21 trees after some
+more were planted. So there must have been 21 - 15 = 6. The answer is 6.
+**Q:** If there are 3 cars in the parking lot and 2 more cars arrive, how many cars are in the parking lot?
+A: Rewriting in simple words, the question is: “Given that there are currently 3 cars in the parking lot,
+and 2 more cars arrive, how many cars are in the parking lot now?"
+Now, to answer the rewritten question, There are originally 3 cars. 2 more cars arrive. 3 + 2 = 5. The
+answer is 5.
+**Q:** Leah had 32 chocolates and her sister had 42. If they ate 35, how many pieces do they have left in
+total?
+A: Rewriting in simple words, the question is: “Given that Leah had 32 chocolates and her sister had 42,
+and they ate a total of 35 pieces, how many pieces of chocolate do they have left in total?"
+Now, to answer the rewritten question, Originally, Leah had 32 chocolates. Her sister had 42. So in total
+they had 32 + 42 = 74. After eating 35, they had 74 - 35 = 39. The answer is 39.
+**Q:** Jason had 20 lollipops. He gave Denny some lollipops. Now Jason has 12 lollipops. How many
+lollipops did Jason give to Denny?
+A: Rewriting in simple words, the question is: “Given that Jason had 20 lollipops, and after giving some
+to Denny, he ended up with 12 lollipops, how many lollipops did Jason give to Denny?"
+Now, to answer the rewritten question, Jason started with 20 lollipops. Then he had 12 after giving some
+to Denny. So he gave Denny 20 - 12 = 8. The answer is 8.
+**Q:** Shawn has five toys. For Christmas, he got two toys each from his mom and dad. How many toys does
+he have now?
+A: Rewriting in simple words, the question is: “Given that Shawn had five toys and received two toys
+each from both his mom and dad for Christmas, how many toys does Shawn have now?"
+Now, to answer the rewritten question, Shawn started with 5 toys. If he got 2 toys each from his mom and
+dad, then that is 4 more toys. 5 + 4 = 9. The answer is 9.
+**Q:** There were nine computers in the server room. Five more computers were installed each day, from
+monday to thursday. How many computers are now in the server room?
+A: Rewriting in simple words, the question is: “Given that there were initially 9 computers in the server
+room, and 5 more computers were installed each day from Monday to Thursday, how many computers are
+now in the server room?"
+Now, to answer the rewritten question, There were originally 9 computers. For each of 4 days, 5 more
+computers were added. So 5 * 4 = 20 computers were added. 9 + 20 is 29. The answer is 29.
+**Q:** Michael had 58 golf balls. On tuesday, he lost 23 golf balls. On wednesday, he lost 2 more. How many
+golf balls did he have at the end of wednesday?
+A: Rewriting in simple words, the question is: “Given that Michael had 58 golf balls initially, he lost 23
+golf balls on Tuesday, and then 2 more on Wednesday, how many golf balls did he have at the end of
+Wednesday?"
+
+Now, to answer the rewritten question, Michael started with 58 golf balls. After losing 23 on tuesday, he
+had 58 - 23 = 35. After losing 2 more, he had 35 - 2 = 33 golf balls. The answer is 33.
+**Q:** Olivia has $23. She bought five bagels for $3 each. How much money does she have left?
+A: Rewriting in simple words, the question is: “Given that Olivia has $23 and bought five bagels for $3
+each, how much money does she have left?"
+Now, to answer the rewritten question, Olivia had 23 dollars. 5 bagels for 3 dollars each will be 5 x 3 = 15
+dollars. So she has 23 - 15 dollars left. 23 - 15 is 8. The answer is 8.
+~~Table 14:~~ ~~**GSM8K, SVAMP, MultiArith, SingleOp**~~ ~~Few-shot exemplars used for EchoPrompt with compound~~
+sentence rephrasing
+
+
+415
+
+
+~~**Q:**~~ ~~There are 15 trees in the grove. Grove workers will plant trees in the grove today. After they are done,~~
+there will be 21 trees. How many trees did the grove workers plant today?
+A: Rewriting in simple words, the question is: “How many trees did the grove workers plant today if there
+are 15 trees in the grove and after they are done, there will be 21 trees?"
+Now, to answer the rewritten question, There are 15 trees originally. Then there were 21 trees after some
+more were planted. So there must have been 21 - 15 = 6. The answer is 6.
+**Q:** If there are 3 cars in the parking lot and 2 more cars arrive, how many cars are in the parking lot?
+A: Rewriting in simple words, the question is: “How many cars are in the parking lot if there are 3 cars in
+the parking lot and 2 more cars arrive?"
+Now, to answer the rewritten question, There are originally 3 cars. 2 more cars arrive. 3 + 2 = 5. The
+answer is 5.
+**Q:** Leah had 32 chocolates and her sister had 42. If they ate 35, how many pieces do they have left in
+total?
+A: Rewriting in simple words, the question is: “How many chocolates do Leah and her sister have left if
+they had 32 and 42 chocolates respectively, and they ate 35 chocolates in total?"
+Now, to answer the rewritten question, Originally, Leah had 32 chocolates. Her sister had 42. So in total
+they had 32 + 42 = 74. After eating 35, they had 74 - 35 = 39. The answer is 39.
+**Q:** Jason had 20 lollipops. He gave Denny some lollipops. Now Jason has 12 lollipops. How many
+lollipops did Jason give to Denny?
+A: Rewriting in simple words, the question is: “How many lollipops did Jason give to Denny if Jason had
+20 lollipops and now has 12 lollipops?"
+Now, to answer the rewritten question, Jason started with 20 lollipops. Then he had 12 after giving some
+to Denny. So he gave Denny 20 - 12 = 8. The answer is 8.
+**Q:** Shawn has five toys. For Christmas, he got two toys each from his mom and dad. How many toys does
+he have now?
+A: Rewriting in simple words, the question is: “How many toys does Shawn have now if he had five toys
+and for Christmas he got two toys each from his mom and dad?"
+Now, to answer the rewritten question, Shawn started with 5 toys. If he got 2 toys each from his mom and
+dad, then that is 4 more toys. 5 + 4 = 9. The answer is 9.
+**Q:** There were nine computers in the server room. Five more computers were installed each day, from
+monday to thursday. How many computers are now in the server room?
+A: Rewriting in simple words, the question is: “How many computers are now in the server room if there
+were nine computers in the server room and five more computers were installed each day from Monday to
+Thursday?"
+Now, to answer the rewritten question, There were originally 9 computers. For each of 4 days, 5 more
+computers were added. So 5 * 4 = 20 computers were added. 9 + 20 is 29. The answer is 29.
+**Q:** Michael had 58 golf balls. On tuesday, he lost 23 golf balls. On wednesday, he lost 2 more. How many
+golf balls did he have at the end of wednesday?
+A: Rewriting in simple words, the question is: “How many golf balls did Michael have at the end of
+wednesday if he had 58 golf balls and lost 23 golf balls on tuesday and 2 more on wednesday?"
+Now, to answer the rewritten question, Michael started with 58 golf balls. After losing 23 on tuesday, he
+had 58 - 23 = 35. After losing 2 more, he had 35 - 2 = 33 golf balls. The answer is 33.
+**Q:** Olivia has $23. She bought five bagels for $3 each. How much money does she have left?
+A: Rewriting in simple words, the question is: “How much money does Olivia have left if she has $23 and
+buys five bagels for $3 each?"
+Now, to answer the rewritten question, Olivia had 23 dollars. 5 bagels for 3 dollars each will be 5 x 3 = 15
+dollars. So she has 23 - 15 dollars left. 23 - 15 is 8. The answer is 8.
+~~Table 15:~~ ~~**GSM8K, SVAMP, MultiArith, SingleOp**~~ ~~Few-shot exemplars used for EchoPrompt with question frst~~
+rephrasing
+
+
+416
+
+
+~~**Q:**~~ ~~There are 15 trees in the grove. Grove workers will plant trees in the grove today. After they are done,~~
+there will be 21 trees. How many trees did the grove workers plant today?
+A: Rewriting in simple words, the question is: “There are 15 trees in the grove. Grove workers will plant
+trees in the grove today. After they are done, there will be 21 trees. How many trees did the grove workers
+plant today?"
+Now, to answer the rewritten question, There are 15 trees originally. Then there were 21 trees after some
+more were planted. So there must have been 21 - 15 = 6. The answer is 6.
+**Q:** If there are 3 cars in the parking lot and 2 more cars arrive, how many cars are in the parking lot?
+A: Rewriting in simple words, the question is: “There are three cars in the parking lot. Another two cars
+arrive. How many cars are in the parking lot now?"
+Now, to answer the rewritten question, There are originally 3 cars. 2 more cars arrive. 3 + 2 = 5. The
+answer is 5.
+**Q:** Leah had 32 chocolates and her sister had 42. If they ate 35, how many pieces do they have left in
+total?
+A: Rewriting in simple words, the question is: “Leah and her sister had a total of 32 and 42 chocolates.
+They ate 35 chocolates. How many chocolates do they have left in total?"
+Now, to answer the rewritten question, Originally, Leah had 32 chocolates. Her sister had 42. So in total
+they had 32 + 42 = 74. After eating 35, they had 74 - 35 = 39. The answer is 39.
+**Q:** Jason had 20 lollipops. He gave Denny some lollipops. Now Jason has 12 lollipops. How many
+lollipops did Jason give to Denny?
+A: Rewriting in simple words, the question is: “Jason had 20 lollipops. He gave some lollipops to Denny.
+Now Jason has 12 lollipops. How many lollipops did Jason give to Denny?"
+Now, to answer the rewritten question, Jason started with 20 lollipops. Then he had 12 after giving some
+to Denny. So he gave Denny 20 - 12 = 8. The answer is 8.
+**Q:** Shawn has five toys. For Christmas, he got two toys each from his mom and dad. How many toys does
+he have now?
+A: Rewriting in simple words, the question is: “Shawn has five toys. For Christmas, he got two toys each
+from his mom and dad. How many toys does he have now?"
+Now, to answer the rewritten question, Shawn started with 5 toys. If he got 2 toys each from his mom and
+dad, then that is 4 more toys. 5 + 4 = 9. The answer is 9.
+**Q:** There were nine computers in the server room. Five more computers were installed each day, from
+monday to thursday. How many computers are now in the server room?
+A: Rewriting in simple words, the question is: “There were nine computers in the server room. Five more
+computers were installed each day, from monday to thursday. How many computers are now in the server
+room?"
+Now, to answer the rewritten question, There were originally 9 computers. For each of 4 days, 5 more
+computers were added. So 5 * 4 = 20 computers were added. 9 + 20 is 29. The answer is 29.
+**Q:** Michael had 58 golf balls. On tuesday, he lost 23 golf balls. On wednesday, he lost 2 more. How many
+golf balls did he have at the end of wednesday?
+A: Rewriting in simple words, the question is: “Michael started with 58 golf balls. On tuesday, he lost 23
+golf balls. On wednesday, he lost 2 more. How many golf balls does he have at the end of wednesday?"
+Now, to answer the rewritten question, Michael started with 58 golf balls. After losing 23 on tuesday, he
+had 58 - 23 = 35. After losing 2 more, he had 35 - 2 = 33 golf balls. The answer is 33.
+**Q:** Olivia has 23 _.Sheboughtfivebagelsfor_ 3 each. How much money does she have left?
+A: Rewriting in simple words, the question is: “Olivia has 23 _.Shebought_ 5 _bagelsfor_ 3 each. How much
+money does she have left?"
+Now, to answer the rewritten question, Olivia had 23 dollars. 5 bagels for 3 dollars each will be 5 x 3 = 15
+dollars. So she has 23 - 15 dollars left. 23 - 15 is 8. The answer is 8.
+~~Table 16:~~ ~~**GSM8K, SVAMP, MultiArith, SingleOp**~~ ~~Few-shot exemplars used for EchoPrompt with simple sentence~~
+rephrasing
+
+
+417
+
+
+~~**Q:**~~ ~~John found that the average of 15 numbers is 40. If 10 is added to each number then the mean of the~~
+numbers is?
+Answer Choices: (a) 50 (b) 45 (c) 65 (d) 78 (e) 64
+A: Rewriting in simple words, the question is: “Given that the average of 15 numbers is 40, and 10 is
+added to each number, what is the mean of the numbers?"
+Now, to answer the rewritten question, If 10 is added to each number, then the mean of the numbers also
+increases by 10. So the new mean would be 50. The answer is (a).
+**Q:** If a / b = 3/4 and 8a + 5b = 22,then find the value of a.
+Answer Choices: (a) 1/2 (b) 3/2 (c) 5/2 (d) 4/2 (e) 7/2
+A: Rewriting in simple words, the question is: “Given that a / b = 3/4 and 8a + 5b = 22, what is the value
+of a?"
+Now, to answer the rewritten question, If a / b = 3/4, then b = 4a / 3. So 8a + 5(4a / 3) = 22. This simplifies
+to 8a + 20a / 3 = 22, which means 44a / 3 = 22. So a is equal to 3/2. The answer is (b).
+**Q:** A person is traveling at 20 km/hr and reached his destiny in 2.5 hr then find the distance?
+Answer Choices: (a) 53 km (b) 55 km (c) 52 km (d) 60 km (e) 50 km
+A: Rewriting in simple words, the question is: “Given that a person is traveling at 20 km/hr and reached
+his destiny in 2.5 hr, what is the distance?"
+Now, to answer the rewritten question, The distance that the person traveled would have been 20 km/hr *
+2.5 hrs = 50 km. The answer is (e).
+**Q:** How many keystrokes are needed to type the numbers from 1 to 500?
+Answer Choices: (a) 1156 (b) 1392 (c) 1480 (d) 1562 (e) 1788
+A: Rewriting in simple words, the question is: “Given that the numbers from 1 to 500 need to be typed,
+how many keystrokes are needed?"
+Now, to answer the rewritten question, There are 9 one-digit numbers from 1 to 9. There are 90 two-digit
+numbers from 10 to 99. There are 401 three-digit numbers from 100 to 500. 9 + 90(2) + 401(3) = 1392.
+The answer is (b).
+
+~~Table 17:~~ ~~**AQuA, MMLU-h**~~ ~~Few-shot exemplars used for EchoPrompt with compound sentence rephrasing~~
+
+
+418
+
+
+~~**Q:**~~ ~~Four years ago, Kody was only half as old as Mohamed. If Mohamed is currently twice 30 years old,~~
+how old is Kody?
+A: Rewriting in simple words, the question is: “Given that Mohamed is twice 30 years old currently, and
+four years ago, Kody was only half Mohamed’s age, what is the current age of Kody?"
+Now, to answer the rewritten question, We were told that Mohamed is currently twice 30 years old, so he
+is currently 30 * 2 = 60 years old. That means that four years ago he must have been 60 - 4 = 56 years old.
+Four years ago, Kody was half as old as Mohamed, so Kody must have been 56 / 2 = 28 years old then.
+Since Kody was 28 years old four years ago, she must now be 28 + 4 = 32 years old. The answer is 32.
+**Q:** Carla bought 2 bags of mini peanut butter cups on clearance. Each bag was $6.00 but was 75% off.
+How much did she spend on 2 bags of candy?
+A: Rewriting in simple words, the question is: “Given that Carla bought two bags of mini peanut butter
+cups on clearance for $6.00 each and each bag was discounted by 75%, what was the total amount she
+spent on both bags of candy?"
+Now, to answer the rewritten question, Each bag was $6.00 but was 75% off. So each bag cost $6.00 * (1 0.75) = $6.00 * 0.25 = $1.50. Carla bought 2 bags. So she spent $1.50 * 2 = $3.00. The answer is 3.
+**Q:** If Pam is currently twice as young as Rena is, and in 10 years Rena will be 5 years older than her, how
+old is Pam now?
+A: Rewriting in simple words, the question is: “Given that Pam is currently twice as young as Rena and
+that in 10 years Rena will be 5 years older than Pam, how old is Pam now?"
+Now, to answer the rewritten question, Since Rena will be 5 years older than Pam in 10 years, she must be
+5 years older than Pam now as well. If Pam is currently twice as young as Rena, that means that Rena
+is currently twice as old as Pam is. So if P stands for Pam’s age now and R stands for Rena’s age now,
+then we know that R = 2 * P And since Rena is 5 years older than Pam now, we know that R = P + 5. By
+substitution, we have P + 5 = 2 * P, which means that P = 5. The answer is 5.
+**Q:** Cappuccinos cost $2, iced teas cost $3, cafe lattes cost $1.5 and espressos cost $1 each. Sandy orders
+some drinks for herself and some friends. She orders three cappuccinos, two iced teas, two cafe lattes,
+and two espressos. How much change does she receive back for a twenty-dollar bill?
+A: Rewriting in simple words, the question is: “Given that Sandy ordered three cappuccinos at $2 each,
+two iced teas at $3 each, two cafe lattes at $1.5 each, and two espressos at $1 each, and paid with a
+twenty-dollar bill, what amount of change will she receive?"
+Now, to answer the rewritten question, Sandy ordered three cappuccinos, which cost $2 each, so she
+spent $2 * 3 = $6 on cappuccinos. She ordered two iced teas, which cost $3 each, so she spent $3 * 2 =
+$6 dollars on ice teas. She ordered two cafe lattes, which cost $1.5 each, so she spent $1.5 * 2 = $3 on
+cafe lattes. She ordered two espressos, which cost $1 each, so she spent $1 * 2 = $2 on espressos. So
+altogether, Sandy spent $6 + $6 + $3 + $2 = $17 on drinks, which means that sandy will get $20 - $17 =
+$3 as change. The answer is 3.
+~~Table 18:~~ ~~**GSM8K, SVAMP, MultiArith, SingleOp**~~ ~~Few-shot exemplars demonstrating long reasoning chains,~~
+used for EchoPrompt with compound sentence rephrasing
+
+
+419
+
+
+~~**Q:**~~ ~~Four years ago, Kody was only half as old as Mohamed. If Mohamed is currently twice 30 years old,~~
+how old is Kody?
+A: Rewriting in simple words, the question is: “What is Kody’s current age if four years ago he was half
+as old as Mohamed, who is currently twice 30 years old?"
+Now, to answer the rewritten question, We were told that Mohamed is currently twice 30 years old, so he
+is currently 30 * 2 = 60 years old. That means that four years ago he must have been 60 - 4 = 56 years old.
+Four years ago, Kody was half as old as Mohamed, so Kody must have been 56 / 2 = 28 years old then.
+Since Kody was 28 years old four years ago, she must now be 28 + 4 = 32 years old. The answer is 32.
+**Q:** Carla bought 2 bags of mini peanut butter cups on clearance. Each bag was $6.00 but was 75% off.
+How much did she spend on 2 bags of candy?
+A: Rewriting in simple words, the question is: “How much did Carla spend on two bags of mini peanut
+butter cups that were on clearance for 75% off, if each bag cost $6.00?"
+Now, to answer the rewritten question, Each bag was $6.00 but was 75% off. So each bag cost $6.00 * (1 0.75) = $6.00 * 0.25 = $1.50. Carla bought 2 bags. So she spent $1.50 * 2 = $3.00. The answer is 3.
+**Q:** If Pam is currently twice as young as Rena is, and in 10 years Rena will be 5 years older than her, how
+old is Pam now?
+A: Rewriting in simple words, the question is: “What is Pam’s current age if Rena is twice as old as Pam
+and in 10 years Rena will be 5 years older than Pam?"
+Now, to answer the rewritten question, Since Rena will be 5 years older than Pam in 10 years, she must be
+5 years older than Pam now as well. If Pam is currently twice as young as Rena, that means that Rena
+is currently twice as old as Pam is. So if P stands for Pam’s age now and R stands for Rena’s age now,
+then we know that R = 2 * P And since Rena is 5 years older than Pam now, we know that R = P + 5. By
+substitution, we have P + 5 = 2 * P, which means that P = 5. The answer is 5.
+**Q:** Cappuccinos cost $2, iced teas cost $3, cafe lattes cost $1.5 and espressos cost $1 each. Sandy orders
+some drinks for herself and some friends. She orders three cappuccinos, two iced teas, two cafe lattes,
+and two espressos. How much change does she receive back for a twenty-dollar bill?
+A: Rewriting in simple words, the question is: “How much change will Sandy receive back for a twentydollar bill if she orders three cappuccinos, two iced teas, two cafe lattes, and two espressos, and the
+cappuccinos cost $2, iced teas cost $3, cafe lattes cost $1.5, and espressos cost $1 each?"
+Now, to answer the rewritten question, Sandy ordered three cappuccinos, which cost $2 each, so she
+spent $2 * 3 = $6 on cappuccinos. She ordered two iced teas, which cost $3 each, so she spent $3 * 2 =
+$6 dollars on ice teas. She ordered two cafe lattes, which cost $1.5 each, so she spent $1.5 * 2 = $3 on
+cafe lattes. She ordered two espressos, which cost $1 each, so she spent $1 * 2 = $2 on espressos. So
+altogether, Sandy spent $6 + $6 + $3 + $2 = $17 on drinks, which means that sandy will get $20 - $17 =
+$3 as change. The answer is 3.
+~~Table 19:~~ ~~**GSM8K, SVAMP, MultiArith, SingleOp**~~ ~~Few-shot exemplars demonstrating long reasoning chains,~~
+used for EchoPrompt with question first rephrasing
+
+
+420
+
+
+~~**Q:**~~ ~~Four years ago, Kody was only half as old as Mohamed. If Mohamed is currently twice 30 years old,~~
+how old is Kody?
+A: Rewriting in simple words, the question is: “Four years ago, Kody’s age was half of Mohamed’s age.
+Currently, Mohamed’s age is twice 30 years old. How old is Kody now?"
+Now, to answer the rewritten question, We were told that Mohamed is currently twice 30 years old, so he
+is currently 30 * 2 = 60 years old. That means that four years ago he must have been 60 - 4 = 56 years old.
+Four years ago, Kody was half as old as Mohamed, so Kody must have been 56 / 2 = 28 years old then.
+Since Kody was 28 years old four years ago, she must now be 28 + 4 = 32 years old. The answer is 32.
+**Q:** Carla bought 2 bags of mini peanut butter cups on clearance. Each bag was $6.00 but was 75% off.
+How much did she spend on 2 bags of candy?
+A: Rewriting in simple words, the question is: “Carla noticed a sale on mini peanut butter cups. She
+decided to buy two bags of the candy. The candy was discounted at 75% off the original cost of $6.00 per
+bag. How much did Carla spend on the two bags of candy?"
+Now, to answer the rewritten question, Each bag was $6.00 but was 75% off. So each bag cost $6.00 * (1 0.75) = $6.00 * 0.25 = $1.50. Carla bought 2 bags. So she spent $1.50 * 2 = $3.00. The answer is 3.
+**Q:** If Pam is currently twice as young as Rena is, and in 10 years Rena will be 5 years older than her, how
+old is Pam now?
+A: Rewriting in simple words, the question is: “Currently, Pam is twice as young as Rena. In 10 years,
+Rena will be 5 years older than Pam. So, how old is Pam now?"
+Now, to answer the rewritten question, Since Rena will be 5 years older than Pam in 10 years, she must be
+5 years older than Pam now as well. If Pam is currently twice as young as Rena, that means that Rena
+is currently twice as old as Pam is. So if P stands for Pam’s age now and R stands for Rena’s age now,
+then we know that R = 2 * P And since Rena is 5 years older than Pam now, we know that R = P + 5. By
+substitution, we have P + 5 = 2 * P, which means that P = 5. The answer is 5.
+**Q:** Cappuccinos cost $2, iced teas cost $3, cafe lattes cost $1.5 and espressos cost $1 each. Sandy orders
+some drinks for herself and some friends. She orders three cappuccinos, two iced teas, two cafe lattes,
+and two espressos. How much change does she receive back for a twenty-dollar bill?
+A: Rewriting in simple words, the question is: “Sandy got three cappuccinos, two iced teas, two cafe
+lattes, and two espressos. Cappuccinos cost $2, iced teas cost $3, cafe lattes cost $1.5 and espressos cost
+$1 each. She paid with a twenty-dollar bill and received some change back. How much change did Sandy
+receive?"
+Now, to answer the rewritten question, Sandy ordered three cappuccinos, which cost $2 each, so she
+spent $2 * 3 = $6 on cappuccinos. She ordered two iced teas, which cost $3 each, so she spent $3 * 2 =
+$6 dollars on ice teas. She ordered two cafe lattes, which cost $1.5 each, so she spent $1.5 * 2 = $3 on
+cafe lattes. She ordered two espressos, which cost $1 each, so she spent $1 * 2 = $2 on espressos. So
+altogether, Sandy spent $6 + $6 + $3 + $2 = $17 on drinks, which means that sandy will get $20 - $17 =
+$3 as change. The answer is 3.
+~~Table 20:~~ ~~**GSM8K, SVAMP, MultiArith, SingleOp**~~ ~~Few-shot exemplars demonstrating long reasoning chains,~~
+used for EchoPrompt with simple sentence rephrasing
+
+
+421
+
+
+~~**Q:**~~ ~~The Seahawks played the San Francisco 49ers. In the frst quarter, the Hawks RB Julius Jones got a~~
+27-yard TD run, along with DT Craig Terrill returning a fumble 9 yards for a touchdown. In the third
+quarter, the 49ers almost rallied as RB H. J. Torres made a 12-yard TD pass to Lucas Nelly, along with
+Mare kicking a 32-yard field goal. In the final quarter, Julius Jones got another 11-yard TD. How many
+yards do the shortest touchdown run and the longest touchdown pass combine for?
+A: Rewriting in simple words, the question is: “Given that during the game between the Seattle Seahawks
+and San Francisco 49ers, Julius Jones, the Seahawks’ RB, scored a 27-yard TD run in the first quarter,
+and also got an 11-yard TD run in the final quarter, while DT Craig Terrill also contributed to the score by
+returning a fumble for a 9-yard touchdown in the first quarter, and in the third quarter, the 49ers rallied as
+RB H.J. Torres threw a 12-yard TD pass to Lucas Nelly, and Mare kicked a 32-yard field goal, what is the
+sum of the shortest touchdown run and the longest touchdown pass in terms of yards?"
+Now, to answer the rewritten question, All the touchdown runs are: a 27-yard touchdown run, a 9-yard
+touchdown run, a 11-yard touchdown run. The smallest number among 27, 9, 11 is 9. So the shortest
+touchdown run was 9 yards. All the touchdown passes are: a 12-yard touchdown pass. So the longest
+touchdown pass was 12 yards. So the shortest touchdown run and the longest touchdown pass combine
+for 9 + 12 = 21 yards. So the answer is 21.
+**Q:** The Steelers went home for a duel with the Baltimore Ravens. Pittsburgh would deliver the opening
+punch in the first quarter with a 1-yard touchdown from running back Rashard Mendenhall. The Ravens
+would make it even as running back Willis McGahee got a 9-yard TD. The Ravens kicker Billy Cundiff
+got a 45-yard field goal in the second quarter, concluding the first half with a 10-7 lead. The Steelers
+brought the game into overtime with a 38-yard field goal by Andrew Foster. The Ravens Billy Cundiff
+pulled off a winning 33-yard field goal in overtime. How many points did the Ravens have at halftime?
+A: Rewriting in simple words, the question is: “Given that during the game between the Steelers and
+Ravens, Rashard Mendenhall scored a 1-yard TD for the Steelers, while Willis McGahee scored a 9-yard
+TD for the Ravens to tie the game, and in the second quarter, the Ravens’ Billy Cundiff kicked a 45-yard
+field goal, the sum of which gave the Ravens a 10-7 lead at halftime, and the game was later tied in
+regulation time with a 38-yard field goal by Andrew Foster for the Steelers, follwed by the Ravens
+ultimately winning on a 33-yard field goal by Cundiff in overtime. What was the Ravens’ halftime score?"
+Now, to answer the rewritten question, The Ravens kicker Billy Cundiff got a 45-yard field goal in the
+second quarter, concluding the first half with a 10-7 lead. So the Ravens had 10 points at halftime. So the
+answer is 10.
+**Q:** The Vikings flew to Bank of America Stadium to face the Carolina Panthers. After a scoreless first
+quarter, Carolina got on the board with quarterback Matt Moore finding fullback Brad Hoover on a 1-yard
+TD pass. After yet another scoreless quarter, Carolina sealed the game as Matt Moore completed a 42-yard
+touchdown pass to wide receiver Steve Smith. How many scoreless quarters were there?
+A: Rewriting in simple words, the question is: “Given that during the game between the Vikings and
+Panthers at Bank of America Stadium, the first quarter was scoreless, followed by Carolina scoring a
+1-yard TD pass from Matt Moore to Brad Hoover in the second quarter, and another scoreless quarter
+followed, and in the fourth quarter, Moore completed a 42-yard touchdown pass to Steve Smith, ultimately
+securing the win for Carolina, then how many scoreless quarters were there in the game?"
+Now, to answer the rewritten question, The first and third quarters were the scoreless quarters. So there
+are 2 scoreless quarters. So the answer is 2.
+
+~~Table 21:~~ ~~**DROP-Football**~~ ~~Few-shot exemplars used for EchoPrompt with compound sentence rephrasing~~
+
+
+422
+
+
+~~**Q:**~~ ~~The Seahawks played the San Francisco 49ers. In the frst quarter, the Hawks RB Julius Jones got a~~
+27-yard TD run, along with DT Craig Terrill returning a fumble 9 yards for a touchdown. In the third
+quarter, the 49ers almost rallied as RB H. J. Torres made a 12-yard TD pass to Lucas Nelly, along with
+Mare kicking a 32-yard field goal. In the final quarter, Julius Jones got another 11-yard TD. How many
+yards do the shortest touchdown run and the longest touchdown pass combine for?
+A: Rewriting in simple words, the question is: “What is the combined total of the shortest touchdown run
+and the longest touchdown pass in the Seahawks vs. 49ers game, where Julius Jones got a 27-yard TD
+run, DT Craig Terrill returned a fumble 9 yards for a touchdown, RB H. J. Torres made a 12-yard TD pass
+to Lucas Nelly, and Mare kicked a 32-yard field goal, and Julius Jones got another 11-yard TD?"
+Now, to answer the rewritten question, All the touchdown runs are: a 27-yard touchdown run, a 9-yard
+touchdown run, a 11-yard touchdown run. The smallest number among 27, 9, 11 is 9. So the shortest
+touchdown run was 9 yards. All the touchdown passes are: a 12-yard touchdown pass. So the longest
+touchdown pass was 12 yards. So the shortest touchdown run and the longest touchdown pass combine
+for 9 + 12 = 21 yards. So the answer is 21.
+**Q:** The Steelers went home for a duel with the Baltimore Ravens. Pittsburgh would deliver the opening
+punch in the first quarter with a 1-yard touchdown from running back Rashard Mendenhall. The Ravens
+would make it even as running back Willis McGahee got a 9-yard TD. The Ravens kicker Billy Cundiff
+got a 45-yard field goal in the second quarter, concluding the first half with a 10-7 lead. The Steelers
+brought the game into overtime with a 38-yard field goal by Andrew Foster. The Ravens Billy Cundiff
+pulled off a winning 33-yard field goal in overtime. How many points did the Ravens have at halftime?
+A: Rewriting in simple words, the question is: “What was the score of the Ravens at halftime in the
+football game against the Pittsburgh Steelers, where the Steelers scored a 1-yard touchdown in the first
+quarter through Rashard Mendenhall, the Ravens tied it with a 9-yard TD run by Willis McGahee, and
+Billy Cundiff of the Ravens made a 45-yard field goal in the second quarter to give the Ravens a 10-7 lead
+going into halftime, before the Steelers tied it with a 38-yard field goal by Andrew Foster and eventually
+lost in overtime to the Ravens’ 33-yard field goal by Billy Cundiff?"
+Now, to answer the rewritten question, The Ravens kicker Billy Cundiff got a 45-yard field goal in the
+second quarter, concluding the first half with a 10-7 lead. So the Ravens had 10 points at halftime. So the
+answer is 10.
+**Q:** The Vikings flew to Bank of America Stadium to face the Carolina Panthers. After a scoreless first
+quarter, Carolina got on the board with quarterback Matt Moore finding fullback Brad Hoover on a 1-yard
+TD pass. After yet another scoreless quarter, Carolina sealed the game as Matt Moore completed a 42-yard
+touchdown pass to wide receiver Steve Smith. How many scoreless quarters were there?
+A: Rewriting in simple words, the question is: “How many scoreless quarters were there in the football
+game between the Minnesota Vikings and the Carolina Panthers, where Carolina scored a 1-yard TD pass
+from quarterback Matt Moore to fullback Brad Hoover in the second quarter and sealed the game with a
+42-yard touchdown pass to wide receiver Steve Smith in the fourth quarter?"
+Now, to answer the rewritten question, The first and third quarters were the scoreless quarters. So there
+are 2 scoreless quarters. So the answer is 2.
+
+~~Table 22:~~ ~~**DROP-Football**~~ ~~Few-shot exemplars used for EchoPrompt with question frst rephrasing~~
+
+
+423
+
+
+~~**Q:**~~ ~~The Seahawks played the San Francisco 49ers. In the frst quarter, the Hawks RB Julius Jones got a~~
+27-yard TD run, along with DT Craig Terrill returning a fumble 9 yards for a touchdown. In the third
+quarter, the 49ers almost rallied as RB H. J. Torres made a 12-yard TD pass to Lucas Nelly, along with
+Mare kicking a 32-yard field goal. In the final quarter, Julius Jones got another 11-yard TD. How many
+yards do the shortest touchdown run and the longest touchdown pass combine for?
+A: Rewriting in simple words, the question is: “During a game between the Seattle Seahawks and San
+Francisco 49ers, Julius Jones, the Seahawks’ RB, scored a 27-yard TD run in the first quarter, and also
+got an 11-yard TD run in the final quarter. DT Craig Terrill also contributed to the score by returning a
+fumble for a 9-yard touchdown in the first quarter. In the third quarter, the 49ers rallied as RB H.J. Torres
+threw a 12-yard TD pass to Lucas Nelly, and Mare kicked a 32-yard field goal. What is the sum of the
+shortest touchdown run and the longest touchdown pass in terms of yards?"
+Now, to answer the rewritten question, All the touchdown runs are: a 27-yard touchdown run, a 9-yard
+touchdown run, a 11-yard touchdown run. The smallest number among 27, 9, 11 is 9. So the shortest
+touchdown run was 9 yards. All the touchdown passes are: a 12-yard touchdown pass. So the longest
+touchdown pass was 12 yards. So the shortest touchdown run and the longest touchdown pass combine
+for 9 + 12 = 21 yards. So the answer is 21.
+**Q:** The Steelers went home for a duel with the Baltimore Ravens. Pittsburgh would deliver the opening
+punch in the first quarter with a 1-yard touchdown from running back Rashard Mendenhall. The Ravens
+would make it even as running back Willis McGahee got a 9-yard TD. The Ravens kicker Billy Cundiff
+got a 45-yard field goal in the second quarter, concluding the first half with a 10-7 lead. The Steelers
+brought the game into overtime with a 38-yard field goal by Andrew Foster. The Ravens Billy Cundiff
+pulled off a winning 33-yard field goal in overtime. How many points did the Ravens have at halftime?
+A: Rewriting in simple words, the question is: “During a game between the Steelers and Ravens, Rashard
+Mendenhall scored a 1-yard TD for the Steelers, while Willis McGahee scored a 9-yard TD for the Ravens
+to tie the game. In the second quarter, the Ravens’ Billy Cundiff kicked a 45-yard field goal, giving the
+Ravens a 10-7 lead at halftime. The game was tied in regulation time with a 38-yard field goal by Andrew
+Foster for the Steelers. In overtime, the Ravens ultimately won on a 33-yard field goal by Cundiff. What
+was the Ravens’ halftime score?"
+Now, to answer the rewritten question, The Ravens kicker Billy Cundiff got a 45-yard field goal in the
+second quarter, concluding the first half with a 10-7 lead. So the Ravens had 10 points at halftime. So the
+answer is 10.
+**Q:** The Vikings flew to Bank of America Stadium to face the Carolina Panthers. After a scoreless first
+quarter, Carolina got on the board with quarterback Matt Moore finding fullback Brad Hoover on a 1-yard
+TD pass. After yet another scoreless quarter, Carolina sealed the game as Matt Moore completed a 42-yard
+touchdown pass to wide receiver Steve Smith. How many scoreless quarters were there?
+A: Rewriting in simple words, the question is: “During a game between the Vikings and Panthers at Bank
+of America Stadium, the first quarter was scoreless. In the second quarter, Carolina scored a 1-yard TD
+pass from Matt Moore to Brad Hoover. Another scoreless quarter followed, and in the fourth quarter,
+Moore completed a 42-yard touchdown pass to Steve Smith, securing the win for Carolina. How many
+scoreless quarters were there in the game?"
+Now, to answer the rewritten question, The first and third quarters were the scoreless quarters. So there
+are 2 scoreless quarters. So the answer is 2.
+
+~~Table 23:~~ ~~**DROP-Football**~~ ~~Few-shot exemplars used for EchoPrompt with simple sentence rephrasing~~
+
+
+424
+
+
+~~**Q:**~~ ~~For the period 2011-15, the estimated median annual income for a household in the town was $48,059,~~
+and the median income for a family was $96,005. Male full-time workers had a median income of $64,750
+versus $39,278 for females. The per capita income for the town was $18,905. About 8.7% of families and
+34.7% of the population were below the poverty line, including 18.2% of those under age 18 and 4.5% of
+those age 65 or over. How many percent of the population is not living below the poverty line?
+A: Rewriting in simple words, the question is: “Given that for the period 2011-15, a household in the
+town had an estimated median annual income of $48,059, and a family had a median income of $96,005,
+while male full-time workers had a median income of $64,750 versus $39,278 for females, and the per
+capita income for the town was $18,905, with about 8.7% of families and 34.7% of the population living
+below the poverty line, including 18.2% of those under age 18 and 4.5% of those age 65 or over, what
+percent of the population is not living below the poverty line?"
+Now, to answer the rewritten question, The population is 34.7% below the poverty line. So the population
+is 100 - 34.7 = 65.3% not below the poverty line. The answer is 65.3.
+**Q:** As of the census of 2010, there were 2,213 people, 870 households, and 563 families residing in the
+town. There were 902 housing units. The racial makeup of the town was 82.0% White (U.S. Census),
+6.1% African American (U.S. Census), 0.1% Native American (U.S. Census), 5.7% Asian (U.S. Census),
+0.1% Race (U.S. Census), 2.8% from Race (U.S. Census), and 3.2% from two or more races. Hispanic
+(U.S. Census) or Latino (U.S. Census) of any race were 6.4% of the population. How many more people
+are there than housing units?
+A: Rewriting in simple words, the question is: “Given that according to the 2010 census, there were 2,213
+individuals residing in the town and living in 870 households, which consisted of 563 families, while
+there were 902 housing units in total, and the town’s ethnic composition was 82.0% White, 6.1% African
+American, 0.1% Native American, 5.7% Asian, 0.1% from another race, 2.8% from two or more races,
+and 3.2% identifying as Hispanic or Latino, regardless of their race, how many individuals exceed the
+number of housing units in the town?"
+Now, to answer the rewritten question, There are 2,213 and 902 housing units. So the difference is 2,213 902 = 1,311. The answer is 1,311.
+**Q:** In the city, the population was spread out with 28.1% under the age of 18, 9.2% from 18 to 24, 26.2%
+from 25 to 44, 21.4% from 45 to 64, and 15.1% who were 65 years of age or older. The median age was
+36 years. For every 100 females, there were 83.5 males. For every 100 females age 18 and over, there
+were 77.7 males. For every 100 females age 18 and over, how many fewer males were there?
+A: Rewriting in simple words, the question is: “Given that in the city, 28.1% of the population was under
+the age of 18, 9.2% were aged 18 to 24, 26.2% were aged 25 to 44, 21.4% were aged 45 to 64, and 15.1%
+were 65 years of age or older, with a median age of 36 years, and for every 100 females, there were 83.5
+males, how many fewer males were there for every 100 females age 18 and over, considering that there
+were 77.7 males for every 100 females age 18 and over?"
+Now, to answer the rewritten question, For every 100 females age 18 and over, there were 77.7 males. So
+for every 100 females, there were 77.7 males. There were 83.5 males. So 100 - 77.7 = 22.3 males. The
+answer is 22.3.
+
+~~Table 24:~~ ~~**DROP Census**~~ ~~Few-shot exemplars used for EchoPrompt with compound sentence rephrasing~~
+
+
+425
+
+
+~~**Q:**~~ ~~For the period 2011-15, the estimated median annual income for a household in the town was $48,059,~~
+and the median income for a family was $96,005. Male full-time workers had a median income of $64,750
+versus $39,278 for females. The per capita income for the town was $18,905. About 8.7% of families and
+34.7% of the population were below the poverty line, including 18.2% of those under age 18 and 4.5% of
+those age 65 or over. How many percent of the population is not living below the poverty line?
+A: Rewriting in simple words, the question is: “What percentage of the population is not living below
+the poverty line if the estimated median annual income for a household in the town was $48,059, and the
+median income for a family was $96,005. Male full-time workers had a median income of $64,750 versus
+$39,278 for females. The per capita income for the town was $18,905. About 8.7% of families and 34.7%
+of the population were below the poverty line, including 18.2% of those under age 18 and 4.5% of those
+age 65 or over?"
+Now, to answer the rewritten question, The population is 34.7% below the poverty line. So the population
+is 100 - 34.7 = 65.3% not below the poverty line. The answer is 65.3.
+**Q:** As of the census of 2010, there were 2,213 people, 870 households, and 563 families residing in the
+town. There were 902 housing units. The racial makeup of the town was 82.0% White (U.S. Census),
+6.1% African American (U.S. Census), 0.1% Native American (U.S. Census), 5.7% Asian (U.S. Census),
+0.1% Race (U.S. Census), 2.8% from Race (U.S. Census), and 3.2% from two or more races. Hispanic
+(U.S. Census) or Latino (U.S. Census) of any race were 6.4% of the population. How many more people
+are there than housing units?
+A: Rewriting in simple words, the question is: “How many people surpass the number of housing units in
+the town if as of the census conducted in 2010, the town accommodated 2,213 individuals, who dwelled
+in 870 households, comprising 563 families. Meanwhile, the housing units were measured at 902. For
+the town’s ethnic composition, 82.0% identified as White, 6.1% as African American, 0.1% as Native
+American, 5.7% as Asian, 0.1% as belonging to another race, 2.8% were from two or more races, and
+3.2% identified as Hispanic or Latino, regardless of their race?"
+Now, to answer the rewritten question, There are 2,213 and 902 housing units. So the difference is 2,213 902 = 1,311. The answer is 1,311.
+**Q:** In the city, the population was spread out with 28.1% under the age of 18, 9.2% from 18 to 24, 26.2%
+from 25 to 44, 21.4% from 45 to 64, and 15.1% who were 65 years of age or older. The median age was
+36 years. For every 100 females, there were 83.5 males. For every 100 females age 18 and over, there
+were 77.7 males. For every 100 females age 18 and over, how many fewer males were there?
+A: Rewriting in simple words, the question is: “How many fewer males were there in the city for every
+100 females age 18 and over, if the population was spread out with 28.1% under the age of 18, 9.2% from
+18 to 24, 26.2% from 25 to 44, 21.4% from 45 to 64, and 15.1% who were 65 years of age or older, and
+the median age was 36 years, and for every 100 females, there were 83.5 males?"
+Now, to answer the rewritten question, For every 100 females age 18 and over, there were 77.7 males. So
+for every 100 females, there were 77.7 males. There were 83.5 males. So 100 - 77.7 = 22.3 males. The
+answer is 22.3.
+
+~~Table 25:~~ ~~**DROP Census**~~ ~~Few-shot exemplars used for EchoPrompt with question frst rephrasing~~
+
+
+426
+
+
+~~**Q:**~~ ~~For the period 2011-15, the estimated median annual income for a household in the town was $48,059,~~
+and the median income for a family was $96,005. Male full-time workers had a median income of $64,750
+versus $39,278 for females. The per capita income for the town was $18,905. About 8.7% of families and
+34.7% of the population were below the poverty line, including 18.2% of those under age 18 and 4.5% of
+those age 65 or over. How many percent of the population is not living below the poverty line?
+A: Rewriting in simple words, the question is: “For the period between 2011-15, the estimated median
+annual income for a household in the town was $48,059, and the median income for a family was $96,005.
+Male full-time workers had a median income of $64,750, while females had a median income of $39,278.
+The per capita income for the town was $18,905. Approximately 8.7% of families and 34.7% of the
+population were living below the poverty line, including 18.2% of those under the age of 18 and 4.5% of
+those over the age of 65. How many percent of the population is not living below the poverty line?"
+Now, to answer the rewritten question, The population is 34.7% below the poverty line. So the population
+is 100 - 34.7 = 65.3% not below the poverty line. The answer is 65.3.
+**Q:** As of the census of 2010, there were 2,213 people, 870 households, and 563 families residing in the
+town with 902 housing units. The racial makeup of the town was 82.0% White (U.S. Census), 6.1%
+African American (U.S. Census), 0.1% Native American (U.S. Census), 5.7% Asian (U.S. Census), 0.1%
+Race (U.S. Census), 2.8% from Race (U.S. Census), and 3.2% from two or more races. Hispanic (U.S.
+Census) or Latino (U.S. Census) of any race were 6.4% of the population. How many more people are
+there than housing units?
+A: Rewriting in simple words, the question is: “According to the census of 2010, the town had a population
+of 2,213 people, with 902 housing units available. The racial makeup of the town was 82.0% White, 6.1%
+African American, 0.1% Native American, 5.7% Asian, 0.1% of another race, 2.8% from two or more
+races, and 3.2% from some other race. Hispanic or Latino of any race were 6.4% of the population. How
+many more people are there than housing units?"
+Now, to answer the rewritten question, There are 2,213 and 902 housing units. So the difference is 2,213 902 = 1,311. The answer is 1,311.
+**Q:** In the city, the population was spread out with 28.1% under the age of 18, 9.2% from 18 to 24, 26.2%
+from 25 to 44, 21.4% from 45 to 64, and 15.1% who were 65 years of age or older. The median age was
+36 years. For every 100 females, there were 83.5 males. For every 100 females age 18 and over, there
+were 77.7 males. For every 100 females age 18 and over, how many fewer males were there?
+A: Rewriting in simple words, the question is: “The city’s population was spread out with 28.1% under 18,
+9.2% between 18-24, 26.2% between 25-44, 21.4% between 45-64, and 15.1% who were 65 or older. The
+median age was 36 years. For every 100 females, there were 83.5 males, and for every 100 females 18 and
+over, there were 77.7 males. For every 100 females age 18 and over, how many fewer males were there?"
+Now, to answer the rewritten question, For every 100 females age 18 and over, there were 77.7 males. So
+for every 100 females, there were 77.7 males. There were 83.5 males. So 100 - 77.7 = 22.3 males. The
+answer is 22.3.
+
+~~Table 26:~~ ~~**DROP Census**~~ ~~Few-shot exemplars used for EchoPrompt with simple sentence rephrasing~~
+
+
+427
+
+
+~~**Q:**~~ ~~Since the 1970s, U.S. governments have negotiated managed-trade agreements, such as the North~~
+American Free Trade Agreement in the 1990s, the Dominican Republic-Central America Free Trade
+Agreement in 2006, and a number of bilateral agreements. In Europe, six countries formed the European
+Coal and Steel Community in 1951 which became the European Economic Community in 1958. Two
+core objectives of the EEC were the development of a common market, subsequently renamed the single
+market, and establishing a customs union between its member states. How many years did the European
+Coal and Steel Community exist?
+A: Rewriting in simple words, the question is: “Given that U.S. governments have negotiated managedtrade agreements since the 1970s, such as the North American Free Trade Agreement in the 1990s and the
+Dominican Republic-Central America Free Trade Agreement in 2006, and that in Europe, six countries
+formed the European Coal and Steel Community in 1951 which later became the European Economic
+Community in 1958 with the objectives of developing a common market and establishing a customs union
+between its member states, how long did the European Coal and Steel Community exist?" Now, to answer
+the rewritten question, According to the passage, the European Coal and Steel Community was established
+in 1951 and became the EEC in 1958. 1958 - 1951 = 7. So the answer is 7.
+**Q:** In the county, the population was spread out with 23.50% under the age of 18, 8.70% from 18 to 24,
+29.70% from 25 to 44, 24.70% from 45 to 64, and 13.30% who were 65 years of age or older. How many
+more percent are under the age of 18 compared to the 18 to 24 group?
+A: Rewriting in simple words, the question is: “Given that in the county, the population was spread out
+with 23.50% under the age of 18, 8.70% from 18 to 24, 29.70% from 25 to 44, 24.70% from 45 to 64,
+and 13.30% who were 65 years of age or older, what is the difference between the percentage of people
+under the age of 18 and the percentage of people from 18 to 24?" Now, to answer the rewritten question,
+According to the passage, 23.5% are under the age of 18, and 8.7% are from ages 18 to 24. 23.5% - 8.7%
+= 14.8%. So the answer is 14.8.
+**Q:** Playing in their second straight Thanksgiving game, the Eagles struggled especially on defense, where
+they were unable to stop the much-hyped Lions offense. The worst of it all was how unproven rookie Eric
+Rowe was tasked with covering wide receiver Calvin Johnson, leading to Johnson catching 3 touchdowns.
+Stafford’s five passing touchdowns, including three of them to Johnson was too much for the Eagles to
+overcome and for the second consecutive time this season, the Eagles gave up 45 points in a game. With
+the loss, the Eagles drop to 4-7 on the season and 6-1 when playing on Thanksgiving. How many TD
+passes did Stafford throw other than to Jhonson?
+A: Rewriting in simple words, the question is: “Given that playing in their second straight Thanksgiving
+game, the Eagles struggled especially on defense, where they were unable to stop the much-hyped Lions
+offense, and that the worst of it all was how unproven rookie Eric Rowe was tasked with covering wide
+receiver Calvin Johnson, leading to Johnson catching 3 touchdowns, and that Stafford’s five passing
+touchdowns, including three of them to Johnson was too much for the Eagles to overcome and for the
+second consecutive time this season, the Eagles gave up 45 points in a game, and that with the loss,
+the Eagles drop to 4-7 on the season and 6-1 when playing on Thanksgiving, how many TD passes did
+Stafford throw other than to Jhonson?" Now, to answer the rewritten question, According to the passage,
+Stafford threw 5 TD passes, 3 of which were to Johnson. 5 - 3 = 2. So the answer is 2.
+~~Table 27:~~ ~~**DROP (Break, Non-football) subsets**~~ ~~Few-shot exemplars used for EchoPrompt with compound sentence~~
+rephrasing
+
+
+428
+
+
+~~**Q:**~~ ~~Since the 1970s, U.S. governments have negotiated managed-trade agreements, such as the North~~
+American Free Trade Agreement in the 1990s, the Dominican Republic-Central America Free Trade
+Agreement in 2006, and a number of bilateral agreements. In Europe, six countries formed the European
+Coal and Steel Community in 1951 which became the European Economic Community in 1958. Two
+core objectives of the EEC were the development of a common market, subsequently renamed the single
+market, and establishing a customs union between its member states. How many years did the European
+Coal and Steel Community exist?
+A: Rewriting in simple words, the question is: “How many years did the European Coal and Steel
+Community exist, if it was formed in 1951 by six European countries and subsequently became the
+European Economic Community in 1958, with two core objectives being the establishment of a customs
+union between member states and the development of a common market? Also, noting that since the
+1970s, the U.S. government has negotiated managed-trade agreements, including the North American
+Free Trade Agreement in the 1990s, the Dominican Republic-Central America Free Trade Agreement in
+2006, and several bilateral agreements?"
+Now, to answer the rewritten question, According to the passage, the European Coal and Steel Community
+was established in 1951 and became the EEC in 1958. 1958 - 1951 = 7. So the answer is 7.
+**Q:** In the county, the population was spread out with 23.50% under the age of 18, 8.70% from 18 to 24,
+29.70% from 25 to 44, 24.70% from 45 to 64, and 13.30% who were 65 years of age or older. How many
+more percent are under the age of 18 compared to the 18 to 24 group?
+A: Rewriting in simple words, the question is: “How much higher is the percentage of the population
+under the age of 18 compared to the percentage of the population aged between 18 to 24, in the county
+where the population is spread out with 23.50% under the age of 18, 8.70% from 18 to 24, 29.70% from
+25 to 44, 24.70% from 45 to 64, and 13.30% who were 65 years of age or older?"
+Now, to answer the rewritten question, According to the passage, 23.5% are under the age of 18, and 8.7%
+are from ages 18 to 24. 23.5% - 8.7% = 14.8%. So the answer is 14.8.
+**Q:** Playing in their second straight Thanksgiving game, the Eagles struggled especially on defense, where
+they were unable to stop the much-hyped Lions offense. The worst of it all was how unproven rookie Eric
+Rowe was tasked with covering wide receiver Calvin Johnson, leading to Johnson catching 3 touchdowns.
+Stafford’s five passing touchdowns, including three of them to Johnson was too much for the Eagles to
+overcome and for the second consecutive time this season, the Eagles gave up 45 points in a game. With
+the loss, the Eagles drop to 4-7 on the season and 6-1 when playing on Thanksgiving. How many TD
+passes did Stafford throw other than to Jhonson?
+A: Rewriting in simple words, the question is: “How many TD passes did Stafford throw other than to
+Jhonson, in a game where the Eagles struggled especially on defense, where they were unable to stop the
+much-hyped Lions offense, and where the worst of it all was how unproven rookie Eric Rowe was tasked
+with covering wide receiver Calvin Johnson, leading to Johnson catching 3 touchdowns? Also, noting that
+Stafford’s five passing touchdowns, including three of them to Johnson was too much for the Eagles to
+overcome and for the second consecutive time this season, the Eagles gave up 45 points in a game. With
+the loss, the Eagles drop to 4-7 on the season and 6-1 when playing on Thanksgiving?"
+Now, to answer the rewritten question, According to the passage, Stafford threw 5 TD passes, 3 of which
+were to Johnson. 5 - 3 = 2. So the answer is 2.
+~~Table 28:~~ ~~**DROP (Break, Non-football) subsets**~~ ~~Few-shot exemplars used for EchoPrompt with question frst~~
+rephrasing
+
+
+429
+
+
+~~**Q:**~~ ~~Since the 1970s, U.S. governments have negotiated managed-trade agreements, such as the North~~
+American Free Trade Agreement in the 1990s, the Dominican Republic-Central America Free Trade
+Agreement in 2006, and a number of bilateral agreements. In Europe, six countries formed the European
+Coal and Steel Community in 1951 which became the European Economic Community in 1958. Two
+core objectives of the EEC were the development of a common market, subsequently renamed the single
+market, and establishing a customs union between its member states. How many years did the European
+Coal and Steel Community exist?
+A: Rewriting in simple words, the question is: “The US government negotiated managed-trade agreements
+since the 1970s. Some examples include the North American Free Trade Agreement in the 1990s, the
+Dominican Republic-Central America Free Trade Agreement in 2006, and various bilateral agreements.
+The European Coal and Steel Community was established in 1951 by six countries in Europe. It evolved
+into the European Economic Community in 1958, with two primary goals of creating a common market
+and a customs union between member states. What is the duration of the existence of the European Coal
+and Steel Community?"
+Now, to answer the rewritten question, According to the passage, the European Coal and Steel Community
+was established in 1951 and became the EEC in 1958. 1958 - 1951 = 7. So the answer is 7.
+**Q:** In the county, the population was spread out with 23.50% under the age of 18, 8.70% from 18 to 24,
+29.70% from 25 to 44, 24.70% from 45 to 64, and 13.30% who were 65 years of age or older. How many
+more percent are under the age of 18 compared to the 18 to 24 group?
+A: Rewriting in simple words, the question is: “The county’s population was distributed into different
+age groups. 23.50% under 18 years, 8.70% aged between 18 to 24, 29.70% between 25 to 44, 24.70%
+between 45 to 64, and 13.30% were 65 years or older. What is the percentage difference between the
+under-18 group and the 18 to 24 age group?"
+Now, to answer the rewritten question, According to the passage, 23.5% are under the age of 18, and 8.7%
+are from ages 18 to 24. 23.5% - 8.7% = 14.8%. So the answer is 14.8.
+**Q:** Playing in their second straight Thanksgiving game, the Eagles struggled especially on defense, where
+they were unable to stop the much-hyped Lions offense. The worst of it all was how unproven rookie Eric
+Rowe was tasked with covering wide receiver Calvin Johnson, leading to Johnson catching 3 touchdowns.
+Stafford’s five passing touchdowns, including three of them to Johnson was too much for the Eagles to
+overcome and for the second consecutive time this season, the Eagles gave up 45 points in a game. With
+the loss, the Eagles drop to 4-7 on the season and 6-1 when playing on Thanksgiving. How many TD
+passes did Stafford throw other than to Jhonson?
+A: Rewriting in simple words, the question is: “The Eagles played in their second straight Thanksgiving
+game but struggled, especially on defense. They were unable to stop the Lions’ much-hyped offense,
+and rookie Eric Rowe struggled to cover wide receiver Calvin Johnson, who caught three touchdowns.
+Stafford threw five passing touchdowns, three of them to Johnson. The Eagles gave up 45 points for the
+second consecutive time this season, resulting in a loss, bringing their record to 4-7 for the season. They
+have a 6-1 record when playing on Thanksgiving. What is the number of TD passes thrown by Stafford,
+other than to Johnson?"
+Now, to answer the rewritten question, According to the passage, Stafford threw 5 TD passes, 3 of which
+were to Johnson. 5 - 3 = 2. So the answer is 2.
+Table 29: **DROP (Break, Non-football) subsets** Few-shot exemplars used for EchoPrompt with simple sentence
+rephrasing
+
+
+430
+
+
+**Q:** 2015 is coming in 36 hours. What is the date one week from today in MM/DD/YYYY?
+A: Rewriting in simple words, the question is: “Given that 2015 is coming in 36 hours, what is the date
+one week from today in MM/DD/YYYY?"
+Now, to answer the rewritten question, If 2015 is coming in 36 hours, then it is coming in 2 days. 2 days
+before 01/01/2015 is 12/30/2014, so today is 12/30/2014. So one week from today will be 01/05/2015. So
+the answer is 01/05/2015.
+**Q:** The first day of 2019 is a Tuesday, and today is the first Monday of 2019. What is the date today in
+MM/DD/YYYY?
+A: Rewriting in simple words, the question is: “Given that the first day of 2019 is a Tuesday and that
+today is the first Monday of 2019, what is the date today in MM/DD/YYYY?"
+Now, to answer the rewritten question, If the first day of 2019 was Tuesday, then 01/01/2019 was a
+Tuesday. Today is the first monday, would be six days later. So today is 01/07/2019. So the answer is
+01/07/2019.
+**Q:** The concert was scheduled to be on 06/01/1943, but was delayed by one day to today. What is the date
+10 days ago in MM/DD/YYYY?
+A: Rewriting in simple words, the question is: “Given that the concert was scheduled to be on 06/01/1943,
+but was delayed by one day to today, what is the date 10 days ago in MM/DD/YYYY?"
+Now, to answer the rewritten question, One day after 06/01/1943 is 06/02/1943, so today is 06/02/1943.
+10 days before today is 05/23/1943. So the answer is 05/23/1943.
+**Q:** It is 4/19/1969 today. What is the date 24 hours later in MM/DD/YYYY?
+A: Rewriting in simple words, the question is: “Given that it is 4/19/1969 today, what is the date 24 hours
+later in MM/DD/YYYY?"
+Now, to answer the rewritten question, Today is 04/19/1969. 24 hours later is one day after today, which
+would be 04/20/1969. So the answer is 04/20/1969.
+**Q:** Jane thought today is 3/11/2002, but today is in fact Mar 12, which is 1 day later. What is the date 24
+hours later in MM/DD/YYYY?
+A: Rewriting in simple words, the question is: “Given that Jane thought today is 3/11/2002, but today is
+in fact Mar 12, which is 1 day later, what is the date 24 hours later in MM/DD/YYYY?"
+Now, to answer the rewritten question, Today is 03/12/2002. So the date 24 hours later will be 03/13/2002.
+So the answer is 03/13/2002.
+**Q:** Jane was born on the last day of Feburary in 2001. Today is her 16-year-old birthday. What is the date
+yesterday in MM/DD/YYYY?
+A: Rewriting in simple words, the question is: “Given that Jane was born on the last day of Feburary in
+2001 and that today is her 16-year-old birthday, what is the date yesterday in MM/DD/YYYY?"
+Now, to answer the rewritten question, The last day of February is the 28th, so Jane was born on
+02/28/2001. Today is her 16-year old birthday, so today is 02/28/2017. So yesterday was 02/27/2017. So
+the answer is 02/27/2017.
+
+~~Table 30:~~ ~~**Date Understanding**~~ ~~Few-shot exemplars used for EchoPrompt with compound sentence rephrasing~~
+
+
+431
+
+
+**Q:** From the German point of view, March 1941 saw an improvement. The Luftwaffe flew 4,000 sorties
+that month, including 12 major and three heavy attacks. The electronic war intensified but the Luftwaffe
+flew major inland missions only on moonlit nights. Ports were easier to find and made better targets. To
+confuse the British, radio silence was observed until the bombs fell. X- and Y-Ger¨at beams were placed
+over false targets and switched only at the last minute. Rapid frequency changes were introduced for
+X-Ger¨at, whose wider band of frequencies and greater tactical flexibility ensured it remained effective at
+a time when British selective jamming was degrading the effectiveness of Y-Ger¨at. How many sorties
+were flown in March 1941?
+A: Rewriting in simple words, the question is: “Given that from the German point of view, March 1941
+saw an improvement, and that the Luftwaffe flew 4,000 sorties that month, including 12 major and three
+heavy attacks, and that the electronic war intensified but the Luftwaffe flew major inland missions only
+on moonlit nights, and that ports were easier to find and made better targets, and that to confuse the
+British, radio silence was observed until the bombs fell, and that X- and Y-Ger¨at beams were placed over
+false targets and switched only at the last minute, and that rapid frequency changes were introduced for
+X-Ger¨at, whose wider band of frequencies and greater tactical flexibility ensured it remained effective at
+a time when British selective jamming was degrading the effectiveness of Y-Ger¨at, how many sorties
+were flown in March 1941?"
+Now, to answer the rewritten question, the answer is “4,000".
+**Q:** At the 52nd Annual Grammy Awards, Beyoncé received ten nominations, including Album of the Year
+for I Am... Sasha Fierce, Record of the Year for “Halo", and Song of the Year for “Single Ladies (Put a
+Ring on It)", among others. She tied with Lauryn Hill for most Grammy nominations in a single year by a
+female artist. In 2010, Beyoncé was featured on Lady Gaga’s single “Telephone" and its music video. The
+song topped the US Pop Songs chart, becoming the sixth number-one for both Beyoncé and Gaga, tying
+them with Mariah Carey for most number-ones since the Nielsen Top 40 airplay chart launched in 1992.
+“Telephone" received a Grammy Award nomination for Best Pop Collaboration with Vocals. Beyonce
+received how many nominations at the 52nd Annual Grammy Awards?
+A: Rewriting in simple words, the question is: “Given that at the 52nd Annual Grammy Awards, Beyoncé
+received ten nominations, including Album of the Year for I Am... Sasha Fierce, Record of the Year for
+“Halo", and Song of the Year for “Single Ladies (Put a Ring on It)", among others, and that she tied with
+Lauryn Hill for most Grammy nominations in a single year by a female artist, and that in 2010, Beyoncé
+was featured on Lady Gaga’s single “Telephone" and its music video, and that the song topped the US Pop
+Songs chart, becoming the sixth number-one for both Beyoncé and Gaga, tying them with Mariah Carey
+for most number-ones since the Nielsen Top 40 airplay chart launched in 1992, and that “Telephone"
+received a Grammy Award nomination for Best Pop Collaboration with Vocals, how many nominations
+did Beyonce receive at the 52nd Annual Grammy Awards?"
+Now, to answer the rewritten question, the answer is “ten".
+
+~~Table 31:~~ ~~**SQuAD**~~ ~~Few-shot exemplars used for EchoPrompt with compound sentence rephrasing~~
+
+
+432
+
+

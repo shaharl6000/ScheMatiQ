@@ -1,0 +1,1533 @@
+# **When do Generative Query and Document Expansions Fail?** **A Comprehensive Study Across Methods, Retrievers, and Datasets**
+
+**Orion Weller** _**[∗]**_ _**[ι]**_ **Kyle Lo** _**[α]**_ **David Wadden** _**[α]**_ **Dawn Lawrie** _**[ι]**_
+
+**Benjamin Van Durme** _**[ι]**_ **Arman Cohan** _**[γ α]**_ **Luca Soldaini** _**[α]**_
+
+_ι_ Johns Hopkins University _α_ Allen Institute for AI _γ_ Yale University
+```
+     oweller@cs.jhu.edu {kylel, lucas}@allenai.org
+
+```
+
+
+**Abstract**
+
+Using large language models (LMs) for query
+or document expansion can improve generalization in information retrieval. However, it
+is unknown whether these techniques are universally beneficial or only effective in specific
+settings, such as for particular retrieval models,
+dataset domains, or query types. To answer this,
+we conduct the first comprehensive analysis of
+LM-based expansion. We find that there exists
+a strong negative correlation between retriever
+performance and gains from expansion: expansion improves scores for weaker models, but
+generally harms stronger models. We show this
+trend holds across a set of eleven expansion
+techniques, twelve datasets with diverse distribution shifts, and twenty-four retrieval models.
+Through qualitative error analysis, we hypothesize that although expansions provide extra
+information (potentially improving recall), they
+add additional noise that makes it difficult to
+discern between the top relevant documents
+(thus introducing false positives). Our results
+suggest the following recipe: use expansions
+for weaker models or when the target dataset
+significantly differs from training corpus in format; otherwise, avoid expansions to keep the
+relevance signal clear. [1]
+
+**1** **Introduction**
+
+Neural information retrieval (IR) systems routinely achieve state-of-the-art performance on tasks
+where labeled data is abundant (Karpukhin et al.,
+2020; Yates et al., 2021). When limited or no data is
+available, neural models fine-tuned on data-rich domains are used in zero-shot manner (Thakur et al.,
+2021; Rosa et al., 2022b). However, shifts in distribution of queries and documents can negatively
+impact their performance (Lupart et al., 2023).
+To mitigate this effect, language models (LMs)
+can be used to _expand_ queries or documents from
+
+1Code and data are available at `[https://github.com/](https://github.com/orionw/LM-expansions)`
+```
+orionw/LM-expansions
+```
+
+_∗_ Work performed during internship at AI2.
+
+
+|Type of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>0<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)<br>5<br>0<br>5<br>0<br>5<br>20 30 40 50 60 70|Type of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)|Col3|Col4|Col5|Col6|
+|---|---|---|---|---|---|
+|20<br>30<br>40<br>50<br>60<br>70<br>5<br>0<br>5<br>0<br>5<br>0<br>Type of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)|Type of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)||ype of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)|ype of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)|ype of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)|
+|20<br>30<br>40<br>50<br>60<br>70<br>5<br>0<br>5<br>0<br>5<br>0<br>Type of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)|Type of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)|||||
+|20<br>30<br>40<br>50<br>60<br>70<br>5<br>0<br>5<br>0<br>5<br>0<br>Type of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)||||||
+|20<br>30<br>40<br>50<br>60<br>70<br>5<br>0<br>5<br>0<br>5<br>0<br>Type of Shift (Dataset)<br>No Shift (TREC DL 2019)<br>Domain Shift (FiQA)<br>Query Shift (ArguAna)|||40<br>50<br>60<br>|0|0|
+
+
+
+Figure 1: LM-based query and document expansion
+methods typically improve performance when used with
+weaker models, but not for stronger models. More accurate models generally lose relevance signal when expansions are provided. Each point is a value in Table 1.
+
+
+unseen domains (Dai et al., 2022; Gao et al., 2022;
+Jagerman et al., 2023; Jeronymo et al., 2023; Wang
+et al., 2023a). These techniques input queries
+and/or documents into an LM to generate additional content, which is combined with original
+text to facilitate relevance matching. For example,
+Doc2Query (Nogueira et al., 2019c) uses an LM
+to generate likely queries for documents in the collection. Meanwhile, HyDE (Gao et al., 2022) uses
+an LM to generate a fictitious relevant document
+for a user query. As LMs are often trained on more
+domains than typical rankers, LM-based expansion
+leverages this encoded knowledge to bridge out-ofdistribution gaps.
+IR researchers have long proposed methods to
+expand queries and documents (Rocchio Jr, 1971;
+Lavrenko and Croft, 2001; Abdul-Jaleel et al.,
+2004). However, we note that LM-based expansions are qualitatively different from traditional
+
+
+
+
+
+
+
+
+
+
+
+
+
+1987
+
+_Findings of the Association for Computational Linguistics: EACL 2024_, pages 1987–2003
+March 17-22, 2024 c _⃝_ 2024 Association for Computational Linguistics
+
+
+expansion techniques. While the latter are largely
+non-parametric, using thesauri or relevance signals from the collection, [2] LM-based expansions
+can leverage knowledge encoded in their model
+weights. Finally, while many comparative analyses
+of statistical expansion techniques exist (Hust et al.,
+2003; Bhogal et al., 2007; Carpineto and Romano,
+2012), no equivalent work has been conducted for
+LM-based approaches.
+Many works have proposed specific LM-based
+expansions, but these approaches are generally
+tested only a small subset of retrieval methods
+(small bi-encoder models or BM25) or only work
+on specific domains (Gao et al., 2022; Wang et al.,
+2023a; Zhu et al., 2023). We thus seek to answer
+the following:
+**RQ1: How do different models impact query**
+**and document expansion (§3)?** Across all types
+of IR models and architectures, performance is negatively correlated with gains from expansion: after
+a certain score threshold these expansions generally hurt performance (as they blur the relevance
+signal from the original documents).
+**RQ2: How do different distribution shifts im-**
+**pact these results (§4)?** Our main results hold
+for all types of shift – better models are harmed
+by expansion – except for long query shift, where
+expansions generally help most-to-all models.
+**RQ3: Why do expansions hurt stronger IR**
+**models (§5)?** We find that query and document
+expansions introduce new terms, potentially weakening the relevance signal of the original text.
+Overall, this work aims at answering the following question: **when should one use LM-based ex-**
+**pansions?** Through our investigation, we provide
+evidence to help practitioners answer this question.
+Our results run counter to the common intuition
+that query and document expansion are helpful
+techniques in all cases; instead, they show that
+LM expansions generally **benefit weaker rankers**,
+but **hurt more accurate rankers** . Further, analysis
+over twelve datasets shows that whether a given
+model benefits from expansion varies depending on
+task; datasets with pronounced distribution shifts
+( _e.g._, very long queries) are more likely to benefit.
+
+
+2For example, pseudo relevance feedback (PRF) uses top_k_ retrieved documents to expand queries. Thus, PRF relies on
+the quality of the initial retrieved set; generally, the better the
+retrieval, the better the expansion. We note that this is not necessarily the case for LM-based expansions/PRF: parametric
+knowledge encoded in model weights affect terms selected for
+expansion (in contrast to classic PRF that typically selects new
+terms from the top relevant documents from the collection).
+
+
+
+**2** **Experimental Settings**
+
+
+We provide an overview of document and query
+expansion methods used in the reminder of the
+manuscript, and describe our experimental setup.
+We choose expansion techniques according
+to two criteria: ( _i_ ) their overall performance,
+as claimed in papers introducing them, and ( _ii_ )
+whether they can used with any retrieval model.
+While there exists more specific techniques for particular architectures, such as ColBERT-PRF (Wang
+et al., 2023c,b), we use text-based expansions from
+LMs to ensure generalizability of our findings.
+We generate expansions using `gpt-3.5-turbo` [3]
+
+as it is inexpensive and shows strong performance
+in previous work (Wang et al., 2023a; Jagerman
+et al., 2023). Since using LMs to generate expansions for large collections would be prohibitive,
+we restrict our expansions to the reranking setting,
+e.g. the top 100 documents per query found from
+BM25 following Asai et al. (2022). [4] Following
+established practices, we use these expansions for
+zero-shot out-of-domain retrieval. Although it is
+possible that training with expansions may further
+increase their effectiveness, this limits their generalizability since it requires re-training retrieval
+models for each expansion technique and LM.
+
+
+**2.1** **Query Expansion**
+
+We use three types of query expansion, selecting
+the best methods from previous work.
+
+
+**HyDE from Gao et al. (2022)** provides taskspecific instructions for the LM to generate a document that would answer that question. We use
+prompts from their work when available.
+
+
+**Chain of Thought from Jagerman et al. (2023)**
+was inspired by Wei et al. (2022); it prompts the
+model to reason before giving the answer. The
+step-by-step reasoning is then used to expand the
+
+
+3We use version `gpt-3.5-turbo-0613` . To show that
+our results generalize beyond this specific language model,
+we include results using other open/API LMs ( `gpt-4-0613`,
+Claude V2, Llama2 70b Chat) in Appendix A that show the
+same conclusion. Prompts and example input/output can be
+found in Appendix D and E. We also explore the placement of
+these augmentations (should we prepend/append/replace the
+original query and documents?) in Appendix B and show that
+this also makes little difference.
+4As of September 2023, even just a single document expansion method using `gpt-3.5-turbo` on the DL Track 2019
+collection would cost thousands of dollars. Thus we rerank
+the top 100 docs for each dataset. We show in Appendix C and
+Table 10 that our observations hold up to 10,000 documents.
+
+
+
+1988
+
+
+Figure 2: Effect of expansion over twelve datasets. For each dataset, markers show base performance for models,
+while the boxplot indicates the range of changes in scores for document and/or query expansion. Across all datasets
+and models, we note a consistent trend: models with **lower base performance benefit** from expansion; **higher**
+**performing rankers** generally **suffer** when expansion techniques are used.
+
+|DL Track 2019<br>Type Model No Exp QE DE Both|Col2|FiQA Arguana<br>No Exp QE DE Both No Exp QE DE Both|Col4|
+|---|---|---|---|
+|First<br>Stage<br>DPR<br>Contriever<br>BM25<br>Contriever FT<br>E5 Base v2<br>MPNet Base v2<br>E5 Small v2<br>GTE Large<br>E5 Large v2|38.4<br>+6.6<br>+3.1<br>+10.8<br>49.0<br>+3.5<br>+4.0<br>+8.1<br>51.2<br>-4.0<br>-<br>-<br>62.3<br>+1.6<br>-0.2<br>+0.6<br>67.3<br>-3.4<br>-0.9<br>-3.7<br>68.3<br>-6.0<br>-2.9<br>-6.8<br>69.1<br>-4.8<br>-1.9<br>-6.8<br>70.0<br>-4.5<br>-1.3<br>-4.5<br>70.1<br>-5.7<br>-1.7<br>-7.6|14.4<br>+4.7<br>+1.7<br>+5.7<br>21.3<br>+3.6<br>+1.6<br>+5.1<br>23.6<br>+4.5<br>-<br>-<br>29.6<br>+3.2<br>+0.6<br>+3.8<br>37.8<br>-0.6<br>-3.8<br>-2.5<br>44.5<br>-4.1<br>-3.5<br>-5.7<br>36.4<br>+0.4<br>-2.9<br>-0.6<br>41.2<br>-2.0<br>-4.1<br>-3.2<br>38.6<br>-0.9<br>-2.7<br>-3.2|34.9<br>-7.1<br>+1.6<br>-4.4<br>45.8<br>-0.1<br>+2.9<br>-3.2<br>30.0<br>-5.4<br>-<br>-<br>48.8<br>-3.6<br>+2.0<br>-2.5<br>51.1<br>-8.4<br>+2.6<br>-5.7<br>47.6<br>-5.1<br>+5.3<br>-0.7<br>46.1<br>-8.7<br>+2.7<br>-9.8<br>56.8<br>-8.8<br>-0.9<br>-9.0<br>48.9<br>-5.9<br>+3.2<br>-3.4|
+|Rerankers<br>MonoT5-Small<br>MiniLM-2-v2<br>SPLADEv2<br>MonoBERT<br>MiniLM-4-v2<br>MonoT5-Base<br>MonoT5-3B<br>ColBERTv2<br>MiniLM-12-v2<br>MonoT5-Large<br>LLAMA<br>LLAMAv2<br>LLAMAv2-13B|66.6<br>-2.0<br>-2.8<br>-2.8<br>68.0<br>-3.2<br>-4.1<br>-5.1<br>70.1<br>-4.3<br>-3.7<br>-5.6<br>70.4<br>-4.6<br>-2.0<br>-4.8<br>70.6<br>-3.0<br>-2.5<br>-4.9<br>71.5<br>-3.2<br>-1.4<br>-5.2<br>71.7<br>-2.8<br>-2.0<br>-5.0<br>71.8<br>-4.2<br>-2.8<br>-6.4<br>72.0<br>-4.3<br>-4.5<br>-5.6<br>72.2<br>-4.0<br>-1.8<br>-5.6<br>72.6<br>-2.9<br>-4.9<br>-7.7<br>72.8<br>-4.2<br>-4.9<br>-9.3<br>73.6<br>-4.5<br>-5.4<br>-7.3|34.3<br>+0.1<br>-0.6<br>-0.3<br>27.5<br>-2.0<br>+0.6<br>-15.8<br>33.4<br>+1.3<br>-0.2<br>+1.2<br>36.2<br>+0.2<br>-0.7<br>+0.0<br>33.8<br>+1.5<br>-0.3<br>+1.2<br>39.2<br>-1.2<br>-1.2<br>-0.9<br>45.9<br>-3.8<br>-3.2<br>-5.6<br>33.8<br>-0.4<br>-0.3<br>-0.7<br>35.5<br>-0.4<br>-0.5<br>+0.0<br>42.8<br>-2.3<br>-2.3<br>-3.1<br>40.0<br>-3.7<br>-4.9<br>-5.8<br>41.1<br>-3.6<br>-7.4<br>-7.9<br>41.2<br>-4.5<br>-4.9<br>-7.0|21.1<br>+22.7<br>-3.0<br>+22.2<br>15.2<br>+11.4<br>+10.8<br>+11.2<br>45.0<br>-4.5<br>-1.3<br>-4.0<br>50.1<br>-5.7<br>+2.5<br>-9.3<br>43.4<br>+0.4<br>+1.0<br>-0.8<br>27.0<br>+20.0<br>+0.7<br>+18.7<br>42.4<br>+6.8<br>-1.9<br>+5.2<br>47.4<br>-5.2<br>-0.6<br>-4.8<br>33.2<br>+12.0<br>+1.1<br>+9.8<br>31.2<br>+14.8<br>-2.0<br>+14.8<br>52.6<br>-3.9<br>-6.9<br>-9.4<br>52.3<br>-1.5<br>-8.2<br>-7.0<br>49.4<br>-2.1<br>-6.0<br>-4.9|
+
+
+
+Table 1: Best expansion strategies across different models. _QE_ stands for query expansion (Q-LM PRF), _DE_ for
+document expansion (Doc2Query), and _Both_ for the combination (Q-LM PRF + Doc2Query). Colors indicate a
+positive or negative delta over scores for no expansion. Models with higher base scores are generally harmed by
+expansions while weaker models benefit from them. Llama models follow MonoT5 in fine-tuning on MSMarco.
+
+
+
+original query. Many works have shown the effectiveness of this approach (Jagerman et al., 2023;
+He et al., 2022; Trivedi et al., 2022).
+
+
+**LM-based Pseudo Relevance Feedback (Q-LM**
+**PRF).** PRF is a classical IR method to expand a
+query using terms from top retrieved documents.
+We use an LM to generate a list of terms from the
+top 3 documents ranked by a bi-encoder model
+(Contriever). Through a second invocation, the
+LM updates the query to include the new terms.
+LM-aided PRF has been shown to be broadly effective (Mackie et al., 2023; Jagerman et al., 2023).
+
+
+
+**2.2** **Document Expansion**
+
+
+**Doc2Query.** There are fewer widespread LM
+document expansion techniques, with the main one
+being Doc2Query (Nogueira et al., 2019c). Work
+has found that improving the question generation
+model results in higher scores, hence we use ChatGPT instead of T5 for our experiments (Nogueira
+et al., 2019a). See Appendix A for results using
+alternative LMs for document expansion.
+
+
+**LM-based Document PRF (D-LM PRF).** Similar to the Q-LM PRF technique above, we propose
+
+
+
+1989
+
+
+|Axis|Dataset|# Queries # Docs Avg. Judged/Q|Q Len D Len|
+|---|---|---|---|
+|In-Domain|TREC DL Track 2019 (Craswell et al., 2020)<br>TREC DL Track 2020 (Craswell et al., 2021)|43<br>8,841,823<br>212.5<br>54<br>8,841,823<br>207.9|5.4<br>56.6<br>6.0<br>56.6|
+|Domain Shift|FiQA-2018 (Maia et al., 2018)<br>Gooaq Technical (Khashabi et al., 2021)<br>NFCorpus (Boteva et al., 2016)|648<br>57,600<br>2.6<br>1,000<br>4,086<br>1.0<br>323<br>3,633<br>38.2|10.9<br>137.4<br>8.3<br>44.5<br>3.3<br>233.5|
+|Relevance Shift|Touché-2020 (Bondarenko et al., 2020)<br>SciFact Refute (Wadden et al., 2020)|49<br>382,545<br>19.0<br>64<br>5,183<br>1.2|6.6<br>293.7<br>12.1<br>214.8|
+|Long Query Shift|Tip of My Tongue (Lin et al., 2023)<br>TREC Clinical Trials ’21 (Roberts et al., 2021)<br>ArguAna (Wachsmuth et al., 2018)|2,272<br>1,877<br>1.0<br>75<br>375,580<br>348.8<br>1,406<br>8,674<br>1.0|144.3<br>100.5<br>133.3<br>919.5<br>197.1<br>170.3|
+|Short Doc Shift|WikiQA (Yang et al., 2015)<br>Quora (Iyer et al., 2017)|369<br>26,196<br>1.2<br>10,000<br>522,931<br>1.6|6.3<br>25.1<br>9.5<br>12.5|
+
+
+Table 2: Statistics of datasets in this work. Avg. Judged/Q is the number of relevant documents per query. Length is
+measured in words. The TREC DL Track uses the MS MARCO dataset (Nguyen et al., 2016).
+
+
+**DL 2019 Track** **DL 2020 Track**
+**Type** **Model** DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B
+
+
+
+
+
+Table 3: In-Domain performance on the TREC Deep Learning Tracks, according to various types of expansions,
+showing that expansion typically helps weaker models (like DPR) but hurts stronger models (especially large
+reranker models like MonoT5-3B). Colors indicate a positive or negative delta over scores for no expansion.
+
+
+
+a document expansion that draws pseudo-relevance
+from _related queries_ instead of related documents.
+In this setting, where there exists a set of unjudged
+user queries, we show the LM the top 5 mostsimilar queries and ask it to expand the original
+document to better answer the relevant queries.
+
+
+**3** **RQ1: How Do Different Models Impact**
+**Query and Document Expansion?**
+
+
+**Experimental Setting** To understand the efficacy of LM-based expansions, we employ
+a wide variety of neural retrieval models:
+DPR (Karpukhin et al., 2020); ColBERT v2 (Santhanam et al., 2022); SPLADE v2 (Formal
+et al., 2021a); MonoBERT (Nogueira et al.,
+2019b); several MonoT5 (Nogueira et al., 2020),
+E5 (Wang et al., 2022b), and MiniLM models (Wang et al., 2020); GTE (Li et al., 2023);
+`all-mpnet-v2-base` (Reimers and Gurevych,
+
+
+
+2019); Llama 1 & 2 models (Touvron et al.,
+2023a,b), which we fine-tune on MS MARCO.
+Due to the exponential combination of models
+and datasets, we evaluate all models on three representative datasets in Table 1 (we provide a comprehensive description of all datasets in §5); then, we
+use five representative models (DPR, Contriever,
+ColBERTv2, MonoT5-small, and MonoT5-3B) on
+a larger suite of datasets (see Figure 2).
+We present results for expansion technique as
+absolute increase/decrease in nDCG@10 [5] points
+over a baseline with no expansion, which we highlight in grey in all tables. Values above zero (e.g.
+
+
+5Traditional expansion techniques increase recall of retrieval systems. However, LM-based expansions have been
+shown to also improve precision (Jagerman et al., 2023). Thus,
+we use the official, precision-oriented metric for BEIR, nDCG.
+
+
+
+1990
+
+
+**FiQA-2018** **GooAQ Technical** **NFCorpus**
+**Type** **Model** DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B
+
+_No Expansion_ 14.4 29.6 45.9 42.5 71.0 80.2 24.1 34.6 39.2
+
+
+D2Q +1.7 +0.6 **-3.2** +6.4 +3.0 **-1.1** +1.3 **+0.6** **-0.5**
+D-LM PRF +3.3 +1.6 -12.5 +3.8 +0.6 -11.4 +0.3 -0.3 -0.7
+
+
+Table 4: How different expansions affect results on datasets that measure **Domain Shift** . Colors indicate a positive
+or negative delta over scores for no expansion. Notice that models with higher base scores are generally harmed by
+expansions while weaker models benefit from them.
+
+
+**Touche-2020** **Scifact-Refute**
+**Type** **Model** DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B
+
+_No Expansion_ 23.0 24.8 32.6 33.9 76.4 82.1
+
+
+Table 5: How different expansions affect results on datasets that measure **Relevance Shift** .
+
+
+
+difference between the base value and the min/max
+( _i.e._, more saturation for the highest/lowest values).
+We use default hyperparameters for all models,
+except for the length of the queries, which we set at
+512 for BERT-based models and 1024 for T5 and
+Llama models.
+
+
+**Effect of Different Models** Our results with all
+models (Figure 1) show a consistent pattern: as
+base performance on a task increases, the gains
+from expansion decrease. We also see this trend
+from Table 1 (note that ArguAna and FIQA results are sorted by nDCG score on MS MARCO;
+negative trend is clearly observable in Figure 1).
+Interestingly, these results do not depend on the
+model architecture: this is true for bi-encoders,
+late-interaction models, neural sparse models, and
+cross-encoders (of all sizes).
+However, do these results hold for other
+datasets? In Figure 2, we show that this pattern
+is consistent over a wide range of datasets. Models
+
+
+
+whose base score is higher (such as MonoT5-3B)
+are negatively impacted by expansions.
+
+
+**4** **RQ2: How Do Different Distribution**
+**Shifts Impact Results?**
+
+**Experimental Setting** We evaluate how query
+and document expansion are impacted by different distribution shifts: in-domain/no shift (MS
+MARCO), domain shift (e.g. medical, code, legal),
+relevance shift (finding the opposite or a counterargument), and format shift (extremely long queries
+or very short documents). Datasets and their descriptive statistics are in Table 2. We use three
+representative models for these experiments.
+
+
+**In-Domain** We use two datasets that test performance on the MS MARCO collection: TREC Deep
+Learning [6] 2019 and 2020 tracks (Craswell et al.,
+
+
+6Despite the different names, TREC DL 2019 and 2020
+use the same document collection as MS MARCO, albeit with
+new queries and relevance judgements.
+
+
+
+1991
+
+
+**Tip of My Tongue** **TREC CT 2021** **Arguana**
+**Type** **Model** DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B
+
+_No Expansion_ 13.4 38.3 39.5 16.4 26.7 25.8 34.9 48.8 42.4
+
+
+D2Q +1.6 -3.2 -8.5 +0.3 -1.3 -1.8 +1.6 +2.0 -2.1
+D-LM PRF +5.5 **+2.9** +0.9 -0.7 -0.9 +0.6 **+2.3** **+3.5** -2.5
+
+
+Table 6: How different expansions affect results on datasets that measure **Long Query Format Shift** . Colors
+indicate a positive or negative delta over scores for no expansion. _Unlike previous results_, all models benefit from
+expansions on all three datasets. We conclude that, in the case of significant query shift, expansion is useful.
+
+
+**WikiQA** **Quora**
+**Type** **Model** DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B
+
+_No Expansion_ 47.2 68.6 75.9 68.4 86.7 83.9
+
+
+Table 7: How different expansions affect results on datasets that measure **Short Document Format Shift** . Models
+with higher base scores are generally harmed by expansions while weaker models benefit from them.
+
+
+
+2020, 2021). All retrieval models considered train
+on MS MARCO, hence these are _in-domain_ .
+
+
+**Domain Shift** In this setting models must generalize from training domain (web documents from
+MS MARCO) to new domains, such as legal or
+medical text. This type of shift is made difficult by
+specialized vocabulary in these domains. We use
+NFCorpus (medical) (Boteva et al., 2016), GooAQ
+Technical (code) (Khashabi et al., 2021), and FiQA2018 (finance) (Maia et al., 2018).
+
+
+**Relevance Shift** This setting is characterized by
+a difference in how _relevance_ is defined. Rather
+than topical relevance over web pages, queries in
+these datasets ask for counterarguments or documents refuting its claim. We use two datasets that
+search for refutations or counterarguments: Touché2020 (Bondarenko et al., 2020) and a subset of SciFact (Wadden et al., 2020) whose gold documents
+refute the queries claims.
+
+
+
+**Format Shift** Another type of shift is the length
+of inputs: generally, queries are short and documents span over one to multiple paragraphs. However, there are situations where queries could be
+document-sized or the documents could be short.
+This shift tests whether models can generalize
+to new length formats. We consider two sets of
+datasets: for _shift to long query_ we use the “Tip
+of My Tongue” dataset introduced by Lin et al.
+(2023), TREC Clinical Trials Track 2021 (Roberts
+et al., 2021), and ArguAna (Wachsmuth et al.,
+2018). For _shift to short document_, we use Quora
+(Iyer et al., 2017) and WikiQA (Yang et al., 2015).
+
+
+**4.1** **Results by Type of Shift**
+
+Table 3 shows results for in-domain data on the
+2019 and 2020 Deep Learning TREC Tracks. We
+see that weaker models improve with different expansion types, with DPR improving for almost every expansion and the stronger Contriever showing
+
+
+
+1992
+
+
+**Original** **Expanded**
+
+
+
+**1. Doc A** **1. Doc B**
+
+**2. Doc B** **2. Doc A**
+
+**3.  ...** **3.  ...**
+
+
+
+**Doc A**
+
+
+**Doc B**
+
+
+
+... suggest that they borrow the money to invest
+with you. They can use their bitcoins as collateral
+for the loan. That way, they get the same benefit
+and your company doesn't go out of business if the
+price of bitcoin drops ...
+
+
+...The most likely tool to use in this case would be
+a Home Equity Line of Credit (HELOC). This is a
+line of credit for which the full amount is backed
+by home equity ... Most likely your financial
+institution will apply a factor ...
+
+
+
+**1. Doc A**
+
+
+
+**Query** : Is it possible to take a mortgage
+using Bitcoin as collateral?
+
+
+**Ranked List**
+
+
+
+**Query** : What are the risks and maximum amount
+involved in obtaining a Home Equity Line of Credit
+(HELOC) using Bitcoin as collateral?
+
+
+**Ranked List**
+
+
+
+**2. Doc B**
+
+
+
+Figure 3: An example of expansions obscuring the relevance signal. The non-relevant document in red (×) was
+ranked higher than the relevant blue (✓) document due to the phrase _“Home Equity Line of Credit”_ being added to
+the query. The left side shows the original query and documents while the right side shows the ranking.
+
+
+
+minor improvements for some combinations. However, when we move to the stronger models ( _e.g._,
+MonoT5-3B), we find that all of these gains disappear and expansions hurt the model.
+We find that this trend holds in most other categories of shift: Table 4 for domain shift, Table 5
+for relevance shift, and Table 7 for short document
+shift. Note that Figure 2 also shows this visually.
+The exceptions to this pattern occur in format
+shift: on Quora (Table 5), all models are harmed
+by expansion; for long query shift (Table 6), expansions generally help most models. When we
+examine why expansions help for the latter, we find
+that the transformations typically shorten queries to
+more closely resemble models’ training data ( _e.g._,
+for ArguAna the query changes from a long document to a shorter sentence that summarizes it).
+As IR models are not typically trained on long
+queries, it is an open-question of whether additional
+training would make this category of shift easier
+for models and thus make expansions less helpful.
+
+
+**5** **RQ3: Why Do Expansions Hurt?**
+
+
+Sections 3 and 4 show that strong IR models do
+not benefit from expansions. But what causes this
+effect? Here, we explore whether model size (§5.1)
+is linked to our findings, and perform a qualitative
+error analysis (§5.2).
+
+
+**5.1** **Drop in Performance Independent of Size**
+
+One possible argument is that larger models are
+able to estimate relevance better when using unaltered queries and documents, as they have learned
+a more refined relevance model during their training. To verify this hypothesis, we test two different
+families of models: MonoT5 and E5. If model size
+is the cause, we would expect to see larger models
+gain less from expansions for both families.
+However, Figure 5 shows that model scale is
+inversely correlated with gains from expansion for
+the MonoT5-family, but not the E5-family. The
+
+
+
+crucial difference between them [7] can be attributed
+to the E5 models having similar performance scores
+across sizes whereas T5 has a much wider range:
+T5 differs by 21 nDCG@10 points on ArguAna
+from 3B to small while E5 differs by only 3 points
+from large to small. Thus, we see that model size
+impacts gains from expansions only in tandem with
+the correlation between model size and base score.
+
+
+**5.2** **Error Analysis**
+
+
+If model size is not the reason for our finding, what
+could be causing it? To gain an intuition on the
+failures of LM expansion, we annotate 30 examples
+from three datasets where performance declines
+when expanding queries and documents.
+
+We find that out of the 30 examples, two are
+false negatives, _i.e._, relevant documents that are
+unjudged and not labeled as relevant (both from
+FiQA). Of the remaining 28, all errors are due to
+the expansions adding irrelevant terms that dilute
+relevance signal, or including erroneous keywords
+that make irrelevant documents appear relevant.
+Figure 3 shows an example of how query expansion added the term _“Home Equity Line of Credit”_
+and distracted from the main focus of the question (using bitcoins as collateral). Thus, it is likely
+that, without the noise LM-based expansions introduce, well tuned rankers can accurately estimate
+relevance of subtly different documents. We can
+visualize this in Figure 4, where we note a general
+downward shift of the rankings of relevant documents in the top-10 positions for TREC DL 2019.
+We find that most expansions shifts the ranking by
+a few positions, while some expansions shift the
+relevant document ranks to be out of the top 10 (i.e.
+the cluster at -10 in Figure 4).
+
+
+7Another obvious difference is that E5 is a bi-encoder
+while MonoT5 is not. However, previous work (Muennighoff,
+2022) has shown that bi-encoders also improve with scale.
+
+
+
+1993
+
+
+Figure 4: The change in rank for relevant documents
+in the top 10 when using expansions. Negative values
+indicate lower ranks (e.g. -5 indicates that the rank of the
+relevant document went down 5 when using expansions).
+We see that expansions cause relevant documents to be
+ranked lower. Figure 6 in the Appendix shows other
+datasets with similar results.
+
+
+
+
+|Col1|Col2|
+|---|---|
+|||
+
+
+
+
+
+
+
+
+
+Figure 5: Model scale does **not** explain negative effect
+of LM-based expansions. While larger MonoT5 models
+perform worse, all E5 model sizes are equally impacted
+
+
+
+**6** **Discussion**
+
+
+Our results indicate three phenomena regarding
+expansion using LMs: ( _i_ ) expansion generally benefits weaker models, such as DPR, while better
+performing rankers, such as T5, are penalized; ( _ii_ )
+exceptions are observed in case of severe distribution shift, _e.g._ very long queries; ( _iii_ ) when model
+scores decrease, the cause is generally expansion
+weakening the original relevance signal.
+This implies that despite their broad capabilities, LMs should not be used to augment strong
+performing IR models without careful testing. The
+strong performance of rerankers for generalization
+confirms previous work by Rosa et al. (2022a). Further, Table 3 indicates this characterization of LM
+expansion also holds on in-domain data (no shift).
+Interestingly, our experiments find that the only
+distribution shift that consistently needs expansion
+is long query format shift; we found no equivalent
+result for domain, document, or relevance shift. Future work may examine whether improved training
+techniques on longer queries can overcome this or
+whether longer queries are innately more difficult.
+
+
+
+**7** **Related Work**
+
+**Large Scale Analyses in Neural IR** Comprehensive analyses in retrieval have provided great
+insight into practical uses of retrieval. These include many aspects of information retrieval, including interpretability (MacAvaney et al., 2022),
+domain changes (Lupart et al., 2023), syntax phenomena (Chari et al., 2023; Weller et al., 2023),
+and relationship between neural and classical IR approaches (Formal et al., 2021b; Chen et al., 2022).
+
+**Generalization in Neural IR** As retrieval models have become more effective, attention has
+turned to improving and evaluating the way that IR
+models generalize to out-of-distribution datasets
+(e.g. not MS MARCO-like corpora). One prominent example of this is the BEIR dataset suite
+(Thakur et al., 2021), which is commonly used for
+retrieval evaluation. Much other work has proposed
+new datasets for types of shift (e.g. MTEB (Muennighoff et al., 2023) among others (Han et al., 2023;
+Ravfogel et al., 2023; Weller et al., 2023)), as well
+as many new modeling strategies for better zeroshot retrieval (Dai et al., 2022; Wang et al., 2022a).
+We follow these works by showing different types
+of shift and whether these types of shift change the
+results for LM-based expansion techniques.
+
+**Effect of Scale on Neural IR Models** IR models typically improve with scale (Nogueira et al.,
+2020) but are also heavily constrained, due to the requirement of processing documents for live search.
+Thus, most first-stage IR models typically use a
+BERT backbone (Santhanam et al., 2022; Izacard
+et al., 2021) while reranker models have scaled to
+billions of parameters (Nogueira et al., 2020). However, work on scaling bi-encoder architectures has
+also shown performance gains from scale (Muennighoff, 2022). Due to the effectiveness of larger
+models, recent work has shown that a better firststage model does not lead to improvements over
+a BM25 + reranker pipeline (Rosa et al., 2022a).
+Thus, for our experiments we use BM25 as first
+stage retrieval and show results reranking those.
+
+**Query and Document Expansion in IR** Query
+and document expansion have a long history in
+IR, with early techniques such as expanding query
+terms using dictionaries or other hand-built knowledge sources (Smeaton et al., 1995; Liu et al., 2004)
+as well as techniques that use corpus-specific information such as pseudo-relevance feedback (Rocchio Jr, 1971). These expansions are limited as they
+
+
+
+1994
+
+
+are either hand-crafted (and thus limited in scope)
+or involved automatic techniques that may introduce spurious connections between words. LMbased query and document expansions on the other
+hand can rely on their extensive linguistic knowledge which goes well beyond hand-crafted rules.
+Despite this however, they still suffer from spurious and superfluous additions, as shown in Figure 3.
+However, LM-based expansions have been shown
+to be successful in a variety of applications (Zheng
+et al., 2020; Weller et al., 2022; Wang et al., 2023a;
+Jagerman et al., 2023), which provided inspiration
+for this work.
+
+
+**8** **Conclusion**
+
+We conduct the first large scale analysis on large
+language model (LM) based query and document
+expansion, studying how model performance, architecture, and size affects these results. We find that
+these expansions improve weaker IR models while
+generally harming performance for the strongest
+models (including large rerankers and heavily optimized first-stage models). We further show that this
+negative correlation between model performance
+and gains from expansion are true for a wide variety
+of out of distribution datasets, except for long query
+shift, where this correlation is weaker. Overall, our
+results indicate that LM expansion should not be
+used for stronger IR models and should instead be
+confined to weaker retrieval models.
+
+
+**Limitations**
+
+**We evaluate rankers in a zero-shot setup.** This
+work does not train rankers to deal with augmentations. While additional training might help mitigate
+negative effect of document and query expansion,
+it would significantly increase computational requirements. In fact, as our analysis reveals that
+no single expansion technique is superior in all settings, users would need to train rankers for multiple
+expansion techniques, further increasing the cost of
+this fine-tuning step. Finally, some tasks might require fine-tuning on supervised data, which might
+not be available or easily obtainable.
+
+**Our protocol for choosing whether a ranker**
+**need expansion requires labeled test data in the**
+**target domains.** While our work requires no labeled data to train models, we note that deciding
+whether to use augmentation requires having access
+to evaluation data for the target domain: in some
+cases, such data might not be available. While
+
+
+
+recently proposed LM-aided IR evaluation techniques (Faggioli et al., 2023; MacAvaney and Soldaini, 2023; Thomas et al., 2023) might ameliorate
+the need of supervised data, we do not explore such
+approaches in this work.
+
+**While open LMs were evaluated, majority of ex-**
+**periments rely on commercial LM APIs.** The
+majority of experiments in this work were carried
+out with commercial language models available via
+paid APIs. While we experimented with a variety of other paid API and open LMs ( `gpt-4-0613`,
+Claude V2, Llama2 70b Chat), we found that they
+all generally show similar trends, with commercial
+APIs currently outperforming open models (see
+Appendix A and Table 8 for more details). As
+our work is mainly focused on studying the effect of expansion different rankers, we feel picking
+one representative model is justified. Nevertheless,
+use of commercial APIs limits reproducibility and
+presents a significant barrier to those who cannot
+get access to the model. To minimize this, we will
+release all LM generations gathered from commercial APIs and from open-source models.
+
+**Compute requirements to fully replicate this**
+**work.** A replication of this work would require
+access to significant computational resources, including GPUs. A rough estimate shows that generating results for this paper required north of 10,000
+NVIDIA A6000 GPU hours, with a further 5,000
+hours to develop a stable experimental platform.
+
+**Only English information retrieval models are**
+**evaluated.** This work only studies datasets in English. While LM augmentations could play an
+important role in improving non-English, crosslingual, and multilingual information retrieval, they
+require careful analysis (c.f. Mayfield et al. (2023)
+as one example).
+
+
+**Ethical Considerations**
+
+**LMs may generate factually incorrect text,**
+**which could affect ranking.** This work shows
+that LM augmentations make mistakes; while our
+experimental setup is such that LM-generated content never replaces actual documents, inaccuracies
+might result in non-relevant documents being presented to users.
+
+
+**Acknowledgements**
+
+OW is supported by the National Science Foundation Graduate Research Fellowship Program. We
+
+
+
+1995
+
+
+thanks Sean MacAvaney, Akari Asai, and the Semantic Scholar team at AI2 for their feedback and
+comments that helped improve this work, as well
+as those of the reviewers.
+
+
+**References**
+
+Nasreen Abdul-Jaleel, James Allan, W Bruce Croft,
+Fernando Diaz, Leah Larkey, Xiaoyan Li, Mark D
+[Smucker, and Courtney Wade. 2004. Umass at trec](https://trec.nist.gov/pubs/trec13/papers/umass.novelty.hard.pdf)
+[2004: Novelty and hard.](https://trec.nist.gov/pubs/trec13/papers/umass.novelty.hard.pdf) _Computer Science Depart-_
+_ment Faculty Publication Series_, page 189.
+
+
+Akari Asai, Timo Schick, Patrick Lewis, Xilun Chen,
+Gautier Izacard, Sebastian Riedel, Hannaneh Ha[jishirzi, and Wen-tau Yih. 2022. Task-aware retrieval](https://arxiv.org/abs/2211.09260)
+[with instructions.](https://arxiv.org/abs/2211.09260) _ArXiv preprint_, abs/2211.09260.
+
+
+Jagdev Bhogal, Andrew MacFarlane, and Peter Smith.
+2007. A review of ontology based query expansion.
+_Information processing & management_, 43(4):866–
+886.
+
+
+Alexander Bondarenko, Maik Fröbe, Meriem Beloucif, Lukas Gienapp, Yamen Ajjour, Alexander
+Panchenko, Chris Biemann, Benno Stein, Henning
+Wachsmuth, Martin Potthast, and Matthias Hagen.
+2020. [Overview of Touché 2020: Argument Re-](http://ceur-ws.org/Vol-2696/)
+[trieval. In](http://ceur-ws.org/Vol-2696/) _Working Notes Papers of the CLEF 2020_
+_Evaluation Labs_, volume 2696 of _CEUR Workshop_
+_Proceedings_ .
+
+
+Vera Boteva, Demian Gholipour, Artem Sokolov, and
+[Stefan Riezler. 2016. A full-text learning to rank](http://www.cl.uni-heidelberg.de/~riezler/publications/papers/ECIR2016.pdf)
+[dataset for medical information retrieval. In](http://www.cl.uni-heidelberg.de/~riezler/publications/papers/ECIR2016.pdf) _Proceed-_
+_ings of the 38th European Conference on Information_
+_Retrieval (ECIR 2016)_, pages 716–722.
+
+
+[Claudio Carpineto and Giovanni Romano. 2012. A](https://doi.org/10.1145/2071389.2071390)
+[survey of automatic query expansion in information](https://doi.org/10.1145/2071389.2071390)
+[retrieval.](https://doi.org/10.1145/2071389.2071390) _ACM Comput. Surv._, 44(1).
+
+
+Andreas Chari, Sean MacAvaney, and Iadh Ounis. 2023.
+
+[On the effects of regional spelling conventions in re-](https://api.semanticscholar.org/CorpusID:259949628)
+[trieval models.](https://api.semanticscholar.org/CorpusID:259949628) _Proceedings of the 46th International_
+_ACM SIGIR Conference on Research and Develop-_
+_ment in Information Retrieval_ .
+
+
+Xilun Chen, Kushal Lakhotia, Barlas Oguz, Anchit
+Gupta, Patrick Lewis, Stan Peshterliev, Yashar
+Mehdad, Sonal Gupta, and Wen-tau Yih. 2022.
+[Salient phrase aware dense retrieval: Can a dense](https://aclanthology.org/2022.findings-emnlp.19)
+[retriever imitate a sparse one?](https://aclanthology.org/2022.findings-emnlp.19) In _Findings of the_
+_Association for Computational Linguistics: EMNLP_
+_2022_, pages 250–262, Abu Dhabi, United Arab Emirates. Association for Computational Linguistics.
+
+
+Nick Craswell, Bhaskar Mitra, Emine Yilmaz, and
+[Daniel Campos. 2021. Overview of the trec 2020](http://arxiv.org/abs/2102.07662)
+[deep learning track.](http://arxiv.org/abs/2102.07662)
+
+
+Nick Craswell, Bhaskar Mitra, Emine Yilmaz, Daniel
+[Campos, and Ellen M Voorhees. 2020. Overview of](https://arxiv.org/abs/2003.07820)
+[the trec 2019 deep learning track.](https://arxiv.org/abs/2003.07820) _ArXiv preprint_,
+abs/2003.07820.
+
+
+
+Zhuyun Dai, Vincent Zhao, Ji Ma, Yi Luan, Jianmo Ni,
+Jing Lu, Anton Bakalov, Kelvin Guu, Keith B. Hall,
+[and Ming-Wei Chang. 2022. Promptagator: Few-](https://arxiv.org/abs/2209.11755)
+[shot dense retrieval from 8 examples.](https://arxiv.org/abs/2209.11755) _ArXiv preprint_,
+abs/2209.11755.
+
+
+Guglielmo Faggioli, Laura Dietz, Charles L. A. Clarke,
+Gianluca Demartini, Matthias Hagen, Claudia Hauff,
+Noriko Kando, Evangelos Kanoulas, Martin Potthast,
+[Benno Stein, and Henning Wachsmuth. 2023. Per-](https://doi.org/10.1145/3578337.3605136)
+[spectives on large language models for relevance](https://doi.org/10.1145/3578337.3605136)
+[judgment. In](https://doi.org/10.1145/3578337.3605136) _Proceedings of the 2023 ACM SIGIR_
+_International Conference on Theory of Information_
+_Retrieval_, ICTIR ’23, page 39–50, New York, NY,
+USA. Association for Computing Machinery.
+
+
+Thibault Formal, Carlos Lassance, Benjamin Pi[wowarski, and Stéphane Clinchant. 2021a. Splade](https://arxiv.org/abs/2109.10086)
+[v2: Sparse lexical and expansion model for informa-](https://arxiv.org/abs/2109.10086)
+[tion retrieval.](https://arxiv.org/abs/2109.10086) _ArXiv preprint_, abs/2109.10086.
+
+
+Thibault Formal, Benjamin Piwowarski, and Stéphane
+[Clinchant. 2021b. Match your words! a study of](https://api.semanticscholar.org/CorpusID:245117503)
+[lexical matching in neural information retrieval. In](https://api.semanticscholar.org/CorpusID:245117503)
+_European Conference on Information Retrieval_ .
+
+
+Luyu Gao, Xueguang Ma, Jimmy Lin, and Jamie Callan.
+[2022. Precise zero-shot dense retrieval without rele-](https://arxiv.org/abs/2212.10496)
+[vance labels.](https://arxiv.org/abs/2212.10496) _ArXiv preprint_, abs/2212.10496.
+
+
+Rujun Han, Peng Qi, Yuhao Zhang, Lan Liu, Juliette
+Burger, William Yang Wang, Zhiheng Huang, Bing
+[Xiang, and Dan Roth. 2023. Robustqa: Benchmark-](https://api.semanticscholar.org/CorpusID:259859080)
+[ing the robustness of domain adaptation for open-](https://api.semanticscholar.org/CorpusID:259859080)
+[domain question answering. In](https://api.semanticscholar.org/CorpusID:259859080) _Annual Meeting of_
+_the Association for Computational Linguistics_ .
+
+
+Hangfeng He, Hongming Zhang, and Dan Roth. 2022.
+Rethinking with retrieval: Faithful large language
+model inference. _arXiv preprint arXiv:2301.00303_ .
+
+
+Armin Hust, Stefan Klink, Markus Junker, and Andreas
+Dengel. 2003. Towards collaborative information
+retrieval: Three approaches.
+
+
+Shankar Iyer, Nikhil Dandekar, and Kornél Csernai.
+2017. Quora question pairs. _First Quora Dataset_
+_Release: Question Pairs_ .
+
+
+Gautier Izacard, Mathilde Caron, Lucas Hosseini, Sebastian Riedel, Piotr Bojanowski, Armand Joulin,
+[and Edouard Grave. 2021. Unsupervised dense in-](https://arxiv.org/abs/2112.09118)
+[formation retrieval with contrastive learning.](https://arxiv.org/abs/2112.09118) _ArXiv_
+_preprint_, abs/2112.09118.
+
+
+Rolf Jagerman, Honglei Zhuang, Zhen Qin, Xuanhui
+[Wang, and Michael Bendersky. 2023. Query expan-](https://arxiv.org/abs/2305.03653)
+[sion by prompting large language models.](https://arxiv.org/abs/2305.03653) _ArXiv_
+_preprint_, abs/2305.03653.
+
+
+Vitor Jeronymo, Luiz Bonifacio, Hugo Abonizio,
+Marzieh Fadaee, Roberto Lotufo, Jakub Zavrel, and
+[Rodrigo Nogueira. 2023. Inpars-v2: Large language](https://arxiv.org/abs/2301.01820)
+[models as efficient dataset generators for information](https://arxiv.org/abs/2301.01820)
+[retrieval.](https://arxiv.org/abs/2301.01820) _ArXiv preprint_, abs/2301.01820.
+
+
+
+1996
+
+
+Vladimir Karpukhin, Barlas O˘guz, Sewon Min, Patrick
+Lewis, Ledell Wu, Sergey Edunov, Danqi Chen, and
+Wen Tau Yih. 2020. Dense passage retrieval for opendomain question answering. In _2020 Conference on_
+_Empirical Methods in Natural Language Process-_
+_ing, EMNLP 2020_, pages 6769–6781. Association
+for Computational Linguistics (ACL).
+
+
+Daniel Khashabi, Amos Ng, Tushar Khot, Ashish Sabharwal, Hannaneh Hajishirzi, and Chris Callison[Burch. 2021. GooAQ: Open question answering with](https://doi.org/10.18653/v1/2021.findings-emnlp.38)
+[diverse answer types. In](https://doi.org/10.18653/v1/2021.findings-emnlp.38) _Findings of the Association_
+_for Computational Linguistics: EMNLP 2021_, pages
+421–433, Punta Cana, Dominican Republic. Association for Computational Linguistics.
+
+
+[Victor Lavrenko and W. Bruce Croft. 2001. Relevance](https://doi.org/10.1145/383952.383972)
+[based language models. In](https://doi.org/10.1145/383952.383972) _Proceedings of the 24th_
+_Annual International ACM SIGIR Conference on Re-_
+_search and Development in Information Retrieval_,
+SIGIR ’01, page 120–127, New York, NY, USA. Association for Computing Machinery.
+
+
+Zehan Li, Xin Zhang, Yanzhao Zhang, Dingkun Long,
+[Pengjun Xie, and Meishan Zhang. 2023. Towards](https://arxiv.org/abs/2308.03281)
+[general text embeddings with multi-stage contrastive](https://arxiv.org/abs/2308.03281)
+[learning.](https://arxiv.org/abs/2308.03281) _ArXiv preprint_, abs/2308.03281.
+
+
+Kevin Lin, Kyle Lo, Joseph E Gonzalez, and Dan Klein.
+[2023. Decomposing complex queries for tip-of-the-](https://arxiv.org/abs/2305.15053)
+[tongue retrieval.](https://arxiv.org/abs/2305.15053) _ArXiv preprint_, abs/2305.15053.
+
+
+Shuang Liu, Fang Liu, Clement T. Yu, and Weiyi Meng.
+[2004. An effective approach to document retrieval](https://api.semanticscholar.org/CorpusID:848788)
+[via utilizing wordnet and recognizing phrases. In](https://api.semanticscholar.org/CorpusID:848788)
+_Annual International ACM SIGIR Conference on Re-_
+_search and Development in Information Retrieval_ .
+
+
+Simon Lupart, Thibault Formal, and Stéphane Clinchant.
+2023. Ms-shift: An analysis of ms marco distribution
+shifts on neural retrieval. In _Advances in Information_
+_Retrieval_, pages 636–652, Cham. Springer Nature
+Switzerland.
+
+
+Sean MacAvaney, Sergey Feldman, Nazli Goharian,
+[Doug Downey, and Arman Cohan. 2022. ABNIRML:](https://doi.org/10.1162/tacl_a_00457)
+[Analyzing the behavior of neural IR models.](https://doi.org/10.1162/tacl_a_00457) _Trans-_
+_actions of the Association for Computational Linguis-_
+_tics_, 10:224–239.
+
+
+[Sean MacAvaney and Luca Soldaini. 2023. One-shot](https://doi.org/10.1145/3539618.3592032)
+[labeling for automatic relevance estimation. In](https://doi.org/10.1145/3539618.3592032) _Pro-_
+_ceedings of the 46th International ACM SIGIR Con-_
+_ference on Research and Development in Information_
+_Retrieval_, SIGIR ’23, page 2230–2235, New York,
+NY, USA. Association for Computing Machinery.
+
+
+Iain Mackie, Shubham Chatterjee, and Jeffrey Stephen
+[Dalton. 2023. Generative relevance feedback with](https://api.semanticscholar.org/CorpusID:258332122)
+[large language models.](https://api.semanticscholar.org/CorpusID:258332122) _Proceedings of the 46th In-_
+_ternational ACM SIGIR Conference on Research and_
+_Development in Information Retrieval_ .
+
+
+Macedo Maia, Siegfried Handschuh, André Freitas,
+Brian Davis, Ross McDermott, Manel Zarrouk, and
+[Alexandra Balahur. 2018. Www’18 open challenge:](https://doi.org/10.1145/3184558.3192301)
+
+
+
+[Financial opinion mining and question answering. In](https://doi.org/10.1145/3184558.3192301)
+_Companion Proceedings of the The Web Conference_
+_2018_, WWW ’18, page 1941–1942, Republic and
+Canton of Geneva, CHE. International World Wide
+Web Conferences Steering Committee.
+
+
+James Mayfield, Eugene Yang, Dawn Lawrie, Samuel
+Barham, Orion Weller, Marc Mason, Suraj Nair,
+and Scott Miller. 2023. Synthetic cross-language
+information retrieval training data. _arXiv preprint_
+_arXiv:2305.00331_ .
+
+
+[Niklas Muennighoff. 2022. Sgpt: Gpt sentence em-](https://arxiv.org/abs/2202.08904)
+[beddings for semantic search.](https://arxiv.org/abs/2202.08904) _ArXiv preprint_,
+abs/2202.08904.
+
+
+Niklas Muennighoff, Nouamane Tazi, Loic Magne, and
+[Nils Reimers. 2023. MTEB: Massive text embedding](https://aclanthology.org/2023.eacl-main.148)
+[benchmark. In](https://aclanthology.org/2023.eacl-main.148) _Proceedings of the 17th Conference_
+_of the European Chapter of the Association for Com-_
+_putational Linguistics_, pages 2014–2037, Dubrovnik,
+Croatia. Association for Computational Linguistics.
+
+
+Tri Nguyen, Mir Rosenberg, Xia Song, Jianfeng Gao,
+Saurabh Tiwary, Rangan Majumder, and Li Deng.
+2016. Ms marco: A human generated machine reading comprehension dataset. _choice_, 2640:660.
+
+
+Rodrigo Nogueira, Zhiying Jiang, Ronak Pradeep, and
+[Jimmy Lin. 2020. Document ranking with a pre-](https://doi.org/10.18653/v1/2020.findings-emnlp.63)
+[trained sequence-to-sequence model. In](https://doi.org/10.18653/v1/2020.findings-emnlp.63) _Findings_
+_of the Association for Computational Linguistics:_
+_EMNLP 2020_, pages 708–718, Online. Association
+for Computational Linguistics.
+
+
+Rodrigo Nogueira, Jimmy Lin, and AI Epistemic. 2019a.
+From doc2query to doctttttquery. _Online preprint_,
+6:2.
+
+
+Rodrigo Nogueira, Wei Yang, Kyunghyun Cho, and
+[Jimmy Lin. 2019b. Multi-stage document ranking](https://arxiv.org/abs/1910.14424)
+[with bert.](https://arxiv.org/abs/1910.14424) _ArXiv preprint_, abs/1910.14424.
+
+
+Rodrigo Nogueira, Wei Yang, Jimmy Lin, and
+[Kyunghyun Cho. 2019c. Document expansion by](https://arxiv.org/abs/1904.08375)
+[query prediction.](https://arxiv.org/abs/1904.08375) _ArXiv preprint_, abs/1904.08375.
+
+
+Shauli Ravfogel, Valentina Pyatkin, Amir D. N. Cohen,
+[Avshalom Manevich, and Yoav Goldberg. 2023. Re-](https://arxiv.org/abs/2305.12517)
+[trieving texts based on abstract descriptions.](https://arxiv.org/abs/2305.12517) _ArXiv_
+_preprint_, abs/2305.12517.
+
+
+Nils Reimers and Iryna Gurevych. 2019. [Sentence-](https://doi.org/10.18653/v1/D19-1410)
+[BERT: Sentence embeddings using Siamese BERT-](https://doi.org/10.18653/v1/D19-1410)
+[networks. In](https://doi.org/10.18653/v1/D19-1410) _Proceedings of the 2019 Conference on_
+_Empirical Methods in Natural Language Processing_
+_and the 9th International Joint Conference on Natu-_
+_ral Language Processing (EMNLP-IJCNLP)_, pages
+3982–3992, Hong Kong, China. Association for Computational Linguistics.
+
+
+Kirk Roberts, Dina Demner-Fushman, Ellen M
+Voorhees, Steven Bedrick, and Willian R Hersh. 2021.
+Overview of the trec 2021 clinical trials track. In _Pro-_
+_ceedings of the Thirtieth Text REtrieval Conference_
+_(TREC 2021)_ .
+
+
+
+1997
+
+
+Joseph John Rocchio Jr. 1971. Relevance feedback in
+information retrieval. _The SMART retrieval system:_
+_experiments in automatic document processing_ .
+
+
+Guilherme Rosa, Luiz Bonifacio, Vitor Jeronymo, Hugo
+Abonizio, Marzieh Fadaee, Roberto Lotufo, and
+Rodrigo Nogueira. 2022a. [In defense of cross-](https://arxiv.org/abs/2212.06121)
+[encoders for zero-shot retrieval.](https://arxiv.org/abs/2212.06121) _ArXiv preprint_,
+abs/2212.06121.
+
+
+Guilherme Moraes Rosa, Luiz Henrique Bonifacio,
+Vitor Jeronymo, Hugo Abonizio, Marzieh Fadaee,
+Roberto de Alencar Lotufo, and Rodrigo Nogueira.
+2022b. [No parameter left behind: How distilla-](https://arxiv.org/abs/2206.02873)
+[tion and model size affect zero-shot retrieval.](https://arxiv.org/abs/2206.02873) _ArXiv_
+_preprint_, abs/2206.02873.
+
+
+Keshav Santhanam, Omar Khattab, Jon Saad-Falcon,
+[Christopher Potts, and Matei Zaharia. 2022. Col-](https://doi.org/10.18653/v1/2022.naacl-main.272)
+BERTv2: [Effective and efficient retrieval via](https://doi.org/10.18653/v1/2022.naacl-main.272)
+[lightweight late interaction. In](https://doi.org/10.18653/v1/2022.naacl-main.272) _Proceedings of the_
+_2022 Conference of the North American Chapter of_
+_the Association for Computational Linguistics: Hu-_
+_man Language Technologies_, pages 3715–3734, Seattle, United States. Association for Computational
+Linguistics.
+
+
+Alan F Smeaton, Fergus Kelledy, and Ruairi O’Donnell.
+1995. Trec-4 experiments at dublin city university:
+Thresholding posting lists, query expansion with
+wordnet and pos tagging of spanish. _Harman [6]_,
+pages 373–389.
+
+
+Nandan Thakur, Nils Reimers, Andreas Rücklé, Ab[hishek Srivastava, and Iryna Gurevych. 2021. BEIR:](https://openreview.net/forum?id=wCu6T5xFjeJ)
+[A heterogeneous benchmark for zero-shot evaluation](https://openreview.net/forum?id=wCu6T5xFjeJ)
+[of information retrieval models. In](https://openreview.net/forum?id=wCu6T5xFjeJ) _Thirty-fifth Con-_
+_ference on Neural Information Processing Systems_
+_Datasets and Benchmarks Track (Round 2)_ .
+
+
+Paul Thomas, Seth Spielman, Nick Craswell, and
+[Bhaskar Mitra. 2023. Large language models can](https://api.semanticscholar.org/CorpusID:262054847)
+[accurately predict searcher preferences.](https://api.semanticscholar.org/CorpusID:262054847) _ArXiv_,
+abs/2309.10621.
+
+
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier
+Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal
+Azhar, et al. 2023a. Llama: [Open and effi-](https://arxiv.org/abs/2302.13971)
+[cient foundation language models.](https://arxiv.org/abs/2302.13971) _ArXiv preprint_,
+abs/2302.13971.
+
+
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay
+Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti
+Bhosale, et al. 2023b. [Llama 2: Open founda-](https://arxiv.org/abs/2307.09288)
+[tion and fine-tuned chat models.](https://arxiv.org/abs/2307.09288) _ArXiv preprint_,
+abs/2307.09288.
+
+
+Harsh Trivedi, Niranjan Balasubramanian, Tushar Khot,
+[and Ashish Sabharwal. 2022. Interleaving retrieval](https://arxiv.org/abs/2212.10509)
+[with chain-of-thought reasoning for knowledge-](https://arxiv.org/abs/2212.10509)
+[intensive multi-step questions.](https://arxiv.org/abs/2212.10509) _ArXiv preprint_,
+abs/2212.10509.
+
+
+
+Henning Wachsmuth, Shahbaz Syed, and Benno Stein.
+[2018. Retrieval of the best counterargument without](https://doi.org/10.18653/v1/P18-1023)
+[prior topic knowledge. In](https://doi.org/10.18653/v1/P18-1023) _Proceedings of the 56th_
+_Annual Meeting of the Association for Computational_
+_Linguistics (Volume 1: Long Papers)_, pages 241–251,
+Melbourne, Australia. Association for Computational
+Linguistics.
+
+
+David Wadden, Shanchuan Lin, Kyle Lo, Lucy Lu
+Wang, Madeleine van Zuylen, Arman Cohan, and
+[Hannaneh Hajishirzi. 2020. Fact or fiction: Verifying](https://doi.org/10.18653/v1/2020.emnlp-main.609)
+[scientific claims. In](https://doi.org/10.18653/v1/2020.emnlp-main.609) _Proceedings of the 2020 Con-_
+_ference on Empirical Methods in Natural Language_
+_Processing (EMNLP)_, pages 7534–7550, Online. Association for Computational Linguistics.
+
+
+Kexin Wang, Nandan Thakur, Nils Reimers, and Iryna
+[Gurevych. 2022a. GPL: Generative pseudo labeling](https://doi.org/10.18653/v1/2022.naacl-main.168)
+[for unsupervised domain adaptation of dense retrieval.](https://doi.org/10.18653/v1/2022.naacl-main.168)
+In _Proceedings of the 2022 Conference of the North_
+_American Chapter of the Association for Computa-_
+_tional Linguistics: Human Language Technologies_,
+pages 2345–2360, Seattle, United States. Association
+for Computational Linguistics.
+
+
+Liang Wang, Nan Yang, Xiaolong Huang, Binxing
+Jiao, Linjun Yang, Daxin Jiang, Rangan Majumder,
+[and Furu Wei. 2022b. Text embeddings by weakly-](https://arxiv.org/abs/2212.03533)
+[supervised contrastive pre-training.](https://arxiv.org/abs/2212.03533) _ArXiv preprint_,
+abs/2212.03533.
+
+
+Liang Wang, Nan Yang, and Furu Wei. 2023a.
+
+[Query2doc: Query expansion with large language](https://arxiv.org/abs/2303.07678)
+[models.](https://arxiv.org/abs/2303.07678) _ArXiv preprint_, abs/2303.07678.
+
+
+Wenhui Wang, Furu Wei, Li Dong, Hangbo Bao, Nan
+[Yang, and Ming Zhou. 2020. Minilm: Deep self-](https://proceedings.neurips.cc/paper/2020/hash/3f5ee243547dee91fbd053c1c4a845aa-Abstract.html)
+[attention distillation for task-agnostic compression](https://proceedings.neurips.cc/paper/2020/hash/3f5ee243547dee91fbd053c1c4a845aa-Abstract.html)
+[of pre-trained transformers. In](https://proceedings.neurips.cc/paper/2020/hash/3f5ee243547dee91fbd053c1c4a845aa-Abstract.html) _Advances in Neural_
+_Information Processing Systems 33: Annual Confer-_
+_ence on Neural Information Processing Systems 2020,_
+_NeurIPS 2020, December 6-12, 2020, virtual_ .
+
+
+Xiao Wang, Sean MacAvaney, Craig Macdonald, and
+Iadh Ounis. 2023b. Effective contrastive weighting
+for dense query expansion. In _Proceedings of the 61st_
+_Annual Meeting of the Association for Computational_
+_Linguistics (Volume 1: Long Papers)_, pages 12688–
+12704.
+
+
+Xiao Wang, Craig Macdonald, Nicola Tonellotto, and
+Iadh Ounis. 2023c. Colbert-prf: Semantic pseudorelevance feedback for dense passage and document
+retrieval. _ACM Transactions on the Web_, 17(1):1–39.
+
+
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,
+et al. 2022. Chain-of-thought prompting elicits reasoning in large language models. _Advances in Neural_
+_Information Processing Systems_, 35:24824–24837.
+
+
+Orion Weller, Aleem Khan, Nathaniel Weir, Dawn
+Lawrie, and Benjamin Van Durme. 2022. Defending
+against misinformation attacks in open-domain question answering. _arXiv preprint arXiv:2212.10002_ .
+
+
+
+1998
+
+
+Orion Weller, Dawn J Lawrie, and Benjamin Van Durme.
+[2023. Nevir: Negation in neural information retrieval.](https://arxiv.org/abs/2305.07614)
+_ArXiv preprint_, abs/2305.07614.
+
+
+Yi Yang, Wen-tau Yih, and Christopher Meek. 2015.
+
+[WikiQA: A challenge dataset for open-domain ques-](https://doi.org/10.18653/v1/D15-1237)
+[tion answering. In](https://doi.org/10.18653/v1/D15-1237) _Proceedings of the 2015 Con-_
+_ference on Empirical Methods in Natural Language_
+_Processing_, pages 2013–2018, Lisbon, Portugal. Association for Computational Linguistics.
+
+
+Andrew Yates, Rodrigo Nogueira, and Jimmy Lin. 2021.
+
+[Pretrained transformers for text ranking: BERT and](https://doi.org/10.18653/v1/2021.naacl-tutorials.1)
+[beyond. In](https://doi.org/10.18653/v1/2021.naacl-tutorials.1) _Proceedings of the 2021 Conference of_
+_the North American Chapter of the Association for_
+_Computational Linguistics: Human Language Tech-_
+_nologies: Tutorials_, pages 1–4, Online. Association
+for Computational Linguistics.
+
+
+Zhi Zheng, Kai Hui, Ben He, Xianpei Han, Le Sun, and
+Andrew Yates. 2020. Bert-qe: contextualized query
+expansion for document re-ranking. _arXiv preprint_
+_arXiv:2009.07258_ .
+
+
+Yutao Zhu, Huaying Yuan, Shuting Wang, Jiongnan
+Liu, Wenhan Liu, Chenlong Deng, Zhicheng Dou,
+and Ji rong Wen. 2023. [Large language models](https://arxiv.org/abs/2308.07107)
+[for information retrieval: A survey.](https://arxiv.org/abs/2308.07107) _ArXiv preprint_,
+abs/2308.07107.
+
+
+**A** **Different LMs for Expansion**
+
+
+Here we show results for GPT-4 expansions instead
+of ChatGPT in Table 8. We can see that although
+absolute numbers differ slightly, there is no change
+to the trends discussed in the main paper: i.e. that
+stronger models are harmed by expansions while
+weaker models benefit. We swap FiQA for NFCorpus due to the larger collection size and increased
+costs of annotating with GPT-4.
+
+
+**B** **Placement of Expansions**
+
+
+In Table 9 we show different placements of expansions (i.e. do we prepend/append/replace the
+original query when doing query expansion?). We
+find that the placement does not make a significant difference to our overall results, as the core
+conclusion of the paper remains the same.
+
+
+**C** **Number of Documents Reranked**
+
+
+All experiments reranked the top 100 documents,
+as described in the main paper. However, here we
+show an ablation where we increase the number
+of reranked documents to include the top 1000 or
+10,000 documents. We see that there is little change
+in how expansions affect the models.
+
+
+
+**D** **Example Input/Output for expansions**
+
+
+Here we show example input and output for expansion for query and document expansions.
+
+
+**D.1** **Document Expansion**
+
+
+We show example expansion from this document
+from MS MARCO:
+
+
+
+**D.2** **Query Expansion**
+
+
+For the MS MARCO query “why did the us volunterilay enter ww1" the following output was generated. For prompt formatting, see Appendix E.
+
+
+
+
+
+**D.1.1** **Doc2Query**
+
+
+
+
+
+**D.1.2** **D-LM PRF**
+
+
+
+
+
+1999
+
+
+**TREC DL 2019** **NFCorpus** **Arguana**
+**Type** **Model** DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B
+
+_No Expansion_ 38.4 62.3 71.7 24.1 34.6 39.2 34.9 48.8 42.4
+
+
+Table 8: How different LLMs used as the generator affect results. Colors indicate a positive or negative delta over
+scores for no expansion. Although there are small differences **the overall trends are the same** .
+
+
+**MSMarco 2019** **FiQA** **Arguana**
+**Type** **Model** Contriever MonoT5-small MonoT5-3B Contriever MonoT5-small MonoT5-3B Contriever MonoT5-small MonoT5-3B
+
+_No Expansion_ 14.4 29.6 45.9 42.5 71.0 80.2 24.1 34.6 39.2
+
+
+Table 9: How different placements of the expansions affect results (e.g. prepend/append/replace). Colors indicate a
+positive or negative delta over scores for no expansion. Although there are small differences **the overall trends are**
+**the same** .
+
+
+**TREC DL 2019** **NFCorpus** **Arguana**
+**Type** **Model** DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B DPR Contriever FT MonoT5-3B
+
+
+Table 10: How different numbers of documents used for reranking affect the results. Colors indicate a positive
+or negative delta over scores for no expansion. Although there are small differences between models **the overall**
+**trends are the same** . Note that NFCorpus’s collection is roughly 3k examples and so changing from 1k to 10k
+reranking makes little difference.
+
+
+2000
+
+
+**D.2.1** **HyDE**
+
+
+
+
+
+**D.2.2** **Q-LM PRF**
+
+
+
+
+
+**E** **Prompts for LM expansions**
+
+
+Here we show the prompts used for LM query and
+document expansion.
+
+
+**E.1** **Query Expansions**
+
+
+**E.1.1** **HyDE**
+
+
+We use the prompts from their paper, which are
+dataset specific, in this manner:
+
+
+
+**D.2.3** **Chain of Thought**
+
+
+
+for example on Clinical Trials we use:
+
+
+
+
+
+
+
+
+
+and on FiQA we use:
+
+
+
+2001
+
+
+**E.1.2** **Q-LM PRF**
+
+
+
+
+
+**E.2** **Document Expansions**
+
+
+**E.2.1** **D-LM PRF**
+
+
+
+
+
+**E.1.3** **Chain of Thought**
+
+
+We use a the same specific prompt for CoT as we
+do for HyDE. The format is as follows:
+
+
+
+
+
+
+
+
+
+2002
+
+
+Figure 6: Number of positions relevant documents change when using expansion. Negative values indicate the
+document was ranked lower. Results are similar to TREC DL 2019 for FiQA which shows lowered nDCG while for
+Arguana nDCG scores increase as seen by the change in positions being positive.
+
+
+**E.2.2** **Doc2Query**
+
+
+
+
+
+2003
+
+
