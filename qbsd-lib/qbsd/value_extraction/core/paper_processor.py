@@ -532,6 +532,10 @@ class PaperProcessor:
             if first and first.get('answer', '').strip():
                 col_value = first
             elif self.retriever is not None:
+                # Check for stop before attempt 2
+                if self._check_stop_requested():
+                    print(f"🛑 Stop requested before fallback attempt, returning partial results")
+                    return row
                 # Attempt 2: Only try expanded retrieval if we have a retriever and got empty result
                 expanded_k = self.text_processor.expand_k(retrieval_k)
                 second = _single_column_attempt(col, strict=True, k_override=expanded_k, use_snippets=False)
@@ -540,6 +544,10 @@ class PaperProcessor:
 
             # Attempt 3: Only if previous attempts truly failed and we have substantial text
             if col_value is None and len(paper_text) > MIN_DOCUMENT_SIZE_FOR_SNIPPETS:
+                # Check for stop before attempt 3
+                if self._check_stop_requested():
+                    print(f"🛑 Stop requested before snippet attempt, returning partial results")
+                    return row
                 third = _single_column_attempt(col, strict=True, k_override=None, use_snippets=True)
                 if third and third.get('answer', '').strip():
                     col_value = third
