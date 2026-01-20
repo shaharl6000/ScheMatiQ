@@ -220,6 +220,10 @@ class PaperProcessor:
                                  safety_margins=SAFETY_MARGIN_SINGLE_MODE,
                                  context_window_size=max_ctx)
         raw = self.llm.generate(trimmed)
+        # Check stop immediately after LLM call returns
+        if self._check_stop_requested():
+            print(f"🛑 Stop requested after LLM call, returning empty")
+            return {}
         try:
             parsed = self.json_parser.parse_response(raw)
             # Build allowed_values dict for postprocessing
@@ -297,6 +301,10 @@ class PaperProcessor:
                                  safety_margins=SAFETY_MARGIN_ALL_MODE,
                                  context_window_size=max_ctx)
         raw = self.llm.generate(trimmed)
+        # Check stop immediately after LLM call returns
+        if self._check_stop_requested():
+            print(f"🛑 Stop requested after batch LLM call, returning empty")
+            return {}
 
         try:
             parsed = self.json_parser.parse_response(raw)
@@ -380,6 +388,10 @@ class PaperProcessor:
                                      safety_margins=SAFETY_MARGIN_SINGLE_MODE,
                                      context_window_size=max_ctx)
             raw = self.llm.generate(trimmed)
+            # Check stop immediately after LLM call returns
+            if self._check_stop_requested():
+                print(f"🛑 Stop requested after single-column LLM call, returning empty")
+                return {}
             try:
                 parsed = self.json_parser.parse_response(raw)
                 # Build allowed_values dict for postprocessing
@@ -411,6 +423,10 @@ class PaperProcessor:
                                      safety_margins=SAFETY_MARGIN_ALL_MODE,
                                      context_window_size=max_ctx)
             raw = self.llm.generate(trimmed)
+            # Check stop immediately after LLM call returns
+            if self._check_stop_requested():
+                print(f"🛑 Stop requested after all-mode LLM call, returning partial results")
+                return cleaned  # Return what we have so far
             try:
                 parsed = self.json_parser.parse_response(raw)
             except Exception as e:

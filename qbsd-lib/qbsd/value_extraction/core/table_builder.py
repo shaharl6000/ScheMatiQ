@@ -400,6 +400,10 @@ class TableBuilder:
                         max_new_tokens, mode="one_by_one", retrieval_k=retrieval_k,
                         row_name=row_name
                     )
+                    # Check stop after extraction returns
+                    if self.should_stop and self.should_stop():
+                        self._stopped = True
+                        return
                     if result and column_name in result:
                         current_row.update(result)
                         break  # Found value for this column, move to next column
@@ -464,6 +468,10 @@ class TableBuilder:
                     result = self._extract_values_from_paper_file(
                         paper, schema, retrieval_k, max_new_tokens, row_name
                     )
+                    # Check stop after extraction returns
+                    if self.should_stop and self.should_stop():
+                        self._stopped = True
+                        return
                     if result:
                         # Merge result into current row
                         for key, value in result.items():

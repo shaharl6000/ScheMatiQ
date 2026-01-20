@@ -125,6 +125,25 @@ class ReextractionService(WebSocketBroadcasterMixin):
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
 
+        # Merge any partial results that were written before stop
+        try:
+            session_dir = Path("./data") / operation.session_id
+            output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
+            if output_file.exists():
+                print(f"📦 Merging partial results from {output_file}")
+                await self._merge_reextracted_data(
+                    operation.session_id,
+                    operation.columns,
+                    output_file
+                )
+                # Clean up temp files
+                output_file.unlink(missing_ok=True)
+                schema_file = session_dir / f"reextract_schema_{operation_id}.json"
+                schema_file.unlink(missing_ok=True)
+                print(f"✅ Partial results merged and temp files cleaned up")
+        except Exception as e:
+            print(f"⚠️ Warning: Could not merge partial results: {e}")
+
         # Update operation status
         operation.status = "stopped"
         operation.completed_at = datetime.now()
