@@ -370,6 +370,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 "local_papers": []
             }
 
+        # Get session's cloud_dataset as fallback for papers with local paths
+        session_cloud_dataset = None
+        if session.metadata and session.metadata.cloud_dataset:
+            session_cloud_dataset = session.metadata.cloud_dataset
+            print(f"DEBUG: Session has cloud_dataset fallback: {session_cloud_dataset}")
+
         session_dir = Path("./data") / session_id
         data_file = session_dir / "data.jsonl"
         docs_dir = session_dir / "documents"
@@ -433,9 +439,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 doc_dir = 'datasets/' + doc_dir.split('datasets/')[-1]
                             # Handle local paths (e.g., /app/backend/data/{uuid}/pending_documents)
                             # These indicate documents were uploaded locally, not from cloud storage
+                            # Fall back to session's cloud_dataset if available
                             elif doc_dir and self._is_local_path(doc_dir):
-                                # Mark as local path - will be handled by local file check, not cloud lookup
-                                doc_dir = None
+                                print(f"DEBUG: Detected local path in document_directory: {doc_dir}")
+                                if session_cloud_dataset:
+                                    doc_dir = f"datasets/{session_cloud_dataset}"
+                                    print(f"DEBUG: Using session cloud_dataset fallback: {doc_dir}")
+                                else:
+                                    print(f"DEBUG: No cloud_dataset fallback available - documents may not be found")
+                                    # No cloud fallback - will be checked locally only
+                                    doc_dir = None
 
                             paper_refs.update(papers)
                             row_paper_mapping[row_name] = papers

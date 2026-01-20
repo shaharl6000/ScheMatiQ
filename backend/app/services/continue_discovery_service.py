@@ -490,11 +490,23 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Group papers by their document directory
             folders_to_check: Dict[str, List[str]] = {}
             for paper in papers_to_check_cloud:
-                doc_dir = paper_doc_dirs.get(paper) or (f"datasets/{cloud_dataset}" if cloud_dataset else None)
-                if doc_dir:
-                    # Skip local filesystem paths - these aren't valid cloud storage paths
-                    if self._is_local_path(doc_dir):
+                doc_dir = paper_doc_dirs.get(paper)
+
+                # If doc_dir is a local path, try to use cloud_dataset as fallback
+                if doc_dir and self._is_local_path(doc_dir):
+                    print(f"DEBUG: Detected local path for paper {paper}: {doc_dir}")
+                    if cloud_dataset:
+                        doc_dir = f"datasets/{cloud_dataset}"
+                        print(f"DEBUG: Using cloud_dataset fallback: {doc_dir}")
+                    else:
+                        print(f"DEBUG: No cloud_dataset fallback - skipping paper {paper}")
                         continue
+
+                # If no doc_dir, try cloud_dataset as fallback
+                if not doc_dir and cloud_dataset:
+                    doc_dir = f"datasets/{cloud_dataset}"
+
+                if doc_dir:
                     clean_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
                     if clean_dir not in folders_to_check:
                         folders_to_check[clean_dir] = []
