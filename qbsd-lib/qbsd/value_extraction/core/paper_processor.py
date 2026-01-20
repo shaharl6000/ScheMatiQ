@@ -29,12 +29,21 @@ FALLBACK_BATCH_SIZE = 3
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
 OnValueExtractedCallback = Callable[[str, str, Any], None]
 
+# Type alias for should_stop callback: () -> bool
+ShouldStopCallback = Callable[[], bool]
+
+
+class StopRequestedException(Exception):
+    """Raised when a stop has been requested during extraction."""
+    pass
+
 
 class PaperProcessor:
     """Handles value extraction from individual papers."""
 
     def __init__(self, llm: LLMInterface, cache: LLMCache = None, retriever=None,
-                 on_value_extracted: Optional[OnValueExtractedCallback] = None):
+                 on_value_extracted: Optional[OnValueExtractedCallback] = None,
+                 should_stop: Optional[ShouldStopCallback] = None):
         self.llm = llm
         self.cache = cache or LLMCache()
         self.retriever = retriever
@@ -42,10 +51,17 @@ class PaperProcessor:
         self.text_processor = TextProcessor()
         self.prompt_builder = PromptBuilder()
         self.on_value_extracted = on_value_extracted
+        self.should_stop = should_stop
         # Schema evolution tracking: {column_name: {value: [list of documents]}}
         self.suggested_values: Dict[str, Dict[str, list]] = {}
         # Cache for fallback retriever (created on-demand, reused across papers)
         self._cached_fallback_retriever = None
+
+    def _check_stop_requested(self) -> bool:
+        """Check if stop was requested. Returns True if should stop."""
+        if self.should_stop and self.should_stop():
+            return True
+        return False
 
     def _track_unmatched_values(self, unmatched: Dict[str, list], document_name: str = None):
         """Track unmatched values for schema evolution suggestions."""
@@ -424,6 +440,11 @@ class PaperProcessor:
             # Fallback for missing columns: retry per-column, stricter + expanded retrieval
             missing = [c for c in schema.columns if c.name not in cleaned]
             if missing:
+                # Check for stop request before fallback processing
+                if self._check_stop_requested():
+                    print(f"🛑 Stop requested before fallback, returning partial results")
+                    return cleaned
+
                 print(f"↻ Fallback per-column for {len(missing)} missing: {[c.name for c in missing]}")
                 
                 # Use cached fallback retriever if we don't have one (long context mode)
@@ -440,6 +461,11 @@ class PaperProcessor:
 
                 if fallback_retriever is not None:
                     for batch in _chunk_list(missing, FALLBACK_BATCH_SIZE):
+                        # Check for stop request before each batch
+                        if self._check_stop_requested():
+                            print(f"🛑 Stop requested during batch fallback, returning partial results")
+                            return cleaned
+
                         print(f"  📦 Batch fallback ({len(batch)} columns): {[c.name for c in batch]}")
                         batch_results = self._batch_column_attempt(
                             batch, retriever=fallback_retriever,
@@ -461,8 +487,18 @@ class PaperProcessor:
 
                 # Second fallback: heuristic snippets for columns that still failed
                 if still_missing:
+                    # Check for stop request before snippet fallback
+                    if self._check_stop_requested():
+                        print(f"🛑 Stop requested before snippet fallback, returning partial results")
+                        return cleaned
+
                     print(f"  📦 Snippet fallback for {len(still_missing)} remaining: {[c.name for c in still_missing]}")
                     for batch in _chunk_list(still_missing, FALLBACK_BATCH_SIZE):
+                        # Check for stop request before each snippet batch
+                        if self._check_stop_requested():
+                            print(f"🛑 Stop requested during snippet fallback, returning partial results")
+                            return cleaned
+
                         batch_results = self._batch_column_attempt(
                             batch, retriever=None,
                             paper_text=paper_text, schema=schema,
@@ -482,6 +518,11 @@ class PaperProcessor:
         row: Dict[str, Any] = {}
         print(f"🔍 Processing {len(schema.columns)} columns one-by-one: {[c.name for c in schema.columns]}")
         for col in schema.columns:
+            # Check for stop request before each column extraction
+            if self._check_stop_requested():
+                print(f"🛑 Stop requested during column extraction, returning partial results")
+                return row
+
             col_value = None
             print(f"  → Extracting column: {col.name}")
 

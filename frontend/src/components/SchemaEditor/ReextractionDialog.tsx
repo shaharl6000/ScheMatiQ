@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, AlertTriangle, FileText, Loader2, Check, Info, Square } from 'lucide-react';
+import { RefreshCw, AlertTriangle, FileText, Loader2, Check, Info, Square, Brain } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
 import {
@@ -17,6 +17,19 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { ChevronDown } from 'lucide-react';
 
 import {
   SchemaChangeStatus,
@@ -25,7 +38,14 @@ import {
   ReextractionRequest,
 } from '../../types';
 import { schemaAPI } from '../../services/api';
-import { getApiKeyForProvider } from '../../utils/apiKeyStorage';
+import { getApiKeyForProvider, getConfiguredProviders } from '../../utils/apiKeyStorage';
+import {
+  LLMProviderKey,
+  getModelsForProvider,
+  getDefaultModelForProvider,
+  getAvailableProviders,
+  LLM_PROVIDER_NAMES,
+} from '@/constants/llmModels';
 
 interface ReextractionDialogProps {
   open: boolean;
@@ -50,6 +70,12 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
   const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
   const [paperStatus, setPaperStatus] = useState<PaperDiscoveryResult | null>(null);
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
+
+  // LLM Model selection state
+  const [configuredProviders, setConfiguredProviders] = useState<LLMProviderKey[]>([]);
+  const [llmProvider, setLlmProvider] = useState<LLMProviderKey>('gemini');
+  const [llmModel, setLlmModel] = useState('gemini-2.5-flash-lite');
+  const [showModelSettings, setShowModelSettings] = useState(false);
 
   // Extraction progress state
   const [isExtracting, setIsExtracting] = useState(false);
@@ -90,6 +116,31 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
     loadStatus();
   }, [loadStatus]);
 
+  // Load configured providers when dialog opens
+  useEffect(() => {
+    const loadProviders = async () => {
+      if (!open) return;
+      const providers = await getConfiguredProviders();
+      const available = getAvailableProviders(providers);
+      setConfiguredProviders(available);
+
+      // Set default provider if current one is not available
+      if (available.length > 0 && !available.includes(llmProvider)) {
+        const defaultProvider = available[0];
+        setLlmProvider(defaultProvider);
+        setLlmModel(getDefaultModelForProvider(defaultProvider));
+      }
+    };
+    loadProviders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]); // Intentionally exclude llmProvider to avoid re-running when provider changes
+
+  // Update model when provider changes
+  const handleProviderChange = (provider: LLMProviderKey) => {
+    setLlmProvider(provider);
+    setLlmModel(getDefaultModelForProvider(provider));
+  };
+
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
@@ -98,6 +149,7 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
       setExtractionOperationId(null);
       setExtractionProgress(0);
       setIsStopping(false);
+      setShowModelSettings(false);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -161,19 +213,19 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
     setLoading(true);
 
     try {
-      // Get API key from localStorage
-      const apiKey = await getApiKeyForProvider('gemini');
+      // Get API key for the selected provider
+      const apiKey = await getApiKeyForProvider(llmProvider);
 
       // Build the request with columns
       const request: ReextractionRequest = {
         columns: Array.from(selectedColumns),
       };
 
-      // Include LLM config if API key is available
+      // Include LLM config with selected provider and model
       if (apiKey) {
         request.llm_config = {
-          provider: 'gemini',
-          model: 'gemini-2.5-flash-lite',
+          provider: llmProvider,
+          model: llmModel,
           api_key: apiKey,
           max_output_tokens: 2048,
           temperature: 0.1
@@ -401,6 +453,74 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
                 </div>
               </ScrollArea>
             </div>
+
+            {/* Model Selection (Collapsible) */}
+            <Collapsible open={showModelSettings} onOpenChange={setShowModelSettings}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" className="w-full justify-between p-2 h-auto">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Brain className="h-4 w-4" />
+                    <span>Model Settings</span>
+                    <Badge variant="outline" className="text-xs">
+                      {LLM_PROVIDER_NAMES[llmProvider]} / {llmModel}
+                    </Badge>
+                  </div>
+                  <ChevronDown className={`h-4 w-4 transition-transform ${showModelSettings ? 'rotate-180' : ''}`} />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-2 space-y-3">
+                <p className="text-xs text-muted-foreground">
+                  Choose which AI model will be used for re-extracting values.
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Provider</Label>
+                    <Select
+                      value={llmProvider}
+                      onValueChange={(value) => handleProviderChange(value as LLMProviderKey)}
+                      disabled={configuredProviders.length === 0}
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {configuredProviders.map((provider) => (
+                          <SelectItem key={provider} value={provider}>
+                            {LLM_PROVIDER_NAMES[provider]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Model</Label>
+                    <Select
+                      value={llmModel}
+                      onValueChange={setLlmModel}
+                      disabled={getModelsForProvider(llmProvider).length === 0}
+                    >
+                      <SelectTrigger className="h-8">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {getModelsForProvider(llmProvider).map((model) => (
+                          <SelectItem key={model.id} value={model.id}>
+                            {model.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                {configuredProviders.length === 0 && (
+                  <Alert variant="warning">
+                    <AlertDescription className="text-xs">
+                      No API keys configured. Add an API key on the home page to select a model.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
 
           </>
         )}

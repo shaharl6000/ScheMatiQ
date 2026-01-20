@@ -61,12 +61,28 @@ class ReextractionOperation:
 class ReextractionService(WebSocketBroadcasterMixin):
     """Handles selective re-extraction of column values after schema changes."""
 
+    # Class-level cached retriever to avoid reloading the model for each extraction
+    _cached_retriever = None
+    _retriever_config = {
+        "model_name": "all-MiniLM-L6-v2",
+        "k": 10,
+        "max_words": 768
+    }
+
     def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
         self.active_operations: Dict[str, ReextractionOperation] = {}
         self.stop_flags: Dict[str, bool] = {}  # operation_id -> stop requested
         self._extraction_tasks: Dict[str, asyncio.Task] = {}  # operation_id -> task
+
+    @classmethod
+    def get_cached_retriever(cls):
+        """Get or create the cached retriever instance."""
+        if cls._cached_retriever is None:
+            print("📡 Creating cached EmbeddingRetriever (will be reused for all re-extractions)")
+            cls._cached_retriever = EmbeddingRetriever(**cls._retriever_config)
+        return cls._cached_retriever
 
     def is_stop_requested(self, operation_id: str) -> bool:
         """Check if stop was requested for an operation."""
@@ -743,13 +759,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
             with open(schema_file, 'w') as f:
                 json.dump(schema_data, f, indent=2)
 
-            # Setup LLM and retriever
+            # Setup LLM and retriever (use cached retriever for performance)
             llm = self._get_llm_from_session(operation.session_id)
-            retriever = EmbeddingRetriever(
-                model_name="all-MiniLM-L6-v2",
-                k=10,
-                max_words=768
-            )
+            retriever = self.get_cached_retriever()
 
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
 

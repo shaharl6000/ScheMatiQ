@@ -33,7 +33,8 @@ class TableBuilder:
         self.cache = cache or LLMCache()
         self.on_value_extracted = on_value_extracted
         self.should_stop = should_stop
-        self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted)
+        # Pass should_stop to PaperProcessor for fine-grained stop checking
+        self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted, should_stop)
         self.row_manager = RowDataManager()
         self._stopped = False  # Track if we stopped early
 
