@@ -155,6 +155,49 @@ class ReextractionService(WebSocketBroadcasterMixin):
     # ==================== Schema Change Detection ====================
 
     @staticmethod
+    def _is_local_path(path: str) -> bool:
+        """
+        Check if a path looks like a local filesystem path rather than a cloud storage path.
+
+        Local paths typically look like:
+        - /app/backend/data/{uuid}/pending_documents
+        - ./data/{uuid}/pending_documents
+        - /Users/.../data/...
+
+        Cloud storage paths look like:
+        - NES_documents
+        - datasets/papers_CoT
+        - files
+        """
+        if not path:
+            return False
+
+        # Common indicators of local filesystem paths
+        local_indicators = [
+            '/app/',           # Docker/Railway container paths
+            '/data/',          # Generic data directory
+            '/backend/',       # Backend directory
+            'pending_documents',  # Upload staging directory
+            '/Users/',         # macOS user paths
+            '/home/',          # Linux home paths
+            'C:\\',            # Windows paths
+            'D:\\',            # Windows paths
+            './',              # Relative paths
+            '../',             # Relative paths
+        ]
+
+        for indicator in local_indicators:
+            if indicator in path:
+                return True
+
+        # Also check if path starts with / and has multiple segments
+        # (cloud paths are typically simple folder names like "NES_documents")
+        if path.startswith('/') and path.count('/') > 2:
+            return True
+
+        return False
+
+    @staticmethod
     def calculate_column_checksum(column: ColumnInfo) -> str:
         """Calculate a checksum for change detection."""
         content = f"{column.definition or ''}{column.rationale or ''}"
@@ -388,6 +431,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             # Clean up doc_dir - extract just the datasets/... part if it's a full path
                             if doc_dir and 'datasets/' in doc_dir:
                                 doc_dir = 'datasets/' + doc_dir.split('datasets/')[-1]
+                            # Handle local paths (e.g., /app/backend/data/{uuid}/pending_documents)
+                            # These indicate documents were uploaded locally, not from cloud storage
+                            elif doc_dir and self._is_local_path(doc_dir):
+                                # Mark as local path - will be handled by local file check, not cloud lookup
+                                doc_dir = None
 
                             paper_refs.update(papers)
                             row_paper_mapping[row_name] = papers

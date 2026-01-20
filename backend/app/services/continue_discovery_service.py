@@ -123,6 +123,49 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         qbsd_work_dir.mkdir(exist_ok=True)
         return qbsd_work_dir
 
+    @staticmethod
+    def _is_local_path(path: str) -> bool:
+        """
+        Check if a path looks like a local filesystem path rather than a cloud storage path.
+
+        Local paths typically look like:
+        - /app/backend/data/{uuid}/pending_documents
+        - ./data/{uuid}/pending_documents
+        - /Users/.../data/...
+
+        Cloud storage paths look like:
+        - NES_documents
+        - datasets/papers_CoT
+        - files
+        """
+        if not path:
+            return False
+
+        # Common indicators of local filesystem paths
+        local_indicators = [
+            '/app/',           # Docker/Railway container paths
+            '/data/',          # Generic data directory
+            '/backend/',       # Backend directory
+            'pending_documents',  # Upload staging directory
+            '/Users/',         # macOS user paths
+            '/home/',          # Linux home paths
+            'C:\\',            # Windows paths
+            'D:\\',            # Windows paths
+            './',              # Relative paths
+            '../',             # Relative paths
+        ]
+
+        for indicator in local_indicators:
+            if indicator in path:
+                return True
+
+        # Also check if path starts with / and has multiple segments
+        # (cloud paths are typically simple folder names like "NES_documents")
+        if path.startswith('/') and path.count('/') > 2:
+            return True
+
+        return False
+
     # ==================== Statistics Computation ====================
 
     def _recompute_statistics(self, session_id: str, preserve_evolution: bool = True) -> None:
@@ -449,6 +492,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             for paper in papers_to_check_cloud:
                 doc_dir = paper_doc_dirs.get(paper) or (f"datasets/{cloud_dataset}" if cloud_dataset else None)
                 if doc_dir:
+                    # Skip local filesystem paths - these aren't valid cloud storage paths
+                    if self._is_local_path(doc_dir):
+                        continue
                     clean_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
                     if clean_dir not in folders_to_check:
                         folders_to_check[clean_dir] = []
