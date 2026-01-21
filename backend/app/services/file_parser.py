@@ -73,6 +73,8 @@ class FileParser:
                         sample_obj = json.loads(lines[0])
                         estimated_rows = len(lines)
                         estimated_columns = len(sample_obj.keys())
+                        # Filter out None keys for Pydantic validation
+                        sample_obj = {k: v for k, v in sample_obj.items() if k is not None}
                         sample_data = [sample_obj]
                     else:
                         # Regular JSON - could be array or single object
@@ -81,7 +83,12 @@ class FileParser:
                             estimated_rows = len(data)
                             if data:
                                 estimated_columns = len(data[0].keys()) if isinstance(data[0], dict) else 1
-                                sample_data = data[:3]  # First 3 items
+                                # Filter out None keys from each sample item for Pydantic validation
+                                sample_data = [
+                                    {k: v for k, v in item.items() if k is not None}
+                                    if isinstance(item, dict) else item
+                                    for item in data[:3]
+                                ]
                         elif isinstance(data, dict):
                             if 'schema' in data:
                                 # QBSD schema format
@@ -90,7 +97,8 @@ class FileParser:
                             else:
                                 estimated_rows = 1
                                 estimated_columns = len(data.keys())
-                                sample_data = [data]
+                                # Filter out None keys for Pydantic validation
+                                sample_data = [{k: v for k, v in data.items() if k is not None}]
                 except json.JSONDecodeError as e:
                     errors.append(f"Invalid JSON format: {str(e)}")
                     
@@ -161,12 +169,19 @@ class FileParser:
                     # Parse CSV structure from data lines
                     try:
                         dialect = csv.Sniffer().sniff(data_lines[0])
+                        # Force doublequote=True - Sniffer often gets this wrong when
+                        # sniffing only the header row (which has no quotes to escape)
+                        dialect.doublequote = True
                         reader = csv.DictReader(data_lines, dialect=dialect)
                         result["estimated_rows"] = len(data_lines) - 1  # Exclude header
 
                         # Try to get sample data (may be empty for schema-only CSVs)
                         try:
                             sample = next(reader)
+                            # Filter out None keys - can occur if CSV has more fields
+                            # than headers (shouldn't happen with proper parsing but
+                            # provides defensive safety for Pydantic validation)
+                            sample = {k: v for k, v in sample.items() if k is not None}
                             result["estimated_columns"] = len(sample)
                             result["sample_data"] = [sample]
                         except StopIteration:
