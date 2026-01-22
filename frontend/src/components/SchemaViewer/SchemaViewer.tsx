@@ -154,6 +154,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [editingClusterName, setEditingClusterName] = useState('');
   const [showNewClusterDialog, setShowNewClusterDialog] = useState(false);
   const [newClusterName, setNewClusterName] = useState('');
+  const [pendingMoveColumn, setPendingMoveColumn] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [clustersInitialized, setClustersInitialized] = useState(false);
 
@@ -370,9 +371,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const handleMoveColumn = (columnName: string, targetClusterId: string | 'new') => {
     if (targetClusterId === 'new') {
       setShowNewClusterDialog(true);
-      // Store the column to move after dialog closes
       setNewClusterName('');
-      (window as any).__pendingMoveColumn = columnName;
+      setPendingMoveColumn(columnName);
       return;
     }
 
@@ -384,20 +384,19 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const handleCreateCluster = () => {
     if (!newClusterName.trim()) return;
 
-    const pendingColumn = (window as any).__pendingMoveColumn;
     const newCluster = createUserCluster(
       newClusterName.trim(),
-      pendingColumn ? [pendingColumn] : []
+      pendingMoveColumn ? [pendingMoveColumn] : []
     );
 
-    if (pendingColumn) {
+    if (pendingMoveColumn) {
       // Remove from old cluster and add new one
       const updated = clusters.map(c => ({
         ...c,
-        column_names: c.column_names.filter(name => name !== pendingColumn)
+        column_names: c.column_names.filter(name => name !== pendingMoveColumn)
       })).filter(c => c.column_names.length > 0);
       setClusters([...updated, newCluster]);
-      delete (window as any).__pendingMoveColumn;
+      setPendingMoveColumn(null);
     } else {
       setClusters([...clusters, newCluster]);
     }
@@ -507,9 +506,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     setLocalColumns(columns || []);
   }, [columns]);
 
-  // Run clustering when columns change (only after localStorage is checked)
+  // Run clustering ONLY on initial load when no clusters exist
   useEffect(() => {
-    if (clusteringEnabled && localColumns.length > 0 && clustersInitialized) {
+    if (clusteringEnabled && localColumns.length > 0 && clustersInitialized && clusters.length === 0) {
+      // Only run initial clustering if no clusters exist yet
       // Filter out excerpt columns - they shouldn't be clustered with main columns
       const columnsToCluster = localColumns.filter(col =>
         !col.name.toLowerCase().endsWith('_excerpt') &&
@@ -517,7 +517,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       );
 
       if (columnsToCluster.length > 0) {
-        const result = clusterColumns(columnsToCluster, clusters, {
+        const result = clusterColumns(columnsToCluster, [], {
           similarityThreshold: 0.35, // Lower threshold for better separation
           minClusterSize: 1,
           maxClusters: 10,
@@ -527,7 +527,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localColumns, clusteringEnabled, clustersInitialized]); // Don't include clusters to avoid infinite loop
+  }, [clusteringEnabled, clustersInitialized]); // Only depend on clustering state, not localColumns
 
   // Set up WebSocket listener for real-time updates
   useEffect(() => {
@@ -664,16 +664,30 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         onColumnsChange(updatedColumns);
       }
 
-      // If a cluster was selected for the new column, assign it
-      if (selectedClusterId && dialogState.mode === 'add') {
+      // Handle cluster assignment for new columns
+      if (dialogState.mode === 'add') {
         // Find the newly added column (last one added)
         const newColumnName = updatedColumns.find(
           col => !localColumns.some(lc => lc.name === col.name)
         )?.name;
 
         if (newColumnName) {
-          const updatedClusters = assignColumnToCluster(newColumnName, selectedClusterId, clusters);
-          setClusters(updatedClusters);
+          if (selectedClusterId) {
+            // If a cluster was selected, assign the new column to it
+            const updatedClusters = assignColumnToCluster(newColumnName, selectedClusterId, clusters);
+            setClusters(updatedClusters);
+          } else if (clusteringEnabled) {
+            // If no cluster was selected but clustering is enabled, add to "Uncategorized"
+            const uncategorized = clusters.find(c => c.name === 'Uncategorized');
+            if (uncategorized) {
+              const updatedClusters = assignColumnToCluster(newColumnName, uncategorized.id, clusters);
+              setClusters(updatedClusters);
+            } else {
+              // Create new "Uncategorized" cluster
+              const newCluster = createUserCluster('Uncategorized', [newColumnName]);
+              setClusters([...clusters, newCluster]);
+            }
+          }
         }
       }
     }
@@ -726,18 +740,13 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   };
 
   const handleMonitorComplete = (newColumns: ColumnInfo[]) => {
-    console.log('handleMonitorComplete: received newColumns:', newColumns);
-    console.log('handleMonitorComplete: current localColumns count:', localColumns.length);
     setContinueDiscoveryMonitorOpen(false);
     setContinueDiscoveryOperationId(null);
     if (newColumns.length > 0 && onColumnsChange) {
       const updatedColumns = [...localColumns, ...newColumns];
-      console.log('handleMonitorComplete: updating to', updatedColumns.length, 'columns');
       setLocalColumns(updatedColumns);
       onColumnsChange(updatedColumns);
       toast({ title: 'Success', description: `Added ${newColumns.length} new columns with extracted values.` });
-    } else {
-      console.log('handleMonitorComplete: no update - newColumns.length:', newColumns.length, 'onColumnsChange:', !!onColumnsChange);
     }
     loadSchemaChangeStatus();
   };
@@ -2071,7 +2080,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             <Button variant="outline" onClick={() => {
               setShowNewClusterDialog(false);
               setNewClusterName('');
-              delete (window as any).__pendingMoveColumn;
+              setPendingMoveColumn(null);
             }}>
               Cancel
             </Button>
