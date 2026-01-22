@@ -605,9 +605,13 @@ const Visualize = () => {
         ? `${baseUrl}/load/export/${sessionId}`
         : `${baseUrl}/qbsd/export/${sessionId}`;
 
+      // Add timezone offset for correct timestamp in filename
+      const tzOffset = new Date().getTimezoneOffset();
+      apiUrl += `?tz_offset=${tzOffset}`;
+
       if (columnOrder.length > 0) {
         const orderParam = encodeURIComponent(columnOrder.join(','));
-        apiUrl += `?column_order=${orderParam}`;
+        apiUrl += `&column_order=${orderParam}`;
       }
 
       const response = await fetch(apiUrl);

@@ -6,10 +6,10 @@ import csv
 import io
 import tempfile
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
@@ -475,12 +475,17 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/export/{session_id}")
-async def export_upload_data(session_id: str, column_order: Optional[str] = None):
+async def export_upload_data(
+    session_id: str,
+    column_order: Optional[str] = None,
+    tz_offset: int = Query(default=0, description="Timezone offset in minutes from UTC")
+):
     """Export uploaded data as CSV.
 
     Args:
         session_id: The session ID to export
         column_order: Optional comma-separated list of column names in desired order
+        tz_offset: Timezone offset in minutes from UTC (for filename timestamp)
     """
     try:
         session = session_manager.get_session(session_id)
@@ -627,13 +632,15 @@ async def export_upload_data(session_id: str, column_order: Optional[str] = None
         output.seek(0)
         content = output.getvalue()
         
-        # Generate filename with timestamp
+        # Generate filename with timestamp in user's timezone
         source_name = session.metadata.source or "uploaded_data"
         # Strip file extension to avoid double extensions (e.g., file.csv_timestamp.csv)
         if source_name.lower().endswith(('.csv', '.json', '.jsonl')):
             source_name = Path(source_name).stem
         safe_name = "".join(c for c in source_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        # Apply timezone offset (offset is minutes from UTC, negative means ahead of UTC)
+        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
+        timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"{safe_name}_{timestamp}.csv"
         
         return StreamingResponse(

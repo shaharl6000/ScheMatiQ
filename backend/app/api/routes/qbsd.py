@@ -5,10 +5,10 @@ import asyncio
 import csv
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.models.session import VisualizationSession, SessionType, SessionMetadata, FilterSortRequest
@@ -283,12 +283,17 @@ async def list_schema_files():
 
 
 @router.get("/export/{session_id}")
-async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
+async def export_qbsd_data(
+    session_id: str,
+    column_order: Optional[str] = None,
+    tz_offset: int = Query(default=0, description="Timezone offset in minutes from UTC")
+):
     """Export QBSD data as CSV with excerpts in separate columns.
 
     Args:
         session_id: The session ID to export
         column_order: Optional comma-separated list of column names in desired order
+        tz_offset: Timezone offset in minutes from UTC (for filename timestamp)
     """
     try:
         session = session_manager.get_session(session_id)
@@ -306,7 +311,8 @@ async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
         
         # Add schema metadata as CSV comments
         output.write("# QBSD Export with Schema Metadata\n")
-        output.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
+        output.write(f"# Generated: {user_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         output.write(f"# Session ID: {session_id}\n")
         output.write(f"# Query: {session.schema_query or 'N/A'}\n")
         
@@ -453,8 +459,9 @@ async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
         output.seek(0)
         content = output.getvalue()
         
-        # Generate filename with datetime
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        # Generate filename with datetime in user's timezone
+        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
+        timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"QBSD_{'schema_only_' if is_schema_only else ''}{timestamp}.csv"
         
         return StreamingResponse(
@@ -467,7 +474,11 @@ async def export_qbsd_data(session_id: str, column_order: Optional[str] = None):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/export-complete/{session_id}")
-async def export_complete_qbsd_data(session_id: str, format: str = "json"):
+async def export_complete_qbsd_data(
+    session_id: str,
+    format: str = "json",
+    tz_offset: int = Query(default=0, description="Timezone offset in minutes from UTC")
+):
     """Export complete QBSD data with schema metadata in multiple formats."""
     try:
         session = session_manager.get_session(session_id)
@@ -542,10 +553,11 @@ async def export_complete_qbsd_data(session_id: str, format: str = "json"):
             export_data["llm_configuration"] = llm_configuration
         
         # Handle different export formats
+        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
         if format.lower() == "json":
             # JSON format with complete metadata
             content = json.dumps(export_data, indent=2, ensure_ascii=False, default=str)
-            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
             filename = f"QBSD_{timestamp}_complete.json"
             
             return StreamingResponse(
@@ -662,8 +674,8 @@ async def export_complete_qbsd_data(session_id: str, format: str = "json"):
                 
                 # Clean up temp file
                 Path(tmp_file.name).unlink()
-                
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+                timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
                 filename = f"QBSD_{timestamp}_complete.zip"
                 return StreamingResponse(
                     io.BytesIO(zip_content),
@@ -681,7 +693,10 @@ async def export_complete_qbsd_data(session_id: str, format: str = "json"):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/export-rich-csv/{session_id}")
-async def export_qbsd_rich_csv(session_id: str):
+async def export_qbsd_rich_csv(
+    session_id: str,
+    tz_offset: int = Query(default=0, description="Timezone offset in minutes from UTC")
+):
     """Export QBSD data as metadata-rich CSV with definition and rationale columns."""
     try:
         session = session_manager.get_session(session_id)
@@ -724,8 +739,9 @@ async def export_qbsd_rich_csv(session_id: str):
         writer = csv.DictWriter(output, fieldnames=enhanced_columns)
         
         # Write metadata header rows first
+        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
         output.write("# Metadata-Rich CSV Export\n")
-        output.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        output.write(f"# Generated: {user_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         output.write(f"# Session ID: {session_id}\n")
         output.write(f"# Query: {session.schema_query or 'N/A'}\n")
         output.write("# Format: Each data column has corresponding _definition and _rationale columns\n")
@@ -784,8 +800,8 @@ async def export_qbsd_rich_csv(session_id: str):
         output.seek(0)
         content = output.getvalue()
         
-        # Generate filename with datetime
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        # Generate filename with datetime in user's timezone
+        timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"QBSD_{timestamp}_rich.csv"
         
         return StreamingResponse(
@@ -798,7 +814,10 @@ async def export_qbsd_rich_csv(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/export-schema/{session_id}")
-async def export_qbsd_schema_only(session_id: str):
+async def export_qbsd_schema_only(
+    session_id: str,
+    tz_offset: int = Query(default=0, description="Timezone offset in minutes from UTC")
+):
     """Export only the QBSD schema metadata."""
     try:
         session = session_manager.get_session(session_id)
@@ -859,9 +878,10 @@ async def export_qbsd_schema_only(session_id: str):
             schema_export["llm_configuration"] = llm_configuration
         
         content = json.dumps(schema_export, indent=2, ensure_ascii=False, default=str)
-        
-        # Generate filename with datetime
-        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+        # Generate filename with datetime in user's timezone
+        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
+        timestamp = user_time.strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"QBSD_{timestamp}_schema.json"
         
         return StreamingResponse(
