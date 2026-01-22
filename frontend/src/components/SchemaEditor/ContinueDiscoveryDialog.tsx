@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Loader2, Check, Info, AlertTriangle, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings } from 'lucide-react';
+import { Plus, Loader2, Check, Info, AlertTriangle, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings, Brain } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
@@ -35,7 +35,14 @@ import {
   ColumnInfo,
 } from '../../types';
 import { schemaAPI, loadAPI } from '../../services/api';
-import { getApiKeyForProvider, encryptAndStore } from '../../utils/apiKeyStorage';
+import { getApiKeyForProvider, encryptAndStore, getConfiguredProviders } from '../../utils/apiKeyStorage';
+import {
+  LLMProviderKey,
+  getModelsForProvider,
+  getDefaultModelForProvider,
+  getAvailableProviders,
+  LLM_PROVIDER_NAMES,
+} from '@/constants/llmModels';
 
 type DialogStep = 'documents' | 'llm_config' | 'discovery' | 'review' | 'rows' | 'extraction' | 'no_new_columns';
 
@@ -76,9 +83,15 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [selectedCloudDataset, setSelectedCloudDataset] = useState<string>('');
 
   // LLM config state
-  const [llmProvider, setLlmProvider] = useState('gemini');
+  const [llmProvider, setLlmProvider] = useState<LLMProviderKey>('gemini');
   const [llmModel, setLlmModel] = useState('gemini-2.5-flash');
   const [apiKey, setApiKey] = useState('');
+
+  // Model settings for extraction (collapsible)
+  const [showModelSettings, setShowModelSettings] = useState(false);
+  const [configuredProviders, setConfiguredProviders] = useState<LLMProviderKey[]>([]);
+  const [extractionProvider, setExtractionProvider] = useState<LLMProviderKey>('gemini');
+  const [extractionModel, setExtractionModel] = useState('gemini-2.5-flash-lite');
 
   // Retriever config state (collapsed by default, empty = use defaults)
   const [showRetrieverConfig, setShowRetrieverConfig] = useState(false);
@@ -118,6 +131,25 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     }
   }, [open, sessionId]);
 
+  // Load configured providers when dialog opens
+  useEffect(() => {
+    const loadProviders = async () => {
+      if (!open) return;
+      const providers = await getConfiguredProviders();
+      const available = getAvailableProviders(providers);
+      setConfiguredProviders(available);
+
+      // Set default extraction provider if current one is not available
+      if (available.length > 0 && !available.includes(extractionProvider)) {
+        const defaultProvider = available[0];
+        setExtractionProvider(defaultProvider);
+        setExtractionModel(getDefaultModelForProvider(defaultProvider));
+      }
+    };
+    loadProviders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]); // Intentionally exclude extractionProvider to avoid re-running when provider changes
+
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
@@ -142,12 +174,21 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         dynamic_k_threshold: '',
         dynamic_k_minimum: ''
       });
+      setShowModelSettings(false);
+      setExtractionProvider('gemini');
+      setExtractionModel('gemini-2.5-flash-lite');
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
       }
     }
   }, [open]);
+
+  // Update extraction model when extraction provider changes
+  const handleExtractionProviderChange = (provider: LLMProviderKey) => {
+    setExtractionProvider(provider);
+    setExtractionModel(getDefaultModelForProvider(provider));
+  };
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -307,14 +348,17 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     setStep('extraction');
 
     try {
+      // Get API key for the extraction provider
+      const extractionApiKey = await getApiKeyForProvider(extractionProvider);
+
       await schemaAPI.continueDiscovery.confirmColumns(sessionId, operationId!, {
         selected_columns: Array.from(selectedNewColumns),
         row_selection: rowSelection,
         selected_rows: rowSelection === 'selected' ? Array.from(selectedRows) : undefined,
         llm_config: {
-          provider: llmProvider,
-          model: llmModel,
-          api_key: apiKey,
+          provider: extractionProvider,
+          model: extractionModel,
+          api_key: extractionApiKey || apiKey, // Fallback to discovery API key if not configured
           max_output_tokens: 2048,
           temperature: 0.1
         }
@@ -519,7 +563,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       <div className="space-y-4 py-4">
         <div className="space-y-2">
           <Label htmlFor="provider">Provider</Label>
-          <Select value={llmProvider} onValueChange={setLlmProvider}>
+          <Select value={llmProvider} onValueChange={(value) => setLlmProvider(value as LLMProviderKey)}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
@@ -822,6 +866,74 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
             </div>
           </div>
         </RadioGroup>
+
+        {/* Model Settings (Collapsible) */}
+        <Collapsible open={showModelSettings} onOpenChange={setShowModelSettings}>
+          <CollapsibleTrigger asChild>
+            <Button variant="ghost" className="w-full justify-between p-2 h-auto">
+              <div className="flex items-center gap-2 text-sm">
+                <Brain className="h-4 w-4" />
+                <span>Model Settings</span>
+                <Badge variant="outline" className="text-xs">
+                  {LLM_PROVIDER_NAMES[extractionProvider]} / {extractionModel}
+                </Badge>
+              </div>
+              <ChevronDown className={`h-4 w-4 transition-transform ${showModelSettings ? 'rotate-180' : ''}`} />
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2 space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Choose which AI model will be used for extracting values.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Provider</Label>
+                <Select
+                  value={extractionProvider}
+                  onValueChange={(value) => handleExtractionProviderChange(value as LLMProviderKey)}
+                  disabled={configuredProviders.length === 0}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {configuredProviders.map((provider) => (
+                      <SelectItem key={provider} value={provider}>
+                        {LLM_PROVIDER_NAMES[provider]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Model</Label>
+                <Select
+                  value={extractionModel}
+                  onValueChange={setExtractionModel}
+                  disabled={getModelsForProvider(extractionProvider).length === 0}
+                >
+                  <SelectTrigger className="h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {getModelsForProvider(extractionProvider).map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            {configuredProviders.length === 0 && (
+              <Alert>
+                <AlertDescription className="text-xs">
+                  No API keys configured. Add an API key on the home page to select a model.
+                </AlertDescription>
+              </Alert>
+            )}
+          </CollapsibleContent>
+        </Collapsible>
 
         <Separator />
 
