@@ -568,38 +568,33 @@ class SupabaseStorageBackend(StorageInterface):
                             text = content.decode('utf-8')
 
                             if ext == '.csv':
+                                import pandas as pd
+                                import io
+
                                 lines = text.strip().split('\n')
-                                # Skip leading comment lines (metadata at start of file only)
-                                # and filter out empty lines throughout
-                                data_lines = []
+                                # Skip leading comment lines only
+                                clean_lines = []
                                 past_comments = False
-                                skipped_comments = 0
-                                skipped_empty = 0
                                 for l in lines:
                                     stripped = l.strip()
                                     if not stripped:
-                                        skipped_empty += 1
-                                        continue  # Skip empty lines
+                                        continue
                                     if not past_comments and stripped.startswith('#'):
-                                        skipped_comments += 1
-                                        continue  # Skip comment lines at start
+                                        continue
                                     past_comments = True
-                                    data_lines.append(l)
-                                logger.info(f"CSV {name}: total_lines={len(lines)}, skipped_comments={skipped_comments}, skipped_empty={skipped_empty}, data_lines={len(data_lines)}")
-                                # Debug: show first data line (header) and first few data rows
-                                if data_lines:
-                                    logger.info(f"CSV {name}: HEADER = {data_lines[0][:100]}...")
-                                    for i, dl in enumerate(data_lines[1:4], 1):
-                                        logger.info(f"CSV {name}: ROW {i} = {dl[:80]}...")
-                                if data_lines:
-                                    row_count = len(data_lines) - 1  # Exclude header
-                                    logger.info(f"CSV {name}: row_count={row_count} (data_lines - 1 for header)")
-                                    # Parse header to count actual data columns
-                                    header = data_lines[0].split(',')
-                                    # Exclude metadata and excerpt columns
+                                    clean_lines.append(l)
+
+                                if clean_lines:
+                                    # Use pandas to parse - handles quoted multi-line fields correctly
+                                    clean_csv_content = '\n'.join(clean_lines)
+                                    df = pd.read_csv(io.StringIO(clean_csv_content))
+                                    row_count = len(df)  # Correct row count from pandas
+                                    logger.info(f"CSV {name}: pandas row_count={row_count}")
+
+                                    # Count columns excluding metadata
                                     metadata_cols = {'document_directory', 'papers', 'row_name'}
                                     data_columns = [
-                                        col for col in header
+                                        col for col in df.columns
                                         if not col.endswith('_excerpt') and col not in metadata_cols
                                     ]
                                     column_count = len(data_columns)

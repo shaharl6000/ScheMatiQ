@@ -490,31 +490,38 @@ class LocalStorageBackend(StorageInterface):
 
                         try:
                             if ext == '.csv':
+                                import pandas as pd
+                                import io
+
                                 with open(file_path, 'r') as f:
-                                    lines = f.readlines()
-                                    # Skip leading comment lines (metadata at start of file only)
-                                    # and filter out empty lines throughout
-                                    data_lines = []
-                                    past_comments = False
-                                    for l in lines:
-                                        stripped = l.strip()
-                                        if not stripped:
-                                            continue  # Skip empty lines
-                                        if not past_comments and stripped.startswith('#'):
-                                            continue  # Skip comment lines at start
-                                        past_comments = True
-                                        data_lines.append(l)
-                                    if data_lines:
-                                        row_count = len(data_lines) - 1  # Exclude header
-                                        # Parse header to count actual data columns
-                                        header = data_lines[0].strip().split(',')
-                                        # Exclude metadata and excerpt columns
-                                        metadata_cols = {'document_directory', 'papers', 'row_name'}
-                                        data_columns = [
-                                            col for col in header
-                                            if not col.endswith('_excerpt') and col not in metadata_cols
-                                        ]
-                                        column_count = len(data_columns)
+                                    text = f.read()
+
+                                lines = text.strip().split('\n')
+                                # Skip leading comment lines only
+                                clean_lines = []
+                                past_comments = False
+                                for l in lines:
+                                    stripped = l.strip()
+                                    if not stripped:
+                                        continue
+                                    if not past_comments and stripped.startswith('#'):
+                                        continue
+                                    past_comments = True
+                                    clean_lines.append(l)
+
+                                if clean_lines:
+                                    # Use pandas to parse - handles quoted multi-line fields correctly
+                                    clean_csv_content = '\n'.join(clean_lines)
+                                    df = pd.read_csv(io.StringIO(clean_csv_content))
+                                    row_count = len(df)  # Correct row count from pandas
+
+                                    # Count columns excluding metadata
+                                    metadata_cols = {'document_directory', 'papers', 'row_name'}
+                                    data_columns = [
+                                        col for col in df.columns
+                                        if not col.endswith('_excerpt') and col not in metadata_cols
+                                    ]
+                                    column_count = len(data_columns)
                             elif ext == '.jsonl':
                                 with open(file_path, 'r') as f:
                                     lines = [l for l in f if l.strip()]
