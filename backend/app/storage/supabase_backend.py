@@ -586,6 +586,11 @@ class SupabaseStorageBackend(StorageInterface):
                                     past_comments = True
                                     data_lines.append(l)
                                 logger.info(f"CSV {name}: total_lines={len(lines)}, skipped_comments={skipped_comments}, skipped_empty={skipped_empty}, data_lines={len(data_lines)}")
+                                # Debug: show first data line (header) and first few data rows
+                                if data_lines:
+                                    logger.info(f"CSV {name}: HEADER = {data_lines[0][:100]}...")
+                                    for i, dl in enumerate(data_lines[1:4], 1):
+                                        logger.info(f"CSV {name}: ROW {i} = {dl[:80]}...")
                                 if data_lines:
                                     row_count = len(data_lines) - 1  # Exclude header
                                     logger.info(f"CSV {name}: row_count={row_count} (data_lines - 1 for header)")
