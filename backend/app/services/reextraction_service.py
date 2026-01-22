@@ -481,12 +481,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             continue
 
         # Check which papers exist in local storage
+        # Check both documents/ and pending_documents/ directories
         local_files: Set[str] = set()
-        if docs_dir.exists():
-            for f in docs_dir.iterdir():
-                if f.is_file() and not f.name.startswith('.'):
-                    local_files.add(f.name)
-                    local_files.add(f.stem)  # Also match without extension
+        pending_dir = session_dir / "pending_documents"
+
+        for local_dir in [docs_dir, pending_dir]:
+            if local_dir.exists():
+                for f in local_dir.iterdir():
+                    if f.is_file() and not f.name.startswith('.'):
+                        local_files.add(f.name)
+                        local_files.add(f.stem)  # Also match without extension
 
         # Categorize papers: local, cloud, or missing
         local_papers: List[str] = []
@@ -690,25 +694,32 @@ class ReextractionService(WebSocketBroadcasterMixin):
         return downloaded
 
     def _find_paper_path(self, session_dir: Path, paper_name: str) -> Optional[Path]:
-        """Find the actual file path for a paper name."""
+        """Find the actual file path for a paper name.
+
+        Checks both documents/ and pending_documents/ directories.
+        """
         docs_dir = session_dir / "documents"
-        if not docs_dir.exists():
-            return None
+        pending_dir = session_dir / "pending_documents"
 
-        # Try exact match
-        exact = docs_dir / paper_name
-        if exact.exists():
-            return exact
+        # Check both directories
+        for search_dir in [docs_dir, pending_dir]:
+            if not search_dir.exists():
+                continue
 
-        # Try with .txt extension
-        with_ext = docs_dir / f"{paper_name}.txt"
-        if with_ext.exists():
-            return with_ext
+            # Try exact match
+            exact = search_dir / paper_name
+            if exact.exists():
+                return exact
 
-        # Try matching stem
-        for f in docs_dir.iterdir():
-            if f.is_file() and f.stem == paper_name:
-                return f
+            # Try with .txt extension
+            with_ext = search_dir / f"{paper_name}.txt"
+            if with_ext.exists():
+                return with_ext
+
+            # Try matching stem
+            for f in search_dir.iterdir():
+                if f.is_file() and f.stem == paper_name:
+                    return f
 
         return None
 
@@ -788,6 +799,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
             session_dir = Path("./data") / operation.session_id
             docs_dir = session_dir / "documents"
+            pending_dir = session_dir / "pending_documents"
 
             await self.broadcast_event(
                 operation.session_id,
@@ -915,9 +927,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 except Exception as e:
                     print(f"⚠️ Broadcast error: {e}")
 
-            # Run extraction
-            print(f"DEBUG: docs_dir={docs_dir}, exists={docs_dir.exists()}")
-            if docs_dir.exists():
+            # Run extraction - check both documents/ and pending_documents/
+            docs_directories = [d for d in [docs_dir, pending_dir] if d.exists()]
+            print(f"DEBUG: docs_directories={docs_directories}, count={len(docs_directories)}")
+
+            if docs_directories:
                 print(f"DEBUG: Starting build_table_jsonl extraction...")
 
                 # Create should_stop callback that checks for stop requests
@@ -927,7 +941,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 def run_extraction():
                     return build_table_jsonl(
                         schema_path=schema_file,
-                        docs_directories=[docs_dir],
+                        docs_directories=docs_directories,
                         output_path=output_file,
                         llm=llm,
                         retriever=retriever,
@@ -942,7 +956,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 await asyncio.get_event_loop().run_in_executor(None, run_extraction)
                 print(f"DEBUG: build_table_jsonl completed, output_file exists: {output_file.exists()}")
             else:
-                print(f"DEBUG: docs_dir does not exist, skipping extraction")
+                print(f"DEBUG: No document directories exist, skipping extraction")
 
             # Merge results with existing data
             print(f"DEBUG: Merging re-extracted data...")
