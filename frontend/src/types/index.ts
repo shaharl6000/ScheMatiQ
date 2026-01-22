@@ -756,6 +756,30 @@ export interface ContinueDiscoveryFailedData {
   error: string;
 }
 
+// ==================== Document Availability Pre-check Types ====================
+
+export interface DocumentInfo {
+  name: string;
+  status: 'local' | 'cloud' | 'missing';
+  cloud_path?: string;
+  affected_rows: string[];
+}
+
+export interface DocumentAvailabilityRequest {
+  operation_type: 'reextraction' | 'continue_discovery';
+  columns?: string[];
+}
+
+export interface DocumentAvailabilityResponse {
+  total_documents: number;
+  local_documents: DocumentInfo[];
+  cloud_documents: DocumentInfo[];
+  missing_documents: DocumentInfo[];
+  can_proceed: boolean;
+  total_rows: number;
+  rows_with_missing_docs: number;
+}
+
 // ==================== Column Clustering Types ====================
 
 /**

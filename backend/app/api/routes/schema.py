@@ -856,6 +856,58 @@ async def discover_papers(session_id: str) -> PaperDiscoveryResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class DocumentAvailabilityRequest(BaseModel):
+    operation_type: str = "reextraction"  # 'reextraction' or 'continue_discovery'
+    columns: Optional[List[str]] = None
+
+
+class DocumentInfo(BaseModel):
+    name: str
+    status: str  # 'local', 'cloud', 'missing'
+    cloud_path: Optional[str] = None
+    affected_rows: List[str] = []
+
+
+class DocumentAvailabilityResponse(BaseModel):
+    total_documents: int
+    local_documents: List[DocumentInfo]
+    cloud_documents: List[DocumentInfo]
+    missing_documents: List[DocumentInfo]
+    can_proceed: bool
+    total_rows: int
+    rows_with_missing_docs: int
+
+
+@router.post("/precheck-documents/{session_id}")
+async def precheck_document_availability(
+    session_id: str,
+    request: DocumentAvailabilityRequest
+) -> DocumentAvailabilityResponse:
+    """Pre-check document availability before extraction."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        result = await reextraction_service.precheck_document_availability(
+            session_id,
+            request.operation_type
+        )
+
+        return DocumentAvailabilityResponse(
+            total_documents=result["total_documents"],
+            local_documents=[DocumentInfo(**doc) for doc in result["local_documents"]],
+            cloud_documents=[DocumentInfo(**doc) for doc in result["cloud_documents"]],
+            missing_documents=[DocumentInfo(**doc) for doc in result["missing_documents"]],
+            can_proceed=result["can_proceed"],
+            total_rows=result["total_rows"],
+            rows_with_missing_docs=result["rows_with_missing_docs"]
+        )
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/reextract/{session_id}")
 async def start_reextraction(
     session_id: str,

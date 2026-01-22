@@ -27,7 +27,9 @@ import {
   ContinueDiscoveryResponse,
   ContinueDiscoveryStatus,
   ConfirmColumnsRequest,
-  ConfirmColumnsResponse
+  ConfirmColumnsResponse,
+  DocumentAvailabilityRequest,
+  DocumentAvailabilityResponse
 } from '../types';
 import { FilterRule, SortColumn } from '../components/DataTable/types/filters';
 
@@ -578,6 +580,12 @@ export const schemaAPI = {
   bulkApproveSuggestions: async (sessionId: string, columnName?: string): Promise<{ status: string; message: string; approved_count: number }> => {
     const params = columnName ? `?column_name=${encodeURIComponent(columnName)}` : '';
     const response = await api.post(`/schema/bulk-approve/${sessionId}${params}`);
+    return response.data;
+  },
+
+  // Document availability pre-check
+  precheckDocuments: async (sessionId: string, request: DocumentAvailabilityRequest): Promise<DocumentAvailabilityResponse> => {
+    const response = await api.post(`/schema/precheck-documents/${sessionId}`, request);
     return response.data;
   },
 

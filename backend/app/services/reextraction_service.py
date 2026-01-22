@@ -1195,3 +1195,121 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "completed_at": operation.completed_at.isoformat() if operation.completed_at else None,
             "error": operation.error
         }
+
+    async def precheck_document_availability(
+        self,
+        session_id: str,
+        operation_type: str = "reextraction"
+    ) -> Dict[str, Any]:
+        """
+        Pre-check document availability before extraction starts.
+
+        Args:
+            session_id: Session identifier
+            operation_type: Type of operation ('reextraction' or 'continue_discovery')
+
+        Returns:
+            Dictionary with detailed document availability information:
+            - total_documents: Total unique documents referenced
+            - local_documents: List of documents available locally
+            - cloud_documents: List of documents available in cloud storage
+            - missing_documents: List of documents not found anywhere
+            - can_proceed: Whether any documents are available
+            - total_rows: Total number of rows in the table
+            - rows_with_missing_docs: Number of rows that reference missing documents
+        """
+        # Use the existing discover_papers method which already categorizes documents
+        discovery = await self.discover_papers(session_id)
+
+        # Build paper_to_rows mapping (already returned by discover_papers)
+        paper_to_rows = discovery.get("paper_to_rows", {})
+
+        # Format local documents with affected rows
+        local_documents = []
+        for paper in discovery.get("local_papers", []):
+            affected_rows = paper_to_rows.get(paper, [])
+            local_documents.append({
+                "name": paper,
+                "status": "local",
+                "affected_rows": affected_rows
+            })
+
+        # Format cloud documents with affected rows
+        cloud_documents = []
+        cloud_papers_dict = discovery.get("cloud_papers", {})
+        for paper, cloud_path in cloud_papers_dict.items():
+            affected_rows = paper_to_rows.get(paper, [])
+            cloud_documents.append({
+                "name": paper,
+                "status": "cloud",
+                "cloud_path": cloud_path,
+                "affected_rows": affected_rows
+            })
+
+        # Format missing documents with affected rows
+        # For missing papers, we need to find which rows reference them
+        missing_documents = []
+        session_dir = Path("./data") / session_id
+        data_file = session_dir / "data.jsonl"
+
+        # Build a mapping from paper name to rows for missing papers
+        missing_paper_to_rows: Dict[str, List[str]] = {}
+        if data_file.exists():
+            with open(data_file, 'r') as f:
+                row_idx = 0
+                for line in f:
+                    if line.strip():
+                        row_idx += 1
+                        try:
+                            row = json.loads(line)
+                            row_name = row.get('row_name') or row.get('_row_name') or f"row_{row_idx}"
+                            papers_raw = (
+                                row.get('papers') or
+                                row.get('_papers') or
+                                row.get('Papers') or
+                                row.get('data', {}).get('Papers') or
+                                row.get('data', {}).get('papers') or
+                                []
+                            )
+                            if isinstance(papers_raw, dict) and 'answer' in papers_raw:
+                                papers_raw = papers_raw.get('answer', [])
+                            if isinstance(papers_raw, str):
+                                papers = [papers_raw] if papers_raw else []
+                            elif isinstance(papers_raw, list):
+                                papers = papers_raw
+                            else:
+                                papers = []
+
+                            for paper in papers:
+                                if paper in discovery.get("missing_papers", []):
+                                    if paper not in missing_paper_to_rows:
+                                        missing_paper_to_rows[paper] = []
+                                    missing_paper_to_rows[paper].append(row_name)
+                        except json.JSONDecodeError:
+                            continue
+
+        for paper in discovery.get("missing_papers", []):
+            affected_rows = missing_paper_to_rows.get(paper, [])
+            missing_documents.append({
+                "name": paper,
+                "status": "missing",
+                "affected_rows": affected_rows
+            })
+
+        # Calculate rows with missing docs
+        rows_with_missing = set()
+        for doc in missing_documents:
+            rows_with_missing.update(doc["affected_rows"])
+
+        total_documents = len(local_documents) + len(cloud_documents) + len(missing_documents)
+        can_proceed = len(local_documents) + len(cloud_documents) > 0
+
+        return {
+            "total_documents": total_documents,
+            "local_documents": local_documents,
+            "cloud_documents": cloud_documents,
+            "missing_documents": missing_documents,
+            "can_proceed": can_proceed,
+            "total_rows": discovery.get("total_rows", 0),
+            "rows_with_missing_docs": len(rows_with_missing)
+        }

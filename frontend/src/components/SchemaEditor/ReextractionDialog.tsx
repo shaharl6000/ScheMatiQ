@@ -36,8 +36,10 @@ import {
   PaperDiscoveryResult,
   ColumnChangeDetail,
   ReextractionRequest,
+  DocumentAvailabilityResponse,
 } from '../../types';
 import { schemaAPI } from '../../services/api';
+import MissingDocumentsSection from './MissingDocumentsSection';
 import { getApiKeyForProvider, getConfiguredProviders } from '../../utils/apiKeyStorage';
 import {
   LLMProviderKey,
@@ -71,6 +73,10 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
   const [paperStatus, setPaperStatus] = useState<PaperDiscoveryResult | null>(null);
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
 
+  // Document availability pre-check state
+  const [documentAvailability, setDocumentAvailability] = useState<DocumentAvailabilityResponse | null>(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
+
   // LLM Model selection state
   const [configuredProviders, setConfiguredProviders] = useState<LLMProviderKey[]>([]);
   const [llmProvider, setLlmProvider] = useState<LLMProviderKey>('gemini');
@@ -83,6 +89,24 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
   const [extractionProgress, setExtractionProgress] = useState(0);
   const [isStopping, setIsStopping] = useState(false);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Check document availability
+  const checkDocumentAvailability = useCallback(async () => {
+    if (!sessionId) return;
+
+    setCheckingAvailability(true);
+    try {
+      const availability = await schemaAPI.precheckDocuments(sessionId, {
+        operation_type: 'reextraction',
+      });
+      setDocumentAvailability(availability);
+    } catch (error: any) {
+      console.error('Failed to check document availability:', error);
+      // Don't show error to user - the paper discovery already shows similar info
+    } finally {
+      setCheckingAvailability(false);
+    }
+  }, [sessionId]);
 
   // Load schema change status and paper discovery when dialog opens
   const loadStatus = useCallback(async () => {
@@ -105,12 +129,15 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
         ...changes.new_columns
       ]);
       setSelectedColumns(allChanged);
+
+      // Also check document availability for the pre-check section
+      checkDocumentAvailability();
     } catch (error: any) {
       onError(error.response?.data?.detail || 'Failed to load schema status');
     } finally {
       setLoadingStatus(false);
     }
-  }, [open, sessionId, onError, isExtracting]);
+  }, [open, sessionId, onError, isExtracting, checkDocumentAvailability]);
 
   useEffect(() => {
     loadStatus();
@@ -150,6 +177,8 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
       setExtractionProgress(0);
       setIsStopping(false);
       setShowModelSettings(false);
+      setDocumentAvailability(null);
+      setCheckingAvailability(false);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -339,53 +368,13 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
           </Alert>
         ) : (
           <>
-            {/* Paper Discovery Status */}
-            {paperStatus && (
-              <Alert variant={paperStatus.missing_papers.length > 0 ? 'default' : 'default'}>
-                <FileText className="h-4 w-4" />
-                <AlertDescription>
-                  <span className="font-medium">
-                    {paperStatus.available_papers.length} source documents available
-                  </span>
-                  {' '}across {paperStatus.total_rows} rows.
-                  {/* Show cloud vs local breakdown */}
-                  {paperStatus.cloud_papers && Object.keys(paperStatus.cloud_papers).length > 0 && (
-                    <span className="text-blue-600 dark:text-blue-400">
-                      {' '}({Object.keys(paperStatus.cloud_papers).length} from cloud storage)
-                    </span>
-                  )}
-                  {paperStatus.missing_papers.length > 0 && (
-                    <span className="text-amber-600 dark:text-amber-400">
-                      {' '}{paperStatus.missing_papers.length} documents are missing.
-                    </span>
-                  )}
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {/* Missing Papers Warning */}
-            {paperStatus && paperStatus.missing_papers.length > 0 && (
-              <Alert variant="destructive" className="mt-2">
-                <AlertTriangle className="h-4 w-4" />
-                <AlertDescription>
-                  <div className="space-y-2">
-                    <p className="font-medium">Missing documents (rows will be skipped):</p>
-                    <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
-                      {paperStatus.missing_papers.slice(0, 10).map((paper) => (
-                        <Badge key={paper} variant="outline" className="text-xs">
-                          {paper}
-                        </Badge>
-                      ))}
-                      {paperStatus.missing_papers.length > 10 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{paperStatus.missing_papers.length - 10} more
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-                </AlertDescription>
-              </Alert>
-            )}
+            {/* Document Availability Pre-check */}
+            <MissingDocumentsSection
+              sessionId={sessionId}
+              availability={documentAvailability}
+              loading={checkingAvailability}
+              onRefresh={checkDocumentAvailability}
+            />
 
             <Separator />
 

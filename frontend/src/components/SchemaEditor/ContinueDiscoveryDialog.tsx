@@ -33,8 +33,10 @@ import {
   ContinueDiscoveryStatus,
   NewColumnInfo,
   ColumnInfo,
+  DocumentAvailabilityResponse,
 } from '../../types';
 import { schemaAPI, loadAPI } from '../../services/api';
+import MissingDocumentsSection from './MissingDocumentsSection';
 import { getApiKeyForProvider, encryptAndStore, getConfiguredProviders } from '../../utils/apiKeyStorage';
 import {
   LLMProviderKey,
@@ -121,6 +123,10 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [extractionProgress, setExtractionProgress] = useState(0);
   const [isStopping, setIsStopping] = useState(false);
 
+  // Document availability pre-check state (for cloud source)
+  const [documentAvailability, setDocumentAvailability] = useState<DocumentAvailabilityResponse | null>(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
+
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load document info when dialog opens
@@ -150,6 +156,34 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]); // Intentionally exclude extractionProvider to avoid re-running when provider changes
 
+  // Check document availability when cloud dataset is selected
+  const checkDocumentAvailability = useCallback(async () => {
+    if (!sessionId || documentSource !== 'cloud' || !selectedCloudDataset) {
+      setDocumentAvailability(null);
+      return;
+    }
+
+    setCheckingAvailability(true);
+    try {
+      const availability = await schemaAPI.precheckDocuments(sessionId, {
+        operation_type: 'continue_discovery',
+      });
+      setDocumentAvailability(availability);
+    } catch (error: any) {
+      console.error('Failed to check document availability:', error);
+      // Don't show error - not critical for continue discovery
+    } finally {
+      setCheckingAvailability(false);
+    }
+  }, [sessionId, documentSource, selectedCloudDataset]);
+
+  // Trigger pre-check when cloud dataset is selected
+  useEffect(() => {
+    if (open && documentSource === 'cloud' && selectedCloudDataset) {
+      checkDocumentAvailability();
+    }
+  }, [open, documentSource, selectedCloudDataset, checkDocumentAvailability]);
+
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
@@ -177,6 +211,8 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setShowModelSettings(false);
       setExtractionProvider('gemini');
       setExtractionModel('gemini-2.5-flash-lite');
+      setDocumentAvailability(null);
+      setCheckingAvailability(false);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -536,6 +572,16 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
               </div>
             </div>
           </RadioGroup>
+
+          {/* Document Availability Pre-check (for cloud source only) */}
+          {documentSource === 'cloud' && selectedCloudDataset && (
+            <MissingDocumentsSection
+              sessionId={sessionId}
+              availability={documentAvailability}
+              loading={checkingAvailability}
+              onRefresh={checkDocumentAvailability}
+            />
+          )}
         </div>
       )}
 
