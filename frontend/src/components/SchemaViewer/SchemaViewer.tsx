@@ -157,6 +157,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [pendingMoveColumn, setPendingMoveColumn] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [clustersInitialized, setClustersInitialized] = useState(false);
+  const initialClusteringDoneRef = useRef(false);
 
   // Load clusters from localStorage on mount
   useEffect(() => {
@@ -176,17 +177,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     }
   }, [sessionId]);
 
-  // Save user-modified clusters to localStorage
+  // Save clusters to localStorage whenever they change
   useEffect(() => {
     if (sessionId && clustersInitialized && clusters.length > 0) {
-      // Only save clusters that have user modifications
-      const userModifiedClusters = clusters.filter(c =>
-        c.id.startsWith('user_') || // Explicitly user-created or renamed
-        c.name !== c.id // Name was changed from auto-generated
-      );
-      if (userModifiedClusters.length > 0) {
-        localStorage.setItem(`schema-clusters-${sessionId}`, JSON.stringify(clusters));
-      }
+      // Always save all clusters to preserve state across refreshes
+      localStorage.setItem(`schema-clusters-${sessionId}`, JSON.stringify(clusters));
     }
   }, [clusters, sessionId, clustersInitialized]);
 
@@ -507,10 +502,19 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     setLocalColumns(columns || []);
   }, [columns]);
 
-  // Run clustering ONLY on initial load when no clusters exist
+  // Run clustering ONLY ONCE on initial load when no clusters exist
+  // This effect should never re-run clustering after the initial setup
   useEffect(() => {
+    // Guard: only run initial clustering once per component lifetime
+    if (initialClusteringDoneRef.current) {
+      return;
+    }
+
+    // Only proceed if everything is ready and no clusters exist
     if (clusteringEnabled && localColumns.length > 0 && clustersInitialized && clusters.length === 0) {
-      // Only run initial clustering if no clusters exist yet
+      // Mark as done BEFORE setting clusters to prevent any race conditions
+      initialClusteringDoneRef.current = true;
+
       // Filter out excerpt columns - they shouldn't be clustered with main columns
       const columnsToCluster = localColumns.filter(col =>
         !col.name.toLowerCase().endsWith('_excerpt') &&
@@ -526,9 +530,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         });
         setClusters(result.clusters);
       }
+    } else if (clusters.length > 0) {
+      // If clusters already exist (loaded from localStorage), mark as done
+      initialClusteringDoneRef.current = true;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clusteringEnabled, clustersInitialized]); // Only depend on clustering state, not localColumns
+  }, [clusteringEnabled, clustersInitialized, clusters.length]); // Include clusters.length to detect when loaded
 
   // Set up WebSocket listener for real-time updates
   useEffect(() => {
