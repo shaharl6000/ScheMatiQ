@@ -378,6 +378,36 @@ function titleCase(str: string): string {
 }
 
 /**
+ * Ensure a cluster name is unique by trying alternatives or adding numeric suffix
+ */
+function ensureUniqueName(
+  baseName: string,
+  usedNames: Set<string>,
+  columns: ColumnInfo[],
+  commonTerms: Set<string>
+): string {
+  if (!usedNames.has(baseName)) {
+    return baseName;
+  }
+
+  // Try alternative names from columns (excluding common terms)
+  for (const col of columns) {
+    const altTokens = tokenizeName(col.name).filter(t => !commonTerms.has(t) && t.length > 2);
+    if (altTokens.length >= 2) {
+      const altName = titleCase(altTokens.slice(0, 2).join(' '));
+      if (!usedNames.has(altName)) {
+        return altName;
+      }
+    }
+  }
+
+  // Add numeric suffix as last resort
+  let suffix = 2;
+  while (usedNames.has(`${baseName} ${suffix}`)) suffix++;
+  return `${baseName} ${suffix}`;
+}
+
+/**
  * Generate a label for a cluster based on discriminative terms
  * STRICTLY excludes common terms that appear across the entire dataset
  */
@@ -528,31 +558,9 @@ export function clusterColumns(
     .filter(node => node.members.length >= minClusterSize)
     .slice(0, maxClusters)
     .map((node, idx) => {
-      let name = generateClusterLabel(columnsToCluster, node.members, commonTerms);
-
-      // Ensure unique names by appending a suffix if needed
-      if (usedNames.has(name)) {
-        // Try to find alternative names from member columns (excluding common terms)
-        let foundAlt = false;
-        for (const memberIdx of node.members) {
-          const col = columnsToCluster[memberIdx];
-          const altTokens = tokenizeName(col.name).filter(t => !commonTerms.has(t) && t.length > 2);
-          if (altTokens.length >= 2) {
-            const altName = titleCase(altTokens.slice(0, 2).join(' '));
-            if (!usedNames.has(altName)) {
-              name = altName;
-              foundAlt = true;
-              break;
-            }
-          }
-        }
-        if (!foundAlt) {
-          // Add numeric suffix as last resort
-          let suffix = 2;
-          while (usedNames.has(`${name} ${suffix}`)) suffix++;
-          name = `${name} ${suffix}`;
-        }
-      }
+      const baseName = generateClusterLabel(columnsToCluster, node.members, commonTerms);
+      const memberColumns = node.members.map(i => columnsToCluster[i]);
+      const name = ensureUniqueName(baseName, usedNames, memberColumns, commonTerms);
       usedNames.add(name);
 
       return {
@@ -582,34 +590,15 @@ export function clusterColumns(
       ).filter(idx => idx !== -1);
 
       // Generate name strictly excluding common terms
-      let clusterName = chunk.length === 1
+      let baseName = chunk.length === 1
         ? titleCase(tokenizeName(chunk[0].name).filter(t => !commonTerms.has(t) && t.length > 2).slice(0, 3).join(' '))
         : generateClusterLabel(columnsToCluster, chunkIndices, commonTerms);
 
       // Ensure we have a valid name (no common terms allowed)
-      if (!clusterName) clusterName = `Group ${algorithmClusters.length + chunkIdx + 1}`;
+      if (!baseName) baseName = `Group ${algorithmClusters.length + chunkIdx + 1}`;
 
       // Ensure unique name
-      if (usedNames.has(clusterName)) {
-        // Try alternatives from chunk columns (excluding common terms)
-        let foundAlt = false;
-        for (const col of chunk) {
-          const altTokens = tokenizeName(col.name).filter(t => !commonTerms.has(t) && t.length > 2);
-          if (altTokens.length >= 2) {
-            const altName = titleCase(altTokens.slice(0, 2).join(' '));
-            if (!usedNames.has(altName)) {
-              clusterName = altName;
-              foundAlt = true;
-              break;
-            }
-          }
-        }
-        if (!foundAlt) {
-          let suffix = 2;
-          while (usedNames.has(`${clusterName} ${suffix}`)) suffix++;
-          clusterName = `${clusterName} ${suffix}`;
-        }
-      }
+      const clusterName = ensureUniqueName(baseName, usedNames, chunk, commonTerms);
       usedNames.add(clusterName);
 
       algorithmClusters.push({
@@ -690,18 +679,37 @@ export function suggestClusterForColumn(
 }
 
 /**
+ * Get an unused color from the palette, avoiding colors already used by existing clusters
+ */
+function getUnusedColor(existingClusters: ColumnCluster[]): string {
+  const usedColors = new Set(existingClusters.map(c => c.color));
+
+  // Find the first unused color
+  for (const color of CLUSTER_COLORS) {
+    if (!usedColors.has(color)) {
+      return color;
+    }
+  }
+
+  // If all colors are used, pick the least recently used one (based on array position)
+  // This ensures deterministic behavior
+  return CLUSTER_COLORS[existingClusters.length % CLUSTER_COLORS.length];
+}
+
+/**
  * Create a user-defined cluster
  */
 export function createUserCluster(
   name: string,
   columnNames: string[],
+  existingClusters: ColumnCluster[] = [],
   color?: string
 ): ColumnCluster {
   return {
     id: `user_${Date.now()}`,
     name,
     description: `${columnNames.length} columns (user-defined)`,
-    color: color || CLUSTER_COLORS[Math.floor(Math.random() * CLUSTER_COLORS.length)],
+    color: color || getUnusedColor(existingClusters),
     collapsed: false,
     column_names: columnNames
   };
@@ -724,7 +732,7 @@ export function assignColumnToCluster(
 
   if (targetClusterId === null) {
     // Create new user cluster for this column
-    updatedClusters.push(createUserCluster(`Custom: ${columnName}`, [columnName]));
+    updatedClusters.push(createUserCluster(`Custom: ${columnName}`, [columnName], updatedClusters));
   } else {
     // Add to existing cluster
     updatedClusters = updatedClusters.map(cluster =>

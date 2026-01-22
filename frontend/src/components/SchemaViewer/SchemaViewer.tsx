@@ -386,7 +386,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
     const newCluster = createUserCluster(
       newClusterName.trim(),
-      pendingMoveColumn ? [pendingMoveColumn] : []
+      pendingMoveColumn ? [pendingMoveColumn] : [],
+      clusters
     );
 
     if (pendingMoveColumn) {
@@ -684,7 +685,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               setClusters(updatedClusters);
             } else {
               // Create new "Uncategorized" cluster
-              const newCluster = createUserCluster('Uncategorized', [newColumnName]);
+              const newCluster = createUserCluster('Uncategorized', [newColumnName], clusters);
               setClusters([...clusters, newCluster]);
             }
           }
