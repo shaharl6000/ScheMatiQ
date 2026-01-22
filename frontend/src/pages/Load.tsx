@@ -149,7 +149,7 @@ const Load = () => {
                   <ChevronDown className="ml-2 h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto">
                 {templates.map((template) => (
                   <DropdownMenuItem
                     key={template.name}

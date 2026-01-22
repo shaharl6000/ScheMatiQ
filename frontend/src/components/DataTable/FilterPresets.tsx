@@ -138,7 +138,7 @@ const FilterPresets: React.FC<FilterPresetsProps> = ({
             )}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuContent align="start" className="w-64 max-h-80 overflow-y-auto">
           {/* Save current as preset */}
           <DropdownMenuItem
             onClick={() => setSaveDialogOpen(true)}
