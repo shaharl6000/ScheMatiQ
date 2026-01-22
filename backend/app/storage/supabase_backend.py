@@ -409,12 +409,40 @@ class SupabaseStorageBackend(StorageInterface):
     # Dataset Operations
     # =======================
 
+    def _list_all_storage_items(self, bucket: str, path: str = "") -> List[dict]:
+        """
+        List all items in a storage path, handling pagination.
+        Supabase has a default limit of 100 items per request.
+        """
+        all_items = []
+        limit = 1000  # Max items per request
+        offset = 0
+
+        while True:
+            if path:
+                items = self.client.storage.from_(bucket).list(path, {"limit": limit, "offset": offset})
+            else:
+                items = self.client.storage.from_(bucket).list("", {"limit": limit, "offset": offset})
+
+            if not items:
+                break
+
+            all_items.extend(items)
+
+            # If we got fewer items than the limit, we've reached the end
+            if len(items) < limit:
+                break
+
+            offset += limit
+
+        return all_items
+
     async def list_datasets(self) -> List[DatasetInfo]:
         """List available datasets from the datasets bucket."""
         try:
             logger.info("Fetching datasets from Supabase 'datasets' bucket...")
-            # List top-level folders in datasets bucket
-            items = self.client.storage.from_("datasets").list()
+            # List top-level folders in datasets bucket with pagination
+            items = self._list_all_storage_items("datasets")
             logger.info(f"Supabase returned {len(items)} items from datasets bucket")
             logger.info(f"Raw items: {items}")
 
@@ -425,9 +453,9 @@ class SupabaseStorageBackend(StorageInterface):
                 if not item.get("id"):
                     dataset_name = item["name"]
                     logger.info(f"Found folder (dataset): {dataset_name}")
-                    # Count files in the dataset folder
+                    # Count files in the dataset folder with pagination
                     try:
-                        files = self.client.storage.from_("datasets").list(dataset_name)
+                        files = self._list_all_storage_items("datasets", dataset_name)
                         file_count = sum(1 for f in files if f.get("id"))
                         logger.info(f"Dataset '{dataset_name}' has {file_count} files")
                     except Exception as e:
@@ -453,7 +481,8 @@ class SupabaseStorageBackend(StorageInterface):
     async def list_dataset_files(self, dataset_name: str) -> List[FileInfo]:
         """List files in a specific dataset."""
         try:
-            files = self.client.storage.from_("datasets").list(dataset_name)
+            # Use pagination to get all files
+            files = self._list_all_storage_items("datasets", dataset_name)
 
             result = []
             for f in files:
