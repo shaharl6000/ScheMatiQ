@@ -1625,48 +1625,51 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         - ./qbsd_work/{session_id}/data.jsonl - Fallback location
         - ./data/{session_id}/data.jsonl - Additional document processing (upload_document_processor)
         """
-        data_files = []
+        # Priority order: extracted_data.jsonl > qbsd_work/data.jsonl > data/data.jsonl
+        # Use only the highest-priority file that exists (not all files)
+        data_file = None
 
-        # Check qbsd_work directory (original QBSD extraction)
+        # Check qbsd_work directory (original QBSD extraction) - highest priority
         extracted_file = self.work_dir / session_id / "extracted_data.jsonl"
         if extracted_file.exists():
-            data_files.append(extracted_file)
+            data_file = extracted_file
 
         # Check qbsd_work for data.jsonl (fallback)
-        qbsd_data_file = self.work_dir / session_id / "data.jsonl"
-        if qbsd_data_file.exists():
-            data_files.append(qbsd_data_file)
+        if data_file is None:
+            qbsd_data_file = self.work_dir / session_id / "data.jsonl"
+            if qbsd_data_file.exists():
+                data_file = qbsd_data_file
 
-        # Check data directory (additional document processing writes here)
-        data_dir_file = Path("./data") / session_id / "data.jsonl"
-        if data_dir_file.exists() and data_dir_file.resolve() not in [f.resolve() for f in data_files]:
-            data_files.append(data_dir_file)
+        # Check data directory (lowest priority fallback)
+        if data_file is None:
+            data_dir_file = Path("./data") / session_id / "data.jsonl"
+            if data_dir_file.exists():
+                data_file = data_dir_file
 
-        if not data_files:
+        if data_file is None:
             return PaginatedData(rows=[], total_count=0, filtered_count=None, page=page, page_size=page_size, has_more=False)
 
         # Check if we need to filter/sort (requires loading all rows)
         needs_processing = bool(filters or sort or search)
 
         if needs_processing:
-            # Load all rows from all files
+            # Load all rows from the data file
             all_rows = []
-            for data_file in data_files:
-                with open(data_file, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        if line.strip():
-                            try:
-                                row_data = json.loads(line.strip())
-                                # Normalize to standard format
-                                if '_row_name' in row_data:
-                                    row_data = {
-                                        'row_name': row_data.get('_row_name'),
-                                        'papers': row_data.get('_papers', []),
-                                        'data': {k: v for k, v in row_data.items() if not k.startswith('_')}
-                                    }
-                                all_rows.append(row_data)
-                            except (json.JSONDecodeError, TypeError):
-                                pass
+            with open(data_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if line.strip():
+                        try:
+                            row_data = json.loads(line.strip())
+                            # Normalize to standard format
+                            if '_row_name' in row_data:
+                                row_data = {
+                                    'row_name': row_data.get('_row_name'),
+                                    'papers': row_data.get('_papers', []),
+                                    'data': {k: v for k, v in row_data.items() if not k.startswith('_')}
+                                }
+                            all_rows.append(row_data)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
 
             total_count = len(all_rows)
 
@@ -1705,42 +1708,35 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 has_more=end < filtered_count
             )
         else:
-            # Original efficient pagination (no filtering/sorting)
-            total_count = 0
-            for data_file in data_files:
-                with open(data_file, 'r', encoding='utf-8') as f:
-                    total_count += sum(1 for _ in f)
+            # Efficient pagination (no filtering/sorting)
+            with open(data_file, 'r', encoding='utf-8') as f:
+                total_count = sum(1 for _ in f)
 
             rows = []
-            current_line = 0
             start_line = page * page_size
             end_line = start_line + page_size
 
-            for data_file in data_files:
-                if current_line >= end_line:
-                    break
-                with open(data_file, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        if current_line >= start_line and current_line < end_line:
-                            try:
-                                row_data = json.loads(line.strip())
+            with open(data_file, 'r', encoding='utf-8') as f:
+                for current_line, line in enumerate(f):
+                    if current_line >= end_line:
+                        break
+                    if current_line >= start_line:
+                        try:
+                            row_data = json.loads(line.strip())
 
-                                # Handle both old mock format and new real extraction format
-                                if '_row_name' in row_data:
-                                    data_row = DataRow(
-                                        row_name=row_data.get('_row_name'),
-                                        papers=row_data.get('_papers', []),
-                                        data={k: v for k, v in row_data.items() if not k.startswith('_')}
-                                    )
-                                else:
-                                    data_row = DataRow(**row_data)
+                            # Handle both old mock format and new real extraction format
+                            if '_row_name' in row_data:
+                                data_row = DataRow(
+                                    row_name=row_data.get('_row_name'),
+                                    papers=row_data.get('_papers', []),
+                                    data={k: v for k, v in row_data.items() if not k.startswith('_')}
+                                )
+                            else:
+                                data_row = DataRow(**row_data)
 
-                                rows.append(data_row)
-                            except (json.JSONDecodeError, TypeError) as e:
-                                print(f"Warning: Could not parse row {current_line}: {e}")
-                        current_line += 1
-                        if current_line >= end_line:
-                            break
+                            rows.append(data_row)
+                        except (json.JSONDecodeError, TypeError) as e:
+                            print(f"Warning: Could not parse row {current_line}: {e}")
 
             return PaginatedData(
                 rows=rows,
