@@ -569,8 +569,18 @@ class SupabaseStorageBackend(StorageInterface):
 
                             if ext == '.csv':
                                 lines = text.strip().split('\n')
-                                # Skip comment lines (metadata) and empty lines
-                                data_lines = [l for l in lines if l.strip() and not l.strip().startswith('#')]
+                                # Skip leading comment lines (metadata at start of file only)
+                                # and filter out empty lines throughout
+                                data_lines = []
+                                past_comments = False
+                                for l in lines:
+                                    stripped = l.strip()
+                                    if not stripped:
+                                        continue  # Skip empty lines
+                                    if not past_comments and stripped.startswith('#'):
+                                        continue  # Skip comment lines at start
+                                    past_comments = True
+                                    data_lines.append(l)
                                 if data_lines:
                                     row_count = len(data_lines) - 1  # Exclude header
                                     # Parse header to count actual data columns
