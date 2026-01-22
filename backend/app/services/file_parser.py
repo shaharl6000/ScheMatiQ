@@ -273,15 +273,21 @@ class FileParser:
         # First, extract metadata from comment lines and clean the CSV
         metadata_info = self._extract_csv_metadata(file_path)
         
-        # Read CSV with comment lines filtered out
+        # Read CSV with leading comment lines filtered out
         if metadata_info['has_comments']:
-            # Create clean CSV content without comments
+            # Create clean CSV content - skip leading comments only, filter empty lines throughout
             clean_lines = []
+            past_comments = False
             with open(file_path, 'r', encoding='utf-8') as f:
                 for line in f:
-                    if not line.strip().startswith('#') and line.strip():
-                        clean_lines.append(line)
-            
+                    stripped = line.strip()
+                    if not stripped:
+                        continue  # Skip empty lines
+                    if not past_comments and stripped.startswith('#'):
+                        continue  # Skip comment lines at start only
+                    past_comments = True
+                    clean_lines.append(line)
+
             # Create temporary clean CSV content
             clean_csv_content = ''.join(clean_lines)
             df = pd.read_csv(io.StringIO(clean_csv_content))
