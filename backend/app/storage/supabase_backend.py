@@ -573,16 +573,22 @@ class SupabaseStorageBackend(StorageInterface):
                                 # and filter out empty lines throughout
                                 data_lines = []
                                 past_comments = False
+                                skipped_comments = 0
+                                skipped_empty = 0
                                 for l in lines:
                                     stripped = l.strip()
                                     if not stripped:
+                                        skipped_empty += 1
                                         continue  # Skip empty lines
                                     if not past_comments and stripped.startswith('#'):
+                                        skipped_comments += 1
                                         continue  # Skip comment lines at start
                                     past_comments = True
                                     data_lines.append(l)
+                                logger.info(f"CSV {name}: total_lines={len(lines)}, skipped_comments={skipped_comments}, skipped_empty={skipped_empty}, data_lines={len(data_lines)}")
                                 if data_lines:
                                     row_count = len(data_lines) - 1  # Exclude header
+                                    logger.info(f"CSV {name}: row_count={row_count} (data_lines - 1 for header)")
                                     # Parse header to count actual data columns
                                     header = data_lines[0].split(',')
                                     # Exclude metadata and excerpt columns
