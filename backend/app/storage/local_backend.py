@@ -492,8 +492,8 @@ class LocalStorageBackend(StorageInterface):
                             if ext == '.csv':
                                 with open(file_path, 'r') as f:
                                     lines = f.readlines()
-                                    # Skip comment lines (metadata)
-                                    data_lines = [l for l in lines if not l.startswith('#')]
+                                    # Skip comment lines (metadata) and empty lines
+                                    data_lines = [l for l in lines if l.strip() and not l.strip().startswith('#')]
                                     if data_lines:
                                         row_count = len(data_lines) - 1  # Exclude header
                                         # Parse header to count actual data columns
