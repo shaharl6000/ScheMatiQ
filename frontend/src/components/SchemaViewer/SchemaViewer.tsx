@@ -68,7 +68,8 @@ import {
   SchemaValidationResult as SchemaValidationResultType,
   WebSocketMessageExtended,
   SchemaChangeStatus,
-  ColumnCluster
+  ColumnCluster,
+  ObservationUnitInfo
 } from '../../types';
 import { formatColumnName } from '../../utils/formatting';
 import { copyToClipboard } from '../../utils/clipboard';
@@ -99,6 +100,7 @@ interface SchemaViewerProps {
   onReextractionStarted?: (columns: string[]) => void;
   websocketManager?: any;
   llmConfig?: any;
+  observationUnit?: ObservationUnitInfo;
 }
 
 const SchemaViewer: React.FC<SchemaViewerProps> = ({
@@ -111,7 +113,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   onColumnsChange,
   onReextractionStarted,
   websocketManager,
-  llmConfig
+  llmConfig,
+  observationUnit
 }) => {
   const { toast } = useToast();
 
@@ -969,6 +972,34 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                 {sessionType === 'load' ? 'Loaded Schema' : 'Generated Schema'}
               </Badge>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Observation Unit Info Card */}
+      {observationUnit && !observationUnit.name?.includes('Document') && (
+        <Card className="bg-purple-50 border-purple-200">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Layers className="h-4 w-4 text-purple-600" />
+              <span className="font-medium text-purple-900">Observation Unit</span>
+              <Badge variant="outline" className="bg-purple-100">
+                {observationUnit.name}
+              </Badge>
+            </div>
+            <p className="text-sm text-purple-700 mb-2">
+              {observationUnit.definition}
+            </p>
+            {observationUnit.example_names && observationUnit.example_names.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                <span className="text-xs text-purple-600">Examples:</span>
+                {observationUnit.example_names.slice(0, 3).map((name, i) => (
+                  <Badge key={i} variant="secondary" className="text-xs">
+                    {name}
+                  </Badge>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

@@ -1,0 +1,1319 @@
+# **Language Models can be Deductive Solvers**
+
+
+
+**Jiazhan Feng** [1] _[∗]_ **Ruochen Xu** [2] **Junheng Hao** [2] **Hiteshi Sharma** [2]
+
+
+
+**Yelong Shen** [2] **Dongyan Zhao** [1] _[,]_ [3] **Weizhu Chen** [2]
+
+
+
+1Wangxuan Institute of Computer Technology, Peking University, Beijing
+2Microsoft AI, Redmond
+3National Key Laboratory of General Artificial Intelligence, Beijing
+{fengjiazhan,zhaody}@pku.edu.cn
+{ruox,junhenghao,hitshar,yeshe,wzchen}@microsoft.com
+
+
+
+**Abstract**
+
+
+Logical reasoning is a fundamental aspect
+of human intelligence and a key component
+of tasks like problem-solving and decisionmaking. Recent advancements have enabled
+Large Language Models (LLMs) to potentially
+exhibit reasoning capabilities, but complex logical reasoning remains a challenge. The stateof-the-art, solver-augmented language models, use LLMs to parse natural language logical questions into symbolic representations
+first and then adopt external logical solvers to
+take in the symbolic representations and output
+the answers. Despite their impressive performance, any parsing errors will inevitably result
+in the failure of the execution of external logical solvers and no answer to the logical questions. In this paper, we introduce LOGIPT,
+a novel language model that directly internalizes and emulates the reasoning processes of
+logical solvers and avoids parsing errors by
+learning strict adherence to solver syntax and
+grammar. LOGIPT is fine-tuned on a newly
+constructed instruction-tuning dataset derived
+from revealing and refining the invisible reasoning process of deductive solvers. Experimental results on two public deductive reasoning benchmarks show that LOGIPT outperforms state-of-the-art solver-augmented LMs
+and few-shot prompting methods on competitive LLMs like GPT-4. This project is available
+[in https://github.com/Cyril-JZ/LoGiPT.](https://github.com/Cyril-JZ/LoGiPT)
+
+
+**1** **Introduction**
+
+
+Logical reasoning is a foundational element of human intelligence, holding a pivotal role in tasks
+like problem-solving, decision-making, and critical thinking (Huang and Chang, 2023). Recently,
+substantial advancements have been achieved in
+the field of NLP through the development of large
+language models (LLMs) (OpenAI, 2022, 2023;
+
+
+_∗_ Work done during Jiazhan’s internship at Microsoft AI,
+Redmond. Correspondence to: Ruochen Xu and Dongyan
+Zhao.
+
+
+
+Google, 2023; Touvron et al., 2023a,b). It has
+been noted that language models (LMs) could potentially display reasoning capabilities when they
+reach a certain scale threshold (e.g., training compute, model parameters, etc.) (Kaplan et al., 2020;
+Wei et al., 2022a; Hoffmann et al., 2022). To this
+end, LLMs can answer logical questions with explicit reasoning steps when prompted with a simple
+snippet: “ _Let’s think step by step._ ” (Kojima et al.,
+2022) or step-wise explanations of reasoning (i.e.,
+“chain of thoughts”) (Wei et al., 2022b).
+While LLMs have made significant progress,
+complex logical reasoning remains challenging (Valmeekam et al., 2022; Liu et al., 2023b;
+Luo et al., 2023). Some prior works (Tafjord et al.,
+2022; Ling et al., 2023) aimed to enable LMs to
+perform logical reasoning via specialized module
+fine-tuning, where reasoning is in natural language
+(NL). However, the ambiguity and complexity of
+NL can lead to undesired issues such as hallucinations and unfaithful reasoning (Saparov and He,
+2023; Gao et al., 2023). To this end, recent work
+has begun to augment LLMs with access to external **Solvers** (Chen et al., 2022; Ye et al., 2023; Pan
+et al., 2023). In this paper, we focus on the logical solvers, which are theorem provers that can
+be any automated reasoning tool for checking the
+truth value of logical formulas in symbolic language (SL). Invoking logical solvers can guarantee
+the accuracy of logical reasoning and relieve the
+burden of LLMs to execute intricate and precise
+deductive reasoning.
+The workflow of the aforementioned solveraugmented LMs is depicted in Figure 1(a). At
+the outset, the information on the logical questions is stored in NL. It is subsequently fed into
+a LM for parsing into a symbolic representation
+suitable for solver-input format. Finally, the SL information is dispatched to a symbolic solver, which
+yields the truth value of the logical question. However, during this process, any NL-to-SL parsing
+
+
+
+4026
+
+_Findings of the Association for Computational Linguistics: NAACL 2024_, pages 4026–4042
+June 16-21, 2024 ©2024 Association for Computational Linguistics
+
+
+augmented
+LMs
+
+
+|NL Logical<br>LMs<br>Questions|Col2|NL-to-SL<br>Parse|Symbolic<br>Solvers|
+|---|---|---|---|
+|NL Logical<br>Questions|NL Logical<br>Questions|NL Logical<br>Questions|NL Logical<br>Questions|
+|NL Logical<br>Questions||||
+|Remedial<br>Measures|Remedial<br>Measures|Remedial<br>Measures|Remedial<br>Measures|
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+|NL Logical<br>Questions|Col2|LMs|Parse|Symbolic<br>Solvers|is valid|Revealed<br>Reasoning Steps|
+|---|---|---|---|---|---|---|
+|NL Logical<br>Questions|||||||
+
+
+
+b) LoGiPT
+
+
+
+
+
+
+
+
+
+
+
+b2) Our pipeline for inference with LoGiPT
+
+
+Figure 1: Workflow of current solver-augmented LMs **(a)**, and our pipeline for LOGIPT **(b)** . It is important to note
+that the NL-to-SL parsing is solely utilized for constructing instruction-tuning data but not for inference process.
+
+
+
+errors will inevitably result in the failure of the
+reasoning process and no answer to the question.
+In our preliminary experiments (refer to Table 1
+in §2.3), we observe that the parsing successful
+rate (i.e., percentage of executable logical formulations) of Vicuna-13B (Chiang et al., 2023) on
+ProofWriter (Tafjord et al., 2021) is only 17%. Current methods for solving NL-to-SL parsing failures
+have two main approaches: directly using LLMs to
+reason in NL, or regenerating parsing results based
+on the solver’s erroneous message. However, these
+methods do not solve the problem fundamentally.
+In this paper, we introduce LOGIPT, a novel
+**Logi** c-enhanced **P** re-trained **T** ransformer designed
+to mimic the reasoning process of logical solvers,
+enabling it to solve deductive reasoning tasks. We
+first construct an instruction-tuning dataset containing NL logical questions and their corresponding
+solver’s symbolic reasoning process. After filtering
+out cases having invalid syntax, we fine-tune opensource LMs like Vicuna or CodeLlama (Roziere
+et al., 2023) with this data to create LOGIPT.
+Then, LOGIPT can generate all implied facts given
+premises and rules, allowing us to determine the
+truth value of a logical query by matching it with
+implied facts or outputting “unknown” if it cannot
+be determined. Our pipeline is presented in Figure 1(b). We can avoid the syntax or grammatical
+errors derived from NL-to-SL parsing by directly
+outputting answers with LOGIPT.
+Our approach is akin to the process of distillation (Hinton et al., 2015; Xu et al., 2024), whereby
+we distill knowledge from a symbolic model (i.e.,
+solver) into a neural network (i.e., LM). However,
+the reasoning process of solvers is invisible to users
+and we can **only** obtain the answers without intermediate reasoning steps. We design a pipeline to
+
+
+
+reveal and formalize solvers’ invisible reasoning
+processes, creating instruction-tuning datasets with
+visible and interpretable symbolic reasoning steps
+(see Figure 3).
+Our main contributions are three-fold:
+
+  - To the best of our knowledge, we are the
+first to propose empowering LLMs to directly
+learn the reasoning process of logical solvers,
+thereby acquiring similar reasoning capability
+for addressing deductive reasoning tasks.
+
+  - Our proposed LOGIPT, can directly act as a
+deductive solver and output all facts implied
+from NL logical questions while bypassing
+the syntax or grammatical errors derived from
+NL-to-SL parsing of solver-augmented LMs.
+
+  - Evaluation results on two public deductive reasoning datasets show that LOGIPT can outperform state-of-the-art solver-augmented LMs,
+and few-shot prompting methods on competitive LLMs like GPT-4.
+
+
+**2** **Preliminary**
+
+
+**2.1** **Deductive Reasoning**
+
+Deductive reasoning is an essential type of logical reasoning problem. It typically commences
+with known facts and rules from logical context, then proceeds through a series of inference steps until the query can be proved or disproved (Poole and Mackworth, 2010). We also
+adopt the Prolog (Clocksin and Mellish, 2003)
+language, which stands as the most prominent SL
+for describing deductive reasoning problems. We
+showcased a deductive reasoning question along
+with its Prolog syntax representation in Figure 2.
+For each question, we denote the NL description
+as **Context** . The **Context** can further be parsed
+
+
+
+4027
+
+
+**Rules:** Green($x, True) ∧ White($x, True) → Nice($x, True)
+
+
+Figure 2: An example of deductive reasoning question
+from ProofWriter and its parsed Facts, Rules, and Query.
+
+
+into **Facts**, **Rules**, and **Query** [1] . Specifically, a
+**Fact** _F_ = _P_ ( _a_ 1 _, · · ·, at_ ) is a symbolic statement
+with a predicate _P_ and _t_ arguments _a_ 1 _,_ _, at_
+_{_ _· · ·_ _}_
+where _ai_ can be a variable, entity, number or bool.
+For example, Green(’Charlie’, True) means
+“Charlie is green”; **Rules** are presented in the form
+of clauses _F_ 1 _Fm_ _Fm_ +1 _Fn_,
+_∧· · · ∧_ _→_ _∧· · · ∧_
+where _Fi_ is a Fact. The Rule means “if each
+_Fi_ _F_ 1 _,_ _, Fm_ is true, then we can imply that
+_∈{_ _· · ·_ _}_
+all Facts in _Fm_ +1 _,_ _, Fn_ are also true.” For
+_{_ _· · ·_ _}_
+example, Furry($x, True) `→` Quiet($x, True)
+indicates if variable $x is furry, then $x is quiet; a
+**Query** _Q_ is also in the format of a Fact that needs
+to be proved based on Facts and Rules.
+
+
+**2.2** **Solver-augmented LMs**
+
+Solver-augmented LMs excel in deductive reasoning tasks. As shown in Figure 1(a), they can be
+generally divided into two stages: _Problem For-_
+_mulation_ and _Symbolic Reasoning_ . In _Problem_
+_Formulation_ stage, an LM is used to parse an NL
+logical question into symbolic representation (Figure 2). The process can be accomplished by providing LM with detailed instructions about the grammar of Prolog, alongside a few demonstrations
+as in-context examples. The LM is expected to
+identify the symbolic Facts, Rules, and Query from
+the NL question following the instructions; In _Sym-_
+_bolic Reasoning_ stage, a solver takes in the symbolic representation obtained in the previous stage
+and conducts symbolic reasoning. The reasoning
+process of external off-the-shelf solver, e.g., pyke
+expert system (Frederiksen, 2008), is deterministic
+and invisible. Then, the truth value of the parsed
+Query, which is the only output of the solver, can
+be treated as the answer to the given question.
+
+
+**2.3** **Analysis on the Parsing Successful Rate**
+
+Once the solver-augmented LMs correctly formulate the problem, the answers obtained through
+
+
+1In this paper, the term ‘Query’ refers to a specific sentence
+of statement or comment, while ‘question’ is used in a broader
+sense to denote the description of a logical problem.
+
+
+
+Model ProofWriter PrOntoQA
+
+Vicuna-13B 17.00 40.80
+CodeLlama-13B-Base 0.33 0.40
+CodeLlama-13B-Instruct 71.33 77.80
+
+
+Table 1: Parsing successful rate (%) of our selected
+open-source LLMs on two deductive reasoning datasets.
+
+
+symbolic reasoning will be faithful, attributed to
+the deterministic nature of the solver. However,
+this heavily relies on the in-context learning (ICL)
+capabilities of LMs. Thus, we first calculate the
+parsing successful rate of three selected opensource LLMs on two deductive reasoning datasets
+in Table 1. Firstly, we observe that CodeLlama13B-Base (CodeLlama-13b-hf) is unable to effectively conduct NL-to-SL parsing due to the limited
+ICL capabilities in NL. Then we can find that replacing the Base model with the Instruct version
+(CodeLlama-13b-Instruct-hf) can alleviate this
+issue, which may be attributed to the fact that the Instruct version is further fine-tuned with approx. 5B
+tokens to better follow human instructions. Overall,
+open-source LMs still exhibit parsing performance
+below expectations in certain situations.
+
+
+**3** **LoGiPT**
+
+
+In this paper, we aim to remove the dependency
+on unsatisfactory NL-to-SL parsing and present a
+novel LM, LOGIPT instructed to imitate the logical reasoning process of Solvers for deductive reasoning tasks. To achieve this, we first reveal the
+solver reasoning process when solving logical problems (§3.1). Then, we construct a solver-derived
+instruction-tuning dataset, comprising NL logical
+questions and corresponding SL reasoning steps
+(§3.2). Finally, we fine-tune open-source LLMs
+using this dataset to develop LOGIPT (§3.3).
+
+
+**3.1** **Revealing the Solver Reasoning Process**
+
+Before operating on the solvers, we first adopt
+gpt-4 as the problem formulator for NL-to-SL
+parsing with instructions about the grammar and
+few-shot demonstrations [2], and obtain the SL representations of all training questions of the given
+logical datasets. Then, consistent with solveraugmented LMs, we adopt pyke as the symbolic
+solver in this work that can make inferences using
+the Prolog SL. Given a logical question, pyke first
+sets up a knowledge base and injects all known
+
+
+2Detailed instructions for parsing are in Appendix A,B.
+
+
+
+4028
+
+
+Figure 3: A comprehensive 4-turn training example of our instruction-tuning data. We highlight the initial
+occurrences of each functionality described in §3.1 using the corresponding colors. We omit some predicates and
+Facts in Turn-2 to save space. _Note: The figure is best viewed in color._
+
+
+
+Facts and Rules (Figure 2) from solver’s inputs.
+Then, it iteratively applies Rules on already known
+or implied Facts, aiming at obtaining more implied
+Facts until the Query is proved or disproved.
+The reasoning process executed by pyke solver
+is invisible to users and solver-augmented LMs
+use the solver as a _black-box_ . We hypothesis the
+“chain-of-thought” reasoning process of the solver
+is valuable and LLMs are able to learn from it. To
+this end, we first modify the source code of pyke [3]
+
+to achieve the following functionalities:
+
+1. For each application of a Rule, explicitly state
+the Rule being ‘Used’, or ‘Reused’ if the
+Rule has been applied before.
+2. When finishing the application of a Rule, explicitly state the ‘Finish’ action.
+3. When assigning a value (e.g., an entity) to
+a variable (e.g., $x) within a Fact in a Rule,
+explicitly specify the variable being assigned
+using ‘Bind’ and its corresponding value.
+4. When the variable assignment is complete,
+
+
+[3https://pyke.sourceforge.net/](https://pyke.sourceforge.net/)
+
+
+
+provide an explicit indication via ‘Unbind’.
+5. When obtaining a new implied Fact, explicitly
+
+6. Upon the completion of reasoning, explicitly
+display ‘All newly implied Facts’ in the
+knowledge base.
+With the above instructions, we can obtain the
+revealed solver’s reasoning process for the construction of training data. We also highlighted the
+initial occurrences of each functionality using the
+corresponding colors in Figure 3 (Turn-2), where a
+case will be described in detail in the next section.
+
+
+**3.2** **Constructing the Instruction-tuning Data**
+
+However, as previously mentioned, we cannot guarantee that LMs can complete the NL-to-SL parsing
+on any arbitrary questions. To this end, we first
+filter out all unsuccessfully parsed training cases
+that cannot be executed by pyke. Then we reorganize and refine the filtered training data to enhance
+the interpretability of the solver-derived reason
+
+
+4029
+
+
+ing steps. For each case, we divide the reasoning
+process into four conversational turns (Turn-1&3
+for human and Turn-2&4 for LM), which will be
+described elaborately in the following paragraphs.
+We also provide a comprehensive training example
+of our instruction-tuning data [4] in Figure 3, and the
+full version is also included in Appendix C.
+
+
+**Turn-1: Instructions & NL logical Context.**
+For each NL logical question within the training
+set, we begin by stripping away the specific Query
+statement while retaining the question Context and
+subsequently integrating it with elaborately crafted
+instructions. Taking the case in Figure 3 as an example, we temporarily exclude the Query ‘Dave
+is not green’ from the ‘Context’ field. Here, we
+only consider Query-agnostic question description
+to ensure that LMs initially focus on the logical
+background itself. This is because sometimes the
+ground-truth answer is “Unknown” (e.g., cases in
+ProofWriter). The truth value of the Query cannot be inferred from the Context, and therefore we
+need to deduce all implied Facts first.
+
+
+**Turn-2: Query-agnostic Solver-derived Reason-**
+**ing.** As we have acquired the solver’s symbolic
+reasoning data in the revealing phase, our goal in
+Turn-2 is to further refine and enhance the reasoning process to achieve a more readable form of the
+solver’s reasoning process. Specifically, for each
+question, we first define all necessary predicates
+and append the corresponding NL explanations.
+Then we list the known Facts and Rules extracted
+from the Context with interleaved NL comments.
+After that, we represent the application of each
+Rule by utilizing separate blocks, line by line. We
+strive to preserve as many solver actions as possible, such as ‘Binding’ and ‘Unbinding’, as well as
+the acquisition of new implied Facts, and so forth.
+Noting that this information has already been obtained during the revealing phase, we focus on the
+refinement of the solver-derived reasoning process.
+Finally, we enumerate all newly implied Facts to
+enable the model to perform an interim review.
+
+
+**Turn-3: Query & Answering Instructions.** In
+Turn-3, we present instructions for answering a
+given Query. Following prior works (Ceri et al.,
+1989; Tafjord et al., 2021), a Query can be considered true within a certain logical context if it
+is explicitly mentioned or if it can be implied
+
+
+4In the original case, the Query is ‘Charlie is not green.’.
+We replace it with ‘Dave is not green.’ for better illustration.
+
+
+
+through several Rule applications. To handle negation, we consider two distinct assumptions: 1) the
+open-world assumption (OWA) that treats any fact
+that cannot be provable as special truth value “unknown”; 2) the closed-world assumption (CWA)
+where any fact not provable is assumed “false”. Following both assumptions, we adjust the answering
+instructions, particularly the “Options” part.
+
+
+**Turn-4: Query-based Reasoning & Formatted**
+**Answer.** In final Turn-4, we compare the parsed
+Query with all known Facts and implied Facts, expecting model to perform basic language inference
+and generate answer options in desired format.
+
+
+**3.3** **Fine-tuning Open-source LLMs**
+
+After obtaining the refined deductive reasoning
+instruction-tuning dataset, we can fine-tune opensource LLMs with the expectation that the trained
+model (i.e., LOGIPT) can possess reasoning abilities similar to those of solvers. Consequently, for
+any given Query, we can bypass the syntax or grammatical errors derived from NL-to-SL parsing by
+directly generating answers with LOGIPT.
+
+
+**4** **Experiments**
+
+
+We construct our instruction-tuning data on the
+training sets of two public deductive reasoning
+datasets and evaluate LOGIPT on their test sets.
+
+
+**4.1** **Datasets**
+
+**ProofWriter** (Tafjord et al., 2021) is a commonly
+employed dataset for deductive reasoning. Following Pan et al. (2023), we adopt the open-world assumption (OWA) subset where the answer of each
+example is one of { _True_, _False_, _Unknown_ }. The
+original dataset is partitioned into 5 subsets where
+each part requiring 0, _≤_ 1, _≤_ 2, _≤_ 3, and _≤_ 5 hops of
+reasoning, respectively. For evaluation, we adopted
+the version provided by Pan et al. (2023), which
+comprises 600 samples from the most challenging 5-hop subsets with balanced label distribution.
+For training, we merged all training subsets and
+obtained 41,433 examples after construction.
+
+
+**PrOntoQA** (Saparov and He, 2023) is a synthetic
+logical reasoning dataset created recently to test
+the general deductive reasoning capacity of LLMs.
+We adopt the hardest _fictional characters_ version
+following Pan et al. (2023) where the entities of
+Facts are fictional concept names (e.g., ‘wumpus’
+instead of ‘cat’), to avoid any confounding effects
+
+
+
+4030
+
+
+Model Prompting Methods ProofWriter PrOntoQA
+
+Random Answering    - 33.33 50.00
+
+_**closed-source LMs**_
+ChatGPT (gpt-3.5-turbo) Few-shot Standard 35.50 47.40
+ChatGPT (gpt-3.5-turbo) Few-shot CoT 49.17 67.80
+GPT-3.5 (text-davinci-003) Few-shot Standard 36.16 51.80
+GPT-3.5 (text-davinci-003) Few-shot CoT 48.33 83.00
+GPT-4 (gpt-4) Few-shot Standard 52.67 77.40
+GPT-4 (gpt-4) Few-shot CoT 68.11 98.79
+
+_**open-source LMs**_
+Vicuna-13B (vicuna-13b-v1.5-16k) Few-shot Standard 35.50 53.80
+Vicuna-13B (vicuna-13b-v1.5-16k) Few-shot CoT 41.50 37.40
+CodeLlama-13B-Base (CodeLlama-13b-hf) Few-shot Standard 0.00 0.00
+CodeLlama-13B-Base (CodeLlama-13b-hf) Few-shot CoT 36.00 50.00
+CodeLlama-13B-Instruct (CodeLlama-13b-Instruct-hf) Few-shot Standard 36.83 52.20
+CodeLlama-13B-Instruct (CodeLlama-13b-Instruct-hf) Few-shot CoT 32.67 66.40
+
+_**solver-argumented LMs**_
+LogicLM (gpt-3.5-turbo) Few-shot CoT 58.33 61.00
+LogicLM (text-davinci-003) Few-shot CoT 71.45 85.00
+LogicLM (gpt-4) Few-shot CoT 79.66 83.20
+
+_**ours**_
+LOGIPT (vicuna-13b-v1.5-16k) No ICD Provided 81.17 **96.40**
+LOGIPT (CodeLlama-13b-hf) No ICD Provided **89.50** 95.60
+LOGIPT (CodeLlama-13b-Instruct-hf) No ICD Provided 81.67 96.20
+
+
+Table 2: Main results on two evaluation datasets. The best results of LOGIPT are in **bold** and the best results within
+each dataset are underlined. ‘ICD’ denotes ‘In-Context Demonstrations’.
+
+
+
+from knowledge acquired during the pretraining
+phase. Similar to ProofWriter, PrOntoQA is organized into several subsets based on the number
+of required reasoning steps. We use the hardest
+5-hop subset for evaluation, which comprises 500
+samples. Contrary to ProofWriter, PrOntoQA is
+in a closed-world assumption (CWA) subset where
+the answer of each example is one of { _True_, _False_ }.
+For training, we merely merge all subsets and obtain 15,940 training cases after filtering out syntaxinvalid ones.
+
+
+**4.2** **Baselines**
+
+**Closed-source LMs:** We include the ChatGPT (gpt-3.5-turbo) (OpenAI, 2022), GPT-3.5
+(text-davinci-003) (Ouyang et al., 2022) and
+GPT-4 (gpt-4) (OpenAI, 2023) as closed-source
+LMs for evaluation following Pan et al. (2023).
+
+
+**Open-source LMs:** We also evaluate opensource LMs for research community. Specifically,
+we choose Vicuna-13B (vicuna-13b-v1.5-16k),
+a chatbot trained by fine-tuning LLaMA-2 (Touvron et al., 2023b) on user-shared conversations collected from ShareGPT, and CodeLlama-13B, foundation models for code tasks. We select the base
+
+
+
+version (CodeLlama-13b-hf), and instruction finetuned version (CodeLlama-13b-Instruct-hf).
+
+
+**Solver-argumented LMs:** Finally, we compare
+our model against the solver-argumented LMs.
+We focus on the representative LogicLM (Pan
+et al., 2023) with underlying LLMs ChatGPT
+(gpt-3.5-turbo), GPT-3.5 (text-davinci-003)
+and GPT-4 (gpt-4), which serve as the state-of-theart deductive reasoning methods.
+
+
+**Prompting Methods:** Apart from the LMs, we
+also analyze two types of prompting methods for
+baselines: i) _Standard prompting_ that uses ICL
+with few-shot demonstrations to directly answer the
+given question; ii) _Chain-of-Thought (CoT)_ that utilizes step-by-step problem-solving process to generate explanations where few-shot demonstrations
+are also provided, and then outputs the final answer.
+For a fair comparison, we use the same in-context
+examples for NL-to-SL parsing when evaluating
+all models on the same dataset, consistent with Pan
+et al. (2023). To enhance the clarification, we also
+provide a specific baseline _‘Random Answering’_
+that randomly outputs answer options. During the
+testing of LOGIPT, we did not employ few-shot
+demonstrations for in-context learning.
+
+
+
+4031
+
+
+**4.3** **Implementation Details**
+
+In fine-tuning, we use a batch size of 32 per GPU
+and a learning rate of 1e-5 for all open-source LMs.
+We train our model on 8 Nvidia A100-80G GPUs
+with DeepSpeed ZeRO-3 (Rasley et al., 2020) for
+12 hours on 2 epochs. For reproducibility, we use
+greedy decoding and set the temperature to 0 and
+the maximum context length to 8192. As for baselines, we strictly follow the setting of Pan et al.
+(2023). Given that all instances are presented in the
+form of multiple-choice questions, we assess the
+model performance by the accuracy of selecting
+the correct answer option.
+
+
+**4.4** **Main Results**
+
+We report the results of LOGIPT and baselines on
+Table 2 and have following main findings:
+1) When prompting with few-shot examples,
+open-source LMs exhibit notably poor deductive
+reasoning capabilities, with their outputs closed to
+random answering. Even the Standard prompting
+models of ChatGPT (gpt-3.5-turbo) and GPT3.5 (text-davinci-003) exhibit a similar performance to random answering. This once again
+demonstrates that it is considerably difficult for
+many LLMs to solve logical reasoning tasks.
+2) LOGIPT is significantly superior to the
+state-of-the-art solver-augmented LMs by a large
+margin on both deductive reasoning benchmarks. In ProofWriter, our best-performing model,
+LOGIPT (CodeLlama-13b-hf), outperforms the
+currently state-of-the-art LogicLM (gpt-4) by
+an absolute improvement of 9.84%. Meanwhile, in PrOntoQA, our best-performing model
+LOGIPT (vicuna-13b-v1.5-16k) exhibits an
+even higher absolute improvement of 13.20% than
+LogicLM (gpt-4). The improvement of both
+LOGIPT models is statistically significant compared with the baseline LogicLM (gpt-4) (t-test,
+_p_ -value < 0.05). This indicates that our approach is
+better than the pipeline of problem formulation first
+and then reasoning with solvers, and fine-tuning
+with solver-derived reasoning data can facilitate the
+deductive reasoning capacity of LMs.
+3) LOGIPT significantly outperforms all selected open/closed-source LMs on both datasets,
+except for the CoT experiment on the PrOntoQA
+data where LOGIPT achieves comparable results
+with GPT-4 CoT. This is surprising considering that
+our underlying open-source LMs are merely 13B
+parameters in size. As for the baseline experiments
+
+
+
+Model Accuracy
+
+LOGIPT (vicuna-13b-v1.5-16k) 81.17
+
++ (w/o ‘unbind’ statements) 80.67
++ (w/o ‘fail & backtrack’ statements) 84.00
++ (w/ NL representation) 66.33
+
+
+LOGIPT (CodeLlama-13b-hf) 89.50
+
++ (w/o ‘unbind’ statements) 93.33
++ (w/o ‘fail & backtrack’ statements) 87.17
++ (w/ NL representation) 52.33
+
+
+LOGIPT (CodeLlama-13b-Instruct-hf) 81.67
+
++ (w/o ‘unbind’ statements) 79.00
++ (w/o ‘fail & backtrack’ statements) 84.83
++ (w/ NL representation) 66.33
+
+
+Table 3: The accuracy of the variations on solver-derived
+reasoning format, and replacing SL representations with
+NL on ProofWriter. The best results on each LMs are
+underlined.
+
+
+of GPT-4, our performance on ProofWriter also significantly surpasses that of GPT-4’s Standard and
+CoT prompting versions, as well as the Standard
+version of PrOntoQA. These results further demonstrate that open-source LMs, when coupled with
+solver-simulated reasoning capacity, can achieve
+performance on par with or even superior to closedsource GPT models.
+4) The accuracy of CodeLlama-13B-Base with
+Standard prompting was 0.00, and the performance
+of the CoT version was close to random answering.
+By examining the outputs, we found that this is due
+to the CodeLlama-13B-Base’s inability to follow
+the provided few-shot demonstrations, resulting in
+outputting no answering options. The introduction
+of the Instruct version of CodeLlama-13B mitigates
+this issue to some extent. However, after training
+with LOGIPT, the CodeLlama models far less encounter this issue (i.e., following the right answering format in both test sets) and even achieve better
+performance than the Vicuna version of LOGIPT.
+This demonstrates the potential of code foundation
+models in logical reasoning tasks, consistent with
+the finding on prior work (Yue et al., 2023).
+
+
+**4.5** **Further Analysis**
+
+**Impact of Solver-derived Reasoning Formats**
+We further investigate the impact of different solverderived reasoning formats on the model’s performance. Specifically, we consider the following
+format variations: 1) _w/o ‘unbind’ statements_ that
+we remove all ‘Unbind’ statements from **Turn-2**
+to investigate the utility of the explicit retention
+
+
+
+4032
+
+
+of this action from the solver; 2) _w/o ‘fail & back-_
+_track’ statements_ that we removing all ‘Fail &
+backtrack’ statements from **Turn-2** . During the
+solver’s reasoning process, it is expected to encounter situations in which, after binding a value,
+the solver realizes that not all premises are satisfied (e.g., ‘Fiona is blue’ but ‘Fiona is not
+quiet’ for application of Rule3 in Figure 3). Consequently, a ‘Fail & backtrack’ operation occurs
+(highlighted in color in Figure 3). We explore the
+effectiveness of explicitly stating these operations.
+Table 3 presents the accuracy on ProofWriter
+where several observations can be made: 1)
+regardless of using the default format, removing ‘Unbind’ statements, or removing ‘Fail &
+backtrack’ statements, it can not be determined
+which format guarantees the optimal results. To
+retain the maximum amount of action information
+that the solver can provide, we still adopt the default settings in LOGIPT; 2) whether ‘Unbind’
+statements are removed or ‘Fail & backtrack’
+statements are removed, there is always an experiment under each open-source LMs that can surpass
+the default LOGIPT results. This further enhances
+the best performance of LOGIPT shown in Table 2.
+
+**Impact of SL Reasoning Representations** We
+are also curious about the impact of SL reasoning representations. Thus, we include additional
+experiments in Table 3, denoted as _w/ NL represen-_
+_tation_ that we re-translate the symbolic representation (e.g., Green(’Charlie’, True)) back to its
+original NL version (e.g., Charlie is green.)
+and replace the original symbolic representation in
+**Turn-2** . From the table, we can find that replacing
+SL representations with NL results in a significant
+decrease in model performance, further emphasizing that symbolic representations are superior to
+NL representations in deductive reasoning tasks.
+
+**Case Study** We also present three typical instances of symbolic reasoning steps generated by
+LOGIPT (CodeLlama-13b-hf) from ProofWriter
+in Figure 5,6,7 of Appendix E. Overall, after
+fine-tuning with our constructed solver-derived
+instruction-tuning dataset, LOGIPT demonstrates
+a satisfactory ability to mimic the reasoning process of logical solvers, as illustrated in Figure 5.
+Nevertheless, there are still certain difficulties in
+rigorously conducting logical reasoning entirely in
+accordance with the rationality of the solvers.
+In Figure 6, we observe that the symbolic reasoning process in Turn-2 is accurate. However, in
+
+
+
+Turn-4, the model erroneously identifies a Fact that
+aligned with the predicate of the Query (‘Young’),
+yet it notes inconsistency in their first arguments
+(‘Bear’ and ‘Cat’). Then, the model erroneously
+considers them contradictory, leading to the incorrect answer option ‘B) False’. While in this case,
+the semantic contradiction occurs only when there
+is a conflict in boolean values (i.e., Young(‘Bear’,
+False)). So the correct option should be ‘C) Unknown’. Another typical error case is shown in Figure 7, where the model exhibits an erroneous backtracking behavior in Turn-2 (specifically during the
+reuse of rules) and omits the necessary steps for reasoning utilizing rule7. Consequently, in Turn-4 the
+essential Fact, Chases(‘Bear’, ‘BaldEagle’, True),
+is missing, leading to an incorrect conclusion.
+We also explore merging data from different reasoning assumptions in Appendix D.
+
+
+**5** **Related Work**
+
+**Logical Reasoning with LMs.** Recent efforts in
+adapting LLMs for logical reasoning tasks generally adopt direct fine-tuning specialized modules (Clark et al., 2020; Tafjord et al., 2021, 2022;
+Yang et al., 2022) or ICL (Zhou et al., 2022; Lyu
+et al., 2023; Ling et al., 2023; Liu et al., 2023c),
+where reasoning in NL is used by both groups of
+methods. Fine-tuning approaches involve training
+the full model or specialized modules, enhancing
+LLMs with module-level logical reasoning skills
+like proof, enumeration, and abduction (Tafjord
+et al., 2021). The ICL approaches create specific prompts to encourage LLMs’ step-by-step reasoning skills. Common methods encompass CoT
+prompting (Wei et al., 2022b; Chen et al., 2023),
+which produces explanations before delivering a
+final answer, and least-to-most prompting (Zhou
+et al., 2022), which deconstructs a problem into
+simpler components that can be resolved individually. Some recent work has focused on combining neural networks with symbolic reasoning (Tian
+et al., 2022; Pryor et al., 2022; Pan et al., 2023;
+Yang et al., 2023), especially the solver-augmented
+LMs that parse NL questions into symbolic representations, then utilizing external logical solvers for
+answering. Despite their impressive performance,
+parsing errors can lead to solver execution failure
+and logical question-answering issues.
+
+
+**Augmented LMs for Reasoning.** Recent work
+has begun to augment LMs to overcome their inherent limitations such as the incapacity to access
+
+
+
+4033
+
+
+up-to-date information or conduct accurate mathematical reasoning. They augment with external
+tools and resources, such as the information retriever (Shi et al., 2023; Lazaridou et al., 2022),
+planner (Liu et al., 2023a) and other pre-trained
+models (Shen et al., 2023). Specifically, to enhance the reasoning capacity, recent work resort to
+external off-the-shelf **Solvers** including programmatic interpreters (Chen et al., 2022; Gao et al.,
+2023), satisfiability solvers (Ye et al., 2023), logical
+solvers (Pan et al., 2023) or their hybrids (Poesia
+et al., 2023). Most of them utilize the LMs to parse
+the NL question to symbolic representations and
+then invoke solvers to reason in SL. In this paper,
+we concentrate on logical solvers, automated tools
+for validating the truth value of logical formulas.
+
+
+**6** **Conclusion**
+
+
+In this paper, we propose a novel LOGIPT that can
+directly act as a logical solver for deductive reasoning tasks. LOGIPT can output all facts implied
+from NL logical questions, while bypassing the syntax or grammatical errors derived from NL-to-SL
+parsing of solver-augmented LMs. We conducted
+numerous analytical experiments on two public deductive reasoning benchmarks. Evaluation results
+show that LOGIPT can significantly outperform
+state-of-the-art solver-augmented LMs, and surpass
+or be comparable with few-shot prompting methods on competitive LLMs like GPT-4.
+
+
+**Limitations**
+
+
+Besides its merits, this work still has two main
+limitations that could be further explored. Firstly,
+in this paper, we mainly focus on exploring how
+to empower LMs to directly learn or emulate the
+reasoning process of logical solvers. Hence, we
+choose deductive reasoning as a starting point for
+research. Our proposed LOGIPT is also mainly
+used for deductive reasoning and thus cannot handle more complex logical problems such as constraint satisfaction problems and first-order logic
+reasoning problems. Plus, we employ forwardchaining reasoning while backward-chaining is
+also an efficient reasoning approach (Kazemi et al.,
+2023). Fortunately, our approach is not confined
+solely to specific logical tasks. Therefore, in the
+future, we aim to endow the LMs with more reasoning abilities by revealing the reasoning process
+of corresponding solvers for other logical tasks.
+Secondly, we observe limited diversity in the
+
+
+
+Rule formats of the two datasets utilized in this
+paper (e.g., in PrOntoQA, the majority of Rules
+are in the format of ‘Every/Each A is (not) B’ or ‘A
+are (not) B’. Please refer to Appendix D for more
+details). Consequently, LMs trained on our constructed instruction-tuning data may not be able to
+generalize to more complex logical Rules. As a
+potential solution, future works could explore the
+enhancement of the style/genre of logical context
+by paraphrasing with prompting small-scale LMs,
+or augmenting training data with synthetic data.
+
+
+**Ethics Statement**
+
+This paper introduces LOGIPT, a novel LM designed to mimic the reasoning process of logical
+solvers, enabling it to solve deductive reasoning
+tasks. The data-collecting APIs and closed- or
+open-source LMs are only strictly used for academic purposes. The proposed method does not
+introduce ethical or social bias into the collected
+data.
+
+
+**Acknowledgements**
+
+We would like to thank the anonymous reviewers
+for their constructive comments and suggestions.
+This work was supported by the National Key R&D
+Program of China (No.2022YFC3301900).
+
+
+**References**
+
+Stefano Ceri, Georg Gottlob, Letizia Tanca, et al. 1989.
+What you always wanted to know about datalog(and
+never dared to ask). _IEEE transactions on knowledge_
+_and data engineering_, 1(1):146–166.
+
+
+Wenhu Chen, Xueguang Ma, Xinyi Wang, and
+William W Cohen. 2022. Program of thoughts
+prompting: Disentangling computation from reasoning for numerical reasoning tasks. _arXiv preprint_
+_arXiv:2211.12588_ .
+
+
+Zhipeng Chen, Kun Zhou, Beichen Zhang, Zheng Gong,
+Wayne Xin Zhao, and Ji-Rong Wen. 2023. Chatcot: Tool-augmented chain-of-thought reasoning on
+chat-based large language models. _arXiv preprint_
+_arXiv:2305.14323_ .
+
+
+Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng,
+Zhanghao Wu, Hao Zhang, Lianmin Zheng, Siyuan
+Zhuang, Yonghao Zhuang, Joseph E. Gonzalez, Ion
+[Stoica, and Eric P. Xing. 2023. Vicuna: An open-](https://lmsys.org/blog/2023-03-30-vicuna/)
+[source chatbot impressing gpt-4 with 90%* chatgpt](https://lmsys.org/blog/2023-03-30-vicuna/)
+[quality.](https://lmsys.org/blog/2023-03-30-vicuna/)
+
+
+Peter Clark, Oyvind Tafjord, and Kyle Richardson. 2020.
+
+[Transformers as soft reasoners over language. In](https://doi.org/10.24963/ijcai.2020/537) _Pro-_
+_ceedings of the Twenty-Ninth International Joint Con-_
+_ference on Artificial Intelligence, IJCAI-20_, pages
+
+
+
+4034
+
+
+3882–3890. International Joint Conferences on Artificial Intelligence Organization. Main track.
+
+
+William F Clocksin and Christopher S Mellish. 2003.
+_Programming in PROLOG_ . Springer Science & Business Media.
+
+
+Bruce Frederiksen. 2008. Applying expert system technology to code reuse with pyke. _PyCon: Chicago_ .
+
+
+Luyu Gao, Aman Madaan, Shuyan Zhou, Uri Alon,
+Pengfei Liu, Yiming Yang, Jamie Callan, and Graham Neubig. 2023. Pal: Program-aided language
+models. In _International Conference on Machine_
+_Learning_, pages 10764–10799. PMLR.
+
+
+[Google. 2023. Google bard.](https://bard.google.com/) _https://bard.google.com/_ .
+
+
+Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. 2015.
+Distilling the knowledge in a neural network. _arXiv_
+_preprint arXiv:1503.02531_ .
+
+
+Jordan Hoffmann, Sebastian Borgeaud, Arthur Mensch, Elena Buchatskaya, Trevor Cai, Eliza Rutherford, Diego de Las Casas, Lisa Anne Hendricks,
+Johannes Welbl, Aidan Clark, et al. 2022. Training compute-optimal large language models. _arXiv_
+_preprint arXiv:2203.15556_ .
+
+
+[Jie Huang and Kevin Chen-Chuan Chang. 2023. To-](https://doi.org/10.18653/v1/2023.findings-acl.67)
+[wards reasoning in large language models: A survey.](https://doi.org/10.18653/v1/2023.findings-acl.67)
+In _Findings of the Association for Computational_
+_Linguistics: ACL 2023_, pages 1049–1065, Toronto,
+Canada. Association for Computational Linguistics.
+
+
+Jared Kaplan, Sam McCandlish, Tom Henighan, Tom B
+Brown, Benjamin Chess, Rewon Child, Scott Gray,
+Alec Radford, Jeffrey Wu, and Dario Amodei. 2020.
+Scaling laws for neural language models. _arXiv_
+_preprint arXiv:2001.08361_ .
+
+
+Mehran Kazemi, Najoung Kim, Deepti Bhatia, Xin
+[Xu, and Deepak Ramachandran. 2023. LAMBADA:](https://doi.org/10.18653/v1/2023.acl-long.361)
+[Backward chaining for automated reasoning in nat-](https://doi.org/10.18653/v1/2023.acl-long.361)
+[ural language. In](https://doi.org/10.18653/v1/2023.acl-long.361) _Proceedings of the 61st Annual_
+_Meeting of the Association for Computational Lin-_
+_guistics (Volume 1: Long Papers)_, pages 6547–6568,
+Toronto, Canada. Association for Computational Linguistics.
+
+
+Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. 2022. Large language models are zero-shot reasoners. _Advances in_
+_neural information processing systems_, 35:22199–
+22213.
+
+
+Angeliki Lazaridou, Elena Gribovskaya, Wojciech
+Stokowiec, and Nikolai Grigorev. 2022. Internetaugmented language models through few-shot
+prompting for open-domain question answering.
+_arXiv preprint arXiv:2203.05115_ .
+
+
+Zhan Ling, Yunhao Fang, Xuanlin Li, Zhiao Huang,
+Mingu Lee, Roland Memisevic, and Hao Su. 2023.
+Deductive verification of chain-of-thought reasoning.
+_arXiv preprint arXiv:2306.03872_ .
+
+
+
+Bo Liu, Yuqian Jiang, Xiaohan Zhang, Qiang Liu,
+Shiqi Zhang, Joydeep Biswas, and Peter Stone.
+2023a. Llm+ p: Empowering large language models
+with optimal planning proficiency. _arXiv preprint_
+_arXiv:2304.11477_ .
+
+
+Hanmeng Liu, Ruoxi Ning, Zhiyang Teng, Jian Liu, Qiji
+Zhou, and Yue Zhang. 2023b. Evaluating the logical
+reasoning ability of chatgpt and gpt-4. _arXiv preprint_
+_arXiv:2304.03439_ .
+
+
+Hanmeng Liu, Zhiyang Teng, Leyang Cui, Chaoli
+[Zhang, Qiji Zhou, and Yue Zhang. 2023c. Logi-](https://doi.org/10.18653/v1/2023.findings-emnlp.191)
+[CoT: Logical chain-of-thought instruction tuning. In](https://doi.org/10.18653/v1/2023.findings-emnlp.191)
+_Findings of the Association for Computational Lin-_
+_guistics: EMNLP 2023_, pages 2908–2921, Singapore.
+Association for Computational Linguistics.
+
+
+Man Luo, Shrinidhi Kumbhar, Mihir Parmar, Neeraj
+Varshney, Pratyay Banerjee, Somak Aditya, Chitta
+Baral, et al. 2023. Towards logiglue: A brief survey and a benchmark for analyzing logical reasoning capabilities of language models. _arXiv preprint_
+_arXiv:2310.00836_ .
+
+
+Qing Lyu, Shreya Havaldar, Adam Stein, Li Zhang,
+Delip Rao, Eric Wong, Marianna Apidianaki, and
+Chris Callison-Burch. 2023. Faithful chain-ofthought reasoning. _arXiv preprint arXiv:2301.13379_ .
+
+
+[OpenAI. 2022. Chatgpt: Optimizing language models](https://openai.com/blog/chatgpt/)
+[for dialogue.](https://openai.com/blog/chatgpt/) _https://openai.com/blog/chatgpt/_ .
+
+
+OpenAI. 2023. Gpt-4 technical report. _ArXiv_,
+abs/2303.08774.
+
+
+Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida,
+Carroll Wainwright, Pamela Mishkin, Chong Zhang,
+Sandhini Agarwal, Katarina Slama, Alex Ray, et al.
+2022. Training language models to follow instructions with human feedback. _Advances in Neural_
+_Information Processing Systems_, 35:27730–27744.
+
+
+Liangming Pan, Alon Albalak, Xinyi Wang, and
+William Yang Wang. 2023. Logic-lm: Empowering large language models with symbolic solvers
+for faithful logical reasoning. _arXiv preprint_
+_arXiv:2305.12295_ .
+
+
+Gabriel Poesia, Kanishk Gandhi, Eric Zelikman, and
+Noah D Goodman. 2023. Certified reasoning with
+language models. _arXiv preprint arXiv:2306.04031_ .
+
+
+David L Poole and Alan K Mackworth. 2010. _Artificial_
+_Intelligence: foundations of computational agents_ .
+Cambridge University Press.
+
+
+Connor Pryor, Charles Dickens, Eriq Augustine, Alon
+Albalak, William Wang, and Lise Getoor. 2022. Neupsl: Neural probabilistic soft logic. _arXiv preprint_
+_arXiv:2205.14268_ .
+
+
+Jeff Rasley, Samyam Rajbhandari, Olatunji Ruwase, and
+Yuxiong He. 2020. Deepspeed: System optimizations enable training deep learning models with over
+100 billion parameters. In _Proceedings of the 26th_
+
+
+
+4035
+
+
+_ACM SIGKDD International Conference on Knowl-_
+_edge Discovery & Data Mining_, pages 3505–3506.
+
+
+Baptiste Roziere, Jonas Gehring, Fabian Gloeckle, Sten
+Sootla, Itai Gat, Xiaoqing Ellen Tan, Yossi Adi,
+Jingyu Liu, Tal Remez, Jérémy Rapin, et al. 2023.
+Code llama: Open foundation models for code. _arXiv_
+_preprint arXiv:2308.12950_ .
+
+
+Abulhair Saparov and He He. 2023. Language models
+are greedy reasoners: A systematic formal analysis
+of chain-of-thought. In _The Eleventh International_
+_Conference on Learning Representations_ .
+
+
+Yongliang Shen, Kaitao Song, Xu Tan, Dongsheng Li,
+Weiming Lu, and Yueting Zhuang. 2023. Hugginggpt: Solving ai tasks with chatgpt and its friends in
+huggingface. _arXiv preprint arXiv:2303.17580_ .
+
+
+Weijia Shi, Sewon Min, Michihiro Yasunaga, Minjoon Seo, Rich James, Mike Lewis, Luke Zettlemoyer, and Wen-tau Yih. 2023. Replug: Retrievalaugmented black-box language models. _arXiv_
+_preprint arXiv:2301.12652_ .
+
+
+Oyvind Tafjord, Bhavana Dalvi, and Peter Clark. 2021.
+
+[ProofWriter: Generating implications, proofs, and](https://doi.org/10.18653/v1/2021.findings-acl.317)
+[abductive statements over natural language. In](https://doi.org/10.18653/v1/2021.findings-acl.317) _Find-_
+_ings of the Association for Computational Linguis-_
+_tics: ACL-IJCNLP 2021_, pages 3621–3634, Online.
+Association for Computational Linguistics.
+
+
+Oyvind Tafjord, Bhavana Dalvi Mishra, and Peter Clark.
+[2022. Entailer: Answering questions with faithful](https://doi.org/10.18653/v1/2022.emnlp-main.134)
+[and truthful chains of reasoning. In](https://doi.org/10.18653/v1/2022.emnlp-main.134) _Proceedings of_
+_the 2022 Conference on Empirical Methods in Nat-_
+_ural Language Processing_, pages 2078–2093, Abu
+Dhabi, United Arab Emirates. Association for Computational Linguistics.
+
+
+Jidong Tian, Yitian Li, Wenqing Chen, Liqiang Xiao,
+Hao He, and Yaohui Jin. 2022. Weakly supervised
+neural symbolic learning for cognitive tasks. In _Pro-_
+_ceedings of the AAAI Conference on Artificial Intelli-_
+_gence_, volume 36, pages 5888–5896.
+
+
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier
+Martinet, Marie-Anne Lachaux, Timothée Lacroix,
+Baptiste Rozière, Naman Goyal, Eric Hambro, Faisal
+Azhar, et al. 2023a. Llama: Open and efficient foundation language models. _arXiv preprint_
+_arXiv:2302.13971_ .
+
+
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay
+Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti
+Bhosale, et al. 2023b. Llama 2: Open foundation and fine-tuned chat models. _arXiv preprint_
+_arXiv:2307.09288_ .
+
+
+Karthik Valmeekam, Alberto Olmo, Sarath Sreedharan,
+and Subbarao Kambhampati. 2022. Large language
+models still can’t plan (a benchmark for llms on planning and reasoning about change). _arXiv preprint_
+_arXiv:2206.10498_ .
+
+
+
+Jason Wei, Yi Tay, Rishi Bommasani, Colin Raffel,
+Barret Zoph, Sebastian Borgeaud, Dani Yogatama,
+Maarten Bosma, Denny Zhou, Donald Metzler, et al.
+2022a. Emergent abilities of large language models.
+_Transactions on Machine Learning Research_ .
+
+
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten
+Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny Zhou,
+et al. 2022b. Chain-of-thought prompting elicits reasoning in large language models. _Advances in Neural_
+_Information Processing Systems_, 35:24824–24837.
+
+
+Xiaohan Xu, Ming Li, Chongyang Tao, Tao Shen,
+Reynold Cheng, Jinyang Li, Can Xu, Dacheng Tao,
+and Tianyi Zhou. 2024. A survey on knowledge distillation of large language models. _arXiv preprint_
+_arXiv:2402.13116_ .
+
+
+[Kaiyu Yang, Jia Deng, and Danqi Chen. 2022. Gen-](https://doi.org/10.18653/v1/2022.emnlp-main.7)
+[erating natural language proofs with verifier-guided](https://doi.org/10.18653/v1/2022.emnlp-main.7)
+[search. In](https://doi.org/10.18653/v1/2022.emnlp-main.7) _Proceedings of the 2022 Conference on_
+_Empirical Methods in Natural Language Processing_,
+pages 89–105, Abu Dhabi, United Arab Emirates.
+Association for Computational Linguistics.
+
+
+Sen Yang, Xin Li, Leyang Cui, Lidong Bing, and
+Wai Lam. 2023. Neuro-symbolic integration brings
+causal and reliable reasoning proofs. _arXiv preprint_
+_arXiv:2311.09802_ .
+
+
+Xi Ye, Qiaochu Chen, Isil Dillig, and Greg Durrett. 2023.
+Satisfiability-aided language models using declarative prompting. _arXiv preprint arXiv:2305.09656_ .
+
+
+Xiang Yue, Xingwei Qu, Ge Zhang, Yao Fu, Wenhao Huang, Huan Sun, Yu Su, and Wenhu Chen.
+2023. Mammoth: Building math generalist models
+through hybrid instruction tuning. _arXiv preprint_
+_arXiv:2309.05653_ .
+
+
+Denny Zhou, Nathanael Schärli, Le Hou, Jason Wei,
+Nathan Scales, Xuezhi Wang, Dale Schuurmans,
+Claire Cui, Olivier Bousquet, Quoc V Le, et al. 2022.
+Least-to-most prompting enables complex reasoning
+in large language models. In _The Eleventh Interna-_
+_tional Conference on Learning Representations_ .
+
+
+
+4036
+
+
+**A** **Instructions for NL-to-SL Parsing on**
+**ProofWriter**
+
+
+
+**B** **Instructions for NL-to-SL Parsing on**
+**PrOntoQA**
+
+
+
+
+
+
+
+**C** **A Comprehensive Training Example of**
+**our Instruction-tuning Data**
+
+
+We present in Figure 4 the full version of the
+comprehensive 4-turn training example of our
+instruction-tuning data shown in Figure 3.
+
+
+**D** **Effectiveness of Merging Data from**
+**Different Reasoning Assumptions**
+
+
+Since ProofWriter is an open-world assumption
+and PrOntoQA is labeled within a closed-world
+assumption, we also perform a further investigation on whether both reasoning assumptions can
+benefit each other. Specifically, we first merge both
+constructed training data and then test LOGIPT on
+each test set. The experimental results are shown
+
+4037
+
+
+Figure 4: The full version of the comprehensive 4-turn training example of our instruction-tuning data shown in
+Figure 3.
+
+
+
+Train set Test Set VCN CLB CLI
+
+PrOntoQA PrOntoQA 96.40 95.60 96.20
+
+Both PrOntoQA 91.00 87.00 89.00
+Both (Reformat) PrOntoQA 90.00 87.00 77.80
+
+
+ProofWriter ProofWriter 81.17 89.50 81.67
+
+Both ProofWriter 79.33 87.17 79.67
+Both (Reformat) ProofWriter 79.00 90.83 84.50
+
+
+Table 4: The accuracy of LOGIPT trained with merged
+data and tested on single data with different underlying
+LMs. ‘VCN’, ‘CLB’, and ‘CLI’ respectively represent
+Vicuna-13B, CodeLlama-13B-Base, and CodeLlama13B-Instruct. ‘Both’ means ‘ProofWriter + PrOntoQA’.
+
+
+in Table 4. We can conclude that if we directly mix
+the two types of data for training, the results on
+their respective test sets will be slightly lower than
+those obtained from training solely on their respective datasets. Therefore, we conducted an in-depth
+
+
+
+analysis of the underlying reasons and observed
+that in PrOntoQA, the majority of Rules are in the
+format of ‘Every/Each A is (not) B’ or ‘A are (not)
+B’. While in ProofWriter, the predominant structure
+of Rules consists of: ‘If someone is A, then they
+are B’ or ‘If something is A, then it is B’. Therefore,
+we conducted an additional set of experiments in
+which the Rule format of two training sets was randomly reformatted into the four aforementioned
+types using regular expression (denoted as ‘Both
+(Reformat)’). Then, we test the model on the original test sets. We can observe that by employing
+this approach, the code models yield improved performance on ProofWriter. Thus, the style/genre of
+logical context must also be taken into consideration to maximize the efficacy of transfer learning
+in logical reasoning.
+
+
+
+4038
+
+
+**E** **Typical Instances of Generated**
+**Symbolic Reasoning Steps**
+
+
+We also showcase three typical instances
+of symbolic reasoning steps generated by
+LOGIPT (CodeLlama-13b-hf) from the test set
+of ProofWriter in Figure 5, 6 and 7.
+
+
+4039
+
+
+Figure 5: An instance where LOGIPT (CodeLlama-13b-hf) successfully emulates a logical solver to conduct
+reasoning and arrive at the correct answer, originates from the test set of ProofWriter.
+
+
+4040
+
+
+Figure 6: An error case from the test set of ProofWriter where LOGIPT (CodeLlama-13b-hf) fails to identify the
+reference Fact to judge the truth value of the Query (‘The bear is young’). The incorrect reasoning steps are marked
+in yellow, and the correct revisions or missing steps are marked in green.
+
+
+4041
+
+
+Figure 7: Another error case from the test set of ProofWriter where LOGIPT (CodeLlama-13b-hf) fails to backtrack
+in Turn-2 accurately and omits some necessary reasoning steps, leading to missing essential reference Fact in Turn-4.
+The incorrect reasoning steps are marked in yellow, and the correct revisions or missing steps are marked in green.
+
+
+4042
+
+

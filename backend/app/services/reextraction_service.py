@@ -1178,7 +1178,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
         print(f"DEBUG: Using default GeminiLLM - this will use GEMINI_API_KEY env var")
-        return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0.1)
+        return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0)
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):
         """Broadcast an event via WebSocket."""

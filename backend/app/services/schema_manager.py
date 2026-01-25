@@ -100,7 +100,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
         print(f"DEBUG: Using default GeminiLLM - this will use GEMINI_API_KEY env var")
-        return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0.1)
+        return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0)
     
     async def reprocess_column(self, session_id: str, column_name: str):
         """Reprocess documents for a specific column after editing."""

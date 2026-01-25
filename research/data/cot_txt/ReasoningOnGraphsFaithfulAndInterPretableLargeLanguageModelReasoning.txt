@@ -1,0 +1,2089 @@
+Published as a conference paper at ICLR 2024
+
+# REASONING ON GRAPHS: FAITHFUL AND INTER## PRETABLE LARGE LANGUAGE MODEL REASONING
+
+
+**Linhao Luo, Yuan-Fang Li, Gholamreza Haffari**
+Monash University
+Australia
+_{_ linhao.luo,yuanfang.li,Gholamreza.Haffari _}_ @monash.edu
+
+
+**Shirui Pan** _[∗]_
+Griffith University
+Australia
+s.pan@griffith.edu.au
+
+
+ABSTRACT
+
+
+Large language models (LLMs) have demonstrated impressive reasoning abilities in complex tasks. However, they lack up-to-date knowledge and experience
+hallucinations during reasoning, which can lead to incorrect reasoning processes
+and diminish their performance and trustworthiness. Knowledge graphs (KGs),
+which capture vast amounts of facts in a structured format, offer a reliable source
+of knowledge for reasoning. Nevertheless, existing KG-based LLM reasoning
+methods only treat KGs as factual knowledge bases and overlook the importance
+of their structural information for reasoning. In this paper, we propose a novel
+method called reasoning on graphs (RoG) that synergizes LLMs with KGs to
+enable faithful and interpretable reasoning. Specifically, we present a planningretrieval-reasoning framework, where RoG first generates relation paths grounded
+by KGs as faithful plans. These plans are then used to retrieve valid reasoning
+paths from the KGs for LLMs to conduct faithful reasoning. Furthermore, RoG
+not only distills knowledge from KGs to improve the reasoning ability of LLMs
+through training but also allows seamless integration with any arbitrary LLMs during inference. Extensive experiments on two benchmark KGQA datasets demonstrate that RoG achieves state-of-the-art performance on KG reasoning tasks and
+generates faithful and interpretable reasoning results [1] .
+
+
+1 INTRODUCTION
+
+
+Large language models (LLMs) have shown great performance in many NLP tasks (Brown et al.,
+2020; Bang et al., 2023). What’s especially striking is their ability to handle complex tasks through
+reasoning (Wei et al., 2022; Huang & Chang, 2023). To further unleash LLMs’ reasoning ability, the
+plan-and-solve paradigm (Wang et al., 2023c) has been proposed, in which LLMs are prompted to
+generate a plan and execute each reasoning step. In this way, LLMs decompose complex reasoning
+tasks into a series of sub-tasks and solve them step by step (Khot et al., 2022).
+
+
+Despite their success, LLMs are still limited by the lack of knowledge and prone to hallucinations
+during reasoning, which can lead to errors in reasoning processes (Hong et al., 2023; Wang et al.,
+2023b). For example, as shown in Figure 1, LLMs do not have the latest knowledge and hallucinate
+an incorrect reasoning step: “has a daughter”. These issues largely diminish the performance and
+trustworthiness of LLMs in high-stakes scenarios, such as legal judgment and medical diagnosis.
+
+
+To tackle the issues, knowledge graphs (KGs) have been incorporated to improve the reasoning
+ability of LLMs (Pan et al., 2024; Luo et al., 2023a). KGs capture abundant factual knowledge in a
+structured format, which provides a faithful knowledge source for reasoning. As a typical reasoning
+
+
+_∗_ Corresponding author.
+[1Code and data are available at: https://github.com/RManLuo/reasoning-on-graphs](https://github.com/RManLuo/reasoning-on-graphs)
+
+
+1
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Figure 1: The issues of lack of knowledge and hallucination in LLMs reasoning and how they can
+be addressed by triples and relation paths from KGs.
+
+
+task, knowledge graph question answering (KGQA) aims to obtain answers based on knowledge
+from KGs (Sun et al., 2019). Previous works that jointly use KGs and LLMs for KGQA reasoning
+can be broadly divided into two categories: 1) semantic parsing methods (Lan & Jiang, 2020; Ye
+et al., 2022), which use LLMs to convert questions into logical queries that are executed on KGs
+to obtain answers; and 2) retrieval-augmented methods (Li et al., 2023; Jiang et al., 2023), which
+retrieve triples from KGs as knowledge context and uses LLMs to obtain the final answers.
+
+
+Although semantic parsing methods can generate more accurate and interpretable results by leveraging reasoning on KGs, the generated logical queries can often be non-executable and yield no
+answers, due to syntax and semantic limitations (Yu et al., 2022a). Retrieval-augmented methods
+are more flexible and exploit the ability of LLMs for reasoning. However, they only treat KGs as
+factual knowledge bases and overlook the importance of their structural information for reasoning
+(Jiang et al., 2022). For instance, as shown in Figure 1, a _relation path_, which is a sequence of relations, “child ~~o~~ f _→_ has ~~s~~ on” can be used to obtain answers to the question “Who is the brother
+of Justin Bieber?”. Therefore, it is essential to enable LLMs to directly reason on KGs to achieve
+faithful and interpretable reasoning.
+
+
+In this paper, we propose a novel method called reasoning on graphs (RoG) that synergizes LLMs
+with KGs to conduct faithful and interpretable reasoning. To alleviate the issues of hallucinations
+and lack of knowledge, we present a _planning-retrieval-reasoning_ framework, where RoG first generates relation paths grounded by KGs as faithful plans via the _planning module_ . These plans are
+then used to retrieve valid reasoning paths from KGs to conduct faithful reasoning by the _retrieval-_
+_reasoning module_ . In this way, we not only retrieve the latest knowledge from KGs but also consider
+the guidance of KG structure for reasoning and explanations. Moreover, the planning module of RoG
+can be plug-and-play with different LLMs during inference to improve their performance. Based on
+this framework, RoG is optimized by two tasks: 1) _planning optimization_, where we distill knowledge from KGs into LLMs to generate faithful relation paths as plans; and 2) _retrieval-reasoning_
+_optimization_, where we enable LLMs to conduct faithful reasoning based on retrieved paths and generate interpretable results. We conduct extensive experiments on two benchmark KGQA datasets,
+and the results demonstrate that RoG achieves state-of-the-art performance on KG reasoning tasks
+and generates faithful and interpretable reasoning results.
+
+
+2 RELATED WORK
+
+
+**LLM Reasoning Prompt.** Many studies have been proposed to harness the reasoning ability of
+LLMs to handle complex tasks through prompting (Wei et al., 2022; Wang et al., 2022; Yao et al.,
+2023; Besta et al., 2023). Plan-and-solve (Wang et al., 2023c) prompts LLMs to generate a plan and
+conduct reasoning based on it. DecomP (He et al., 2021) prompts LLMs to decompose the reasoning
+task into a series of sub-tasks and solve them step by step. However, the problem of hallucinations
+and lack of knowledge affect the faithfulness of LLMs’ reasoning. ReACT (Yao et al., 2022) treats
+LLMs as agents, which interact with the environment to get the latest knowledge for reasoning.
+To explore faithful reasoning, FAME (Hong et al., 2023) introduces the Monte-Carlo planning to
+generate faithful reasoning steps. RR (He et al., 2022) and KD-CoT Wang et al. (2023b) further
+retrieve relevant knowledge from KGs to produce faithful reasoning plans for LLMs.
+
+
+**Knowledge Graph Question Answering (KGQA).** Conventional _embedding-based methods_ represent the entities and relations in embedding space and design special model architectures (e.g.,
+Key-Value memory networks, sequential models, and graph neural networks) to reason answers
+
+
+2
+
+
+Published as a conference paper at ICLR 2024
+
+
+**Knowledge Graphs (KGs)**
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Figure 2: The overall framework of reasoning on graphs (RoG). 1) given a question, we first prompt
+LLMs to generate several relation paths that are grounded by KGs as plans. 2) Then, we retrieve
+reasoning paths from KGs using the plans. 3) Finally, we conduct faithful reasoning based on the
+retrieved reasoning paths and generate answers with interpretable explanations. The orange and red
+rectangles denote the entities mentioned in the question and answer, respectively.
+
+
+(Miller et al., 2016; He et al., 2021; Yasunaga et al., 2021). To integrate LLMs for KGQA, _retrieval-_
+_augmented methods_ aim to retrieve the relative facts from the KGs to improve the reasoning performance (Li et al., 2023; Karpukhin et al., 2020). Recently, UniKGQA (Jiang et al., 2022) which
+unifies the graph retrieval and reasoning process into a single model with LLMs, achieves STOA performance. _Semantic parsing methods_ convert the question into a structural query (e.g., SPARQL)
+by LLMs, which can be executed by a query engine to reason the answers on KGs (Sun et al., 2020;
+Lan & Jiang, 2020). However, these methods heavily rely on the quality of generated queries. If the
+query is not executable, no answers will be generated. DECAF (Yu et al., 2022a) combines semantic
+parsing and LLMs reasoning to jointly generate answers, which also reach salient performance on
+KGQA tasks.
+
+
+3 PRELIMINARY
+
+
+**Knowledge Graphs (KGs)** contain abundant factual knowledge in the form of a set of triples: _G_ =
+_{_ ( _e, r, e_ _[′]_ ) _|e, e_ _[′]_ _∈E, r ∈R}_, where _E_ and _R_ denote the set of entities and relations, respectively.
+
+
+**Relation Paths** are a sequence of relations: _z_ = _{r_ 1 _, r_ 2 _, . . ., rl}_, where _ri ∈R_ denotes the _i_ -th
+relation in the path and _l_ denotes the length of the path.
+
+**Reasoning Paths** are the instances of a relation path _z_ in KGs: _wz_ = _e_ 0 _−→r_ 1 _e_ 1 _−→r_ 2 _. . ._ _−→rl_ _el_,
+where _ei ∈E_ denotes the _i_ -th entity and _ri_ denotes the _i_ -th relation in the relation path _z_ .
+**Example 1.** Given a relation path: _z_ = marry ~~t~~ - _→_ father ~~o~~ f, a reasoning path instance
+marry ~~t~~             - father ~~o~~ f
+could be: _wz_ = Alice _−−−−_ ~~_−−_~~ _→_ Bob _−−−−_ ~~_−−_~~ _→_ Charlie, which denotes “Alice” is married to
+“Bob” and “Bob” is the father of “Charlie”.
+
+
+**Knowledge Graph Question Answering (KGQA)** is a typical reasoning task based on KGs. Given
+a natural language question _q_ and a KG _G_, the task aims to design a function _f_ to predict answers
+_a ∈Aq_ based on knowledge from _G_, i.e., _a_ = _f_ ( _q, G_ ). Following previous works (Sun et al., 2019;
+Jiang et al., 2022), we assume the entities _eq ∈Tq_ mentioned in _q_ and answers _a ∈Aq_ are labeled
+and linked to the corresponding entities in _G_, i.e., _Tq, Aq ⊆E_ .
+
+
+4 APPROACH
+
+
+In this section, we introduce our method: reasoning on graphs (RoG), which contains two components: 1) a _planning_ module that generates relation paths grounded by KGs as faithful plans; 2)
+
+
+3
+
+
+Published as a conference paper at ICLR 2024
+
+
+a _retrieval-reasoning_ module that first retrieves valid reasoning paths from KGs according to the
+plans, then conducts faithful reasoning based on retrieved reasoning paths and generates answers
+with interpretable explanations. The overall framework of RoG is illustrated in Figure 2.
+
+
+4.1 REASONING ON GRAPHS: PLANNING-RETRIEVAL-REASONING
+
+
+Recently, many techniques have been explored to improve the reasoning ability of LLMs by planning, which first prompts LLMs to generate a reasoning plan and then conduct reasoning based on it
+(Wang et al., 2023c). However, LLMs are known for having hallucination issues, which are prone to
+generating incorrect plans and leading to wrong answers (Ji et al., 2023). To address this issue, we
+present a novel _planning-retrieval-reasoning_ framework, which makes the reasoning plans grounded
+by KGs and then retrieves faithful reasoning paths for LLM reasoning.
+
+
+Relation paths, which capture semantic relations between entities, have been utilized in many reasoning tasks on KGs (Wang et al., 2021; Xu et al., 2022). Moreover, compared to the dynamically
+updated entities, the relations in KGs are more stable (Wang et al., 2023a). By using relation paths,
+we can always retrieve the latest knowledge from KGs for reasoning. Therefore, relation paths can
+serve as faithful plans for reasoning the answer to KGQA task.
+**Example 2.** Given a question “Who is the child of Alice”, we can generate a relation path as the
+plan: _z_ = marry ~~t~~ - _→_ father ~~o~~ f. This relation path expresses the plan: 1) find the person that
+“Alice” is married to; 2) find the child of that person. We can execute the plan (relation path) by
+retrieving a reasoning path from KGs as: _wz_ = Alice _−−−−_ marry ~~_−−_~~ ~~t~~ _→_ - Bob _−−−−_ father ~~_−−_~~ ~~o~~ _→_ f Charlie. Finally,
+we can answer the question based on the reasoning path, which is “Charlie”.
+
+
+By treating relation paths as plans, we can make sure the plans are grounded by KGs, which enables
+LLMs to conduct faithful and interpretable reasoning on graphs. In a nutshell, we formulate our
+RoG as an optimization problem that aims to maximize the probability of reasoning the answer from
+a knowledge graph _G_ w.r.t the question _q_ by generating relation paths _z_ as the plan:
+_Pθ_ ( _a|q, G_ ) =            - _Pθ_ ( _a|q, z, G_ ) _Pθ_ ( _z|q_ ) _,_ (1)
+
+
+_z∈Z_
+
+where _θ_ denotes the parameters of LLMs, _z_ denotes the relation paths (plans) generated by LLMs,
+and _Z_ denotes the set of possible relation paths. The latter term _Pθ_ ( _z|q_ ) is the probability of generating a faithful relation path _z_ grounded by KG, given the question _q_, which is realized by the
+_planning_ module. The former term _Pθ_ ( _a|q, z, G_ ) is the probability of reasoning an answer _a_ given
+the question _q_, relation path _z_, and KG _G_, which is computed by the _retrieval-reasoning_ module.
+
+
+4.2 OPTIMIZATION FRAMEWORK
+
+
+Despite the advantage of generating relation paths as plans, the LLMs have zero knowledge of the
+relations contained in KGs. Therefore, LLMs cannot directly generate relation paths grounded by
+KGs as faithful plans. Moreover, LLMs might not understand the reasoning paths correctly and
+conduct reasoning based on them. To address these issues, we design two instruction tuning tasks:
+1) _planning optimization_, which distills the knowledge from KGs into LLMs to generate faithful
+relation paths as plans; 2) _retrieval-reasoning optimization_, which enables LLMs to reason based on
+the retrieved reasoning paths.
+
+
+The objective function in equation 1 can be optimized by maximizing the evidence lower bound
+(ELBO) (Jordan et al., 1999), which is formulated as
+log _P_ ( _a|q, G_ ) _≥_ E _z∼Q_ ( _z_ )[log _Pθ_ ( _a|q, z, G_ )] _−_ _D_ KL( _Q_ ( _z_ ) _∥Pθ_ ( _z|q_ )) _,_ (2)
+
+
+where _Q_ ( _z_ ) denotes the posterior distribution of faithful relation paths grounded by KGs. The
+latter term minimizes the KL divergence between the posterior and the prior, which encourages
+LLMs to generate faithful relation paths (planning optimization). The former term maximizes the
+expectation that retrieval-reasoning module generates correct answers based on the relation paths
+and KGs (retrieval-reasoning optimization).
+
+
+**Planning optimization.** In planning optimization, we aim to distill the knowledge from KGs into
+LLMs to generate faithful relation paths as plans. This can be achieved by minimizing the KL
+divergence with the posterior distribution of faithful relation paths _Q_ ( _z_ ), which can be approximated
+by the valid relation paths in KGs.
+
+
+4
+
+
+Published as a conference paper at ICLR 2024
+
+
+Given a question _q_ and answer _a_, we could find the path instances _wz_ ( _eq, ea_ ) = _eq_ _−→r_ 1 _e_ 1 _−→r_ 2
+_. . ._ _−→rl_ _ea_ connecting _eq_ and _ea_ in KGs. The corresponding relation path _z_ = _{r_ 1 _, r_ 2 _, . . ., rl}_
+can be considered valid and serve as a faithful plan for answering the question _q_ . The posterior
+distribution _Q_ ( _z_ ) can be formally approximated as
+
+
+
+_Q_ ( _z_ ) _≃_ _Q_ ( _z|a, q, G_ ) =
+
+
+
+
+
+
+
+
+1
+_|Z|_ _[,][ ∃][w][z]_ [(] _[e][q][, e][a]_ [)] _[ ∈G][,]_
+
+
+
+(3)
+0 _, else,_
+
+
+
+
+
+
+
+where we assume a uniform distribution over all valid relation paths _Z_, and _∃wz_ ( _eq, ea_ ) _∈G_ denote
+the existence of a path instance connecting the question _eq_ and answer _ea_ entities in _G_ . Therefore,
+the KL divergence can be calculated as
+
+
+
+_L_ plan = _D_ KL( _Q_ ( _z_ ) _∥Pθ_ ( _z|q_ )) = _D_ KL( _Q_ ( _z|a, q, G_ ) _∥Pθ_ ( _z|q_ )) _≃−_ [1]
+
+_|Z_ _[∗]_ _|_
+
+
+
+
+- log _Pθ_ ( _z|q_ ) _,_ (4)
+
+_z∈Z_ _[∗]_
+
+
+
+where we use the shortest paths _Z_ _[∗]_ _⊆Z_ between _eq_ and _ea_ in KGs as supervision signals (Zhang
+et al., 2022). The detailed derivation of can be found in Appendix A.1. By optimizing the equation 4, we maximize the probability of LLMs generating faithful relation paths through distilling the
+knowledge from KGs.
+
+
+**Retrieval-reasoning optimization.** In retrieval-reasoning optimization, we aim to enable LLMs to
+conduct reasoning based on the retrieved reasoning paths. For the retrieval-reasoning module, we
+follow the FiD framework (Izacard & Grave, 2021; Singh et al., 2021), which allows reasoning on
+multiple retrieved reasoning paths [2], formulated as
+_Pθ_ ( _a|q, Z, G_ ) =             - _Pθ_ ( _a|q, z, G_ ) _._ (5)
+
+
+_z∈Z_
+
+By approximating the expectation with K sampled plans _ZK_ _[∗]_ _[⊆]_ _[Z]_ _[∗]_ [, the objective function of rea-]
+soning optimization can be written as
+
+       _L_ reason = E _z∼Q_ ( _z|a,q,G_ )[log _Pθ_ ( _a|q, z, G_ )]= log _Pθ_ ( _a|q, z, G_ ) = log _Pθ_ ( _a|q, ZK_ _[∗]_ _[,][ G]_ [)] _[.]_ (6)
+
+_z∈ZK_ _[∗]_
+
+This maximizes the probability of LLMs generating correct answers based on the retrieved reasoning
+paths.
+
+
+The final objective function of RoG is the combination of the planning optimization and retrievalreasoning optimization, which can be formulated as
+
+
+
+
+
+
+_z∈Z_ _[∗]_
+
+
+
+_L_ = log _Pθ_ ( _a|q, ZK_ _[∗]_ _[,][ G]_ [)]
+
+    - ~~�~~     - ~~�~~
+Retrieval-reasoning
+
+
+
+1
++
+_|Z_ _[∗]_ _|_
+
+
+
+
+~~�~~ - ~~�~~ Planning
+
+
+
+log _Pθ_ ( _z|q_ )
+
+
+
+_._ (7)
+
+
+
+From equation 7, we can see that we adopt the same LLM for both planning and reasoning, which
+are jointly trained on two instruction-tuning tasks, i.e., (planning and retrieval-reasoning). We will
+discuss the implementation details of these two tasks in the following subsections.
+
+
+4.3 PLANNING MODULE
+
+
+The planning module aims to generate faithful relation paths as plans for answering the question. To
+utilize the instruction-following ability of LLMs (Wei et al., 2021), we design a simple instruction
+template that prompts LLMs to generate relation paths:
+
+
+
+
+
+where <Question> indicates the question _q_ . The question together with the instruction template
+is fed into LLMs to generate the relation paths, which are structurally formatted as a sentence:
+
+
+2The FiD framework assumes each _z ∈Z_ contributes independently, where the probability _Pθ_ ( _a|q, Z, G_ )
+can be approximated as the product of each _Pθ_ ( _a|q, z, G_ ).
+
+
+5
+
+
+Published as a conference paper at ICLR 2024
+
+
+_z_ = <PATH> _r_ 1 <SEP> _r_ 2 <SEP> _. . ._ <SEP> _rl_ </PATH>
+where <PATH>, <SEP>, </PATH> are special tokens indicating the start, separator, and end of the
+relation path, respectively [3] .
+
+
+Therefore, the optimization of _L_ plan can be achieved as
+
+
+
+
+
+
+_z∈Z_ _[∗]_
+
+
+
+
+
+
+_z∈Z_ _[∗]_
+
+
+
+1
+log _Pθ_ ( _z|q_ ) = _|Z_ _[∗]_ _|_
+
+
+
+arg max
+_θ_
+
+
+
+1
+_|Z_ _[∗]_ _|_
+
+
+
+log
+
+
+
+_|z|_
+
+- _Pθ_ ( _ri|r<i, q_ ) _,_ (8)
+
+
+_i_ =1
+
+
+
+where _Pθ_ ( _z|q_ ) denotes the prior distribution of generating faithful relation path _z_, and _Pθ_ ( _ri|r<i, q_ )
+denotes the probability of each token in _z_ generated by LLMs.
+
+
+4.4 RETRIEVAL-REASONING MODULE
+
+
+**Retrieval** . Given a question _q_ and a relation path as plan _z_, the retrieval module aims to retrieve the
+reasoning paths _wz_ from KG _G_ . The retrieval process can be conducted by finding paths in _G_ that
+start from the question entities _eq_ and follow the relation paths _z_, formulated as
+_Wz_ = _{wz_ ( _eq, e∗_ ) _|wz_ ( _eq, e∗_ ) = _eq_ _−→r_ 1 _e_ 1 _−→r_ 2 _. . ._ _−→rl_ _ea∗, wz_ ( _eq, e∗_ ) _∈G}._ (9)
+We adopt a constrained breadth-first search to retrieve the reasoning paths _wz_ from KGs. In experiments, all retrieved paths are used for reasoning. The detailed retrieval algorithm can be found in
+Appendix A.3.
+
+
+Despite we can utilize the retrieved reasoning paths and directly get the answers with majority
+voting. The retrieved reasoning paths could be noisy and irrelevant to the questions, which leads to
+incorrect answers (He et al., 2021; Zhang et al., 2022). Therefore, we propose a reasoning module
+to explore the ability of LLMs to identify the important reasoning paths and answer the questions
+based on them.
+
+
+**Reasoning** . The reasoning module takes the question _q_ and a set of reasoning paths _Wz_ to generate
+answers _a_ . Similarly, we design a reasoning instruction prompt to guide LLMs to conduct reasoning
+based on the retrieved reasoning paths _Wz_ . The _Wz_ are also formatted as a series of structural
+sentences. The detailed prompt can be found in Appendix A.10.
+
+
+The optimization of _L_ reason can be written as
+
+
+
+_|a|_
+
+- _Pθ_ ( _ti|t<i, q, wz_ ) _,_ (10)
+
+
+_i_ =1
+
+
+
+arg max log _Pθ_ ( _a|q, ZK_ _[∗]_ _[,][ G]_ [) = log] _θ_
+
+_z∈ZK_ _[∗]_
+
+
+
+
+
+
+_wz∈Wz_
+
+
+
+where _Pθ_ ( _a|q, ZK, G_ ) denotes probability of reasoning the correct answer _a_ based on _K_ relation
+paths _ZK_, and _t∗_ denote the tokens of answers _a_ .
+
+
+5 EXPERIMENT
+
+
+In our experiments, we aim to answer the following research questions: **RQ1:** Can RoG achieve
+state-of-the-art performance on the KGQA tasks? **RQ2:** Can the planning module of RoG be integrated with other LLMs to improve their performance? **RQ3:** Can RoG conduct faithful reasoning
+and generate interpretable reasoning results?
+
+
+5.1 EXPERIMENT SETTINGS
+
+
+**Datasets.** We evaluate the reasoning ability of RoG on two benchmark KGQA datasets: WebQuestionSP (WebQSP) (Yih et al., 2016) and Complex WebQuestions (CWQ) (Talmor & Berant, 2018),
+which contain up to 4-hop questions. Freebase (Bollacker et al., 2008) is the background knowledge
+graph for both datasets, which contains around 88 million entities, 20 thousand relations, and 126
+million triples. The details of the datasets are described in Appendix A.4.
+
+
+3The relation name _r∗_ could be split into multiple tokens. For example, “born ~~i~~ n” could be split into
+“born” and “ ~~i~~ n” by tokenizer. In this way, we could fully utilize the semantic information in relation names
+and generalize to different KGs.
+
+
+6
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+|: Performance comparison with different baselines on the two KGQA|Col2|
+|---|---|
+|Type<br>Methods<br>WebQSP<br>CWQ<br>Hits@1<br>F1<br>Hits@1<br>F1|Type<br>Methods<br>WebQSP<br>CWQ<br>Hits@1<br>F1<br>Hits@1<br>F1|
+|Embedding|KV-Mem (Miller et al., 2016)<br>46.7<br>34.5<br>18.4<br>15.7<br>EmbedKGQA (Saxena et al., 2020)<br>66.6<br>-<br>45.9<br>-<br>NSM (He et al., 2021)<br>68.7<br>62.8<br>47.6<br>42.4<br>TransferNet (Shi et al., 2021)<br>71.4<br>-<br>48.6<br>-<br>KGT5 Saxena et al. (2022)<br>56.1<br>-<br>36.5<br>-|
+|Retrieval|GraftNet (Sun et al., 2018)<br>66.4<br>60.4<br>36.8<br>32.7<br>PullNet (Sun et al., 2019)<br>68.1<br>-<br>45.9<br>-<br>SR+NSM (Zhang et al., 2022)<br>68.9<br>64.1<br>50.2<br>47.1<br>SR+NSM+E2E (Zhang et al., 2022)<br>69.5<br>64.1<br>49.3<br>46.3|
+|Semantic Parsing|SPARQL (Sun et al., 2020)<br>-<br>-<br>31.6<br>-<br>QGG (Lan & Jiang, 2020)<br>73.0<br>73.8<br>36.9<br>37.4<br>ArcaneQA (Gu & Su, 2022)<br>-<br>75.3<br>-<br>-<br>RnG-KBQA (Ye et al., 2022)<br>-<br>76.2<br>-<br>-|
+|LLMs|Flan-T5-xl (Chung et al., 2022)<br>31.0<br>-<br>14.7<br>-<br>Alpaca-7B (Taori et al., 2023)<br>51.8<br>-<br>27.4<br>-<br>LLaMA2-Chat-7B (Touvron et al., 2023)<br>64.4<br>-<br>34.6<br>-<br>ChatGPT<br>66.8<br>-<br>39.9<br>-<br>ChatGPT+CoT<br>75.6<br>-<br>48.9<br>-|
+|LLMs+KGs<br>KD-CoT (Wang et al., 2023b)<br>68.6<br>52.5<br>55.7<br>-<br>UniKGQA (Jiang et al., 2022)<br>77.2<br>72.2<br>51.2<br>49.1<br>DECAF (DPR+FiD-3B) (Yu et al., 2022a)<br>82.1<br>**78.8**<br>-<br>-<br>RoG<br>**85.7**<br>70.8<br>**62.6**<br>**56.2**|LLMs+KGs<br>KD-CoT (Wang et al., 2023b)<br>68.6<br>52.5<br>55.7<br>-<br>UniKGQA (Jiang et al., 2022)<br>77.2<br>72.2<br>51.2<br>49.1<br>DECAF (DPR+FiD-3B) (Yu et al., 2022a)<br>82.1<br>**78.8**<br>-<br>-<br>RoG<br>**85.7**<br>70.8<br>**62.6**<br>**56.2**|
+
+
+
+**Baselines.** We compare RoG with 21 baselines grouping into 5 categories: 1) Embeddingbased methods, 2) Retrieval-augmented methods, 3) Semantic parsing methods, 4) LLMs, and 5)
+LLMs+KGs methods. The details of each baseline are described in Appendix A.5.
+
+
+**Evaluation Metrics.** Following previous works, we use Hits@1 and F1 as the evaluation metrics.
+Hits@1 measures the proportion of questions whose top-1 predicted answer is correct. Since a
+question may correspond to multiple answers, F1 considers the coverage of all answers, which
+balances the precision and recall of the predicted answers.
+
+
+**Implementations.** For RoG, we use LLaMA2-Chat-7B (Touvron et al., 2023) as the LLM backbone,
+which is instruction finetuned on the training split of WebQSP and CWQ as well as Freebase for 3
+epochs. We generate the top-3 relation paths using beam-search for each question. Since UniKGQA
+(Jiang et al., 2022) and DECAF (Yu et al., 2022a) are state-of-the-art methods, we directly refer their
+results and those of the other baselines reported in their papers for comparisons. For LLMs, we use
+zero-shot prompting to conduct KGQA. The detailed settings are described in Appendix A.6.
+
+
+5.2 RQ1: KGQA PERFORMANCE COMPARISON
+
+
+**Main Results.** In this section, we compare RoG with other baselines on KGQA tasks. The results
+are shown in Table 1. Our method achieves the best performance on both datasets across most
+metrics. Specifically, compared to the SOTA method DECAF (Yu et al., 2022a) on WebQSP, our
+method improves Hits@1 by 4.4%. On the CWQ dataset, which is more challenging due to multihop questions, our method improves both Hits@1 and F1 by 22.3% and 14.4% against the SOTA
+model UniKGQA (Jiang et al., 2022). These results demonstrate the superior reasoning ability of
+our method in KGQA.
+
+
+Among other methods, retrieval-augmented approaches outperform conventional embedding-based
+methods by retrieving relevant subgraphs from KGs, which reduces reasoning complexity. Furthermore, SR+NSM and SR+NSM+E2E adopt relation paths-based retrieval which achieves better
+performance, highlighting the importance of relation paths. Semantic parsing methods perform better than retrieval methods on WebQSP but worse on CWQ due to the complexity of generating
+logical queries for complex questions in CWQ. Although LLMs-based methods achieve comparable
+performance, they are limited by hallucinations and lack of knowledge as shown in Section 5.4. The
+LLMs+KGs methods achieve the second-best performance, which demonstrates the effectiveness of
+unifying KGs and LLMs for reasoning.
+
+
+**Ablation Study.** We conduct an ablation study to analyze the effectiveness of the _planning module_
+and _reasoning module_ in our method (RoG). We compare four variants: 1) _w/o planning_, where
+we remove the planning module and perform reasoning without retrieved reasoning paths; 2) _w/o_
+_reasoning_, where we remove the reasoning module and use all answers from retrieved reasoning
+
+
+7
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+CWQ
+
+
+1 2 3 4 5
+Top-K relation paths
+
+
+
+40
+
+
+30
+
+
+20
+
+
+10
+
+
+0
+
+
+
+WebQSP
+
+
+1 2 3 4 5
+Top-K relation paths
+
+
+
+80
+
+
+70
+
+
+60
+
+
+50
+
+
+40
+
+
+30
+
+
+
+125
+
+
+100
+
+
+75
+
+
+50
+
+
+25
+
+
+0
+
+
+
+60
+
+
+40
+
+
+20
+
+
+
+Figure 3: Faithfulness of top- _K_ generated relation paths. _Green bars_ denote the average number of
+retrieved reasoning paths, _solid lines_ denote the answer coverage of the retrieved paths, and _dashed_
+_line_ denote the answer coverage of the reasoning module based on the retrieved reasoning paths.
+
+paths as results; 3) _w/ random plans_, where we randomly retrieve reasoning paths from KGs and
+feed them into the reasoning module; 4) _w/ vote reasoning_, where we adopt the majority voting to
+select top-5 answers from retrieved reasoning paths. The results are shown in Table 2.
+
+|Table 2: Ablation studies of RoG.|Col2|of RoG.|
+|---|---|---|
+|Method<br>WebQSP<br>CWQ<br>Precision<br>Recall<br>F1<br>Precision<br>Recall<br>F1|Method<br>WebQSP<br>CWQ<br>Precision<br>Recall<br>F1<br>Precision<br>Recall<br>F1|CWQ|
+|Method<br>WebQSP<br>CWQ<br>Precision<br>Recall<br>F1<br>Precision<br>Recall<br>F1|Method<br>WebQSP<br>CWQ<br>Precision<br>Recall<br>F1<br>Precision<br>Recall<br>F1|Precision<br>Recall<br>F1|
+|RoG|**74.77**<br>75.84<br>**70.81**|**57.69**<br>58.19<br>**56.17**|
+|RoG w/o planning<br>RoG w/o reasoning|57.26<br>50.16<br>49.69<br>46.90<br>**79.85**<br>49.56|35.35<br>34.77<br>33.76<br>18.88<br>**67.89**<br>22.26|
+|RoG w/ random plans<br>RoG w/ vote reasoning|38.66<br>38.31<br>35.24<br>54.80<br>60.44<br>47.96|38.99<br>39.29<br>37.64<br>22.92<br>47.98<br>26.52|
+
+
+
+answers, precision drops significantly because of noise in retrieved paths. This demonstrates the effectiveness of the reasoning module in identifying important reasoning paths and filtering out noise.
+Furthermore, using random plans achieves worse performance than removing the planning module,
+highlighting the importance of a planning module who generates faithful reasoning plans. Using
+a simple majority vote reasoning can improve the results which also demonstrate the necessity of
+reasoning module.
+
+
+
+
+
+
+
+
+
+
+
+5.3 RQ2: PLUG-AND-PLAY ROG PLANNING MODULE
+
+
+
+In this section, we evaluate the effectiveness of
+integrating the planning module of RoG with
+different LLMs during inference to improve
+their performance. Specifically, we first adopt
+the planning module of RoG to generate relation paths and feed the retrieved reasoning
+paths as context into different LLMs for reasoning. The results are presented in Table 3. To
+account for the fact that it is difficult to extract
+the number of answers from LLM’s output. We
+only report the Hits@1 and Recall metrics.
+
+
+
+Table 3: Effects of integrating the planning module of RoG with different LLMs for reasoning.
+
+
+WebQSP CWQ
+Methods
+
+Hits@1 Recall Hits@1 Recall
+
+
+ChatGPT 66.77 49.27 39.90 35.07
+ChatGPT + RoG Planning **81.51** **71.60** **52.68** **48.51**
+
+
+Alpaca-7B 51.78 33.65 27.44 23.62
+Alpaca-7B + RoG Planning **56.16** **74.20** **44.04** **38.46**
+
+
+LLaMA2-Chat-7B 64.37 44.61 34.60 29.91
+LLaMA2-Chat-7B + RoG Planning **74.20** **56.16** **56.41** **51.99**
+
+
+Flan-T5-xl 30.95 17.08 14.69 12.25
+Flan-T5-xl + RoG Planning **67.87** **44.93** **37.81** **32.57**
+
+
+
+From the results, we can notice that the performance of all LLMs is substantially improved by
+integrating the planning module of RoG. Specifically, the Hits@1 of ChatGPT, Alpaca, LLaMA2,
+and Flan-T5 are improved by 8.5%, 15.3%, and 119.3%, respectively. This demonstrates that the
+planning module of RoG can be seamlessly integrated with other LLMs to improve their performance
+without retraining.
+
+
+5.4 RQ3: FAITHFUL REASONING AND INTERPRETABLE RESULTS
+
+
+**Quantitative Results.** To evaluate the faithfulness of the relation paths, we illustrate the quantitative results in Figure 3. In experiments, we sweep the number of top- _K_ relation paths generated
+by RoG. From results, we can see that the number of retrieved reasoning paths increases with _K_,
+which also leads to more answers to be covered (recall). This demonstrates the faithfulness of the
+
+
+8
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 4: Example of _lack of knowledge_ for ChatGPT-CoT and interpretable predictions of RoG.
+
+
+
+
+
+
+
+
+|Question|What type of government is used in the country with Northern District?|
+|---|---|
+|Answer|Parliamentary system|
+|ChatGPT + CoT|To determine what type of government is used in a country with a Northern District, we<br>need more specifc information. The term ”Northern District” does not specify the name<br>of any particular country or provide enough context to identify its government type. Could<br>you please provide additional details or clarify the specifc country you are referring to?|
+|Reasoning Paths|Northern District_ →_location.administrative~~ d~~ivision.frst~~ l~~evel~~ d~~ivision~~ o~~f_ →_Israel_ →_<br>government.form~~ o~~f~~ g~~overnment.countries_ →_**Parliamentary system**|
+|RoG|The type of government used in the country with the Northern District is a** Parliamentary**<br>**system**.<br>Explanations:<br>1. Northern District_ →_location.administrative division.frst~~ l~~evel~~ d~~ivision~~ o~~f_ →_Israel:<br>The Northern District is a part of Israel.<br>2. Israel_ →_government.form~~ o~~f~~ g~~overnment.countries_ →_Parliamentary system: Israel has<br>a Parliamentary system of government.<br>So, by following the reasoning paths provided, we can conclude that the country with the<br>Northern District, which is Israel, uses a Parliamentary system of government.|
+
+
+
+
+
+
+|Example of|f the hallucination of ChatGPT-CoT and faithful reasoning|
+|---|---|
+|Question|Where is the home stadium of the team who won the 1946 World Series championship?|
+|Answer|Busch Stadium|
+|ChatGPT + CoT|Step 1: Identify the team that won the 1946 World Series championship. The team that<br>won the 1946 World Series championship was the St. Louis Cardinals.<br>Step 2: Determine the home stadium of the St. Louis Cardinals during that time. The St.<br>Louis Cardinals’ home stadium during the 1946 season was Sportsman’s Park.<br>Therefore, the possible answer to the question ”Where is the home stadium of the team<br>who won the 1946 World Series championship?” is: - Sportsman’s Park.|
+|Reasoning Paths|1946 World Series_ →_sports.sports~~ t~~eam.championships_ →_St.<br>Louis Cardinals_ →_<br>sports.sports team.arena~~ s~~tadium_ →_**Busch Stadium**<br>1946 World Series_ →_sports.sports~~ t~~eam.championships_ →_St.<br>Louis Cardinals_ →_<br>sports.sports team.arena~~ s~~tadium_ →_Roger Dean Stadium|
+|RoG|Based on the reasoning paths provided, the home stadium of the team who won the 1946<br>World Series championship is** Busch Stadium**. This conclusion is based on the following<br>path:<br>**1. 1946 World Series**_ →_**sports.sports** **team.championships**_ →_**St. Louis Cardinals**_ →_<br>**sports.sports**~~** t**~~**eam.arena**~~** s**~~**tadium**_ →_**Busch Stadium**<br>The reasoning path leads us to the St. Louis Cardinals as the team that won the 1946<br>World Series, and Busch Stadium is the stadium associated with the St. Louis Cardinals.<br>Therefore,** Busch Stadium** is the home stadium of the team that won the 1946 World Series<br>championship.|
+
+
+
+relation paths by retrieving the answers. However, more retrieved reasoning paths also lead to more
+noise and retrieval time (shown in Appendix A.7.4), which decreases the precision and makes little
+contribution to the final results (reasoning-f1). Therefore, we set _K_ = 3 in experiments.
+
+
+**Case studies.** We also illustrate two case studies in Table 4 and Table 5. In Table 4, we can
+find that ChatGPT+CoT suffers from the lack of knowledge issue and cannot answer the question.
+On the contrary, RoG can generate faithful relation paths and retrieve valid reasoning paths from
+KGs for reasoning. Besides, RoG can provide interpretable explanations based on the reasoning
+paths. In Table 5, we can see that ChatGPT+CoT suffers from hallucinations and generates incorrect
+answers. In contrast, although the retrieved reasoning paths contain noises, the reasoning module
+can identify the correct reasoning paths and conduct faithful reasoning. These results demonstrate
+the effectiveness of RoG in conducting faithful reasoning and generating interpretable results. More
+cases can be found in Appendices A.8 and A.9.
+
+
+6 CONCLUSION
+
+
+In this paper, we propose a novel method called reasoning on graphs (RoG) that synergizes LLMs
+with KGs to conduct faithful and interpretable reasoning. To alleviate the issues of hallucinations
+and lack of knowledge, we present a planning-retrieval-reasoning framework, which allows LLMs
+to access the latest knowledge while reasoning based on faithful plans on graphs. RoG not only enhances the reasoning capability of LLMs by distilling knowledge from KGs through training but also
+enables seamless integration with any LLMs during inference. Extensive experiments on two benchmark KGQA datasets demonstrate the superiority of RoG in reasoning ability and interpretability.
+
+
+9
+
+
+Published as a conference paper at ICLR 2024
+
+
+ACKNOWLEDGMENTS
+
+
+This material is based on research partially sponsored by the DARPA Assured Neuro Symbolic Learning and Reasoning (ANSR) program under award number FA8750-23-2-1016 and the
+DARPA Knowledge Management at Scale and Speed (KMASS) program under award number
+HR00112220047. This research is partly supported by the ARC Future Fellowship FT190100039
+to G.H. S. Pan was supported in part by the Australian Research Council (ARC) under grants
+FT210100097 and DP240101547, and the CSIRO – National Science Foundation (US) AI Research
+Collaboration Program.
+
+
+ETHICS STATEMENT
+
+
+Our work is solely dedicated to tackling scientific problems and does not involve any human subjects, animals, or environmentally sensitive materials. Consequently, we do not anticipate any potential ethical risks or conflicts of interest in our study. Our research strives to adhere to the highest
+standards of scientific integrity and ethical conduct throughout the entire process, guaranteeing the
+validity and reliability of our findings.
+
+
+REPRODUCIBILITY STATEMENT
+
+
+Our model has been meticulously formalized within the main body of the text to ensure clarity
+and facilitate comprehensive understanding. Additionally, we provide detailed discussions of implementation in Appendices A.4 to A.6, encompassing dataset information, baselines, experimental
+settings, and model configurations. The code and pre-trained model weights have been publicized.
+
+
+REFERENCES
+
+
+Yejin Bang, Samuel Cahyawijaya, Nayeon Lee, Wenliang Dai, Dan Su, Bryan Wilie, Holy Lovenia,
+Ziwei Ji, Tiezheng Yu, Willy Chung, et al. A multitask, multilingual, multimodal evaluation of
+chatgpt on reasoning, hallucination, and interactivity. _arXiv preprint arXiv:2302.04023_, 2023.
+
+
+Maciej Besta, Nils Blach, Ales Kubicek, Robert Gerstenberger, Lukas Gianinazzi, Joanna
+Gajda, Tomasz Lehmann, Michal Podstawski, Hubert Niewiadomski, Piotr Nyczyk, et al.
+Graph of thoughts: Solving elaborate problems with large language models. _arXiv preprint_
+_arXiv:2308.09687_, 2023.
+
+
+Kurt Bollacker, Colin Evans, Praveen Paritosh, Tim Sturge, and Jamie Taylor. Freebase: a collaboratively created graph database for structuring human knowledge. In _Proceedings of the 2008_
+_ACM SIGMOD international conference on Management of data_, pp. 1247–1250, 2008.
+
+
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal,
+Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language models are
+few-shot learners. _Advances in neural information processing systems_, 33:1877–1901, 2020.
+
+
+Hyung Won Chung, Le Hou, Shayne Longpre, Barret Zoph, Yi Tay, William Fedus, Eric Li, Xuezhi
+Wang, Mostafa Dehghani, Siddhartha Brahma, et al. Scaling instruction-finetuned language models. _arXiv preprint arXiv:2210.11416_, 2022.
+
+
+Antonia Creswell and Murray Shanahan. Faithful reasoning using large language models. _arXiv_
+_preprint arXiv:2208.14271_, 2022.
+
+
+Yu Gu and Yu Su. Arcaneqa: Dynamic program induction and contextualized encoding for knowledge base question answering. In _Proceedings of the 29th International Conference on Computa-_
+_tional Linguistics_, pp. 1718–1731, 2022.
+
+
+Gaole He, Yunshi Lan, Jing Jiang, Wayne Xin Zhao, and Ji-Rong Wen. Improving multi-hop knowledge base question answering by learning intermediate supervision signals. In _Proceedings of the_
+_14th ACM international conference on web search and data mining_, pp. 553–561, 2021.
+
+
+10
+
+
+Published as a conference paper at ICLR 2024
+
+
+Hangfeng He, Hongming Zhang, and Dan Roth. Rethinking with retrieval: Faithful large language
+model inference. _arXiv preprint arXiv:2301.00303_, 2022.
+
+
+Ruixin Hong, Hongming Zhang, Hong Zhao, Dong Yu, and Changshui Zhang. Faithful question
+answering with monte-carlo planning. _ACL2023_, 2023.
+
+
+Jie Huang and Kevin Chen-Chuan Chang. Towards reasoning in large language models: A survey.
+_ACL 2023_, 2023.
+
+
+Gautier Izacard and Edouard Grave. Leveraging passage retrieval with generative models for open [´]
+domain question answering. In _Proceedings of the 16th Conference of the European Chapter of_
+_the Association for Computational Linguistics: Main Volume_, pp. 874–880, 2021.
+
+
+Ziwei Ji, Nayeon Lee, Rita Frieske, Tiezheng Yu, Dan Su, Yan Xu, Etsuko Ishii, Ye Jin Bang,
+Andrea Madotto, and Pascale Fung. Survey of hallucination in natural language generation. _ACM_
+_Computing Surveys_, 55(12):1–38, 2023.
+
+
+Jinhao Jiang, Kun Zhou, Xin Zhao, and Ji-Rong Wen. Unikgqa: Unified retrieval and reasoning
+for solving multi-hop question answering over knowledge graph. In _The Eleventh International_
+_Conference on Learning Representations_, 2022.
+
+
+Jinhao Jiang, Kun Zhou, Wayne Xin Zhao, Yaliang Li, and Ji-Rong Wen. Reasoninglm: Enabling
+structural subgraph reasoning in pre-trained language models for question answering over knowledge graph. In _Proceedings of the 2023 Conference on Empirical Methods in Natural Language_
+_Processing_, pp. 3721–3735, 2023.
+
+
+Jinhao Jiang, Kun Zhou, Wayne Xin Zhao, Yang Song, Chen Zhu, Hengshu Zhu, and Ji-Rong
+Wen. Kg-agent: An efficient autonomous agent framework for complex reasoning over knowledge graph. _arXiv preprint arXiv:2402.11163_, 2024.
+
+
+Ming Jin, Shiyu Wang, Lintao Ma, Zhixuan Chu, James Y Zhang, Xiaoming Shi, Pin-Yu Chen,
+Yuxuan Liang, Yuan-Fang Li, Shirui Pan, and Qingsong Wen. Time-llm: Time series forecasting
+by reprogramming large language models. In _International Conference on Learning Representa-_
+_tions_, 2024a.
+
+
+Ming Jin, Yifan Zhang, Wei Chen, Kexin Zhang, Yuxuan Liang, Bin Yang, Jindong Wang, Shirui
+Pan, and Qingsong Wen. Position paper: What can large language models tell us about time series
+analysis. _arXiv preprint arXiv:2402.02713_, 2024b.
+
+
+Michael I Jordan, Zoubin Ghahramani, Tommi S Jaakkola, and Lawrence K Saul. An introduction
+to variational methods for graphical models. _Machine learning_, 37:183–233, 1999.
+
+
+Vladimir Karpukhin, Barlas Oguz, Sewon Min, Patrick Lewis, Ledell Wu, Sergey Edunov, Danqi
+Chen, and Wen-tau Yih. Dense passage retrieval for open-domain question answering. In
+_Proceedings of the 2020 Conference on Empirical Methods in Natural Language Processing_
+_(EMNLP)_, pp. 6769–6781, 2020.
+
+
+Tushar Khot, Harsh Trivedi, Matthew Finlayson, Yao Fu, Kyle Richardson, Peter Clark, and Ashish
+Sabharwal. Decomposed prompting: A modular approach for solving complex tasks. In _The_
+_Eleventh International Conference on Learning Representations_, 2022.
+
+
+Yunshi Lan and Jing Jiang. Query graph generation for answering multi-hop complex questions
+from knowledge bases. Association for Computational Linguistics, 2020.
+
+
+Shiyang Li, Yifan Gao, Haoming Jiang, Qingyu Yin, Zheng Li, Xifeng Yan, Chao Zhang, and Bing
+Yin. Graph reasoning for question answering with triplet retrieval. In _Findings of the Association_
+_for Computational Linguistics: ACL 2023_, 2023.
+
+
+Ke Liang, Lingyuan Meng, Meng Liu, Yue Liu, Wenxuan Tu, Siwei Wang, Sihang Zhou, Xinwang
+Liu, and Fuchun Sun. Reasoning over different types of knowledge graphs: Static, temporal and
+multi-modal. _arXiv preprint arXiv:2212.05767_, 2022.
+
+
+11
+
+
+Published as a conference paper at ICLR 2024
+
+
+Ke Liang, Yue Liu, Sihang Zhou, Wenxuan Tu, Yi Wen, Xihong Yang, Xiangjun Dong, and Xinwang Liu. Knowledge graph contrastive learning based on relation-symmetrical structure. _IEEE_
+_Transactions on Knowledge and Data Engineering_, pp. 1–12, 2023. doi: 10.1109/TKDE.2023.
+3282989.
+
+
+Yixin Liu, Kaize Ding, Qinghua Lu, Fuyi Li, Leo Yu Zhang, and Shirui Pan. Towards selfinterpretable graph-level anomaly detection. _Advances in Neural Information Processing Systems_,
+36, 2023a.
+
+
+Yixin Liu, Kaize Ding, Jianling Wang, Vincent Lee, Huan Liu, and Shirui Pan. Learning strong
+graph neural networks with weak information. In _ACM SIGKDD International Conference on_
+_Knowledge Discovery and Data Mining (KDD)_, 2023b.
+
+
+Linhao Luo, Jiaxin Ju, Bo Xiong, Yuan-Fang Li, Gholamreza Haffari, and Shirui Pan. Chatrule:
+Mining logical rules with large language models for knowledge graph reasoning. _arXiv preprint_
+_arXiv:2309.01538_, 2023a.
+
+
+Linhao Luo, Yuan-Fang Li, Gholamreza Haffari, and Shirui Pan. Normalizing flow-based neural
+process for few-shot knowledge graph completion. In _The 46th International ACM SIGIR Con-_
+_ference on Research and Development in Information Retrieval_, 2023b.
+
+
+Alexander Miller, Adam Fisch, Jesse Dodge, Amir-Hossein Karimi, Antoine Bordes, and Jason
+Weston. Key-value memory networks for directly reading documents. In _Proceedings of the 2016_
+_Conference on Empirical Methods in Natural Language Processing_, pp. 1400–1409, 2016.
+
+
+Shirui Pan, Yizhen Zheng, and Yixin Liu. Integrating graphs with large language models: Methods
+and prospects. _arXiv preprint arXiv:2310.05499_, 2023.
+
+
+Shirui Pan, Linhao Luo, Yufei Wang, Chen Chen, Jiapu Wang, and Xindong Wu. Unifying large
+language models and knowledge graphs: A roadmap. _IEEE Transactions on Knowledge and Data_
+_Engineering (TKDE)_, 2024.
+
+
+Apoorv Saxena, Aditay Tripathi, and Partha Talukdar. Improving multi-hop question answering
+over knowledge graphs using knowledge base embeddings. In _Proceedings of the 58th annual_
+_meeting of the association for computational linguistics_, pp. 4498–4507, 2020.
+
+
+Apoorv Saxena, Adrian Kochsiek, and Rainer Gemulla. Sequence-to-sequence knowledge graph
+completion and question answering. In _Proceedings of the 60th Annual Meeting of the Association_
+_for Computational Linguistics (Volume 1: Long Papers)_, pp. 2814–2828, 2022.
+
+
+Jiaxin Shi, Shulin Cao, Lei Hou, Juanzi Li, and Hanwang Zhang. Transfernet: An effective and
+transparent framework for multi-hop question answering over relation graph. In _Proceedings of_
+_the 2021 Conference on Empirical Methods in Natural Language Processing_, pp. 4149–4158,
+2021.
+
+
+Devendra Singh, Siva Reddy, Will Hamilton, Chris Dyer, and Dani Yogatama. End-to-end training
+of multi-document reader and retriever for open-domain question answering. _Advances in Neural_
+_Information Processing Systems_, 34:25968–25981, 2021.
+
+
+Haitian Sun, Bhuwan Dhingra, Manzil Zaheer, Kathryn Mazaitis, Ruslan Salakhutdinov, and
+William Cohen. Open domain question answering using early fusion of knowledge bases and
+text. In _Proceedings of the 2018 Conference on Empirical Methods in Natural Language Pro-_
+_cessing_, pp. 4231–4242, 2018.
+
+
+Haitian Sun, Tania Bedrax-Weiss, and William Cohen. Pullnet: Open domain question answering
+with iterative retrieval on knowledge bases and text. In _Proceedings of the 2019 Conference on_
+_Empirical Methods in Natural Language Processing and the 9th International Joint Conference_
+_on Natural Language Processing (EMNLP-IJCNLP)_, pp. 2380–2390, 2019.
+
+
+Jiashuo Sun, Chengjin Xu, Lumingyuan Tang, Saizhuo Wang, Chen Lin, Yeyun Gong, Lionel Ni,
+Heung-Yeung Shum, and Jian Guo. Think-on-graph: Deep and responsible reasoning of large
+language model on knowledge graph. In _The Twelfth International Conference on Learning Rep-_
+_resentations_ [, 2024. URL https://openreview.net/forum?id=nnVO1PvbTv.](https://openreview.net/forum?id=nnVO1PvbTv)
+
+
+12
+
+
+Published as a conference paper at ICLR 2024
+
+
+Yawei Sun, Lingling Zhang, Gong Cheng, and Yuzhong Qu. Sparqa: skeleton-based semantic
+parsing for complex questions over knowledge bases. In _Proceedings of the AAAI conference on_
+_artificial intelligence_, volume 34, pp. 8952–8959, 2020.
+
+
+Oyvind Tafjord, Bhavana Dalvi, and Peter Clark. Entailer: Answering questions with faithful and
+truthful chains of reasoning. In _Proceedings of the 2022 Conference on Empirical Methods in_
+_Natural Language Processing_, pp. 2078–2093, 2022.
+
+
+Alon Talmor and Jonathan Berant. The web as a knowledge-base for answering complex questions.
+In _Proceedings of the 2018 Conference of the North American Chapter of the Association for_
+_Computational Linguistics: Human Language Technologies, Volume 1 (Long Papers)_, pp. 641–
+651, 2018.
+
+
+Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann Dubois, Xuechen Li, Carlos Guestrin, Percy
+Liang, and Tatsunori B Hashimoto. Stanford alpaca: an instruction-following llama model.
+[https://github.com/tatsu-lab/stanford_alpaca, 2023.](https://github.com/tatsu-lab/stanford_alpaca)
+
+
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, et al. Llama 2: Open foundation and fine-tuned chat models. _arXiv preprint arXiv:2307.09288_, 2023.
+
+
+Hongwei Wang, Hongyu Ren, and Jure Leskovec. Relational message passing for knowledge graph
+completion. In _Proceedings of the 27th ACM SIGKDD Conference on Knowledge Discovery &_
+_Data Mining_, pp. 1697–1707, 2021.
+
+
+Jiapu Wang, Boyue Wang, Meikang Qiu, Shirui Pan, Bo Xiong, Heng Liu, Linhao Luo, Tengfei Liu,
+Yongli Hu, Baocai Yin, et al. A survey on temporal knowledge graph completion: Taxonomy,
+progress, and prospects. _arXiv preprint arXiv:2308.02457_, 2023a.
+
+
+Keheng Wang, Feiyu Duan, Sirui Wang, Peiguang Li, Yunsen Xian, Chuantao Yin, Wenge Rong,
+and Zhang Xiong. Knowledge-driven cot: Exploring faithful reasoning in llms for knowledgeintensive question answering. _arXiv preprint arXiv:2308.13259_, 2023b.
+
+
+Lei Wang, Wanyu Xu, Yihuai Lan, Zhiqiang Hu, Yunshi Lan, Roy Ka-Wei Lee, and Ee-Peng Lim.
+Plan-and-solve prompting: Improving zero-shot chain-of-thought reasoning by large language
+models. _arXiv preprint arXiv:2305.04091_, 2023c.
+
+
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc V Le, Ed H Chi, Sharan Narang, Aakanksha
+Chowdhery, and Denny Zhou. Self-consistency improves chain of thought reasoning in language
+models. In _The Eleventh International Conference on Learning Representations_, 2022.
+
+
+Jason Wei, Maarten Bosma, Vincent Zhao, Kelvin Guu, Adams Wei Yu, Brian Lester, Nan Du, Andrew M Dai, and Quoc V Le. Finetuned language models are zero-shot learners. In _International_
+_Conference on Learning Representations_, 2021.
+
+
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny
+Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. _Advances in_
+_Neural Information Processing Systems_, 35:24824–24837, 2022.
+
+
+Xiaohan Xu, Peng Zhang, Yongquan He, Chengpeng Chao, and Chaoyang Yan. Subgraph neighboring relations infomax for inductive link prediction on knowledge graphs. In _Proceedings of_
+_the Thirty-First International Joint Conference on Artificial Intelligence_, 2022.
+
+
+Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan, and Yuan
+Cao. React: Synergizing reasoning and acting in language models. In _The Eleventh International_
+_Conference on Learning Representations_, 2022.
+
+
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Thomas L Griffiths, Yuan Cao, and Karthik
+Narasimhan. Tree of thoughts: Deliberate problem solving with large language models. _arXiv_
+_preprint arXiv:2305.10601_, 2023.
+
+
+13
+
+
+Published as a conference paper at ICLR 2024
+
+
+Michihiro Yasunaga, Hongyu Ren, Antoine Bosselut, Percy Liang, and Jure Leskovec. Qa-gnn:
+Reasoning with language models and knowledge graphs for question answering. In _Proceedings_
+_of the 2021 Conference of the North American Chapter of the Association for Computational_
+_Linguistics: Human Language Technologies_, pp. 535–546, 2021.
+
+
+Xi Ye, Semih Yavuz, Kazuma Hashimoto, Yingbo Zhou, and Caiming Xiong. Rng-kbqa: Generation
+augmented iterative ranking for knowledge base question answering. In _Proceedings of the 60th_
+_Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pp.
+6032–6043, 2022.
+
+
+Wen-tau Yih, Matthew Richardson, Christopher Meek, Ming-Wei Chang, and Jina Suh. The value
+of semantic parse labeling for knowledge base question answering. In _Proceedings of the 54th_
+_Annual Meeting of the Association for Computational Linguistics (Volume 2: Short Papers)_, pp.
+201–206, 2016.
+
+
+Donghan Yu, Sheng Zhang, Patrick Ng, Henghui Zhu, Alexander Hanbo Li, Jun Wang, Yiqun Hu,
+William Yang Wang, Zhiguo Wang, and Bing Xiang. Decaf: Joint decoding of answers and logical
+forms for question answering over knowledge bases. In _The Eleventh International Conference_
+_on Learning Representations_, 2022a.
+
+
+Donghan Yu, Chenguang Zhu, Yuwei Fang, Wenhao Yu, Shuohang Wang, Yichong Xu, Xiang Ren,
+Yiming Yang, and Michael Zeng. Kg-fid: Infusing knowledge graph in fusion-in-decoder for
+open-domain question answering. In _Proceedings of the 60th Annual Meeting of the Association_
+_for Computational Linguistics (Volume 1: Long Papers)_, pp. 4961–4974, 2022b.
+
+
+Jing Zhang, Xiaokang Zhang, Jifan Yu, Jian Tang, Jie Tang, Cuiping Li, and Hong Chen. Subgraph
+retrieval enhanced model for multi-hop knowledge base question answering. In _Proceedings of the_
+_60th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_,
+pp. 5773–5784, 2022.
+
+
+Xikun Zhang, Antoine Bosselut, Michihiro Yasunaga, Hongyu Ren, Percy Liang, Christopher D
+Manning, and Jure Leskovec. Greaselm: Graph reasoning enhanced language models. In _Inter-_
+_national conference on learning representations_, 2021.
+
+
+Yuyu Zhang, Hanjun Dai, Zornitsa Kozareva, Alexander Smola, and Le Song. Variational reasoning
+for question answering with knowledge graph. In _Proceedings of the AAAI conference on artificial_
+_intelligence_, volume 32, 2018.
+
+
+Zicheng Zhao, Linhao Luo, Shirui Pan, Quoc Viet Hung Nguyen, and Chen Gong. Towards fewshot inductive link prediction on knowledge graphs: A relational anonymous walk-guided neural
+process approach. In _Joint European Conference on Machine Learning and Knowledge Discovery_
+_in Databases_, pp. 515–532, 2023.
+
+
+Xin Zheng, Miao Zhang, Chunyang Chen, Chaojie Li, Chuan Zhou, and Shirui Pan. Multi-relational
+graph neural architecture search with fine-grained message passing. In _2022 IEEE International_
+_Conference on Data Mining (ICDM)_, pp. 783–792. IEEE, 2022a.
+
+
+Xin Zheng, Yixin Liu, Zhifeng Bao, Meng Fang, Xia Hu, Alan Wee-Chung Liew, and Shirui
+Pan. Towards data-centric graph machine learning: Review and outlook. _arXiv preprint_
+_arXiv:2309.10979_, 2023a.
+
+
+Xin Zheng, Miao Zhang, Chunyang Chen, Soheila Molaei, Chuan Zhou, and Shirui Pan. Gnnevaluator: Evaluating gnn performance on unseen graphs without labels. In _Advances in Neural_
+_Information Processing Systems (NeurIPS)_, 2023b.
+
+
+Xin Zheng, Miao Zhang, Chunyang Chen, Quoc Viet Hung Nguyen, Xingquan Zhu, and Shirui
+Pan. Structure-free graph condensation: From large-scale graphs to condensed graph-free data.
+In _Advances in Neural Information Processing Systems (NeurIPS)_, 2023c.
+
+
+Yizhen Zheng, Shirui Pan, Vincent Lee, Yu Zheng, and Philip S Yu. Rethinking and scaling up
+graph contrastive learning: An extremely efficient approach with group discrimination. _Advances_
+_in Neural Information Processing Systems_, 35:10809–10820, 2022b.
+
+
+14
+
+
+Published as a conference paper at ICLR 2024
+
+
+Yizhen Zheng, Huan Yee Koh, Jiaxin Ju, Anh TN Nguyen, Lauren T May, Geoffrey I Webb, and
+Shirui Pan. Large language models for scientific synthesis, inference and explanation. _arXiv_
+_preprint arXiv:2310.07984_, 2023d.
+
+
+Yizhen Zheng, He Zhang, Vincent Lee, Yu Zheng, Xiao Wang, and Shirui Pan. Finding the missinghalf: Graph complementary learning for homophily-prone and heterophily-prone graphs. _Inter-_
+_national Conference on Machine Learning_, 2023e.
+
+
+A APPENDIX
+
+
+A.1 DETAILED DERIVATION OF THE PLANNING MODULE
+
+
+In this section, we provide a detailed derivation of the planning module. By approximating the _Q_ ( _z_ )
+with _Q_ ( _z|a, q, G_ ), the KL divergence can be calculated as
+
+
+_L_ plan = _D_ KL( _Q_ ( _z_ ) _∥Pθ_ ( _z|q_ )) = _D_ KL( _Q_ ( _z|a, q, G_ ) _∥Pθ_ ( _z|q_ )) _,_
+= E _z∼Q_ ( _z|a,q,G_ )[log _Q_ ( _z|a, q, G_ ) _−_ log _Pθ_ ( _z|q_ )] _,_ (11)
+
+= _−_ E _z∼Q_ ( _z|a,q,G_ ) log _Pθ_ ( _z|q_ ) + CONST _,_
+
+
+where the expectations cannot be computed exactly because of the large number of valid relation
+paths _Z_, so we approximate it by using the shortest paths _z ∈Z_ _[∗]_ _⊂Z_ between _eq_ and _ea_ in KGs
+(Zhang et al., 2022). This can be formulated as
+
+
+_L_ plan = _−_        - _Q_ ( _z|a, q, G_ ) log _Pθ_ ( _z|q_ ) + CONST _._ (12)
+
+_z∈Z_ _[∗]_
+
+
+Based on equation 3, by assuming a uniform distribution over the set of shortest paths _Z_ _[∗]_, we can
+rewrite the equation 12 as
+
+
+
+_L_ plan = _−_ [1]
+
+_|Z_ _[∗]_ _|_
+
+
+
+
+- log _Pθ_ ( _z|q_ ) + CONST _,_ (13)
+
+_z∈Z_ _[∗]_
+
+
+
+where the CONST is omitted in the final optimization since it makes no contributions to the loss.
+
+
+A.2 DETAILED RELATED WORK
+
+
+A.2.1 LLM REASONING PROMPT
+
+
+Many studies have been proposed to harness the reasoning ability of LLMs to handle complex tasks
+through prompting (Wei et al., 2022; Wang et al., 2022; Yao et al., 2023; Besta et al., 2023; Pan et al.,
+2023; Zheng et al., 2023d; Jin et al., 2024a;b). Chain-of-Thought (Wei et al., 2022) enables LLMs
+to generate a reasoning chain that could be helpful to reasoning. Tree of thoughts (Yao et al., 2023)
+expands the reasoning chain to a tree structure to explore more reasoning paths. Graph of thoughts
+(Besta et al., 2023) further models the reasoning chain as a graph with an aggregation operation to
+synergize the reasoning paths. Plan-and-solve (Wang et al., 2023c) prompts LLMs to generate a plan
+and execute based on it. DecomP (He et al., 2021) prompts LLMs to decompose the reasoning task
+into a series of sub-tasks and solve them step by step. However, the problem of hallucinations and
+lack of knowledge affect the faithfulness of the reasoning. ReACT (Yao et al., 2022) treats LLMs
+as agents, which interact with the environment to get the latest knowledge for reasoning. To explore
+faithful reasoning, Entailer (Tafjord et al., 2022) introduces a verifier to validate the reasoning steps
+generated by LLMs. Creswell & Shanahan (2022) present a framework including two LLMs that are
+used for selecting and generating reasoning steps, respectively. FAME (Hong et al., 2023) introduces
+the Monte-Carlo planning to generate faithful reasoning steps. RR (He et al., 2022) and KD-CoT
+Wang et al. (2023b) aim to retrieve relevant knowledge from KGs to produce faithful reasoning
+plans for LLMs. Think-on-Graph (Sun et al., 2024) and KG-Agent (Jiang et al., 2024) treat LLMs
+as agents to interact with KGs via prompting to get the latest knowledge for reasoning.
+
+
+15
+
+
+Published as a conference paper at ICLR 2024
+
+
+A.2.2 KNOWLEDGE GRAPH QUESTION ANSWERING
+
+
+Knowledge graphs contain abundant factual knowledge in a structured format, which has attracted
+great attention from researchers (Zheng et al., 2022a; 2023a; Pan et al., 2023; Liang et al., 2023).
+Knowledge graph reasoning aims to derive new insights based on the existing graph structure and
+facts (Liang et al., 2022; Wang et al., 2023a; Luo et al., 2023b; Zhao et al., 2023). Graph neural
+networks that effectively capture the structure information have also been widely used in KG reasoning Zheng et al. (2022b; 2023e;b;c); Liu et al. (2023b;a). As a typical reasoning task, knowledge
+graph question answering (KGQA) aims to obtain answers based on knowledge from KGs, which
+can be generally divided into three categories: 1) embedding-based methods, 2) retrieval-augmented
+methods, and 3) semantic parsing methods.
+
+
+**Embedding-based methods** model the entities and relations in embedding space and design special
+model architectures to reason answers. KV-Mem (Miller et al., 2016) adopts a Key-Value memory
+network to store triples for reasoning. EmbedKGQA (Saxena et al., 2020) and NSM (He et al.,
+2021) utilize the sequential model to mimic the multi-hop reasoning process. QA-GNN (Yasunaga
+et al., 2021) and Greaselm (Zhang et al., 2021) further adopt the graph neural network to capture the
+graph structure for reasoning. However, these methods need to design different model architectures,
+which are not flexible and generalizable.
+
+
+**Retrieval-augmented methods** aims to retrieve the relative facts from the KGs to improve the
+reasoning performance. Early works adopt the page rank or random walk algorithm to retrieve
+subgraphs from KGs for reasoning (Sun et al., 2018; 2019). However, they ignore the semantic
+information in questions and lead to noisy retrieval results. Zhang et al. (2022) proposes a relation
+paths-based subgraph retrieval, resulting a better retrieval and QA performance. Other lines of
+studies retrieving triples from KGs via BM25 (Li et al., 2023) or DPR (Karpukhin et al., 2020; Yu
+et al., 2022b) to improve the performance of LLMs. They discard the structure information in KGs
+which leads to suboptimal results. Recently, UniKGQA (Jiang et al., 2022) unifies the graph retrieval
+and reasoning process into a single model with LLMs, which achieves state-of-the-art performance
+on KGQA tasks.
+
+
+**Semantic parsing methods** parse the question into a structural query (e.g., SPARQL) which can be
+executed by a query engine to get answers (Sun et al., 2020; Lan & Jiang, 2020). ArcaneQA (Gu &
+Su, 2022) dynamically generates the query based on results from previous steps. RnG-KBQA (Ye
+et al., 2022) first enumerate all possible queries and then rank them to get the final output. These
+methods heavily rely on the quality of generated queries. If the query is not executable, no answers
+will be generated. DECAF (Yu et al., 2022a) combines semantic parsing and LLMs reasoning to
+jointly generate answers, which also reach salient performance on KGQA tasks.
+
+
+A.3 RETRIEVAL ALGORITHM
+
+
+Given a question _q_ and a relation path as plan _z_, we adopt a constrained breadth-first search to
+retrieve the reasoning paths. The pseudocode code is presented in Algorithm 1.
+
+
+We first initialize a queue of current reasoning paths _Q_ with the entities in the question _Tq_ (line 3-5).
+Then, we iteratively expand each reasoning path in _Q_ by adding the triples that are connected to
+the entities in the queue following the relation in relation path (line 11-19). The reasoning path is
+expanded until the length is equal to the length of the relation path. The expanded reasoning path is
+added to the set _Wz_ as the final results (line 8-10).
+
+
+A.4 DATASETS
+
+
+We adopt two benchmark KGQA datasets: WebQuestionSP (WebQSP) [4] (Yih et al., 2016) and Complex WebQuestions (CWQ) [5] (Talmor & Berant, 2018) in this work. We follow previous works (Sun
+et al., 2018; Jiang et al., 2022) to use the same train and test splits for fair comparison. The statistic
+of the datasets are given in Table 6. The statistics of the answer numbers and reasoning hops are
+presented in Table 7 and Table 8, respectively.
+
+
+[4https://www.microsoft.com/en-us/download/details.aspx?id=52763](https://www.microsoft.com/en-us/download/details.aspx?id=52763)
+[5https://www.tau-nlp.sites.tau.ac.il/compwebq](https://www.tau-nlp.sites.tau.ac.il/compwebq)
+
+
+16
+
+
+Published as a conference paper at ICLR 2024
+
+
+**Algorithm 1:** Retrieve reasoning paths based on relation paths
+**Input:** Question _q_, relation path _z_ = _{r_ 1 _, r_ 2 _, . . ., rl}_, KG _G_ .
+**Output:** Reasoning paths _Wz_ .
+
+**1** _Wz ←∅_ ;
+
+**2** _Q ←_ Queue();
+
+**3 foreach** _eq ∈Tq_ **do**
+
+**4** _Q._ append(( _eq,_ [])); // Initialize queue with question entities.
+
+**5 end**
+
+**6 while** _Q ̸_ = _∅_ **do**
+
+**7** ( _s, wz_ ) _←Q._ pop();
+
+**8** **if** _len_ ( _wz_ ) = _len_ ( _z_ ) **then**
+
+**9** _Wz._ append( _wz_ );
+
+**10** **end**
+
+**11** **if** _len_ ( _wz_ ) _< len_ ( _z_ ) **then**
+
+
+
+**12** _r ←_ _z_ [len( _wz_ ) + 1]; // Get relation for next step.
+
+
+
+**13** **foreach** ( _s, r_ _[′]_ _, t_ ) _∈G_ **do**
+
+
+
+**14** **if** _r_ _[′]_ = _r_ **then**
+
+
+
+**15** _wz_ _[′]_ _[.]_ [append][((] _[s, r, t]_ [))][;][ // Expand the reasoning path.]
+
+**16** _Q._ append(( _t, wz_ _[′]_ [))][;]
+
+**17** **end**
+
+**18** **end**
+
+**19** **end**
+
+**20 end**
+
+**21 return** _Wz._ ;
+
+
+Table 6: Statistics of datasets.
+
+
+Datasets #Train #Test Max #hop
+
+
+WebQSP 2,826 1,628 2
+CWQ 27,639 3,531 4
+
+
+Table 7: Statistics of the number of answers for questions in WebQSP and CWQ.
+
+
+Dataset #Ans = 1 2 _≥_ #Ans _≤_ 4 5 _≥_ #Ans _≤_ 9 #Ans _≥_ 10
+
+
+WebQSP 51.2% 27.4% 8.3% 12.1%
+CWQ 70.6% 19.4% 6% 4%
+
+
+Table 8: Statistics of the question hops in WebQSP and CWQ.
+
+
+Dataset 1 hop 2 hop _≥_ 3 hop
+
+
+WebQSP 65.49 % 34.51% 0.00%
+CWQ 40.91 % 38.34% 20.75%
+
+
+Table 9: Statistics of MetaQA-3hop datasets.
+
+
+Datasets #Train #Test #hop
+
+
+MetaQA-3hop 1,000 1,4274 3
+
+
+17
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 10: Statistics of constructed knowledge graphs.
+
+
+KG #Entities #Relations #Triples
+
+
+Freebase 2,566,291 7,058 8,309,195
+Wiki-Movie 43,234 9 133,582
+
+
+Table 11: The statistics of the instances in the instruction-tuning datasets.
+
+
+Planing Data Retrieval-reasoning Data Interpretability Data
+
+
+216,006 30,465 2,000
+
+
+To evaluate the transferability of RoG to other KGs. We further select the MetaQA-3hop dataset
+(Zhang et al., 2018) which is based on Wiki-Movies KGs [6] . We select 1000 samples from the training
+split. The statistic of the dataset is presented in Table 9.
+
+
+Both WebQSP and CWQ can be reasoned based on Freebase KGs [7] (Bollacker et al., 2008). To
+reduce the size of KGs, following previous works (He et al., 2021; Jiang et al., 2022), we construct
+a subgraph of Freebase by extracting all triples that contain within the max reasoning hops of question entities in WebQSP and CWQ. Similarly, we construct a subgraph of Wiki-Movies KGs for
+MetaQA-3hop. The statistics of constructed KGs are presented in Table 10.
+
+
+We construct the instruction-tuning dataset using the training split of WebQSP and CWQ datasets.
+For planning optimization, we generate data by extracting the shortest paths that connect the questions and answers, which serve as supervisory signals. In the retrieval-reasoning optimization phase,
+we feed both extracted shortest paths together with the questions to predict the answers. To enhance
+interpretability, we randomly select 1000 samples from each dataset along with their reasoning paths
+and answers. These are then input into ChatGPT to produce interpretive responses, which help empower our method in generating results with good explainability. The statistics of final training
+datasets are shown in Table 11.
+
+
+A.5 BASELINES
+
+
+We compare RoG with 21 baselines grouping into 5 categories: 1) _Embedding-based methods_, 2)
+_Retrieval-augmented methods_, 3) _Semantic parsing methods_, 4) _LLMs_, and 5) _LLMs+KGs methods_ .
+The details of each baseline are described as follows.
+
+
+**Embedding-based methods.**
+
+
+   - KV-Mem (Miller et al., 2016) adopts a Key-Value memory network to store triples and
+perform multi-hop reasoning by iterative operating on the memory.
+
+   - EmbedKGQA (Saxena et al., 2020) models the reasoning on KGs as a sequential link prediction problem by using the embedding of entities and questions.
+
+   - NSM (He et al., 2021) utilizes the sequential model to mimic the multi-hop reasoning
+process.
+
+    - TransferNet (Shi et al., 2021) adopts a graph neural network to capture the relevance between entities and questions for reasoning.
+
+   - KGT5 (Saxena et al., 2022) finetunes a sequence-to-sequence framework on KGs and generates answers based on the input question.
+
+
+**Retrieval-augmented methods.**
+
+
+    - GraftNet (Sun et al., 2018) retrieves relevant subgraphs from KGs with entity linking.
+
+    - PullNet (Sun et al., 2019) trains a retrieval model composed of a LSTM and a graph neural
+network to retrieve a question-specific subgraph.
+
+
+[6https://research.fb.com/downloads/babi](https://research.fb.com/downloads/babi)
+[7https://github.com/microsoft/FastRDFStore](https://github.com/microsoft/FastRDFStore)
+
+
+18
+
+
+Published as a conference paper at ICLR 2024
+
+
+    - SR+NSM (Zhang et al., 2022) proposes a relation-path retrieval to retrieve subgraphs for
+multi-hop reasoning.
+
+    - SR+NSM+E2E (Zhang et al., 2022) further adopts an end-to-end training strategy to jointly
+train the retrieval and reasoning modules of SR+NSM.
+
+
+**Semantic parsing methods.**
+
+
+    - SPARQL (Sun et al., 2020) presents a novel skeleton grammar to represent the high-level
+structure of a complex question with language modes.
+
+    - QGG (Lan & Jiang, 2020) generates a query graph for a question by simultaneously adding
+constraints and extending relation paths.
+
+   - ArcaneQA (Gu & Su, 2022) dynamically generates the query based on results from previous steps.
+
+    - RnG-KBQA (Ye et al., 2022) first enumerates all possible queries and then ranks them to
+get the final output.
+
+
+**Large language models (LLMs).**
+
+
+    - Flan-T5 (Chung et al., 2022) is an enhanced version of T5 models that is instruction finetuned on mixture of tasks.
+
+    - Alpaca (Taori et al., 2023) is based on LLaMA and finetuned on an instruction-following
+dataset.
+
+    - LLaMA2-Chat (Touvron et al., 2023) is a large language model that is optimized for dialogue purposes.
+
+   - ChatGPT [8] is a powerful closed-source LLM that could follow instructions to conduct complex tasks [9] .
+
+   - ChatGPT+CoT (Wei et al., 2022) uses the Chain-of-thought prompt to improve the reason
+ability of ChatGPT.
+
+
+**LLMs+KGs methods.**
+
+
+   - KD-CoT Wang et al. (2023b) retrieves relevant knowledge from KGs to generate faithful
+reasoning plans for LLMs.
+
+    - UniKGQA (Jiang et al., 2022) unifies the graph retrieval and reasoning process into a single
+model with LLMs, which achieves state-of-the-art performance on KGQA tasks.
+
+   - DECAF (Yu et al., 2022a) combines semantic parsing and LLMs reasoning to jointly generate answers, which also reach salient performance on KGQA tasks.
+
+
+A.6 IMPLEMENTATION SETTINGS
+
+
+For RoG, we use LLaMA2-Chat-7B (Touvron et al., 2023) as the LLM backbone, which is instruction finetuned on the training split of WebQSP and CWQ as well as Freebase for 3 epochs. The
+batch size is set to 4 and the learning rate is set to 2e-5. We use the cosine learning rate scheduler
+policy with the warmup ratio set to 0.03. The training is conducted on 2 A100-80G GPUs for 38
+hours. During inference, we first adopt the LLM to generate top- _K_ relation paths with the highest
+probability as the plans. Then, we adopt the Algorithm 1 to retrieve reasoning paths, which are fed
+into the LLM to reason the final answers.
+
+
+For LLM beelines, we use zero-shot prompting to conduct KGQA, which directly asks LLMs to
+answer the question. For other baselines, we directly copy their results reported in UniKGQA (Jiang
+et al., 2022) and DECAF (Yu et al., 2022a) for comparisons.
+
+
+For combining the planning module of RoG with different LLMs, we use the planning module to
+generate plans (relation paths), which are executed on KGs to retrieve the reasoning paths. The
+retrieved paths are fed into different LLMs during inference by utilizing the reasoning prompts
+template shown in Appendix A.10.
+
+
+[8https://openai.com/blog/chatgpt](https://openai.com/blog/chatgpt)
+9Experiments are conducted with the ChatGPT model released between July. to Sept., 2023.
+
+
+19
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 12: Performance of RoG on MetaQA-3hop.
+
+
+MetaQA-3hop
+
+
+
+Strategies
+
+
+
+Hits@1 F1
+
+
+
+RoG (train from scratch) 84.81 41.32
+RoG (transfer from Freebase) **88.98** **50.68**
+
+
+Table 13: Training time comparison.
+
+
+Method Training on Freebase Transferring to Wiki-Movies
+
+
+RoG 38 hours 2 hours
+
+
+A.7 ADDITIONAL EXPERIMENT RESULTS
+
+
+A.7.1 TRANSFERABILITY TO OTHER KGS
+
+
+We evaluate the transferability of RoG to other KGs. We select the MetaQA-3hop dataset (Zhang
+et al., 2018) which is based on Wiki-Movies KGs. We select 1000 samples from the training split
+and utilize two training strategies to finetune RoG: 1) _training from scratch_, where we directly train
+RoG from LLaMA2-Chat with 1000 samples; 2) _transfer from Freebase_, where we conduct a further
+finetuning based on RoG trained for Freebase. The results are shown in Table 12. From results, we
+can see that transfer from Freebase achieves better performance than training from scratch, which
+demonstrates the transferability of RoG to other KGs.
+
+
+We also compare the training time on Freebase and transferring to Wiki-Movies KGs. From results
+shown in Table 13, we can see that the training time on Freebase is 38 hours, while the transferring
+time is only 2 hours. This demonstrates the efficiency of transferring RoG to other KGs.
+
+
+A.7.2 PERFORMANCE WITH DIFFERENT TRAINING DATA
+
+
+In our experiment, we finetune RoG jointly on the training set of both WebQSP and CWQ datasets to
+maximize the ability of RoG for reasoning on Freebase. To fairly compare with other methods (e.g.,
+UniKGQA (Jiang et al., 2022)) that are only trained on single dataset, we provide additional results
+of the performance of RoG trained on single dataset. From the results shown in Tables 14 and 15,
+we can see that RoG trained on single dataset still outperforms the STOA baselines (UniKGQA).
+Besides, we can also find that jointly training RoG on multiple datasets can further improve the
+performance. In the future, we will try to generate more QA datasets from Freebase to further
+improved the reasoning ability of RoG.
+
+
+A.7.3 PERFORMANCE COMPARISON WITH DIFFERENT FINETUNED LLMS
+
+
+In Table 1, we report the zero-shot performance of different LLMs. However, RoG is finetuned on
+the training split of the QA dataset. To make a fair comparison, we further report the performance
+of the LLMs finetuned on the training split of the QA dataset in Table 16. From the results, we can
+see that RoG still outperforms the finetuned LLMs.
+
+
+Table 14: Performance on WebQSP with different training data.
+
+
+Method Training Data Hits@1 F1
+
+
+UniKGQA WebQSP 77.2 72,2
+RoG WebQSP 81.5 61.8
+RoG WebQSP+CWQ 85.7 70.8
+
+
+20
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 15: Performance on CWQ with different training data.
+
+
+Method Training Data Hits@1 F1
+
+
+UniKGQA CWQ 51.2 49.1
+RoG CWQ 59.1 52.9
+RoG WebQSP+CWQ 62.6 56.2
+
+
+Table 16: Performance comparison with different finetuned LLMs (Hits@1).
+
+
+Method WebQSP CWQ
+
+
+Alpaca-7B (Zero Shot) 51.78 27.44
+LLaMA2-Chat-7B (Zero Shot) 64.37 34.60
+Alpaca-7B (Finetuned) 74.57 55.98
+LLaMA2-Chat-7B (Finetuned) 73.89 53.49
+
+
+RoG **85.75** **62.65**
+
+
+A.7.4 RETRIEVAL COSTS
+
+
+We present the retrieval time and number of retrieved reasoning paths in Figure 4. From results,
+we can see that the retrieval time increases with the number of top- _K_ relation paths. Therefore, we
+should select a proper _K_ to balance the retrieval time and the number of retrieved reasoning paths.
+In experiments, we set _K_ = 3.
+
+
+A.7.5 PERFORMANCE ON DIFFERENT HOPS
+
+
+We present the performance of RoG and its variants on different hops of questions in Table 17.
+From results, we can see that RoG achieves better performance than its variants on different hops of
+questions, especially questions with more than 3 hops. This demonstrates the importance of relation
+paths for improving the reasoning performance of LLMs on complex questions.
+
+
+A.7.6 PERFORMANCE ON DIFFERENT ANSWER NUMBERS
+
+
+We also present the performance of RoG and its variants on questions with different numbers of
+answers in Table 18. From results, we can see that RoG achieves better performance than its variants
+on questions with different numbers of answers. Specifically, with the number of answer increasing,
+the performance of RoG w/o planning decreases significantly due to the lack of knowledge from
+
+
+
+
+
+CWQ 1e−3
+
+
+1 2 3 4 5
+Top-K relation paths
+
+
+
+40
+
+
+30
+
+
+20
+
+
+10
+
+
+0
+
+
+
+WebQSP 1e−3
+
+
+1 2 3 4 5
+Top-K relation paths
+
+
+
+1.5
+
+
+1.0
+
+
+0.5
+
+
+
+125
+
+
+100
+
+
+75
+
+
+50
+
+
+25
+
+
+0
+
+
+
+2.5
+
+
+2.0
+
+
+1.5
+
+
+1.0
+
+
+
+Figure 4: Average retrieval time and average number of retrieved reasoning paths w.r.t. the number
+of top- _K_ relation paths.
+
+
+21
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 17: F1 scores of RoG and its variants for different hops of questions.
+
+|WebQSP CWQ<br>Methods<br>1 hop 2 hop ≥3 hop 1 hop 2 hop ≥3 hop|Col2|CWQ|
+|---|---|---|
+|Methods<br>WebQSP<br>CWQ<br>1 hop<br>2 hop<br>_≥_3 hop<br>1 hop<br>2 hop<br>_≥_3 hop|Methods<br>WebQSP<br>CWQ<br>1 hop<br>2 hop<br>_≥_3 hop<br>1 hop<br>2 hop<br>_≥_3 hop|1 hop<br>2 hop<br>_≥_3 hop|
+|RoG<br>RoG w/o reasoning<br>RoG w/o planning|77.03<br>64.86<br>-<br>57.06<br>25.49<br>-<br>50.33<br>51.66<br>-|62.88<br>58.46<br>37.82<br>17.06<br>34.25<br>17.07<br>31.04<br>33.93<br>23.29|
+
+
+
+Table 18: F1 scores of RoG and its variants for questions with varying numbers of answers.
+
+|WebQSP CWQ<br>Methods<br>#Ans = 1 2 ≥#Ans ≤4 5 ≥#Ans ≤9 #Ans ≥10 #Ans = 1 2 ≥#Ans ≤4 5 ≥#Ans ≤9 #Ans ≥10|Col2|CWQ|
+|---|---|---|
+|Methods<br>WebQSP<br>CWQ<br>#Ans = 1<br>2_ ≥_#Ans_ ≤_4<br>5_ ≥_#Ans_ ≤_9<br>#Ans_ ≥_10<br>#Ans = 1<br>2_ ≥_#Ans_ ≤_4<br>5_ ≥_#Ans_ ≤_9<br>#Ans_ ≥_10|Methods<br>WebQSP<br>CWQ<br>#Ans = 1<br>2_ ≥_#Ans_ ≤_4<br>5_ ≥_#Ans_ ≤_9<br>#Ans_ ≥_10<br>#Ans = 1<br>2_ ≥_#Ans_ ≤_4<br>5_ ≥_#Ans_ ≤_9<br>#Ans_ ≥_10|#Ans = 1<br>2_ ≥_#Ans_ ≤_4<br>5_ ≥_#Ans_ ≤_9<br>#Ans_ ≥_10|
+|RoG<br>RoG w/o reasoning<br>RoG w/o planning|67.89<br>79.39<br>75.04<br>58.33<br>33.49<br>52.80<br>58.05<br>66.01<br>55.03<br>51.08<br>44.81<br>27.00|56.90<br>53.73<br>58.36<br>43.62<br>16.61<br>27.06<br>40.10<br>34.45<br>34.08<br>34.16<br>31.67<br>25.21|
+
+
+
+KGs. Although, RoG w/o reasoning can retrieve more answers to improve the performance. It still
+is inferior to RoG due to the lack of reasoning ability to remove the noise.
+
+
+A.8 CASE STUDIES: RELATION PATHS
+
+
+We illustrate several examples of relation paths generated by RoG in Table 19.
+
+
+A.9 CASE STUDIES: INTERPRETABLE RESULTS
+
+
+We illustrate several examples of interpretable reasoning results generated by RoG in Table 20.
+
+
+A.10 PROMPTS
+
+
+Planning module aims to generate faithful relation paths as plans for answering the question. The
+instruction template is presented as follows:
+
+
+where <Question> indicates the question.
+
+
+The reasoning module takes the question _q_ and a set of reasoning paths _Wz_ to generate answers _a_ .
+The instruction template is presented as follows:
+
+
+
+
+
+where <Reasoning Paths> denotes the retrieved reasoning paths _Wz_ which are formatted as a
+series of structural sentences:
+_e_ 0 _→_ _r_ 1 _→_ _e_ 1 _→· · · →_ _rl →_ _el_
+_. . ._
+_e_ 0 _→_ _r_ 1 _→_ _e_ 1 _→· · · →_ _rl →_ _el_ .
+
+
+22
+
+
+Published as a conference paper at ICLR 2024
+
+
+To exploit the explanation ability of RoG, we design a new instruction template for the reasoning
+module to generate interpretable results. The instruction template is presented as follows:
+
+
+
+
+
+where the Examples denotes a few-shot human-annotated examples to demonstrate the explanation process.
+
+
+Table 19: Examples of the generated relation paths.
+
+
+
+
+
+|Question|Top-3 Relation Paths|
+|---|---|
+|what does jamaican people speak?|_z_1 : location.country.languages spoken<br>_z_2 : language.human~~ l~~anguage.countries~~ s~~poken~~ i~~n<br>_z_3 : location.country.offcial language|
+|where is jamarcus russell from?|_z_1 : location.location.people~~ b~~orn~~ h~~ere<br>_z_2 : people.person.place~~ o~~f birth<br>_z_3 : sports.sports league draft pick.player_ →_sports.sports~~ l~~eague draft pick.location|
+|where did edgar allan poe died?|_z_1 : people.deceased~~ p~~erson.place~~ o~~f~~ d~~eath<br>_z_2 : people.cause~~ o~~f~~ d~~eath.people<br>_z_3 : people.person.place~~ o~~f birth|
+|what highschool did harper lee go to?|_z_1 : people.person.education_ →_education.educational~~ i~~nstitution.students graduates<br>_z_2 : education.education.student_ →_education.educational~~ i~~nstitution.students graduates<br>_z_3 : people.person.education_ →_education.education.institutio|
+|what are the songs that justin bieber wrote?|_z_1 : music.recording.artist<br>_z_2 : music.composition.composer<br>_z_3 : music.composer.compositions|
+|what are the religions practiced in indonesia?|_z_1 : people.person.nationality_ →_people.person.religion<br>_z_2 : location.statistical~~ r~~egion.religions_ →_location.religion percentage.religion<br>_z_3 : location.country.languages spoken_ →_religion.religion.languages|
+|Lou Seal is the mascot for the team that last<br>won the World Series when?|_z_1 : sports.mascot.team_ →_sports.sports~~ c~~hampionship~~ e~~vent.champion<br>_z_2 : sports.mascot.team_ →_sports.sports~~ t~~eam.championships<br>_z_3 : sports.sports championship~~ e~~vent.championship|
+|What type of government is used in the coun-<br>try with Northern District?|_z_1 : location.administrative division.frst~~ l~~evel~~ d~~ivision~~ o~~f_ →_government.form~~ o~~f~~ g~~overnment.countries<br>_z_2 : location.administrative division.frst~~ l~~evel~~ d~~ivision~~ o~~f_ →_location.country.form~~ o~~f~~ g~~overnment<br>_z_3 : administrative~~ d~~ivision.frst~~ l~~evel~~ d~~ivision~~ o~~f_ →_government.form of~~ g~~overnment.countries|
+|The people from the country that contains<br>Nord-Ouest Department speak what lan-<br>guages today?|_z_1 : location.administrative division.frst~~ l~~evel~~ d~~ivision~~ o~~f_ →_language.human~~ l~~anguage.countries~~ s~~poken in<br>_z_2 : location.administrative division.frst~~ l~~evel~~ d~~ivision~~ o~~f_ →_location.country.languages~~ s~~poken<br>_z_3 : base.aareas.schema.administrative area.administrative parent_ →_location.country.languages~~ s~~poken|
+|What stadium does the team with mascot<br>named Hank play at?|_z_1 : sports.mascot.team_ →_sports.sports~~ f~~acility.teams<br>_z_2 : sports.sports team.team mascot_ →_sports.sports~~ f~~acility.teams<br>_z_3 : sports.mascot.team_ →_sports.sports~~ t~~eam.arena~~ s~~tadium|
+|Which popular sports team in Spain, that won<br>the 2014 Eurocup Finals championship?|_z_1 : sports.sports team.championships_ →_sports.sports team location.teams<br>_z_2 : sports.sports team.location_ →_sports.sports team~~ l~~ocation.teams<br>_z_2 : sports.sports team.location_ →_sports.sports team~~ l~~ocation.teams<br>_z_3 : sports.sports team~~ l~~ocation.teams|
+|What educational institution with the mascot<br>named Washington University Bear did Ten-<br>nessee Williams go to?|_z_1 : education.educational~~ i~~nstitution.mascot<br>_z_2 : people.person.nationality_ →_location.location.containedby<br>_z_3 : education.education.student_ →_education.education.institution|
+|Who is the current head coach of the NFL<br>squad owned by the Rooney family?|_z_1 : sports.professional~~ s~~ports~~ t~~eam.owner~~ s~~_ →_american~~ f~~ootball.football coach.current~~ t~~eam~~ h~~ead~~ c~~oached<br>_z_2 : sports.professional~~ s~~ports~~ t~~eam.owner~~ s~~_ →_american~~ f~~ootball.football team.current~~ h~~ead~~ c~~oach<br>_z_3 : american~~ f~~ootball.football~~ c~~oach.current~~ t~~eam~~ h~~ead~~ c~~oached|
+|What is the home feld of the sports team<br>whose mascot is named Fredbird?|_z_1 : sports.mascot.team_ →_sports.sports~~ f~~acility.teams<br>_z_2 : sports.sports team.team mascot_ →_sports.sports~~ f~~acility.teams<br>_z_3 : sports.mascot.team_ →_sports.sports~~ t~~eam.arena~~ s~~tadium|
+
+
+23
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 20: Examples of faithful and interpretable reasoning of RoG.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+|Question|Lou Seal is the mascot for the team that last won the World Series when?|
+|---|---|
+|Answer|2014|
+|Reasoning Paths|Lou<br>Seal<br>_→_<br>sports.mascot.team<br>_→_<br>San<br>Francisco<br>Giants<br>_→_<br>sports.sports~~ c~~hampionship event.champion_ →_2014 World Series|
+|RoG<br>Based on the provided reasoning paths, we can determine when the team for which Lou<br>Seal is the mascot last won the World Series:<br>1. Lou Seal is associated with the San Francisco Giants.<br>2. The San Francisco Giants are associated with winning the 2014 World Series.<br>Therefore, the San Francisco Giants, the team for which Lou Seal is the mascot, last won<br>the World Series in 2014.|RoG<br>Based on the provided reasoning paths, we can determine when the team for which Lou<br>Seal is the mascot last won the World Series:<br>1. Lou Seal is associated with the San Francisco Giants.<br>2. The San Francisco Giants are associated with winning the 2014 World Series.<br>Therefore, the San Francisco Giants, the team for which Lou Seal is the mascot, last won<br>the World Series in 2014.|
+|Question<br>what is my timezone in louisiana?|Question<br>what is my timezone in louisiana?|
+|Answer|Central Time Zone|
+|Reasoning Paths|Louisiana_ →_location.location.partially~~ c~~ontainedby_ →_Tangipahoa River_ →_geogra-<br>phy.river.origin_ →_Osyka_ →_location.location.time~~ z~~ones_ →_Central Time Zone<br>Louisiana<br>_→_<br>location.location.containedby<br>_→_<br>Alexandria<br>_→_<br>loca-<br>tion.location.containedby_ →_United States of America_ →_location.location.time~~ z~~ones_ →_<br>Central Time Zone|
+|RoG<br>Based on the reasoning paths provided, it can be determined that Louisiana is in the Central<br>Time Zone.<br>Here’s the explanation:<br>1. The frst reasoning path tells us that Louisiana is partially contained by the Tangipahoa<br>River, which is a geographical feature. However, it doesn’t directly mention the time zone.<br>2. The second reasoning path establishes that Louisiana is contained by Alexandria, which<br>is in turn contained by the United States of America. The United States of America is in<br>the Central Time Zone.<br>Therefore, based on these reasoning paths, the time zone in Louisiana is the Central Time<br>Zone.|RoG<br>Based on the reasoning paths provided, it can be determined that Louisiana is in the Central<br>Time Zone.<br>Here’s the explanation:<br>1. The frst reasoning path tells us that Louisiana is partially contained by the Tangipahoa<br>River, which is a geographical feature. However, it doesn’t directly mention the time zone.<br>2. The second reasoning path establishes that Louisiana is contained by Alexandria, which<br>is in turn contained by the United States of America. The United States of America is in<br>the Central Time Zone.<br>Therefore, based on these reasoning paths, the time zone in Louisiana is the Central Time<br>Zone.|
+|Question<br>Which child of Walt Disney died from lung cancer?|Question<br>Which child of Walt Disney died from lung cancer?|
+|Answer|Sharon Mae Disney|
+|Reasoning Paths|Lung cancer_ →_people.deceased~~ p~~erson.cause of death_ →_Sharon Mae Disney<br>Lung cancer_ →_people.deceased~~ p~~erson.cause of death_ →_Walt Disney<br>Walt Disney_ →_people.deceased~~ p~~erson.cause~~ o~~f~~ d~~eath_ →_Lung cancer<br>Walt Disney_ →_people.person.children_ →_Diane Disney Miller<br>Walt Disney_ →_people.cause~~ o~~f death.people_ →_Circulatory collapse<br>Walt Disney_ →_people.person.parents_ →_Flora Call Disney<br>Walt Disney_ →_people.person.parents_ →_Elias Disney<br>Walt Disney_ →_people.person.parents_ →_Sharon Mae Disney|
+|RoG|Based on the reasoning paths provided, it appears that Sharon Mae Disney is the child of<br>Walt Disney who died from lung cancer.<br>The reasoning path ”Walt Disney_ →_people.deceased~~ p~~erson.cause~~ o~~f~~ d~~eath_ →_Lung can-<br>cer” directly connects Walt Disney to lung cancer as a cause of death, and since Sharon<br>Mae Disney is also linked to lung cancer as a cause of death through the path ”Lung can-<br>cer_ →_people.deceased~~ p~~erson.cause~~ o~~f~~ d~~eath_ →_Sharon Mae Disney,” it can be concluded<br>that Sharon Mae Disney is the child of Walt Disney who died from lung cancer.|
+
+
+24
+
+

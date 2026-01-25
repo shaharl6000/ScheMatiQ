@@ -54,7 +54,7 @@ const DEFAULT_CONFIG: LLMConfig = {
   provider: 'gemini',
   model: 'gemini-2.5-flash-lite',
   max_output_tokens: 1024,
-  temperature: 0.3,
+  temperature: 0,
 };
 
 /**
@@ -109,7 +109,7 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
           provider: defaultProvider,
           model: getDefaultModelForProvider(defaultProvider),
           max_output_tokens: 1024,
-          temperature: 0.3,
+          temperature: 0,
         });
         setUsePreservedConfig(false);
       }
@@ -127,7 +127,7 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
       provider,
       model: defaultModel,
       max_output_tokens: 1024,
-      temperature: 0.3,
+      temperature: 0,
     });
     setUsePreservedConfig(false);
   };

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import json
 
 from sentence_transformers import SentenceTransformer, util
@@ -21,6 +21,65 @@ def _embed(text: str):
 # -------------------------------------------------------------------- #
 # Data classes                                                         #
 # -------------------------------------------------------------------- #
+@dataclass
+class ObservationUnit:
+    """
+    Defines what constitutes a single row (observation unit) in the extracted table.
+
+    For example, if analyzing benchmark papers:
+    - name: "Model-Benchmark Evaluation"
+    - definition: "A single evaluation of one model on one benchmark dataset"
+    - example_names: ["GPT-4 on MMLU", "Claude on HumanEval", "LLaMA on GSM8K"]
+
+    This allows a single document to produce multiple rows when it contains
+    multiple observation units (e.g., a paper comparing 5 models on 3 benchmarks
+    could produce 15 rows).
+    """
+    name: str                                    # e.g., "Model-Benchmark Evaluation"
+    definition: str                              # What constitutes one row
+    example_names: Optional[List[str]] = None    # ["GPT-4 on MMLU", "Claude on HumanEval"]
+    source_document: Optional[str] = None        # Document that helped define this unit
+    discovery_iteration: Optional[int] = None    # Iteration when this unit was discovered
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize to dictionary for JSON storage."""
+        result = {
+            "name": self.name,
+            "definition": self.definition,
+        }
+        if self.example_names:
+            result["example_names"] = self.example_names
+        if self.source_document is not None:
+            result["source_document"] = self.source_document
+        if self.discovery_iteration is not None:
+            result["discovery_iteration"] = self.discovery_iteration
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ObservationUnit":
+        """Deserialize from dictionary."""
+        return cls(
+            name=data.get("name", "Document"),
+            definition=data.get("definition", "Each document is treated as one observation unit"),
+            example_names=data.get("example_names"),
+            source_document=data.get("source_document"),
+            discovery_iteration=data.get("discovery_iteration"),
+        )
+
+    @classmethod
+    def default(cls) -> "ObservationUnit":
+        """Return the default observation unit (one row per document)."""
+        return cls(
+            name="Document",
+            definition="Each document is treated as one observation unit",
+            example_names=None,
+        )
+
+    def is_default(self) -> bool:
+        """Check if this is the default document-level observation unit."""
+        return self.name == "Document" and "one observation unit" in self.definition.lower()
+
+
 @dataclass
 class Column:
     name: str
@@ -105,13 +164,15 @@ class Schema:
 
     Parameters
     ----------
-    query       – the user’s natural-language question (used for relevance).
+    query       – the user's natural-language question (used for relevance).
     columns     – initial columns, if any.
     max_keys    – keep at most this many after every merge (None = unlimited).
+    observation_unit – what constitutes a single row (default: one row per document).
     """
     query: str
     columns: List[Column] = field(default_factory=list)
     max_keys: Optional[int] = MAX_KEYS_DEFAULT
+    observation_unit: Optional[ObservationUnit] = None  # Defines what each row represents
 
     # Internal (not part of JSON serialisation)
     _q_emb: list = field(init=False, repr=False)
@@ -163,7 +224,9 @@ class Schema:
                 combined[cand.name] = cand
                 combined_emb[cand.name] = _embed(cand.name)
 
-        merged = Schema(columns=list(combined.values()), query=self.query, max_keys=self.max_keys)
+        # Preserve observation_unit from self (the base schema) or take from other if self doesn't have one
+        obs_unit = self.observation_unit or other.observation_unit
+        merged = Schema(columns=list(combined.values()), query=self.query, max_keys=self.max_keys, observation_unit=obs_unit)
         merged._prune()        # enforce key budget, if any
         return merged
 
@@ -173,14 +236,18 @@ class Schema:
     def _prune(self, query: str | None = None) -> None:
         """
         Trim to `max_keys` columns, keeping those most semantically
-        relevant to *query*.  If `query` is None, fall back to previous
-        “longest rationale” logic.
+        relevant to *query*.  If `query` is None, use self.query.
+        Only fall back to "longest rationale" heuristic if no query is available.
         """
         if self.max_keys is None or len(self.columns) <= self.max_keys:
             return
 
+        # Use provided query, or fall back to self.query
         if query is None:
-            # Fallback heuristic
+            query = self.query
+
+        if not query:
+            # Only use fallback heuristic if there's truly no query available
             self.columns.sort(key=lambda c: len(c.rationale), reverse=True)
             self.columns = self.columns[: self.max_keys]
             return
@@ -220,6 +287,44 @@ class Schema:
                 col_dict["auto_expand_threshold"] = col.auto_expand_threshold
             result.append(col_dict)
         return result
+
+    def to_full_dict(self) -> Dict[str, Any]:
+        """Serialize schema including observation_unit for storage/export."""
+        result = {
+            "query": self.query,
+            "columns": [col.to_dict() for col in self.columns],
+            "max_keys": self.max_keys,
+        }
+        if self.observation_unit:
+            result["observation_unit"] = self.observation_unit.to_dict()
+        return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Schema":
+        """Deserialize schema from dictionary."""
+        columns = [
+            Column(
+                name=col.get("column") or col.get("name"),
+                definition=col.get("definition", ""),
+                rationale=col.get("explanation", "") or col.get("rationale", ""),
+                source_document=col.get("source_document"),
+                discovery_iteration=col.get("discovery_iteration"),
+                allowed_values=col.get("allowed_values"),
+                auto_expand_threshold=col.get("auto_expand_threshold"),
+            )
+            for col in data.get("schema", data.get("columns", []))
+        ]
+
+        observation_unit = None
+        if "observation_unit" in data:
+            observation_unit = ObservationUnit.from_dict(data["observation_unit"])
+
+        return cls(
+            query=data.get("query", ""),
+            columns=columns,
+            max_keys=data.get("max_keys"),
+            observation_unit=observation_unit,
+        )
 
     # Convenience dunders
     def __len__(self):              return len(self.columns)

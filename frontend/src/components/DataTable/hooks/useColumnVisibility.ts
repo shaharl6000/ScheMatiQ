@@ -24,6 +24,9 @@ interface UseColumnVisibilityReturn {
 
 const STORAGE_KEY_PREFIX = 'dataTable_visibility_';
 
+// Columns that should be hidden by default
+const DEFAULT_HIDDEN_COLUMNS = ['_papers'];
+
 export function useColumnVisibility({
   sessionId,
   columns,
@@ -31,36 +34,46 @@ export function useColumnVisibility({
 }: UseColumnVisibilityOptions): UseColumnVisibilityReturn {
   const storageKey = persistKey || `${STORAGE_KEY_PREFIX}${sessionId}`;
 
-  // Initialize from localStorage or default all to visible
+  // Initialize from localStorage or default visibility
   const [visibility, setVisibilityInternal] = useState<ColumnVisibilityState>(() => {
     try {
       const stored = localStorage.getItem(storageKey);
       if (stored) {
         const parsed = JSON.parse(stored);
-        // Merge stored visibility with current columns (new columns default to visible)
+        // Merge stored visibility with current columns (new columns use default visibility)
         const merged: ColumnVisibilityState = {};
         columns.forEach(col => {
-          merged[col] = parsed[col] !== undefined ? parsed[col] : true;
+          if (parsed[col] !== undefined) {
+            merged[col] = parsed[col];
+          } else {
+            // New column - use default visibility (hidden if in DEFAULT_HIDDEN_COLUMNS)
+            merged[col] = !DEFAULT_HIDDEN_COLUMNS.includes(col);
+          }
         });
         return merged;
       }
     } catch {
       // Ignore localStorage errors
     }
-    // Default all columns to visible
+    // Default visibility: all visible except DEFAULT_HIDDEN_COLUMNS
     const initial: ColumnVisibilityState = {};
     columns.forEach(col => {
-      initial[col] = true;
+      initial[col] = !DEFAULT_HIDDEN_COLUMNS.includes(col);
     });
     return initial;
   });
 
-  // Update visibility when columns change (new columns default to visible)
+  // Update visibility when columns change (new columns use default visibility)
   useEffect(() => {
     setVisibilityInternal(prev => {
       const updated: ColumnVisibilityState = {};
       columns.forEach(col => {
-        updated[col] = prev[col] !== undefined ? prev[col] : true;
+        if (prev[col] !== undefined) {
+          updated[col] = prev[col];
+        } else {
+          // New column - use default visibility (hidden if in DEFAULT_HIDDEN_COLUMNS)
+          updated[col] = !DEFAULT_HIDDEN_COLUMNS.includes(col);
+        }
       });
       return updated;
     });

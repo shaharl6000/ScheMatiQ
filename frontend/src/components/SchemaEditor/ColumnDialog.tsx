@@ -166,7 +166,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
             model: 'gemini-2.5-flash-lite',
             api_key: apiKey,
             max_output_tokens: 2048,
-            temperature: 0.1
+            temperature: 0
           };
         }
 

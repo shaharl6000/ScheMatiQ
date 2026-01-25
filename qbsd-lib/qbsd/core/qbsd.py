@@ -27,8 +27,12 @@ import logging, re
 import time
 import random
 from pathlib import Path
-from qbsd.core.schema import Schema, Column, SchemaEvolution
-from qbsd.core.prompts import get_prompts, SchemaMode, DRAFT_SCHEMA_TMPL
+from qbsd.core.schema import Schema, Column, SchemaEvolution, ObservationUnit
+from qbsd.core.prompts import (
+    get_prompts, SchemaMode, DRAFT_SCHEMA_TMPL,
+    SYSTEM_PROMPT_OBSERVATION_UNIT, USER_PROMPT_TMPL_OBSERVATION_UNIT,
+    OBSERVATION_UNIT_CONTEXT_TMPL
+)
 
 
 ##############################################################################
@@ -149,9 +153,101 @@ def _parse_schema_from_llm(raw_text: str,
     return Schema(query=query, max_keys=max_keys_schema, columns=columns), document_helpful, suggested_value_additions
 
 
+def _parse_observation_unit_from_llm(raw_text: str) -> ObservationUnit:
+    """
+    Parse observation unit from LLM response.
+
+    Returns:
+        ObservationUnit with name, definition, and example_names
+    """
+    cleaned = _extract_json(raw_text)
+
+    try:
+        payload = json.loads(cleaned)
+
+        if isinstance(payload, dict) and "observation_unit" in payload:
+            unit_data = payload["observation_unit"]
+            return ObservationUnit(
+                name=unit_data.get("name", "Document"),
+                definition=unit_data.get("definition", "Each document is treated as one observation unit"),
+                example_names=unit_data.get("example_names", []),
+            )
+        else:
+            logging.warning("Unexpected observation unit response format, using default")
+            return ObservationUnit.default()
+
+    except (json.JSONDecodeError, TypeError, KeyError) as e:
+        logging.warning(f"Failed to parse observation unit response: {e}")
+        return ObservationUnit.default()
+
+
+def _discover_observation_unit(
+    query: str,
+    passages: List[str],
+    llm,
+    context_window_size: int = 8192,
+    source_document: str = None,
+) -> ObservationUnit:
+    """
+    Discover the appropriate observation unit for the schema based on query and sample passages.
+
+    The observation unit defines what each row represents:
+    - Document-level: Each document = one row (default)
+    - Sub-document-level: Each document may contain multiple units (e.g., "Model on Benchmark")
+
+    Args:
+        query: User query describing what information to extract
+        passages: Sample document passages to analyze
+        llm: LLM interface for generation
+        context_window_size: Maximum context window size
+        source_document: Document name that provided the passages
+
+    Returns:
+        ObservationUnit with name, definition, and example_names
+    """
+    if not query or not query.strip():
+        logging.info("No query provided, using default document-level observation unit")
+        return ObservationUnit.default()
+
+    if not passages:
+        logging.info("No passages provided, using default document-level observation unit")
+        return ObservationUnit.default()
+
+    # Build messages for observation unit discovery
+    user_content = USER_PROMPT_TMPL_OBSERVATION_UNIT.format(
+        query=query.strip(),
+        joined_passages="\n\n".join(p.strip() for p in passages[:5])  # Use first 5 passages as sample
+    )
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT_OBSERVATION_UNIT},
+        {"role": "user", "content": user_content},
+    ]
+
+    # Trim to fit context window
+    trimmed = utils.fit_prompt(messages, truncate=True, context_window_size=context_window_size)
+
+    try:
+        llm_response = llm.generate(trimmed)
+        observation_unit = _parse_observation_unit_from_llm(llm_response)
+
+        # Add source tracking
+        if source_document:
+            observation_unit.source_document = source_document
+        observation_unit.discovery_iteration = 1
+
+        logging.info(f"Discovered observation unit: {observation_unit.name} - {observation_unit.definition}")
+        return observation_unit
+
+    except Exception as e:
+        logging.warning(f"Failed to discover observation unit: {e}, using default")
+        return ObservationUnit.default()
+
+
 def build_messages(query: str | None,
                    passages: list[str],
-                   draft_schema=None) -> tuple[list[dict], SchemaMode]:
+                   draft_schema=None,
+                   observation_unit: ObservationUnit = None) -> tuple[list[dict], SchemaMode]:
     """
     Build LLM messages for schema discovery with automatic mode detection.
 
@@ -189,6 +285,20 @@ def build_messages(query: str | None,
 
     user_parts = [user_content]
 
+    # Add observation unit context if provided (helps LLM understand row granularity)
+    if observation_unit and not observation_unit.is_default():
+        example_names_section = ""
+        if observation_unit.example_names:
+            example_names_section = f"Example instances: {', '.join(observation_unit.example_names)}"
+
+        obs_unit_context = OBSERVATION_UNIT_CONTEXT_TMPL.format(
+            unit_name=observation_unit.name,
+            unit_definition=observation_unit.definition,
+            example_names_section=example_names_section,
+            unit_name_lower=observation_unit.name.lower()
+        )
+        user_parts.append(obs_unit_context)
+
     if draft_schema:
         serialisable = draft_schema.to_llm_dict()
         user_parts.append(
@@ -214,6 +324,7 @@ def generate_schema(
     current_schema: Schema | None,
     llm,
     context_window_size: int = 8192,
+    observation_unit: ObservationUnit = None,
 ) -> tuple[Schema, bool, List[Dict[str, Any]], SchemaMode]:
     """
     Feed passages + (optional) current schema to the LLM, ask for additions.
@@ -225,12 +336,13 @@ def generate_schema(
         current_schema: Existing schema to refine
         llm: LLM interface for generation
         context_window_size: Maximum context window size
+        observation_unit: What each row represents (helps LLM understand granularity)
 
     Returns:
         Tuple of (Schema, document_helpful_flag, suggested_value_additions, mode)
         Note: document_helpful is always True for QUERY_ONLY mode (no documents to assess)
     """
-    messages, mode = build_messages(query, passages, current_schema)
+    messages, mode = build_messages(query, passages, current_schema, observation_unit)
     trimmed = utils.fit_prompt(messages, truncate=True, context_window_size=context_window_size)
     llm_response = llm.generate(trimmed)
 
@@ -281,7 +393,9 @@ def discover_schema(
     documents_batch_size,
     context_window_size,
     initial_schema: Schema | None = None,
-    max_iters: int = 6
+    max_iters: int = 6,
+    initial_observation_unit: ObservationUnit | None = None,
+    discover_observation_unit: bool = True,
 ) -> tuple[Schema, List[str], List[str], SchemaEvolution]:
     """
     Main orchestration loop with document contribution tracking.
@@ -302,6 +416,8 @@ def discover_schema(
         context_window_size: LLM context window size
         initial_schema: Starting schema (optional)
         max_iters: Maximum iterations
+        initial_observation_unit: Pre-defined observation unit (optional)
+        discover_observation_unit: Whether to discover observation unit in first iteration (default True)
 
     Returns:
         (Schema, contributing_files, non_contributing_files, schema_evolution)
@@ -317,6 +433,13 @@ def discover_schema(
 
     logging.info("Starting schema discovery…")
     schema = initial_schema or Schema(query=query or "", max_keys=max_keys_schema)
+
+    # Initialize observation unit (will be discovered in first iteration if not provided)
+    observation_unit = initial_observation_unit or (schema.observation_unit if initial_schema else None)
+    if observation_unit:
+        schema.observation_unit = observation_unit
+        logging.info("Using pre-defined observation unit: %s", observation_unit.name)
+
     logging.info("Starting with schema containing %d columns", len(schema))
 
     # Track document contributions
@@ -348,9 +471,15 @@ def discover_schema(
     # Handle QUERY_ONLY mode: no documents, just generate schema from query
     if not has_documents:
         logging.info("QUERY_ONLY mode: Generating schema from query without documents")
+        # In query-only mode, use default document-level observation unit
+        if not observation_unit:
+            observation_unit = ObservationUnit.default()
+            schema.observation_unit = observation_unit
+
         proposed, _, _, mode = generate_schema(
             passages=[], query=query, max_keys_schema=max_keys_schema,
-            current_schema=schema, llm=llm, context_window_size=context_window_size
+            current_schema=schema, llm=llm, context_window_size=context_window_size,
+            observation_unit=observation_unit
         )
 
         # Merge proposed schema
@@ -406,7 +535,24 @@ def discover_schema(
             )
             continue
 
-        proposed, document_helpful, suggested_value_additions, _ = generate_schema(passages, query, max_keys_schema, schema, llm, context_window_size)
+        # Discover observation unit in first iteration if not already set
+        if it == 1 and not observation_unit and discover_observation_unit and has_query:
+            logging.info("Discovering observation unit from first batch...")
+            source_doc = batch_filenames[0] if batch_filenames else None
+            observation_unit = _discover_observation_unit(
+                query=query,
+                passages=passages,
+                llm=llm,
+                context_window_size=context_window_size,
+                source_document=source_doc
+            )
+            schema.observation_unit = observation_unit
+            logging.info("Set observation unit: %s - %s", observation_unit.name, observation_unit.definition)
+
+        proposed, document_helpful, suggested_value_additions, _ = generate_schema(
+            passages, query, max_keys_schema, schema, llm, context_window_size,
+            observation_unit=observation_unit
+        )
 
         # Apply suggested value additions to existing schema columns
         if suggested_value_additions:
@@ -544,6 +690,10 @@ def save_schema(
         "retriever": retriever_cfg,
         "schema": [col.to_dict() for col in schema],
     }
+
+    # Add observation_unit if present
+    if schema.observation_unit:
+        artefact["observation_unit"] = schema.observation_unit.to_dict()
 
     # Add randomization metadata if seed was used
     if randomization_seed is not None:

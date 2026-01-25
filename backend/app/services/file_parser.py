@@ -412,7 +412,7 @@ class FileParser:
                         break
 
                 row_data = DataRow(data=merged_data, papers=papers_value)
-                f.write(json.dumps(row_data.model_dump()) + '\n')
+                f.write(json.dumps(row_data.model_dump(by_alias=True)) + '\n')
         
         # Include extracted metadata in the result
         result = {"columns": columns, "statistics": statistics}
@@ -591,18 +591,20 @@ class FileParser:
         with open(data_file, 'w') as f:
             for row_data in data_rows:
                 if '_row_name' in row_data:
-                    # QBSD format
+                    # QBSD format - preserve _unit_name from extraction (set by observation unit logic)
                     data_row = DataRow(
                         row_name=row_data.get('_row_name'),
                         papers=row_data.get('_papers', []),
-                        data={k: v for k, v in row_data.items() if not k.startswith('_')}
+                        data={k: v for k, v in row_data.items() if not k.startswith('_')},
+                        unit_name=row_data.get('_unit_name')  # Preserve actual unit_name from extraction
                     )
                 elif 'data' in row_data and isinstance(row_data.get('data'), dict):
-                    # Already in DataRow format
+                    # Already in DataRow format - preserve unit_name if present
                     data_row = DataRow(
                         row_name=row_data.get('row_name'),
                         papers=row_data.get('papers', []),
-                        data=row_data['data']
+                        data=row_data['data'],
+                        unit_name=row_data.get('unit_name') or row_data.get('_unit_name')
                     )
                 else:
                     # Regular format - extract papers field if present
@@ -623,7 +625,7 @@ class FileParser:
                             break
                     data_row = DataRow(data=clean_data, papers=papers_value)
 
-                f.write(json.dumps(data_row.model_dump()) + '\n')
+                f.write(json.dumps(data_row.model_dump(by_alias=True)) + '\n')
 
         result = {"columns": columns, "statistics": statistics}
         if documents_batch_size is not None:
@@ -1597,7 +1599,7 @@ class FileParser:
                 "provider": "gemini",
                 "model": "gemini-2.5-flash",
                 "max_output_tokens": 1024,
-                "temperature": 0.3
+                "temperature": 0
             },
             "retriever": {
                 "type": "embedding",

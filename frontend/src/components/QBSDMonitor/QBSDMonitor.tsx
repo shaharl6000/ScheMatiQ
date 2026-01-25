@@ -73,6 +73,9 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
     dataRowsSaved: number;
   } | null>(null);
 
+  // Stop button loading state - shows immediate feedback when user clicks stop
+  const [isStopping, setIsStopping] = useState(false);
+
   // Fetch QBSD status
   const { data: status, isLoading } = useQuery(
     ['qbsd-status', sessionId],
@@ -111,7 +114,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
 
   // WebSocket connection for real-time updates
   useEffect(() => {
-    const handleMessage = (message: WebSocketMessage) => {
+    const handleMessage = async (message: WebSocketMessage) => {
       if (message.type === 'connected') {
         setConnectionStatus('connected');
         addLog('success', 'Connected to real-time monitoring');
@@ -193,7 +196,14 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       } else if (message.type === 'stopped') {
         const stoppedData = message.data as StoppedData;
         addLog('warning', `Processing stopped. Schema saved: ${stoppedData?.schema_saved}, Data rows: ${stoppedData?.data_rows_saved}`);
+
+        // Refetch session data FIRST to ensure columns are loaded before UI updates
+        await queryClient.refetchQueries(['session', sessionId, 'qbsd']);
+        await queryClient.refetchQueries(['qbsd-status', sessionId]);
+
+        // THEN update processing state (after data is available)
         setProcessingState('stopped');
+        setIsStopping(false);  // Reset stop button state
         setStoppedInfo({
           schemaSaved: stoppedData?.schema_saved || false,
           dataRowsSaved: stoppedData?.data_rows_saved || 0
@@ -202,8 +212,6 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
         if (stoppedData?.schema_saved) {
           setSchemaProgress(prev => ({ ...prev, isComplete: true }));
         }
-        queryClient.invalidateQueries(['qbsd-status', sessionId]);
-        queryClient.invalidateQueries(['session', sessionId, 'qbsd']);
       }
     };
 
@@ -265,6 +273,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   };
 
   const handleStop = async () => {
+    setIsStopping(true);  // Show immediate feedback
     try {
       await qbsdAPI.stop(sessionId);
       // Don't set to idle - wait for WebSocket 'stopped' message
@@ -272,7 +281,9 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       addLog('warning', 'Stop requested - waiting for graceful shutdown...');
     } catch (error: any) {
       addLog('error', `Failed to stop QBSD: ${error.message}`);
+      setIsStopping(false);  // Reset on error
     }
+    // Note: isStopping stays true until 'stopped' WebSocket arrives
   };
 
   const getLogIcon = (level: LogEntry['level']) => {
@@ -336,9 +347,18 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
               <p className="text-muted-foreground mb-4 text-center max-w-md">
                 {currentStepMessage || 'Processing your documents...'}
               </p>
-              <Button variant="outline" onClick={handleStop}>
-                <Square className="h-4 w-4 mr-2" />
-                Stop
+              <Button variant="outline" onClick={handleStop} disabled={isStopping}>
+                {isStopping ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Stopping...
+                  </>
+                ) : (
+                  <>
+                    <Square className="h-4 w-4 mr-2" />
+                    Stop
+                  </>
+                )}
               </Button>
             </>
           )}

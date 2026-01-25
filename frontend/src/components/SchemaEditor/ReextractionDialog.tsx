@@ -257,7 +257,7 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
           model: llmModel,
           api_key: apiKey,
           max_output_tokens: 2048,
-          temperature: 0.1
+          temperature: 0
         };
       }
 

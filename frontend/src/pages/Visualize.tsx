@@ -290,7 +290,7 @@ const Visualize = () => {
   };
 
   // Fetch session data
-  const { data: session, isLoading: sessionLoading, error: sessionError } = useQuery(
+  const { data: session, isLoading: sessionLoading, error: sessionError, isRefetching: isSessionRefetching } = useQuery(
     ['session', sessionId, mode],
     async () => {
       if (mode === 'load') {
@@ -317,6 +317,8 @@ const Visualize = () => {
           schema_query: schema.query,
           columns: schema.schema || [],
           statistics: fullSession?.statistics,
+          // Get observation_unit from schema (JSON file) or fallback to session
+          observation_unit: schema.observation_unit || fullSession?.observation_unit,
         } as VisualizationSession;
       }
     },
@@ -894,7 +896,7 @@ const Visualize = () => {
             <Table2 className="h-4 w-4" />
             Data
           </TabsTrigger>
-          <TabsTrigger value="schema" disabled={!isSchemaReady || !session?.columns?.length} className="gap-2">
+          <TabsTrigger value="schema" disabled={!isSchemaReady || (!session?.columns?.length && !isSessionRefetching)} className="gap-2">
             <Database className="h-4 w-4" />
             Schema
           </TabsTrigger>
@@ -1104,6 +1106,7 @@ const Visualize = () => {
               }}
               onReextractionStarted={handleReextractionStarted}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}
+              observationUnit={session.observation_unit}
             />
           ) : (
             <Alert variant="info">

@@ -1,13 +1,16 @@
 """Paper processing for value extraction."""
 
+import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator
-from qbsd.core.schema import Schema, Column
+from qbsd.core.schema import Schema, Column, ObservationUnit
 from qbsd.core.llm_backends import LLMInterface
 from qbsd.core import utils
 
 from .llm_cache import LLMCache
 from .json_parser import JSONResponseParser
+from .unit_parser import UnitIdentificationParser, create_retry_prompt_addition
 from ..utils.text_processing import TextProcessor
 from ..utils.prompt_builder import PromptBuilder
 from ..config.constants import (
@@ -15,6 +18,15 @@ from ..config.constants import (
     SAFETY_MARGIN_ALL_MODE,
     SAFETY_MARGIN_SINGLE_MODE
 )
+from ..config.prompts import (
+    SYSTEM_PROMPT_UNIT_IDENTIFICATION,
+    USER_PROMPT_TMPL_UNIT_IDENTIFICATION,
+    SYSTEM_PROMPT_VAL_WITH_UNIT
+)
+
+
+# Type alias for warning callback: (paper_title, warning_type, message) -> None
+OnWarningCallback = Callable[[str, str, str], None]
 
 
 def _chunk_list(lst: List, size: int) -> Iterator[List]:
@@ -43,15 +55,18 @@ class PaperProcessor:
 
     def __init__(self, llm: LLMInterface, cache: LLMCache = None, retriever=None,
                  on_value_extracted: Optional[OnValueExtractedCallback] = None,
-                 should_stop: Optional[ShouldStopCallback] = None):
+                 should_stop: Optional[ShouldStopCallback] = None,
+                 on_warning: Optional[OnWarningCallback] = None):
         self.llm = llm
         self.cache = cache or LLMCache()
         self.retriever = retriever
         self.json_parser = JSONResponseParser()
+        self.unit_parser = UnitIdentificationParser()
         self.text_processor = TextProcessor()
         self.prompt_builder = PromptBuilder()
         self.on_value_extracted = on_value_extracted
         self.should_stop = should_stop
+        self.on_warning = on_warning
         # Schema evolution tracking: {column_name: {value: [list of documents]}}
         self.suggested_values: Dict[str, Dict[str, list]] = {}
         # Cache for fallback retriever (created on-demand, reused across papers)
@@ -617,3 +632,349 @@ class PaperProcessor:
         except Exception as e:
             print(f"⚠️  Error processing {paper_title}: {e}")
             return row_name, paper_title, None
+
+    # ================================================================
+    # Observation Unit Methods
+    # ================================================================
+
+    def _emit_warning(self, paper_title: str, warning_type: str, message: str):
+        """Emit a warning via the on_warning callback if set."""
+        print(f"⚠️  [{paper_title}] {warning_type}: {message}")
+        if self.on_warning:
+            try:
+                self.on_warning(paper_title, warning_type, message)
+            except Exception as e:
+                print(f"⚠️  Warning callback error: {e}")
+
+    def _attempt_unit_identification(
+        self,
+        paper_title: str,
+        paper_text: str,
+        observation_unit: ObservationUnit,
+        schema: Schema,
+        is_retry: bool = False,
+        previous_error: Optional[str] = None,
+        previous_format: Optional[str] = None
+    ):
+        """Single attempt at unit identification.
+
+        Args:
+            paper_title: Title/name of the paper
+            paper_text: Full text of the paper
+            observation_unit: Definition of what constitutes a single observation unit
+            schema: Schema containing query and columns
+            is_retry: Whether this is a retry attempt
+            previous_error: Error message from previous attempt (for retry prompt)
+            previous_format: Detected format from previous attempt (for retry prompt)
+
+        Returns:
+            UnitParseResult from the parser
+        """
+        # Build the prompt for unit identification
+        example_names_str = ", ".join(observation_unit.example_names or []) or "None provided"
+
+        # Format the system prompt with unit definition
+        system_prompt = SYSTEM_PROMPT_UNIT_IDENTIFICATION.format(
+            unit_name=observation_unit.name,
+            unit_definition=observation_unit.definition,
+            example_names=example_names_str
+        )
+
+        user_content = USER_PROMPT_TMPL_UNIT_IDENTIFICATION.format(
+            unit_name=observation_unit.name,
+            unit_definition=observation_unit.definition,
+            example_names=example_names_str,
+            document_text=paper_text
+        )
+
+        # Add retry instructions if this is a retry
+        if is_retry and previous_error:
+            retry_addition = create_retry_prompt_addition(previous_error, previous_format or "unknown")
+            user_content = retry_addition + user_content
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ]
+
+        # Fit to context window
+        max_ctx = getattr(self.llm, 'context_window_size', 8192)
+        trimmed = utils.fit_prompt(messages, truncate=True, max_new=1024,
+                                   context_window_size=max_ctx)
+
+        raw_response = self.llm.generate(trimmed)
+
+        # Check for stop request
+        if self._check_stop_requested():
+            from .unit_parser import UnitParseResult
+            return UnitParseResult(success=False, error="Stop requested")
+
+        # Parse using dedicated unit parser
+        result = self.unit_parser.parse_response(raw_response)
+
+        return result
+
+    def identify_observation_units(
+        self,
+        paper_title: str,
+        paper_text: str,
+        observation_unit: ObservationUnit,
+        schema: Schema,
+        max_retries: int = 2
+    ) -> List[Dict[str, Any]]:
+        """
+        Identify all observation units within a document with retry logic.
+
+        Args:
+            paper_title: Title/name of the paper
+            paper_text: Full text of the paper
+            observation_unit: Definition of what constitutes a single observation unit
+            schema: Schema containing query and columns
+            max_retries: Maximum retry attempts on format errors (default: 2)
+
+        Returns:
+            List of dicts, each containing:
+            - unit_name: Descriptive name for this instance (e.g., "GPT-4 on MMLU")
+            - relevant_passages: List of passages specific to this unit
+            - confidence: "high", "medium", or "low"
+        """
+        # Document-level fallback
+        document_level_fallback = {
+            "unit_name": paper_title,
+            "relevant_passages": [paper_text],
+            "confidence": "low"
+        }
+
+        # If using default document-level unit, return single unit with full text
+        if observation_unit.is_default():
+            return [{
+                "unit_name": paper_title,
+                "relevant_passages": [paper_text],
+                "confidence": "high"
+            }]
+
+        last_error = None
+        last_format = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                is_retry = attempt > 0
+                if is_retry:
+                    logging.info(f"Retry {attempt}/{max_retries} for unit identification in {paper_title}")
+                    print(f"🔄 Retry {attempt}/{max_retries} for unit identification in {paper_title} (previous error: {last_error})")
+
+                result = self._attempt_unit_identification(
+                    paper_title, paper_text, observation_unit, schema,
+                    is_retry=is_retry,
+                    previous_error=last_error,
+                    previous_format=last_format
+                )
+
+                if result.success:
+                    # Log any warnings from successful parse
+                    for warning in result.warnings:
+                        logging.info(f"Unit identification warning for {paper_title}: {warning}")
+
+                    if not result.units:
+                        # Empty is valid - no units found in document
+                        logging.info(f"No observation units found in {paper_title}, using document-level")
+                        return [document_level_fallback]
+
+                    # Ensure relevant_passages aren't empty - use full text as fallback
+                    for unit in result.units:
+                        if not unit.get("relevant_passages"):
+                            unit["relevant_passages"] = [paper_text]
+
+                    logging.info(f"Found {len(result.units)} observation units in {paper_title}")
+                    return result.units
+
+                # Parse failed - record error for retry
+                last_error = result.error
+                last_format = result.detected_format
+
+                if result.detected_format == "value_extraction":
+                    logging.warning(f"LLM confused unit ID with value extraction for {paper_title}")
+                else:
+                    logging.warning(f"Unit parse failed for {paper_title}: {result.error}")
+
+            except Exception as e:
+                last_error = str(e)
+                last_format = "exception"
+                logging.warning(f"Exception in unit identification attempt {attempt + 1} for {paper_title}: {e}")
+
+        # Exhausted retries - fallback with visible warning
+        self._emit_warning(
+            paper_title,
+            "unit_identification_fallback",
+            f"Failed to parse observation units after {max_retries + 1} attempts. "
+            f"Last error: {last_error}. Falling back to document-level extraction."
+        )
+
+        return [document_level_fallback]
+
+    def extract_values_for_unit(
+        self,
+        unit_name: str,
+        relevant_passages: List[str],
+        schema: Schema,
+        max_new_tokens: int,
+        paper_title: str,
+    ) -> Dict[str, Any]:
+        """
+        Extract values for a single observation unit using its relevant passages.
+
+        Args:
+            unit_name: Name of the observation unit (e.g., "GPT-4 on MMLU")
+            relevant_passages: Passages specific to this unit
+            schema: Schema with columns to extract
+            max_new_tokens: Max tokens for LLM response
+            paper_title: Source document title
+
+        Returns:
+            Dict of column values for this unit
+        """
+        # Combine relevant passages
+        eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(relevant_passages)
+
+        # Build prompt with unit context
+        system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=unit_name)
+
+        msgs = self.prompt_builder.build_val_messages(
+            schema.query, f"{paper_title} - {unit_name}", eff,
+            [c.to_dict() for c in schema.columns],
+            mode="all", strict=False
+        )
+
+        # Replace the system prompt with unit-aware version
+        msgs[0]["content"] = system_prompt
+
+        # Fit to context and generate
+        should_truncate = not self._should_skip_truncation()
+        max_ctx = getattr(self.llm, 'context_window_size', 8192)
+        trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens,
+                                   safety_margins=SAFETY_MARGIN_ALL_MODE,
+                                   context_window_size=max_ctx)
+
+        raw = self.llm.generate(trimmed)
+
+        if self._check_stop_requested():
+            return {}
+
+        try:
+            parsed = self.json_parser.parse_response(raw)
+            requested = [c.name for c in schema.columns]
+            column_allowed_values = {
+                c.name: c.allowed_values
+                for c in schema.columns
+                if c.allowed_values
+            }
+            cleaned, unmatched = self.json_parser.postprocess(parsed, requested, column_allowed_values)
+
+            # Track unmatched values
+            self._track_unmatched_values(unmatched, paper_title)
+
+            # Attach source to excerpts
+            cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
+
+            return cleaned
+
+        except Exception as e:
+            logging.warning(f"Error extracting values for unit {unit_name}: {e}")
+            return {}
+
+    def extract_values_for_paper_with_units(
+        self,
+        paper_title: str,
+        paper_text: str,
+        schema: Schema,
+        max_new_tokens: int,
+        mode: str = "all",
+        retrieval_k: int = 8,
+        on_unit_extracted: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract values from a paper, potentially producing multiple rows
+        if the observation unit is sub-document-level.
+
+        Args:
+            paper_title: Title of the paper
+            paper_text: Full paper text
+            schema: Schema with observation_unit and columns
+            max_new_tokens: Max tokens for extraction
+            mode: Extraction mode ("all" or "one_by_one")
+            retrieval_k: Number of passages to retrieve
+            on_unit_extracted: Callback called when each unit is extracted
+
+        Returns:
+            List of row dicts, each containing:
+            - _unit_name: Descriptive name of the observation unit
+            - _source_document: Original document filename
+            - _observation_unit: The unit type name
+            - <column values>
+        """
+        observation_unit = schema.observation_unit
+
+        # If no observation unit or using default, use existing single-row logic
+        if not observation_unit or observation_unit.is_default():
+            row_data = self.extract_values_for_paper(
+                paper_title, paper_text, schema, max_new_tokens, mode, retrieval_k
+            )
+            if row_data:
+                row_data["_unit_name"] = paper_title
+                row_data["_source_document"] = paper_title
+                row_data["_observation_unit"] = "Document"
+                return [row_data]
+            return []
+
+        # Identify observation units in the document
+        print(f"🔍 Identifying observation units ({observation_unit.name}) in {paper_title}...")
+        units = self.identify_observation_units(paper_title, paper_text, observation_unit, schema)
+
+        if not units:
+            print(f"  ⚠️ No units found, skipping document")
+            return []
+
+        print(f"  📊 Found {len(units)} observation units: {[u['unit_name'] for u in units]}")
+
+        # Extract values for each unit
+        results = []
+        for i, unit in enumerate(units, 1):
+            if self._check_stop_requested():
+                print(f"🛑 Stop requested during unit extraction")
+                break
+
+            unit_name = unit.get("unit_name", f"Unit {i}")
+            relevant_passages = unit.get("relevant_passages", [paper_text])
+            confidence = unit.get("confidence", "medium")
+
+            print(f"  → Extracting values for unit {i}/{len(units)}: {unit_name} (confidence: {confidence})")
+
+            # Extract values for this specific unit
+            unit_values = self.extract_values_for_unit(
+                unit_name=unit_name,
+                relevant_passages=relevant_passages,
+                schema=schema,
+                max_new_tokens=max_new_tokens,
+                paper_title=paper_title,
+            )
+
+            if unit_values:
+                # Add metadata fields
+                unit_values["_unit_name"] = unit_name
+                unit_values["_source_document"] = paper_title
+                unit_values["_parent_document"] = paper_title
+                unit_values["_observation_unit"] = observation_unit.name
+                unit_values["_unit_confidence"] = confidence
+
+                results.append(unit_values)
+
+                # Callback for streaming
+                if on_unit_extracted:
+                    on_unit_extracted(unit_name, unit_values)
+
+                print(f"    ✓ Extracted {len([k for k in unit_values if not k.startswith('_')])} columns for {unit_name}")
+            else:
+                print(f"    ✗ No values extracted for {unit_name}")
+
+        print(f"  ✅ Completed {paper_title}: {len(results)} rows from {len(units)} units")
+        return results

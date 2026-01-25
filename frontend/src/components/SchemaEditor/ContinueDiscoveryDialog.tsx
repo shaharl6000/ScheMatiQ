@@ -308,7 +308,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           model: llmModel,
           api_key: apiKey,
           max_output_tokens: 8192,
-          temperature: 0.2,
+          temperature: 0,
           context_window_size: 1000000
         },
         retriever_config: hasRetrieverConfig ? {
@@ -396,7 +396,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           model: extractionModel,
           api_key: extractionApiKey || apiKey, // Fallback to discovery API key if not configured
           max_output_tokens: 2048,
-          temperature: 0.1
+          temperature: 0
         }
       });
 

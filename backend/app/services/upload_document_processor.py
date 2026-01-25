@@ -495,7 +495,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             converted_row = {
                                 "data": clean_data,
                                 "row_name": None if row_name_column_in_data else row_name,
-                                "papers": papers_for_datarow
+                                "papers": papers_for_datarow,
+                                "_unit_name": row_data.get("_unit_name")
                             }
                             original_f.write(json.dumps(converted_row) + '\n')
                         else:
@@ -521,6 +522,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                 row_copy["papers"] = []
                             else:
                                 row_copy["papers"] = papers
+
+                            # Preserve _unit_name (check both field name formats)
+                            if "_unit_name" not in row_copy and "unit_name" in row_copy:
+                                row_copy["_unit_name"] = row_copy.get("unit_name")
 
                             original_f.write(json.dumps(row_copy) + '\n')
                         new_rows_added += 1

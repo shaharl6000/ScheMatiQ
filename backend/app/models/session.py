@@ -25,6 +25,35 @@ class SessionStatus(str, Enum):
     DOCUMENTS_UPLOADED = "documents_uploaded"  # Documents uploaded for processing
     PROCESSING_DOCUMENTS = "processing_documents"  # Processing documents with QBSD pipeline
 
+class ObservationUnitInfo(BaseModel):
+    """
+    Defines what constitutes a single row (observation unit) in the extracted table.
+
+    For example, if analyzing benchmark papers:
+    - name: "Model-Benchmark Evaluation"
+    - definition: "A single evaluation of one model on one benchmark dataset"
+    - example_names: ["GPT-4 on MMLU", "Claude on HumanEval", "LLaMA on GSM8K"]
+    """
+    name: str                                    # e.g., "Model-Benchmark Evaluation"
+    definition: str                              # What constitutes one row
+    example_names: Optional[List[str]] = None    # ["GPT-4 on MMLU", "Claude on HumanEval"]
+    source_document: Optional[str] = None        # Document that helped define this unit
+    discovery_iteration: Optional[int] = None    # Iteration when this unit was discovered
+
+    @classmethod
+    def default(cls) -> "ObservationUnitInfo":
+        """Return the default observation unit (one row per document)."""
+        return cls(
+            name="Document",
+            definition="Each document is treated as one observation unit",
+            example_names=None,
+        )
+
+    def is_default(self) -> bool:
+        """Check if this is the default document-level observation unit."""
+        return self.name == "Document" and "one observation unit" in self.definition.lower()
+
+
 class PendingValue(BaseModel):
     """A suggested value pending approval for addition to allowed_values."""
     value: str
@@ -128,12 +157,24 @@ class VisualizationSession(BaseModel):
     # Creation and modification tracking
     creation_metadata: Optional[CreationMetadata] = None  # Immutable creation info
     modification_history: List[ModificationAction] = Field(default_factory=list)  # Schema modification log
+    # Observation unit tracking
+    observation_unit: Optional[ObservationUnitInfo] = None  # What constitutes a single row
 
 class DataRow(BaseModel):
     """A single row of data."""
+    # populate_by_name: accept both field name and alias for input
+    # serialize_by_alias: output with alias (_unit_name) for frontend compatibility
+    model_config = {"populate_by_name": True, "serialize_by_alias": True}
+
     row_name: Optional[str] = None
     papers: List[str] = Field(default_factory=list)  # Always a list, never None
     data: Dict[str, Any] = {}
+    # Observation unit metadata (for multi-row extraction from same document)
+    # Uses alias for both input (from JSONL) and output (to frontend)
+    unit_name: Optional[str] = Field(default=None, alias="_unit_name")
+    # Source document information (preserved from extraction)
+    source_document: Optional[str] = Field(default=None, alias="_source_document")
+    parent_document: Optional[str] = Field(default=None, alias="_parent_document")
 
 class PaginatedData(BaseModel):
     """Paginated data response."""

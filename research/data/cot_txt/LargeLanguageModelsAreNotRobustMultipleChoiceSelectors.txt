@@ -1,0 +1,1911 @@
+Published as a conference paper at ICLR 2024
+
+# LARGE LANGUAGE MODELS ARE NOT ROBUST MULTIPLE CHOICE SELECTORS
+
+
+**Chujie Zheng** _[†]_ **Hao Zhou** _[‡]_ **Fandong Meng** _[‡]_ **Jie Zhou** _[‡]_ **Minlie Huang** _[†∗]_
+
+_†_ The CoAI Group, DCST, BNRist, Tsinghua University, Beijing 100084, China
+
+_‡_ Pattern Recognition Center, WeChat AI, Tencent Inc., China
+```
+ chujiezhengchn@gmail.com aihuang@tsinghua.edu.cn
+
+```
+
+ABSTRACT
+
+
+Multiple choice questions (MCQs) serve as a common yet important task format
+in the evaluation of large language models (LLMs). This work shows that modern
+LLMs are vulnerable to option position changes in MCQs due to their inherent
+“selection bias”, namely, they prefer to select specific option IDs as answers (like
+“Option A”). Through extensive empirical analyses with 20 LLMs on three benchmarks, we pinpoint that this behavioral bias primarily stems from LLMs’ token
+bias, where the model a priori assigns more probabilistic mass to specific option
+ID tokens (e.g., `A/B/C/D` ) when predicting answers from the option IDs. To mitigate selection bias, we propose a label-free, inference-time debiasing method,
+called PriDe, which separates the model’s prior bias for option IDs from the overall prediction distribution. PriDe first estimates the prior by permutating option
+contents on a small number of test samples, and then applies the estimated prior
+to debias the remaining samples. We demonstrate that it achieves interpretable
+and transferable debiasing with high computational efficiency. We hope this work
+can draw broader research attention to the bias and robustness of modern LLMs. [1]
+
+
+
+1 INTRODUCTION `Question:` `In an SR latch`
+```
+                               built from NOR gates, which
+```
+
+Multiple choice question (MCQ) is a prevalent input format `condition is not allowed`
+```
+                               Options:
+```
+of large language models (LLMs). An MCQ typically encom```
+                               A. S=0, R=0 B. S=0, R=1
+```
+passes a question accompanied by multiple candidate options, `C. S=1, R=0` `D. S=1, R=1`
+from which the model is tasked to select the most suitable an- `Answer:` `D`
+
+
+
+Multiple choice question (MCQ) is a prevalent input format `condition is not allowed`
+```
+                               Options:
+```
+of large language models (LLMs). An MCQ typically encom```
+                               A. S=0, R=0 B. S=0, R=1
+```
+passes a question accompanied by multiple candidate options, `C. S=1, R=0` `D. S=1, R=1`
+from which the model is tasked to select the most suitable an- `Answer:` `D`
+swer, as exemplified in Figure 1. Current LLM-centric scenarios have widely utilized the task format of MCQ, for instance, Figure 1: A multiple choice queswithin benchmarks targeted at assessing LLMs (Hendrycks tion (MCQ) example from MMLU.
+et al., 2020; Zhong et al., 2023; Huang et al., 2023) and in
+LLM-based automatic evaluation frameworks (Chiang et al., 2023; Zheng et al., 2023b). In any
+scenario, we always expect LLMs to robustly select reliable answers in MCQs.
+
+
+Unfortunately, we observe that _modern LLMs are vulnerable to option position changes in MCQs_
+(Robinson & Wingate, 2022). We show in Table 1 that, in the 0-shot MMLU evaluation (Hendrycks
+et al., 2020), a simple “answer-moving attack” by always moving the golden answers to a specific
+position causes LLMs’ dramatic performance fluctuations. For instance, moving the golden answers
+to position D degrades the accuracy of `gpt-3.5-turbo` by 6.3 (from 67.2 to 60.9). When moving
+to A, `llama-30b` is boosted by 15.2 and surpasses `gpt-3.5-turbo` (68.2 vs. 65.3), which starkly
+contrasts with their original performance (53.1 vs. 67.2).
+
+
+LLMs’ poor robustness to option position changes results from their biased behavior: _they prefer_
+_to select specific option IDs as answers_ (like “Option A”), which we term as **selection bias** . As
+a simple verification, we randomly sampled 1,000 MMLU test samples, where we controlled the
+number of correct answers being A/B/C/D as 250 each. Among these samples, `llama-30B` selects
+A/B/C/D 34.6% / 27.3% / 22.3% / 15.8% of the time, while `gpt-3.5-turbo` for 22.5% / 25.6% /
+
+
+_∗_ Corresponding author.
+1Project repository: `[https://github.com/chujiezheng/LLM-MCQ-Bias](https://github.com/chujiezheng/LLM-MCQ-Bias)` .
+
+
+1
+
+
+
+Figure 1: A multiple choice question (MCQ) example from MMLU.
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 1: Simply moving the golden answers of MCQs to
+a specific option position can cause dramatic performance
+fluctuations (0-shot MMLU), suggesting LLMs’ poor robustness to option position changes in MCQs.
+
+
+**Move Golden to** **Orig** **A** **B** **C** **D**
+
+
+|10<br>0<br>10|Col2|
+|---|---|
+|10<br>0<br>10||
+|10<br>0<br>10||
+
+
+
+
+|75|Col2|A B C D|Col4|
+|---|---|---|---|
+|50<br>||||
+
+
+
+68.2
+`llama-30B` 53.1
+(+15.2)
+
+59.5
+`vicuna-v1.3-33B` 57.0
+(+2.5)
+
+46.3
+`falcon-40B` 51.8
+(-5.5)
+
+38.3
+`falcon-inst-40B` 51.5
+(-13.3)
+
+61.5
+`llama-2-70B` 64.0
+(-2.6)
+
+65.3
+`gpt-3.5-turbo` 67.2
+(-1.9)
+
+
+
+54.1
+(+1.1)
+
+58.6
+(+1.5)
+
+45.2
+(-6.7)
+
+38.9
+(-12.7)
+
+68.6
+(+4.5)
+
+68.5
+(+1.3)
+
+
+
+50.1
+(-2.9)
+
+65.8
+(+8.8)
+
+64.8
+(+13.0)
+
+55.7
+(+4.1)
+
+64.1
+(+0.1)
+
+74.2
+(+6.9)
+
+
+
+41.2
+(-11.9)
+
+44.8
+(-12.3)
+
+47.9
+(-3.9)
+
+69.1
+(+17.6)
+
+62.0
+(-2.1)
+
+60.9
+(-6.3)
+
+
+
+Figure 2: The performance fluctuation (left) correlates with the balance
+of different option IDs’ recalls in the
+original inputs, as _the original recall_
+_of option ID X is actually calculated_
+_on a subset of samples where all the_
+_golden answers are moved to X_ .
+
+
+
+
+
+32.3% / 19.6%, respectively (averaged over 10 runs). These proportions are statistically nonuniform
+( _χ_ [2] Test, _p_ -value _≪_ 10 _[−]_ [4] ) and align well with the performance fluctuations in Table 1.
+
+
+Through extensive empirical evaluation (§2.3), with 20 LLMs, on three benchmarks, and with varying option numbers (from two to five), we show that selection bias is prevalent across various LLMs
+and cannot be well mitigated by simple prompting strategies (§2.6), like Chain-of-Thought prompting (Wei et al., 2022; Kojima et al., 2022). It varies with models but manifests a cross-domain
+similarity within the same model (§2.3). With careful ablation analyses (§2.4), we find that, contrary to the common view in previous work (Wang et al., 2023a; Pezeshkpour & Hruschka, 2023),
+selection bias arises less from LLMs’ position bias, where they are deemed to favor options presented at specific ordering positions (like first or last). In contrast, we pinpoint one more salient
+intrinsic cause of selection bias as the model’s **token bias** when predicting answers from the option
+IDs given the standard MCQ prompt, where _the model a priori assigns more probabilistic mass to_
+_specific ID tokens_ (e.g., `A/B/C/D` ).
+
+
+To efficiently mitigate selection bias, we propose a method called **PriDe** (§3), referring to **De** biasing
+with **Pri** or estimation. In PriDe, we assume the model’s prior bias for option IDs can be separated
+from the overall prediction distribution. PriDe first estimates the prior by permutating option contents on a small number of test samples (e.g., 5%), and then applies it to debias the remaining
+samples. The whole debiasing procedure needs no sample labels, takes place during the inference
+time, and requires only negligible extra computational costs, which is especially suitable for modern
+LLMs. We demonstrate that PriDe achieves superior debiasing effectiveness to strong baselines, especially in the low-cost scenario (§4.1). Furthermore, the prior estimated by PriDe provides a good
+interpretation for selection bias (§4.1) and can transfer well across different domains (§4.2), which
+highlights its practical potential in broader scenarios.
+
+
+**Summary of Contributions** (1) We identify the ubiquitous selection bias in LLMs and provide
+extensive empirical analyses (with 20 LLMs, on three MCQ benchmarks) and valuable insights on
+this problem. (2) We pinpoint LLMs’ token bias as one primary intrinsic cause of selection bias.
+(3) We propose a label-free, inference-time debiasing method PriDe, which demonstrates notable
+effectiveness and efficiency, interpretability, and cross-domain transferability. We hope this work
+can inspire future research on the bias and robustness of LLMs.
+
+
+2 INVESTIGATION ON SELECTION BIAS
+
+
+2.1 EXPERIMENTAL SETUP
+
+
+**Models** Our study focuses on the causal, decoder-only LLMs since this architecture has become
+the dominant choice for modern LLMs. We experiment with _20 LLMs from popular LLM families_
+_across various sizes_ : `llama-7/13/30/65B` (Touvron et al., 2023a), `llama-2(-chat)-7/13/70B`
+(Touvron et al., 2023b), `vicuna-v1.3-7/13/33B`, `vicuna-v1.5-7/13B` (Chiang et al., 2023),
+`falcon(-inst)-7/40B` (Almazrouei et al., 2023), and `gpt-3.5-turbo-0613` (OpenAI, 2022).
+The models except `gpt-3.5-turbo` are all open source on the HuggingFace website, and we can
+
+
+2
+
+
+Published as a conference paper at ICLR 2024
+
+
+access their output probabilities. `gpt-3.5-turbo` is the commercial API of ChatGPT. It accepts
+textual prompts and returns generated texts without providing access to output probabilities.
+
+
+**Benchmarks** We conduct experiments on MMLU (Hendrycks et al., 2020), ARC-Challenge (Clark
+et al., 2018), and CommonsenseQA (CSQA) (Talmor et al., 2019), which are all MCQ benchmarks
+widely used for LLM evaluation. Our selection of benchmarks takes into account the diversity
+of tasks and domains. Specifically, MMLU and ARC consist of 4-option MCQs, while CSQA
+consists of 5-option ones, and MMLU covers tests from 4 domain categories spanning 57 subjects.
+The diverse domains facilitate us to derive general observations and enable cross-domain transfer
+exploration. See Appendix E for detailed data statistics.
+
+
+**Evaluation** Our evaluation protocol _follows the mainstream LLM evaluation frameworks_, such
+as HuggingFace LLM Leaderboard, EleutherAI lm-harness, the original MMLU implementation,
+and OpenAI Evals (see Appendix F). Specifically, for open-source models, we access the output
+probabilities of option ID tokens `A/B/C/D/E` and use the maximal one as the model prediction. For
+`gpt-3.5-turbo`, we compare the golden answer with the first generated token, with the decoding
+temperature set to 0. See Figure 7 and 6 in Appendix A for the input formats.
+
+
+Our evaluation mainly considers the 0-shot setting, which excludes biases introduced by in-context
+examples, but we also conduct 5-shot experiments. The in-context examples come from the development sets and are shared across all the test samples within the same task.
+
+
+2.2 MEASUREMENT OF SELECTION BIAS
+
+
+In our study, selection bias is defined as _the model’s behavioral bias to select specific option IDs as_
+_answers_ . To measure selection bias, one naive way is based on the counting for model predictions,
+which, however, is susceptible to label imbalance. We instead propose to measure selection bias
+based on the **balance of recalls** of different option IDs and use **the standard deviation of recalls**
+**(RStd)** as a quantitative metric. This measurement is intuitive that greater recall imbalance indicates
+more pronounced selection bias and is not as susceptible to label imbalance as the counting-based
+measurement. More importantly, recall balance well reflects the model’s robustness to option position changes, as illustrated in Figure 2. Hence, we reasonably expect that _reducing selection bias_
+_(measured by recall balance) will improve LLMs’ robustness to option position changes in MCQs_ .
+
+
+Note that measuring selection bias with recall balance implies the premise that the golden answers
+should be randomly placed. We show in Figure 18 in Appendix C that randomly shuffling the options
+does not obviously change selection bias, validating the above premise.
+
+
+2.3 KEY OBSERVATIONS
+
+
+We first conduct an extensive evaluation of LLMs on various benchmarks to gain a preliminary
+understanding of selection bias. We show partial results in Figure 3 for a brief presentation and put
+the full results in Appendix B. We draw the following main observations and insights:
+
+
+**Selection bias is prevalent across various LLMs and varies with model families and sizes.** Intuitively, selection bias is likely to originate from LLMs’ training data, where some answers (e.g., `C` )
+may occur more frequently than others. However, we do not observe consistent patterns of selection
+bias within the same model family where the models are trained with the same training data (e.g.,
+`llama-7/13/30/65B`, `llama-2-7/13/70B` ). We speculate that selection bias arises as a product of
+complex interactions between training data composition and ordering, model capacity (number of
+parameters), and other factors like hyperparameters.
+
+
+**Selection bias within the same model displays a moderate similarity across different domains.**
+For instance, under the 0-shot setting, `llama-30B` consistently prefers A/B on various benchmarks,
+while `gpt-3.5-turbo` favors C/B more. While the preference ranking may not strictly persist
+across tasks or domains, there is an overarching tendency for each model to lean towards certain
+option IDs (e.g., A and B) and away from others (e.g., C and D). It suggests that _selection bias is an_
+_inherent behavioral bias of LLMs that is less impacted by tasks or domains_ .
+
+
+**In-context examples can reduce but may meanwhile alter selection bias.** As exemplified in
+Figure 3, `llama-30B` disfavors C under the 0-shot setting but becomes biased towards it under the
+5-shot setting. We find that this alteration still does not display noticeable patterns within the same
+
+
+3
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+|Col1|A C E|Col3|
+|---|---|---|
+||B<br><br>D<br>||
+||||
+||||
+||||
+
+
+
+Figure 3: Selection bias of `llama-30B` and `gpt-3.5-turbo` on various benchmarks, see Appendix B for all
+the 20 LLMs’ results. Y-axis: the recall score (%) normalized by _subtracting the overall accuracy_ . MMLU is
+additionally split into four domains (STEM, Social Science, Humanities, Others) based on its subject categories.
+
+
+model family. It indicates that in-context examples can introduce new biases that will be intertwined
+with the inherent selection bias, making the latter complex and less regular.
+
+
+2.4 WHAT CAUSES SELECTION BIAS?
+
+
+Given the ubiquity of selection bias in various LLMs, we now seek to figure out the intrinsic causes
+resulting in this behavioral bias. We propose two hypotheses: (1) **Token bias** . In the standard MCQ
+prompt (Figure 1), when selecting answers from the option IDs, the model may _a priori assign_
+_more probabilistic mass to specific ID tokens_ (such as `A` or `C` ). (2) **Position bias** . The model may
+_favor options presented at specific ordering positions_ (such as the first or last one). Note that in a
+recent work, Wang et al. (2023a) similarly found that GPT-4 exhibits the bias towards the responses
+from “ `Assistant 1` ”. However, it is still unclear whether it is because the preferred responses are
+“selected via the ID token `1` ” or because they are “presented first”.
+
+
+One challenge here is that _option IDs are bound_ Table 2: Preliminary debiasing results (0-shot,
+_with options’ ordering positions_, e.g., the ID `B` `gpt-3.5-turbo` ), measured by the standard
+is naturally tied with the second-presented option. deviation of recalls (RStd) and accuracy (Acc).
+To distinguish the impacts of the two hypothesized
+
+**Shuffling option IDs** . We randomly shuffle the
+
+B/D/A/C or C/A/D/B, etc. In this way, `B` can de
+thus eliminating the impact of position bias and
+leaving only token bias. _Note that this ablation_
+_will obviously impair the naturalness and qual-_
+_ity of the MCQ prompt, and may consequently de-_
+_grade model performance (as shown in Table 2)._
+
+|Methods|MMLU<br>RStd Acc|ARC<br>RStd Acc|
+|---|---|---|
+|Default<br>`a/b/c/d`<br>`1/2/3/4`<br>`(A)/(B)/(C)/(D)`|5.5<br>67.2<br>6.8<br>67.0<br>3.8<br>65.8<br>8.1<br>66.5|3.3<br>84.3<br>2.1<br>83.1<br>2.1<br>82.3<br>4.0<br>82.4|
+|**Debiasing Instruct**<br>**Chain-of-Thought**|6.1<br>66.3<br>4.5<br>66.8|3.9<br>84.2<br>3.4<br>84.5|
+|**Shufﬂing IDs**<br>**Removing IDs**|5.1<br>63.9<br>**1.0**<br>**66.7**|3.7<br>80.3<br>**0.6**<br>**84.9**|
+
+(2) **Removing option IDs** and asking the model to directly select option contents. In this way, the
+change of selection bias would indicate the impact of token bias, while the remaining part corresponds to position bias. When evaluating LLMs without option IDs, we require `gpt-3.5-turbo` to
+generate the whole selected option, which is then compared with the golden answer. For open-source
+models, we compute the likelihoods of options, normalized by their lengths, and use the maximum
+one as the model prediction. See Figure 9 and 8 in Appendix A for the input formats.
+
+
+As shown in Figure 3 and Table 2, the removal of option IDs notably reduces selection bias (RStd
+decreases), while RStd is little changed by shuffling option IDs. The former observation, in most
+cases, _holds for various LLMs, on different benchmarks, and with varying option numbers_ (from two
+to five, where 2/3-option settings are constructed from the original data), see Appendix B and Table
+3 in Appendix C for detailed results. We also try to replace the default ID symbols `A/B/C/D` with
+several reasonable alternatives, including `a/b/c/d`, `1/2/3/4`, and `(A)/(B)/(C)/(D)`, but observe
+no remarkable reduction in RStd from the default one, as shown in Table 2. These results confirm
+that _the model’s token bias is one primary intrinsic cause of selection bias_ .
+
+
+4
+
+
+
+Table 2: Preliminary debiasing results (0-shot,
+`gpt-3.5-turbo` ), measured by the standard
+deviation of recalls (RStd) and accuracy (Acc).
+
+
+
+
+Published as a conference paper at ICLR 2024
+
+
+However, with option IDs removed, the remaining selection bias (corresponding to the impact of
+position bias) varies with models and tasks, see Appendix B and Table 3 in Appendix C. For instance, the remaining selection bias of `llama-13B`, `vicuna-v1.3-7B`, and `gpt-3.5-turbo` is only
+marginal, while that of `llama-30B`, `vicuna-v1.3-33B`, and `falcon-40B` is still pronounced (although having been reduced much). The selection bias of `llama-2-13/70B` even slightly increases
+in MMLU and ARC after option IDs being removed while still decreasing in CSQA, implying the
+potential counteraction between token bias and position bias. These results suggest that _the model’s_
+_position bias is somewhat present but quite irregular, largely depending on models and tasks_ .
+
+
+2.5 CAN WE DEBIAS LLMS BY REMOVING OPTION IDS?
+
+
+Despite the notably reduced selection bias, we find that removing option IDs usually degrades model
+performance (except in a few cases under the 5-shot setting), see Table 3 and 4 in Appendix C. This
+performance degradation results from the way we leverage LLMs to answer MCQs without option
+IDs, i.e., calculating and comparing the likelihoods of options, which is referred to as the “cloze
+prompt” format in Robinson & Wingate (2022). Their study demonstrates that asking LLMs to
+predict option IDs forms a better MCQ prompt than the “cloze prompt”, which is consistent with
+our observation. Besides, selecting answers by calculating and comparing the likelihoods of options
+is not as convenient and straightforward to implement as directly predicting option IDs. We thus
+suggest that _removing option IDs is not a practical method to mitigate selection bias_ .
+
+
+2.6 CAN SIMPLE PROMPTING STRATEGIES MITIGATE SELECTION BIAS?
+
+
+As a preliminary debiasing attempt, we apply two simple prompting strategies to `gpt-3.5-turbo` :
+(1) **Explicit debiasing instruction** : We append an explicit debiasing instruction in the system message of `gpt-3.5-turbo` (“Please note that the provided options have been randomly shuffled, so
+it is essential to consider them fairly and without bias.”). (2) **Chain-of-Thought prompting** (Wei
+et al., 2022; Kojima et al., 2022): `gpt-3.5-turbo` is first prompted with “Let’s think step by step:”
+to generate its thought process and then produces the final answer. We follow the implementation
+in OpenAI Evals, see Figure 10 in Appendix A for details. As shown in Table 2, the two prompting
+strategies cannot mitigate selection bias well. It suggests that _selection bias is an inherent behavioral_
+_bias of LLMs that cannot be addressed by simple prompt engineering_ .
+
+
+3 METHODOLOGY
+
+
+3.1 PERMUTATION-BASED DEBIASING BASELINE AND FORMULATION
+
+
+Before proposing our debiasing method, we first introduce a strong permutation-based debiasing
+baseline that our method builds upon. It averages the model’s prediction distributions under various
+option permutations (Wang et al., 2023a; Zheng et al., 2023b), which intuitively cancels out both the
+model’s token bias and position bias.
+
+
+Formally, we use _q_ to denote the MCQ question. Suppose the _n_ default-ordered option IDs (e.g.,
+`A/B/C/D` ) are _di_ and the default-ordered option contents are _oi, i ∈{_ 1 _,_ 2 _, . . ., n}_ . We use _I_ to denote
+a permutation of _{_ 1 _,_ 2 _, . . ., n}_, _I_ to a set of possible _I_ s. We use _gI_ ( _i_ ) to denote the index of _i_ in _I_,
+and _x_ _[I]_ to the concatenation of the default-ordered option IDs and the _I_ -permuted option contents,
+so that _oi_ is tied with _dgI_ ( _i_ ) in _x_ _[I]_ . The permutation-based debiasing baseline can be formulated as:
+
+
+
+_P_ �debiased( _oi|q, x_ ) = _|I|_ [1]
+
+
+
+
+- _P_ observed( _dgI_ ( _i_ ) _|q, x_ _[I]_ ) _, i ∈{_ 1 _,_ 2 _, . . ., n},_ (1)
+
+_I∈I_
+
+
+
+where _x_ is the default input of option IDs and option contents, _P_ observed( _dgI_ ( _i_ ) _|q, x_ _[I]_ ) is the observed
+prediction probability for the option ID _dgI_ ( _i_ ) (meaning _oi_ being correct) under the option permutation _I_, and _P_ [�] debiased( _oi|q, x_ ) denotes the debiased prediction probability for the option content
+_oi_ . Since computing full permutations is prohibitively expensive ( _×n_ ! costs), we adopt a practical
+alternative, called **Cyclic Permutation**, where _I_ = _{_ ( _i, i_ + 1 _, . . ., n,_ 1 _, . . ., i −_ 1) _}_ _[n]_ _i_ =1 [. It reduces]
+the computational cost (e.g., LLM forward times) from _×n_ ! to _×n_ and ensures one pairing between
+each option ID _di_ and option content _oj_ . In Figure 16 in Appendix C, we show that selecting other
+permutations _I_ in Cyclic Permutation, where we still ensure one pairing between each _di_ and _oj_,
+leads to similar debiasing results. However, _the overhead of Cyclic Permutation is still somewhat_
+_high (×n inference costs), which stimulates us to design more efficient debiasing methods_ .
+
+
+5
+
+
+Published as a conference paper at ICLR 2024
+
+
+3.2 PREDICTION PROBABILITY DECOMPOSITION
+
+
+The core idea of our method PriDe is to obtain a debiased prediction distribution by _separating the_
+_model’s prior bias for option IDs from the overall prediction distribution_ . Equivalently, it assumes
+that the observed prediction distribution _P_ observed over _di_ can be decomposed as a prior distribution
+_P_ prior over _di_ and a debiased distribution _P_ debiased over _oi_ :
+
+_P_ observed( _di|q, x_ _[I]_ ) = _Zq,x_ _[−]_ [1] _[I]_ _[P]_ [prior][(] _[d][i][|][q, x][I]_ [)] _[P]_ [debiased][(] _[o][f][I]_ [(] _[i]_ [)] _[|][q, x][I]_ [)] _[,][ ∀][I][ ∈I][, i][ ∈{]_ [1] _[,]_ [ 2] _[, ..., n][}][,]_ [ (2)]
+
+
+where _fI_ ( _i_ ) denotes _i_ -th element in _I_ . Note that we can rewrite the form of _P_ observed as a joint probability _P_ ( _di, oj|q, x_ _[I]_ ) for _di_ and _oj_, which equals to _P_ observed( _di|q, x_ _[I]_ ) if _j_ = _fI_ ( _i_ ) and 0 otherwise.
+Therefore, _the above prediction probability decomposition can be interpreted as the conditional in-_
+_dependent assumption_ (ignore the normalization item _Zq,xI_ ), where the model holds independent
+beliefs about _di_ and _oj_ . Specifically, _P_ debiased( _oj|q, x_ _[I]_ ) reflects the model’s **true belief about the**
+**option content** _oj_, which is not influenced by the option ID _di_ . In contrast, _P_ prior( _di|q, x_ _[I]_ ) indicates the model’s **prior bias for the option ID** _di_, which actually involves not only the model’s
+token bias but also position bias (§2.4), due to the natural binding between option IDs and options’
+ordering positions. Hence, under this formulation, we do not need to strictly distinguish the two
+biases laboriously, but can instead address them together by eliminating _P_ prior.
+
+
+For tractable derivation, we reasonably assume that _P_ debiased is not affected by how the options are
+ordered, which implies its invariance to option permutation _I_ so we can replace _x_ _[I]_ with the default
+input _x_ . We also assume _P_ prior to be independent of _x_ _[I]_, which means that the prior for option IDs
+depends on only the question _q_ . Equation 2 is then simplified to:
+
+_P_ observed( _di|q, x_ _[I]_ ) = _Zq,x_ _[−]_ [1] _[I]_ _[P]_ [prior][(] _[d][i][|][q]_ [)] _[P]_ [debiased][(] _[o][f][I]_ [(] _[i]_ [)] _[|][q, x]_ [)] _[,][ ∀][I][ ∈I][, i][ ∈{]_ [1] _[,]_ [ 2] _[, ..., n][}][.]_ (3)
+
+
+3.3 DEBIASING WITH PRIOR ESTIMATION
+
+
+
+Taking the logarithm of both sides of Equation 3 and summing over all _I ∈I_, we can obtain:
+
+
+                        
+ - ��
+
+_[I]_
+
+
+
+
+- ��
+
+log _P_ observed( _di|q, x_ _[I]_ ) = _|I|_ log _P_ prior( _di|q_ ) +
+
+_I∈I_ _I∈I_
+
+
+
+
+        log _P_ debiased( _ofI_ ( _i_ ) _|q, x_ ) + _C_ (4)
+_I∈I_
+
+
+
+
+       - _|I|_
+= _|I|_ log _P_ prior( _di|q_ ) +
+
+_n_
+
+
+
+_n_ 
+- log _P_ debiased( _oj|q, x_ ) + _C_ (5)
+
+
+_j_ =1
+
+
+
+= _|I|_ log _P_ prior( _di|q_ ) + _C_ _[′]_ _, i ∈{_ 1 _,_ 2 _, ..., n}._ (6)
+
+We derive Equation 5 because [�] _I∈I_ [log] _[ P]_ [debiased][(] _[o][f]_ _I_ [(] _[i]_ [)] _[|][q, x]_ [)][ actually involves] _[ |I|][/n]_ [ iterations]
+
+over each _P_ debiased( _oj|q, x_ ) (given _I_ contains either full or cyclic permutations), whose aggregation
+over _j ∈{_ 1 _,_ 2 _, . . ., n}_ is a constant. Therefore, without any sample labels, we can obtain:
+
+
+
+
+       - 1
+_P_ prior( _di|q_ ) = softmax _|I|_
+
+
+
+
+       
+- log _P_ observed( _di|q, x_ _[I]_ ) _, i ∈{_ 1 _,_ 2 _, ..., n}._ (7)
+
+
+_I∈I_
+
+
+
+Recall our observation in §2.3 that selection bias within the same model displays a moderate crossdomain similarity. This implies that _the prior for option IDs is likely to transfer across different_
+_samples and domains_, which motivates us to compute the priors of partial test samples and use them
+as an approximation for the remaining samples. It can largely improve debiasing efficiency since no
+more computational overhead is needed for the remaining samples once the prior is estimated.
+
+
+Drawing the above inspiration, PriDe first takes _K_ test samples _D_ e from the test set _D_, where _K_ can
+be adjusted based on the estimation budget. Each sample in _D_ e undergoes the standard permutationbased debiasing in Equation 1, during which we estimate each sample-specific prior _P_ prior( _di|q_ )
+using Equation 7. For the remaining samples _D_ r = _D\D_ e, we compute the “global prior” _P_ [�] prior( _di_ )
+by averaging the previously computed priors as an approximation to the new sample’s _P_ prior( _di|q_ )
+in Equation 3. We can thus compute the approximated _P_ [�] debiased( _oi|q, x_ ) and obtain the debiased
+prediction (omit the superscript _I_ as we only use the default input here):
+
+_P_ �debiased( _oi|q, x_ ) _∝_ _P_ observed( _di|q, x_ ) _/P_ �prior( _di_ ) _, i ∈{_ 1 _,_ 2 _, ..., n}._ (8)
+
+When _K ≪|D|_, the overhead for prior estimation will become negligible compared to the whole
+inference cost. The overall procedure of PriDe is summarized as Algorithm 1.
+
+
+6
+
+
+Published as a conference paper at ICLR 2024
+
+
+**Algorithm 1** PriDe: Debiasing with Prior Estimation
+**Require:** Language model, test samples _D_ = _{_ ( _qi, xi_ ) _}i_, option number _n_, estimation budget _K_
+**Ensure:** Model predictions _Y_
+
+1: Initialize the model prediction set _Y_ = ∅ and the prior set _P_ = ∅ _▷_ Initialization
+2: Sample the estimation samples _D_ e under _K_ and the remaining samples _D_ r = _D\D_ e
+3: **for** ( _q, x_ ) _∈D_ e **do**
+4: Debias the model prediction using Equation 1, add the predicted answer to _Y_
+5: Estimate the sample-specific prior _P_ prior( _di|q_ ) using Equation 7, add it into _P_
+6: **end for**
+7: Estimate the global prior _P_ [�] prior( _di_ ) by averaging _P_ _▷_ Prior Estimation
+8: **for** ( _q, x_ ) _∈D_ r **do**
+9: Debias the model prediction using Equation 8 _▷_ Efficient Debiasing
+10: Add the predicted answer to _Y_
+11: **end for**
+12: **return** _Y_
+
+
+
+
+
+
+
+
+|Col1|Col2|Fu|Col4|ll Perm|
+|---|---|---|---|---|
+||||<br>Cy<br>Pr|<br>clic Perm<br>iDe|
+
+
+|Col1|Col2|Fu|Col4|ll Perm|
+|---|---|---|---|---|
+||||<br>Cy<br>Pr|<br>clic Perm<br>iDe|
+
+
+|-12 -9|C|CSQA|Col4|Col5|
+|---|---|---|---|---|
+|~~-~~9<br>~~-~~6<br>~~-~~3<br>0|||||
+|~~-~~9<br>~~-~~6<br>~~-~~3<br>0||~~Cy~~<br>Pri|~~clic P~~<br>De|~~ erm~~|
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+|4|Col2|Col3|Col4|Col5|
+|---|---|---|---|---|
+|x1<br>0<br>2|||~~Fu~~<br>Cy<br>Pr|~~ll Perm~~<br>clic Perm<br>iDe|
+|x1<br>0<br>2|x2<br>x4<br>x8<br>x2|x2<br>x4<br>x8<br>x2|x2<br>x4<br>x8<br>x2|x2<br>x4<br>x8<br>x2|
+
+
+|4|Col2|Col3|Col4|Col5|
+|---|---|---|---|---|
+|x1<br>0<br>2|||Fu<br>~~Cy~~<br>Pr|ll Perm<br>~~clic Perm~~<br>iDe|
+|x1<br>0<br>2|x2<br>x4<br>x8<br>x2|x2<br>x4<br>x8<br>x2|x2<br>x4<br>x8<br>x2|x2<br>x4<br>x8<br>x2|
+
+
+|4 6|Cyclic Per PriDe|rm|Col4|Col5|
+|---|---|---|---|---|
+|x<br>0<br>2<br>4|||||
+|x<br>0<br>2<br>4|x2<br>x3<br>x4<br>x|x2<br>x3<br>x4<br>x|x2<br>x3<br>x4<br>x|x2<br>x3<br>x4<br>x|
+
+
+
+Figure 4: Debiasing results (0-shot, _averaged over all the 20 LLMs_ ) under varying computational costs (Xaxis), see Table 3 and 4 in Appendix C for detailed breakdowns. We control the costs of Cyclic/Full Perm via
+the ratio _β_ of the debiased test samples, where we take _β ∈{_ 0% _,_ 10% _,_ 20% _,_ 40% _,_ 60% _,_ 80% _,_ 100% _}_ . For
+PriDe, we control the costs via the ratio _α_ of test samples for prior estimation (these samples are meanwhile
+directly debiased via Cyclic Perm), where we take _α ∈{_ 2% _,_ 5% _,_ 10% _,_ 20% _,_ 40% _,_ 60% _,_ 80% _}_ . Note that
+when _α_ = 100%, PriDe degenerates to Cyclic Perm, so we do not plot them.
+
+
+4 EXPERIMENTS
+
+
+4.1 MAIN RESULTS
+
+
+We compare PriDe with two strong permutation-based debiasing baselines: **Cyclic Permutation**
+and **Full Permutation** . The latter is not experimented on the 5-option CSQA benchmark due to the
+extremely high cost. Since `gpt-3.5-turbo` does not return the output probability, we sample 100
+generated answers as an approximation to _P_ observed. For PriDe, we randomly sample _K_ = _α|D|_
+test samples as _D_ e and report the average results over 5 runs. Here, we use _α ∈_ (0 _,_ 1) as the ratio of
+test samples for prior estimation to control the estimation overhead.
+
+
+Figure 4 presents the debiasing results (averaged over all the models) versus the computational costs
+under the 0-shot setting, see detailed breakdowns in Table 3 and 4 in Appendix C. _PriDe achieves_
+_superior debiasing effectiveness and performance improvement to Full/Cyclic Perm, especially in_
+_the low-cost scenario._ This also holds under the 5-shot setting, see Figure 19 in Appendix C. In
+Figure 17 in Appendix C, we show that the estimated prior manifests a clear correlation with the
+empirical selection bias (i.e., the recalls of different option positions before debiasing). It suggests
+that _PriDe can provide a good interpretation for the model’s selection bias_ . Furthermore, we observe
+that the priors are stable when estimated with different sizes of test samples (from 2% to 20%). It
+suggests that _we are able to obtain a reliable estimate of prior even with a limited computational_
+
+
+7
+
+
+Published as a conference paper at ICLR 2024
+
+
+mated using _α_ = 5% test samples from the source domains.
+
+
+_budget_ . It also implies that the model’s prior bias for option IDs exhibits a similar pattern across
+different samples, confirming our design motivation of PriDe in §3.3.
+
+
+Note that one may propose to debias with fewer permutations (such as 2 or 3 random permutations,
+with _×_ 2 or _×_ 3 costs) as a low-cost alternative to Cyclic ( _×n_ ) or Full ( _×n_ !) Perm. In Figure 21 and
+22 in Appendix C, we show that PriDe can still be combined with these methods and notably boost
+debiasing effectiveness and efficiency.
+
+
+4.2 TRANSFERABILITY ANALYSIS
+
+
+In practical scenarios, we may not guarantee that the test samples always come from the same or
+similar domains. We hope the prior estimated by PriDe to be transferable: Once the prior is estimated
+using a small number of samples from domain X, it can be used to debias not only other samples
+from domain X but also samples from domain Y. To this end, we evaluate the cross-domain transfer
+performance of estimated priors on the four category domains of MMLU and ARC (5 domains in
+total, all are 4-option MCQs). We first use PriDe to estimate the prior with _α_ test samples from a
+source domain X, and then apply it to debiasing the test samples from a target domain Y. As shown
+in Figure 5, _the estimated priors exhibit reasonable transferability across different domains_ .
+
+
+However, we find that although the transferability in terms of debiasing is promising, there may be a
+slight degradation in model performance when the domain gap is large (e.g., from STEM/Humanities
+to ARC). While PriDe is not designed to improve model performance but rather to mitigate selection
+bias and thereby improve LLMs’ robustness, we suggest _updating the estimated prior using new_
+_samples when there are predictable domain shifts in test samples_, whose overhead is still negligible
+compared to the whole inference cost.
+
+
+4.3 HOW DEBIASING AFFECTS MODEL PREDICTIONS?
+
+
+We notice that although it is not our initial intention, the debiasing methods (PriDe and Cyclic/Full
+Perm) usually improve the model performance. With PriDe ( _α_ = 5%) and Cyclic Perm as examples,
+we seek further insights on how debiasing affects model predictions and consequently improves
+model performance. We are especially interested in how PriDe works with the estimated prior and
+how it works differently from Cyclic Perm.
+
+
+We put the breakdown of the model prediction changes in Table 5 and 6 in Appendix C, and summarize our main observations as follows: (1) For both PriDe and Cyclic Perm, the samples with predictions changing from wrong to correct always surpass those from correct to wrong, which illustrates
+the improvement in model performance. (2) For the samples where the predictions are altered after
+PriDe debiasing, the model usually holds low confidence in the original predictions. Meanwhile,
+the debiased predictions typically rank top-2 in the original prediction distribution, which holds especially for the larger models. It is because the predictions that the model is uncertain about are
+more susceptible to the model’s prior bias for option IDs, which is exactly what PriDe aims to al
+
+8
+
+
+Published as a conference paper at ICLR 2024
+
+
+leviate. (3) Cyclic Perm even alters high-confidence predictions and brings more drastic prediction
+changes, e.g., the lowest-ranked option becomes the debiased prediction more frequently than in
+PriDe. It also remarkably flattens the prediction distribution, i.e., _P_ [�] debiased( _oi|q, x_ ) is smoother than
+_P_ observed( _di|q, x_ ). This is probably because the permutation-based debiasing is essentially a kind of
+“mixture of experts”, where each “expert model” prepends the LLM with an option permutation operation. It leads to more deliberate and moderately confident predictions (corresponding to a flatter
+distribution), but on the other hand, requires more computational overhead than PriDe.
+
+
+5 RELATED WORK
+
+
+**Large Language Models (LLMs)** The realm of large language models (LLMs) has been undergoing rapid and significant developments since the launch of GPT-3 (Brown et al., 2020). Prominent
+examples, such as ChatGPT (OpenAI, 2022), LLaMA (Touvron et al., 2023a;b), Alpaca (Taori et al.,
+2023), and Vicuna (Chiang et al., 2023), have emerged successively over the past year. These models usually boast billions of parameters and are trained to comprehend natural language and follow
+human instructions (Ouyang et al., 2022; Wang et al., 2023b).
+
+
+**Multiple Choice Questions (MCQs)** As a concise task format, MCQs are widely adopted in
+LLM-centric scenarios. For instance, in the automatic evaluation framework of Chiang et al. (2023);
+Zheng et al. (2023b), GPT-4 (OpenAI, 2023) is presented with a question and two model answers
+and is tasked to determine which one is better. Numerous standard language model benchmarks
+also employ the task format of MCQs, such as MMLU (Hendrycks et al., 2020), ARC (Hendrycks
+et al., 2020), AGIEval (Zhong et al., 2023), C-Eval (Huang et al., 2023). It thus piques our research
+interest in the robustness of LLMs in the context of MCQs.
+
+
+**Bias and Robustness of LLMs** In our study, we use “bias” to refer to the systematic error within
+LLMs rather than the prejudice in culture or gender studied in the field of LLM safety (Zheng et al.,
+2023a; 2024). The bias in language models has always been an important research area closely
+related to model robustness. For instance, Zhao et al. (2021) showed that GPT-3 is sensitive to task
+instructions and in-context examples, which arises from its bias towards certain answers. Chen et al.
+(2022); Si et al. (2023); Pan et al. (2023) explored how LLMs’ few-shot learning is influenced by
+the construction of in-context examples. Wang et al. (2023a); Zheng et al. (2023b) found that GPT-4
+leans towards the first presented answers and may produce unfair evaluation results.
+
+
+Contemporaneous with our work, Pezeshkpour & Hruschka (2023) similarly observed that LLMs
+are sensitive to option position changes in MCQs and verified position bias as one cause of sensitivity. However, their study does not ablate the impact of option IDs, making their investigation on
+“position bias” less convincing. In fact, our study finds that position bias is less regular and largely
+depends on models and tasks, while token bias is a more salient intrinsic cause of LLMs’ selection bias and, consequently, poor robustness. Their study is also conducted on very limited models
+(only GPT-4 and InstructGPT without open-source models, somewhat hindering reproducibility) and
+tasks (only three MMLU subtasks, one Big-Bench subtask (Srivastava et al., 2023), and CSQA). In
+contrast, we draw more general observations through extensive cross-model and cross-task empirical evaluation, which further inspires our proposal of the computation-efficient, interpretable, and
+transferable debiasing method PriDe.
+
+
+6 CONCLUSION
+
+
+This work studies the inherent selection bias of large language models (LLMs), which makes them
+vulnerable to option position changes in multiple choice question (MCQ) evaluation. Through extensive empirical analyses, we pinpoint that this behavioral bias stems primarily from token bias,
+where the model a priori assigns more probabilistic mass to specific option ID tokens when predicting answers from the option IDs, and partially from position bias, where the model favors options
+presented at specific ordering positions. In particular, token bias is a more salient intrinsic cause of
+selection bias, while position bias is less regular and depends on models and tasks. Our proposed
+debiasing method PriDe estimates the model’s prior bias for option IDs and separates it from the
+overall prediction distribution. It remarkably mitigates selection bias, with no need for sample labels and only negligible computational overhead. We especially highlight PriDe’s high efficiency,
+interpretability, and cross-domain transferability. We hope the empirical analyses in this work and
+our debiasing method can inspire future research on the bias and robustness of LLMs.
+
+
+9
+
+
+Published as a conference paper at ICLR 2024
+
+
+REPRODUCIBILITY STATEMENT
+
+
+We have released the evaluation data, code, and experimental results at `[https://github.com/](https://github.com/chujiezheng/LLM-MCQ-Bias)`
+`[chujiezheng/LLM-MCQ-Bias](https://github.com/chujiezheng/LLM-MCQ-Bias)` to facilitate reproducible research. Our experiments were run on
+A100 40GB GPUs (for 70B models) and V100 32GB (for other models). The open-source models
+and data used in this work are listed in Appendix G and Appendix E, respectively.
+
+
+ACKNOWLEDGMENTS
+
+
+This work was supported by the National Science Foundation for Distinguished Young Scholars
+(with No. 62125604). This work was also supported by the NSFC projects (Key project with No.
+61936010).
+
+
+REFERENCES
+
+
+Ebtesam Almazrouei, Hamza Alobeidli, Abdulaziz Alshamsi, Alessandro Cappelli, Ruxandra Cojocaru, Merouane Debbah, Etienne Goffinet, Daniel Heslow, Julien Launay, Quentin Malartic,
+Badreddine Noune, Baptiste Pannier, and Guilherme Penedo. Falcon-40B: an open large language model with state-of-the-art performance, 2023.
+
+
+Tom Brown, Benjamin Mann, Nick Ryder, Melanie Subbiah, Jared D Kaplan, Prafulla Dhariwal,
+Arvind Neelakantan, Pranav Shyam, Girish Sastry, Amanda Askell, et al. Language models are
+few-shot learners. In _Advances in neural information processing systems_, volume 33, pp. 1877–
+1901, 2020.
+
+
+Yanda Chen, Chen Zhao, Zhou Yu, Kathleen McKeown, and He He. On the relation between
+sensitivity and accuracy in in-context learning. _arXiv preprint arXiv:2209.07661_, 2022.
+
+
+Wei-Lin Chiang, Zhuohan Li, Zi Lin, Ying Sheng, Zhanghao Wu, Hao Zhang, Lianmin Zheng,
+Siyuan Zhuang, Yonghao Zhuang, Joseph E. Gonzalez, Ion Stoica, and Eric P. Xing. Vicuna:
+An open-source chatbot impressing gpt-4 with 90%* chatgpt quality, March 2023. URL `[https:](https://lmsys.org/blog/2023-03-30-vicuna/)`
+`[//lmsys.org/blog/2023-03-30-vicuna/](https://lmsys.org/blog/2023-03-30-vicuna/)` .
+
+
+Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot, Ashish Sabharwal, Carissa Schoenick, and
+Oyvind Tafjord. Think you have solved question answering? try arc, the ai2 reasoning challenge.
+_arXiv preprint arXiv:1803.05457_, 2018.
+
+
+Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou, Mantas Mazeika, Dawn Song, and Jacob
+Steinhardt. Measuring massive multitask language understanding. In _International Conference_
+_on Learning Representations_, 2020.
+
+
+Yuzhen Huang, Yuzhuo Bai, Zhihao Zhu, Junlei Zhang, Jinghan Zhang, Tangjun Su, Junteng Liu,
+Chuancheng Lv, Yikai Zhang, Jiayi Lei, et al. C-eval: A multi-level multi-discipline chinese
+evaluation suite for foundation models. _arXiv preprint arXiv:2305.08322_, 2023.
+
+
+Zhengbao Jiang, Jun Araki, Haibo Ding, and Graham Neubig. How can we know when language
+models know? on the calibration of language models for question answering. _Transactions of the_
+_Association for Computational Linguistics_, 9:962–977, 2021. doi: 10.1162/tacl ~~a 0~~ 0407. URL
+`[https://aclanthology.org/2021.tacl-1.57](https://aclanthology.org/2021.tacl-1.57)` .
+
+
+Saurav Kadavath, Tom Conerly, Amanda Askell, Tom Henighan, Dawn Drain, Ethan Perez,
+Nicholas Schiefer, Zac Hatfield-Dodds, Nova DasSarma, Eli Tran-Johnson, et al. Language models (mostly) know what they know. _arXiv preprint arXiv:2207.05221_, 2022.
+
+
+Takeshi Kojima, Shixiang Shane Gu, Machel Reid, Yutaka Matsuo, and Yusuke Iwasawa. Large
+language models are zero-shot reasoners. In _Advances in neural information processing systems_,
+volume 35, pp. 22199–22213, 2022.
+
+
+OpenAI. `[https://chat.openai.com.chat](https://chat.openai.com.chat)`, 2022.
+
+
+OpenAI. Gpt-4 technical report. _arXiv preprint arXiv:2303.08774_, 2023.
+
+
+10
+
+
+Published as a conference paper at ICLR 2024
+
+
+Long Ouyang, Jeffrey Wu, Xu Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong
+Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et al. Training language models to follow instructions with human feedback. In _Advances in Neural Information Processing Systems_,
+volume 35, pp. 27730–27744, 2022.
+
+
+Jane Pan, Tianyu Gao, Howard Chen, and Danqi Chen. What in-context learning “learns” incontext: Disentangling task recognition and task learning. In _Findings of the Association for_
+_Computational Linguistics: ACL 2023_, pp. 8298–8319, Toronto, Canada, July 2023. Association for Computational Linguistics. doi: 10.18653/v1/2023.findings-acl.527. URL `[https:](https://aclanthology.org/2023.findings-acl.527)`
+`[//aclanthology.org/2023.findings-acl.527](https://aclanthology.org/2023.findings-acl.527)` .
+
+
+Pouya Pezeshkpour and Estevam Hruschka. Large language models sensitivity to the order of options in multiple-choice questions. _arXiv preprint arXiv:2308.11483_, 2023.
+
+
+Joshua Robinson and David Wingate. Leveraging large language models for multiple choice question answering. In _The Eleventh International Conference on Learning Representations_, 2022.
+
+
+Chenglei Si, Dan Friedman, Nitish Joshi, Shi Feng, Danqi Chen, and He He. Measuring inductive
+biases of in-context learning with underspecified demonstrations. In _Proceedings of the 61st_
+_Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)_, pp.
+11289–11310, Toronto, Canada, July 2023. Association for Computational Linguistics. doi: 10.
+18653/v1/2023.acl-long.632. URL `[https://aclanthology.org/2023.acl-long.632](https://aclanthology.org/2023.acl-long.632)` .
+
+
+Aarohi Srivastava, Abhinav Rastogi, Abhishek Rao, Abu Awal Md Shoeb, Abubakar Abid, Adam
+Fisch, Adam R Brown, Adam Santoro, Aditya Gupta, Adri`a Garriga-Alonso, et al. Beyond the
+imitation game: Quantifying and extrapolating the capabilities of language models. _Transactions_
+_on Machine Learning Research_, 2023.
+
+
+Alon Talmor, Jonathan Herzig, Nicholas Lourie, and Jonathan Berant. CommonsenseQA: A question answering challenge targeting commonsense knowledge. In _Proceedings of the 2019 Con-_
+_ference of the North American Chapter of the Association for Computational Linguistics: Human_
+_Language Technologies, Volume 1 (Long and Short Papers)_, pp. 4149–4158, Minneapolis, Minnesota, June 2019. Association for Computational Linguistics. doi: 10.18653/v1/N19-1421. URL
+`[https://aclanthology.org/N19-1421](https://aclanthology.org/N19-1421)` .
+
+
+Rohan Taori, Ishaan Gulrajani, Tianyi Zhang, Yann Dubois, Xuechen Li, Carlos Guestrin, Percy
+Liang, and Tatsunori B. Hashimoto. Stanford alpaca: An instruction-following llama model.
+`[https://github.com/tatsu-lab/stanford_alpaca](https://github.com/tatsu-lab/stanford_alpaca)`, 2023.
+
+
+Hugo Touvron, Thibaut Lavril, Gautier Izacard, Xavier Martinet, Marie-Anne Lachaux, Timoth´ee
+Lacroix, Baptiste Rozi`ere, Naman Goyal, Eric Hambro, Faisal Azhar, et al. Llama: Open and
+efficient foundation language models. _arXiv preprint arXiv:2302.13971_, 2023a.
+
+
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Nikolay Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, et al. Llama 2: Open foundation and fine-tuned chat models. _arXiv preprint arXiv:2307.09288_, 2023b.
+
+
+Peiyi Wang, Lei Li, Liang Chen, Dawei Zhu, Binghuai Lin, Yunbo Cao, Qi Liu, Tianyu Liu, and
+Zhifang Sui. Large language models are not fair evaluators. _arXiv preprint arXiv:2305.17926_,
+2023a.
+
+
+Yizhong Wang, Yeganeh Kordi, Swaroop Mishra, Alisa Liu, Noah A. Smith, Daniel Khashabi, and
+Hannaneh Hajishirzi. Self-instruct: Aligning language models with self-generated instructions. In
+_Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume_
+_1: Long Papers)_, pp. 13484–13508, Toronto, Canada, July 2023b. Association for Computational
+Linguistics. doi: 10.18653/v1/2023.acl-long.754. URL `[https://aclanthology.org/2023.](https://aclanthology.org/2023.acl-long.754)`
+`[acl-long.754](https://aclanthology.org/2023.acl-long.754)` .
+
+
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny
+Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. In _Advances_
+_in Neural Information Processing Systems_, volume 35, pp. 24824–24837, 2022.
+
+
+11
+
+
+Published as a conference paper at ICLR 2024
+
+
+Zihao Zhao, Eric Wallace, Shi Feng, Dan Klein, and Sameer Singh. Calibrate before use: Improving
+few-shot performance of language models. In _International Conference on Machine Learning_, pp.
+12697–12706. PMLR, 2021.
+
+
+Chujie Zheng, Pei Ke, Zheng Zhang, and Minlie Huang. Click: Controllable text generation with
+sequence likelihood contrastive learning. In Anna Rogers, Jordan Boyd-Graber, and Naoaki
+Okazaki (eds.), _Findings of the Association for Computational Linguistics: ACL 2023_, 2023a.
+URL `[https://aclanthology.org/2023.findings-acl.65](https://aclanthology.org/2023.findings-acl.65)` .
+
+
+Chujie Zheng, Fan Yin, Hao Zhou, Fandong Meng, Jie Zhou, Kai-Wei Chang, Minlie Huang,
+and Nanyun Peng. On prompt-driven safeguarding for large language models. _arXiv preprint_
+_arXiv:2401.18018_, 2024.
+
+
+Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu, Yonghao Zhuang,
+Zi Lin, Zhuohan Li, Dacheng Li, Eric Xing, et al. Judging llm-as-a-judge with mt-bench and
+chatbot arena. _arXiv preprint arXiv:2306.05685_, 2023b.
+
+
+Wanjun Zhong, Ruixiang Cui, Yiduo Guo, Yaobo Liang, Shuai Lu, Yanlin Wang, Amin Saied,
+Weizhu Chen, and Nan Duan. Agieval: A human-centric benchmark for evaluating foundation
+models. _arXiv preprint arXiv:2304.06364_, 2023.
+
+
+12
+
+
+Published as a conference paper at ICLR 2024
+
+
+A PROMPTS USED IN EXPERIMENTS
+
+```
+  The following are multiple choice questions about electrical engineering. You
+  should directly answer the question by choosing the correct option.
+
+  [ in-context examples (if few-shot) ]
+
+  Question: In an SR latch built from NOR gates, which condition is not allowed
+  Options:
+  A. S=0, R=0
+  B. S=0, R=1
+  C. S=1, R=0
+  D. S=1, R=1
+  Answer: D
+
+```
+
+Figure 6: Input formats for open-source models (e.g., `llama(-2)` and `vicuna` ). The `black text` is the
+templated input. The next-token prediction probabilities of the option IDs at the `red text` is used as the
+observed prediction distribution. Note that for all the open-source models, we do not prepend the input text
+with a `bos` ~~`t`~~ `oken` .
+
+
+_{_ `"role":` `"system", "content":` `"The following are multiple choice questions about`
+```
+  electrical engineering. You should directly answer the question by choosing the
+```
+
+`correct option."` _}_
+
+```
+  [ in-context examples (if few-shot) ]
+
+```
+
+_{_ `"role":` `"user", "content":` `"""Question:` `In an SR latch built from NOR gates,`
+```
+  which condition is not allowed
+  Options:
+  A. S=0, R=0
+  B. S=0, R=1
+  C. S=1, R=0
+  D. S=1, R=1
+```
+
+`Answer:"""` _}_
+
+
+_{_ `"role":` `"assistant", "content":` `"D"` _}_
+
+
+Figure 7: Input formats for `gpt-3.5-turbo` . The `black text` is the templated API request. The `blue text`
+is in-context or test samples. The `red text` is the expected API-returned result. The `orange text` is the
+subject in MMLU (57 different ones in total).
+
+```
+  The following are multiple choice questions about electrical engineering. You
+  should directly answer the question by choosing the correct option.
+
+  [ in-context examples (if few-shot) ]
+
+  Question: In an SR latch built from NOR gates, which condition is not allowed
+  Options:
+  S=0, R=0
+  S=0, R=1
+  S=1, R=0
+  S=1, R=1
+  Answer: S=1, R=1
+
+```
+
+Figure 8: Input formats for open-source models with option IDs removed. We compute the likelihoods of
+options, normalized by their lengths, and use the maximum one as the model prediction.
+
+
+13
+
+
+Published as a conference paper at ICLR 2024
+
+
+_{_ `"role":` `"system", "content":` `"The following are multiple choice questions about`
+```
+  electrical engineering. You should directly answer the question by choosing the
+```
+
+`correct option."` _}_
+
+```
+  [ in-context examples (if few-shot) ]
+
+```
+
+_{_ `"role":` `"user", "content":` `"""Question:` `In an SR latch built from NOR gates,`
+```
+  which condition is not allowed
+  Options:
+  S=0, R=0
+  S=0, R=1
+  S=1, R=0
+  S=1, R=1
+```
+
+`Answer:"""` _}_
+
+
+_{_ `"role":` `"assistant", "content":` `"S=1, R=1"` _}_
+
+
+Figure 9: Input formats for `gpt-3.5-turbo` with option IDs removed. We require it to generate the whole
+selected option, which is then compared with the golden answer.
+
+
+The first API call
+
+
+_{_ `"role":` `"system", "content":` `"The following are multiple choice questions about`
+```
+  electrical engineering. You should reason in a step-by-step manner as to get the
+```
+
+`right answer."` _}_
+_{_ `"role":` `"user", "content":` `"""Question:` `In an SR latch built from NOR gates,`
+```
+  which condition is not allowed
+  Options:
+  A. S=0, R=0
+  B. S=0, R=1
+  C. S=1, R=0
+  D. S=1, R=1
+```
+
+`Answer:` `Let’s think step by step:"""` _}_
+
+
+_{_ `"role":` `"assistant", "content":` `"[ thought or reasoning process ]"` _}_
+
+
+The second API call
+
+
+_{_ `"role":` `"system", "content":` `"The following are multiple choice questions about`
+```
+  electrical engineering. You should reason in a step-by-step manner as to get the
+```
+
+`right answer."` _}_
+_{_ `"role":` `"user", "content":` `"""Question:` `In an SR latch built from NOR gates,`
+```
+  which condition is not allowed
+  Options:
+  A. S=0, R=0
+  B. S=0, R=1
+  C. S=1, R=0
+  D. S=1, R=1
+```
+
+`Answer:` `Let’s think step by step:"""` _}_
+_{_ `"role":` `"assistant", "content":` `"[ thought or reasoning process ]"` _}_
+_{_ `"role":` `"assistant", "content":` `"Given all of the above, the answer of the`
+`question is:"` _}_
+
+
+_{_ `"role":` `"assistant", "content":` `"D"` _}_
+
+
+Figure 10: Chain-of-Thought prompt for `gpt-3.5-turbo`, generally following the implementation of OpenAI
+Evals, where the decoding temperature is set to 0.
+
+
+14
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+|0-shot, Removing IDs|Col2|Col3|
+|---|---|---|
+||||
+||||
+||||
+||~~A~~<br>B<br>~~C~~<br>D<br>~~E~~||
+
+
+
+Figure 11: Selection bias of `llama` and `vicuna-v1.3` models. Y-axis: the recall score (%) normalized by
+_subtracting the overall accuracy_ .
+
+
+15
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+|0-shot, Removing IDs|Col2|Col3|
+|---|---|---|
+||||
+||||
+||||
+||||
+||~~A~~<br>B<br>~~C~~<br>D<br>~~E~~||
+||||
+
+
+
+Figure 12: Selection bias of `llama-2`, `llama-2-chat`, and `vicuna-v1.5` models.
+
+
+16
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+|Col1|0-shot, Removing IDs A C E|Col3|
+|---|---|---|
+||A<br>B<br>C<br>D<br>E||
+||||
+||||
+||||
+
+
+
+Figure 13: Selection bias of `falcon` and `gpt-3.5-turbo` models. Note that we conjecture `falcon-7B` and
+`falcon-inst-7B` are undertrained. This is evidenced by: (1) they exhibits abnormally pronounced selection
+bias in various benchmarks, as reflected in their Y-axis scales, (2) their performance on MMLU is almost
+random selection (even 5-shot, see Table 3 and Table 4 in Appendix C), and (3) their recalls of position D are
+close to zero (see Figure 17 in Appendix C).
+
+
+17
+
+
+|Col1|Col2|Col3|Col4|Col5|
+|---|---|---|---|---|
+||||||
+
+
+|n bias for most LLM|Col2|Col3|Col4|Col5|
+|---|---|---|---|---|
+||||||
+
+
+Published as a conference paper at ICLR 2024
+
+
+C SUPPLEMENTARY EXPERIMENTAL RESULTS
+
+
+
+
+
+
+
+
+
+
+|Col1|(0, 1,|2, 3) (0|, 1, 2, 3) (0, 1, 2, 3)|Col5|Col6|Col7|
+|---|---|---|---|---|---|---|
+||~~(1, 2,~~<br>(2, 3,<br>(3, 0,|~~  3, 0)~~<br>  0, 1)<br>  1, 2)<br>~~(1, 3, 0, 2)~~<br>(2, 0, 3, 1)<br>(3, 2, 1, 0)<br>~~(1, 0, 3, 2)~~<br>(2, 3, 0, 1)<br>(3, 2, 1, 0)|~~  3, 0)~~<br>  0, 1)<br>  1, 2)<br>~~(1, 3, 0, 2)~~<br>(2, 0, 3, 1)<br>(3, 2, 1, 0)<br>~~(1, 0, 3, 2)~~<br>(2, 3, 0, 1)<br>(3, 2, 1, 0)|~~  3, 0)~~<br>  0, 1)<br>  1, 2)<br>~~(1, 3, 0, 2)~~<br>(2, 0, 3, 1)<br>(3, 2, 1, 0)<br>~~(1, 0, 3, 2)~~<br>(2, 3, 0, 1)<br>(3, 2, 1, 0)|||
+|<br> <br>|<br> <br>|<br> <br>|<br> <br>|<br> <br>|<br> <br>|<br> <br>|
+||||||||
+||||||||
+||||||||
+||||||||
+
+
+|0 14|MMLU|Col3|
+|---|---|---|
+|0<br>2<br>4<br>6<br>8<br>10<br>12<br><br> Accuracy (%)|||
+|0<br>2<br>4<br>6<br>8<br>10<br>12<br><br> Accuracy (%)|||
+|0<br>2<br>4<br>6<br>8<br>10<br>12<br><br> Accuracy (%)|||
+|0<br>2<br>4<br>6<br>8<br>10<br>12<br><br> Accuracy (%)|||
+|0<br>2<br>4<br>6<br>8<br>10<br>12<br><br> Accuracy (%)|||
+|0<br>2<br>4<br>6<br>8<br>10<br>12<br><br> Accuracy (%)|||
+
+
+
+|Col1|Col2|ARC|
+|---|---|---|
+|0<br>5<br>10<br>15<br>20<br> Accuracy (%)|||
+|0<br>5<br>10<br>15<br>20<br> Accuracy (%)|||
+|0<br>5<br>10<br>15<br>20<br> Accuracy (%)|||
+|0<br>5<br>10<br>15<br>20<br> Accuracy (%)|||
+|0<br>5<br>10<br>15<br>20<br> Accuracy (%)|||
+
+
+Figure 16: Debiasing results (0-shot, MMLU and ARC) of Cyclic Permutation with different selected permutations _I_ . The selection of permutations ensures one pairing between each option ID _di_ and option content _oj_ .
+We do not observe remarkable differences between these selections.
+
+
+20
+
+
+Published as a conference paper at ICLR 2024
+
+
+Figure 17: Prior preferences estimated by PriDe with varying sizes of test samples (2%, 5%, 10%, 20%) versus
+the empirical selection bias of the original model predictions (0-shot MMLU).
+
+
+We observe that the estimated priors usually correlate strongly with the empirical selection bias, except in a few
+cases where the correlation is moderate, like in `llama-2-7B`, `llama-2-chat-7B`, and `vicuna-v1.3-33B` .
+Specifically, the estimated prior probabilities may not necessarily align perfectly with the frequency-based
+recalls. Even in the cases where the rankings are the same, the scales may still differ, such as in `llama-7B/13B` .
+Our preliminary investigation suggests that it may be related to the calibration of LLMs (Kadavath et al., 2022).
+We conjecture that an ideal alignment requires the model to be well-calibrated, i.e., the probabilistic predictions
+match up with frequencies of correctness (Jiang et al., 2021). We leave this research question for future work.
+
+
+21
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 3: Breakdown of the debiasing results (0-shot), measured by standard deviation of recalls
+(RStd) and accuracy (Acc).
+
+|Models \ Methods|Default<br>RStd Acc|Removing IDs<br>RStd Acc|Cyclic Perm<br>RStd Acc|PriDe (5%)<br>RStd Acc|PriDe (40%)<br>RStd Acc|PriDe (80%)<br>RStd Acc|
+|---|---|---|---|---|---|---|
+|MMLU|Cost:_ ×_1|Cost:_ ×_1|Cost:_ ×_4|Cost:_ ×_1_._15|Cost:_ ×_2_._2|Cost:_ ×_3_._4|
+|`llama-7B`<br>`llama-13B`<br>`llama-30B`<br>`llama-65B`<br>`llama-2-7B`<br>`llama-2-13B`<br>`llama-2-70B`<br>`llama-2-chat-7B`<br>`llama-2-chat-13B`<br>`llama-2-chat-70B`<br>`vicuna-v1.3-7B`<br>`vicuna-v1.3-13B`<br>`vicuna-v1.3-33B`<br>`vicuna-v1.5-7B`<br>`vicuna-v1.5-13B`<br>`falcon-7B`<br>`falcon-40B`<br>`falcon-inst-7B`<br>`falcon-inst-40B`<br>`gpt-3.5-turbo`|18.5<br>33.7<br>17.4<br>34.6<br>8.5<br>53.1<br>8.3<br>56.9<br>23.0<br>35.8<br>7.5<br>50.8<br>4.1<br>64.0<br>13.5<br>45.8<br>14.3<br>52.1<br>12.8<br>59.4<br>5.3<br>46.2<br>10.5<br>50.2<br>8.2<br>57.0<br>10.9<br>48.7<br>8.2<br>54.4<br>24.2<br>24.7<br>6.7<br>51.8<br>28.7<br>25.0<br>12.4<br>51.5<br>5.5<br>67.2|5.2<br>33.4<br>2.6<br>29.1<br>7.0<br>49.3<br>3.6<br>51.4<br>11.2<br>37.0<br>9.6<br>44.7<br>4.9<br>58.9<br>5.7<br>45.0<br>2.9<br>51.0<br>7.0<br>53.4<br>1.9<br>44.2<br>2.0<br>49.8<br>6.0<br>57.1<br>7.9<br>46.5<br>4.3<br>53.1<br>12.6<br>30.7<br>6.1<br>44.2<br>13.7<br>29.9<br>4.8<br>45.1<br>1.0<br>66.7|4.7<br>43.5<br>2.9<br>47.7<br>3.2<br>57.2<br>3.1<br>61.8<br>6.1<br>46.6<br>4.5<br>54.7<br>2.5<br>66.6<br>3.0<br>49.3<br>3.9<br>55.4<br>2.5<br>62.1<br>5.1<br>48.7<br>4.4<br>53.5<br>2.2<br>60.6<br>5.2<br>51.0<br>4.8<br>56.6<br>4.3<br>33.3<br>5.0<br>55.4<br>1.7<br>34.4<br>4.7<br>53.7<br>1.1<br>69.8|5.5<br>35.3<br>5.7<br>36.4<br>3.6<br>54.0<br>1.9<br>58.5<br>5.5<br>40.2<br>2.3<br>51.8<br>5.7<br>64.3<br>7.9<br>46.4<br>8.2<br>53.5<br>9.0<br>60.2<br>3.7<br>46.6<br>3.6<br>50.8<br>7.0<br>57.6<br>5.2<br>49.1<br>2.5<br>55.2<br>4.2<br>27.0<br>2.6<br>52.3<br>7.3<br>28.1<br>1.7<br>51.8<br>2.8<br>68.0|5.1<br>38.4<br>3.9<br>40.4<br>3.4<br>55.1<br>1.2<br>59.8<br>4.9<br>42.6<br>2.2<br>52.9<br>3.5<br>65.2<br>5.4<br>47.5<br>4.7<br>54.2<br>6.1<br>60.9<br>3.1<br>47.4<br>3.5<br>51.8<br>5.0<br>58.6<br>3.3<br>49.8<br>2.2<br>55.8<br>3.4<br>29.2<br>1.6<br>53.4<br>4.8<br>30.4<br>1.0<br>52.5<br>2.2<br>68.5|4.9<br>41.8<br>2.6<br>45.3<br>3.1<br>56.4<br>2.3<br>61.1<br>5.5<br>45.3<br>3.5<br>54.0<br>2.1<br>66.2<br>3.2<br>48.7<br>2.9<br>55.0<br>3.3<br>61.7<br>4.3<br>48.4<br>4.1<br>53.0<br>2.9<br>59.9<br>4.0<br>50.5<br>3.7<br>56.2<br>3.8<br>31.9<br>3.5<br>54.6<br>2.2<br>33.0<br>3.3<br>53.3<br>1.2<br>69.3|
+|∆Average||-6.4<br>-2.1|-8.7<br>+4.9|**-7.6**<br>**+1.2**|**-8.9**<br>**+2.6**|**-9.1**<br>**+4.1**|
+|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|
+|`llama-7B`<br>`llama-13B`<br>`llama-30B`<br>`llama-65B`<br>`llama-2-7B`<br>`llama-2-13B`<br>`llama-2-70B`<br>`llama-2-chat-7B`<br>`llama-2-chat-13B`<br>`llama-2-chat-70B`<br>`vicuna-v1.3-7B`<br>`vicuna-v1.3-13B`<br>`vicuna-v1.3-33B`<br>`vicuna-v1.5-7B`<br>`vicuna-v1.5-13B`<br>`falcon-7B`<br>`falcon-40B`<br>`falcon-inst-7B`<br>`falcon-inst-40B`<br>`gpt-3.5-turbo`|9.9<br>38.6<br>14.2<br>51.3<br>4.6<br>67.6<br>8.8<br>72.8<br>27.4<br>36.0<br>6.0<br>62.9<br>2.3<br>80.7<br>12.4<br>56.5<br>13.7<br>64.4<br>8.2<br>78.0<br>8.6<br>53.5<br>8.3<br>62.9<br>4.4<br>72.9<br>9.8<br>58.5<br>6.2<br>69.7<br>29.2<br>24.9<br>6.8<br>62.9<br>23.4<br>25.2<br>11.1<br>61.3<br>3.3<br>84.3|4.9<br>36.0<br>2.3<br>27.8<br>5.3<br>63.5<br>4.4<br>67.6<br>8.5<br>40.7<br>11.5<br>53.0<br>3.0<br>78.7<br>4.8<br>53.7<br>9.2<br>64.0<br>7.3<br>71.7<br>3.1<br>53.6<br>4.3<br>61.5<br>3.6<br>74.3<br>3.8<br>56.5<br>3.9<br>67.7<br>11.5<br>29.5<br>6.4<br>55.7<br>13.0<br>29.7<br>4.8<br>56.1<br>0.6<br>84.9|2.7<br>48.0<br>1.1<br>59.6<br>2.8<br>73.0<br>1.8<br>77.9<br>2.1<br>55.8<br>1.4<br>66.3<br>2.3<br>83.6<br>1.8<br>59.7<br>3.0<br>69.6<br>3.0<br>81.1<br>0.9<br>55.7<br>2.9<br>66.8<br>2.2<br>77.6<br>1.9<br>62.1<br>1.3<br>71.1<br>4.7<br>36.0<br>3.3<br>67.4<br>3.5<br>37.4<br>2.4<br>65.8<br>1.6<br>85.0|4.0<br>40.1<br>7.7<br>51.6<br>3.7<br>67.1<br>1.9<br>73.0<br>7.8<br>45.8<br>4.8<br>63.9<br>5.2<br>80.9<br>7.3<br>57.5<br>8.5<br>66.1<br>7.4<br>78.2<br>4.2<br>53.8<br>4.7<br>64.1<br>4.1<br>72.9<br>5.8<br>59.0<br>3.7<br>69.8<br>3.9<br>27.8<br>5.6<br>64.1<br>10.2<br>27.8<br>4.3<br>63.6<br>2.3<br>84.2|2.3<br>43.3<br>4.2<br>55.2<br>2.2<br>68.7<br>1.7<br>74.6<br>4.5<br>49.4<br>3.1<br>64.9<br>3.6<br>82.0<br>4.7<br>58.4<br>5.6<br>67.2<br>5.6<br>79.3<br>2.7<br>54.7<br>2.0<br>64.6<br>2.8<br>74.8<br>4.2<br>60.3<br>2.8<br>70.2<br>3.7<br>30.9<br>4.0<br>65.4<br>6.5<br>31.2<br>3.4<br>64.3<br>2.1<br>84.1|2.6<br>46.4<br>1.9<br>58.3<br>2.0<br>71.6<br>1.6<br>76.9<br>2.1<br>53.7<br>2.1<br>66.0<br>2.3<br>83.1<br>2.6<br>59.9<br>3.2<br>68.9<br>3.5<br>80.6<br>1.1<br>55.1<br>1.7<br>66.2<br>2.1<br>76.6<br>2.4<br>61.5<br>1.8<br>71.0<br>4.0<br>34.4<br>3.2<br>66.7<br>3.2<br>35.8<br>2.7<br>65.3<br>1.7<br>84.9|
+|∆Average||-5.1<br>-2.9|-8.6<br>+5.7|**-5.6**<br>**+1.3**|**-7.3**<br>**+2.9**|**-8.5**<br>**+4.9**|
+|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|
+|`llama-7B`<br>`llama-13B`<br>`llama-30B`<br>`llama-65B`<br>`llama-2-7B`<br>`llama-2-13B`<br>`llama-2-70B`<br>`llama-2-chat-7B`<br>`llama-2-chat-13B`<br>`llama-2-chat-70B`<br>`vicuna-v1.3-7B`<br>`vicuna-v1.3-13B`<br>`vicuna-v1.3-33B`<br>`vicuna-v1.5-7B`<br>`vicuna-v1.5-13B`<br>`falcon-7B`<br>`falcon-40B`<br>`falcon-inst-7B`<br>`falcon-inst-40B`<br>`gpt-3.5-turbo`|21.6<br>36.4<br>19.9<br>55.3<br>11.2<br>66.0<br>15.3<br>65.0<br>28.4<br>31.9<br>10.2<br>57.0<br>7.3<br>70.9<br>15.2<br>56.5<br>9.8<br>64.0<br>3.1<br>74.6<br>8.3<br>56.9<br>12.9<br>63.4<br>8.2<br>68.9<br>9.1<br>60.4<br>2.8<br>67.1<br>29.9<br>20.9<br>15.9<br>61.4<br>25.7<br>21.7<br>6.5<br>67.2<br>2.2<br>76.1|7.9<br>26.6<br>1.6<br>39.4<br>7.6<br>52.6<br>4.0<br>56.9<br>9.9<br>32.2<br>5.8<br>43.8<br>4.9<br>65.5<br>7.4<br>53.5<br>7.5<br>54.2<br>4.4<br>56.2<br>0.9<br>57.2<br>8.0<br>63.2<br>8.8<br>70.1<br>6.2<br>56.4<br>5.6<br>62.1<br>8.2<br>30.8<br>6.0<br>54.1<br>13.1<br>34.8<br>4.5<br>54.3<br>2.1<br>76.1|2.9<br>53.0<br>2.3<br>64.2<br>2.7<br>71.1<br>1.3<br>74.4<br>0.8<br>56.0<br>1.3<br>66.6<br>3.0<br>75.5<br>1.2<br>64.8<br>2.0<br>68.8<br>0.7<br>76.6<br>1.8<br>62.8<br>3.8<br>69.9<br>2.7<br>72.8<br>0.8<br>64.7<br>1.3<br>70.3<br>3.3<br>28.9<br>1.8<br>70.4<br>3.3<br>39.4<br>1.4<br>71.4<br>1.2<br>78.0|8.5<br>38.5<br>9.5<br>59.4<br>9.0<br>65.8<br>4.8<br>68.1<br>9.9<br>41.5<br>7.4<br>58.4<br>6.0<br>71.6<br>10.1<br>59.5<br>6.3<br>65.2<br>3.1<br>74.8<br>4.0<br>57.9<br>6.6<br>65.3<br>5.1<br>69.9<br>4.1<br>61.1<br>2.5<br>67.1<br>6.2<br>20.4<br>9.2<br>63.2<br>8.7<br>25.5<br>3.1<br>66.9<br>2.2<br>76.4|4.9<br>45.2<br>6.7<br>60.6<br>6.8<br>68.2<br>3.7<br>70.4<br>6.0<br>46.3<br>5.7<br>61.4<br>4.7<br>73.0<br>6.3<br>61.6<br>3.6<br>66.4<br>1.7<br>75.5<br>2.4<br>59.4<br>5.3<br>66.9<br>3.9<br>70.9<br>2.9<br>62.3<br>2.1<br>68.4<br>3.7<br>23.5<br>5.8<br>65.8<br>4.9<br>29.9<br>1.9<br>68.7<br>1.9<br>77.0|3.3<br>50.5<br>3.7<br>63.1<br>3.9<br>70.0<br>2.3<br>73.3<br>2.6<br>52.9<br>2.3<br>64.8<br>3.6<br>74.8<br>2.4<br>63.4<br>1.3<br>68.0<br>1.1<br>76.4<br>1.4<br>61.5<br>4.0<br>68.9<br>2.7<br>72.0<br>1.5<br>64.2<br>1.4<br>69.6<br>2.9<br>27.2<br>2.8<br>69.0<br>3.2<br>36.1<br>1.6<br>70.6<br>1.6<br>77.8|
+|∆Average||-6.2<br>-7.0|-11.2<br>+7.9|**-6.9**<br>**+1.7**|**-8.9**<br>**+4.0**|**-10.7**<br>**+6.6**|
+
+
+
+22
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 4: Breakdown of the debiasing results (5-shot).
+
+|Models \ Methods|Default<br>RStd Acc|Removing IDs<br>RStd Acc|Cyclic Perm<br>RStd Acc|PriDe (5%)<br>RStd Acc|PriDe (40%)<br>RStd Acc|PriDe (80%)<br>RStd Acc|
+|---|---|---|---|---|---|---|
+|MMLU|Cost:_ ×_1|Cost:_ ×_1|Cost:_ ×_4|Cost:_ ×_1_._15|Cost:_ ×_2_._2|Cost:_ ×_3_._4|
+|`llama-7B`<br>`llama-13B`<br>`llama-30B`<br>`llama-65B`<br>`llama-2-7B`<br>`llama-2-13B`<br>`llama-2-70B`<br>`llama-2-chat-7B`<br>`llama-2-chat-13B`<br>`llama-2-chat-70B`<br>`vicuna-v1.3-7B`<br>`vicuna-v1.3-13B`<br>`vicuna-v1.3-33B`<br>`vicuna-v1.5-7B`<br>`vicuna-v1.5-13B`<br>`falcon-7B`<br>`falcon-40B`<br>`falcon-inst-7B`<br>`falcon-inst-40B`<br>`gpt-3.5-turbo`|12.5<br>34.5<br>14.3<br>43.5<br>4.5<br>58.7<br>1.8<br>63.5<br>12.6<br>44.6<br>4.1<br>55.5<br>1.9<br>69.0<br>11.1<br>46.2<br>8.4<br>53.8<br>7.7<br>63.0<br>7.5<br>46.6<br>8.0<br>51.6<br>5.4<br>59.2<br>5.8<br>50.0<br>4.5<br>55.9<br>27.3<br>27.1<br>8.4<br>55.6<br>27.8<br>25.0<br>9.9<br>54.1<br>3.8<br>70.9|2.8<br>39.3<br>2.6<br>45.0<br>2.9<br>55.9<br>3.2<br>62.0<br>4.1<br>45.7<br>5.6<br>54.7<br>3.2<br>70.2<br>3.6<br>49.3<br>2.8<br>56.5<br>3.6<br>65.0<br>5.9<br>45.9<br>0.9<br>52.4<br>3.2<br>60.7<br>5.3<br>50.8<br>1.8<br>57.9<br>3.4<br>34.0<br>1.9<br>51.0<br>4.2<br>31.6<br>3.6<br>52.4<br>0.7<br>71.8|4.8<br>44.5<br>4.7<br>51.1<br>3.0<br>61.1<br>2.4<br>65.5<br>4.7<br>50.0<br>4.2<br>57.2<br>3.5<br>70.5<br>4.2<br>50.7<br>4.4<br>56.9<br>2.3<br>64.8<br>4.7<br>50.1<br>3.0<br>55.7<br>2.7<br>62.4<br>4.2<br>53.2<br>4.6<br>58.2<br>4.1<br>36.2<br>4.2<br>57.8<br>1.0<br>33.5<br>4.4<br>56.2<br>0.5<br>73.3|2.6<br>35.4<br>4.6<br>45.7<br>4.5<br>58.8<br>1.8<br>63.5<br>7.7<br>45.8<br>3.6<br>54.5<br>2.4<br>68.9<br>5.7<br>47.1<br>5.7<br>54.4<br>3.5<br>63.5<br>1.2<br>47.0<br>4.2<br>52.3<br>4.3<br>59.2<br>4.4<br>50.6<br>5.4<br>55.7<br>7.8<br>30.2<br>4.0<br>56.2<br>4.3<br>28.8<br>2.3<br>54.5<br>2.1<br>71.1|2.4<br>38.6<br>4.4<br>47.7<br>3.3<br>59.6<br>1.4<br>64.2<br>6.3<br>47.4<br>3.6<br>55.4<br>0.4<br>69.4<br>4.5<br>48.5<br>4.9<br>55.2<br>2.0<br>63.9<br>1.6<br>48.2<br>3.3<br>53.6<br>3.3<br>60.3<br>3.8<br>51.5<br>4.7<br>56.7<br>6.6<br>32.4<br>2.7<br>56.7<br>2.7<br>30.4<br>2.5<br>55.1<br>1.1<br>71.9|4.2<br>42.4<br>4.4<br>49.8<br>2.8<br>60.6<br>2.0<br>65.1<br>5.1<br>49.1<br>3.9<br>56.6<br>2.2<br>70.2<br>4.0<br>49.9<br>4.2<br>56.4<br>1.7<br>64.6<br>3.7<br>49.5<br>3.0<br>55.0<br>2.7<br>61.7<br>3.7<br>52.6<br>4.4<br>57.7<br>5.0<br>34.9<br>3.4<br>57.4<br>1.2<br>32.5<br>3.8<br>55.8<br>0.3<br>72.8|
+|∆Average||-6.1<br>+1.2|-5.8<br>+4.0|**-5.3**<br>**+0.7**|**-6.1**<br>**+1.9**|**-6.1**<br>**+3.3**|
+|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|ARC<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_4<br>Cost:_ ×_1_._15<br>Cost:_ ×_2_._2<br>Cost:_ ×_3_._4|
+|`llama-7B`<br>`llama-13B`<br>`llama-30B`<br>`llama-65B`<br>`llama-2-7B`<br>`llama-2-13B`<br>`llama-2-70B`<br>`llama-2-chat-7B`<br>`llama-2-chat-13B`<br>`llama-2-chat-70B`<br>`vicuna-v1.3-7B`<br>`vicuna-v1.3-13B`<br>`vicuna-v1.3-33B`<br>`vicuna-v1.5-7B`<br>`vicuna-v1.5-13B`<br>`falcon-7B`<br>`falcon-40B`<br>`falcon-inst-7B`<br>`falcon-inst-40B`<br>`gpt-3.5-turbo`|18.8<br>38.8<br>12.9<br>55.4<br>3.2<br>73.0<br>2.1<br>78.5<br>9.7<br>56.0<br>4.5<br>66.8<br>1.4<br>84.4<br>7.8<br>58.8<br>9.2<br>68.1<br>5.8<br>80.0<br>6.0<br>57.4<br>5.6<br>65.8<br>3.8<br>74.7<br>5.2<br>62.4<br>3.7<br>71.6<br>24.0<br>29.5<br>5.3<br>69.9<br>33.2<br>24.4<br>8.9<br>66.2<br>1.9<br>86.6|6.7<br>46.2<br>1.5<br>56.0<br>3.1<br>74.8<br>2.3<br>80.2<br>1.6<br>56.8<br>6.6<br>68.4<br>2.0<br>85.4<br>3.0<br>60.1<br>8.3<br>70.0<br>5.3<br>81.4<br>1.7<br>55.9<br>3.9<br>67.0<br>2.4<br>78.0<br>5.5<br>61.6<br>4.7<br>72.8<br>6.1<br>34.7<br>2.8<br>66.4<br>6.4<br>33.5<br>7.1<br>64.3<br>0.9<br>86.1|1.9<br>51.6<br>2.6<br>62.0<br>2.2<br>76.7<br>0.9<br>81.8<br>2.6<br>61.8<br>2.3<br>69.8<br>0.6<br>87.2<br>3.3<br>62.6<br>3.7<br>71.1<br>2.8<br>83.9<br>2.4<br>59.3<br>2.2<br>68.4<br>3.5<br>79.2<br>2.3<br>64.9<br>2.5<br>72.6<br>5.3<br>38.3<br>2.1<br>72.5<br>3.4<br>35.3<br>1.9<br>70.4<br>1.6<br>88.0|4.7<br>39.6<br>10.2<br>56.5<br>3.7<br>73.4<br>4.0<br>78.4<br>7.2<br>57.5<br>4.9<br>67.2<br>3.1<br>84.1<br>5.6<br>58.9<br>4.9<br>68.6<br>4.3<br>80.9<br>5.0<br>57.3<br>5.4<br>66.0<br>3.2<br>74.9<br>7.0<br>62.9<br>4.8<br>71.4<br>10.5<br>30.0<br>2.0<br>69.2<br>4.6<br>29.3<br>2.9<br>68.9<br>1.9<br>86.8|3.3<br>44.1<br>6.9<br>58.7<br>2.4<br>74.9<br>2.6<br>79.8<br>3.8<br>59.2<br>3.8<br>68.5<br>1.8<br>85.3<br>4.0<br>60.2<br>3.1<br>69.4<br>3.4<br>81.8<br>4.1<br>57.8<br>3.1<br>67.2<br>2.4<br>76.1<br>5.1<br>63.7<br>2.9<br>71.9<br>8.9<br>33.0<br>1.7<br>70.8<br>2.0<br>31.4<br>1.8<br>69.8<br>1.8<br>87.3|1.9<br>49.5<br>3.7<br>60.8<br>2.1<br>76.0<br>1.3<br>81.4<br>2.5<br>60.9<br>2.9<br>69.0<br>0.7<br>86.3<br>3.4<br>61.9<br>3.2<br>70.5<br>2.8<br>83.3<br>2.9<br>58.9<br>1.4<br>67.6<br>2.5<br>78.1<br>2.9<br>64.5<br>1.5<br>72.6<br>6.6<br>36.4<br>2.0<br>72.0<br>2.1<br>33.7<br>1.6<br>69.9<br>1.5<br>87.7|
+|∆Average||-4.6<br>+1.6|-6.1<br>+4.5|**-3.7**<br>**+0.7**|**-5.2**<br>**+2.1**|**-6.2**<br>**+3.6**|
+|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|CSQA<br>Cost:_ ×_1<br>Cost:_ ×_1<br>Cost:_ ×_5<br>Cost:_ ×_1_._2<br>Cost:_ ×_2_._6<br>Cost:_ ×_4_._2|
+|`llama-7B`<br>`llama-13B`<br>`llama-30B`<br>`llama-65B`<br>`llama-2-7B`<br>`llama-2-13B`<br>`llama-2-70B`<br>`llama-2-chat-7B`<br>`llama-2-chat-13B`<br>`llama-2-chat-70B`<br>`vicuna-v1.3-7B`<br>`vicuna-v1.3-13B`<br>`vicuna-v1.3-33B`<br>`vicuna-v1.5-7B`<br>`vicuna-v1.5-13B`<br>`falcon-7B`<br>`falcon-40B`<br>`falcon-inst-7B`<br>`falcon-inst-40B`<br>`gpt-3.5-turbo`|22.4<br>42.3<br>13.0<br>62.3<br>4.8<br>73.6<br>4.5<br>76.2<br>21.7<br>56.4<br>7.3<br>68.2<br>4.2<br>77.9<br>13.3<br>59.8<br>3.7<br>68.3<br>4.9<br>76.7<br>14.4<br>58.5<br>7.5<br>67.1<br>4.2<br>74.8<br>13.0<br>61.7<br>5.7<br>70.6<br>35.7<br>19.8<br>8.0<br>69.1<br>31.4<br>21.1<br>8.3<br>68.1<br>4.0<br>79.6|5.0<br>49.8<br>3.4<br>66.4<br>2.0<br>76.5<br>1.9<br>77.9<br>5.9<br>64.6<br>2.3<br>70.7<br>3.3<br>79.8<br>3.9<br>67.5<br>3.5<br>72.2<br>2.2<br>78.0<br>5.0<br>62.1<br>4.4<br>70.3<br>7.4<br>77.1<br>9.0<br>67.1<br>2.5<br>74.3<br>3.2<br>42.2<br>2.6<br>72.1<br>4.0<br>39.6<br>4.9<br>71.1<br>2.7<br>82.1|1.4<br>58.5<br>2.0<br>68.5<br>2.8<br>75.1<br>1.3<br>78.7<br>2.4<br>65.2<br>4.2<br>71.4<br>2.3<br>81.6<br>1.4<br>65.5<br>3.1<br>71.7<br>2.0<br>79.9<br>1.7<br>64.7<br>3.8<br>69.9<br>0.7<br>76.4<br>0.8<br>66.4<br>2.0<br>73.8<br>2.3<br>31.1<br>1.0<br>73.8<br>3.5<br>34.7<br>2.2<br>72.2<br>1.6<br>82.1|5.6<br>44.6<br>6.4<br>62.9<br>3.4<br>74.0<br>3.6<br>76.1<br>8.8<br>58.0<br>5.3<br>68.5<br>1.9<br>79.3<br>12.3<br>60.5<br>6.4<br>69.6<br>4.7<br>76.8<br>6.3<br>60.2<br>6.8<br>66.7<br>6.0<br>74.3<br>7.8<br>62.9<br>5.4<br>70.4<br>13.1<br>24.7<br>2.5<br>70.6<br>7.1<br>24.5<br>3.8<br>69.7<br>2.8<br>80.5|3.8<br>49.4<br>4.1<br>64.7<br>3.1<br>74.7<br>2.7<br>77.1<br>6.5<br>60.2<br>4.8<br>69.8<br>1.3<br>79.8<br>8.3<br>62.3<br>4.9<br>70.7<br>3.1<br>78.1<br>3.9<br>61.8<br>5.2<br>68.0<br>4.4<br>74.7<br>5.2<br>64.1<br>4.5<br>71.8<br>8.4<br>26.7<br>2.2<br>71.9<br>4.5<br>27.9<br>2.9<br>70.5<br>2.3<br>80.8|2.2<br>55.4<br>2.5<br>67.1<br>2.8<br>75.0<br>1.8<br>78.3<br>3.8<br>63.8<br>4.5<br>71.2<br>1.7<br>80.8<br>3.3<br>64.2<br>3.6<br>71.5<br>2.0<br>79.5<br>1.4<br>63.7<br>4.1<br>69.0<br>1.7<br>75.9<br>2.4<br>65.8<br>3.0<br>73.2<br>3.2<br>29.1<br>1.4<br>73.4<br>3.0<br>32.6<br>2.5<br>71.9<br>1.9<br>81.8|
+|∆Average||-5.5<br>+4.0|-9.5<br>+5.5|**-5.6**<br>**+1.1**|**-7.3**<br>**+2.7**|**-9.0**<br>**+4.6**|
+
+
+
+23
+
+
+Published as a conference paper at ICLR 2024
+
+
+Figure 18: Selection bias before (dashed bars) and after (solid bars) shuffling the default options. We observe
+no consistent and remarkable changes in the recall standard deviation (Y-axis).
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+|0|Col2|
+|---|---|
+|2<br>4||
+|2<br>4||
+|x1<br>0||
+
+
+|Cyclic Perm<br>PriDe|Col2|Col3|Col4|
+|---|---|---|---|
+|||||
+|||||
+|x2<br>x3<br>x4<br>x|x2<br>x3<br>x4<br>x|x2<br>x3<br>x4<br>x|x2<br>x3<br>x4<br>x|
+
+
+
+Figure 19: Debiasing results (5-shot) under varying computational costs.
+
+
+shot setting, which can be expected due to both the impact of in-context examples themselves and the alteration
+of in-context examples.
+
+
+24
+
+
+Published as a conference paper at ICLR 2024
+
+
+
+
+
+
+
+
+
+
+
+
+|9 MMLU|Col2|Col3|
+|---|---|---|
+|2 P<br>~~3 P~~|2 P<br>~~3 P~~||
+|2 P<br>~~3 P~~|2 P<br>~~3 P~~|rm<br>~~ rm~~|
+||<br>Pri<br>Pri|<br>De + 2 Perm<br>De + 3 Perm|
+
+
+|2 P<br>3 P|Col2|Col3|
+|---|---|---|
+|2 P<br>~~3 P~~|2 P<br>~~3 P~~|rm<br>~~ rm~~|
+||<br>Pri<br>Pri|<br>De + 2 Perm<br>De + 3 Perm|
+
+
+|Col1|Col2|
+|---|---|
+||2 Perm<br>~~3 Perm~~|
+||<br>PriDe + 2 Perm<br>PriDe + 3 Perm|
+
+
+
+
+
+
+
+
+|2 P<br>3 P<br>Pri<br>Pri|erm<br>erm<br>De + 2 Perm<br>De + 3 Perm|
+|---|---|
+|x1<br>x2<br><br>|x1<br>x2<br><br>|
+
+
+|2 P<br>3 P<br>Pri<br>Pri|erm<br>erm<br>De + 2 Perm<br>De + 3 Perm|
+|---|---|
+|1<br>x2<br>|1<br>x2<br>|
+
+
+|2 Perm 3 Perm PriDe + 2 Perm PriDe + 3 Perm|Col2|
+|---|---|
+|||
+|x2<br>x|x2<br>x|
+
+
+
+Figure 21: Debiasing results (0-shot) of combining PriDe with two low-cost permutation-based debiasing alternatives **2/3 Perm** . Specifically, we randomly sample another 1 or 2 permutations from the standard Cyclic
+Perm _I_, which forms a subset _I ⊂I_ containing 2 or 3 permutations in total. For instance, one possible 2-Perm
+
+[�]
+_I_ - is _{_ (0 _,_ 1 _,_ 2 _,_ 3) _,_ (1 _,_ 2 _,_ 3 _,_ 0) _}_ and one possible 3-Perm � _I_ is _{_ (0 _,_ 1 _,_ 2 _,_ 3) _,_ (2 _,_ 3 _,_ 0 _,_ 1) _,_ (3 _,_ 0 _,_ 1 _,_ 2) _}_ . In 2/3 Perm,
+we debias the model prediction with _I_ using Equation 1. We control the costs of 2/3 Perm via the ratio _β_ of the
+
+[�]
+debiased test samples, where we take _β ∈{_ 0% _,_ 10% _,_ 20% _,_ 40% _,_ 60% _,_ 80% _,_ 100% _}_ .
+
+
+We combine PriDe with 2/3 Perm in three steps: (1) We first estimate the prior _P_ [�] prior with 5% test samples
+_D_ e (these samples are meanwhile directly debiased via Cyclic Perm). (2) We then debias _α −_ 5% samples
+through 2/3 Perm, with _I_ [�] and using Equation 1. (3) We finally debias the remaining 1 _−_ _α_ samples _D_ r with the
+estimated prior _P_ [�] prior, using Equation 8. We take _α ∈{_ 5% _,_ 10% _,_ 20% _,_ 40% _,_ 60% _,_ 80% _}_ .
+
+
+
+
+
+
+
+
+
+
+
+
+|6 MMLU|Col2|Col3|
+|---|---|---|
+|4<br>2<br>2 P<br>~~3 P~~<br>|4<br>2<br>2 P<br>~~3 P~~<br>||
+|4<br>2<br>2 P<br>~~3 P~~<br>|2 P<br>~~3 P~~<br>|rm<br>~~ erm~~<br>|
+|0|Pri<br>PriD|e + 2 Perm<br>e + 3 Perm|
+
+
+|2 P<br>3 P|Col2|Col3|
+|---|---|---|
+|2 P<br>~~3 P~~<br>|2 P<br>~~3 P~~<br>|rm<br>~~ erm~~<br>|
+||Pri<br>PriD|e + 2 Perm<br>e + 3 Perm|
+
+
+|Col1|Col2|
+|---|---|
+||~~2 Perm~~<br>3 Perm<br>|
+||~~PriDe + 2 Perm~~<br>PriDe + 3 Perm|
+
+
+
+
+
+
+
+
+|2 P<br>3 P<br>PriD<br>PriD|erm<br>erm<br>e + 2 Perm<br>e + 3 Perm|
+|---|---|
+|x1<br>x2<br>|x1<br>x2<br>|
+
+
+|2 Perm 3 Perm PriDe + 2 Perm PriDe + 3 Perm|Col2|
+|---|---|
+|||
+|1<br>x2<br>x|1<br>x2<br>x|
+
+
+
+Figure 22: Debiasing results (5-shot) of combining PriDe with 2/3 Perm.
+
+
+25
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 5: Breakdown of the model prediction changes (0-shot MMLU) after **PriDe** (single run, prior
+estimated with _α_ = 5% samples and statistics on the remaining 1 _−_ _α_ samples) or **Cyclic Permuta-**
+**tion** debiasing (statistics on the same samples as PriDe).
+
+
+**Upper** : We show the proportions of test samples where the model predictions change after debiasing
+( **Changed** ). Among these samples, we count the proportions of predictions changing from wrong to
+wrong ( **F** _**→**_ **F**, but no such samples for all the models), from correct to wrong ( **T** _**→**_ **F** ), and from
+wrong to correct ( **F** _**→**_ **T** ).
+
+
+**Lower** : We show the prediction probabilities of the predicted answers before and after debiasing,
+i.e., max _i P_ observed( _di|q, x_ ) and max _i_ _P_ debiased( _oi|q, x_ ), averaged over **only prediction-changed**
+
+[�]
+samples or **all** the samples.
+
+
+|Models|PriDe Debiasing<br>Changed F →F T →F F →T|Cyclic Permutation Debiasing<br>Changed F →F T →F F →T|
+|---|---|---|
+|`llama-7B`<br>`llama-13B`<br>`llama-30B`<br>`llama-65B`<br>`llama-2-7B`<br>`llama-2-13B`<br>`llama-2-70B`<br>`llama-2-chat-7B`<br>`llama-2-chat-13B`<br>`llama-2-chat-70B`<br>`vicuna-v1.3-7B`<br>`vicuna-v1.3-13B`<br>`vicuna-v1.3-33B`<br>`vicuna-v1.5-7B`<br>`vicuna-v1.5-13B`<br>`falcon-7B`<br>`falcon-40B`<br>`falcon-inst-7B`<br>`falcon-inst-40B`<br>`gpt-3.5-turbo`|27.2%<br>43.7%<br>25.6%<br>30.7%<br>24.9%<br>41.7%<br>26.3%<br>32.0%<br>11.8%<br>43.4%<br>25.2%<br>31.4%<br>17.0%<br>39.9%<br>26.0%<br>34.2%<br>37.2%<br>44.5%<br>22.2%<br>33.3%<br>11.2%<br>39.4%<br>27.1%<br>33.5%<br>9.7%<br>37.9%<br>30.3%<br>31.8%<br>13.1%<br>39.6%<br>28.9%<br>31.5%<br>14.5%<br>37.9%<br>26.6%<br>35.5%<br>5.5%<br>29.3%<br>28.4%<br>42.3%<br>15.9%<br>46.8%<br>25.7%<br>27.5%<br>17.7%<br>42.9%<br>27.7%<br>29.3%<br>4.0%<br>39.7%<br>26.1%<br>34.3%<br>13.8%<br>43.5%<br>27.5%<br>29.0%<br>12.6%<br>37.9%<br>27.7%<br>34.4%<br>50.0%<br>48.4%<br>23.5%<br>28.1%<br>10.7%<br>39.7%<br>28.7%<br>31.6%<br>46.4%<br>47.4%<br>23.6%<br>29.0%<br>16.6%<br>36.8%<br>30.5%<br>32.7%<br>4.0%<br>24.8%<br>34.5%<br>40.8%|50.6%<br>38.1%<br>21.3%<br>40.7%<br>54.8%<br>35.1%<br>20.4%<br>44.5%<br>24.6%<br>35.0%<br>24.2%<br>40.8%<br>29.7%<br>33.6%<br>25.0%<br>41.4%<br>45.6%<br>35.7%<br>20.2%<br>44.1%<br>28.6%<br>35.0%<br>25.8%<br>39.2%<br>17.3%<br>27.1%<br>28.9%<br>44.0%<br>34.4%<br>37.0%<br>26.6%<br>36.4%<br>33.6%<br>37.2%<br>26.5%<br>36.3%<br>22.4%<br>29.6%<br>29.0%<br>41.4%<br>33.0%<br>41.0%<br>25.5%<br>33.4%<br>32.5%<br>37.4%<br>26.5%<br>36.1%<br>23.0%<br>35.8%<br>24.7%<br>39.6%<br>33.4%<br>38.3%<br>27.5%<br>34.2%<br>27.7%<br>39.5%<br>25.9%<br>34.6%<br>65.9%<br>43.5%<br>21.5%<br>34.9%<br>33.3%<br>34.9%<br>27.0%<br>38.1%<br>71.7%<br>44.4%<br>21.3%<br>34.2%<br>34.9%<br>37.2%<br>28.2%<br>34.6%<br>15.1%<br>27.8%<br>29.1%<br>43.1%|
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+|Models|Original Prob<br>max P (d|q, x)<br>i observed i<br>Over Over<br>Over<br>PriDe- Cyclic-<br>All<br>Changed Changed|PriDe-debiased Prob<br>max P (o|q, x)<br>i edebiased i<br>Over<br>Over<br>PriDe-<br>All<br>Changed|Cyclic-debiased Prob<br>max P (o|q, x)<br>i edebiased i<br>Over<br>Over<br>Cyclic-<br>All<br>Changed|
+|---|---|---|---|
+|`llama-7B`<br>`llama-13B`<br>`llama-30B`<br>`llama-65B`<br>`llama-2-7B`<br>`llama-2-13B`<br>`llama-2-70B`<br>`llama-2-chat-7B`<br>`llama-2-chat-13B`<br>`llama-2-chat-70B`<br>`vicuna-v1.3-7B`<br>`vicuna-v1.3-13B`<br>`vicuna-v1.3-33B`<br>`vicuna-v1.5-7B`<br>`vicuna-v1.5-13B`<br>`falcon-7B`<br>`falcon-40B`<br>`falcon-inst-7B`<br>`falcon-inst-40B`<br>`gpt-3.5-turbo`|0.289<br>0.306<br>0.314<br>0.341<br>0.434<br>0.453<br>0.313<br>0.361<br>0.497<br>0.332<br>0.358<br>0.514<br>0.311<br>0.337<br>0.362<br>0.312<br>0.360<br>0.459<br>0.345<br>0.411<br>0.612<br>0.503<br>0.627<br>0.751<br>0.538<br>0.631<br>0.780<br>0.496<br>0.658<br>0.810<br>0.339<br>0.425<br>0.578<br>0.421<br>0.510<br>0.683<br>0.388<br>0.562<br>0.756<br>0.436<br>0.537<br>0.691<br>0.450<br>0.529<br>0.715<br>0.299<br>0.312<br>0.319<br>0.339<br>0.417<br>0.556<br>0.376<br>0.413<br>0.419<br>0.387<br>0.455<br>0.593<br>0.463<br>0.630<br>0.860|0.283<br>0.304<br>0.329<br>0.421<br>0.308<br>0.493<br>0.328<br>0.514<br>0.295<br>0.344<br>0.313<br>0.455<br>0.353<br>0.617<br>0.493<br>0.743<br>0.546<br>0.767<br>0.483<br>0.795<br>0.337<br>0.579<br>0.398<br>0.677<br>0.382<br>0.757<br>0.412<br>0.676<br>0.423<br>0.703<br>0.286<br>0.294<br>0.345<br>0.553<br>0.330<br>0.341<br>0.366<br>0.577<br>0.486<br>0.857|0.255<br>0.257<br>0.261<br>0.270<br>0.271<br>0.309<br>0.271<br>0.315<br>0.260<br>0.266<br>0.271<br>0.297<br>0.286<br>0.345<br>0.304<br>0.345<br>0.313<br>0.362<br>0.317<br>0.378<br>0.285<br>0.326<br>0.295<br>0.347<br>0.304<br>0.372<br>0.299<br>0.345<br>0.307<br>0.365<br>0.251<br>0.251<br>0.280<br>0.320<br>0.255<br>0.255<br>0.284<br>0.326<br>0.318<br>0.408|
+
+
+26
+
+
+Published as a conference paper at ICLR 2024
+
+
+Table 6: Breakdown of the model prediction changes (0-shot MMLU) after **PriDe** or **Cyclic Per-**
+**mutation** debiasing (cont.). We count where the debiased/original predicted answers are ranked
+in the original/debiased prediction distributions, i.e., the ranking of arg max _i_ _P_ [�] debiased( _oi|q, x_ ) in
+_P_ observed( _di|q, x_ ) and the ranking of arg max _i P_ observed( _di|q, x_ ) in _P_ [�] debiased( _oi|q, x_ ). Ranking
+counting is presented in descending order, i.e., first / second / third / last %.
+
+
+
+
+
+
+
+
+|Models|PriDe Debiasing<br>Debiased Prediction Original Prediction<br>arg max i P edebiased(o i|q, x) arg max i P observed(d i|q, x)<br>Ranked in Original Distribution Ranked in Debiased Distribution<br>P (d|q, x) P (o|q, x)<br>observed i edebiased i|
+|---|---|
+|`llama-7B`<br>`llama-13B`<br>`llama-30B`<br>`llama-65B`<br>`llama-2-7B`<br>`llama-2-13B`<br>`llama-2-70B`<br>`llama-2-chat-7B`<br>`llama-2-chat-13B`<br>`llama-2-chat-70B`<br>`vicuna-v1.3-7B`<br>`vicuna-v1.3-13B`<br>`vicuna-v1.3-33B`<br>`vicuna-v1.5-7B`<br>`vicuna-v1.5-13B`<br>`falcon-7B`<br>`falcon-40B`<br>`falcon-inst-7B`<br>`falcon-inst-40B`<br>`gpt-3.5-turbo`|72.8% / 18.7% / 6.7% / 1.8%<br>72.8% / 22.1% / 5.1% / 0.0%<br>75.1% / 16.7% / 6.6% / 1.7%<br>75.1% / 12.8% / 8.9% / 3.2%<br>88.2% / 8.9% / 2.2% / 0.7%<br>88.2% / 9.9% / 1.7% / 0.2%<br>83.0% / 11.4% / 4.2% / 1.4%<br>83.0% / 12.3% / 3.7% / 1.0%<br>62.8% / 17.3% / 14.8% / 5.2%<br>62.8% / 24.2% / 11.3% / 1.7%<br>88.8% / 10.0% / 1.2% / 0.0%<br>88.8% / 8.0% / 3.0% / 0.2%<br>90.3% / 8.8% / 0.9% / 0.1%<br>90.3% / 7.7% / 1.6% / 0.4%<br>86.9% / 10.6% / 2.2% / 0.3%<br>86.9% / 10.6% / 2.4% / 0.0%<br>85.5% / 12.6% / 1.7% / 0.1%<br>85.5% / 10.7% / 3.7% / 0.1%<br>94.5% / 5.0% / 0.4% / 0.0%<br>94.5% / 4.8% / 0.7% / 0.0%<br>84.1% / 11.0% / 4.6% / 0.3%<br>84.1% / 9.3% / 6.3% / 0.3%<br>82.3% / 12.2% / 4.6% / 1.0%<br>82.3% / 15.4% / 2.0% / 0.4%<br>96.0% / 3.5% / 0.5% / 0.1%<br>96.0% / 3.7% / 0.3% / 0.0%<br>86.2% / 11.9% / 1.4% / 0.4%<br>86.2% / 12.1% / 1.3% / 0.4%<br>87.4% / 11.2% / 1.3% / 0.1%<br>87.4% / 11.9% / 0.6% / 0.0%<br>50.0% / 29.1% / 14.3% / 6.7%<br>50.0% / 18.6% / 11.1% / 20.3%<br>89.3% / 9.1% / 1.4% / 0.2%<br>89.3% / 8.3% / 1.9% / 0.5%<br>53.6% / 27.8% / 13.7% / 4.9%<br>53.6% / 16.9% / 17.2% / 12.3%<br>83.4% / 11.4% / 4.3% / 0.9%<br>83.4% / 13.3% / 3.3% / 0.0%<br>96.0% / 3.8% / 0.2% / 0.0%<br>96.1% / 3.5% / 0.4% / 0.0%|
+
+
+
+
+
+
+
+|Models|Cyclic Permutation Debiasing<br>Debiased Prediction Original Prediction<br>arg max i P edebiased(o i|q, x) arg max i P observed(d i|q, x)<br>Ranked in Original Distribution Ranked in Debiased Distribution<br>P (d|q, x) P (o|q, x)<br>observed i edebiased i|
+|---|---|
+|`llama-7B`<br>`llama-13B`<br>`llama-30B`<br>`llama-65B`<br>`llama-2-7B`<br>`llama-2-13B`<br>`llama-2-70B`<br>`llama-2-chat-7B`<br>`llama-2-chat-13B`<br>`llama-2-chat-70B`<br>`vicuna-v1.3-7B`<br>`vicuna-v1.3-13B`<br>`vicuna-v1.3-33B`<br>`vicuna-v1.5-7B`<br>`vicuna-v1.5-13B`<br>`falcon-7B`<br>`falcon-40B`<br>`falcon-inst-7B`<br>`falcon-inst-40B`<br>`gpt-3.5-turbo`|49.4% / 23.8% / 15.2% / 11.6%<br>49.4% / 24.5% / 15.1% / 11.0%<br>45.2% / 25.6% / 17.6% / 11.6%<br>45.2% / 23.8% / 17.5% / 13.5%<br>75.4% / 16.4% / 5.5% / 2.7%<br>75.4% / 15.6% / 6.2% / 2.8%<br>70.3% / 14.6% / 6.7% / 8.3%<br>70.3% / 15.0% / 9.5% / 5.2%<br>54.4% / 21.5% / 14.4% / 9.8%<br>54.4% / 24.1% / 13.5% / 8.0%<br>71.4% / 17.9% / 7.5% / 3.2%<br>71.4% / 17.6% / 7.8% / 3.3%<br>82.7% / 13.2% / 3.1% / 1.0%<br>82.7% / 12.1% / 3.9% / 1.3%<br>65.6% / 24.4% / 8.0% / 2.0%<br>65.6% / 14.1% / 12.4% / 7.9%<br>66.4% / 23.5% / 9.0% / 1.1%<br>66.4% / 12.1% / 11.4% / 10.1%<br>77.6% / 17.6% / 3.9% / 0.9%<br>77.6% / 11.9% / 7.5% / 3.0%<br>67.0% / 17.6% / 11.0% / 4.4%<br>67.0% / 15.1% / 7.8% / 10.2%<br>67.5% / 22.6% / 7.4% / 2.6%<br>67.5% / 15.2% / 12.7% / 4.7%<br>77.0% / 18.2% / 3.6% / 1.1%<br>77.0% / 12.6% / 7.7% / 2.7%<br>66.6% / 20.7% / 10.9% / 1.7%<br>66.6% / 13.8% / 7.6% / 11.9%<br>72.3% / 21.6% / 5.0% / 1.2%<br>72.3% / 13.6% / 9.0% / 5.1%<br>34.1% / 25.0% / 21.3% / 19.6%<br>34.1% / 23.9% / 21.2% / 20.8%<br>66.7% / 19.9% / 11.7% / 1.7%<br>66.7% / 16.7% / 8.9% / 7.7%<br>28.3% / 29.5% / 22.4% / 19.8%<br>28.3% / 28.2% / 24.3% / 19.2%<br>65.1% / 19.3% / 13.4% / 2.2%<br>65.1% / 18.0% / 11.8% / 5.1%<br>84.9% / 12.2% / 2.4% / 0.5%<br>84.9% / 10.3% / 3.4% / 1.4%|
+
+
+27
+
+
+Published as a conference paper at ICLR 2024
+
+
+D SUPPLEMENTARY PROOF FOR PERMUTATION-BASED DEBIASING
+BASELINE
+
+
+Our probability decomposition assumption (Equation 3) can also give a theoretical proof of the
+soundness of the permutation-based debiasing baseline (Equation 1). Note that _gI_ is the inverse
+mapping of _fI_ : _gI_ = _fI_ _[−]_ [1], so we can rewrite Equation 3 as:
+
+
+_P_ observed( _dgI_ ( _i_ ) _|q, x_ _[I]_ ) = _Zq,x_ _[−]_ [1] _[I]_ _[P]_ [prior][(] _[d][g][I]_ [(] _[i]_ [)] _[|][q]_ [)] _[P]_ [debiased][(] _[o][i][|][q, x]_ [)] _[,][ ∀][I][ ∈I][, i][ ∈{]_ [1] _[,]_ [ 2] _[, ..., n][}][.]_ (9)
+
+
+By taking the logarithm and summing over _I ∈I_, we can similarly derive:
+
+
+
+
+- ��
+
+log _P_ observed( _dgI_ ( _i_ ) _|q, x_ _[I]_ ) =
+_I∈I_ _I∈I_
+
+
+
+
+
+
+
+
+       log _P_ prior( _dgI_ ( _i_ ) _|q_ ) + _|I|_ log _P_ debiased( _oi|q, x_ ) + _C_
+_I∈I_
+
+
+
+
+ - _|I|_
+=
+
+_n_
+
+
+
+(10)
+
+_n_ 
+- log _P_ prior( _dj|q_ ) + _|I|_ log _P_ debiased( _oi|q, x_ ) + _C_
+
+
+_j_ =1
+
+
+
+(11)
+
+= _|I|_ log _P_ debiased( _oi|q, x_ ) + _C_ _[′]_ _, i ∈{_ 1 _,_ 2 _, ..., n},_ (12)
+
+
+
+and obtain:
+
+
+
+
+        - 1
+_P_ debiased( _oi|q, x_ ) = softmax _|I|_
+
+
+
+
+        
+- log _P_ observed( _dgI_ ( _i_ ) _|q, x_ _[I]_ ) (13)
+
+_I∈I_
+
+
+
+_≈_ [1]
+
+_|I|_
+
+
+
+
+- _P_ observed( _dgI_ ( _i_ ) _|q, x_ _[I]_ ) (14)
+
+_I∈I_
+
+
+
+= _P_ [�] debiased( _oi|q, x_ ) _, i ∈{_ 1 _,_ 2 _, ..., n},_ (15)
+
+
+where the approximation holds when the variance of _{P_ observed( _dgI_ ( _i_ ) _|q, x_ _[I]_ ) _|I ∈I}_ is not too large.
+
+
+E EVALUATION DATA AND STATISTICS
+
+
+**MMLU** `[https://github.com/hendrycks/test](https://github.com/hendrycks/test)`
+
+
+**ARC** `[https://allenai.org/data/arc](https://allenai.org/data/arc)`
+
+
+**CSQA** `[https://allenai.org/data/commonsenseqa](https://allenai.org/data/commonsenseqa)`
+
+
+Table 7: Data statistics of benchmarks used in our experiments. Due to the budget constraints and
+rate limits, for `gpt-3.5-turbo` in the MMLU evaluation, we randomly sampled 100 test samples
+from each subject (5,700 in total, accounting for 40% the original size).
+
+
+_∗_ We excluded a few MMLU samples (about 3.2% in total), where the options refer to each other
+like “A and B”, “none of the above”, in all the experiments. The exclusion of these samples is to
+ensure the validity of option position changes in the “answer-moving attack” and option shuffling or
+permutation.
+
+
+**Benchmarks** **# Samples** **# Evaluated** _[∗]_ **# Options** **Golden Answer Distribution**
+
+
+
+STEM 3,018 2,925
+
+
+
+MMLU
+
+
+
+STEM 3,018 2,925 21.4% / 23.8% / 25.9% / 28.9%
+
+Social Science 3,077 2,992 21.7% / 23.4% / 23.8% / 31.1%
+
+4
+
+Humanities 4,705 4,476 24.2% / 24.5% / 27.1% / 24.2%
+Others 3,242 3,199 23.8% / 26.8% / 24.4% / 25.0%
+
+
+
+4
+
+
+
+Overall 14,042 13,592 4 22.9% / 24.7% / 25.5% / 26.9%
+
+
+ARC 1,165 1,165 4 22.6% / 26.5% / 26.5% / 24.4%
+
+
+CSQA 1,216 1,216 5 19.6% / 20.8% / 19.8% / 20.6% / 19.2%
+
+
+28
+
+
+Published as a conference paper at ICLR 2024
+
+
+F REFERENCE PROJECTS
+
+
+**HuggingFace LLM Leaderboard** `[https://huggingface.co/spaces/HuggingFaceH4/](https://huggingface.co/spaces/HuggingFaceH4/open_llm_leaderboard)`
+```
+open_llm_leaderboard
+
+```
+
+**EleutherAI lm-harness** `[https://github.com/EleutherAI/lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness)`
+
+
+**Original MMLU implementation** `[https://github.com/hendrycks/test](https://github.com/hendrycks/test)`
+
+
+**OpenAI Evals** `[https://github.com/openai/evals](https://github.com/openai/evals)`
+
+
+G EVALUATED OPEN-SOURCE MODELS
+
+|Models|URLs|
+|---|---|
+|`llama-7b`<br>`llama-13b`<br>`llama-30b`<br>`llama-65b`|`https://huggingface.co/huggyllama/llama-7b`<br>`https://huggingface.co/huggyllama/llama-13b`<br>`https://huggingface.co/huggyllama/llama-30b`<br>`https://huggingface.co/huggyllama/llama-65b`|
+|`llama-2-7b`<br>`llama-2-13b`<br>`llama-2-70b`<br>`llama-2-chat-7b`<br>`llama-2-chat-13b`<br>`llama-2-chat-70b`|`https://huggingface.co/meta-llama/Llama-2-7b-hf`<br>`https://huggingface.co/meta-llama/Llama-2-13b-hf`<br>`https://huggingface.co/meta-llama/Llama-2-70b-hf`<br>`https://huggingface.co/meta-llama/Llama-2-7b-chat-hf`<br>`https://huggingface.co/meta-llama/Llama-2-13b-chat-hf`<br>`https://huggingface.co/meta-llama/Llama-2-70b-chat-hf`|
+|`vicuna-v1.3-7b`<br>`vicuna-v1.3-13b`<br>`vicuna-v1.3-33b`<br>`vicuna-v1.5-7b`<br>`vicuna-v1.5-13b`|`https://huggingface.co/lmsys/vicuna-7b-v1.3`<br>`https://huggingface.co/lmsys/vicuna-13b-v1.3`<br>`https://huggingface.co/lmsys/vicuna-33b-v1.3`<br>`https://huggingface.co/lmsys/vicuna-7b-v1.5`<br>`https://huggingface.co/lmsys/vicuna-13b-v1.5`|
+|`falcon-7b`<br>`falcon-40b`<br>`falcon-inst-7b`<br>`falcon-inst-40b`|`https://huggingface.co/tiiuae/falcon-7b`<br>`https://huggingface.co/tiiuae/falcon-40b`<br>`https://huggingface.co/tiiuae/falcon-7b-instruct`<br>`https://huggingface.co/tiiuae/falcon-7b-instruct`|
+
+
+
+29
+
+

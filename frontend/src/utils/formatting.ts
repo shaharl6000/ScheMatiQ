@@ -24,13 +24,21 @@ export const formatColumnName = (columnName: string): string => {
   if (!columnName || typeof columnName !== 'string') {
     return 'Unknown Column';
   }
-  
+
+  // Special display names for internal columns
+  if (columnName === '_row_name' || columnName === 'row_name') {
+    return 'Doc Name';
+  }
+  if (columnName === '_unit_name') {
+    return 'Observation Unit';
+  }
+
   // Handle special metadata columns
   if (columnName.startsWith('_')) {
     const cleanName = columnName.replace('_', '');
     return snakeCaseToTitleCase(cleanName);
   }
-  
+
   // Convert snake_case to Title Case
   return snakeCaseToTitleCase(columnName);
 };

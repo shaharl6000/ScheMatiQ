@@ -18,6 +18,20 @@ export interface CreationMetadata {
   convergence_achieved: boolean;
 }
 
+// Observation unit definition (what constitutes a single row)
+export interface ObservationUnitInfo {
+  /** e.g., "Model-Benchmark Evaluation" */
+  name: string;
+  /** What constitutes one row */
+  definition: string;
+  /** e.g., ["GPT-4 on MMLU", "Claude on HumanEval"] */
+  example_names?: string[];
+  /** Document that helped define this unit */
+  source_document?: string;
+  /** Iteration when this unit was discovered */
+  discovery_iteration?: number;
+}
+
 // Pending value for schema evolution
 export interface PendingValue {
   value: string;
@@ -100,12 +114,20 @@ export interface VisualizationSession {
   // Creation and modification tracking
   creation_metadata?: CreationMetadata;  // Immutable creation info
   modification_history?: ModificationAction[];  // Schema modification log
+  // Observation unit tracking
+  observation_unit?: ObservationUnitInfo;  // What constitutes a single row
 }
 
 export interface DataRow {
   row_name?: string;
   papers?: string[];
   data: Record<string, CellValue>;
+  // Observation unit metadata (for multi-row extraction)
+  _unit_name?: string;
+  _source_document?: string;
+  _parent_document?: string;
+  _observation_unit?: string;
+  _unit_confidence?: string;
 }
 
 export interface PaginatedData {
@@ -349,6 +371,7 @@ export interface SchemaData {
     generated_timestamp?: string;  // Original QBSD creation timestamp
     import_timestamp?: string;     // When it was imported/loaded
   };
+  observation_unit?: ObservationUnitInfo;
 }
 
 export interface ProcessingStats {

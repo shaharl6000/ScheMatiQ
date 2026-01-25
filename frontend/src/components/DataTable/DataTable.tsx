@@ -403,6 +403,34 @@ const DataTable: React.FC<DataTableProps> = ({
     return data.rows;
   }, [data.rows]);
 
+  // Check if observation units are present (enables cell merging for doc_name)
+  const hasObservationUnits = useMemo(() => {
+    return data.rows.some(row => row._unit_name != null);
+  }, [data.rows]);
+
+  // Helper: check if doc_name cell should render (first row of a group)
+  // When observation units are present, group by _source_document (the actual document name)
+  const shouldRenderDocNameCell = useCallback((rowIndex: number): boolean => {
+    if (!hasObservationUnits) return true;
+    if (rowIndex === 0) return true;
+    const currentDoc = processedRows[rowIndex]?._source_document;
+    const prevDoc = processedRows[rowIndex - 1]?._source_document;
+    return currentDoc !== prevDoc;
+  }, [hasObservationUnits, processedRows]);
+
+  // Helper: get row span for doc_name cell
+  // When observation units are present, span based on _source_document grouping
+  const getDocNameRowSpan = useCallback((rowIndex: number): number => {
+    if (!hasObservationUnits) return 1;
+    const currentDoc = processedRows[rowIndex]?._source_document;
+    let span = 1;
+    for (let i = rowIndex + 1; i < processedRows.length; i++) {
+      if (processedRows[i]?._source_document === currentDoc) span++;
+      else break;
+    }
+    return span;
+  }, [hasObservationUnits, processedRows]);
+
   // Get all column names with proper ordering
   const defaultColumns = useMemo(() => {
     const priorityColumns: string[] = [];
@@ -433,6 +461,16 @@ const DataTable: React.FC<DataTableProps> = ({
     // 2. There's NO row-name-like column already in the data (to avoid duplicates)
     if (data.rows.some(row => row.row_name) && !hasRowNameColumnInData) {
       priorityColumns.push('_row_name');
+    }
+
+    // Add _unit_name column if any row has it (observation unit for multi-row docs)
+    if (data.rows.some(row => row._unit_name != null)) {
+      priorityColumns.push('_unit_name');
+    }
+
+    // Add _source_document column if any row has it (shows actual document name)
+    if (data.rows.some(row => row._source_document != null)) {
+      regularColumns.push('_source_document');
     }
 
     if (data.rows.some(row => row.papers?.length)) {
@@ -477,7 +515,21 @@ const DataTable: React.FC<DataTableProps> = ({
       });
     }
 
-    return [...priorityColumns, ...regularColumns, ...schemaColumns];
+    // Combine all columns
+    const allCols = [...priorityColumns, ...regularColumns, ...schemaColumns];
+
+    // Move "Document Directory" (and similar patterns) to the end
+    const isDocDirectoryColumn = (col: string) => {
+      const colLower = col.toLowerCase().replace(/[_-]/g, ' ');
+      return colLower.includes('document directory') ||
+             colLower.includes('doc directory') ||
+             colLower === 'directory';
+    };
+
+    const docDirectoryCols = allCols.filter(isDocDirectoryColumn);
+    const otherCols = allCols.filter(col => !isDocDirectoryColumn(col));
+
+    return [...otherCols, ...docDirectoryCols];
   }, [data.rows, columnInfo]);
 
   const allColumns = useMemo(() => {
@@ -1127,7 +1179,12 @@ const DataTable: React.FC<DataTableProps> = ({
                 {processedRows.map((row, rowIndex) => {
                   const getFrozenCellValue = () => {
                     if (frozenColumn === '_row_name') {
-                      return row.row_name;
+                      // When observation units are present, show document name in merged cells
+                      return hasObservationUnits ? row._source_document : row.row_name;
+                    } else if (frozenColumn === '_unit_name') {
+                      return row._unit_name;
+                    } else if (frozenColumn === '_source_document') {
+                      return row._source_document;
                     } else if (frozenColumn === '_papers') {
                       return row.papers;
                     } else {
@@ -1138,6 +1195,9 @@ const DataTable: React.FC<DataTableProps> = ({
                   const actualRowIndex = page * pageSize + rowIndex + 1;
                   const isNewlyAdded = newlyAddedRows?.has(actualRowIndex) || false;
                   const isStreaming = row.row_name ? streamingCells?.has(row.row_name) : false;
+                  // Add thicker border between doc groups when observation units present
+                  const isFirstRowOfGroup = hasObservationUnits && shouldRenderDocNameCell(rowIndex);
+                  const isGroupBoundary = isFirstRowOfGroup && rowIndex > 0;
 
                   return (
                     <tr
@@ -1145,14 +1205,29 @@ const DataTable: React.FC<DataTableProps> = ({
                       className={cn(
                         "border-b hover:bg-muted/50 transition-colors",
                         isNewlyAdded && "bg-green-100 dark:bg-green-950 animate-pulse",
-                        isStreaming && "bg-blue-50 dark:bg-blue-950"
+                        isStreaming && "bg-blue-50 dark:bg-blue-950",
+                        isGroupBoundary && "border-t-2 border-t-primary/20"
                       )}
                     >
-                      {/* Frozen first column */}
+                      {/* Frozen first column - with cell merging for doc_name when observation units present */}
                       {frozenColumn && (
-                        <td className="px-4 py-3 min-w-[150px] max-w-[250px] sticky left-0 bg-background border-r">
-                          {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
-                        </td>
+                        frozenColumn === '_row_name' && hasObservationUnits ? (
+                          // Doc name column with potential cell spanning
+                          shouldRenderDocNameCell(rowIndex) && (
+                            <td
+                              className="px-4 py-3 min-w-[150px] max-w-[250px] sticky left-0 bg-background border-r"
+                              rowSpan={getDocNameRowSpan(rowIndex)}
+                              style={{ verticalAlign: 'middle' }}
+                            >
+                              {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
+                            </td>
+                          )
+                        ) : (
+                          // Regular frozen column (no spanning)
+                          <td className="px-4 py-3 min-w-[150px] max-w-[250px] sticky left-0 bg-background border-r">
+                            {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
+                          </td>
+                        )
                       )}
 
                       {/* Scrollable columns */}
@@ -1160,11 +1235,33 @@ const DataTable: React.FC<DataTableProps> = ({
                         let cellValue;
 
                         if (column === '_row_name') {
-                          cellValue = row.row_name;
+                          // When observation units are present, show document name in merged cells
+                          cellValue = hasObservationUnits ? row._source_document : row.row_name;
+                        } else if (column === '_unit_name') {
+                          cellValue = row._unit_name;
+                        } else if (column === '_source_document') {
+                          cellValue = row._source_document;
                         } else if (column === '_papers') {
                           cellValue = row.papers;
                         } else {
                           cellValue = row.data[column];
+                        }
+
+                        // Handle cell merging for _row_name in scrollable columns
+                        if (column === '_row_name' && hasObservationUnits) {
+                          if (!shouldRenderDocNameCell(rowIndex)) {
+                            return null; // Skip merged cells
+                          }
+                          return (
+                            <td
+                              key={column}
+                              className="px-4 py-3 min-w-[120px] sm:min-w-[150px]"
+                              rowSpan={getDocNameRowSpan(rowIndex)}
+                              style={{ verticalAlign: 'middle' }}
+                            >
+                              {formatCellValue(cellValue, column, row)}
+                            </td>
+                          );
                         }
 
                         return (

@@ -108,10 +108,6 @@ USER_PROMPT_TMPL_STANDARD = """
 """.strip()
 
 
-# ============================================================================
-# DOCUMENT-ONLY MODE PROMPTS (No Query)
-# ============================================================================
-
 SYSTEM_PROMPT_DOCUMENT_ONLY = """
 You are *SchemaLLM*, a minimalist schema designer. Your default response is NO NEW COLUMNS.
 Only add a column when it is clearly missing from the existing schema and provides real value.
@@ -286,6 +282,118 @@ A draft schema already exists. Review it first – then append columns as needed
 <DRAFT_SCHEMA>
 {json_schema}
 </DRAFT_SCHEMA>
+""".strip()
+
+
+# ============================================================================
+# OBSERVATION UNIT DISCOVERY PROMPT
+# ============================================================================
+
+SYSTEM_PROMPT_OBSERVATION_UNIT = """
+You are *ObservationUnitLLM*, a data analyst determining what constitutes a single row in a structured dataset.
+
+### Task
+Given a query and sample document passages, determine the appropriate **observation unit** — what each row in the extracted table should represent.
+
+### Key Concept: Observation Unit
+The observation unit defines the granularity of extraction:
+- **Document-level**: Each document = one row (simplest case)
+- **Sub-document-level**: Each document may contain MULTIPLE observation units, each becoming a separate row
+
+### Name Guidelines
+The name should be:
+- **1-3 words MAXIMUM** (e.g., "Protein", "Model", "Treatment Arm")
+- A simple noun or noun phrase
+- What you'd use as a column header or UI label
+- NOT a description — detailed explanation goes in the definition field
+
+❌ Bad names: "Model-Benchmark Evaluation Result", "Clinical Trial Treatment Condition", "Research Paper Document Entry"
+✅ Good names: "Model", "Protein", "Experiment", "Patient", "Treatment Arm"
+
+### Examples
+
+**Query**: "Compare LLM performance on reasoning benchmarks"
+**Observation Unit**:
+  - name: "Model"
+  - definition: "A single LLM being evaluated, with results compared across benchmarks"
+  - example_names: ["GPT-4", "Claude-3", "LLaMA-2"]
+→ A paper comparing 5 models produces 5 rows
+
+**Query**: "What datasets are used for NLP research?"
+**Observation Unit**:
+  - name: "Document"
+  - definition: "Each document is treated as one observation unit"
+  - example_names: []
+→ Default case: one row per document
+
+**Query**: "Analyze treatment outcomes in clinical trials"
+**Observation Unit**:
+  - name: "Treatment Arm"
+  - definition: "A single treatment condition within a clinical trial, with its own dosage and outcome measures"
+  - example_names: ["Drug A 10mg", "Drug A 50mg", "Placebo"]
+→ A trial with 3 arms produces 3 rows
+
+### Decision Guidelines
+
+**Use sub-document units when:**
+- The query asks to COMPARE multiple entities within documents
+- Documents naturally contain repeated structured elements (models, experiments, conditions)
+- Each entity has its own set of measurable attributes
+- You would lose information by aggregating to document level
+
+**Use document-level units when:**
+- The query asks about document-level properties
+- Documents describe a single main subject
+- There's no natural repeated structure within documents
+- Sub-units would create artificial fragmentation
+
+### Output Format
+Return valid JSON only:
+{{
+  "observation_unit": {{
+    "name": "ShortName",
+    "definition": "Full sentence describing what constitutes a single row in the table",
+    "example_names": ["Instance1", "Instance2", "Instance3"]
+  }},
+  "reasoning": "Brief explanation of why this unit was chosen"
+}}
+
+IMPORTANT: The "name" field must be 1-3 words. Put all detailed explanation in "definition".
+
+### Remember
+- **NAME = 1-3 words** (this is critical — it's used as a UI label)
+- **DEFINITION = detailed explanation** (full sentence describing what a row represents)
+- The observation unit should match the NATURAL structure of the data
+- Consider what would be most useful for answering the query
+- When in doubt, default to document-level (simpler, always works)
+- Example names should be CONCRETE instances you might find in the documents
+""".strip()
+
+USER_PROMPT_TMPL_OBSERVATION_UNIT = """
+<QUERY>
+{query}
+</QUERY>
+
+<SAMPLE_PASSAGES>
+{joined_passages}
+</SAMPLE_PASSAGES>
+
+Based on the query and these sample passages, determine the appropriate observation unit.
+""".strip()
+
+
+# ============================================================================
+# OBSERVATION UNIT CONTEXT TEMPLATE (for schema discovery)
+# ============================================================================
+
+OBSERVATION_UNIT_CONTEXT_TMPL = """
+<OBSERVATION_UNIT>
+Each row in the table represents: {unit_name}
+Definition: {unit_definition}
+{example_names_section}
+</OBSERVATION_UNIT>
+
+Keep this in mind when proposing columns — each column should capture information that varies across different {unit_name_lower} instances.
 """.strip()
 
 

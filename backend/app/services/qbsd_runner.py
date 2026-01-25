@@ -21,11 +21,12 @@ sys.path.insert(0, str(QBSD_LIB_ROOT))
 try:
     # Import QBSD main functions from qbsd-lib
     from qbsd.core import qbsd as QBSD
-    from qbsd.core.schema import Schema, Column
+    from qbsd.core.schema import Schema, Column, ObservationUnit
     from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
     from qbsd.core.retrievers import EmbeddingRetriever
     from qbsd.core import utils
     from qbsd.value_extraction.main import build_table_jsonl
+    from qbsd import discover_observation_unit
     QBSD_AVAILABLE = True
     print(f"✓ QBSD components successfully loaded from {QBSD_LIB_ROOT}")
 except ImportError as e:
@@ -100,7 +101,7 @@ def build_llm_interface(
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
 from app.models.qbsd import QBSDConfig, QBSDStatus, QBSDProgress
-from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus, SchemaEvolution, SchemaSnapshot, VisualizationSession
+from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus, SchemaEvolution, SchemaSnapshot, VisualizationSession, ObservationUnitInfo
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
@@ -158,6 +159,30 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 print(f"⚠️  Failed to broadcast cell {column_name} for {row_name}: {e}")
 
         return on_value_extracted
+
+    def _create_warning_callback(self, session_id: str, loop: asyncio.AbstractEventLoop):
+        """Create a callback that broadcasts warnings via WebSocket.
+
+        The callback bridges sync extraction code to async WebSocket broadcasting.
+        Used to surface issues like observation unit parsing failures to the UI.
+        """
+        def on_warning(paper_title: str, warning_type: str, message: str):
+            """Called when a warning occurs during extraction."""
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self.websocket_manager.broadcast_log(session_id, {
+                        "level": "warning",
+                        "message": f"[{paper_title}] {warning_type}: {message}",
+                        "paper_title": paper_title,
+                        "warning_type": warning_type,
+                        "details": message
+                    }),
+                    loop
+                )
+            except Exception as e:
+                print(f"⚠️  Failed to broadcast warning for {paper_title}: {e}")
+
+        return on_warning
 
     async def _start_heartbeat(self, session_id: str, interval: float = 15.0) -> asyncio.Task:
         """Start a background heartbeat to keep WebSocket alive during long operations.
@@ -774,11 +799,16 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     frontend_col["allowed_values"] = col_dict["allowed_values"]
                 frontend_schema.append(frontend_col)
             
+            schema_for_frontend = {
+                "query": qbsd_config["query"],
+                "schema": frontend_schema
+            }
+            # Include observation_unit if discovered
+            if discovered_schema.observation_unit:
+                schema_for_frontend["observation_unit"] = discovered_schema.observation_unit.to_dict()
+
             with open(schema_file, 'w') as f:
-                json.dump({
-                    "query": qbsd_config["query"],
-                    "schema": frontend_schema
-                }, f, indent=2)
+                json.dump(schema_for_frontend, f, indent=2)
             
             await update_progress("Schema Discovery: Complete", 1.0, {
                 "columns_discovered": len(discovered_schema.columns)
@@ -808,6 +838,15 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             
             session.columns = schema_columns
             session.schema_query = qbsd_config["query"]
+            # Transfer observation_unit to session if discovered
+            if discovered_schema.observation_unit:
+                session.observation_unit = ObservationUnitInfo(
+                    name=discovered_schema.observation_unit.name,
+                    definition=discovered_schema.observation_unit.definition,
+                    example_names=discovered_schema.observation_unit.example_names,
+                    source_document=discovered_schema.observation_unit.source_document,
+                    discovery_iteration=discovered_schema.observation_unit.discovery_iteration
+                )
             self.session_manager.update_session(session)
             print(f"💾 DEBUG: Session {session_id} saved with {len(schema_columns)} columns, status: {session.status}")
             
@@ -920,6 +959,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             Tuple of (discovered_schema, schema_evolution)
         """
 
+        # Extract config values needed for Schema creation
+        query = qbsd_config["query"]
+        max_keys = qbsd_config.get("max_keys_schema", 100)
+
         # Initialize schema (inline schema takes priority over file path)
         initial_schema = None
         if "initial_schema" in qbsd_config:
@@ -934,7 +977,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                         allowed_values=col_data.get("allowed_values")
                     )
                     columns.append(col)
-                initial_schema = Schema(columns)
+                initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
                 print(f"Loaded inline initial schema with {len(columns)} columns")
             except Exception as e:
                 print(f"Warning: Could not load inline initial schema: {e}")
@@ -953,7 +996,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                                 allowed_values=col_data.get("allowed_values")
                             )
                             columns.append(col)
-                        initial_schema = Schema(columns)
+                        initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
                     elif isinstance(initial_data, dict) and "schema" in initial_data:
                         columns = []
                         for col_data in initial_data["schema"]:
@@ -964,13 +1007,12 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                                 allowed_values=col_data.get("allowed_values")
                             )
                             columns.append(col)
-                        initial_schema = Schema(columns)
+                        initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
                 print(f"Loaded initial schema from file with {len(columns)} columns")
             except Exception as e:
                 print(f"Warning: Could not load initial schema from file: {e}")
 
-        current_schema = initial_schema or Schema([])
-        query = qbsd_config["query"]
+        current_schema = initial_schema or Schema(query=query, columns=[], max_keys=max_keys)
 
         # Calculate iterations based on document batching
         batch_size = qbsd_config.get("documents_batch_size", 1)
@@ -1079,6 +1121,25 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             )
             print(f"🐛 DEBUG: Selected {len(relevant_content)} relevant passages from batch")
 
+            # Discover observation unit in first iteration
+            if iteration == 0 and query and relevant_content and not current_schema.observation_unit:
+                print(f"🔍 Discovering observation unit from first batch...")
+                try:
+                    obs_unit = discover_observation_unit(
+                        query=query,
+                        passages=relevant_content,
+                        llm=llm,
+                        context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size", 8192),
+                        source_document=batch_names[0] if batch_names else None
+                    )
+                    current_schema.observation_unit = obs_unit
+                    print(f"✅ Discovered observation unit: {obs_unit.name} - {obs_unit.definition}")
+                    if obs_unit.example_names:
+                        print(f"   Examples: {obs_unit.example_names}")
+                except Exception as e:
+                    print(f"⚠️ Failed to discover observation unit: {e}, using default")
+                    current_schema.observation_unit = ObservationUnit.default()
+
             # Generate schema for this iteration
             print(f"🐛 DEBUG: Calling QBSD.generate_schema with LLM...")
             try:
@@ -1161,8 +1222,12 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 if col_dict.get("allowed_values"):
                     frontend_col["allowed_values"] = col_dict["allowed_values"]
                 frontend_schema.append(frontend_col)
+            partial_schema_data = {"query": query, "schema": frontend_schema}
+            # Include observation_unit if discovered
+            if current_schema.observation_unit:
+                partial_schema_data["observation_unit"] = current_schema.observation_unit.to_dict()
             with open(partial_schema_file, 'w') as f:
-                json.dump({"query": query, "schema": frontend_schema}, f, indent=2)
+                json.dump(partial_schema_data, f, indent=2)
             print(f"🐛 DEBUG: Saved partial schema with {len(current_schema.columns)} columns")
 
             # Small delay to allow other tasks
@@ -1184,13 +1249,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         """Run real value extraction using the value extraction pipeline."""
         
         session_dir = self.work_dir / session_id
-        
-        # Save schema in value extraction format
-        schema_data = {
-            "query": qbsd_config["query"],
-            "schema": [col.to_dict() for col in schema.columns]
-        }
-        
+
+        # Save schema in value extraction format (includes observation_unit)
+        schema_data = schema.to_full_dict()
+
         value_extraction_schema_path = session_dir / "value_extraction_schema.json"
         with open(value_extraction_schema_path, 'w') as f:
             json.dump(schema_data, f, indent=2)
@@ -1222,6 +1284,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         # Create callback to stream cell values as they're extracted
         on_value_extracted = self._create_value_extracted_callback(session_id, loop)
 
+        # Create callback to broadcast warnings via WebSocket
+        on_warning = self._create_warning_callback(session_id, loop)
+
         suggested_values_result = {}
 
         # Create should_stop callback that checks for stop requests
@@ -1241,7 +1306,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 retrieval_k=8,
                 max_workers=1,  # Single worker to avoid overwhelming API
                 on_value_extracted=on_value_extracted,  # Stream values as extracted
-                should_stop=should_stop  # Allow graceful stop
+                should_stop=should_stop,  # Allow graceful stop
+                on_warning=on_warning  # Broadcast warnings to UI
             )
             return suggested_values_result
 
@@ -1254,17 +1320,26 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         last_update_time = time.time()
         
         stopped_early = False
+        stop_requested_at = None
+        MAX_STOP_WAIT = 120  # 2 minutes max wait for graceful stop
+
         while not extraction_task.done():
-            # Check for stop request
+            # Check for stop request - continue monitoring until thread actually stops
             if self.is_stop_requested(session_id):
-                print(f"🛑 Stop requested during value extraction - cancelling task")
-                extraction_task.cancel()
-                try:
-                    await extraction_task
-                except asyncio.CancelledError:
-                    pass
-                stopped_early = True
-                break
+                if stop_requested_at is None:
+                    print(f"🛑 Stop requested during value extraction - waiting for graceful stop")
+                    stop_requested_at = time.time()
+                    stopped_early = True
+
+                # Check if we've waited too long for graceful stop
+                elapsed = time.time() - stop_requested_at
+                if elapsed > MAX_STOP_WAIT:
+                    print(f"⚠️ Graceful stop timeout after {MAX_STOP_WAIT}s - forcing exit")
+                    break
+
+                # Poll more frequently while waiting for stop
+                await asyncio.sleep(0.5)
+                continue  # Skip progress updates while stopping
 
             try:
                 current_time = time.time()
@@ -1306,12 +1381,18 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 print(f"Progress monitoring error: {e}")
                 await asyncio.sleep(2)
         
-        # Wait for completion (skip if we already handled stop)
+        # Wait for completion
         if not stopped_early:
             try:
                 suggested_values_result = await extraction_task
             except Exception as e:
                 raise RuntimeError(f"Value extraction failed: {e}")
+        else:
+            # When stopped, still wait briefly for task to finish cleanly
+            try:
+                await asyncio.wait_for(asyncio.shield(extraction_task), timeout=5.0)
+            except (asyncio.TimeoutError, asyncio.CancelledError, Exception):
+                pass  # Task didn't finish cleanly, but that's OK - we're stopping
 
         # Final progress update
         final_line_count = 0
@@ -1602,10 +1683,14 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         # Fall back to session schema (return query even if no columns yet)
         session = self.session_manager.get_session(session_id)
         if session:
-            return {
+            result = {
                 "query": session.schema_query or "",
                 "schema": [col.model_dump() for col in session.columns] if session.columns else []
             }
+            # Include observation_unit if present
+            if session.observation_unit:
+                result["observation_unit"] = session.observation_unit.model_dump()
+            return result
 
         return {"query": "", "schema": []}
     
@@ -1665,7 +1750,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                                 row_data = {
                                     'row_name': row_data.get('_row_name'),
                                     'papers': row_data.get('_papers', []),
-                                    'data': {k: v for k, v in row_data.items() if not k.startswith('_')}
+                                    'data': {k: v for k, v in row_data.items() if not k.startswith('_')},
+                                    'unit_name': row_data.get('_unit_name'),  # Preserve actual unit_name from extraction
+                                    'source_document': row_data.get('_source_document'),  # Preserve source document name
+                                    'parent_document': row_data.get('_parent_document'),  # Preserve parent document name
                                 }
                             all_rows.append(row_data)
                         except (json.JSONDecodeError, TypeError):
@@ -1729,7 +1817,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                                 data_row = DataRow(
                                     row_name=row_data.get('_row_name'),
                                     papers=row_data.get('_papers', []),
-                                    data={k: v for k, v in row_data.items() if not k.startswith('_')}
+                                    data={k: v for k, v in row_data.items() if not k.startswith('_')},
+                                    unit_name=row_data.get('_unit_name'),  # Preserve actual unit_name from extraction
+                                    source_document=row_data.get('_source_document'),  # Preserve source document name
+                                    parent_document=row_data.get('_parent_document'),  # Preserve parent document name
                                 )
                             else:
                                 data_row = DataRow(**row_data)

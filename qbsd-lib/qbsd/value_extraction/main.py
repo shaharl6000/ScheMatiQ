@@ -9,7 +9,7 @@ from typing import Callable, Any, Optional, Dict
 from qbsd.core import utils
 from qbsd.core.llm_backends import AllKeysFailedError
 from .core.table_builder import TableBuilder
-from .core.paper_processor import OnValueExtractedCallback
+from .core.paper_processor import OnValueExtractedCallback, OnWarningCallback
 from .config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
 
 
@@ -31,6 +31,7 @@ def build_table_jsonl(
     max_workers: int = DEFAULT_MAX_WORKERS,
     on_value_extracted: Optional[OnValueExtractedCallback] = None,
     should_stop: Optional[ShouldStopCallback] = None,
+    on_warning: Optional[OnWarningCallback] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
@@ -43,6 +44,9 @@ def build_table_jsonl(
         should_stop: Optional callback that returns True if extraction should stop.
             Checked between processing each document. Allows graceful early termination.
             Signature: () -> bool
+        on_warning: Optional callback called when warnings occur during extraction.
+            Signature: (paper_title: str, warning_type: str, message: str) -> None
+            Used to surface issues like observation unit parsing failures to the UI.
 
     Returns:
         Dict of suggested values for schema evolution:
@@ -50,7 +54,12 @@ def build_table_jsonl(
 
     This is the main entry point that maintains backward compatibility with the original API.
     """
-    table_builder = TableBuilder(llm, retriever, on_value_extracted=on_value_extracted, should_stop=should_stop)
+    table_builder = TableBuilder(
+        llm, retriever,
+        on_value_extracted=on_value_extracted,
+        should_stop=should_stop,
+        on_warning=on_warning
+    )
     table_builder.build_table_jsonl_multi_dirs(
         schema_path,
         docs_directories,

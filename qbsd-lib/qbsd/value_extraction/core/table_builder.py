@@ -12,7 +12,7 @@ from qbsd.core.schema import Schema, Column
 from qbsd.core.llm_backends import LLMInterface, AllKeysFailedError
 from qbsd.core import utils
 
-from .paper_processor import PaperProcessor, OnValueExtractedCallback
+from .paper_processor import PaperProcessor, OnValueExtractedCallback, OnWarningCallback
 from .row_manager import RowDataManager
 from .llm_cache import LLMCache
 from ..config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
@@ -27,14 +27,16 @@ class TableBuilder:
 
     def __init__(self, llm: LLMInterface, retriever=None, cache: LLMCache = None,
                  on_value_extracted: Optional[OnValueExtractedCallback] = None,
-                 should_stop: Optional[ShouldStopCallback] = None):
+                 should_stop: Optional[ShouldStopCallback] = None,
+                 on_warning: Optional[OnWarningCallback] = None):
         self.llm = llm
         self.retriever = retriever
         self.cache = cache or LLMCache()
         self.on_value_extracted = on_value_extracted
         self.should_stop = should_stop
-        # Pass should_stop to PaperProcessor for fine-grained stop checking
-        self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted, should_stop)
+        self.on_warning = on_warning
+        # Pass should_stop and on_warning to PaperProcessor for fine-grained stop checking and warning reporting
+        self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted, should_stop, on_warning)
         self.row_manager = RowDataManager()
         self._stopped = False  # Track if we stopped early
 
@@ -57,25 +59,9 @@ class TableBuilder:
         return False
 
     def _load_schema(self, schema_path: Path) -> Schema:
-        """Load schema from JSON file."""
+        """Load schema from JSON file, including observation_unit if present."""
         data = json.loads(schema_path.read_text(encoding="utf-8"))
-
-        # Convert dictionary columns to Column objects
-        columns = []
-        for col_dict in data["schema"]:
-            if isinstance(col_dict, dict):
-                # Handle both possible formats: {"column": name, "definition": def} or {"name": name, "definition": def}
-                name = col_dict.get("column") or col_dict.get("name")
-                definition = col_dict.get("definition", "")
-                rationale = col_dict.get("explanation", "") or col_dict.get("rationale", "")
-                allowed_values = col_dict.get("allowed_values")
-                columns.append(Column(name=name, definition=definition, rationale=rationale, allowed_values=allowed_values))
-            else:
-                columns.append(col_dict)  # Already a Column object
-
-        return Schema(query=data["query"],
-                     columns=columns,
-                     max_keys=len(data["schema"]))
+        return Schema.from_dict(data)
     
     def _load_existing_data(self, output_path: Path, papers_by_row: Dict[str, List[Path]]) -> tuple[Dict[str, Dict[str, Any]], Set[str], Set[str]]:
         """Load existing data for resume mode."""
@@ -310,45 +296,165 @@ class TableBuilder:
                                written_rows: set,
                                completed_rows: set,
                                output_path: Path) -> None:
-        """Process a single row across multiple directories."""
-        current_row = existing_rows.get(row_name, {}).copy()
-        current_row["_row_name"] = row_name
-        current_row["_papers"] = [p.name for p in papers]
+        """Process a single row across multiple directories.
 
-        # Track source directories
-        source_dirs = [doc_to_source[p] for p in papers]
+        If the schema has a non-default observation unit, this may produce
+        multiple rows per document (one per observation unit instance).
+        """
+        # Check if we should use observation unit extraction
+        observation_unit = schema.observation_unit
+        use_multi_row = observation_unit and not observation_unit.is_default()
 
-        # Add document_directory column for CSV exports (join multiple dirs with pipe separator)
-        current_row["document_directory"] = " | ".join(sorted(set(str(d) for d in source_dirs)))
-
-        # Add metadata with source directory info
-        current_row["_metadata"] = {
-            "query": schema.query,
-            "source_directories": [str(d) for d in set(source_dirs)],
-            "total_papers": len(papers)
-        }
-
-        # Process papers similar to single directory version but track sources
-        if mode == "one_by_one":
-            self._process_row_one_by_one_multi_dirs(
-                current_row, papers, doc_to_source, schema, retrieval_k,
-                max_new_tokens, existing_rows, processed_papers
+        if use_multi_row:
+            # Multi-row extraction: each paper may produce multiple rows
+            self._process_papers_with_observation_units(
+                row_name, papers, doc_to_source, schema, retrieval_k,
+                max_new_tokens, existing_rows, processed_papers,
+                written_rows, output_path
             )
         else:
-            self._process_row_all_multi_dirs(
-                current_row, papers, doc_to_source, schema, retrieval_k,
-                max_new_tokens, max_workers, existing_rows, processed_papers
-            )
+            # Standard single-row extraction
+            current_row = existing_rows.get(row_name, {}).copy()
+            current_row["_row_name"] = row_name
+            current_row["_papers"] = [p.name for p in papers]
 
-        # Write row if it has actual data
-        if any(key for key in current_row.keys() if not key.startswith('_')):
+            # Track source directories
+            source_dirs = [doc_to_source[p] for p in papers]
+
+            # Add document_directory column for CSV exports (join multiple dirs with pipe separator)
+            current_row["document_directory"] = " | ".join(sorted(set(str(d) for d in source_dirs)))
+
+            # Add metadata with source directory info
+            current_row["_metadata"] = {
+                "query": schema.query,
+                "source_directories": [str(d) for d in set(source_dirs)],
+                "total_papers": len(papers)
+            }
+
+            # Process papers similar to single directory version but track sources
+            if mode == "one_by_one":
+                self._process_row_one_by_one_multi_dirs(
+                    current_row, papers, doc_to_source, schema, retrieval_k,
+                    max_new_tokens, existing_rows, processed_papers
+                )
+            else:
+                self._process_row_all_multi_dirs(
+                    current_row, papers, doc_to_source, schema, retrieval_k,
+                    max_new_tokens, max_workers, existing_rows, processed_papers
+                )
+
+            # Write row if it has actual data
+            if any(key for key in current_row.keys() if not key.startswith('_')):
+                try:
+                    with output_path.open('a', encoding="utf-8") as f_out:
+                        f_out.write(json.dumps(current_row, ensure_ascii=False) + "\n")
+                    written_rows.add(row_name)
+                    print(f"✅ Completed and wrote row: {row_name}")
+                except Exception as e:
+                    print(f"❌ Failed to write row {row_name}: {e}")
+
+    def _process_papers_with_observation_units(
+        self,
+        row_name: str,
+        papers: list[Path],
+        doc_to_source: dict[Path, Path],
+        schema: Schema,
+        retrieval_k: int,
+        max_new_tokens: int,
+        existing_rows: dict,
+        processed_papers: set,
+        written_rows: set,
+        output_path: Path
+    ) -> None:
+        """
+        Process papers using observation unit extraction, potentially producing
+        multiple rows per document.
+
+        Args:
+            row_name: Base row name (original document grouping)
+            papers: List of paper paths to process
+            doc_to_source: Mapping from paper path to source directory
+            schema: Schema with observation_unit defined
+            retrieval_k: Number of passages for retrieval
+            max_new_tokens: Max tokens for LLM
+            existing_rows: Previously extracted rows
+            processed_papers: Set of already processed papers
+            written_rows: Set of already written row names
+            output_path: Output file path
+        """
+        observation_unit = schema.observation_unit
+        total_units_written = 0
+
+        for paper in papers:
+            if self.should_stop and self.should_stop():
+                print(f"🛑 Stop requested during observation unit processing")
+                self._stopped = True
+                return
+
+            if paper in processed_papers:
+                continue
+
             try:
-                with output_path.open('a', encoding="utf-8") as f_out:
-                    f_out.write(json.dumps(current_row, ensure_ascii=False) + "\n")
-                written_rows.add(row_name)
-                print(f"✅ Completed and wrote row: {row_name}")
+                paper_text = paper.read_text(encoding="utf-8", errors="ignore")
+                paper_title = paper.stem
+                source_dir = doc_to_source.get(paper, paper.parent)
+
+                print(f"🔍 Processing {paper_title} for observation units ({observation_unit.name})...")
+
+                # Extract values with observation units (may return multiple rows)
+                unit_rows = self.paper_processor.extract_values_for_paper_with_units(
+                    paper_title=paper_title,
+                    paper_text=paper_text,
+                    schema=schema,
+                    max_new_tokens=max_new_tokens,
+                    mode="all",
+                    retrieval_k=retrieval_k,
+                )
+
+                if self.should_stop and self.should_stop():
+                    self._stopped = True
+                    return
+
+                # Write each unit row
+                for unit_row in unit_rows:
+                    # Add metadata
+                    unit_name = unit_row.get("_unit_name", paper_title)
+                    unit_row["_row_name"] = unit_name  # Use unit name as row name
+                    unit_row["_papers"] = [paper.name]
+                    unit_row["document_directory"] = str(source_dir)
+                    unit_row["_metadata"] = {
+                        "query": schema.query,
+                        "source_directories": [str(source_dir)],
+                        "observation_unit": observation_unit.name,
+                        "base_row_name": row_name,
+                    }
+
+                    # Write row if it has actual data columns
+                    if any(key for key in unit_row.keys() if not key.startswith('_') and key != "document_directory"):
+                        try:
+                            with output_path.open('a', encoding="utf-8") as f_out:
+                                f_out.write(json.dumps(unit_row, ensure_ascii=False) + "\n")
+                            total_units_written += 1
+                            print(f"  ✅ Wrote unit row: {unit_name}")
+
+                            # Notify callback
+                            if self.on_value_extracted:
+                                for col_name, col_value in unit_row.items():
+                                    if not col_name.startswith('_') and col_name != "document_directory":
+                                        self.on_value_extracted(unit_name, col_name, col_value)
+
+                        except Exception as e:
+                            print(f"  ❌ Failed to write unit row {unit_name}: {e}")
+
+                processed_papers.add(paper)
+
             except Exception as e:
-                print(f"❌ Failed to write row {row_name}: {e}")
+                print(f"⚠️  Error processing {paper.name} for observation units: {e}")
+
+        # Mark original row_name as written if any units were written
+        if total_units_written > 0:
+            written_rows.add(row_name)
+            print(f"✅ Completed {row_name}: {total_units_written} observation unit rows written")
     
     def _process_row_one_by_one_multi_dirs(self, current_row: dict, papers: list[Path],
                                           doc_to_source: dict, schema: Schema,

@@ -72,7 +72,7 @@ DEFAULT_TIMEOUT = 120  # seconds
 
 # LLM Configuration
 DEFAULT_MAX_OUTPUT_TOKENS = 1024
-DEFAULT_TEMPERATURE = 0.3
+DEFAULT_TEMPERATURE = 0
 
 # Storage Configuration
 DEFAULT_SESSIONS_DIR = "./sessions"
