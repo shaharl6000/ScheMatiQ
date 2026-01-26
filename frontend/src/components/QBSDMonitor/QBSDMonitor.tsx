@@ -371,15 +371,11 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
                 <CheckCircle2 className="h-8 w-8 text-green-600" />
               </div>
               <p className="text-xl font-semibold text-green-600 mb-1">Completed Successfully!</p>
-              <p className="text-muted-foreground mb-4 text-center max-w-md">
+              <p className="text-muted-foreground text-center max-w-md">
                 {schemaProgress.columnsDiscovered > 0 && extractionProgress.totalDocs > 0
                   ? `Discovered ${schemaProgress.columnsDiscovered} columns from ${extractionProgress.totalDocs} documents`
                   : 'Schema discovery and value extraction finished'}
               </p>
-              <Button variant="outline" onClick={handleStart}>
-                <Play className="h-4 w-4 mr-2" />
-                Run Again
-              </Button>
             </>
           )}
 
