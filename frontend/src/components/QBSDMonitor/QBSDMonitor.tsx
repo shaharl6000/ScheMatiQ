@@ -239,7 +239,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   };
 
   const handleStart = async () => {
-    if (processingState !== 'idle' && processingState !== 'error' && processingState !== 'completed') {
+    if (processingState !== 'idle' && processingState !== 'error' && processingState !== 'completed' && processingState !== 'stopped') {
       return;
     }
 
@@ -247,6 +247,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
     setProcessingState('starting');
     setCurrentStepMessage('Initializing...');
     setErrorMessage('');
+    setStoppedInfo(null);
 
     // Reset progress
     setSchemaProgress({
@@ -414,14 +415,10 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
                   : 'Stopped before schema discovery completed.'}
               </p>
               {(stoppedInfo?.schemaSaved || (stoppedInfo?.dataRowsSaved ?? 0) > 0) && (
-                <p className="text-sm text-muted-foreground mb-4">
+                <p className="text-sm text-muted-foreground">
                   You can view and export partial results in the Data and Schema tabs.
                 </p>
               )}
-              <Button onClick={handleStart}>
-                <Play className="h-4 w-4 mr-2" />
-                Start Fresh
-              </Button>
             </>
           )}
         </CardContent>

@@ -6,7 +6,6 @@ import {
   Database,
   BarChart3,
   Download,
-  RefreshCw,
   CheckCircle2,
   Play,
   XCircle,
@@ -611,11 +610,6 @@ const Visualize = () => {
     };
   }, [sessionId, mode, queryClient]);
 
-  const handleRefresh = () => {
-    queryClient.invalidateQueries(['session', sessionId]);
-    queryClient.invalidateQueries(['data', sessionId]);
-  };
-
   const handleExport = async () => {
     try {
       // Use API_BASE_URL for production deployment
@@ -892,16 +886,10 @@ const Visualize = () => {
         <div className="flex items-center gap-2">
           {getStatusBadge()}
           {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
-            <>
-              <Button variant="ghost" size="sm" onClick={handleRefresh}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleExport}>
-                <Download className="h-4 w-4 mr-2" />
-                Export{isQBSDStopped ? ' Partial' : ''}
-              </Button>
-            </>
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="h-4 w-4 mr-2" />
+              Export{isQBSDStopped ? ' Partial' : ''}
+            </Button>
           )}
         </div>
       </div>
