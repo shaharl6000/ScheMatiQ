@@ -299,6 +299,18 @@ export const qbsdAPI = {
     link.click();
     window.URL.revokeObjectURL(url);
   },
+
+  updateCell: async (
+    sessionId: string,
+    rowName: string,
+    column: string,
+    value: string
+  ): Promise<{ status: string; session_id: string; row_name: string; column: string; value: string }> => {
+    const response = await api.put(`/qbsd/cell/${sessionId}`, null, {
+      params: { row_name: rowName, column, value }
+    });
+    return response.data;
+  },
 };
 
 // Common session API

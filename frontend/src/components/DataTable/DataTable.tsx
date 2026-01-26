@@ -39,7 +39,8 @@ import {
 } from '@/components/ui/tooltip';
 
 import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
-import { sessionAPI } from '../../services/api';
+import { sessionAPI, qbsdAPI } from '../../services/api';
+import EditableCell from './EditableCell';
 import {
   formatColumnName,
   isExcerptContent,
@@ -263,7 +264,7 @@ const DataTable: React.FC<DataTableProps> = ({
   );
 
   // Fetch data with pagination, filtering, and sorting (server-side)
-  const { data: fetchedData } = useQuery(
+  const { data: fetchedData, refetch: refetchData } = useQuery(
     [
       'data',
       sessionId,
@@ -289,6 +290,12 @@ const DataTable: React.FC<DataTableProps> = ({
       refetchInterval: sessionType === 'qbsd' ? QBSD_REFRESH_INTERVAL : false,
     }
   );
+
+  // Cell edit handler
+  const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string) => {
+    await qbsdAPI.updateCell(sessionId, rowName, column, value);
+    refetchData();
+  }, [sessionId, refetchData]);
 
   const fetchedOrInitialData = fetchedData ?? initialData ?? EMPTY_DATA;
 
@@ -1225,7 +1232,18 @@ const DataTable: React.FC<DataTableProps> = ({
                         ) : (
                           // Regular frozen column (no spanning)
                           <td className="px-4 py-3 min-w-[150px] max-w-[250px] sticky left-0 bg-background border-r">
-                            {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
+                            {!frozenColumn.startsWith('_') && row.row_name ? (
+                              <EditableCell
+                                value={getFrozenCellValue()}
+                                rowName={row.row_name}
+                                column={frozenColumn}
+                                onSave={handleCellUpdate}
+                              >
+                                {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
+                              </EditableCell>
+                            ) : (
+                              formatCellValue(getFrozenCellValue(), frozenColumn, row)
+                            )}
                           </td>
                         )
                       )}
@@ -1264,9 +1282,23 @@ const DataTable: React.FC<DataTableProps> = ({
                           );
                         }
 
+                        // Determine if cell is editable (not metadata columns, has row_name)
+                        const isEditable = !column.startsWith('_') && !!row.row_name;
+
                         return (
                           <td key={column} className="px-4 py-3 min-w-[120px] sm:min-w-[150px]">
-                            {formatCellValue(cellValue, column, row)}
+                            {isEditable ? (
+                              <EditableCell
+                                value={cellValue}
+                                rowName={row.row_name || ''}
+                                column={column}
+                                onSave={handleCellUpdate}
+                              >
+                                {formatCellValue(cellValue, column, row)}
+                              </EditableCell>
+                            ) : (
+                              formatCellValue(cellValue, column, row)
+                            )}
                           </td>
                         );
                       })}
