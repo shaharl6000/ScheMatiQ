@@ -423,42 +423,48 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       {/* Phase Progress Cards - Side by Side */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Phase 1: Schema Discovery */}
-        <Card className={`transition-all ${processingState === 'schema' ? 'border-primary border-2 shadow-md' : ''}`}>
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="font-medium flex items-center gap-2">
-                {schemaProgress.isComplete ? (
-                  <CheckCircle2 className="h-5 w-5 text-green-500" />
-                ) : processingState === 'schema' ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                ) : (
-                  <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
-                )}
-                Phase 1: Schema
-              </span>
-              <Badge variant={schemaProgress.isComplete ? 'success' : processingState === 'schema' ? 'default' : 'secondary'}>
-                {schemaProgress.isComplete
-                  ? 'Complete'
-                  : processingState === 'schema'
-                    ? 'In Progress'
-                    : 'Pending'}
-              </Badge>
-            </div>
-            <Progress
-              value={schemaProgress.isComplete ? 100 : (processingState === 'schema' ? Math.max(10, (schemaProgress.iteration / schemaProgress.maxIterations) * 100) : 0)}
-              className={`h-2 ${processingState === 'schema' && !schemaProgress.isComplete ? 'animate-pulse' : ''}`}
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              {schemaProgress.isComplete
-                ? `${schemaProgress.columnsDiscovered} columns discovered`
-                : processingState === 'schema' && schemaProgress.iteration > 0
-                  ? `Iteration ${schemaProgress.iteration}/${schemaProgress.maxIterations}`
-                  : processingState === 'schema'
-                    ? 'Analyzing documents...'
-                    : 'Waiting to start'}
-            </p>
-          </CardContent>
-        </Card>
+        {/* Schema is complete if explicitly marked OR if overall process completed */}
+        {(() => {
+          const schemaIsComplete = schemaProgress.isComplete || processingState === 'completed';
+          return (
+            <Card className={`transition-all ${processingState === 'schema' ? 'border-primary border-2 shadow-md' : ''}`}>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-medium flex items-center gap-2">
+                    {schemaIsComplete ? (
+                      <CheckCircle2 className="h-5 w-5 text-green-500" />
+                    ) : processingState === 'schema' ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    ) : (
+                      <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
+                    )}
+                    Phase 1: Schema
+                  </span>
+                  <Badge variant={schemaIsComplete ? 'success' : processingState === 'schema' ? 'default' : 'secondary'}>
+                    {schemaIsComplete
+                      ? 'Complete'
+                      : processingState === 'schema'
+                        ? 'In Progress'
+                        : 'Pending'}
+                  </Badge>
+                </div>
+                <Progress
+                  value={schemaIsComplete ? 100 : (processingState === 'schema' ? Math.max(10, (schemaProgress.iteration / schemaProgress.maxIterations) * 100) : 0)}
+                  className={`h-2 ${processingState === 'schema' && !schemaIsComplete ? 'animate-pulse' : ''}`}
+                />
+                <p className="text-xs text-muted-foreground mt-2">
+                  {schemaIsComplete
+                    ? `${schemaProgress.columnsDiscovered} columns discovered`
+                    : processingState === 'schema' && schemaProgress.iteration > 0
+                      ? `Iteration ${schemaProgress.iteration}/${schemaProgress.maxIterations}`
+                      : processingState === 'schema'
+                        ? 'Analyzing documents...'
+                        : 'Waiting to start'}
+                </p>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Phase 2: Value Extraction */}
         <Card className={`transition-all ${processingState === 'extraction' ? 'border-primary border-2 shadow-md' : ''}`}>
