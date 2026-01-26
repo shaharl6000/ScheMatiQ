@@ -234,6 +234,14 @@ const Visualize = () => {
               queryClient.invalidateQueries(['data', sessionId, mode]);
               break;
 
+            case 'stopped':
+              console.log('QBSD stopped:', message.data);
+              setStreamingCells(new Map());
+              setForceWebSocketConnect(false);
+              queryClient.refetchQueries(['session', sessionId, mode]);
+              queryClient.refetchQueries(['data', sessionId, mode]);
+              break;
+
             // Continue Discovery events
             case 'continue_discovery_started':
               console.log('Continue discovery started:', message.data);
@@ -345,6 +353,7 @@ const Visualize = () => {
     {
       enabled: !!sessionId && (
         session?.status === 'completed' ||
+        session?.status === 'stopped' ||
         session?.status === 'processing_documents' ||
         session?.status === 'documents_uploaded'
       ),
@@ -475,6 +484,14 @@ const Visualize = () => {
                 setForceWebSocketConnect(false); // Allow WebSocket to close
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
+                break;
+
+              case 'stopped':
+                console.log('QBSD stopped:', message.data);
+                setStreamingCells(new Map());
+                setForceWebSocketConnect(false);
+                queryClient.refetchQueries(['session', sessionId, mode]);
+                queryClient.refetchQueries(['data', sessionId, mode]);
                 break;
 
               // Continue Discovery events

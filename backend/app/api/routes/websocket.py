@@ -89,6 +89,13 @@ async def websocket_progress(websocket: WebSocket, session_id: str):
         websocket_manager.remove_connection(session_id, websocket)
         print(f"🔌 WebSocket REMOVED: {session_id} (remaining: {websocket_manager.get_connection_count(session_id)})")
 
+        # Auto-stop if no connections remain
+        if not websocket_manager.has_connections(session_id):
+            from app.api.routes.qbsd import qbsd_runner
+            if session_id in qbsd_runner.running_sessions:
+                print(f"🔌 Last connection closed for {session_id} - auto-stopping process")
+                qbsd_runner.stop_flags[session_id] = True
+
 @router.websocket("/logs/{session_id}")
 async def websocket_logs(websocket: WebSocket, session_id: str):
     """WebSocket endpoint for real-time log streaming."""
@@ -145,3 +152,10 @@ async def websocket_logs(websocket: WebSocket, session_id: str):
         except asyncio.CancelledError:
             pass
         websocket_manager.remove_log_connection(session_id, websocket)
+
+        # Auto-stop if no connections remain (check both progress and log connections)
+        if not websocket_manager.has_connections(session_id):
+            from app.api.routes.qbsd import qbsd_runner
+            if session_id in qbsd_runner.running_sessions:
+                print(f"🔌 Last connection closed for {session_id} - auto-stopping process")
+                qbsd_runner.stop_flags[session_id] = True

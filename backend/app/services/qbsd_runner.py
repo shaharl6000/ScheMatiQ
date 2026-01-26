@@ -860,7 +860,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             # Check if stop was requested during schema discovery - skip remaining steps
             if self.is_stop_requested(session_id):
                 print(f"🛑 Stop requested - skipping value extraction and finalization")
-                return  # Exit early, stop_execution() will handle status update
+                # Update status to STOPPED immediately (don't rely on stop_execution race)
+                session = self.session_manager.get_session(session_id)
+                session.status = SessionStatus.STOPPED
+                session.error_message = None
+                self.session_manager.update_session(session)
+                print(f"🛑 DEBUG: Updated session status to STOPPED (from schema discovery stop)")
+                # Broadcast stopped message
+                await self.broadcast_stopped(session_id, {
+                    "schema_saved": True,
+                    "data_rows_saved": 0,
+                    "message": "Processing stopped after schema discovery"
+                })
+                return
 
             # Step 6: Value extraction (skip if schema-only mode)
             if qbsd_config.get("skip_value_extraction", False):
@@ -900,7 +912,25 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             # Check if stop was requested during value extraction - skip finalization
             if self.is_stop_requested(session_id):
                 print(f"🛑 Stop requested - skipping finalization")
-                return  # Exit early, stop_execution() will handle status update
+                # Update status to STOPPED immediately (don't rely on stop_execution race)
+                session = self.session_manager.get_session(session_id)
+                session.status = SessionStatus.STOPPED
+                session.error_message = None
+                self.session_manager.update_session(session)
+                print(f"🛑 DEBUG: Updated session status to STOPPED (from value extraction stop)")
+                # Count rows saved
+                data_file = session_dir / "extracted_data.jsonl"
+                rows_saved = 0
+                if data_file.exists():
+                    with open(data_file, 'r') as f:
+                        rows_saved = sum(1 for _ in f)
+                # Broadcast stopped message
+                await self.broadcast_stopped(session_id, {
+                    "schema_saved": True,
+                    "data_rows_saved": rows_saved,
+                    "message": "Processing stopped during value extraction"
+                })
+                return
 
             # Step 7: Finalize
             current_step += 1
@@ -1121,6 +1151,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             )
             print(f"🐛 DEBUG: Selected {len(relevant_content)} relevant passages from batch")
 
+            # Check for stop after content retrieval
+            if self.is_stop_requested(session_id):
+                print(f"🛑 Stop requested after content retrieval - saving partial schema")
+                break
+
             # Discover observation unit in first iteration
             if iteration == 0 and query and relevant_content and not current_schema.observation_unit:
                 print(f"🔍 Discovering observation unit from first batch...")
@@ -1140,6 +1175,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     print(f"⚠️ Failed to discover observation unit: {e}, using default")
                     current_schema.observation_unit = ObservationUnit.default()
 
+            # Check for stop after observation unit discovery
+            if self.is_stop_requested(session_id):
+                print(f"🛑 Stop requested after observation unit discovery - saving partial schema")
+                break
+
             # Generate schema for this iteration
             print(f"🐛 DEBUG: Calling QBSD.generate_schema with LLM...")
             try:
@@ -1158,6 +1198,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 print(f"🐛 DEBUG: ERROR in generate_schema: {e}")
                 raise
 
+            # Check for stop after schema generation
+            if self.is_stop_requested(session_id):
+                print(f"🛑 Stop requested after schema generation - saving partial schema")
+                break
+
             # Merge with existing schema
             print(f"🐛 DEBUG: Merging schemas...")
             print(f"🐛 DEBUG: Current schema has {len(current_schema.columns)} columns")
@@ -1170,6 +1215,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 import traceback
                 traceback.print_exc()
                 raise
+
+            # Check for stop after schema merge
+            if self.is_stop_requested(session_id):
+                print(f"🛑 Stop requested after schema merge - saving partial schema")
+                break
 
             # Identify NEW columns added in this iteration
             columns_after = {col.name.lower() for col in merged_schema.columns}
@@ -1501,7 +1551,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 "operation": "schema_evolution",
                 "auto_added_values": total_auto_added,
                 "pending_values": total_pending,
-                "columns": [col.model_dump() for col in session.columns]
+                "columns": [col.model_dump(mode='json') for col in session.columns]
             })
 
     def _compute_statistics_from_extracted_data(
@@ -1660,6 +1710,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             elif session.status == SessionStatus.ERROR:
                 status = "error"
                 progress = 0.0
+            elif session.status == SessionStatus.STOPPED:
+                status = "stopped"
+                progress = 1.0  # Stopped is a final state
             else:
                 status = "idle"
                 progress = 0.0
@@ -1844,6 +1897,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         Returns:
             Dict with status info including what was saved (schema, data counts)
         """
+        print(f"🛑 DEBUG stop_execution: Called for session {session_id}")
+        print(f"🛑 DEBUG stop_execution: running_sessions keys = {list(self.running_sessions.keys())}")
+
         result = {
             "stopped": False,
             "schema_saved": False,
@@ -1852,6 +1908,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         }
 
         if session_id in self.running_sessions:
+            print(f"🛑 DEBUG stop_execution: Session found in running_sessions, setting stop flag")
             # Set stop flag first - the running task will check this and exit gracefully
             self.stop_flags[session_id] = True
 
@@ -1859,7 +1916,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
             # Give the task time to stop gracefully (LLM calls can take 30+ seconds)
             try:
+                print(f"🛑 DEBUG stop_execution: Waiting for task to finish gracefully...")
                 await asyncio.wait_for(asyncio.shield(task), timeout=60.0)
+                print(f"🛑 DEBUG stop_execution: Task finished gracefully")
             except asyncio.TimeoutError:
                 # If it doesn't stop gracefully after 60s, force cancel it
                 print(f"🛑 Graceful stop timed out after 60s, force cancelling task for {session_id}")
@@ -1869,6 +1928,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 except asyncio.CancelledError:
                     pass
             except asyncio.CancelledError:
+                print(f"🛑 DEBUG stop_execution: Task was cancelled")
                 pass  # Task was cancelled, which is expected
             except Exception as e:
                 print(f"🛑 Exception during stop: {e}")
@@ -1891,22 +1951,30 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     result["data_rows_saved"] = sum(1 for _ in f)
 
             # Update session status to STOPPED (not ERROR)
+            print(f"🛑 DEBUG stop_execution: Updating session status to STOPPED")
             session = self.session_manager.get_session(session_id)
             if session:
+                print(f"🛑 DEBUG stop_execution: Current status = {session.status}, updating to STOPPED")
                 session.status = SessionStatus.STOPPED
                 session.error_message = None  # Clear any error - this was intentional stop
                 self.session_manager.update_session(session)
+                print(f"🛑 DEBUG stop_execution: Session updated, new status = {session.status}")
+            else:
+                print(f"🛑 DEBUG stop_execution: WARNING - session is None!")
 
             # Broadcast stopped message
+            print(f"🛑 DEBUG stop_execution: Broadcasting stopped message")
             await self.broadcast_stopped(session_id, {
                 "schema_saved": result["schema_saved"],
                 "data_rows_saved": result["data_rows_saved"],
                 "message": "Processing stopped by user"
             })
+            print(f"🛑 DEBUG stop_execution: Broadcast complete")
 
             result["stopped"] = True
             result["message"] = "Processing stopped successfully"
             return result
 
+        print(f"🛑 DEBUG stop_execution: Session NOT in running_sessions!")
         result["message"] = "No running session found"
         return result
