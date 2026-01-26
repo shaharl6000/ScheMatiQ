@@ -14,11 +14,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from app.models.session import VisualizationSession, SessionType, SessionMetadata, FilterSortRequest
 from app.models.qbsd import QBSDConfig, QBSDStatus
 from app.services.qbsd_runner import QBSDRunner
+from app.services.data_editor import DataEditor
 from app.services import websocket_manager, session_manager
 
 router = APIRouter()
 # Create shared QBSD runner instance with shared managers
 qbsd_runner = QBSDRunner(websocket_manager=websocket_manager, session_manager=session_manager)
+# Create data editor instance
+data_editor = DataEditor()
 
 @router.post("/configure", response_model=dict)
 async def configure_qbsd(config: QBSDConfig):
@@ -144,6 +147,26 @@ async def get_qbsd_data_with_filters(
 async def get_qbsd_data(session_id: str, page: int = 0, page_size: int = 50):
     """Get extracted data (backward compatible, no filtering)."""
     return await get_qbsd_data_with_filters(session_id, page, page_size, None)
+
+
+@router.put("/cell/{session_id}")
+async def update_cell(session_id: str, row_name: str, column: str, value: str):
+    """Update a single cell value in the data table."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        result = await data_editor.update_cell(session_id, row_name, column, value)
+        return result
+
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/stop/{session_id}")
 async def stop_qbsd(session_id: str):
