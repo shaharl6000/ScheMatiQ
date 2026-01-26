@@ -304,6 +304,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             if initial_schema_path.exists():
                 qbsd_config["initial_schema_path"] = str(initial_schema_path)
 
+        # Add initial observation unit if provided
+        if config.initial_observation_unit:
+            qbsd_config["initial_observation_unit"] = {
+                "name": config.initial_observation_unit.name,
+                "definition": config.initial_observation_unit.definition
+            }
+
         return qbsd_config
 
     async def _resolve_docs_paths(self, config: QBSDConfig, session_id: str) -> List[str]:
@@ -1124,6 +1131,22 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 traceback.print_exc()
                 raise
 
+        # Handle pre-configured observation unit (if provided)
+        pending_observation_unit_name = None  # For name-only mode
+        initial_obs_unit = qbsd_config.get("initial_observation_unit")
+        if initial_obs_unit:
+            if initial_obs_unit.get("definition"):
+                # Full specification - use as-is
+                current_schema.observation_unit = ObservationUnit(
+                    name=initial_obs_unit["name"],
+                    definition=initial_obs_unit["definition"]
+                )
+                print(f"✅ Using pre-configured observation unit: {initial_obs_unit['name']} - {initial_obs_unit['definition']}")
+            else:
+                # Name-only mode - store name for later discovery
+                pending_observation_unit_name = initial_obs_unit["name"]
+                print(f"📝 Observation unit name pre-configured: {pending_observation_unit_name} (definition will be discovered)")
+
         for iteration, (batch_docs, batch_names) in enumerate(zip(batches, filename_batches)):
             # Check for stop request at the start of each iteration
             if self.is_stop_requested(session_id):
@@ -1156,7 +1179,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 print(f"🛑 Stop requested after content retrieval - saving partial schema")
                 break
 
-            # Discover observation unit in first iteration
+            # Discover observation unit in first iteration (if not already set)
             if iteration == 0 and query and relevant_content and not current_schema.observation_unit:
                 print(f"🔍 Discovering observation unit from first batch...")
                 try:
@@ -1167,13 +1190,21 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                         context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size", 8192),
                         source_document=batch_names[0] if batch_names else None
                     )
+                    # If name was pre-configured, override discovered name
+                    if pending_observation_unit_name:
+                        print(f"📝 Overriding discovered name '{obs_unit.name}' with pre-configured name '{pending_observation_unit_name}'")
+                        obs_unit.name = pending_observation_unit_name
                     current_schema.observation_unit = obs_unit
-                    print(f"✅ Discovered observation unit: {obs_unit.name} - {obs_unit.definition}")
+                    print(f"✅ Observation unit set: {obs_unit.name} - {obs_unit.definition}")
                     if obs_unit.example_names:
                         print(f"   Examples: {obs_unit.example_names}")
                 except Exception as e:
                     print(f"⚠️ Failed to discover observation unit: {e}, using default")
-                    current_schema.observation_unit = ObservationUnit.default()
+                    default_unit = ObservationUnit.default()
+                    # If name was pre-configured, use it even for default
+                    if pending_observation_unit_name:
+                        default_unit.name = pending_observation_unit_name
+                    current_schema.observation_unit = default_unit
 
             # Check for stop after observation unit discovery
             if self.is_stop_requested(session_id):

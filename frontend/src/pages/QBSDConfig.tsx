@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, FileJson, Upload, Trash2, FileText } from 'lucide-react';
+import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, Upload, Trash2, FileText } from 'lucide-react';
 import {
   getGeminiKeyType,
   getConfiguredProviders,
@@ -45,11 +45,12 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 
 import { qbsdAPI, cloudAPI, loadAPI } from '../services/api';
 import { useFileUpload } from '../hooks/useFileUpload';
 import { formatFileSize } from '../utils/apiHelpers';
-import { QBSDConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn } from '../types';
+import { QBSDConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn, InitialObservationUnit } from '../types';
 
 const QBSDConfigPage = () => {
   const navigate = useNavigate();
@@ -63,6 +64,11 @@ const QBSDConfigPage = () => {
   // Initial schema state
   const [initialSchemaPath, setInitialSchemaPath] = useState<string | undefined>(undefined);
   const [initialSchemaData, setInitialSchemaData] = useState<InitialSchemaColumn[] | undefined>(undefined);
+
+  // Observation unit state
+  const [observationUnitMode, setObservationUnitMode] = useState<'auto' | 'name_only' | 'full'>('auto');
+  const [observationUnitName, setObservationUnitName] = useState('');
+  const [observationUnitDefinition, setObservationUnitDefinition] = useState('');
 
   // Dataset state (for Document Paths dropdown)
   const [datasets, setDatasets] = useState<{ name: string; path: string; file_count: number }[]>([]);
@@ -282,6 +288,17 @@ const QBSDConfigPage = () => {
       );
       const geminiKeyType = getGeminiKeyType();
 
+      // Build observation unit config based on mode
+      let initialObservationUnit: InitialObservationUnit | undefined;
+      if (observationUnitMode === 'name_only' && observationUnitName.trim()) {
+        initialObservationUnit = { name: observationUnitName.trim() };
+      } else if (observationUnitMode === 'full' && observationUnitName.trim()) {
+        initialObservationUnit = {
+          name: observationUnitName.trim(),
+          definition: observationUnitDefinition.trim() || undefined,
+        };
+      }
+
       // Build config with API keys and initial schema
       const configWithKeys: QBSDConfig = {
         ...config,
@@ -304,6 +321,8 @@ const QBSDConfigPage = () => {
         // Add initial schema (inline data takes priority over file path)
         initial_schema: initialSchemaData,
         initial_schema_path: !initialSchemaData ? initialSchemaPath : undefined,
+        // Add initial observation unit
+        initial_observation_unit: initialObservationUnit,
       };
 
       // Step 1: Create session
@@ -396,9 +415,8 @@ const QBSDConfigPage = () => {
             </p>
           </div>
 
-          {/* Document Source and Max Keys */}
-          <div className="grid md:grid-cols-3 gap-4">
-            <div className="md:col-span-2 space-y-2">
+          {/* Document Source */}
+          <div className="space-y-2">
               <Label>
                 Documents {!hasQuery && <span className="text-destructive">*</span>}
               </Label>
@@ -531,47 +549,6 @@ const QBSDConfigPage = () => {
                     ? 'Upload documents from your computer'
                     : 'Select one or more document datasets'}
               </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="max_keys">Max Schema Keys</Label>
-              <Input
-                id="max_keys"
-                type="number"
-                value={config.max_keys_schema}
-                onChange={(e) => handleConfigChange('max_keys_schema', parseInt(e.target.value))}
-                min={1}
-                max={500}
-              />
-              <p className="text-sm text-muted-foreground">Maximum columns</p>
-            </div>
-          </div>
-
-          {/* Batch Size and Seed */}
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="batch_size">Document Batch Size</Label>
-              <Input
-                id="batch_size"
-                type="number"
-                value={config.documents_batch_size}
-                onChange={(e) => handleConfigChange('documents_batch_size', parseInt(e.target.value))}
-                min={1}
-                max={20}
-              />
-              <p className="text-sm text-muted-foreground">Documents per iteration</p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="seed">Randomization Seed</Label>
-              <Input
-                id="seed"
-                type="number"
-                value={config.document_randomization_seed}
-                onChange={(e) => handleConfigChange('document_randomization_seed', parseInt(e.target.value))}
-              />
-              <p className="text-sm text-muted-foreground">For reproducible ordering</p>
-            </div>
           </div>
 
           {/* Schema Only Mode Toggle */}
@@ -593,26 +570,138 @@ const QBSDConfigPage = () => {
 
           {/* Configuration Accordions */}
           <Accordion type="multiple" className="mt-6">
-            {/* Initial Schema */}
-            <AccordionItem value="initial-schema">
+            {/* Advanced Configuration */}
+            <AccordionItem value="advanced-config">
               <AccordionTrigger className="hover:no-underline">
                 <div className="flex items-center gap-2">
-                  <FileJson className="h-4 w-4" />
-                  <span className="font-semibold">Initial Schema</span>
-                  {(initialSchemaPath || initialSchemaData) && (
+                  <Settings className="h-4 w-4" />
+                  <span className="font-semibold">Advanced Configuration</span>
+                  {(initialSchemaPath || initialSchemaData || observationUnitMode !== 'auto') && (
                     <Badge variant="secondary" className="ml-2">
-                      {initialSchemaData
-                        ? `${initialSchemaData.length} columns (manual)`
-                        : 'From file'}
+                      {[
+                        initialSchemaData ? `${initialSchemaData.length} columns` : initialSchemaPath ? 'Schema from file' : null,
+                        observationUnitMode !== 'auto' ? 'Custom unit' : null,
+                      ].filter(Boolean).join(', ') || 'Configured'}
                     </Badge>
                   )}
                 </div>
               </AccordionTrigger>
-              <AccordionContent>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Optionally provide an initial schema to guide the discovery process. The LLM will start with these columns and expand as needed.
-                </p>
-                <InitialSchemaEditor onSchemaChange={handleInitialSchemaChange} />
+              <AccordionContent className="space-y-6">
+                {/* Schema Parameters */}
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">Schema Parameters</Label>
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="max_keys" className="text-sm text-muted-foreground">Max Schema Keys</Label>
+                      <Input
+                        id="max_keys"
+                        type="number"
+                        value={config.max_keys_schema}
+                        onChange={(e) => handleConfigChange('max_keys_schema', parseInt(e.target.value))}
+                        min={1}
+                        max={500}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="batch_size" className="text-sm text-muted-foreground">Document Batch Size</Label>
+                      <Input
+                        id="batch_size"
+                        type="number"
+                        value={config.documents_batch_size}
+                        onChange={(e) => handleConfigChange('documents_batch_size', parseInt(e.target.value))}
+                        min={1}
+                        max={20}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="seed" className="text-sm text-muted-foreground">Randomization Seed</Label>
+                      <Input
+                        id="seed"
+                        type="number"
+                        value={config.document_randomization_seed}
+                        onChange={(e) => handleConfigChange('document_randomization_seed', parseInt(e.target.value))}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Observation Unit */}
+                <div className="space-y-3 pt-4 border-t">
+                  <Label className="text-sm font-medium">Observation Unit</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Define what constitutes a single row in your output table.
+                  </p>
+                  <RadioGroup
+                    value={observationUnitMode}
+                    onValueChange={(value) => setObservationUnitMode(value as 'auto' | 'name_only' | 'full')}
+                    className="space-y-3"
+                  >
+                    <div className="flex items-start space-x-3">
+                      <RadioGroupItem value="auto" id="obs-auto" className="mt-1" />
+                      <div className="space-y-1">
+                        <Label htmlFor="obs-auto" className="font-medium cursor-pointer">
+                          Auto-discover (default)
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          The system will automatically determine the observation unit from your query and documents.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3">
+                      <RadioGroupItem value="name_only" id="obs-name" className="mt-1" />
+                      <div className="space-y-1 flex-1">
+                        <Label htmlFor="obs-name" className="font-medium cursor-pointer">
+                          Specify name only
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Provide the unit name; the system will discover the definition automatically.
+                        </p>
+                        {observationUnitMode === 'name_only' && (
+                          <Input
+                            placeholder="e.g., Research Paper, Model-Benchmark Evaluation"
+                            value={observationUnitName}
+                            onChange={(e) => setObservationUnitName(e.target.value)}
+                            className="mt-2"
+                          />
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3">
+                      <RadioGroupItem value="full" id="obs-full" className="mt-1" />
+                      <div className="space-y-1 flex-1">
+                        <Label htmlFor="obs-full" className="font-medium cursor-pointer">
+                          Specify name and definition
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                          Provide both the unit name and definition for full control.
+                        </p>
+                        {observationUnitMode === 'full' && (
+                          <div className="space-y-2 mt-2">
+                            <Input
+                              placeholder="Unit name (e.g., Research Paper)"
+                              value={observationUnitName}
+                              onChange={(e) => setObservationUnitName(e.target.value)}
+                            />
+                            <Input
+                              placeholder="Unit definition (e.g., Each row represents a single research paper)"
+                              value={observationUnitDefinition}
+                              onChange={(e) => setObservationUnitDefinition(e.target.value)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </RadioGroup>
+                </div>
+
+                {/* Initial Schema */}
+                <div className="space-y-3 pt-4 border-t">
+                  <Label className="text-sm font-medium">Initial Schema</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Optionally provide an initial schema to guide the discovery process. The LLM will start with these columns and expand as needed.
+                  </p>
+                  <InitialSchemaEditor onSchemaChange={handleInitialSchemaChange} />
+                </div>
               </AccordionContent>
             </AccordionItem>
 
