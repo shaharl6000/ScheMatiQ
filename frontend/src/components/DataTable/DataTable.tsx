@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
+import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -232,6 +232,9 @@ const DataTable: React.FC<DataTableProps> = ({
   const [filterDialogColumn, setFilterDialogColumn] = useState<string | undefined>();
   const [fullnessThreshold, setFullnessThreshold] = useState(0);
 
+  // Ref for table container
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+
   // Sort, filter, and visibility hooks
   const {
     sortState,
@@ -404,39 +407,83 @@ const DataTable: React.FC<DataTableProps> = ({
     };
   }, [fetchedOrInitialData, streamingCells]);
 
-  // Data is now filtered and sorted server-side
-  // processedRows is just data.rows (server returns correct page)
-  const processedRows = useMemo(() => {
-    return data.rows;
-  }, [data.rows]);
-
   // Check if observation units are present (enables cell merging for doc_name)
+  // Moved BEFORE processedRows so it can be used as a dependency
   const hasObservationUnits = useMemo(() => {
     return data.rows.some(row => row._unit_name != null);
   }, [data.rows]);
+
+  // Helper to normalize document names for comparison (handles case/whitespace differences)
+  const normalizeDocName = useCallback((doc: string | undefined): string => {
+    return (doc || '').trim().toLowerCase();
+  }, []);
+
+  // Data is now filtered and sorted server-side
+  // When observation units present, sort by _source_document for visual grouping
+  const processedRows = useMemo(() => {
+    if (hasObservationUnits) {
+      return [...data.rows].sort((a, b) => {
+        const docA = normalizeDocName(a._source_document);
+        const docB = normalizeDocName(b._source_document);
+        const docCompare = docA.localeCompare(docB);
+        if (docCompare !== 0) return docCompare;
+        // Secondary sort by unit name for consistent ordering within document
+        const unitA = (a._unit_name || '').toLowerCase();
+        const unitB = (b._unit_name || '').toLowerCase();
+        return unitA.localeCompare(unitB);
+      });
+    }
+    return data.rows;
+  }, [data.rows, hasObservationUnits, normalizeDocName]);
 
   // Helper: check if doc_name cell should render (first row of a group)
   // When observation units are present, group by _source_document (the actual document name)
   const shouldRenderDocNameCell = useCallback((rowIndex: number): boolean => {
     if (!hasObservationUnits) return true;
     if (rowIndex === 0) return true;
-    const currentDoc = processedRows[rowIndex]?._source_document;
-    const prevDoc = processedRows[rowIndex - 1]?._source_document;
+    const currentDoc = normalizeDocName(processedRows[rowIndex]?._source_document);
+    const prevDoc = normalizeDocName(processedRows[rowIndex - 1]?._source_document);
     return currentDoc !== prevDoc;
-  }, [hasObservationUnits, processedRows]);
+  }, [hasObservationUnits, processedRows, normalizeDocName]);
 
   // Helper: get row span for doc_name cell
   // When observation units are present, span based on _source_document grouping
   const getDocNameRowSpan = useCallback((rowIndex: number): number => {
     if (!hasObservationUnits) return 1;
-    const currentDoc = processedRows[rowIndex]?._source_document;
+    const currentDoc = normalizeDocName(processedRows[rowIndex]?._source_document);
     let span = 1;
     for (let i = rowIndex + 1; i < processedRows.length; i++) {
-      if (processedRows[i]?._source_document === currentDoc) span++;
+      if (normalizeDocName(processedRows[i]?._source_document) === currentDoc) span++;
       else break;
     }
     return span;
-  }, [hasObservationUnits, processedRows]);
+  }, [hasObservationUnits, processedRows, normalizeDocName]);
+
+  // Calculate document group boundaries for alternating backgrounds
+  const documentGroups = useMemo(() => {
+    if (!hasObservationUnits) return [];
+    const groups: { startIndex: number; rowCount: number; docName: string }[] = [];
+
+    processedRows.forEach((row, index) => {
+      if (shouldRenderDocNameCell(index)) {
+        groups.push({
+          startIndex: index,
+          rowCount: getDocNameRowSpan(index),
+          docName: row._source_document || ''
+        });
+      }
+    });
+    return groups;
+  }, [hasObservationUnits, processedRows, shouldRenderDocNameCell, getDocNameRowSpan]);
+
+  // Get group index for a row (for alternating group backgrounds)
+  const getGroupIndex = useCallback((rowIndex: number): number => {
+    if (!hasObservationUnits) return 0;
+    for (let i = documentGroups.length - 1; i >= 0; i--) {
+      if (rowIndex >= documentGroups[i].startIndex) return i;
+    }
+    return 0;
+  }, [hasObservationUnits, documentGroups]);
 
   // Get all column names with proper ordering
   const defaultColumns = useMemo(() => {
@@ -1027,6 +1074,21 @@ const DataTable: React.FC<DataTableProps> = ({
             onAddFilter={() => handleOpenFilterDialog()}
           />
 
+          {/* Observation units indicator */}
+          {hasObservationUnits && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className="gap-1 cursor-help">
+                  <Info className="h-3 w-3" />
+                  Grouped by Document
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>
+                Multiple observations per document. Rows are grouped by their source document.
+              </TooltipContent>
+            </Tooltip>
+          )}
+
           <div className="flex items-center gap-2 ml-auto">
             <FilterPresets
               sessionId={sessionId}
@@ -1107,7 +1169,10 @@ const DataTable: React.FC<DataTableProps> = ({
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}
         >
-          <div className="overflow-auto max-h-[600px] border rounded-md overscroll-x-contain">
+          <div
+            ref={tableContainerRef}
+            className="overflow-auto max-h-[600px] border rounded-md overscroll-x-contain"
+          >
             <table className="w-full border-collapse" style={{ minWidth: `${Math.max(600, columns.length * 150)}px` }}>
               <thead className="sticky top-0 z-10 bg-background border-b">
                 <tr>
@@ -1205,6 +1270,8 @@ const DataTable: React.FC<DataTableProps> = ({
                   // Add thicker border between doc groups when observation units present
                   const isFirstRowOfGroup = hasObservationUnits && shouldRenderDocNameCell(rowIndex);
                   const isGroupBoundary = isFirstRowOfGroup && rowIndex > 0;
+                  const groupIndex = getGroupIndex(rowIndex);
+                  const isOddGroup = groupIndex % 2 === 1;
 
                   return (
                     <tr
@@ -1213,24 +1280,43 @@ const DataTable: React.FC<DataTableProps> = ({
                         "border-b hover:bg-muted/50 transition-colors",
                         isNewlyAdded && "bg-green-100 dark:bg-green-950 animate-pulse",
                         isStreaming && "bg-blue-50 dark:bg-blue-950",
-                        isGroupBoundary && "border-t-2 border-t-primary/20"
+                        isGroupBoundary && "border-t-4 border-t-foreground/40",
+                        // Alternating group backgrounds when observation units present
+                        hasObservationUnits && isOddGroup && !isNewlyAdded && !isStreaming && "bg-muted/30"
                       )}
                     >
-                      {/* Frozen first column - with cell merging for doc_name when observation units present */}
+                      {/* Frozen first column - visual grouping without rowSpan */}
                       {frozenColumn && (
-                        frozenColumn === '_row_name' && hasObservationUnits ? (
-                          // Doc name column with potential cell spanning
-                          shouldRenderDocNameCell(rowIndex) && (
-                            <td
-                              className="px-4 py-3 min-w-[150px] max-w-[250px] sticky left-0 bg-background border-r"
-                              rowSpan={getDocNameRowSpan(rowIndex)}
-                              style={{ verticalAlign: 'middle' }}
-                            >
-                              {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
-                            </td>
-                          )
+                        hasObservationUnits ? (
+                          <td
+                            className={cn(
+                              "px-4 py-3 min-w-[150px] max-w-[250px]",
+                              "sticky left-0 border-r",
+                              isOddGroup ? "bg-muted/30" : "bg-background",
+                              isGroupBoundary && "border-t-4 border-t-foreground/40",
+                              // Visual connector for grouped rows
+                              !shouldRenderDocNameCell(rowIndex) && "border-l-4 border-l-primary/20"
+                            )}
+                            style={{
+                              verticalAlign: shouldRenderDocNameCell(rowIndex) ? 'top' : 'middle',
+                              zIndex: 5,
+                            }}
+                          >
+                            {shouldRenderDocNameCell(rowIndex) ? (
+                              // First row of group: show full doc name and observation count
+                              <div className="flex flex-col gap-1">
+                                {formatCellValue(row._source_document, '_source_document', row)}
+                                <Badge variant="secondary" className="text-xs w-fit">
+                                  {getDocNameRowSpan(rowIndex)} observation{getDocNameRowSpan(rowIndex) !== 1 ? 's' : ''}
+                                </Badge>
+                              </div>
+                            ) : (
+                              // Continuation rows: show subtle indicator
+                              <span className="text-muted-foreground/40 text-xs">↑</span>
+                            )}
+                          </td>
                         ) : (
-                          // Regular frozen column (no spanning)
+                          // Regular frozen column (no grouping)
                           <td className="px-4 py-3 min-w-[150px] max-w-[250px] sticky left-0 bg-background border-r">
                             {!frozenColumn.startsWith('_') && row.row_name ? (
                               <EditableCell
@@ -1265,19 +1351,32 @@ const DataTable: React.FC<DataTableProps> = ({
                           cellValue = row.data[column];
                         }
 
-                        // Handle cell merging for _row_name in scrollable columns
+                        // Handle visual grouping for _row_name in scrollable columns (no rowSpan)
                         if (column === '_row_name' && hasObservationUnits) {
-                          if (!shouldRenderDocNameCell(rowIndex)) {
-                            return null; // Skip merged cells
-                          }
                           return (
                             <td
                               key={column}
-                              className="px-4 py-3 min-w-[120px] sm:min-w-[150px]"
-                              rowSpan={getDocNameRowSpan(rowIndex)}
-                              style={{ verticalAlign: 'middle' }}
+                              className={cn(
+                                "px-4 py-3 min-w-[120px] sm:min-w-[150px]",
+                                isOddGroup ? "bg-muted/30" : "bg-background",
+                                isGroupBoundary && "border-t-4 border-t-foreground/40",
+                                // Visual connector for grouped rows
+                                !shouldRenderDocNameCell(rowIndex) && "border-l-4 border-l-primary/20"
+                              )}
+                              style={{ verticalAlign: shouldRenderDocNameCell(rowIndex) ? 'top' : 'middle' }}
                             >
-                              {formatCellValue(cellValue, column, row)}
+                              {shouldRenderDocNameCell(rowIndex) ? (
+                                // First row of group: show full doc name and observation count
+                                <div className="flex flex-col gap-1">
+                                  {formatCellValue(cellValue, column, row)}
+                                  <Badge variant="secondary" className="text-xs w-fit">
+                                    {getDocNameRowSpan(rowIndex)} observation{getDocNameRowSpan(rowIndex) !== 1 ? 's' : ''}
+                                  </Badge>
+                                </div>
+                              ) : (
+                                // Continuation rows: show subtle indicator
+                                <span className="text-muted-foreground/40 text-xs">↑</span>
+                              )}
                             </td>
                           );
                         }

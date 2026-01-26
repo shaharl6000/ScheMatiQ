@@ -33,6 +33,11 @@ class InitialSchemaColumn(BaseModel):
     rationale: str
     allowed_values: Optional[List[str]] = None
 
+class InitialObservationUnit(BaseModel):
+    """Initial observation unit configuration."""
+    name: str
+    definition: Optional[str] = None  # If None, will be auto-discovered
+
 class QBSDConfig(BaseModel):
     """QBSD configuration matching the existing config format.
 
@@ -49,6 +54,7 @@ class QBSDConfig(BaseModel):
     documents_batch_size: int = 4
     initial_schema_path: Optional[str] = None  # Path to schema file
     initial_schema: Optional[List[InitialSchemaColumn]] = None  # Inline schema definition
+    initial_observation_unit: Optional[InitialObservationUnit] = None  # Pre-configured observation unit
     schema_creation_backend: LLMConfig
     value_extraction_backend: LLMConfig
     retriever: Optional[RetrieverConfig] = None

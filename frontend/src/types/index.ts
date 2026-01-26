@@ -178,6 +178,12 @@ export interface InitialSchemaColumn {
   allowed_values?: string[];
 }
 
+// Initial observation unit configuration
+export interface InitialObservationUnit {
+  name: string;
+  definition?: string;  // Optional - if not provided, will be auto-discovered
+}
+
 export interface QBSDConfig {
   /** Research query (optional for document-only mode) */
   query: string;
@@ -187,6 +193,7 @@ export interface QBSDConfig {
   documents_batch_size: number;
   initial_schema_path?: string;  // Path to schema file
   initial_schema?: InitialSchemaColumn[];  // Inline schema definition
+  initial_observation_unit?: InitialObservationUnit;  // Pre-configured observation unit
   schema_creation_backend: LLMConfig;
   value_extraction_backend: LLMConfig;
   retriever?: RetrieverConfig;
