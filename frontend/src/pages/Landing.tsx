@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   Gauge,
   Eye,
-  Pencil,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -40,17 +39,13 @@ const Landing = () => {
   const hasApiKeys = configuredProviders.length > 0;
 
   const loadFeatures = [
-    'Support for CSV and JSON/JSONL files',
-    'Automatic data type detection',
-    'Data quality analysis',
-    'Interactive data exploration',
+    'CSV & JSON support',
+    'Interactive tables',
   ];
 
   const qbsdFeatures = [
-    'AI-powered schema discovery',
-    'Multi-document processing',
-    'Real-time progress monitoring',
-    'Customizable LLM backends',
+    'Automatically discovers relevant fields',
+    'Choose your LLM',
   ];
 
   return (
@@ -58,10 +53,10 @@ const Landing = () => {
       {/* Hero Section */}
       <div className="text-center mb-8">
         <h1 className="text-4xl font-bold tracking-tight mb-4 bg-gradient-to-r from-primary via-blue-500 to-blue-400 bg-clip-text text-transparent">
-          QBSD Visualization
+          From Documents to Data
         </h1>
         <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-          Interactive visualization and schema editing for Query-Based Schema Discovery
+          Given a research question and a document corpus, we automatically discover the relevant fields and extract structured data.
         </p>
       </div>
 
@@ -77,11 +72,10 @@ const Landing = () => {
               <div className="p-2 rounded-lg bg-primary/10">
                 <Sparkles className="h-6 w-6 text-primary" />
               </div>
-              Create QBSD
+              New Project
             </CardTitle>
             <CardDescription>
-              Run the full QBSD pipeline to discover schemas and extract structured data
-              from your document collections using AI-powered analysis.
+              Ask your research question and upload documents. The system discovers what to extract and builds your dataset.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex-grow">
@@ -95,7 +89,7 @@ const Landing = () => {
               ))}
             </ul>
             <div className="flex gap-2 mt-4">
-              <Badge variant="info">AI-Powered</Badge>
+              <Badge variant="info">Query-Based</Badge>
               <Badge variant="warning">Real-time</Badge>
             </div>
           </CardContent>
@@ -107,7 +101,7 @@ const Landing = () => {
               disabled={!hasApiKeys}
             >
               <Sparkles className="mr-2 h-4 w-4" />
-              {hasApiKeys ? 'Create QBSD' : 'Configure API Keys First'}
+              {hasApiKeys ? 'Start' : 'Configure API Keys First'}
             </Button>
           </CardFooter>
         </Card>
@@ -119,11 +113,10 @@ const Landing = () => {
               <div className="p-2 rounded-lg bg-secondary">
                 <Upload className="h-6 w-6 text-muted-foreground" />
               </div>
-              Load Existing QBSD
+              Load Existing Project
             </CardTitle>
             <CardDescription>
-              Import your existing QBSD datasets for visualization, editing, and analysis.
-              Perfect for exploring pre-processed data or continuing previous work.
+              Open a previously generated dataset to explore, refine the schema, or export results.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex-grow">
@@ -148,7 +141,7 @@ const Landing = () => {
               onClick={() => navigate('/load')}
             >
               <Upload className="mr-2 h-4 w-4" />
-              Load Data
+              Open
             </Button>
           </CardFooter>
         </Card>
@@ -156,33 +149,33 @@ const Landing = () => {
 
       {/* Features Section */}
       <div className="text-center">
-        <h2 className="text-2xl font-semibold mb-8">Powerful Visualization Features</h2>
+        <h2 className="text-2xl font-semibold mb-8">How It Works</h2>
         <div className="grid sm:grid-cols-3 gap-8">
           <div className="flex flex-col items-center">
             <div className="p-4 rounded-full bg-primary/10 mb-4">
               <Eye className="h-8 w-8 text-primary" />
             </div>
-            <h3 className="font-semibold mb-2">Interactive Visualization</h3>
+            <h3 className="font-semibold mb-2">Input</h3>
             <p className="text-sm text-muted-foreground">
-              Explore your data with dynamic tables, charts, and schema views
+              Research question + document corpus
             </p>
           </div>
           <div className="flex flex-col items-center">
             <div className="p-4 rounded-full bg-primary/10 mb-4">
-              <Pencil className="h-8 w-8 text-primary" />
+              <Sparkles className="h-8 w-8 text-primary" />
             </div>
-            <h3 className="font-semibold mb-2">Schema Editing</h3>
+            <h3 className="font-semibold mb-2">Schema Discovery</h3>
             <p className="text-sm text-muted-foreground">
-              Modify schemas with real-time validation and re-extraction
+              Automatically find relevant data fields
             </p>
           </div>
           <div className="flex flex-col items-center">
             <div className="p-4 rounded-full bg-primary/10 mb-4">
               <Gauge className="h-8 w-8 text-primary" />
             </div>
-            <h3 className="font-semibold mb-2">Performance Optimized</h3>
+            <h3 className="font-semibold mb-2">Structured Output</h3>
             <p className="text-sm text-muted-foreground">
-              Handle large datasets with virtual scrolling and lazy loading
+              Review, edit, and export your dataset
             </p>
           </div>
         </div>
