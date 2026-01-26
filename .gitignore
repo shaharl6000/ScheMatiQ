@@ -106,6 +106,9 @@ frontend/node_modules/
 backend/app/data/
 backend/app/sessions/
 backend/app/qbsd_work/
+backend/data/
+backend/sessions/
+backend/qbsd_work/
 backend/venv/
 
 # Research data (large files)
