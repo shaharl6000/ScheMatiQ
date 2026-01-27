@@ -24,6 +24,17 @@ class RemoveObservationUnitRequest(BaseModel):
     unit_name: str = Field(..., description="Name of the observation unit to remove")
 
 
+class UpdateObservationUnitDefinitionRequest(BaseModel):
+    """Request to update the observation unit definition (schema-level)."""
+    name: str = Field(..., min_length=1, max_length=100, description="Name of the observation unit type")
+    definition: str = Field(..., min_length=10, max_length=500, description="Definition of what constitutes one row")
+    example_names: Optional[List[str]] = Field(
+        default=None,
+        description="Example names of observation units",
+        max_length=20
+    )
+
+
 class AddObservationUnitRequest(BaseModel):
     """Request to add a new observation unit."""
     unit_name: str = Field(..., description="Name of the observation unit to add")
@@ -39,6 +50,14 @@ class ObservationUnitResponse(BaseModel):
     session_id: str
     observation_units: List[dict]
     row_count: int
+
+
+class UpdateObservationUnitDefinitionResponse(BaseModel):
+    """Response after updating observation unit definition."""
+    status: str
+    message: str
+    observation_unit: dict
+    warning: Optional[str] = None
 
 
 @router.delete("/remove/{session_id}")
@@ -171,3 +190,66 @@ async def list_observation_units(session_id: str) -> dict:
         "observation_units": observation_units,
         "count": len(observation_units)
     }
+
+
+@router.patch("/definition/{session_id}")
+async def update_observation_unit_definition(
+    session_id: str,
+    request: UpdateObservationUnitDefinitionRequest
+) -> UpdateObservationUnitDefinitionResponse:
+    """
+    Update the observation unit definition (schema-level concept).
+
+    This updates what constitutes a single row in the extracted table,
+    not the individual row instances.
+
+    Args:
+        session_id: Session identifier
+        request: Contains name, definition, and optional example_names
+
+    Returns:
+        UpdateObservationUnitDefinitionResponse with updated definition
+
+    Raises:
+        HTTPException: If session not found or validation fails
+    """
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+    # Validate example_names if provided
+    if request.example_names:
+        if len(request.example_names) > 20:
+            raise HTTPException(
+                status_code=400,
+                detail="Maximum 20 example names allowed"
+            )
+        for name in request.example_names:
+            if len(name) > 100:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Example name '{name[:50]}...' exceeds 100 character limit"
+                )
+
+    try:
+        result = await observation_unit_manager.update_observation_unit_definition(
+            session_id=session_id,
+            name=request.name,
+            definition=request.definition,
+            example_names=request.example_names
+        )
+
+        return UpdateObservationUnitDefinitionResponse(
+            status="success",
+            message=f"Successfully updated observation unit definition to '{request.name}'",
+            observation_unit=result["observation_unit"],
+            warning="Existing data was extracted with the previous definition. Consider re-extraction if granularity changed."
+        )
+
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating observation unit definition: {str(e)}"
+        )

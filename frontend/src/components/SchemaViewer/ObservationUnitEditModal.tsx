@@ -1,0 +1,404 @@
+import React, { useState, useEffect } from 'react';
+import { AlertTriangle, Plus, X, Loader2, FileText, Clock, RefreshCw } from 'lucide-react';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { useToast } from '@/components/ui/use-toast';
+
+import { ObservationUnitInfo } from '../../types';
+import { observationUnitAPI } from '../../services/api';
+
+interface ObservationUnitEditModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  sessionId: string;
+  observationUnit: ObservationUnitInfo;
+  onUpdate: (updated: ObservationUnitInfo) => void;
+  onReextractionRequest?: () => void;
+}
+
+const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
+  open,
+  onOpenChange,
+  sessionId,
+  observationUnit,
+  onUpdate,
+  onReextractionRequest,
+}) => {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [name, setName] = useState('');
+  const [definition, setDefinition] = useState('');
+  const [exampleNames, setExampleNames] = useState<string[]>([]);
+  const [newExample, setNewExample] = useState('');
+  const [metadataOpen, setMetadataOpen] = useState(false);
+
+  // Validation states
+  const [errors, setErrors] = useState<{ name?: string; definition?: string }>({});
+
+  // Initialize form when modal opens or observationUnit changes
+  useEffect(() => {
+    if (open && observationUnit) {
+      setName(observationUnit.name || '');
+      setDefinition(observationUnit.definition || '');
+      setExampleNames(observationUnit.example_names || []);
+      setNewExample('');
+      setErrors({});
+    }
+  }, [open, observationUnit]);
+
+  const validateForm = (): boolean => {
+    const newErrors: { name?: string; definition?: string } = {};
+
+    if (!name.trim()) {
+      newErrors.name = 'Name is required';
+    } else if (name.length > 100) {
+      newErrors.name = 'Name must be 100 characters or less';
+    }
+
+    if (!definition.trim()) {
+      newErrors.definition = 'Definition is required';
+    } else if (definition.length < 10) {
+      newErrors.definition = 'Definition must be at least 10 characters';
+    } else if (definition.length > 500) {
+      newErrors.definition = 'Definition must be 500 characters or less';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleAddExample = () => {
+    const trimmed = newExample.trim();
+    if (!trimmed) return;
+
+    if (trimmed.length > 100) {
+      toast({
+        title: 'Invalid example',
+        description: 'Example name must be 100 characters or less',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (exampleNames.length >= 20) {
+      toast({
+        title: 'Limit reached',
+        description: 'Maximum 20 example names allowed',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (exampleNames.includes(trimmed)) {
+      toast({
+        title: 'Duplicate',
+        description: 'This example already exists',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setExampleNames([...exampleNames, trimmed]);
+    setNewExample('');
+  };
+
+  const handleRemoveExample = (index: number) => {
+    setExampleNames(exampleNames.filter((_, i) => i !== index));
+  };
+
+  const handleSave = async () => {
+    if (!validateForm()) return;
+
+    setLoading(true);
+    try {
+      const response = await observationUnitAPI.updateDefinition(sessionId, {
+        name: name.trim(),
+        definition: definition.trim(),
+        example_names: exampleNames.length > 0 ? exampleNames : undefined,
+      });
+
+      // Call onUpdate with the updated observation unit
+      onUpdate({
+        name: response.observation_unit.name,
+        definition: response.observation_unit.definition,
+        example_names: response.observation_unit.example_names,
+        source_document: response.observation_unit.source_document,
+        discovery_iteration: response.observation_unit.discovery_iteration,
+      });
+
+      toast({
+        title: 'Success',
+        description: response.message,
+      });
+
+      // Show warning if present
+      if (response.warning) {
+        toast({
+          title: 'Note',
+          description: response.warning,
+          variant: 'default',
+        });
+      }
+
+      onOpenChange(false);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.detail || 'Failed to update observation unit definition',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveAndReextract = async () => {
+    if (!validateForm()) return;
+
+    setLoading(true);
+    try {
+      const response = await observationUnitAPI.updateDefinition(sessionId, {
+        name: name.trim(),
+        definition: definition.trim(),
+        example_names: exampleNames.length > 0 ? exampleNames : undefined,
+      });
+
+      onUpdate({
+        name: response.observation_unit.name,
+        definition: response.observation_unit.definition,
+        example_names: response.observation_unit.example_names,
+        source_document: response.observation_unit.source_document,
+        discovery_iteration: response.observation_unit.discovery_iteration,
+      });
+
+      toast({
+        title: 'Success',
+        description: 'Definition updated. Opening re-extraction dialog...',
+      });
+
+      // Show warning if present
+      if (response.warning) {
+        toast({
+          title: 'Note',
+          description: response.warning,
+          variant: 'default',
+        });
+      }
+
+      onOpenChange(false);
+
+      // Trigger re-extraction dialog
+      if (onReextractionRequest) {
+        onReextractionRequest();
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.detail || 'Failed to update observation unit definition',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey && e.target === document.activeElement) {
+      const target = e.target as HTMLElement;
+      if (target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        if (target.id === 'new-example-input') {
+          handleAddExample();
+        }
+      }
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[500px]" onKeyDown={handleKeyDown}>
+        <DialogHeader>
+          <DialogTitle>Edit Observation Unit</DialogTitle>
+          <DialogDescription>
+            Define what constitutes a single row in your extracted table.
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Warning Banner */}
+        <Alert variant="default" className="bg-amber-50 border-amber-200">
+          <AlertTriangle className="h-4 w-4 text-amber-600" />
+          <AlertDescription className="text-amber-800 text-sm">
+            Changing this definition may affect data consistency. Existing rows were
+            extracted with the previous definition.
+          </AlertDescription>
+        </Alert>
+
+        <div className="space-y-4 py-4">
+          {/* Name Field */}
+          <div className="space-y-2">
+            <Label htmlFor="name">
+              Name <span className="text-red-500">*</span>
+            </Label>
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                if (errors.name) setErrors({ ...errors, name: undefined });
+              }}
+              placeholder="e.g., Protein, Model-Benchmark Evaluation"
+              maxLength={100}
+              className={errors.name ? 'border-red-500' : ''}
+            />
+            <div className="flex justify-between">
+              {errors.name ? (
+                <span className="text-xs text-red-500">{errors.name}</span>
+              ) : (
+                <span className="text-xs text-muted-foreground">Short label for rows</span>
+              )}
+              <span className="text-xs text-muted-foreground">{name.length}/100</span>
+            </div>
+          </div>
+
+          {/* Definition Field */}
+          <div className="space-y-2">
+            <Label htmlFor="definition">
+              Definition <span className="text-red-500">*</span>
+            </Label>
+            <Textarea
+              id="definition"
+              value={definition}
+              onChange={(e) => {
+                setDefinition(e.target.value);
+                if (errors.definition) setErrors({ ...errors, definition: undefined });
+              }}
+              placeholder="e.g., Each row represents a unique protein mentioned in the documents..."
+              rows={3}
+              maxLength={500}
+              className={errors.definition ? 'border-red-500' : ''}
+            />
+            <div className="flex justify-between">
+              {errors.definition ? (
+                <span className="text-xs text-red-500">{errors.definition}</span>
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  Describe what constitutes one row (10-500 chars)
+                </span>
+              )}
+              <span className="text-xs text-muted-foreground">{definition.length}/500</span>
+            </div>
+          </div>
+
+          {/* Example Names */}
+          <div className="space-y-2">
+            <Label>Example Names (optional)</Label>
+            <div className="flex gap-2">
+              <Input
+                id="new-example-input"
+                value={newExample}
+                onChange={(e) => setNewExample(e.target.value)}
+                placeholder="Add an example..."
+                maxLength={100}
+                disabled={exampleNames.length >= 20}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={handleAddExample}
+                disabled={!newExample.trim() || exampleNames.length >= 20}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+            {exampleNames.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {exampleNames.map((example, index) => (
+                  <Badge key={index} variant="secondary" className="pr-1">
+                    {example}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveExample(index)}
+                      className="ml-1 hover:text-red-500"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+            <span className="text-xs text-muted-foreground">
+              {exampleNames.length}/20 examples
+            </span>
+          </div>
+
+          {/* Read-only Metadata */}
+          {(observationUnit.source_document || observationUnit.discovery_iteration !== undefined) && (
+            <Collapsible open={metadataOpen} onOpenChange={setMetadataOpen}>
+              <CollapsibleTrigger asChild>
+                <Button variant="ghost" size="sm" className="w-full justify-start text-muted-foreground">
+                  {metadataOpen ? 'Hide' : 'Show'} discovery metadata
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="space-y-2 pt-2">
+                {observationUnit.source_document && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <FileText className="h-4 w-4" />
+                    <span>Source: {observationUnit.source_document}</span>
+                  </div>
+                )}
+                {observationUnit.discovery_iteration !== undefined && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Clock className="h-4 w-4" />
+                    <span>Discovered in iteration {observationUnit.discovery_iteration}</span>
+                  </div>
+                )}
+              </CollapsibleContent>
+            </Collapsible>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+            Cancel
+          </Button>
+          {onReextractionRequest && (
+            <Button
+              variant="outline"
+              onClick={handleSaveAndReextract}
+              disabled={loading}
+            >
+              {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Save & Re-extract
+            </Button>
+          )}
+          <Button onClick={handleSave} disabled={loading}>
+            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+export default ObservationUnitEditModal;

@@ -314,3 +314,108 @@ class ObservationUnitManager:
             "observation_units": self.get_observation_units(session_id),
             "row_count": row_count
         }
+
+    async def update_observation_unit_definition(
+        self,
+        session_id: str,
+        name: str,
+        definition: str,
+        example_names: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Update the observation unit definition (schema-level concept).
+
+        This updates what constitutes a single row, not the individual instances.
+
+        Args:
+            session_id: Session identifier
+            name: Name of the observation unit type (e.g., "Protein", "Model-Benchmark Evaluation")
+            definition: Definition of what constitutes one row
+            example_names: Optional list of example names
+
+        Returns:
+            Dict with updated observation_unit
+
+        Raises:
+            ValueError: If session not found
+        """
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+
+        # Import ObservationUnitInfo here to avoid circular imports
+        from app.models.session import ObservationUnitInfo
+
+        # Get current observation unit or create a new one
+        old_observation_unit = session.observation_unit
+
+        # Create updated observation unit, preserving read-only fields
+        updated_observation_unit = ObservationUnitInfo(
+            name=name,
+            definition=definition,
+            example_names=example_names,
+            source_document=old_observation_unit.source_document if old_observation_unit else None,
+            discovery_iteration=old_observation_unit.discovery_iteration if old_observation_unit else None
+        )
+
+        # Update session
+        session.observation_unit = updated_observation_unit
+        session.metadata.last_modified = datetime.now()
+        self.session_manager.update_session(session)
+
+        # Update schema JSON file on disk
+        self._update_schema_file(session_id, updated_observation_unit)
+
+        # Broadcast update via WebSocket
+        await self.websocket_manager.broadcast_to_session(session_id, {
+            "type": "observation_unit_definition_updated",
+            "observation_unit": {
+                "name": updated_observation_unit.name,
+                "definition": updated_observation_unit.definition,
+                "example_names": updated_observation_unit.example_names,
+                "source_document": updated_observation_unit.source_document,
+                "discovery_iteration": updated_observation_unit.discovery_iteration
+            }
+        })
+
+        return {
+            "observation_unit": {
+                "name": updated_observation_unit.name,
+                "definition": updated_observation_unit.definition,
+                "example_names": updated_observation_unit.example_names,
+                "source_document": updated_observation_unit.source_document,
+                "discovery_iteration": updated_observation_unit.discovery_iteration
+            }
+        }
+
+    def _update_schema_file(self, session_id: str, observation_unit) -> None:
+        """
+        Update the observation unit in the schema JSON file.
+
+        Args:
+            session_id: Session identifier
+            observation_unit: Updated ObservationUnitInfo
+        """
+        qbsd_work_dir = Path("./qbsd_work") / session_id
+        schema_file = qbsd_work_dir / "discovered_schema.json"
+
+        if schema_file.exists():
+            try:
+                with open(schema_file, 'r') as f:
+                    schema_data = json.load(f)
+
+                # Update observation unit in schema
+                schema_data['observation_unit'] = {
+                    'name': observation_unit.name,
+                    'definition': observation_unit.definition,
+                    'example_names': observation_unit.example_names,
+                    'source_document': observation_unit.source_document,
+                    'discovery_iteration': observation_unit.discovery_iteration
+                }
+
+                with open(schema_file, 'w') as f:
+                    json.dump(schema_data, f, indent=2)
+
+            except (json.JSONDecodeError, IOError) as e:
+                # Log error but don't fail the operation
+                print(f"Warning: Failed to update schema file: {e}")

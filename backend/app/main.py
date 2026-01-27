@@ -26,6 +26,7 @@ from app.api.routes.qbsd import router as qbsd_router
 from app.api.routes.websocket import router as websocket_router
 from app.api.routes.schema import router as schema_router
 from app.api.routes.cloud_data import router as cloud_data_router
+from app.api.routes.observation_unit import router as observation_unit_router
 from app.core.config import (
     API_TITLE, API_DESCRIPTION, API_VERSION,
     ALLOWED_ORIGINS, DEFAULT_HOST, DEFAULT_PORT,
@@ -63,6 +64,10 @@ app = FastAPI(
         {
             "name": "cloud-data",
             "description": "Cloud data endpoints for datasets and templates. List and access pre-uploaded datasets and template tables."
+        },
+        {
+            "name": "observation-unit",
+            "description": "Observation unit management operations. Add or remove rows (observation units) from extracted tables."
         }
     ]
 )
@@ -83,6 +88,7 @@ app.include_router(qbsd_router, prefix="/api/qbsd", tags=["qbsd"])
 app.include_router(schema_router, prefix="/api/schema", tags=["schema"])
 app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
 app.include_router(cloud_data_router, prefix="/api", tags=["cloud-data"])
+app.include_router(observation_unit_router, prefix="/api/observation-unit", tags=["observation-unit"])
 
 @app.get("/", tags=["root"], summary="API Root", description="Returns API information and version")
 async def root():

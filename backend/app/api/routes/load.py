@@ -1178,7 +1178,11 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
                         "rationale": col.rationale or f"Extracted from uploaded data structure"
                     }
                     extracted_schema["schema"].append(schema_col)
-            
+
+            # Include observation_unit if session has one (critical for multi-row extraction)
+            if session.observation_unit:
+                extracted_schema["observation_unit"] = session.observation_unit.model_dump()
+
             # Store the converted schema in session metadata for processing
             session.metadata.extracted_schema = extracted_schema
             session_manager.update_session(session)

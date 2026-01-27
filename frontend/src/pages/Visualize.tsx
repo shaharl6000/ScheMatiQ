@@ -13,6 +13,7 @@ import {
   X,
   FileText,
   Square,
+  Copy,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -21,6 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useToast } from '@/components/ui/use-toast';
 
 import { loadAPI, qbsdAPI, cloudAPI } from '../services/api';
 import { getApiKeyForProvider, LLMProvider } from '../utils/apiKeyStorage';
@@ -49,6 +51,7 @@ const Visualize = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const mode = searchParams.get('mode') as 'load' | 'qbsd' || 'load';
   const [activeTab, setActiveTab] = useState(mode === 'qbsd' ? 'monitor' : 'data');
@@ -173,10 +176,12 @@ const Visualize = () => {
               }, NEW_ROW_HIGHLIGHT_DURATION);
               break;
             case 'completion':
+              console.log('✅ WebSocket completion received, refetching data...');
               setStreamingCells(new Map());
               setForceWebSocketConnect(false);
-              queryClient.refetchQueries(['session', sessionId, mode]);
-              queryClient.refetchQueries(['data', sessionId, mode]);
+              // Use broader query filter to match all data queries (including DataTable's paginated queries)
+              queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               setTimeout(() => {
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                   wsRef.current.close(1000, 'Processing completed');
@@ -237,8 +242,8 @@ const Visualize = () => {
               console.log('QBSD stopped:', message.data);
               setStreamingCells(new Map());
               setForceWebSocketConnect(false);
-              queryClient.refetchQueries(['session', sessionId, mode]);
-              queryClient.refetchQueries(['data', sessionId, mode]);
+              queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               break;
 
             // Continue Discovery events
@@ -250,8 +255,8 @@ const Visualize = () => {
               break;
             case 'continue_discovery_completed':
               console.log('Continue discovery completed:', message.data);
-              queryClient.refetchQueries(['session', sessionId, mode]);
-              queryClient.refetchQueries(['data', sessionId, mode]);
+              queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               break;
             case 'continue_discovery_stopped':
               console.log('Continue discovery stopped:', message.data);
@@ -423,10 +428,12 @@ const Visualize = () => {
                 }, NEW_ROW_HIGHLIGHT_DURATION);
                 break;
               case 'completion':
+                console.log('✅ WebSocket completion received, refetching data...');
                 setStreamingCells(new Map());
                 setForceWebSocketConnect(false);
-                queryClient.refetchQueries(['session', sessionId, mode]);
-                queryClient.refetchQueries(['data', sessionId, mode]);
+                // Use broader query filter to match all data queries (including DataTable's paginated queries)
+                queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 setTimeout(() => {
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     wsRef.current.close(1000, 'Processing completed');
@@ -489,8 +496,8 @@ const Visualize = () => {
                 console.log('QBSD stopped:', message.data);
                 setStreamingCells(new Map());
                 setForceWebSocketConnect(false);
-                queryClient.refetchQueries(['session', sessionId, mode]);
-                queryClient.refetchQueries(['data', sessionId, mode]);
+                queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 break;
 
               // Continue Discovery events
@@ -502,8 +509,8 @@ const Visualize = () => {
                 break;
               case 'continue_discovery_completed':
                 console.log('Continue discovery completed:', message.data);
-                queryClient.refetchQueries(['session', sessionId, mode]);
-                queryClient.refetchQueries(['data', sessionId, mode]);
+                queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 break;
               case 'continue_discovery_stopped':
                 console.log('Continue discovery stopped:', message.data);
@@ -879,7 +886,23 @@ const Visualize = () => {
               <span>/</span>
               <span>{session?.type === 'load' ? 'Load Session' : 'QBSD Session'}</span>
             </div>
-            <h1 className="text-lg font-semibold">{session?.metadata.source}</h1>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs text-muted-foreground font-medium">Query</span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5"
+                onClick={() => {
+                  navigator.clipboard.writeText(session?.schema_query || '');
+                  toast({ title: "Query copied to clipboard" });
+                }}
+              >
+                <Copy className="h-3 w-3" />
+              </Button>
+            </div>
+            <h1 className="text-base font-medium text-foreground">
+              {session?.schema_query}
+            </h1>
           </div>
         </div>
 
@@ -937,17 +960,6 @@ const Visualize = () => {
         <TabsContent value="data" className="mt-4">
           {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || isQBSDStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
             <div className="relative">
-              {/* Query Display */}
-              {session?.schema_query && (
-                <Card className="mb-4">
-                  <CardHeader className="py-3">
-                    <CardTitle className="text-lg font-semibold">Query</CardTitle>
-                  </CardHeader>
-                  <CardContent className="pt-0">
-                    <p className="text-base">{session.schema_query}</p>
-                  </CardContent>
-                </Card>
-              )}
               <DataTable
                 sessionId={sessionId!}
                 sessionType={mode}
@@ -1183,6 +1195,7 @@ const Visualize = () => {
         description="Choose the AI model that will extract information from your uploaded documents."
         preservedConfig={session?.metadata?.extracted_schema?.llm_configuration?.value_extraction_backend || null}
         loading={documentUploadLoading}
+        defaultModel="gemini-2.5-flash-lite"
       />
     </div>
   );

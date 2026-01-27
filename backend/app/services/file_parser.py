@@ -1649,7 +1649,7 @@ class FileParser:
             "document_randomization_seed": 42,
             "backend": {
                 "provider": "gemini",
-                "model": "gemini-2.5-flash",
+                "model": "gemini-2.5-flash-lite",
                 "max_output_tokens": 1024,
                 "temperature": 0
             },
