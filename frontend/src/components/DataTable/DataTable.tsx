@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
-import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info } from 'lucide-react';
+import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info, Plus, AlertCircle } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -39,7 +39,7 @@ import {
 } from '@/components/ui/tooltip';
 
 import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
-import { sessionAPI, qbsdAPI } from '../../services/api';
+import { sessionAPI, qbsdAPI, observationUnitAPI } from '../../services/api';
 import EditableCell from './EditableCell';
 import {
   formatColumnName,
@@ -71,6 +71,18 @@ import FilterDialog from './FilterDialog';
 import FilterPresets from './FilterPresets';
 import ColumnVisibilityDropdown from './ColumnVisibilityDropdown';
 import FullnessFilter from './FullnessFilter';
+import RowActions from './RowActions';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useToast } from '@/components/ui/use-toast';
 
 interface ColumnInfoProp {
   name: string;
@@ -98,6 +110,10 @@ interface DataTableProps {
   onStopReextraction?: () => void;
   /** Whether stop is in progress */
   isStoppingReextraction?: boolean;
+  /** Whether the table is in readonly mode (disables row actions) */
+  readonly?: boolean;
+  /** Callback when data changes (e.g., row added/deleted) */
+  onDataChange?: () => void;
 }
 
 // Sortable Header Cell Component
@@ -222,7 +238,10 @@ const DataTable: React.FC<DataTableProps> = ({
   currentDocumentProgress,
   onStopReextraction,
   isStoppingReextraction,
+  readonly = false,
+  onDataChange,
 }) => {
+  const { toast } = useToast();
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
   const [searchTerm, setSearchTerm] = useState('');
@@ -231,6 +250,13 @@ const DataTable: React.FC<DataTableProps> = ({
   const [filterDialogOpen, setFilterDialogOpen] = useState(false);
   const [filterDialogColumn, setFilterDialogColumn] = useState<string | undefined>();
   const [fullnessThreshold, setFullnessThreshold] = useState(0);
+
+  // Add Row dialog state
+  const [showAddRowDialog, setShowAddRowDialog] = useState(false);
+  const [newRowName, setNewRowName] = useState('');
+  const [newRowDocument, setNewRowDocument] = useState('');
+  const [isAddingRow, setIsAddingRow] = useState(false);
+  const [addRowError, setAddRowError] = useState<string | null>(null);
 
   // Ref for table container
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -299,6 +325,49 @@ const DataTable: React.FC<DataTableProps> = ({
     await qbsdAPI.updateCell(sessionId, rowName, column, value);
     refetchData();
   }, [sessionId, refetchData]);
+
+  // Row delete handler
+  const handleRowDelete = useCallback(async (rowName: string) => {
+    await observationUnitAPI.remove(sessionId, rowName);
+    refetchData();
+    onDataChange?.();
+    toast({
+      title: 'Row deleted',
+      description: `"${rowName}" has been removed from the table.`,
+    });
+  }, [sessionId, refetchData, onDataChange, toast]);
+
+  // Row add handler
+  const handleAddRow = useCallback(async () => {
+    if (!newRowName.trim()) {
+      setAddRowError('Row name is required');
+      return;
+    }
+
+    setIsAddingRow(true);
+    setAddRowError(null);
+
+    try {
+      await observationUnitAPI.add(sessionId, {
+        unit_name: newRowName.trim(),
+        document_id: newRowDocument.trim() || undefined,
+      });
+
+      setShowAddRowDialog(false);
+      setNewRowName('');
+      setNewRowDocument('');
+      refetchData();
+      onDataChange?.();
+      toast({
+        title: 'Row added',
+        description: `"${newRowName.trim()}" has been added to the table.`,
+      });
+    } catch (err: any) {
+      setAddRowError(err.response?.data?.detail || err.message || 'Failed to add row');
+    } finally {
+      setIsAddingRow(false);
+    }
+  }, [sessionId, newRowName, newRowDocument, refetchData, onDataChange, toast]);
 
   const fetchedOrInitialData = fetchedData ?? initialData ?? EMPTY_DATA;
 
@@ -1110,6 +1179,22 @@ const DataTable: React.FC<DataTableProps> = ({
               onShowAll={showAllColumns}
               onHideAll={hideAllColumns}
             />
+            {!readonly && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setNewRowName('');
+                  setNewRowDocument('');
+                  setAddRowError(null);
+                  setShowAddRowDialog(true);
+                }}
+                className="gap-1"
+              >
+                <Plus className="h-4 w-4" />
+                Add Row
+              </Button>
+            )}
           </div>
         </div>
 
@@ -1245,6 +1330,13 @@ const DataTable: React.FC<DataTableProps> = ({
                       </SortableHeaderCell>
                     ))}
                   </SortableContext>
+
+                  {/* Actions column header - only show if not readonly */}
+                  {!readonly && (
+                    <th className="px-2 py-3 text-left font-bold text-base min-w-[60px] sticky right-0 bg-background border-l">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -1401,6 +1493,20 @@ const DataTable: React.FC<DataTableProps> = ({
                           </td>
                         );
                       })}
+
+                      {/* Actions column cell - only show if not readonly */}
+                      {!readonly && (
+                        <td className={cn(
+                          "px-2 py-3 min-w-[60px] sticky right-0 border-l",
+                          isOddGroup && hasObservationUnits ? "bg-muted/30" : "bg-background"
+                        )}>
+                          <RowActions
+                            rowName={row._unit_name || row.row_name || ''}
+                            onDelete={handleRowDelete}
+                            disabled={readonly}
+                          />
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -1466,6 +1572,75 @@ const DataTable: React.FC<DataTableProps> = ({
         columns={columnMetadata}
         selectedColumn={filterDialogColumn}
       />
+
+      {/* Add Row Dialog */}
+      <Dialog open={showAddRowDialog} onOpenChange={setShowAddRowDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add New Row</DialogTitle>
+            <DialogDescription>
+              Add a new row to the table. The row will be created with empty values for all columns.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="row-name">Row Name *</Label>
+              <Input
+                id="row-name"
+                placeholder="e.g., Protein X, Model A, Treatment Group 1"
+                value={newRowName}
+                onChange={(e) => setNewRowName(e.target.value)}
+                disabled={isAddingRow}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="document-id">Source Document (optional)</Label>
+              <Input
+                id="document-id"
+                placeholder="e.g., paper_123.pdf"
+                value={newRowDocument}
+                onChange={(e) => setNewRowDocument(e.target.value)}
+                disabled={isAddingRow}
+              />
+              <p className="text-xs text-muted-foreground">
+                Reference to the document this row is associated with
+              </p>
+            </div>
+          </div>
+
+          {addRowError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{addRowError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowAddRowDialog(false)}
+              disabled={isAddingRow}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleAddRow}
+              disabled={isAddingRow}
+            >
+              {isAddingRow ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Adding...
+                </>
+              ) : (
+                'Add Row'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };

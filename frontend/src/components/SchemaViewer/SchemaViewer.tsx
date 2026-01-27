@@ -1000,6 +1000,9 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                 ))}
               </div>
             )}
+            <p className="text-xs text-purple-600 mt-2 italic">
+              Use the table actions (⋮) to add or remove rows
+            </p>
           </CardContent>
         </Card>
       )}
