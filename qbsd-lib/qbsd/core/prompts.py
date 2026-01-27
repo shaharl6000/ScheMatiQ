@@ -33,6 +33,25 @@ Only add a column when it is clearly missing from the existing schema and provid
 Most of the time, the correct response is: {{"document_helpful": true, "columns": []}}
 Adding columns should be RARE, not routine. When in doubt, DO NOT add.
 
+### CRITICAL: Query-Aligned Generality
+Columns should capture information relevant to answering the query across MOST documents, not just this one.
+
+**Before proposing any column, ask:**
+- "Would this column be useful for documents OTHER than these specific passages?"
+- "Does this relate to the query's CORE intent, or just incidental content in these passages?"
+
+**Prefer columns that:**
+- Directly relate to the query's core purpose
+- Would be extractable from diverse documents answering this query
+- Capture patterns expected to recur across the corpus
+
+**Reject columns that:**
+- Are specific to this document's particular domain or subject matter (not the query's domain)
+- Capture niche details that appear only because of what this document happens to discuss
+- Arise from incidental content rather than query-relevant information
+
+Think: "If I only saw the query (not these passages), would I expect this column to be valuable?"
+
 ### Task
 You are building a schema to extract structured information from documents.
 Given passages from documents, identify what types of extractable information they contain that would help answer the query.
@@ -58,11 +77,13 @@ If passages lack extractable information relevant to the query:
 4. ❌ It overlaps semantically with existing columns
 5. ❌ It's "nice to have" rather than essential for answering the query
 6. ❌ The information cannot actually be extracted from documents like these
+7. ❌ It's specific to this document's domain rather than the query's intent
 
 **Only add if ALL of these are true:**
 - ✅ The schema has a CLEAR GAP — this information type is completely absent
 - ✅ This column captures extractable information that helps answer the query
 - ✅ No existing column covers this, even partially
+- ✅ This column would be valuable across MOST documents answering this query
 
 ### Output Format
 Return valid JSON only:
