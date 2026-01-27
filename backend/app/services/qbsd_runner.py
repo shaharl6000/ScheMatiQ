@@ -87,7 +87,7 @@ def build_llm_interface(
             api_key=api_key
         )
     elif provider.lower() == "gemini":
-        # GeminiLLM has default model="gemini-2.5-flash" and max_output_tokens=8192
+        # GeminiLLM has default model="gemini-2.5-flash-lite" and max_output_tokens=8192
         # Only pass model if explicitly provided (non-empty)
         kwargs = {
             "max_output_tokens": max_output_tokens,
@@ -1806,55 +1806,61 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         - ./qbsd_work/{session_id}/extracted_data.jsonl - Original QBSD value extraction
         - ./qbsd_work/{session_id}/data.jsonl - Fallback location
         - ./data/{session_id}/data.jsonl - Additional document processing (upload_document_processor)
-        """
-        # Priority order: extracted_data.jsonl > qbsd_work/data.jsonl > data/data.jsonl
-        # Use only the highest-priority file that exists (not all files)
-        data_file = None
 
-        # Check qbsd_work directory (original QBSD extraction) - highest priority
+        When original QBSD data exists AND additional data exists, both are combined.
+        """
+        # Collect all data files that exist
+        data_files = []
+
+        # Check qbsd_work directory (original QBSD extraction)
         extracted_file = self.work_dir / session_id / "extracted_data.jsonl"
         if extracted_file.exists():
-            data_file = extracted_file
+            data_files.append(extracted_file)
 
-        # Check qbsd_work for data.jsonl (fallback)
-        if data_file is None:
+        # Check qbsd_work for data.jsonl (only if extracted_data.jsonl doesn't exist)
+        if not data_files:
             qbsd_data_file = self.work_dir / session_id / "data.jsonl"
             if qbsd_data_file.exists():
-                data_file = qbsd_data_file
+                data_files.append(qbsd_data_file)
 
-        # Check data directory (lowest priority fallback)
-        if data_file is None:
-            data_dir_file = Path("./data") / session_id / "data.jsonl"
-            if data_dir_file.exists():
-                data_file = data_dir_file
+        # Check data directory - ALWAYS check this as it may contain additional documents
+        data_dir_file = Path("./data") / session_id / "data.jsonl"
+        if data_dir_file.exists():
+            # Only add if it's not already in the list (avoid duplicates)
+            if data_dir_file not in data_files:
+                data_files.append(data_dir_file)
 
-        if data_file is None:
+        if not data_files:
             return PaginatedData(rows=[], total_count=0, filtered_count=None, page=page, page_size=page_size, has_more=False)
+
+        # Helper function to normalize row data
+        def normalize_row(row_data: dict) -> dict:
+            if '_row_name' in row_data:
+                return {
+                    'row_name': row_data.get('_row_name'),
+                    'papers': row_data.get('_papers', []),
+                    'data': {k: v for k, v in row_data.items() if not k.startswith('_')},
+                    'unit_name': row_data.get('_unit_name'),
+                    'source_document': row_data.get('_source_document'),
+                    'parent_document': row_data.get('_parent_document'),
+                }
+            return row_data
 
         # Check if we need to filter/sort (requires loading all rows)
         needs_processing = bool(filters or sort or search)
 
         if needs_processing:
-            # Load all rows from the data file
+            # Load all rows from all data files
             all_rows = []
-            with open(data_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if line.strip():
-                        try:
-                            row_data = json.loads(line.strip())
-                            # Normalize to standard format
-                            if '_row_name' in row_data:
-                                row_data = {
-                                    'row_name': row_data.get('_row_name'),
-                                    'papers': row_data.get('_papers', []),
-                                    'data': {k: v for k, v in row_data.items() if not k.startswith('_')},
-                                    'unit_name': row_data.get('_unit_name'),  # Preserve actual unit_name from extraction
-                                    'source_document': row_data.get('_source_document'),  # Preserve source document name
-                                    'parent_document': row_data.get('_parent_document'),  # Preserve parent document name
-                                }
-                            all_rows.append(row_data)
-                        except (json.JSONDecodeError, TypeError):
-                            pass
+            for data_file in data_files:
+                with open(data_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if line.strip():
+                            try:
+                                row_data = json.loads(line.strip())
+                                all_rows.append(normalize_row(row_data))
+                            except (json.JSONDecodeError, TypeError):
+                                pass
 
             total_count = len(all_rows)
 
@@ -1894,37 +1900,35 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             )
         else:
             # Efficient pagination (no filtering/sorting)
-            with open(data_file, 'r', encoding='utf-8') as f:
-                total_count = sum(1 for _ in f)
+            # Count total rows across all files
+            total_count = 0
+            for data_file in data_files:
+                with open(data_file, 'r', encoding='utf-8') as f:
+                    total_count += sum(1 for _ in f)
 
             rows = []
             start_line = page * page_size
             end_line = start_line + page_size
+            global_line = 0
 
-            with open(data_file, 'r', encoding='utf-8') as f:
-                for current_line, line in enumerate(f):
-                    if current_line >= end_line:
-                        break
-                    if current_line >= start_line:
-                        try:
-                            row_data = json.loads(line.strip())
+            # Read from all files, handling pagination across files
+            for data_file in data_files:
+                if global_line >= end_line:
+                    break  # Already have enough rows
 
-                            # Handle both old mock format and new real extraction format
-                            if '_row_name' in row_data:
-                                data_row = DataRow(
-                                    row_name=row_data.get('_row_name'),
-                                    papers=row_data.get('_papers', []),
-                                    data={k: v for k, v in row_data.items() if not k.startswith('_')},
-                                    unit_name=row_data.get('_unit_name'),  # Preserve actual unit_name from extraction
-                                    source_document=row_data.get('_source_document'),  # Preserve source document name
-                                    parent_document=row_data.get('_parent_document'),  # Preserve parent document name
-                                )
-                            else:
-                                data_row = DataRow(**row_data)
-
-                            rows.append(data_row)
-                        except (json.JSONDecodeError, TypeError) as e:
-                            print(f"Warning: Could not parse row {current_line}: {e}")
+                with open(data_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if global_line >= end_line:
+                            break
+                        if global_line >= start_line:
+                            try:
+                                row_data = json.loads(line.strip())
+                                normalized = normalize_row(row_data)
+                                data_row = DataRow(**normalized)
+                                rows.append(data_row)
+                            except (json.JSONDecodeError, TypeError) as e:
+                                print(f"Warning: Could not parse row {global_line}: {e}")
+                        global_line += 1
 
             return PaginatedData(
                 rows=rows,
