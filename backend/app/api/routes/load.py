@@ -92,11 +92,22 @@ async def load_template(template_name: str):
         parser = FileParser()
         result = await parser.parse_file(session_id, None)
 
-        # Extract query from metadata if available
+        # Extract query and observation_unit from metadata if available
         if "extracted_metadata" in result:
             metadata = result["extracted_metadata"]
             if metadata.get('query'):
                 session.schema_query = metadata['query']
+            # Restore observation_unit from CSV comments
+            if metadata.get('observation_unit'):
+                from app.models.session import ObservationUnitInfo
+                session.observation_unit = ObservationUnitInfo(**metadata['observation_unit'])
+                print(f"DEBUG: Restored observation unit from template CSV: {session.observation_unit.name}")
+
+        # Restore observation_unit from JSON parse result if present (and not already set)
+        if result.get("observation_unit") and not session.observation_unit:
+            from app.models.session import ObservationUnitInfo
+            session.observation_unit = ObservationUnitInfo(**result["observation_unit"])
+            print(f"DEBUG: Restored observation unit from template JSON: {session.observation_unit.name}")
 
         # Update session with parsed data
         session.columns = result["columns"]
@@ -203,7 +214,13 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
             # Store extracted query
             if metadata.get('query'):
                 session.schema_query = metadata['query']
-            
+
+            # Restore observation_unit if present (from CSV comments)
+            if metadata.get('observation_unit'):
+                from app.models.session import ObservationUnitInfo
+                session.observation_unit = ObservationUnitInfo(**metadata['observation_unit'])
+                print(f"DEBUG: Restored observation unit from CSV: {session.observation_unit.name}")
+
             # Create a parsed schema file with the extracted LLM configuration
             if metadata.get('llm_config'):
                 session_dir = Path("./data") / session_id
@@ -236,6 +253,12 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
 
                 print(f"DEBUG: Saved parsed schema with extracted LLM configuration")
         
+        # Restore observation_unit from JSON parse result if present (and not already set from CSV metadata)
+        if result.get("observation_unit") and not session.observation_unit:
+            from app.models.session import ObservationUnitInfo
+            session.observation_unit = ObservationUnitInfo(**result["observation_unit"])
+            print(f"DEBUG: Restored observation unit from JSON: {session.observation_unit.name}")
+
         # Update session with parsed data
         session.columns = result["columns"]
         session.statistics = result["statistics"]
@@ -453,10 +476,22 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
             # Update session with enhanced schema info and query
             session.columns = schema_columns
             session.schema_query = schema_data.get('query')
+
+            # Restore observation_unit from parsed schema if present
+            if schema_data.get('observation_unit'):
+                from app.models.session import ObservationUnitInfo
+                session.observation_unit = ObservationUnitInfo(**schema_data['observation_unit'])
+                print(f"DEBUG: Restored observation unit from parsed schema: {session.observation_unit.name}")
         else:
             # Fallback to basic column info from data
             session.columns = result["columns"]
-            
+
+        # Also check result dict for observation_unit (from JSON file parsing)
+        if result.get("observation_unit") and not session.observation_unit:
+            from app.models.session import ObservationUnitInfo
+            session.observation_unit = ObservationUnitInfo(**result["observation_unit"])
+            print(f"DEBUG: Restored observation unit from data file: {session.observation_unit.name}")
+
         session.statistics = result["statistics"]
         session.status = SessionStatus.COMPLETED
         session_manager.update_session(session)
@@ -572,7 +607,12 @@ async def export_upload_data(
         # Include schema query if available
         if session.schema_query:
             output.write(f"# Query: {session.schema_query}\n")
-        
+
+        # Include observation_unit if available
+        if session.observation_unit:
+            obs_unit_json = json.dumps(session.observation_unit.model_dump())
+            output.write(f"# Observation Unit: {obs_unit_json}\n")
+
         # Load preserved LLM configuration from parsed schema if available
         session_dir = Path("./data") / session_id
         parsed_schema_file = session_dir / "parsed_schema.json"
@@ -1359,6 +1399,10 @@ async def export_complete_data(session_id: str, format: str = "json"):
         if session.statistics and session.statistics.schema_evolution:
             export_data["schema_evolution"] = session.statistics.schema_evolution.model_dump()
 
+        # Include observation_unit if available
+        if session.observation_unit:
+            export_data["observation_unit"] = session.observation_unit.model_dump()
+
         # Include documents_batch_size from qbsd_config if available
         session_dir = Path("./data") / session_id
         qbsd_config_file = session_dir / "qbsd_config.json"
@@ -1559,6 +1603,10 @@ async def export_upload_rich_csv(session_id: str):
         output.write(f"# Source: {session.metadata.source}\n")
         if session.schema_query:
             output.write(f"# Query: {session.schema_query}\n")
+        # Include observation_unit if available
+        if session.observation_unit:
+            obs_unit_json = json.dumps(session.observation_unit.model_dump())
+            output.write(f"# Observation Unit: {obs_unit_json}\n")
         output.write("# Format: Each data column has corresponding _definition and _rationale columns\n")
         output.write("#\n")
         
@@ -1657,8 +1705,12 @@ async def export_schema_only(session_id: str):
         if session.statistics and session.statistics.schema_evolution:
             schema_export["schema_evolution"] = session.statistics.schema_evolution.model_dump()
 
+        # Include observation_unit if available
+        if session.observation_unit:
+            schema_export["observation_unit"] = session.observation_unit.model_dump()
+
         content = json.dumps(schema_export, indent=2, ensure_ascii=False)
-        
+
         # Generate filename
         source_name = session.metadata.source or "schema"
         # Strip file extension to avoid double extensions (e.g., file.csv_schema.json)

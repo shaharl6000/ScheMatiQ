@@ -424,15 +424,17 @@ class FileParser:
                 "llm_config": metadata_info['llm_config'],
                 "original_session_id": metadata_info['session_id'],
                 "generated_timestamp": metadata_info['generated_timestamp'],
-                "column_count_with_metadata": len(metadata_info['column_definitions'])
+                "column_count_with_metadata": len(metadata_info['column_definitions']),
+                "observation_unit": metadata_info.get('observation_unit')  # Include if parsed
             }
-        
+
         return result
     
     async def _parse_json(self, file_path: Path) -> Dict[str, Any]:
         """Parse JSON/JSONL file."""
         schema_evolution = None  # Will be extracted if present (backward compatible)
         documents_batch_size = None  # Will be extracted if present (backward compatible)
+        observation_unit = None  # Will be extracted if present (backward compatible)
 
         if file_path.suffix.lower() == '.jsonl':
             # JSONL format
@@ -470,6 +472,14 @@ class FileParser:
                             print(f"DEBUG: Imported schema evolution with {len(snapshots)} snapshots")
                         except Exception as e:
                             print(f"DEBUG: Could not parse schema_evolution: {e}")
+
+                    # Extract observation_unit if present (backward compatible)
+                    if "observation_unit" in data:
+                        try:
+                            observation_unit = data["observation_unit"]
+                            print(f"DEBUG: Imported observation unit: {observation_unit.get('name')}")
+                        except Exception as e:
+                            print(f"DEBUG: Could not parse observation_unit: {e}")
 
                     # Extract documents_batch_size from metadata if present (backward compatible)
                     if "metadata" in data and isinstance(data["metadata"], dict):
@@ -630,6 +640,8 @@ class FileParser:
         result = {"columns": columns, "statistics": statistics}
         if documents_batch_size is not None:
             result["documents_batch_size"] = documents_batch_size
+        if observation_unit is not None:
+            result["observation_unit"] = observation_unit
         return result
     
     def _sanitize_value(self, value):
@@ -1624,7 +1636,8 @@ class FileParser:
             'llm_config': {},
             'column_definitions': {},
             'generated_timestamp': None,
-            'schema_evolution': None  # Will hold parsed SchemaEvolution if present
+            'schema_evolution': None,  # Will hold parsed SchemaEvolution if present
+            'observation_unit': None  # Will hold parsed observation unit if present
         }
 
         # State tracking for multi-line sections
@@ -1670,6 +1683,13 @@ class FileParser:
                             metadata_info['session_id'] = content.split(':', 1)[1].strip()
                         elif content.startswith('Query:'):
                             metadata_info['query'] = content.split(':', 1)[1].strip()
+                        elif content.startswith('Observation Unit:'):
+                            try:
+                                obs_unit_json = content.split(':', 1)[1].strip()
+                                metadata_info['observation_unit'] = json.loads(obs_unit_json)
+                                print(f"DEBUG: Imported observation unit from CSV: {metadata_info['observation_unit'].get('name')}")
+                            except Exception as e:
+                                print(f"DEBUG: Could not parse observation unit from CSV: {e}")
                         elif content.startswith('Generated:'):
                             metadata_info['generated_timestamp'] = content.split(':', 1)[1].strip()
                         elif content.startswith('Schema Creation:'):

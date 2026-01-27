@@ -338,7 +338,11 @@ async def export_qbsd_data(
         output.write(f"# Generated: {user_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         output.write(f"# Session ID: {session_id}\n")
         output.write(f"# Query: {session.schema_query or 'N/A'}\n")
-        
+        # Include observation_unit if available
+        if session.observation_unit:
+            obs_unit_json = json.dumps(session.observation_unit.model_dump())
+            output.write(f"# Observation Unit: {obs_unit_json}\n")
+
         # Load and include LLM configuration if available
         session_dir = Path("./data") / session_id
         qbsd_config_file = session_dir / "qbsd_config.json"
@@ -570,11 +574,15 @@ async def export_complete_qbsd_data(
         # Include schema evolution if available
         if session.statistics and session.statistics.schema_evolution:
             export_data["schema_evolution"] = session.statistics.schema_evolution.model_dump()
-        
+
+        # Include observation_unit if available
+        if session.observation_unit:
+            export_data["observation_unit"] = session.observation_unit.model_dump()
+
         # Include LLM configuration if available
         if llm_configuration and any(llm_configuration.values()):
             export_data["llm_configuration"] = llm_configuration
-        
+
         # Handle different export formats
         user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
         if format.lower() == "json":
@@ -767,6 +775,10 @@ async def export_qbsd_rich_csv(
         output.write(f"# Generated: {user_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         output.write(f"# Session ID: {session_id}\n")
         output.write(f"# Query: {session.schema_query or 'N/A'}\n")
+        # Include observation_unit if available
+        if session.observation_unit:
+            obs_unit_json = json.dumps(session.observation_unit.model_dump())
+            output.write(f"# Observation Unit: {obs_unit_json}\n")
         output.write("# Format: Each data column has corresponding _definition and _rationale columns\n")
         output.write("#\n")
         
@@ -899,7 +911,11 @@ async def export_qbsd_schema_only(
         # Include LLM configuration if available
         if llm_configuration and any(llm_configuration.values()):
             schema_export["llm_configuration"] = llm_configuration
-        
+
+        # Include observation_unit if available
+        if session.observation_unit:
+            schema_export["observation_unit"] = session.observation_unit.model_dump()
+
         content = json.dumps(schema_export, indent=2, ensure_ascii=False, default=str)
 
         # Generate filename with datetime in user's timezone
