@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 import tiktoken
+from importlib import resources as importlib_resources
 
 # Load tiktoken encoder (use gpt-4o as baseline - close enough for all models)
 try:
@@ -37,8 +38,7 @@ try:
 except Exception:
     _enc = tiktoken.get_encoding("cl100k_base")
 
-# Load pricing config
-_PRICING_CONFIG_PATH = Path(__file__).parent / "pricing_config.json"
+# Pricing config will be loaded on first use
 _pricing_config: Optional[Dict[str, Any]] = None
 
 # ============================================================================
@@ -109,10 +109,25 @@ def _ensure_prompts_measured():
 
 
 def _load_pricing_config() -> Dict[str, Any]:
-    """Load pricing configuration from JSON file."""
+    """Load pricing configuration from JSON file.
+    
+    Uses importlib.resources for robust access in installed packages,
+    with fallback to file path for development/editable installs.
+    """
     global _pricing_config
     if _pricing_config is None:
-        with open(_PRICING_CONFIG_PATH, 'r') as f:
+        # Try importlib.resources first (works for installed packages)
+        try:
+            pkg_files = importlib_resources.files("qbsd.core")
+            config_file = pkg_files.joinpath("pricing_config.json")
+            _pricing_config = json.loads(config_file.read_text())
+            return _pricing_config
+        except (TypeError, AttributeError, FileNotFoundError):
+            pass  # Fall back to file path
+        
+        # Fallback: direct file path (for editable installs / development)
+        config_path = Path(__file__).parent / "pricing_config.json"
+        with open(config_path, 'r') as f:
             _pricing_config = json.load(f)
     return _pricing_config
 

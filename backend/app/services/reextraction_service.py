@@ -6,13 +6,10 @@ Handles schema change detection, paper discovery, and selective re-extraction.
 import json
 import asyncio
 import hashlib
-import logging
 import uuid
 from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
 from datetime import datetime
-
-logger = logging.getLogger(__name__)
 
 from app.models.session import (
     ColumnInfo, ColumnBaseline, SchemaBaseline, VisualizationSession
@@ -77,7 +74,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
     def get_cached_retriever(cls):
         """Get or create the cached retriever instance."""
         if cls._cached_retriever is None:
-            logger.info("Creating cached EmbeddingRetriever (will be reused for all re-extractions)")
+            print("📡 Creating cached EmbeddingRetriever (will be reused for all re-extractions)")
             cls._cached_retriever = EmbeddingRetriever(**cls._retriever_config)
         return cls._cached_retriever
 
@@ -111,7 +108,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Set stop flag
         self.stop_flags[operation_id] = True
-        logger.warning("Stop requested for re-extraction operation %s", operation_id)
+        print(f"🛑 Stop requested for re-extraction operation {operation_id}")
 
         # Cancel the extraction task if it exists
         task = self._extraction_tasks.get(operation_id)
@@ -127,7 +124,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             session_dir = Path("./data") / operation.session_id
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
             if output_file.exists():
-                logger.info("Merging partial results from %s", output_file)
+                print(f"📦 Merging partial results from {output_file}")
                 await self._merge_reextracted_data(
                     operation.session_id,
                     operation.columns,
@@ -137,9 +134,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 output_file.unlink(missing_ok=True)
                 schema_file = session_dir / f"reextract_schema_{operation_id}.json"
                 schema_file.unlink(missing_ok=True)
-                logger.info("Partial results merged and temp files cleaned up")
+                print(f"✅ Partial results merged and temp files cleaned up")
         except Exception as e:
-            logger.warning("Could not merge partial results: %s", e)
+            print(f"⚠️ Warning: Could not merge partial results: {e}")
 
         # Update operation status
         operation.status = "stopped"
@@ -200,7 +197,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
             'D:\\',            # Windows paths
             './',              # Relative paths
             '../',             # Relative paths
-            'qbsd_work',       # QBSD working directory
         ]
 
         for indicator in local_indicators:
@@ -249,7 +245,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         baseline = self.capture_baseline(session)
         session.schema_baseline = baseline
         self.session_manager.update_session(session)
-        logger.debug("Captured schema baseline for session %s with %d columns", session_id, len(baseline.columns))
+        print(f"DEBUG: Captured schema baseline for session {session_id} with {len(baseline.columns)} columns")
 
     def detect_schema_changes(self, session: VisualizationSession) -> Dict[str, Any]:
         """
@@ -361,283 +357,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     # ==================== Paper Discovery ====================
 
-    def _collect_paper_references_from_data(
-        self,
-        data_file: Path,
-        session_cloud_dataset: Optional[str]
-    ) -> tuple[int, Set[str], Dict[str, List[str]], Dict[str, str]]:
-        """
-        Read data file and collect paper references from all rows.
-
-        Args:
-            data_file: Path to the data.jsonl file
-            session_cloud_dataset: Cloud dataset fallback for local paths
-
-        Returns:
-            Tuple of (total_rows, paper_refs, row_paper_mapping, paper_doc_dirs)
-        """
-        paper_refs: Set[str] = set()
-        row_paper_mapping: Dict[str, List[str]] = {}
-        paper_doc_dirs: Dict[str, str] = {}
-        total_rows = 0
-        rows_with_papers = 0
-        rows_using_source_doc_fallback = 0
-
-        def extract_value(val: Any) -> str:
-            """Extract value from QBSD answer format or plain value."""
-            if val is None:
-                return ''
-            if isinstance(val, dict) and 'answer' in val:
-                return str(val['answer']) if val['answer'] else ''
-            return str(val) if val else ''
-
-        with open(data_file, 'r') as f:
-            for line in f:
-                if line.strip():
-                    total_rows += 1
-                    try:
-                        row = json.loads(line)
-                        row_name = row.get('row_name') or row.get('_row_name') or f"row_{total_rows}"
-
-                        # Get papers from multiple possible locations
-                        papers_raw = (
-                            row.get('papers') or
-                            row.get('_papers') or
-                            row.get('Papers') or
-                            row.get('data', {}).get('Papers') or
-                            row.get('data', {}).get('papers') or
-                            []
-                        )
-
-                        # Handle QBSD answer format for papers
-                        if isinstance(papers_raw, dict) and 'answer' in papers_raw:
-                            papers_raw = papers_raw.get('answer', [])
-
-                        if isinstance(papers_raw, str):
-                            papers = [papers_raw] if papers_raw else []
-                        elif isinstance(papers_raw, list):
-                            papers = papers_raw
-                        else:
-                            papers = []
-
-                        # Fallback to observation unit document fields if papers is empty
-                        if not papers:
-                            source_doc = (
-                                row.get('_source_document') or
-                                row.get('source_document') or
-                                row.get('_parent_document') or
-                                row.get('parent_document') or
-                                None
-                            )
-                            if source_doc:
-                                # Handle QBSD answer format
-                                if isinstance(source_doc, dict) and 'answer' in source_doc:
-                                    source_doc = source_doc.get('answer')
-                                if source_doc:
-                                    papers = [str(source_doc)]
-                                    rows_using_source_doc_fallback += 1
-                                    if rows_using_source_doc_fallback <= 3:
-                                        logger.info("Row %d using _source_document fallback: %s -> papers=%s",
-                                                   total_rows, source_doc, papers)
-
-                        if papers:
-                            rows_with_papers += 1
-
-                        # Get document directory from row data
-                        doc_dir_raw = (
-                            row.get('Document Directory') or
-                            row.get('document_directory') or
-                            row.get('data', {}).get('Document Directory') or
-                            row.get('data', {}).get('document_directory') or
-                            None
-                        )
-                        doc_dir = extract_value(doc_dir_raw)
-
-                        # Clean up doc_dir - handle different path formats
-                        if doc_dir:
-                            if 'qbsd_work/' in doc_dir or 'qbsd_work\\' in doc_dir:
-                                # Extract datasets folder from qbsd_work path if present
-                                if 'datasets/' in doc_dir:
-                                    doc_dir = 'datasets/' + doc_dir.split('datasets/')[-1]
-                                    logger.info("Extracted cloud path from qbsd_work: %s", doc_dir)
-                                else:
-                                    logger.debug("Detected qbsd_work path without datasets: %s - will use local files", doc_dir)
-                                    doc_dir = None
-                            elif 'datasets/' in doc_dir:
-                                doc_dir = 'datasets/' + doc_dir.split('datasets/')[-1]
-                            elif self._is_local_path(doc_dir):
-                                logger.debug("Detected local path in document_directory: %s", doc_dir)
-                                if session_cloud_dataset:
-                                    doc_dir = f"datasets/{session_cloud_dataset}"
-                                    logger.debug("Using session cloud_dataset fallback: %s", doc_dir)
-                                else:
-                                    logger.debug("No cloud_dataset fallback available")
-                                    doc_dir = None
-
-                        # If no doc_dir but session has cloud_dataset, use it as fallback
-                        if not doc_dir and session_cloud_dataset:
-                            doc_dir = f"datasets/{session_cloud_dataset}"
-                            if total_rows <= 3:
-                                logger.info("Row %d: No doc_dir, using session cloud_dataset fallback: %s",
-                                           total_rows, doc_dir)
-
-                        paper_refs.update(papers)
-                        row_paper_mapping[row_name] = papers
-
-                        for paper in papers:
-                            if doc_dir and paper not in paper_doc_dirs:
-                                paper_doc_dirs[paper] = doc_dir
-
-                    except json.JSONDecodeError:
-                        continue
-
-        logger.info("Paper collection summary: total_rows=%d, rows_with_papers=%d, "
-                   "rows_using_source_doc_fallback=%d, unique_papers=%d, papers_with_doc_dir=%d",
-                   total_rows, rows_with_papers, rows_using_source_doc_fallback,
-                   len(paper_refs), len(paper_doc_dirs))
-        if paper_refs:
-            sample_papers = list(paper_refs)[:5]
-            logger.info("Sample paper refs: %s", sample_papers)
-        if paper_doc_dirs:
-            sample_dirs = list(paper_doc_dirs.items())[:3]
-            logger.info("Sample paper_doc_dirs: %s", sample_dirs)
-
-        return total_rows, paper_refs, row_paper_mapping, paper_doc_dirs
-
-    def _find_local_documents(
-        self,
-        session_dir: Path,
-        qbsd_work_dir: Path
-    ) -> Set[str]:
-        """
-        Find all local documents in session and qbsd_work directories.
-
-        Args:
-            session_dir: Path to session data directory
-            qbsd_work_dir: Path to qbsd_work directory
-
-        Returns:
-            Set of local document names (with and without extensions)
-        """
-        local_files: Set[str] = set()
-        docs_dir = session_dir / "documents"
-        pending_dir = session_dir / "pending_documents"
-
-        local_dirs_to_check = [docs_dir, pending_dir]
-
-        # Add qbsd_work datasets directories
-        if qbsd_work_dir.exists():
-            datasets_dir = qbsd_work_dir / "datasets"
-            if datasets_dir.exists():
-                local_dirs_to_check.append(datasets_dir)
-                for subdir in datasets_dir.iterdir():
-                    if subdir.is_dir():
-                        local_dirs_to_check.append(subdir)
-                        logger.debug("Added qbsd_work datasets subdirectory: %s", subdir)
-
-        for local_dir in local_dirs_to_check:
-            if local_dir.exists():
-                dir_file_count = 0
-                for f in local_dir.iterdir():
-                    if f.is_file() and not f.name.startswith('.'):
-                        local_files.add(f.name)
-                        local_files.add(f.stem)
-                        dir_file_count += 1
-                if dir_file_count > 0:
-                    logger.info("Found %d files in %s", dir_file_count, local_dir)
-            else:
-                logger.debug("Directory does not exist: %s", local_dir)
-
-        logger.info("Total local files found: %d unique names/stems", len(local_files))
-        if local_files:
-            sample_files = list(local_files)[:5]
-            logger.info("Sample local files: %s", sample_files)
-
-        return local_files
-
-    async def _categorize_papers_by_location(
-        self,
-        paper_refs: Set[str],
-        local_files: Set[str],
-        paper_doc_dirs: Dict[str, str]
-    ) -> tuple[List[str], Dict[str, str], List[str]]:
-        """
-        Categorize papers into local, cloud, or missing.
-
-        Args:
-            paper_refs: Set of all paper references
-            local_files: Set of local document names
-            paper_doc_dirs: Mapping of paper name to document directory
-
-        Returns:
-            Tuple of (local_papers, cloud_papers, missing_papers)
-        """
-        local_papers: List[str] = []
-        cloud_papers: Dict[str, str] = {}
-        missing: List[str] = []
-
-        storage = get_storage()
-
-        # Step 1: Check local files first
-        papers_to_check_cloud: List[str] = []
-        no_doc_dir_count = 0
-        for paper in paper_refs:
-            if paper in local_files or f"{paper}.txt" in local_files:
-                local_papers.append(paper)
-            elif paper in paper_doc_dirs:
-                papers_to_check_cloud.append(paper)
-            else:
-                missing.append(paper)
-                no_doc_dir_count += 1
-                if no_doc_dir_count <= 3:
-                    logger.info("Paper '%s' not in local_files and no doc_dir mapping", paper)
-
-        logger.info("Categorization step 1: local=%d, need_cloud_check=%d, missing_no_doc_dir=%d",
-                   len(local_papers), len(papers_to_check_cloud), no_doc_dir_count)
-
-        # Step 2: Group papers by their cloud folder
-        folders_to_check: Dict[str, List[str]] = {}
-        for paper in papers_to_check_cloud:
-            doc_dir = paper_doc_dirs[paper]
-            clean_doc_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
-            if clean_doc_dir not in folders_to_check:
-                folders_to_check[clean_doc_dir] = []
-            folders_to_check[clean_doc_dir].append(paper)
-
-        # Step 3: List each folder ONCE
-        folder_contents: Dict[str, set] = {}
-        for folder in folders_to_check:
-            logger.debug("Listing Supabase folder: %s (checking %d papers)", folder, len(folders_to_check[folder]))
-            try:
-                folder_contents[folder] = await storage.list_folder_files('datasets', folder)
-                logger.debug("Found %d files in %s", len(folder_contents[folder]), folder)
-            except Exception as e:
-                logger.debug("Error listing Supabase folder %s: %s", folder, e)
-                folder_contents[folder] = set()
-
-        # Step 4: Check membership
-        for paper in papers_to_check_cloud:
-            doc_dir = paper_doc_dirs[paper]
-            clean_doc_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
-            folder_files = folder_contents.get(clean_doc_dir, set())
-
-            if paper in folder_files:
-                cloud_papers[paper] = f"{clean_doc_dir}/{paper}"
-            elif not paper.endswith('.txt') and f"{paper}.txt" in folder_files:
-                cloud_papers[paper] = f"{clean_doc_dir}/{paper}.txt"
-            elif paper.endswith('.txt') and paper[:-4] in folder_files:
-                cloud_papers[paper] = f"{clean_doc_dir}/{paper[:-4]}"
-            else:
-                missing.append(paper)
-
-        logger.info("Final categorization: local=%d, cloud=%d, missing=%d",
-                   len(local_papers), len(cloud_papers), len(missing))
-        if missing:
-            sample_missing = missing[:5]
-            logger.info("Sample missing papers: %s", sample_missing)
-
-        return local_papers, cloud_papers, missing
-
     async def discover_papers(self, session_id: str) -> Dict[str, Any]:
         """
         Discover papers associated with table rows in storage.
@@ -649,8 +368,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             - available_papers: Papers found in storage (local + cloud)
             - missing_papers: Papers referenced but not found anywhere
             - paper_to_rows: Mapping of paper name to row names
-            - cloud_papers: Mapping of paper name to Supabase path
-            - local_papers: Papers found in local documents/ folder
+            - cloud_papers: Mapping of paper name to Supabase path (NEW)
+            - local_papers: Papers found in local documents/ folder (NEW)
         """
         session = self.session_manager.get_session(session_id)
         if not session:
@@ -668,38 +387,161 @@ class ReextractionService(WebSocketBroadcasterMixin):
         session_cloud_dataset = None
         if session.metadata and session.metadata.cloud_dataset:
             session_cloud_dataset = session.metadata.cloud_dataset
-            logger.info("Session has cloud_dataset: %s", session_cloud_dataset)
-        else:
-            logger.info("Session has NO cloud_dataset (metadata=%s)",
-                       session.metadata if session.metadata else "None")
+            print(f"DEBUG: Session has cloud_dataset fallback: {session_cloud_dataset}")
 
         session_dir = Path("./data") / session_id
         data_file = session_dir / "data.jsonl"
-        qbsd_work_dir = Path("./qbsd_work") / session_id
-        qbsd_data_file = qbsd_work_dir / "extracted_data.jsonl"
+        docs_dir = session_dir / "documents"
 
-        # Use qbsd_work data file if main data file doesn't exist
-        if not data_file.exists() and qbsd_data_file.exists():
-            logger.debug("Using qbsd_work data file: %s", qbsd_data_file)
-            data_file = qbsd_data_file
-
-        # Collect paper references from data file
-        total_rows = 0
+        # Collect paper references and document directories from all rows
         paper_refs: Set[str] = set()
-        row_paper_mapping: Dict[str, List[str]] = {}
-        paper_doc_dirs: Dict[str, str] = {}
+        row_paper_mapping: Dict[str, List[str]] = {}  # row_name -> [papers]
+        paper_doc_dirs: Dict[str, str] = {}  # paper_name -> document_directory
+        total_rows = 0
 
         if data_file.exists():
-            total_rows, paper_refs, row_paper_mapping, paper_doc_dirs = \
-                self._collect_paper_references_from_data(data_file, session_cloud_dataset)
+            with open(data_file, 'r') as f:
+                for line in f:
+                    if line.strip():
+                        total_rows += 1
+                        try:
+                            row = json.loads(line)
+                            row_name = row.get('row_name') or row.get('_row_name') or f"row_{total_rows}"
 
-        # Find local documents
-        local_files = self._find_local_documents(session_dir, qbsd_work_dir)
+                            # Helper to extract value from QBSD answer format or plain value
+                            def extract_value(val: Any) -> str:
+                                if val is None:
+                                    return ''
+                                if isinstance(val, dict) and 'answer' in val:
+                                    return str(val['answer']) if val['answer'] else ''
+                                return str(val) if val else ''
 
-        # Categorize papers by location (local, cloud, missing)
-        local_papers, cloud_papers, missing = await self._categorize_papers_by_location(
-            paper_refs, local_files, paper_doc_dirs
-        )
+                            # Get papers from multiple possible locations
+                            papers_raw = (
+                                row.get('papers') or
+                                row.get('_papers') or
+                                row.get('Papers') or
+                                row.get('data', {}).get('Papers') or
+                                row.get('data', {}).get('papers') or
+                                []
+                            )
+
+                            # Handle QBSD answer format for papers
+                            if isinstance(papers_raw, dict) and 'answer' in papers_raw:
+                                papers_raw = papers_raw.get('answer', [])
+
+                            if isinstance(papers_raw, str):
+                                papers = [papers_raw] if papers_raw else []
+                            elif isinstance(papers_raw, list):
+                                papers = papers_raw
+                            else:
+                                papers = []
+
+                            # Get document directory from row data (check multiple possible locations)
+                            doc_dir_raw = (
+                                row.get('Document Directory') or
+                                row.get('document_directory') or
+                                row.get('data', {}).get('Document Directory') or
+                                row.get('data', {}).get('document_directory') or
+                                None
+                            )
+                            doc_dir = extract_value(doc_dir_raw)
+
+                            # Clean up doc_dir - extract just the datasets/... part if it's a full path
+                            if doc_dir and 'datasets/' in doc_dir:
+                                doc_dir = 'datasets/' + doc_dir.split('datasets/')[-1]
+                            # Handle local paths (e.g., /app/backend/data/{uuid}/pending_documents)
+                            # These indicate documents were uploaded locally, not from cloud storage
+                            # Fall back to session's cloud_dataset if available
+                            elif doc_dir and self._is_local_path(doc_dir):
+                                print(f"DEBUG: Detected local path in document_directory: {doc_dir}")
+                                if session_cloud_dataset:
+                                    doc_dir = f"datasets/{session_cloud_dataset}"
+                                    print(f"DEBUG: Using session cloud_dataset fallback: {doc_dir}")
+                                else:
+                                    print(f"DEBUG: No cloud_dataset fallback available - documents may not be found")
+                                    # No cloud fallback - will be checked locally only
+                                    doc_dir = None
+
+                            paper_refs.update(papers)
+                            row_paper_mapping[row_name] = papers
+
+                            # Track document directory for each paper
+                            for paper in papers:
+                                if doc_dir and paper not in paper_doc_dirs:
+                                    paper_doc_dirs[paper] = doc_dir
+
+                        except json.JSONDecodeError:
+                            continue
+
+        # Check which papers exist in local storage
+        # Check both documents/ and pending_documents/ directories
+        local_files: Set[str] = set()
+        pending_dir = session_dir / "pending_documents"
+
+        for local_dir in [docs_dir, pending_dir]:
+            if local_dir.exists():
+                for f in local_dir.iterdir():
+                    if f.is_file() and not f.name.startswith('.'):
+                        local_files.add(f.name)
+                        local_files.add(f.stem)  # Also match without extension
+
+        # Categorize papers: local, cloud, or missing
+        local_papers: List[str] = []
+        cloud_papers: Dict[str, str] = {}  # paper_name -> supabase_path
+        missing: List[str] = []
+
+        # Get storage backend for cloud checks
+        storage = get_storage()
+
+        # Step 1: Check local files first, collect papers that need cloud checking
+        papers_to_check_cloud: List[str] = []
+        for paper in paper_refs:
+            if paper in local_files or f"{paper}.txt" in local_files:
+                local_papers.append(paper)
+            elif paper in paper_doc_dirs:
+                papers_to_check_cloud.append(paper)
+            else:
+                missing.append(paper)
+
+        # Step 2: Group papers by their cloud folder (to minimize HTTP requests)
+        folders_to_check: Dict[str, List[str]] = {}  # folder -> list of papers
+        for paper in papers_to_check_cloud:
+            doc_dir = paper_doc_dirs[paper]
+            # Strip 'datasets/' prefix since we're checking in the 'datasets' bucket
+            clean_doc_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
+            if clean_doc_dir not in folders_to_check:
+                folders_to_check[clean_doc_dir] = []
+            folders_to_check[clean_doc_dir].append(paper)
+
+        # Step 3: List each folder ONCE (instead of N HTTP requests per paper)
+        folder_contents: Dict[str, set] = {}
+        for folder in folders_to_check:
+            print(f"DEBUG: Listing Supabase folder: {folder} (checking {len(folders_to_check[folder])} papers)")
+            try:
+                folder_contents[folder] = await storage.list_folder_files('datasets', folder)
+                print(f"DEBUG: Found {len(folder_contents[folder])} files in {folder}")
+            except Exception as e:
+                print(f"DEBUG: Error listing Supabase folder {folder}: {e}")
+                folder_contents[folder] = set()
+
+        # Step 4: Check membership (no HTTP requests - just set lookups)
+        for paper in papers_to_check_cloud:
+            doc_dir = paper_doc_dirs[paper]
+            clean_doc_dir = doc_dir.replace('datasets/', '', 1) if doc_dir.startswith('datasets/') else doc_dir
+            folder_files = folder_contents.get(clean_doc_dir, set())
+
+            # Check exact match
+            if paper in folder_files:
+                cloud_papers[paper] = f"{clean_doc_dir}/{paper}"
+            # Check with .txt extension
+            elif not paper.endswith('.txt') and f"{paper}.txt" in folder_files:
+                cloud_papers[paper] = f"{clean_doc_dir}/{paper}.txt"
+            # Check without .txt extension (if paper has .txt but file doesn't)
+            elif paper.endswith('.txt') and paper[:-4] in folder_files:
+                cloud_papers[paper] = f"{clean_doc_dir}/{paper[:-4]}"
+            else:
+                missing.append(paper)
 
         # Combine local and cloud papers for available list
         available = local_papers + list(cloud_papers.keys())
@@ -714,18 +556,32 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
 
-        logger.debug("Paper discovery - local: %d, cloud: %d, missing: %d",
-                     len(local_papers), len(cloud_papers), len(missing))
+        print(f"DEBUG: Paper discovery - local: {len(local_papers)}, cloud: {len(cloud_papers)}, missing: {len(missing)}")
 
         # Backfill papers field for rows with empty papers but available documents
         if local_files and any(not papers for papers in row_paper_mapping.values()):
-            logger.debug("Some rows have empty papers, attempting to backfill from %d local documents",
-                         len(local_files))
+            print(f"DEBUG: Some rows have empty papers, attempting to backfill from {len(local_files)} local documents")
             await self._backfill_papers_from_documents(session_id, list(local_files), total_rows)
-            # Re-read row_paper_mapping after backfill
-            row_paper_mapping = self._reread_paper_mapping(data_file)
-            rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
-            logger.debug("After backfill - rows_with_papers: %d", rows_with_papers)
+            # Re-read row_paper_mapping after backfill to update rows_with_papers count
+            if data_file.exists():
+                row_paper_mapping = {}
+                with open(data_file, 'r') as f:
+                    row_idx = 0
+                    for line in f:
+                        if line.strip():
+                            row_idx += 1
+                            try:
+                                row = json.loads(line)
+                                row_name = row.get('row_name') or row.get('_row_name') or f"row_{row_idx}"
+                                papers_raw = row.get('papers') or row.get('_papers') or []
+                                if isinstance(papers_raw, list):
+                                    row_paper_mapping[row_name] = papers_raw
+                                else:
+                                    row_paper_mapping[row_name] = [papers_raw] if papers_raw else []
+                            except json.JSONDecodeError:
+                                continue
+                rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
+                print(f"DEBUG: After backfill - rows_with_papers: {rows_with_papers}")
 
         return {
             "total_rows": total_rows,
@@ -736,29 +592,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "cloud_papers": cloud_papers,
             "local_papers": local_papers
         }
-
-    def _reread_paper_mapping(self, data_file: Path) -> Dict[str, List[str]]:
-        """Re-read paper mapping from data file after backfill."""
-        row_paper_mapping: Dict[str, List[str]] = {}
-        if not data_file.exists():
-            return row_paper_mapping
-
-        with open(data_file, 'r') as f:
-            row_idx = 0
-            for line in f:
-                if line.strip():
-                    row_idx += 1
-                    try:
-                        row = json.loads(line)
-                        row_name = row.get('row_name') or row.get('_row_name') or f"row_{row_idx}"
-                        papers_raw = row.get('papers') or row.get('_papers') or []
-                        if isinstance(papers_raw, list):
-                            row_paper_mapping[row_name] = papers_raw
-                        else:
-                            row_paper_mapping[row_name] = [papers_raw] if papers_raw else []
-                    except json.JSONDecodeError:
-                        continue
-        return row_paper_mapping
 
     async def _backfill_papers_from_documents(
         self,
@@ -785,7 +618,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Sort local files for consistent ordering
         sorted_docs = sorted(local_files)
-        logger.debug("Backfill - %d documents available for %d rows", len(sorted_docs), total_rows)
+        print(f"DEBUG: Backfill - {len(sorted_docs)} documents available for {total_rows} rows")
 
         # Read all rows
         rows = []
@@ -848,9 +681,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     local_path = docs_dir / local_filename
                     local_path.write_bytes(content)
                     downloaded.append(paper_name)
-                    logger.debug("Downloaded %s from Supabase to %s", paper_name, local_path)
+                    print(f"DEBUG: Downloaded {paper_name} from Supabase to {local_path}")
             except Exception as e:
-                logger.debug("Error downloading %s from Supabase: %s", paper_name, e)
+                print(f"DEBUG: Error downloading {paper_name} from Supabase: {e}")
 
         return downloaded
 
@@ -941,132 +774,26 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "missing_papers": paper_discovery["missing_papers"]
         }
 
-    def _build_docs_directories(self, session_id: str) -> List[Path]:
-        """
-        Build list of directories to search for documents.
-
-        Args:
-            session_id: Session identifier
-
-        Returns:
-            List of Path objects for document directories
-        """
-        session_dir = Path("./data") / session_id
-        docs_dir = session_dir / "documents"
-        pending_dir = session_dir / "pending_documents"
-
-        docs_directories = [d for d in [docs_dir, pending_dir] if d.exists()]
-
-        # Also add qbsd_work datasets directory
-        qbsd_work_datasets = Path("./qbsd_work") / session_id / "datasets"
-        if qbsd_work_datasets.exists():
-            docs_directories.append(qbsd_work_datasets)
-            for subdir in qbsd_work_datasets.iterdir():
-                if subdir.is_dir():
-                    docs_directories.append(subdir)
-
-        return docs_directories
-
-    def _create_extraction_callback(
-        self,
-        operation: ReextractionOperation,
-        operation_id: str,
-        loop: asyncio.AbstractEventLoop
-    ):
-        """
-        Create callback for value extraction progress updates.
-
-        Args:
-            operation: The reextraction operation being tracked
-            operation_id: Operation identifier
-            loop: Event loop for async broadcasts
-
-        Returns:
-            Callback function for on_value_extracted
-        """
-        processed_count = [0]
-        current_document = [None]
-        document_index = [0]
-
-        def on_value_extracted(row_name: str, column_name: str, value: Any):
-            processed_count[0] += 1
-            operation.processed_documents = processed_count[0]
-
-            # Broadcast document_started when we start processing a new document
-            if current_document[0] != row_name:
-                current_document[0] = row_name
-                document_index[0] += 1
-                try:
-                    asyncio.run_coroutine_threadsafe(
-                        self.broadcast_event(
-                            operation.session_id,
-                            "document_started",
-                            {
-                                "document_name": row_name,
-                                "document_index": document_index[0],
-                                "total_documents": operation.total_documents,
-                                "columns": operation.columns
-                            }
-                        ),
-                        loop
-                    )
-                except Exception as e:
-                    logger.warning("Document started broadcast error: %s", e)
-
-            # Schedule broadcasts on main event loop from thread
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    self.broadcast_event(
-                        operation.session_id,
-                        "cell_extracted",
-                        {
-                            "row_name": row_name,
-                            "column": column_name,
-                            "value": value
-                        }
-                    ),
-                    loop
-                )
-
-                asyncio.run_coroutine_threadsafe(
-                    self.broadcast_event(
-                        operation.session_id,
-                        "reextraction_progress",
-                        {
-                            "operation_id": operation_id,
-                            "column": column_name,
-                            "progress": processed_count[0] / max(operation.total_documents * len(operation.columns), 1),
-                            "processed_documents": processed_count[0],
-                            "total_documents": operation.total_documents,
-                            "current_row": row_name
-                        }
-                    ),
-                    loop
-                )
-            except Exception as e:
-                logger.warning("Broadcast error: %s", e)
-
-        return on_value_extracted
-
     async def _run_reextraction(self, operation_id: str):
         """Execute re-extraction in background."""
-        logger.debug("_run_reextraction started for operation %s", operation_id)
+        print(f"DEBUG: _run_reextraction started for operation {operation_id}")
         operation = self.active_operations.get(operation_id)
         if not operation:
-            logger.debug("Operation %s not found in active_operations", operation_id)
+            print(f"DEBUG: Operation {operation_id} not found in active_operations")
             return
 
         try:
             operation.status = "running"
             operation.started_at = datetime.now()
-            logger.debug("Re-extraction running for session %s, columns: %s",
-                         operation.session_id, operation.columns)
+            print(f"DEBUG: Re-extraction running for session {operation.session_id}, columns: {operation.columns}")
 
             session = self.session_manager.get_session(operation.session_id)
             if not session:
                 raise ValueError(f"Session {operation.session_id} not found")
 
             session_dir = Path("./data") / operation.session_id
+            docs_dir = session_dir / "documents"
+            pending_dir = session_dir / "pending_documents"
 
             await self.broadcast_event(
                 operation.session_id,
@@ -1079,7 +806,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
 
             # Download cloud papers before extraction
-            await self._download_cloud_papers_if_needed(operation)
+            print(f"DEBUG: Discovering papers for re-extraction...")
+            paper_discovery = await self.discover_papers(operation.session_id)
+            print(f"DEBUG: Paper discovery result - available: {len(paper_discovery.get('available_papers', []))}, cloud: {len(paper_discovery.get('cloud_papers', {}))}, missing: {len(paper_discovery.get('missing_papers', []))}")
+
+            if paper_discovery.get("cloud_papers"):
+                print(f"DEBUG: Downloading {len(paper_discovery['cloud_papers'])} cloud papers...")
+                downloaded = await self.download_cloud_papers(
+                    operation.session_id,
+                    paper_discovery["cloud_papers"]
+                )
+                print(f"DEBUG: Downloaded {len(downloaded)} papers from cloud storage for re-extraction")
+            else:
+                print(f"DEBUG: No cloud papers to download")
 
             # Get target columns
             target_columns = [
@@ -1087,49 +826,165 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 if col.name in operation.columns
             ]
 
-            # Save schema file for extraction
-            schema_file = session_dir / f"reextract_schema_{operation_id}.json"
-            self._save_extraction_schema(schema_file, session.schema_query, target_columns)
+            # Build schema for extraction
+            schema_data = {
+                "query": session.schema_query or "Extract information",
+                "schema": [
+                    {
+                        "column": col.name,
+                        "definition": col.definition or f"Data field: {col.name}",
+                        "explanation": col.rationale or f"Information for {col.name}",
+                        "allowed_values": col.allowed_values
+                    }
+                    for col in target_columns
+                ]
+            }
 
-            # Setup LLM and retriever
+            # Save schema file
+            schema_file = session_dir / f"reextract_schema_{operation_id}.json"
+            with open(schema_file, 'w') as f:
+                json.dump(schema_data, f, indent=2)
+
+            # Setup LLM and retriever (use cached retriever for performance)
             llm = self._get_llm_from_session(operation.session_id)
             retriever = self.get_cached_retriever()
 
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
 
-            # Create extraction callback
+            # Track progress via callback
+            processed_count = [0]
+            current_document = [None]  # Track current document for document_started broadcasts
+            document_index = [0]
+
+            # Capture event loop before entering thread pool
             loop = asyncio.get_running_loop()
-            on_value_extracted = self._create_extraction_callback(operation, operation_id, loop)
 
-            # Build docs directories
-            docs_directories = self._build_docs_directories(operation.session_id)
-            logger.debug("docs_directories=%s, count=%d", docs_directories, len(docs_directories))
+            def on_value_extracted(row_name: str, column_name: str, value: Any):
+                processed_count[0] += 1
+                operation.processed_documents = processed_count[0]
 
-            # Run extraction
-            def should_stop():
-                return self.is_stop_requested(operation_id)
+                # Broadcast document_started when we start processing a new document
+                if current_document[0] != row_name:
+                    current_document[0] = row_name
+                    document_index[0] += 1
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            self.broadcast_event(
+                                operation.session_id,
+                                "document_started",
+                                {
+                                    "document_name": row_name,
+                                    "document_index": document_index[0],
+                                    "total_documents": operation.total_documents,
+                                    "columns": operation.columns
+                                }
+                            ),
+                            loop
+                        )
+                    except Exception as e:
+                        print(f"⚠️ Document started broadcast error: {e}")
 
-            def run_extraction_for_existing_rows():
-                self._extract_for_existing_rows(
-                    session_id=operation.session_id,
-                    target_columns=target_columns,
-                    schema_query=session.schema_query or "Extract information",
-                    docs_directories=docs_directories,
-                    output_file=output_file,
-                    llm=llm,
-                    retriever=retriever,
-                    on_value_extracted=on_value_extracted,
-                    should_stop=should_stop
-                )
+                # Schedule broadcasts on main event loop from thread (fire and forget)
+                try:
+                    # 1. Broadcast individual cell value for live table updates
+                    # Use broadcast_event (same as document_started) since broadcast_cell_extracted
+                    # uses buffering that fails silently
+                    asyncio.run_coroutine_threadsafe(
+                        self.broadcast_event(
+                            operation.session_id,
+                            "cell_extracted",
+                            {
+                                "row_name": row_name,
+                                "column": column_name,
+                                "value": value
+                            }
+                        ),
+                        loop
+                    )
 
-            await asyncio.get_event_loop().run_in_executor(None, run_extraction_for_existing_rows)
-            logger.debug("Extraction for existing rows completed, output_file exists: %s", output_file.exists())
+                    # 2. Broadcast progress for UI indicators
+                    asyncio.run_coroutine_threadsafe(
+                        self.broadcast_event(
+                            operation.session_id,
+                            "reextraction_progress",
+                            {
+                                "operation_id": operation_id,
+                                "column": column_name,
+                                "progress": processed_count[0] / max(operation.total_documents * len(operation.columns), 1),
+                                "processed_documents": processed_count[0],
+                                "total_documents": operation.total_documents,
+                                "current_row": row_name
+                            }
+                        ),
+                        loop
+                    )
+                except Exception as e:
+                    print(f"⚠️ Broadcast error: {e}")
 
-            # Merge results and cleanup
-            await self._finalize_reextraction(operation, output_file, schema_file)
+            # Run extraction - check both documents/ and pending_documents/
+            docs_directories = [d for d in [docs_dir, pending_dir] if d.exists()]
+            print(f"DEBUG: docs_directories={docs_directories}, count={len(docs_directories)}")
+
+            if docs_directories:
+                print(f"DEBUG: Starting build_table_jsonl extraction...")
+
+                # Create should_stop callback that checks for stop requests
+                def should_stop():
+                    return self.is_stop_requested(operation_id)
+
+                def run_extraction():
+                    return build_table_jsonl(
+                        schema_path=schema_file,
+                        docs_directories=docs_directories,
+                        output_path=output_file,
+                        llm=llm,
+                        retriever=retriever,
+                        resume=False,
+                        mode="one_by_one",
+                        retrieval_k=10,
+                        max_workers=1,
+                        on_value_extracted=on_value_extracted,
+                        should_stop=should_stop  # Allow graceful stop
+                    )
+
+                await asyncio.get_event_loop().run_in_executor(None, run_extraction)
+                print(f"DEBUG: build_table_jsonl completed, output_file exists: {output_file.exists()}")
+            else:
+                print(f"DEBUG: No document directories exist, skipping extraction")
+
+            # Merge results with existing data
+            print(f"DEBUG: Merging re-extracted data...")
+            await self._merge_reextracted_data(
+                operation.session_id,
+                operation.columns,
+                output_file
+            )
+
+            # Update baseline after successful extraction
+            await self.capture_and_save_baseline(operation.session_id)
+
+            # Cleanup
+            schema_file.unlink(missing_ok=True)
+            output_file.unlink(missing_ok=True)
+
+            operation.status = "completed"
+            operation.progress = 1.0
+            operation.completed_at = datetime.now()
+
+            print(f"DEBUG: Re-extraction completed successfully for operation {operation_id}")
+
+            await self.broadcast_event(
+                operation.session_id,
+                "reextraction_completed",
+                {
+                    "operation_id": operation_id,
+                    "columns": operation.columns,
+                    "status": "success"
+                }
+            )
 
         except Exception as e:
-            logger.error("Re-extraction FAILED for operation %s: %s", operation_id, e)
+            print(f"DEBUG: Re-extraction FAILED for operation {operation_id}: {e}")
             import traceback
             traceback.print_exc()
             operation.status = "failed"
@@ -1146,245 +1001,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
             raise
 
-    async def _download_cloud_papers_if_needed(self, operation: ReextractionOperation) -> None:
-        """Download cloud papers if any are available."""
-        logger.debug("Discovering papers for re-extraction...")
-        paper_discovery = await self.discover_papers(operation.session_id)
-        logger.debug("Paper discovery result - available: %d, cloud: %d, missing: %d",
-                     len(paper_discovery.get('available_papers', [])),
-                     len(paper_discovery.get('cloud_papers', {})),
-                     len(paper_discovery.get('missing_papers', [])))
-
-        if paper_discovery.get("cloud_papers"):
-            logger.debug("Downloading %d cloud papers...", len(paper_discovery['cloud_papers']))
-            downloaded = await self.download_cloud_papers(
-                operation.session_id,
-                paper_discovery["cloud_papers"]
-            )
-            logger.debug("Downloaded %d papers from cloud storage", len(downloaded))
-        else:
-            logger.debug("No cloud papers to download")
-
-    def _save_extraction_schema(
-        self,
-        schema_file: Path,
-        schema_query: Optional[str],
-        target_columns: List
-    ) -> None:
-        """Save schema file for extraction."""
-        schema_data = {
-            "query": schema_query or "Extract information",
-            "schema": [
-                {
-                    "column": col.name,
-                    "definition": col.definition or f"Data field: {col.name}",
-                    "explanation": col.rationale or f"Information for {col.name}",
-                    "allowed_values": col.allowed_values
-                }
-                for col in target_columns
-            ]
-        }
-        with open(schema_file, 'w') as f:
-            json.dump(schema_data, f, indent=2)
-
-    async def _finalize_reextraction(
-        self,
-        operation: ReextractionOperation,
-        output_file: Path,
-        schema_file: Path
-    ) -> None:
-        """Merge results, update baseline, and cleanup after extraction."""
-        logger.debug("Merging re-extracted data...")
-        await self._merge_reextracted_data(
-            operation.session_id,
-            operation.columns,
-            output_file
-        )
-
-        # Update baseline after successful extraction
-        await self.capture_and_save_baseline(operation.session_id)
-
-        # Cleanup
-        schema_file.unlink(missing_ok=True)
-        output_file.unlink(missing_ok=True)
-
-        operation.status = "completed"
-        operation.progress = 1.0
-        operation.completed_at = datetime.now()
-
-        logger.debug("Re-extraction completed successfully for operation %s", operation.operation_id)
-
-        await self.broadcast_event(
-            operation.session_id,
-            "reextraction_completed",
-            {
-                "operation_id": operation.operation_id,
-                "columns": operation.columns,
-                "status": "success"
-            }
-        )
-
-    def _extract_for_existing_rows(
-        self,
-        session_id: str,
-        target_columns: List,
-        schema_query: str,
-        docs_directories: List[Path],
-        output_file: Path,
-        llm,
-        retriever,
-        on_value_extracted=None,
-        should_stop=None
-    ) -> None:
-        """
-        Extract values for new columns using EXISTING rows instead of re-discovering units.
-
-        This is the correct approach for re-extraction when rows already have observation units.
-        Instead of calling build_table_jsonl (which re-discovers units), we:
-        1. Read existing rows from extracted_data.jsonl
-        2. For each row, extract only the new columns using that row's context
-        3. Write extracted values to output file for merging
-        """
-        # Read existing rows
-        qbsd_work_dir = Path("./qbsd_work") / session_id
-        data_file = qbsd_work_dir / "extracted_data.jsonl"
-
-        if not data_file.exists():
-            data_file = Path("./data") / session_id / "data.jsonl"
-
-        if not data_file.exists():
-            logger.debug("No data file found for extraction")
-            return
-
-        existing_rows = []
-        with open(data_file, 'r') as f:
-            for line in f:
-                if line.strip():
-                    existing_rows.append(json.loads(line))
-
-        logger.debug("Found %d existing rows to process", len(existing_rows))
-
-        # Build document path lookup from all directories
-        doc_paths: Dict[str, Path] = {}
-        for docs_dir in docs_directories:
-            if docs_dir.exists():
-                for f in docs_dir.iterdir():
-                    if f.is_file() and not f.name.startswith('.'):
-                        doc_paths[f.name] = f
-                        doc_paths[f.stem] = f
-
-        logger.debug("Found %d documents in %d directories", len(doc_paths), len(docs_directories))
-
-        # Create schema with only target columns
-        columns = [
-            Column(
-                name=col.name,
-                definition=col.definition or f"Data field: {col.name}",
-                rationale=col.rationale or f"Information for {col.name}",
-                allowed_values=col.allowed_values
-            )
-            for col in target_columns
-        ]
-        schema = Schema(query=schema_query, columns=columns)
-
-        # Create paper processor
-        processor = PaperProcessor(
-            llm=llm,
-            retriever=retriever,
-            on_value_extracted=on_value_extracted,
-            should_stop=should_stop
-        )
-
-        # Process each existing row
-        extracted_rows = []
-        for i, row in enumerate(existing_rows):
-            if should_stop and should_stop():
-                logger.debug("Stop requested, halting extraction")
-                break
-
-            row_name = row.get('_row_name') or row.get('row_name') or f'row_{i}'
-            papers = row.get('_papers') or row.get('papers') or []
-
-            logger.debug("Processing row %d/%d: %s", i+1, len(existing_rows), row_name)
-
-            # Find document
-            doc_path = None
-            for paper in papers:
-                if paper in doc_paths:
-                    doc_path = doc_paths[paper]
-                    break
-                paper_stem = paper.rsplit('.', 1)[0] if '.' in paper else paper
-                if paper_stem in doc_paths:
-                    doc_path = doc_paths[paper_stem]
-                    break
-
-            if not doc_path:
-                logger.debug("No document found for row %s, skipping", row_name)
-                # Still add row with null values
-                output_row = {"_row_name": row_name}
-                for col in columns:
-                    output_row[col.name] = None
-                extracted_rows.append(output_row)
-                continue
-
-            try:
-                doc_content = doc_path.read_text(encoding='utf-8', errors='ignore')
-            except Exception as e:
-                logger.debug("Error reading document %s: %s", doc_path, e)
-                continue
-
-            # Get relevant passages for this unit using retriever
-            if retriever and doc_content:
-                col_context = " ".join([f"{c.name}: {c.definition}" for c in columns])
-                query = f"{row_name} {col_context}"
-                try:
-                    relevant_passages = retriever.retrieve(query, doc_content, k=10)
-                    logger.debug("Retrieved %d passages for %s", len(relevant_passages), row_name)
-                except Exception as e:
-                    logger.debug("Retrieval failed: %s", e)
-                    relevant_passages = [doc_content[:5000]]
-            else:
-                relevant_passages = [doc_content[:5000]]
-
-            # Extract values for this unit
-            paper_title = doc_path.stem
-            try:
-                extracted = processor.extract_values_for_unit(
-                    unit_name=row_name,
-                    relevant_passages=relevant_passages,
-                    schema=schema,
-                    max_new_tokens=2048,
-                    paper_title=paper_title
-                )
-
-                output_row = {"_row_name": row_name}
-                if extracted:
-                    for col_name, value in extracted.items():
-                        output_row[col_name] = value
-                        if on_value_extracted:
-                            on_value_extracted(row_name, col_name, value)
-                    logger.debug("Extracted %d columns for %s", len(extracted), row_name)
-                else:
-                    logger.debug("No values extracted for %s", row_name)
-                    for col in columns:
-                        output_row[col.name] = None
-
-                extracted_rows.append(output_row)
-
-            except Exception as e:
-                logger.debug("Extraction error for %s: %s", row_name, e)
-                import traceback
-                traceback.print_exc()
-
-        # Write extracted rows to output file
-        if extracted_rows:
-            with open(output_file, 'w') as f:
-                for row in extracted_rows:
-                    f.write(json.dumps(row) + "\n")
-            logger.debug("Wrote %d rows to %s", len(extracted_rows), output_file)
-        else:
-            logger.debug("No rows extracted")
-
     async def _merge_reextracted_data(
         self,
         session_id: str,
@@ -1397,15 +1013,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         session_dir = Path("./data") / session_id
         data_file = session_dir / "data.jsonl"
-
-        # Also check qbsd_work for data file
-        qbsd_work_dir = Path("./qbsd_work") / session_id
-        qbsd_data_file = qbsd_work_dir / "extracted_data.jsonl"
-
-        if not data_file.exists() and qbsd_data_file.exists():
-            logger.debug("Merge using qbsd_work data file: %s", qbsd_data_file)
-            data_file = qbsd_data_file
-            session_dir = qbsd_work_dir
 
         if not data_file.exists():
             return
@@ -1420,7 +1027,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     if row_name:
                         extracted_by_row[row_name] = row_data
 
-        logger.debug("Extracted row names from extraction file: %s", list(extracted_by_row.keys()))
+        print(f"DEBUG: Extracted row names from extraction file: {list(extracted_by_row.keys())}")
 
         # Build a mapping from paper name stem to extracted data for fallback matching
         # This handles cases where existing data uses row_1, row_2, etc. but extraction uses paper names
@@ -1428,7 +1035,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         for row_name, row_data in extracted_by_row.items():
             # The row_name from extraction is typically the paper stem (e.g., "CCTalpha")
             extracted_by_paper_stem[row_name.lower()] = row_data
-            logger.debug("Paper stem mapping: '%s' -> extracted data", row_name.lower())
+            print(f"DEBUG: Paper stem mapping: '{row_name.lower()}' -> extracted data")
 
         # Backup existing data
         backup_file = session_dir / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
@@ -1445,7 +1052,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                 row = json.loads(line)
                 row_name = row.get('row_name') or row.get('_row_name')
-                papers = row.get('papers') or row.get('_papers') or []  # Handle both papers and _papers
+                papers = row.get('papers') or []  # Handle None value
 
                 # Try direct row name match first
                 extracted = None
@@ -1468,15 +1075,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 if extracted:
                     rows_updated += 1
 
-                    # Update the re-extracted columns (add even if no value found)
+                    # Update only the re-extracted columns
                     for col_name in columns:
-                        # Use extracted value if available, otherwise None
-                        col_value = extracted.get(col_name, None)
-                        # Handle nested 'data' structure or flat structure
-                        if 'data' in row:
-                            row['data'][col_name] = col_value
-                        else:
-                            row[col_name] = col_value
+                        if col_name in extracted:
+                            # Handle nested 'data' structure or flat structure
+                            if 'data' in row:
+                                row['data'][col_name] = extracted[col_name]
+                            else:
+                                row[col_name] = extracted[col_name]
 
                 updated_rows.append(row)
 
@@ -1485,7 +1091,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             for row in updated_rows:
                 f.write(json.dumps(row) + '\n')
 
-        logger.debug("Merged re-extracted data for %d columns, %d rows updated", len(columns), rows_updated)
+        print(f"DEBUG: Merged re-extracted data for {len(columns)} columns, {rows_updated} rows updated")
 
         # Update session statistics to reflect new data
         session = self.session_manager.get_session(session_id)
@@ -1500,11 +1106,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     )
                     old_count = col_stat.non_null_count
                     col_stat.non_null_count = non_null_count
-                    logger.debug("Updated stats for column '%s': non_null_count %d -> %d", col_stat.name, old_count, non_null_count)
+                    print(f"DEBUG: Updated stats for column '{col_stat.name}': non_null_count {old_count} -> {non_null_count}")
 
             # Update session
             self.session_manager.update_session(session)
-            logger.debug("Updated session statistics for %d columns", len(columns))
+            print(f"DEBUG: Updated session statistics for {len(columns)} columns")
 
     def _get_llm_from_session(self, session_id: str):
         """Get LLM configuration from session, including API key."""
@@ -1516,10 +1122,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
             if user_config_file.exists():
                 with open(user_config_file) as f:
                     user_config = json.load(f)
-                logger.debug("Using LLM config from user_llm_config.json: %s %s, api_key=%s", user_config.get('provider'), user_config.get('model'), 'present' if user_config.get('api_key') else 'MISSING')
+                print(f"DEBUG: Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
                 return qbsd_utils.build_llm(user_config)
         except Exception as e:
-            logger.debug("Could not load user LLM config: %s", e)
+            print(f"DEBUG: Could not load user LLM config: {e}")
 
         # Priority 1: Check session's metadata.extracted_schema for llm_configuration
         try:
@@ -1531,10 +1137,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     # Use value_extraction_backend if available, fallback to schema_creation_backend
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
-                        logger.debug("Using LLM config from session metadata: %s %s", backend_config.get('provider'), backend_config.get('model'))
+                        print(f"DEBUG: Using LLM config from session metadata: {backend_config.get('provider')} {backend_config.get('model')}")
                         return qbsd_utils.build_llm(backend_config)
         except Exception as e:
-            logger.debug("Could not load LLM config from session metadata: %s", e)
+            print(f"DEBUG: Could not load LLM config from session metadata: {e}")
 
         # Priority 2: Check parsed_schema.json (contains llm_configuration with api_key)
         try:
@@ -1546,10 +1152,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     llm_config = parsed_schema["llm_configuration"]
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
-                        logger.debug("Using LLM config from parsed_schema.json: %s %s", backend_config.get('provider'), backend_config.get('model'))
+                        print(f"DEBUG: Using LLM config from parsed_schema.json: {backend_config.get('provider')} {backend_config.get('model')}")
                         return qbsd_utils.build_llm(backend_config)
         except Exception as e:
-            logger.debug("Could not load LLM config from parsed_schema.json: %s", e)
+            print(f"DEBUG: Could not load LLM config from parsed_schema.json: {e}")
 
         # Priority 3: Check qbsd_config.json (legacy location)
         try:
@@ -1559,13 +1165,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     qbsd_config = json.load(f)
                 backend_config = qbsd_config.get("value_extraction_backend") or qbsd_config.get("schema_creation_backend")
                 if backend_config:
-                    logger.debug("Using LLM config from qbsd_config.json: %s %s", backend_config.get('provider'), backend_config.get('model'))
+                    print(f"DEBUG: Using LLM config from qbsd_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
                     return qbsd_utils.build_llm(backend_config)
         except Exception as e:
-            logger.debug("Could not load LLM config from qbsd_config.json: %s", e)
+            print(f"DEBUG: Could not load LLM config from qbsd_config.json: {e}")
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
-        logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
+        print(f"DEBUG: Using default GeminiLLM - this will use GEMINI_API_KEY env var")
         return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0)
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):
