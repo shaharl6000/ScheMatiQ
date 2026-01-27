@@ -190,7 +190,7 @@ const QBSDConfigPage = () => {
   const [config, setConfig] = useState<QBSDConfig>({
     query: 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?',
     docs_path: ['../research/data/file'],
-    max_keys_schema: 100,
+    max_keys_schema: 25,
     documents_batch_size: 1,
     schema_creation_backend: {
       provider: 'gemini',
