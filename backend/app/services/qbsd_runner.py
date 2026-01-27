@@ -1425,34 +1425,47 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             try:
                 current_time = time.time()
 
-                # Check output file size for progress
+                # Check output file for progress - count unique documents completed
                 if output_path.exists():
+                    completed_documents = set()
+                    current_line_count = 0
                     with open(output_path, 'r') as f:
-                        current_line_count = sum(1 for _ in f)
-                    
+                        for line in f:
+                            current_line_count += 1
+                            try:
+                                row_data = json.loads(line)
+                                # Get document name: use base_row_name for observation units, else _row_name
+                                metadata = row_data.get("_metadata", {})
+                                doc_name = metadata.get("base_row_name") or row_data.get("_row_name")
+                                if doc_name:
+                                    completed_documents.add(doc_name)
+                            except json.JSONDecodeError:
+                                pass
+
+                    completed_doc_count = len(completed_documents)
+
                     if current_line_count > last_line_count:
-                        # Update session metadata
+                        # Update session metadata with actual document count
                         session = self.session_manager.get_session(session_id)
-                        session.metadata.processed_documents = min(current_line_count, total_documents)
+                        session.metadata.processed_documents = min(completed_doc_count, total_documents)
                         self.session_manager.update_session(session)
-                        
-                        # Send progress update with meaningful message
-                        progress_msg = f"Value Extraction: Document {current_line_count}/{total_documents} completed"
-                        await progress_callback(progress_msg, 0.5 + (current_line_count / total_documents) * 0.5, {
+
+                        # Send progress update with document count
+                        progress_msg = f"Value Extraction: Document {completed_doc_count}/{total_documents} completed"
+                        await progress_callback(progress_msg, 0.5 + (completed_doc_count / total_documents) * 0.5, {
                             "rows_extracted": current_line_count,
+                            "documents_completed": completed_doc_count,
                             "total_documents": total_documents,
                             "elapsed_time": int(current_time - start_time)
                         })
-                        
-                        # Broadcast row completion for each new row
-                        if current_line_count > last_line_count:
-                            for new_row_idx in range(last_line_count, current_line_count):
-                                await self.broadcast_row_completed(session_id, {
-                                    "row_index": new_row_idx + 1,
-                                    "total_rows": total_documents,
-                                    "completed_at": datetime.now().isoformat()
-                                })
-                        
+
+                        # Broadcast document completion (use document count, not row count)
+                        await self.broadcast_row_completed(session_id, {
+                            "row_index": completed_doc_count,
+                            "total_rows": total_documents,
+                            "completed_at": datetime.now().isoformat()
+                        })
+
                         last_line_count = current_line_count
                         last_update_time = current_time
                 
