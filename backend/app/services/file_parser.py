@@ -22,7 +22,11 @@ class FileParser:
     """Handles file parsing and data processing."""
 
     # Metadata columns that should not be included as schema columns for LLM extraction
-    METADATA_COLUMNS = {'papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata'}
+    METADATA_COLUMNS = {
+        'papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata',
+        '_unit_name', 'unit_name', '_source_document', 'source_document',
+        '_parent_document', '_observation_unit', '_unit_confidence'
+    }
 
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = Path(data_dir)
@@ -395,6 +399,36 @@ class FileParser:
                 else:
                     merged_data = self._sanitize_data_dict(row_dict)
 
+                # Extract row_name field from data if present
+                row_name_col_names = ['row_name', 'Row Name', 'Row_Name', 'RowName']
+                row_name_value = None
+                for col_name in row_name_col_names:
+                    if col_name in merged_data:
+                        raw_val = merged_data.pop(col_name)  # Remove from data dict
+                        if raw_val is not None and str(raw_val).strip():
+                            row_name_value = str(raw_val).strip()
+                        break
+
+                # Extract _unit_name field from data if present (observation unit instance name)
+                unit_name_col_names = ['_unit_name', 'unit_name', 'Unit Name']
+                unit_name_value = None
+                for col_name in unit_name_col_names:
+                    if col_name in merged_data:
+                        raw_val = merged_data.pop(col_name)  # Remove from data dict
+                        if raw_val is not None and str(raw_val).strip():
+                            unit_name_value = str(raw_val).strip()
+                        break
+
+                # Extract _source_document field from data if present (original document name)
+                source_doc_col_names = ['_source_document', 'source_document', 'Source Document']
+                source_doc_value = None
+                for col_name in source_doc_col_names:
+                    if col_name in merged_data:
+                        raw_val = merged_data.pop(col_name)  # Remove from data dict
+                        if raw_val is not None and str(raw_val).strip():
+                            source_doc_value = str(raw_val).strip()
+                        break
+
                 # Extract papers field from data if present
                 papers_col_names = ['Papers', 'papers', 'Paper', 'paper', 'Documents', 'documents']
                 papers_value = []
@@ -411,7 +445,13 @@ class FileParser:
                             papers_value = raw_val
                         break
 
-                row_data = DataRow(data=merged_data, papers=papers_value)
+                row_data = DataRow(
+                    data=merged_data,
+                    papers=papers_value,
+                    row_name=row_name_value,
+                    unit_name=unit_name_value,        # Uses field name, Pydantic handles alias
+                    source_document=source_doc_value  # Uses field name, Pydantic handles alias
+                )
                 f.write(json.dumps(row_data.model_dump(by_alias=True)) + '\n')
         
         # Include extracted metadata in the result

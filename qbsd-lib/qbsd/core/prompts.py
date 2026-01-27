@@ -300,6 +300,11 @@ The observation unit defines the granularity of extraction:
 - **Document-level**: Each document = one row (simplest case)
 - **Sub-document-level**: Each document may contain MULTIPLE observation units, each becoming a separate row
 
+**Critical Principle: One Row = One Answer to the Query**
+- The observation unit should be the **minimal entity that independently answers the query**
+- Ask: "What is the query asking about?" → That's your observation unit
+- Experiments, measurements, and variants are EVIDENCE, not separate units
+
 ### Name Guidelines
 The name should be:
 - **1-3 words MAXIMUM** (e.g., "Protein", "Model", "Treatment Arm")
@@ -333,6 +338,14 @@ The name should be:
   - example_names: ["Drug A 10mg", "Drug A 50mg", "Placebo"]
 → A trial with 3 arms produces 3 rows
 
+**Query**: "Does entity X have property Y?" (e.g., "Does protein X have NES?", "Does model X support feature Y?")
+**Observation Unit**:
+  - name: "Entity"
+  - definition: "A single entity being assessed for the property. All variants, configurations, and experiments on the same entity are consolidated into one row."
+  - example_names: [] (will be filled from documents)
+→ A paper testing 5 variants of the same entity produces 1 row, not 5 rows
+→ A paper comparing 3 different entities produces 3 rows
+
 ### Decision Guidelines
 
 **Use sub-document units when:**
@@ -346,6 +359,20 @@ The name should be:
 - Documents describe a single main subject
 - There's no natural repeated structure within documents
 - Sub-units would create artificial fragmentation
+
+### Entity vs Measurement Distinction
+
+**Entities** (become rows):
+- The subject the query asks about (protein, model, drug)
+- What you would list if someone asked "What things does this paper analyze?"
+
+**Measurements** (become columns or aggregated values, NOT rows):
+- Experiments performed on an entity
+- Variants/mutants used to study the entity
+- Different conditions tested
+- Multiple data points for the same entity
+
+**Test**: If two items would give the SAME ANSWER to the query, they should be ONE row.
 
 ### Output Format
 Return valid JSON only:
@@ -379,6 +406,9 @@ USER_PROMPT_TMPL_OBSERVATION_UNIT = """
 </SAMPLE_PASSAGES>
 
 Based on the query and these sample passages, determine the appropriate observation unit.
+
+Remember: One row should equal one answer to the query.
+Experiments, variants, and measurements of the same entity should NOT be separate rows.
 """.strip()
 
 
