@@ -23,24 +23,16 @@ from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.storage.factory import get_storage
 
-# Import QBSD components from qbsd-lib
-import sys
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-QBSD_LIB_ROOT = PROJECT_ROOT / "qbsd-lib"
-sys.path.insert(0, str(QBSD_LIB_ROOT))
+# QBSD library imports
+from qbsd.core import qbsd as QBSD
+from qbsd.core.qbsd import discover_schema
+from qbsd.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot
+from qbsd.core.llm_backends import GeminiLLM
+from qbsd.core.retrievers import EmbeddingRetriever
+from qbsd.core import utils as qbsd_utils
+from qbsd.value_extraction.main import build_table_jsonl
 
-try:
-    from qbsd.core import qbsd as QBSD
-    from qbsd.core.qbsd import discover_schema
-    from qbsd.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot
-    from qbsd.core.llm_backends import GeminiLLM
-    from qbsd.core.retrievers import EmbeddingRetriever
-    from qbsd.core import utils as qbsd_utils
-    from qbsd.value_extraction.main import build_table_jsonl
-    QBSD_AVAILABLE = True
-except ImportError as e:
-    print(f"QBSD components not available for continue discovery service: {e}")
-    QBSD_AVAILABLE = False
+QBSD_AVAILABLE = True
 
 
 class ContinueDiscoveryOperation:

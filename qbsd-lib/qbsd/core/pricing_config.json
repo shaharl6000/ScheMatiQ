@@ -1,0 +1,68 @@
+{
+  "version": "2026-01",
+  "description": "LLM pricing per 1M tokens (USD). Update periodically as providers change pricing.",
+  "providers": {
+    "openai": {
+        "gpt-5": {
+            "input": 1.25,
+            "output": 10.00,
+            "context_window": 400000
+        },
+        "gpt-5-mini": {
+            "input": 0.25,
+            "output": 2.00,
+            "context_window": 400000
+        }
+    },
+    "gemini": {
+        "gemini-2.5-flash": {
+          "input": 0.30,
+          "output": 2.50,
+          "context_window": 1048576
+        },
+        "gemini-2.5-pro": {
+          "input": 1.25,
+          "output": 10.00,
+          "context_window": 1048576
+        },
+        "gemini-2.0-flash": {
+          "input": 0.10,
+          "output": 0.40,
+          "context_window": 1048576
+        }
+    },
+      "together": {
+        "meta-llama/Llama-3.3-70B-Instruct-Turbo": {
+          "input": 0.88,
+          "output": 0.88,
+          "context_window": 131072
+        },
+        "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo": {
+          "input": 0.88,
+          "output": 0.88,
+          "context_window": 131072
+        },
+        "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {
+          "input": 0.18,
+          "output": 0.18,
+          "context_window": 131072
+        }
+    }
+  },
+  "estimation_constants": {
+    "_comment": "These values are derived from measured prompts and observed outputs. Update if prompts change significantly.",
+    
+    "retrieval_passage_avg_tokens": 250,
+    "_retrieval_passage_note": "Based on default passage_chars=512 setting, ~250 tokens per passage",
+    
+    "schema_discovery_avg_output_tokens": 300,
+    "_schema_output_note": "Most batches return empty or 1-2 columns. Range: 50 (empty) to 1000+ (many columns)",
+    
+    "value_extraction_fill_rate": 0.7,
+    "_fill_rate_note": "Fraction of columns that typically have extractable values per document",
+    
+    "tokens_per_extracted_column": 40,
+    "_extraction_output_note": "Each column value ~40 tokens: answer (~10) + 1-2 excerpt quotes (~30)"
+  }
+}
+

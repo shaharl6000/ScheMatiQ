@@ -29,7 +29,8 @@ import {
   ConfirmColumnsRequest,
   ConfirmColumnsResponse,
   DocumentAvailabilityRequest,
-  DocumentAvailabilityResponse
+  DocumentAvailabilityResponse,
+  CostEstimate
 } from '../types';
 import { FilterRule, SortColumn } from '../components/DataTable/types/filters';
 
@@ -308,6 +309,31 @@ export const qbsdAPI = {
   ): Promise<{ status: string; session_id: string; row_name: string; column: string; value: string }> => {
     const response = await api.put(`/qbsd/cell/${sessionId}`, null, {
       params: { row_name: rowName, column, value }
+    });
+    return response.data;
+  },
+
+  /**
+   * Estimate cost for QBSD execution for an existing configured session.
+   */
+  estimateCost: async (sessionId: string): Promise<CostEstimate> => {
+    const response = await api.post(`/qbsd/estimate-cost/${sessionId}`);
+    return response.data;
+  },
+
+  /**
+   * Preview cost estimate without saving a session.
+   * Useful for getting estimates before committing to a configuration.
+   * @param config - The QBSD configuration
+   * @param uploadedFiles - Optional array of uploaded file info (name, size) for estimation
+   */
+  estimateCostPreview: async (
+    config: QBSDConfig, 
+    uploadedFiles?: Array<{ name: string; size: number }>
+  ): Promise<CostEstimate> => {
+    const response = await api.post('/qbsd/estimate-cost-preview', { 
+      config, 
+      uploaded_files: uploadedFiles 
     });
     return response.data;
   },

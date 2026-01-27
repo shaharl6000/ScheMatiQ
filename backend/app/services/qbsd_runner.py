@@ -9,43 +9,19 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
 
-# Import QBSD components from qbsd-lib
-import sys
-from pathlib import Path
-
-# Add qbsd-lib to path
+# Project root for path resolution
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-QBSD_LIB_ROOT = PROJECT_ROOT / "qbsd-lib"
-sys.path.insert(0, str(QBSD_LIB_ROOT))
 
-try:
-    # Import QBSD main functions from qbsd-lib
-    from qbsd.core import qbsd as QBSD
-    from qbsd.core.schema import Schema, Column, ObservationUnit
-    from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
-    from qbsd.core.retrievers import EmbeddingRetriever
-    from qbsd.core import utils
-    from qbsd.value_extraction.main import build_table_jsonl
-    from qbsd import discover_observation_unit
-    QBSD_AVAILABLE = True
-    print(f"✓ QBSD components successfully loaded from {QBSD_LIB_ROOT}")
-except ImportError as e:
-    print(f"✗ QBSD components not available: {e}")
-    print(f"  Tried to import from: {QBSD_LIB_ROOT}")
-    print(f"  Current working directory: {Path.cwd()}")
-    
-    # Create mock classes for fallback
-    class Schema:
-        def __init__(self, **kwargs):
-            self.columns = []
-    class Column:
-        def __init__(self, **kwargs):
-            pass
-    class MockLLMInterface:
-        def generate(self, *args, **kwargs):
-            return "Mock response"
-    
-    QBSD_AVAILABLE = False
+# QBSD library imports
+from qbsd.core import qbsd as QBSD
+from qbsd.core.schema import Schema, Column, ObservationUnit
+from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
+from qbsd.core.retrievers import EmbeddingRetriever
+from qbsd.core import utils
+from qbsd.value_extraction.main import build_table_jsonl
+from qbsd import discover_observation_unit
+
+QBSD_AVAILABLE = True
 
 def build_llm_interface(
     provider: str,
