@@ -27,6 +27,8 @@ sys.path.insert(0, str(QBSD_LIB_ROOT))
 
 try:
     from qbsd.value_extraction.main import build_table_jsonl
+    from qbsd.value_extraction.core.paper_processor import PaperProcessor
+    from qbsd.core.schema import Schema, Column
     from qbsd.core.llm_backends import GeminiLLM
     from qbsd.core.retrievers import EmbeddingRetriever
     from qbsd.core import utils as qbsd_utils
@@ -203,6 +205,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             'D:\\',            # Windows paths
             './',              # Relative paths
             '../',             # Relative paths
+            'qbsd_work',       # QBSD working directory
         ]
 
         for indicator in local_indicators:
@@ -399,6 +402,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
         data_file = session_dir / "data.jsonl"
         docs_dir = session_dir / "documents"
 
+        # Also check qbsd_work for data file (documents downloaded during initial QBSD creation)
+        qbsd_work_dir = Path("./qbsd_work") / session_id
+        qbsd_data_file = qbsd_work_dir / "extracted_data.jsonl"
+
+        # Use qbsd_work data file if main data file doesn't exist
+        if not data_file.exists() and qbsd_data_file.exists():
+            print(f"DEBUG: Using qbsd_work data file: {qbsd_data_file}")
+            data_file = qbsd_data_file
+
         # Collect paper references and document directories from all rows
         paper_refs: Set[str] = set()
         row_paper_mapping: Dict[str, List[str]] = {}  # row_name -> [papers]
@@ -453,21 +465,25 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             )
                             doc_dir = extract_value(doc_dir_raw)
 
-                            # Clean up doc_dir - extract just the datasets/... part if it's a full path
-                            if doc_dir and 'datasets/' in doc_dir:
-                                doc_dir = 'datasets/' + doc_dir.split('datasets/')[-1]
-                            # Handle local paths (e.g., /app/backend/data/{uuid}/pending_documents)
-                            # These indicate documents were uploaded locally, not from cloud storage
-                            # Fall back to session's cloud_dataset if available
-                            elif doc_dir and self._is_local_path(doc_dir):
-                                print(f"DEBUG: Detected local path in document_directory: {doc_dir}")
-                                if session_cloud_dataset:
-                                    doc_dir = f"datasets/{session_cloud_dataset}"
-                                    print(f"DEBUG: Using session cloud_dataset fallback: {doc_dir}")
-                                else:
-                                    print(f"DEBUG: No cloud_dataset fallback available - documents may not be found")
-                                    # No cloud fallback - will be checked locally only
-                                    doc_dir = None
+                            # Clean up doc_dir - handle different path formats
+                            if doc_dir:
+                                # Check if it's a qbsd_work local path (localhost or deployed)
+                                if 'qbsd_work/' in doc_dir or 'qbsd_work\\' in doc_dir:
+                                    # This is a local path in qbsd_work - files already found via local_files
+                                    print(f"DEBUG: Detected qbsd_work path: {doc_dir} - will use local files")
+                                    doc_dir = None  # Skip cloud lookup for this paper
+                                elif 'datasets/' in doc_dir:
+                                    # Extract just the datasets/... part for cloud storage lookup
+                                    doc_dir = 'datasets/' + doc_dir.split('datasets/')[-1]
+                                # Handle other local paths (e.g., /app/backend/data/{uuid}/pending_documents)
+                                elif self._is_local_path(doc_dir):
+                                    print(f"DEBUG: Detected local path in document_directory: {doc_dir}")
+                                    if session_cloud_dataset:
+                                        doc_dir = f"datasets/{session_cloud_dataset}"
+                                        print(f"DEBUG: Using session cloud_dataset fallback: {doc_dir}")
+                                    else:
+                                        print(f"DEBUG: No cloud_dataset fallback available - documents may not be found")
+                                        doc_dir = None
 
                             paper_refs.update(papers)
                             row_paper_mapping[row_name] = papers
@@ -481,11 +497,25 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             continue
 
         # Check which papers exist in local storage
-        # Check both documents/ and pending_documents/ directories
+        # Check documents/, pending_documents/, AND qbsd_work/datasets/ directories
         local_files: Set[str] = set()
         pending_dir = session_dir / "pending_documents"
+        # qbsd_work_dir already defined above
 
-        for local_dir in [docs_dir, pending_dir]:
+        # Collect all potential local document directories
+        local_dirs_to_check = [docs_dir, pending_dir]
+
+        # Add qbsd_work datasets directories (can be nested like datasets/file/)
+        if qbsd_work_dir.exists():
+            datasets_dir = qbsd_work_dir / "datasets"
+            if datasets_dir.exists():
+                local_dirs_to_check.append(datasets_dir)
+                for subdir in datasets_dir.iterdir():
+                    if subdir.is_dir():
+                        local_dirs_to_check.append(subdir)
+                        print(f"DEBUG: Added qbsd_work datasets subdirectory: {subdir}")
+
+        for local_dir in local_dirs_to_check:
             if local_dir.exists():
                 for f in local_dir.iterdir():
                     if f.is_file() and not f.name.startswith('.'):
@@ -927,36 +957,39 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 except Exception as e:
                     print(f"⚠️ Broadcast error: {e}")
 
-            # Run extraction - check both documents/ and pending_documents/
+            # Build docs_directories for document lookup
             docs_directories = [d for d in [docs_dir, pending_dir] if d.exists()]
+
+            # Also add qbsd_work datasets directory
+            qbsd_work_datasets = Path("./qbsd_work") / operation.session_id / "datasets"
+            if qbsd_work_datasets.exists():
+                docs_directories.append(qbsd_work_datasets)
+                for subdir in qbsd_work_datasets.iterdir():
+                    if subdir.is_dir():
+                        docs_directories.append(subdir)
+
             print(f"DEBUG: docs_directories={docs_directories}, count={len(docs_directories)}")
 
-            if docs_directories:
-                print(f"DEBUG: Starting build_table_jsonl extraction...")
+            # NEW APPROACH: Extract for EXISTING rows instead of re-discovering units
+            # This is critical for observation-unit data where rows already exist
+            def should_stop():
+                return self.is_stop_requested(operation_id)
 
-                # Create should_stop callback that checks for stop requests
-                def should_stop():
-                    return self.is_stop_requested(operation_id)
+            def run_extraction_for_existing_rows():
+                self._extract_for_existing_rows(
+                    session_id=operation.session_id,
+                    target_columns=target_columns,
+                    schema_query=session.schema_query or "Extract information",
+                    docs_directories=docs_directories,
+                    output_file=output_file,
+                    llm=llm,
+                    retriever=retriever,
+                    on_value_extracted=on_value_extracted,
+                    should_stop=should_stop
+                )
 
-                def run_extraction():
-                    return build_table_jsonl(
-                        schema_path=schema_file,
-                        docs_directories=docs_directories,
-                        output_path=output_file,
-                        llm=llm,
-                        retriever=retriever,
-                        resume=False,
-                        mode="one_by_one",
-                        retrieval_k=10,
-                        max_workers=1,
-                        on_value_extracted=on_value_extracted,
-                        should_stop=should_stop  # Allow graceful stop
-                    )
-
-                await asyncio.get_event_loop().run_in_executor(None, run_extraction)
-                print(f"DEBUG: build_table_jsonl completed, output_file exists: {output_file.exists()}")
-            else:
-                print(f"DEBUG: No document directories exist, skipping extraction")
+            await asyncio.get_event_loop().run_in_executor(None, run_extraction_for_existing_rows)
+            print(f"DEBUG: Extraction for existing rows completed, output_file exists: {output_file.exists()}")
 
             # Merge results with existing data
             print(f"DEBUG: Merging re-extracted data...")
@@ -1007,6 +1040,167 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
             raise
 
+    def _extract_for_existing_rows(
+        self,
+        session_id: str,
+        target_columns: List,
+        schema_query: str,
+        docs_directories: List[Path],
+        output_file: Path,
+        llm,
+        retriever,
+        on_value_extracted=None,
+        should_stop=None
+    ) -> None:
+        """
+        Extract values for new columns using EXISTING rows instead of re-discovering units.
+
+        This is the correct approach for re-extraction when rows already have observation units.
+        Instead of calling build_table_jsonl (which re-discovers units), we:
+        1. Read existing rows from extracted_data.jsonl
+        2. For each row, extract only the new columns using that row's context
+        3. Write extracted values to output file for merging
+        """
+        # Read existing rows
+        qbsd_work_dir = Path("./qbsd_work") / session_id
+        data_file = qbsd_work_dir / "extracted_data.jsonl"
+
+        if not data_file.exists():
+            data_file = Path("./data") / session_id / "data.jsonl"
+
+        if not data_file.exists():
+            print(f"DEBUG: No data file found for extraction")
+            return
+
+        existing_rows = []
+        with open(data_file, 'r') as f:
+            for line in f:
+                if line.strip():
+                    existing_rows.append(json.loads(line))
+
+        print(f"DEBUG: Found {len(existing_rows)} existing rows to process")
+
+        # Build document path lookup from all directories
+        doc_paths: Dict[str, Path] = {}
+        for docs_dir in docs_directories:
+            if docs_dir.exists():
+                for f in docs_dir.iterdir():
+                    if f.is_file() and not f.name.startswith('.'):
+                        doc_paths[f.name] = f
+                        doc_paths[f.stem] = f
+
+        print(f"DEBUG: Found {len(doc_paths)} documents in {len(docs_directories)} directories")
+
+        # Create schema with only target columns
+        columns = [
+            Column(
+                name=col.name,
+                definition=col.definition or f"Data field: {col.name}",
+                rationale=col.rationale or f"Information for {col.name}",
+                allowed_values=col.allowed_values
+            )
+            for col in target_columns
+        ]
+        schema = Schema(query=schema_query, columns=columns)
+
+        # Create paper processor
+        processor = PaperProcessor(
+            llm=llm,
+            retriever=retriever,
+            on_value_extracted=on_value_extracted,
+            should_stop=should_stop
+        )
+
+        # Process each existing row
+        extracted_rows = []
+        for i, row in enumerate(existing_rows):
+            if should_stop and should_stop():
+                print(f"DEBUG: Stop requested, halting extraction")
+                break
+
+            row_name = row.get('_row_name') or row.get('row_name') or f'row_{i}'
+            papers = row.get('_papers') or row.get('papers') or []
+
+            print(f"DEBUG: Processing row {i+1}/{len(existing_rows)}: {row_name}")
+
+            # Find document
+            doc_path = None
+            for paper in papers:
+                if paper in doc_paths:
+                    doc_path = doc_paths[paper]
+                    break
+                paper_stem = paper.rsplit('.', 1)[0] if '.' in paper else paper
+                if paper_stem in doc_paths:
+                    doc_path = doc_paths[paper_stem]
+                    break
+
+            if not doc_path:
+                print(f"DEBUG: No document found for row {row_name}, skipping")
+                # Still add row with null values
+                output_row = {"_row_name": row_name}
+                for col in columns:
+                    output_row[col.name] = None
+                extracted_rows.append(output_row)
+                continue
+
+            try:
+                doc_content = doc_path.read_text(encoding='utf-8', errors='ignore')
+            except Exception as e:
+                print(f"DEBUG: Error reading document {doc_path}: {e}")
+                continue
+
+            # Get relevant passages for this unit using retriever
+            if retriever and doc_content:
+                col_context = " ".join([f"{c.name}: {c.definition}" for c in columns])
+                query = f"{row_name} {col_context}"
+                try:
+                    relevant_passages = retriever.retrieve(query, doc_content, k=10)
+                    print(f"DEBUG: Retrieved {len(relevant_passages)} passages for {row_name}")
+                except Exception as e:
+                    print(f"DEBUG: Retrieval failed: {e}")
+                    relevant_passages = [doc_content[:5000]]
+            else:
+                relevant_passages = [doc_content[:5000]]
+
+            # Extract values for this unit
+            paper_title = doc_path.stem
+            try:
+                extracted = processor.extract_values_for_unit(
+                    unit_name=row_name,
+                    relevant_passages=relevant_passages,
+                    schema=schema,
+                    max_new_tokens=2048,
+                    paper_title=paper_title
+                )
+
+                output_row = {"_row_name": row_name}
+                if extracted:
+                    for col_name, value in extracted.items():
+                        output_row[col_name] = value
+                        if on_value_extracted:
+                            on_value_extracted(row_name, col_name, value)
+                    print(f"DEBUG: Extracted {len(extracted)} columns for {row_name}")
+                else:
+                    print(f"DEBUG: No values extracted for {row_name}")
+                    for col in columns:
+                        output_row[col.name] = None
+
+                extracted_rows.append(output_row)
+
+            except Exception as e:
+                print(f"DEBUG: Extraction error for {row_name}: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # Write extracted rows to output file
+        if extracted_rows:
+            with open(output_file, 'w') as f:
+                for row in extracted_rows:
+                    f.write(json.dumps(row) + "\n")
+            print(f"DEBUG: Wrote {len(extracted_rows)} rows to {output_file}")
+        else:
+            print(f"DEBUG: No rows extracted")
+
     async def _merge_reextracted_data(
         self,
         session_id: str,
@@ -1019,6 +1213,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         session_dir = Path("./data") / session_id
         data_file = session_dir / "data.jsonl"
+
+        # Also check qbsd_work for data file
+        qbsd_work_dir = Path("./qbsd_work") / session_id
+        qbsd_data_file = qbsd_work_dir / "extracted_data.jsonl"
+
+        if not data_file.exists() and qbsd_data_file.exists():
+            print(f"DEBUG: Merge using qbsd_work data file: {qbsd_data_file}")
+            data_file = qbsd_data_file
+            session_dir = qbsd_work_dir
 
         if not data_file.exists():
             return
@@ -1058,7 +1261,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                 row = json.loads(line)
                 row_name = row.get('row_name') or row.get('_row_name')
-                papers = row.get('papers') or []  # Handle None value
+                papers = row.get('papers') or row.get('_papers') or []  # Handle both papers and _papers
 
                 # Try direct row name match first
                 extracted = None
@@ -1081,14 +1284,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 if extracted:
                     rows_updated += 1
 
-                    # Update only the re-extracted columns
+                    # Update the re-extracted columns (add even if no value found)
                     for col_name in columns:
-                        if col_name in extracted:
-                            # Handle nested 'data' structure or flat structure
-                            if 'data' in row:
-                                row['data'][col_name] = extracted[col_name]
-                            else:
-                                row[col_name] = extracted[col_name]
+                        # Use extracted value if available, otherwise None
+                        col_value = extracted.get(col_name, None)
+                        # Handle nested 'data' structure or flat structure
+                        if 'data' in row:
+                            row['data'][col_name] = col_value
+                        else:
+                            row[col_name] = col_value
 
                 updated_rows.append(row)
 
