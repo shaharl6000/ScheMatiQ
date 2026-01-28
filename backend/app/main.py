@@ -12,11 +12,10 @@ logging.basicConfig(
     force=True
 )
 
-# Add parent directories to path for imports
-backend_dir = Path(__file__).parent.parent
-project_root = backend_dir.parent
-sys.path.insert(0, str(backend_dir))
-sys.path.insert(0, str(project_root / "qbsd-lib"))
+# Add qbsd-lib to Python path (sibling directory to backend)
+_QBSD_LIB_PATH = Path(__file__).parent.parent.parent / "qbsd-lib"
+if _QBSD_LIB_PATH.exists() and str(_QBSD_LIB_PATH) not in sys.path:
+    sys.path.insert(0, str(_QBSD_LIB_PATH))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

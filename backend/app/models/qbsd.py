@@ -79,3 +79,43 @@ class QBSDProgress(BaseModel):
     step_progress: float = Field(ge=0.0, le=1.0)
     details: Dict[str, Any] = {}
     timestamp: str
+
+
+class PhaseEstimate(BaseModel):
+    """Cost estimate for a single phase (schema discovery or value extraction)."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    api_calls: int = 0
+    cost_usd: float = 0.0
+
+
+class DocumentStats(BaseModel):
+    """Statistics about documents being processed."""
+    num_documents: int = 0
+    total_tokens: int = 0
+    avg_tokens_per_document: int = 0
+    max_tokens_in_document: int = 0
+
+
+class CostEstimate(BaseModel):
+    """Complete cost estimate for QBSD execution."""
+    schema_discovery: PhaseEstimate = Field(default_factory=PhaseEstimate)
+    value_extraction: PhaseEstimate = Field(default_factory=PhaseEstimate)
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_api_calls: int = 0
+    total_cost_usd: float = 0.0
+    warnings: List[str] = Field(default_factory=list)
+    document_stats: DocumentStats = Field(default_factory=DocumentStats)
+
+
+class UploadedFileInfo(BaseModel):
+    """Basic info about an uploaded file (for cost estimation without sending content)."""
+    name: str
+    size: int  # Size in bytes
+
+
+class CostEstimateRequest(BaseModel):
+    """Request body for cost estimation endpoint."""
+    config: QBSDConfig
+    uploaded_files: Optional[List[UploadedFileInfo]] = None  # For uploaded files - just metadata

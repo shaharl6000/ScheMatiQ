@@ -12,16 +12,92 @@ from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.models.session import VisualizationSession, SessionType, SessionMetadata, FilterSortRequest
-from app.models.qbsd import QBSDConfig, QBSDStatus
+from app.models.qbsd import QBSDConfig, QBSDStatus, CostEstimate, CostEstimateRequest, PhaseEstimate, DocumentStats
 from app.services.qbsd_runner import QBSDRunner
 from app.services.data_editor import DataEditor
 from app.services import websocket_manager, session_manager
+
+from qbsd.core.cost_estimator import estimate_from_config
 
 router = APIRouter()
 # Create shared QBSD runner instance with shared managers
 qbsd_runner = QBSDRunner(websocket_manager=websocket_manager, session_manager=session_manager)
 # Create data editor instance
 data_editor = DataEditor()
+
+# Project root for path resolution (backend/app/api/routes -> project root = 5 levels up)
+PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
+
+
+def _resolve_docs_path(path: str, session_id: Optional[str] = None) -> Optional[Path]:
+    """Resolve a document path to an existing directory.
+    
+    Tries multiple resolution strategies:
+    - Direct path
+    - Session's pending_documents directory
+    - Relative paths from various locations
+    - Cloud dataset name -> research/data/<name>
+    """
+    if not path:
+        return None
+    
+    doc_path = Path(path)
+    candidates = [
+        doc_path,
+        Path("..") / path,
+        Path("../..") / path,
+        PROJECT_ROOT / path,
+        PROJECT_ROOT / "research" / "data" / Path(path).name,
+        Path.cwd() / path,
+        Path.cwd().parent / path,
+    ]
+    
+    # Add session-specific path if session_id provided
+    if session_id:
+        candidates.insert(1, Path("./data") / session_id / "pending_documents")
+    
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+    
+    return None
+
+
+def _load_documents_from_path(resolved_path: Path) -> List[str]:
+    """Load text documents from a directory."""
+    documents = []
+    for doc_file in sorted(resolved_path.iterdir()):
+        if doc_file.is_file() and doc_file.suffix in ['.txt', '.md']:
+            try:
+                content = doc_file.read_text(encoding='utf-8')
+                documents.append(content)
+            except Exception:
+                pass
+    return documents
+
+
+def _convert_estimate_result(result) -> CostEstimate:
+    """Convert cost estimator result to Pydantic model."""
+    return CostEstimate(
+        schema_discovery=PhaseEstimate(
+            input_tokens=result.schema_discovery.input_tokens,
+            output_tokens=result.schema_discovery.output_tokens,
+            api_calls=result.schema_discovery.api_calls,
+            cost_usd=result.schema_discovery.cost_usd
+        ),
+        value_extraction=PhaseEstimate(
+            input_tokens=result.value_extraction.input_tokens,
+            output_tokens=result.value_extraction.output_tokens,
+            api_calls=result.value_extraction.api_calls,
+            cost_usd=result.value_extraction.cost_usd
+        ),
+        total_input_tokens=result.total_input_tokens,
+        total_output_tokens=result.total_output_tokens,
+        total_api_calls=result.total_api_calls,
+        total_cost_usd=result.total_cost_usd,
+        warnings=result.warnings,
+        document_stats=DocumentStats(**result.document_stats)
+    )
 
 @router.post("/configure", response_model=dict)
 async def configure_qbsd(config: QBSDConfig):
@@ -62,6 +138,122 @@ async def configure_qbsd(config: QBSDConfig):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/estimate-cost/{session_id}", response_model=CostEstimate)
+async def estimate_qbsd_cost(session_id: str):
+    """Estimate cost for QBSD execution before running.
+    
+    Returns estimated token counts, API calls, and costs broken down by phase
+    (schema discovery + value extraction) as well as totals.
+    """
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Load the saved config for this session
+        config_file = Path("./qbsd_work") / session_id / "config.json"
+        if not config_file.exists():
+            raise HTTPException(
+                status_code=400,
+                detail="No configuration found for this session. Configure QBSD first."
+            )
+        
+        with open(config_file) as f:
+            config_data = json.load(f)
+        
+        # Load documents for token counting
+        documents = []
+        docs_path = config_data.get("docs_path")
+        
+        if docs_path:
+            paths = [docs_path] if isinstance(docs_path, str) else docs_path
+            for path in paths:
+                resolved = _resolve_docs_path(path, session_id)
+                if resolved:
+                    documents.extend(_load_documents_from_path(resolved))
+        
+        # Also check for uploaded documents in data directory
+        upload_dir = Path("./data") / session_id / "pending_documents"
+        if upload_dir.exists() and not documents:
+            documents.extend(_load_documents_from_path(upload_dir))
+        
+        # Run the estimation
+        result = estimate_from_config(documents, config_data)
+        return _convert_estimate_result(result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/estimate-cost-preview", response_model=CostEstimate)
+async def estimate_qbsd_cost_preview(request: CostEstimateRequest):
+    """Estimate cost for QBSD execution without saving a session.
+    
+    This is useful for getting a cost estimate before committing to a configuration.
+    Takes the full QBSDConfig directly in the request body.
+    """
+    try:
+        config = request.config
+        
+        # Convert Pydantic model to dict for the estimator
+        config_data = {
+            "query": config.query,
+            "docs_path": config.docs_path,
+            "documents_batch_size": config.documents_batch_size,
+            "skip_value_extraction": config.skip_value_extraction,
+            "schema_creation_backend": {
+                "provider": config.schema_creation_backend.provider,
+                "model": config.schema_creation_backend.model,
+                "max_output_tokens": config.schema_creation_backend.max_output_tokens,
+            },
+            "value_extraction_backend": {
+                "provider": config.value_extraction_backend.provider,
+                "model": config.value_extraction_backend.model,
+                "max_output_tokens": config.value_extraction_backend.max_output_tokens,
+            },
+            "retriever": {
+                "k": config.retriever.k if config.retriever else 8
+            },
+            "initial_schema": [col.model_dump() for col in config.initial_schema] if config.initial_schema else []
+        }
+        
+        # Load documents for token counting
+        documents = []
+        document_token_counts = None
+        
+        # Check if uploaded file info was provided (estimate from size)
+        if request.uploaded_files and len(request.uploaded_files) > 0:
+            # Estimate tokens from file sizes: ~4 bytes per token for English text
+            document_token_counts = [
+                max(1, file_info.size // 4)
+                for file_info in request.uploaded_files
+            ]
+        else:
+            # Load from docs_path (for cloud datasets)
+            docs_path = config.docs_path
+            if docs_path:
+                paths = [docs_path] if isinstance(docs_path, str) else docs_path
+                for path in paths:
+                    resolved = _resolve_docs_path(path)
+                    if resolved:
+                        documents.extend(_load_documents_from_path(resolved))
+        
+        # Run the estimation
+        result = estimate_from_config(
+            documents,
+            config_data,
+            document_token_counts=document_token_counts
+        )
+        return _convert_estimate_result(result)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/run/{session_id}")
 async def run_qbsd(session_id: str, background_tasks: BackgroundTasks):

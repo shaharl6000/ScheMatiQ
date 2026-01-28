@@ -9,25 +9,13 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime
 
-# Import QBSD components from qbsd-lib
-import sys
+# QBSD library imports
+from qbsd.value_extraction.main import build_table_jsonl
+from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
+from qbsd.core.retrievers import EmbeddingRetriever
+from qbsd.core import utils
 
-# Add qbsd-lib to path
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-QBSD_LIB_ROOT = PROJECT_ROOT / "qbsd-lib"
-sys.path.insert(0, str(QBSD_LIB_ROOT))
-
-try:
-    # Import QBSD value extraction components from qbsd-lib
-    from qbsd.value_extraction.main import build_table_jsonl
-    from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
-    from qbsd.core.retrievers import EmbeddingRetriever
-    from qbsd.core import utils
-    QBSD_AVAILABLE = True
-    print(f"✓ QBSD components successfully loaded for upload document processing from {QBSD_LIB_ROOT}")
-except ImportError as e:
-    print(f"✗ QBSD components not available for upload processing: {e}")
-    QBSD_AVAILABLE = False
+QBSD_AVAILABLE = True
 
 from app.models.session import SessionStatus, DataRow, DataStatistics, ColumnInfo, VisualizationSession
 from app.services.websocket_manager import WebSocketManager

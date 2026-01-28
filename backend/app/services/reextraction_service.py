@@ -19,23 +19,15 @@ from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.storage.factory import get_storage
 
-# Import QBSD components from qbsd-lib for value extraction
-import sys
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
-QBSD_LIB_ROOT = PROJECT_ROOT / "qbsd-lib"
-sys.path.insert(0, str(QBSD_LIB_ROOT))
+# QBSD library imports
+from qbsd.value_extraction.main import build_table_jsonl
+from qbsd.value_extraction.core.paper_processor import PaperProcessor
+from qbsd.core.schema import Schema, Column
+from qbsd.core.llm_backends import GeminiLLM
+from qbsd.core.retrievers import EmbeddingRetriever
+from qbsd.core import utils as qbsd_utils
 
-try:
-    from qbsd.value_extraction.main import build_table_jsonl
-    from qbsd.value_extraction.core.paper_processor import PaperProcessor
-    from qbsd.core.schema import Schema, Column
-    from qbsd.core.llm_backends import GeminiLLM
-    from qbsd.core.retrievers import EmbeddingRetriever
-    from qbsd.core import utils as qbsd_utils
-    QBSD_AVAILABLE = True
-except ImportError as e:
-    print(f"QBSD components not available for reextraction service: {e}")
-    QBSD_AVAILABLE = False
+QBSD_AVAILABLE = True
 
 
 class ReextractionOperation:

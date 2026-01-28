@@ -842,3 +842,53 @@ export interface ClusteringConfig {
   /** How to handle columns not in any cluster */
   unclustered_behavior: 'hide' | 'show_at_end' | 'show_at_start';
 }
+
+/**
+ * Cost estimate for a single phase (schema discovery or value extraction).
+ */
+export interface PhaseEstimate {
+  /** Number of input tokens estimated */
+  input_tokens: number;
+  /** Number of output tokens estimated */
+  output_tokens: number;
+  /** Number of API calls expected */
+  api_calls: number;
+  /** Estimated cost in USD */
+  cost_usd: number;
+}
+
+/**
+ * Statistics about documents being processed.
+ */
+export interface DocumentStats {
+  /** Number of documents */
+  num_documents: number;
+  /** Total tokens across all documents */
+  total_tokens: number;
+  /** Average tokens per document */
+  avg_tokens_per_document: number;
+  /** Maximum tokens in a single document */
+  max_tokens_in_document: number;
+}
+
+/**
+ * Complete cost estimate for QBSD execution.
+ */
+export interface CostEstimate {
+  /** Estimate for schema discovery phase */
+  schema_discovery: PhaseEstimate;
+  /** Estimate for value extraction phase */
+  value_extraction: PhaseEstimate;
+  /** Total input tokens across both phases */
+  total_input_tokens: number;
+  /** Total output tokens across both phases */
+  total_output_tokens: number;
+  /** Total API calls across both phases */
+  total_api_calls: number;
+  /** Total estimated cost in USD */
+  total_cost_usd: number;
+  /** Warning messages about the estimate */
+  warnings: string[];
+  /** Statistics about the documents */
+  document_stats: DocumentStats;
+}

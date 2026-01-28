@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, Upload, Trash2, FileText } from 'lucide-react';
+import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, Upload, Trash2, FileText, DollarSign, AlertTriangle, TrendingUp, HelpCircle } from 'lucide-react';
 import {
   getGeminiKeyType,
   getConfiguredProviders,
@@ -46,11 +46,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 import { qbsdAPI, cloudAPI, loadAPI } from '../services/api';
 import { useFileUpload } from '../hooks/useFileUpload';
 import { formatFileSize } from '../utils/apiHelpers';
-import { QBSDConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn, InitialObservationUnit } from '../types';
+import { QBSDConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn, InitialObservationUnit, CostEstimate } from '../types';
 
 const QBSDConfigPage = () => {
   const navigate = useNavigate();
@@ -78,6 +79,11 @@ const QBSDConfigPage = () => {
   const [documentSource, setDocumentSource] = useState<'upload' | 'cloud'>('cloud');
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Cost estimate state
+  const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
+  const [costEstimateLoading, setCostEstimateLoading] = useState(false);
+  const [costEstimateError, setCostEstimateError] = useState<string | null>(null);
 
   // File upload hook for document uploads
   const { getRootProps, getInputProps, isDragActive, dragError } = useFileUpload({
@@ -273,6 +279,70 @@ const QBSDConfigPage = () => {
     setInitialSchemaPath(schemaPath);
     setInitialSchemaData(schemaData);
   }, []);
+
+  // Debounced cost estimate fetching
+  useEffect(() => {
+    // Don't fetch if essential config is missing
+    if (!config.schema_creation_backend.provider || !config.schema_creation_backend.model) {
+      return;
+    }
+
+    // Only fetch if we have documents selected (cloud) or uploaded files
+    const hasCloudDocs = documentSource === 'cloud' && config.docs_path && 
+      (Array.isArray(config.docs_path) ? config.docs_path.length > 0 : !!config.docs_path);
+    const hasUploadedDocs = documentSource === 'upload' && uploadedFiles.length > 0;
+    
+    if (!hasCloudDocs && !hasUploadedDocs) {
+      setCostEstimate(null);
+      return;
+    }
+
+    const fetchCostEstimate = async () => {
+      setCostEstimateLoading(true);
+      setCostEstimateError(null);
+      
+      try {
+        // If using uploaded files, send file metadata (name, size) for estimation
+        // Backend will estimate tokens from file size (~4 bytes per token)
+        let uploadedFileInfo: Array<{ name: string; size: number }> | undefined;
+        if (documentSource === 'upload' && uploadedFiles.length > 0) {
+          uploadedFileInfo = uploadedFiles.map(file => ({
+            name: file.name,
+            size: file.size
+          }));
+        }
+        
+        const estimate = await qbsdAPI.estimateCostPreview(config, uploadedFileInfo);
+        setCostEstimate(estimate);
+      } catch (err: any) {
+        console.error('Failed to fetch cost estimate:', err);
+        // Don't show error for 501 (not available) - just hide the estimate
+        if (err.response?.status !== 501) {
+          setCostEstimateError(err.response?.data?.detail || 'Failed to estimate cost');
+        }
+        setCostEstimate(null);
+      } finally {
+        setCostEstimateLoading(false);
+      }
+    };
+
+    // Debounce the fetch by 500ms
+    const timeoutId = setTimeout(fetchCostEstimate, 500);
+    return () => clearTimeout(timeoutId);
+  }, [
+    config.schema_creation_backend.provider,
+    config.schema_creation_backend.model,
+    config.schema_creation_backend.max_output_tokens,
+    config.value_extraction_backend.provider,
+    config.value_extraction_backend.model,
+    config.value_extraction_backend.max_output_tokens,
+    config.docs_path,
+    config.documents_batch_size,
+    config.skip_value_extraction,
+    config.retriever?.k,
+    documentSource,
+    uploadedFiles.length,
+  ]);
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -931,6 +1001,224 @@ const QBSDConfigPage = () => {
               </AccordionContent>
             </AccordionItem>
           </Accordion>
+
+          {/* Cost Estimate - Always visible */}
+          <Card className="border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-emerald-600" />
+                Estimated Cost
+                {costEstimateLoading && (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground ml-2" />
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {costEstimateLoading ? (
+                <div className="text-sm text-muted-foreground">Calculating estimate...</div>
+              ) : costEstimate ? (
+                <div className="space-y-4">
+                  {/* Total Cost Display */}
+                  <div className="flex items-center justify-between p-3 bg-white dark:bg-gray-900 rounded-lg border">
+                    <span className="font-medium">Total Estimated Cost</span>
+                    <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
+                      ${costEstimate.total_cost_usd.toFixed(4)}
+                    </span>
+                  </div>
+
+                  {/* Phase Breakdown */}
+                  <div className="grid md:grid-cols-2 gap-3">
+                    {/* Schema Discovery */}
+                    <div className="p-3 bg-white dark:bg-gray-900 rounded-lg border">
+                      <div className="text-sm font-medium text-muted-foreground mb-2">Schema Discovery</div>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span>API Calls:</span>
+                          <span className="font-mono">{costEstimate.schema_discovery.api_calls}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Input Tokens:</span>
+                          <span className="font-mono">{costEstimate.schema_discovery.input_tokens.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Output Tokens:</span>
+                          <span className="font-mono">{costEstimate.schema_discovery.output_tokens.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between pt-1 border-t">
+                          <span className="font-medium">Cost:</span>
+                          <span className="font-mono font-medium">${costEstimate.schema_discovery.cost_usd.toFixed(4)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Value Extraction */}
+                    <div className={`p-3 bg-white dark:bg-gray-900 rounded-lg border ${config.skip_value_extraction ? 'opacity-50' : ''}`}>
+                      <div className="text-sm font-medium text-muted-foreground mb-2">
+                        Value Extraction
+                        {config.skip_value_extraction && <Badge variant="secondary" className="ml-2 text-xs">Skipped</Badge>}
+                      </div>
+                      <div className="space-y-1 text-sm">
+                        <div className="flex justify-between">
+                          <span>API Calls:</span>
+                          <span className="font-mono">{costEstimate.value_extraction.api_calls}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Input Tokens:</span>
+                          <span className="font-mono">{costEstimate.value_extraction.input_tokens.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Output Tokens:</span>
+                          <span className="font-mono">{costEstimate.value_extraction.output_tokens.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between pt-1 border-t">
+                          <span className="font-medium">Cost:</span>
+                          <span className="font-mono font-medium">${costEstimate.value_extraction.cost_usd.toFixed(4)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Document Stats */}
+                  {costEstimate.document_stats.num_documents > 0 && (
+                    <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <FileText className="h-3 w-3" />
+                        <span>{costEstimate.document_stats.num_documents} documents</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <TrendingUp className="h-3 w-3" />
+                        <span>~{costEstimate.document_stats.avg_tokens_per_document.toLocaleString()} tokens/doc avg</span>
+                      </div>
+                      <div>
+                        <span>Total: {costEstimate.document_stats.total_tokens.toLocaleString()} tokens</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Warnings */}
+                  {costEstimate.warnings.length > 0 && (
+                    <div className="space-y-2">
+                      {costEstimate.warnings.map((warning, idx) => (
+                        <Alert key={idx} variant="default" className="py-2">
+                          <AlertTriangle className="h-4 w-4" />
+                          <AlertDescription className="text-sm">{warning}</AlertDescription>
+                        </Alert>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Disclaimer */}
+                  <p className="text-xs text-muted-foreground italic">
+                    * This is an estimate based on current configuration. Actual costs may vary depending on LLM responses and document complexity.
+                  </p>
+
+                  {/* How we calculate - Expandable */}
+                  <Collapsible>
+                    <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                      <HelpCircle className="h-3.5 w-3.5" />
+                      <span>How is this calculated?</span>
+                      <ChevronDown className="h-3 w-3" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-3 p-3 bg-muted/50 rounded-md text-xs space-y-2">
+                      <div className="font-medium text-foreground">Cost Formula</div>
+                      <div className="font-mono text-[11px] bg-background p-2 rounded border">
+                        Cost = (Input Tokens × Input Price) + (Output Tokens × Output Price)
+                      </div>
+                      
+                      <div className="font-medium text-foreground pt-2">Schema Discovery (iterative)</div>
+                      <p className="text-muted-foreground">Processes documents in batches, building schema incrementally:</p>
+                      <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                        <li><span className="text-foreground">API Calls</span> = ⌈documents ÷ batch_size⌉ + 1 (for observation unit discovery)</li>
+                        <li><span className="text-foreground">Input per batch</span> = system_prompt + query + current_schema + passages_from_batch</li>
+                        <li className="ml-6 text-[11px]">passages = k × ~250 tokens × batch_size (k = {config.retriever?.k || 15} passages per doc)</li>
+                        <li><span className="text-foreground">Output</span> = ~300 tokens avg (JSON with new/updated columns)</li>
+                        <li className="ml-6 text-[11px] pt-1 border-t">Model: <span className="font-mono">{config.schema_creation_backend.model || 'default'}</span></li>
+                      </ul>
+
+                      <div className="font-medium text-foreground pt-2">Value Extraction (per document)</div>
+                      <p className="text-muted-foreground">Processes each document individually:</p>
+                      <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                        <li><span className="text-foreground">API Calls</span> = documents × (1 ID + n extractions)</li>
+                        <li className="ml-6 text-[11px]">where n = observation units per doc (varies by your data)</li>
+                        <li><span className="text-foreground">Input per doc</span> = system_prompt + column_definitions + passages_from_this_doc</li>
+                        <li className="ml-6 text-[11px]">passages = k × ~250 tokens (k = {config.retriever?.k || 15})</li>
+                        <li><span className="text-foreground">Output</span> = ~40 tokens × columns × 0.7 fill rate</li>
+                        <li className="ml-6 text-[11px] pt-1 border-t">Model: <span className="font-mono">{config.value_extraction_backend.model || 'default'}</span></li>
+                      </ul>
+
+                      <div className="text-muted-foreground pt-2 border-t mt-2">
+                        <div>Schema pricing: <span className="font-mono">{config.schema_creation_backend.provider}/{config.schema_creation_backend.model || 'default'}</span></div>
+                        <div>Extraction pricing: <span className="font-mono">{config.value_extraction_backend.provider}/{config.value_extraction_backend.model || 'default'}</span></div>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* No documents selected message */}
+                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg border border-dashed">
+                    <FileText className="h-5 w-5 text-muted-foreground" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">No documents selected</p>
+                      <p className="text-xs text-muted-foreground">
+                        {documentSource === 'cloud' 
+                          ? 'Select a dataset or upload files to see cost estimate'
+                          : 'Upload files to see cost estimate'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* How we calculate - Always available */}
+                  <Collapsible>
+                    <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                      <HelpCircle className="h-3.5 w-3.5" />
+                      <span>How is this calculated?</span>
+                      <ChevronDown className="h-3 w-3" />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-3 p-3 bg-muted/50 rounded-md text-xs space-y-2">
+                      <div className="font-medium text-foreground">Cost Formula</div>
+                      <div className="font-mono text-[11px] bg-background p-2 rounded border">
+                        Cost = (Input Tokens × Input Price) + (Output Tokens × Output Price)
+                      </div>
+                      
+                      <div className="font-medium text-foreground pt-2">Schema Discovery (iterative)</div>
+                      <p className="text-muted-foreground">Processes documents in batches, building schema incrementally:</p>
+                      <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                        <li><span className="text-foreground">API Calls</span> = ⌈documents ÷ batch_size⌉ + 1 (for observation unit discovery)</li>
+                        <li><span className="text-foreground">Input per batch</span> = system_prompt + query + current_schema + passages_from_batch</li>
+                        <li className="ml-6 text-[11px]">passages = k × ~250 tokens × batch_size (k = {config.retriever?.k || 15} passages per doc)</li>
+                        <li><span className="text-foreground">Output</span> = ~300 tokens avg (JSON with new/updated columns)</li>
+                        <li className="ml-6 text-[11px] pt-1 border-t">Model: <span className="font-mono">{config.schema_creation_backend.model || 'default'}</span></li>
+                      </ul>
+
+                      <div className="font-medium text-foreground pt-2">Value Extraction (per document)</div>
+                      <p className="text-muted-foreground">Processes each document individually:</p>
+                      <ul className="list-disc list-inside space-y-1 text-muted-foreground">
+                        <li><span className="text-foreground">API Calls</span> = documents × (1 ID + n extractions)</li>
+                        <li className="ml-6 text-[11px]">where n = observation units per doc (varies by your data)</li>
+                        <li><span className="text-foreground">Input per doc</span> = system_prompt + column_definitions + passages_from_this_doc</li>
+                        <li className="ml-6 text-[11px]">passages = k × ~250 tokens (k = {config.retriever?.k || 15})</li>
+                        <li><span className="text-foreground">Output</span> = ~40 tokens × columns × 0.7 fill rate</li>
+                        <li className="ml-6 text-[11px] pt-1 border-t">Model: <span className="font-mono">{config.value_extraction_backend.model || 'default'}</span></li>
+                      </ul>
+
+                      <div className="text-muted-foreground pt-2 border-t mt-2">
+                        <div>Schema pricing: <span className="font-mono">{config.schema_creation_backend.provider}/{config.schema_creation_backend.model || 'default'}</span></div>
+                        <div>Extraction pricing: <span className="font-mono">{config.value_extraction_backend.provider}/{config.value_extraction_backend.model || 'default'}</span></div>
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {costEstimateError && (
+            <Alert variant="destructive">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>{costEstimateError}</AlertDescription>
+            </Alert>
+          )}
 
           {/* Actions */}
           <div className="flex justify-between items-center pt-4 border-t">
