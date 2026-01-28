@@ -3,10 +3,13 @@ Observation unit management API endpoints.
 Handles adding and removing observation units (rows) from extraction results.
 """
 
+import logging
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from app.services.session_manager import SessionManager
 from app.services.observation_unit_manager import ObservationUnitManager
@@ -41,6 +44,7 @@ class AddObservationUnitRequest(BaseModel):
     document_id: Optional[str] = Field(None, description="Optional document ID associated with this unit")
     relevant_passages: List[str] = Field(default_factory=list, description="Relevant text passages for this unit")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence score for this unit")
+
 
 
 class ObservationUnitResponse(BaseModel):
@@ -83,6 +87,7 @@ async def remove_observation_unit(
     Raises:
         HTTPException: If session not found or unit doesn't exist
     """
+    logger.info("Removing observation unit '%s' from session %s", request.unit_name, session_id)
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
@@ -92,6 +97,7 @@ async def remove_observation_unit(
             session_id=session_id,
             unit_name=request.unit_name
         )
+        logger.info("Successfully removed observation unit '%s' from session %s", request.unit_name, session_id)
 
         return ObservationUnitResponse(
             status="success",
@@ -135,6 +141,7 @@ async def add_observation_unit(
     Raises:
         HTTPException: If session not found or unit already exists
     """
+    logger.info("Adding observation unit '%s' to session %s", request.unit_name, session_id)
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
@@ -147,6 +154,7 @@ async def add_observation_unit(
             relevant_passages=request.relevant_passages,
             confidence=request.confidence
         )
+        logger.info("Successfully added observation unit '%s' to session %s", request.unit_name, session_id)
 
         return ObservationUnitResponse(
             status="success",
@@ -179,11 +187,13 @@ async def list_observation_units(session_id: str) -> dict:
     Raises:
         HTTPException: If session not found
     """
+    logger.debug("Listing observation units for session %s", session_id)
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
 
     observation_units = observation_unit_manager.get_observation_units(session_id)
+    logger.debug("Found %d observation units for session %s", len(observation_units), session_id)
 
     return {
         "session_id": session_id,
@@ -213,6 +223,7 @@ async def update_observation_unit_definition(
     Raises:
         HTTPException: If session not found or validation fails
     """
+    logger.info("Updating observation unit definition for session %s: name='%s'", session_id, request.name)
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
@@ -238,6 +249,7 @@ async def update_observation_unit_definition(
             definition=request.definition,
             example_names=request.example_names
         )
+        logger.info("Successfully updated observation unit definition for session %s", session_id)
 
         return UpdateObservationUnitDefinitionResponse(
             status="success",

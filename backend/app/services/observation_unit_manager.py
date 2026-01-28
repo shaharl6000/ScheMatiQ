@@ -4,9 +4,12 @@ Handles adding, removing, and listing observation units (rows) in extraction res
 """
 
 import json
+import logging
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from app.models.session import VisualizationSession
 from app.services.session_manager import SessionManager
@@ -418,4 +421,4 @@ class ObservationUnitManager:
 
             except (json.JSONDecodeError, IOError) as e:
                 # Log error but don't fail the operation
-                print(f"Warning: Failed to update schema file: {e}")
+                logger.warning("Failed to update schema file: %s", e)

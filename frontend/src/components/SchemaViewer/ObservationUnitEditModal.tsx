@@ -1,5 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Plus, X, Loader2, FileText, Clock, RefreshCw } from 'lucide-react';
+
+// Validation limits for observation unit fields
+const VALIDATION_LIMITS = {
+  NAME_MAX_LENGTH: 100,
+  DEFINITION_MIN_LENGTH: 10,
+  DEFINITION_MAX_LENGTH: 500,
+  MAX_EXAMPLE_NAMES: 20,
+  EXAMPLE_NAME_MAX_LENGTH: 100,
+} as const;
 
 import {
   Dialog,
@@ -64,44 +73,44 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
     }
   }, [open, observationUnit]);
 
-  const validateForm = (): boolean => {
+  const validateForm = useCallback((): boolean => {
     const newErrors: { name?: string; definition?: string } = {};
 
     if (!name.trim()) {
       newErrors.name = 'Name is required';
-    } else if (name.length > 100) {
-      newErrors.name = 'Name must be 100 characters or less';
+    } else if (name.length > VALIDATION_LIMITS.NAME_MAX_LENGTH) {
+      newErrors.name = `Name must be ${VALIDATION_LIMITS.NAME_MAX_LENGTH} characters or less`;
     }
 
     if (!definition.trim()) {
       newErrors.definition = 'Definition is required';
-    } else if (definition.length < 10) {
-      newErrors.definition = 'Definition must be at least 10 characters';
-    } else if (definition.length > 500) {
-      newErrors.definition = 'Definition must be 500 characters or less';
+    } else if (definition.length < VALIDATION_LIMITS.DEFINITION_MIN_LENGTH) {
+      newErrors.definition = `Definition must be at least ${VALIDATION_LIMITS.DEFINITION_MIN_LENGTH} characters`;
+    } else if (definition.length > VALIDATION_LIMITS.DEFINITION_MAX_LENGTH) {
+      newErrors.definition = `Definition must be ${VALIDATION_LIMITS.DEFINITION_MAX_LENGTH} characters or less`;
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  };
+  }, [name, definition]);
 
-  const handleAddExample = () => {
+  const handleAddExample = useCallback(() => {
     const trimmed = newExample.trim();
     if (!trimmed) return;
 
-    if (trimmed.length > 100) {
+    if (trimmed.length > VALIDATION_LIMITS.EXAMPLE_NAME_MAX_LENGTH) {
       toast({
         title: 'Invalid example',
-        description: 'Example name must be 100 characters or less',
+        description: `Example name must be ${VALIDATION_LIMITS.EXAMPLE_NAME_MAX_LENGTH} characters or less`,
         variant: 'destructive',
       });
       return;
     }
 
-    if (exampleNames.length >= 20) {
+    if (exampleNames.length >= VALIDATION_LIMITS.MAX_EXAMPLE_NAMES) {
       toast({
         title: 'Limit reached',
-        description: 'Maximum 20 example names allowed',
+        description: `Maximum ${VALIDATION_LIMITS.MAX_EXAMPLE_NAMES} example names allowed`,
         variant: 'destructive',
       });
       return;
@@ -118,11 +127,11 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
 
     setExampleNames([...exampleNames, trimmed]);
     setNewExample('');
-  };
+  }, [newExample, exampleNames, toast]);
 
-  const handleRemoveExample = (index: number) => {
-    setExampleNames(exampleNames.filter((_, i) => i !== index));
-  };
+  const handleRemoveExample = useCallback((index: number) => {
+    setExampleNames(prev => prev.filter((_, i) => i !== index));
+  }, []);
 
   const handleSave = async () => {
     if (!validateForm()) return;
@@ -265,7 +274,7 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
                 if (errors.name) setErrors({ ...errors, name: undefined });
               }}
               placeholder="e.g., Protein, Model-Benchmark Evaluation"
-              maxLength={100}
+              maxLength={VALIDATION_LIMITS.NAME_MAX_LENGTH}
               className={errors.name ? 'border-red-500' : ''}
             />
             <div className="flex justify-between">
@@ -274,7 +283,7 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
               ) : (
                 <span className="text-xs text-muted-foreground">Short label for rows</span>
               )}
-              <span className="text-xs text-muted-foreground">{name.length}/100</span>
+              <span className="text-xs text-muted-foreground">{name.length}/{VALIDATION_LIMITS.NAME_MAX_LENGTH}</span>
             </div>
           </div>
 
@@ -292,7 +301,7 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
               }}
               placeholder="e.g., Each row represents a unique protein mentioned in the documents..."
               rows={3}
-              maxLength={500}
+              maxLength={VALIDATION_LIMITS.DEFINITION_MAX_LENGTH}
               className={errors.definition ? 'border-red-500' : ''}
             />
             <div className="flex justify-between">
@@ -300,10 +309,10 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
                 <span className="text-xs text-red-500">{errors.definition}</span>
               ) : (
                 <span className="text-xs text-muted-foreground">
-                  Describe what constitutes one row (10-500 chars)
+                  Describe what constitutes one row ({VALIDATION_LIMITS.DEFINITION_MIN_LENGTH}-{VALIDATION_LIMITS.DEFINITION_MAX_LENGTH} chars)
                 </span>
               )}
-              <span className="text-xs text-muted-foreground">{definition.length}/500</span>
+              <span className="text-xs text-muted-foreground">{definition.length}/{VALIDATION_LIMITS.DEFINITION_MAX_LENGTH}</span>
             </div>
           </div>
 
@@ -316,15 +325,15 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
                 value={newExample}
                 onChange={(e) => setNewExample(e.target.value)}
                 placeholder="Add an example..."
-                maxLength={100}
-                disabled={exampleNames.length >= 20}
+                maxLength={VALIDATION_LIMITS.EXAMPLE_NAME_MAX_LENGTH}
+                disabled={exampleNames.length >= VALIDATION_LIMITS.MAX_EXAMPLE_NAMES}
               />
               <Button
                 type="button"
                 variant="outline"
                 size="icon"
                 onClick={handleAddExample}
-                disabled={!newExample.trim() || exampleNames.length >= 20}
+                disabled={!newExample.trim() || exampleNames.length >= VALIDATION_LIMITS.MAX_EXAMPLE_NAMES}
               >
                 <Plus className="h-4 w-4" />
               </Button>
@@ -346,7 +355,7 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
               </div>
             )}
             <span className="text-xs text-muted-foreground">
-              {exampleNames.length}/20 examples
+              {exampleNames.length}/{VALIDATION_LIMITS.MAX_EXAMPLE_NAMES} examples
             </span>
           </div>
 

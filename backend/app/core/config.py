@@ -71,6 +71,7 @@ DEFAULT_RETRIEVAL_K = 8
 DEFAULT_TIMEOUT = 120  # seconds
 
 # LLM Configuration
+# Increased from 1024 to support longer schema definitions and observation unit descriptions
 DEFAULT_MAX_OUTPUT_TOKENS = 4096
 DEFAULT_TEMPERATURE = 0
 
