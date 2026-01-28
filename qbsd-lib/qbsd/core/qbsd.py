@@ -36,6 +36,20 @@ from qbsd.core.prompts import (
 
 
 ##############################################################################
+# Exceptions                                                               #
+##############################################################################
+
+class ObservationUnitError(Exception):
+    """Base exception for observation unit errors."""
+    pass
+
+
+class ObservationUnitDiscoveryError(ObservationUnitError):
+    """Raised when observation unit discovery fails."""
+    pass
+
+
+##############################################################################
 # Core pipeline                                                           #
 ##############################################################################
 
@@ -159,6 +173,9 @@ def _parse_observation_unit_from_llm(raw_text: str) -> ObservationUnit:
 
     Returns:
         ObservationUnit with name, definition, and example_names
+
+    Raises:
+        ObservationUnitDiscoveryError: If parsing fails or response format is unexpected.
     """
     cleaned = _extract_json(raw_text)
 
@@ -167,18 +184,28 @@ def _parse_observation_unit_from_llm(raw_text: str) -> ObservationUnit:
 
         if isinstance(payload, dict) and "observation_unit" in payload:
             unit_data = payload["observation_unit"]
+            name = unit_data.get("name")
+            definition = unit_data.get("definition")
+
+            if not name or not definition:
+                raise ObservationUnitDiscoveryError(
+                    f"LLM response missing required fields: name={name}, definition={definition}"
+                )
+
             return ObservationUnit(
-                name=unit_data.get("name", "Document"),
-                definition=unit_data.get("definition", "Each document is treated as one observation unit"),
+                name=name,
+                definition=definition,
                 example_names=unit_data.get("example_names", []),
             )
         else:
-            logging.warning("Unexpected observation unit response format, using default")
-            return ObservationUnit.default()
+            raise ObservationUnitDiscoveryError(
+                f"Unexpected observation unit response format: {type(payload)}"
+            )
 
-    except (json.JSONDecodeError, TypeError, KeyError) as e:
-        logging.warning(f"Failed to parse observation unit response: {e}")
-        return ObservationUnit.default()
+    except json.JSONDecodeError as e:
+        raise ObservationUnitDiscoveryError(f"Failed to parse JSON from LLM response: {e}") from e
+    except (TypeError, KeyError) as e:
+        raise ObservationUnitDiscoveryError(f"Invalid observation unit data structure: {e}") from e
 
 
 def _discover_observation_unit(
@@ -191,9 +218,8 @@ def _discover_observation_unit(
     """
     Discover the appropriate observation unit for the schema based on query and sample passages.
 
-    The observation unit defines what each row represents:
-    - Document-level: Each document = one row (default)
-    - Sub-document-level: Each document may contain multiple units (e.g., "Model on Benchmark")
+    The observation unit defines what each row represents - a specific entity type
+    that will be extracted from documents (e.g., "Model-Benchmark Evaluation").
 
     Args:
         query: User query describing what information to extract
@@ -204,14 +230,15 @@ def _discover_observation_unit(
 
     Returns:
         ObservationUnit with name, definition, and example_names
+
+    Raises:
+        ObservationUnitDiscoveryError: If discovery fails due to missing inputs or LLM errors.
     """
     if not query or not query.strip():
-        logging.info("No query provided, using default document-level observation unit")
-        return ObservationUnit.default()
+        raise ObservationUnitDiscoveryError("Query is required for observation unit discovery")
 
     if not passages:
-        logging.info("No passages provided, using default document-level observation unit")
-        return ObservationUnit.default()
+        raise ObservationUnitDiscoveryError("Passages are required for observation unit discovery")
 
     # Build messages for observation unit discovery
     user_content = USER_PROMPT_TMPL_OBSERVATION_UNIT.format(
@@ -239,9 +266,11 @@ def _discover_observation_unit(
         logging.info(f"Discovered observation unit: {observation_unit.name} - {observation_unit.definition}")
         return observation_unit
 
+    except ObservationUnitDiscoveryError:
+        # Re-raise discovery errors as-is
+        raise
     except Exception as e:
-        logging.warning(f"Failed to discover observation unit: {e}, using default")
-        return ObservationUnit.default()
+        raise ObservationUnitDiscoveryError(f"LLM generation failed during observation unit discovery: {e}") from e
 
 
 def build_messages(query: str | None,
@@ -286,7 +315,7 @@ def build_messages(query: str | None,
     user_parts = [user_content]
 
     # Add observation unit context if provided (helps LLM understand row granularity)
-    if observation_unit and not observation_unit.is_default():
+    if observation_unit:
         example_names_section = ""
         if observation_unit.example_names:
             example_names_section = f"Example instances: {', '.join(observation_unit.example_names)}"
@@ -471,10 +500,13 @@ def discover_schema(
     # Handle QUERY_ONLY mode: no documents, just generate schema from query
     if not has_documents:
         logging.info("QUERY_ONLY mode: Generating schema from query without documents")
-        # In query-only mode, use default document-level observation unit
+        # In query-only mode, observation unit must be provided
         if not observation_unit:
-            observation_unit = ObservationUnit.default()
-            schema.observation_unit = observation_unit
+            raise ObservationUnitDiscoveryError(
+                "Query-only mode requires initial_observation_unit parameter. "
+                "Cannot discover observation unit without documents."
+            )
+        schema.observation_unit = observation_unit
 
         proposed, _, _, mode = generate_schema(
             passages=[], query=query, max_keys_schema=max_keys_schema,

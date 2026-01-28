@@ -20,7 +20,7 @@ from qbsd.core.schema import Schema, Column, ObservationUnit
 from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
 from qbsd.core.retrievers import EmbeddingRetriever
 from qbsd.value_extraction.main import build_table_jsonl
-from qbsd import discover_observation_unit
+from qbsd import discover_observation_unit, ObservationUnitDiscoveryError
 
 QBSD_AVAILABLE = True
 
@@ -1080,13 +1080,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     logger.info("Observation unit set: %s - %s", obs_unit.name, obs_unit.definition)
                     if obs_unit.example_names:
                         logger.info("   Examples: %s", obs_unit.example_names)
+                except ObservationUnitDiscoveryError as e:
+                    # Re-raise discovery errors with clear message
+                    logger.error("Observation unit discovery failed: %s", e)
+                    raise RuntimeError(
+                        f"Failed to discover observation unit: {e}. "
+                        "Ensure documents contain extractable entities."
+                    ) from e
                 except Exception as e:
-                    logger.warning("Failed to discover observation unit: %s, using default", e)
-                    default_unit = ObservationUnit.default()
-                    # If name was pre-configured, use it even for default
-                    if pending_observation_unit_name:
-                        default_unit.name = pending_observation_unit_name
-                    current_schema.observation_unit = default_unit
+                    # Wrap unexpected errors
+                    logger.error("Unexpected error during observation unit discovery: %s", e)
+                    raise RuntimeError(
+                        f"Observation unit discovery failed unexpectedly: {e}"
+                    ) from e
 
             # Check for stop after observation unit discovery
             if self.is_stop_requested(session_id):

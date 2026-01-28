@@ -57,27 +57,18 @@ class ObservationUnit:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ObservationUnit":
-        """Deserialize from dictionary."""
+        """Deserialize from dictionary.
+
+        Raises:
+            KeyError: If required fields 'name' or 'definition' are missing.
+        """
         return cls(
-            name=data.get("name", "Document"),
-            definition=data.get("definition", "Each document is treated as one observation unit"),
+            name=data["name"],  # Required - no default
+            definition=data["definition"],  # Required - no default
             example_names=data.get("example_names"),
             source_document=data.get("source_document"),
             discovery_iteration=data.get("discovery_iteration"),
         )
-
-    @classmethod
-    def default(cls) -> "ObservationUnit":
-        """Return the default observation unit (one row per document)."""
-        return cls(
-            name="Document",
-            definition="Each document is treated as one observation unit",
-            example_names=None,
-        )
-
-    def is_default(self) -> bool:
-        """Check if this is the default document-level observation unit."""
-        return self.name == "Document" and "one observation unit" in self.definition.lower()
 
 
 @dataclass

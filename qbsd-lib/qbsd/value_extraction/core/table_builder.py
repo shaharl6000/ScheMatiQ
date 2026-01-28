@@ -298,68 +298,23 @@ class TableBuilder:
                                output_path: Path) -> None:
         """Process a single row across multiple directories.
 
-        If the schema has a non-default observation unit, this may produce
-        multiple rows per document (one per observation unit instance).
+        Uses observation unit extraction - each document may produce multiple rows
+        (one per observation unit instance).
+
+        Raises:
+            ValueError: If schema does not have observation_unit set.
         """
-        # Check if we should use observation unit extraction
         observation_unit = schema.observation_unit
-        use_multi_row = observation_unit and not observation_unit.is_default()
 
-        if use_multi_row:
-            # Multi-row extraction: each paper may produce multiple rows
-            self._process_papers_with_observation_units(
-                row_name, papers, doc_to_source, schema, retrieval_k,
-                max_new_tokens, existing_rows, processed_papers,
-                written_rows, output_path
-            )
-        else:
-            # Standard single-row extraction
-            current_row = existing_rows.get(row_name, {}).copy()
-            current_row["_row_name"] = row_name
-            current_row["_papers"] = [p.name for p in papers]
+        if not observation_unit:
+            raise ValueError("Schema must have observation_unit set for value extraction")
 
-            # Track source directories
-            source_dirs = [doc_to_source[p] for p in papers]
-
-            # Add document_directory column for CSV exports (join multiple dirs with pipe separator)
-            current_row["document_directory"] = " | ".join(sorted(set(str(d) for d in source_dirs)))
-
-            # Add metadata with source directory info
-            current_row["_metadata"] = {
-                "query": schema.query,
-                "source_directories": [str(d) for d in set(source_dirs)],
-                "total_papers": len(papers)
-            }
-
-            # Set document metadata for standard extraction
-            # For standard extraction, the document IS the observation unit
-            if papers:
-                current_row["_source_document"] = papers[0].stem
-                current_row["_parent_document"] = papers[0].stem
-            # Set _unit_name to row_name (document = observation unit in standard extraction)
-            current_row["_unit_name"] = row_name
-
-            # Process papers similar to single directory version but track sources
-            if mode == "one_by_one":
-                self._process_row_one_by_one_multi_dirs(
-                    current_row, papers, doc_to_source, schema, retrieval_k,
-                    max_new_tokens, existing_rows, processed_papers
-                )
-            else:
-                self._process_row_all_multi_dirs(
-                    current_row, papers, doc_to_source, schema, retrieval_k,
-                    max_new_tokens, max_workers, existing_rows, processed_papers
-                )
-
-            # Write row if it has actual data
-            if any(key for key in current_row.keys() if not key.startswith('_')):
-                try:
-                    with output_path.open('a', encoding="utf-8") as f_out:
-                        f_out.write(json.dumps(current_row, ensure_ascii=False) + "\n")
-                    written_rows.add(row_name)
-                    print(f"✅ Completed and wrote row: {row_name}")
-                except Exception as e:
-                    print(f"❌ Failed to write row {row_name}: {e}")
+        # Observation unit extraction: each paper may produce multiple rows
+        self._process_papers_with_observation_units(
+            row_name, papers, doc_to_source, schema, retrieval_k,
+            max_new_tokens, existing_rows, processed_papers,
+            written_rows, output_path
+        )
 
     def _process_papers_with_observation_units(
         self,

@@ -738,21 +738,6 @@ class PaperProcessor:
             - relevant_passages: List of passages specific to this unit
             - confidence: "high", "medium", or "low"
         """
-        # Document-level fallback
-        document_level_fallback = {
-            "unit_name": paper_title,
-            "relevant_passages": [paper_text],
-            "confidence": "low"
-        }
-
-        # If using default document-level unit, return single unit with full text
-        if observation_unit.is_default():
-            return [{
-                "unit_name": paper_title,
-                "relevant_passages": [paper_text],
-                "confidence": "high"
-            }]
-
         last_error = None
         last_format = None
 
@@ -776,9 +761,9 @@ class PaperProcessor:
                         logging.info(f"Unit identification warning for {paper_title}: {warning}")
 
                     if not result.units:
-                        # Empty is valid - no units found in document
-                        logging.info(f"No observation units found in {paper_title}, using document-level")
-                        return [document_level_fallback]
+                        # Empty is valid - no units of this type in document
+                        logging.info(f"No observation units of type '{observation_unit.name}' found in {paper_title}")
+                        return []
 
                     # Ensure relevant_passages aren't empty - use full text as fallback
                     for unit in result.units:
@@ -802,15 +787,15 @@ class PaperProcessor:
                 last_format = "exception"
                 logging.warning(f"Exception in unit identification attempt {attempt + 1} for {paper_title}: {e}")
 
-        # Exhausted retries - fallback with visible warning
+        # Exhausted retries - emit warning and return empty (skip document)
         self._emit_warning(
             paper_title,
-            "unit_identification_fallback",
-            f"Failed to parse observation units after {max_retries + 1} attempts. "
-            f"Last error: {last_error}. Falling back to document-level extraction."
+            "unit_identification_failed",
+            f"Failed to identify observation units after {max_retries + 1} attempts. "
+            f"Last error: {last_error}. Skipping document."
         )
 
-        return [document_level_fallback]
+        return []
 
     def extract_values_for_unit(
         self,
@@ -914,17 +899,9 @@ class PaperProcessor:
         """
         observation_unit = schema.observation_unit
 
-        # If no observation unit or using default, use existing single-row logic
-        if not observation_unit or observation_unit.is_default():
-            row_data = self.extract_values_for_paper(
-                paper_title, paper_text, schema, max_new_tokens, mode, retrieval_k
-            )
-            if row_data:
-                row_data["_unit_name"] = paper_title
-                row_data["_source_document"] = paper_title
-                row_data["_observation_unit"] = "Document"
-                return [row_data]
-            return []
+        # Observation unit is required
+        if not observation_unit:
+            raise ValueError("observation_unit required in schema for value extraction")
 
         # Identify observation units in the document
         print(f"🔍 Identifying observation units ({observation_unit.name}) in {paper_title}...")
