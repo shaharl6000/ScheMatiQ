@@ -3,7 +3,6 @@ import {
   Pencil,
   Plus,
   Trash2,
-  Database,
   MoreVertical,
   GitMerge,
   Save,
@@ -14,7 +13,6 @@ import {
   AlertCircle,
   Info,
   Loader2,
-  Copy,
   Check,
   LayoutGrid,
   LayoutList,
@@ -72,7 +70,6 @@ import {
   ObservationUnitInfo
 } from '../../types';
 import { formatColumnName } from '../../utils/formatting';
-import { copyToClipboard } from '../../utils/clipboard';
 import { schemaAPI } from '../../services/api';
 import ColumnDialog from '../SchemaEditor/ColumnDialog';
 import MergeDialog from '../SchemaEditor/MergeDialog';
@@ -81,6 +78,7 @@ import ContinueDiscoveryDialog from '../SchemaEditor/ContinueDiscoveryDialog';
 import ContinueDiscoveryMonitor from '../SchemaEditor/ContinueDiscoveryMonitor';
 import LLMConfigDisplay from '../LLMConfigDisplay';
 import SchemaColumnDetailPanel from './SchemaColumnDetailPanel';
+import ObservationUnitEditModal from './ObservationUnitEditModal';
 import { clusterColumns, assignColumnToCluster, createUserCluster } from './clustering';
 import {
   Accordion,
@@ -101,6 +99,7 @@ interface SchemaViewerProps {
   websocketManager?: any;
   llmConfig?: any;
   observationUnit?: ObservationUnitInfo;
+  onObservationUnitUpdate?: (updated: ObservationUnitInfo) => void;
 }
 
 const SchemaViewer: React.FC<SchemaViewerProps> = ({
@@ -114,7 +113,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   onReextractionStarted,
   websocketManager,
   llmConfig,
-  observationUnit
+  observationUnit,
+  onObservationUnitUpdate
 }) => {
   const { toast } = useToast();
 
@@ -132,12 +132,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [reprocessingStatus, setReprocessingStatus] = useState<ReprocessingStatus | null>(null);
   const [validationResult, setValidationResult] = useState<SchemaValidationResultType | null>(null);
   const [loading, setLoading] = useState(false);
-  const [copiedQuery, setCopiedQuery] = useState(false);
   const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
   const [reextractionDialogOpen, setReextractionDialogOpen] = useState(false);
   const [continueDiscoveryDialogOpen, setContinueDiscoveryDialogOpen] = useState(false);
   const [continueDiscoveryMonitorOpen, setContinueDiscoveryMonitorOpen] = useState(false);
   const [continueDiscoveryOperationId, setContinueDiscoveryOperationId] = useState<string | null>(null);
+  const [observationUnitEditModalOpen, setObservationUnitEditModalOpen] = useState(false);
 
   // View mode, search, and sort state - always default to 'detailed'
   const [viewMode, setViewMode] = useState<'compact' | 'detailed'>('detailed');
@@ -417,16 +417,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       return detail.msg || JSON.stringify(detail);
     }
     return fallback;
-  };
-
-  const handleCopyQuery = async () => {
-    if (query) {
-      const success = await copyToClipboard(query);
-      if (success) {
-        setCopiedQuery(true);
-        setTimeout(() => setCopiedQuery(false), 2000);
-      }
-    }
   };
 
   // WebSocket event handlers (defined before useEffect that uses them)
@@ -936,56 +926,37 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Query and Schema Source Display */}
-      {query && (
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex justify-between items-start">
-              <div className="flex-1">
-                <h3 className="font-semibold flex items-center gap-2 mb-2">
-                  <Database className="h-5 w-5" />
-                  Research Query
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={handleCopyQuery}
-                        aria-label="Copy query to clipboard"
-                      >
-                        {copiedQuery ? (
-                          <Check className="h-3 w-3 text-green-500" />
-                        ) : (
-                          <Copy className="h-3 w-3" />
-                        )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {copiedQuery ? 'Copied!' : 'Copy query'}
-                    </TooltipContent>
-                  </Tooltip>
-                </h3>
-                <p className="text-muted-foreground">{query}</p>
-              </div>
-              <Badge variant={sessionType === 'load' ? 'secondary' : 'default'}>
-                {sessionType === 'load' ? 'Loaded Schema' : 'Generated Schema'}
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
       {/* Observation Unit Info Card */}
       {observationUnit && !observationUnit.name?.includes('Document') && (
         <Card className="bg-purple-50 border-purple-200">
           <CardContent className="p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Layers className="h-4 w-4 text-purple-600" />
-              <span className="font-medium text-purple-900">Observation Unit</span>
-              <Badge variant="outline" className="bg-purple-100">
-                {observationUnit.name}
-              </Badge>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-start gap-2">
+                <Layers className="h-4 w-4 text-purple-600 mt-0.5" />
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs text-purple-600 font-medium">
+                    Observation Unit
+                  </span>
+                  <span className="text-base font-semibold text-purple-900">
+                    {observationUnit.name}
+                  </span>
+                </div>
+              </div>
+              {!readonly && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-purple-600 hover:text-purple-800 hover:bg-purple-100"
+                      onClick={() => setObservationUnitEditModalOpen(true)}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Edit observation unit definition</TooltipContent>
+                </Tooltip>
+              )}
             </div>
             <p className="text-sm text-purple-700 mb-2">
               {observationUnit.definition}
@@ -998,6 +969,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     {name}
                   </Badge>
                 ))}
+                {observationUnit.example_names.length > 3 && (
+                  <span className="text-xs text-purple-600">
+                    +{observationUnit.example_names.length - 3} more
+                  </span>
+                )}
               </div>
             )}
           </CardContent>
@@ -2225,6 +2201,25 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         processingColumns={processingColumns}
         sessionType={sessionType}
       />
+
+      {/* Observation Unit Edit Modal */}
+      {observationUnit && (
+        <ObservationUnitEditModal
+          open={observationUnitEditModalOpen}
+          onOpenChange={setObservationUnitEditModalOpen}
+          sessionId={sessionId}
+          observationUnit={observationUnit}
+          onUpdate={(updated) => {
+            if (onObservationUnitUpdate) {
+              onObservationUnitUpdate(updated);
+            }
+            // NOTE: Don't show toast here - the modal handles its own toast messaging
+          }}
+          onReextractionRequest={() => {
+            setReextractionDialogOpen(true);
+          }}
+        />
+      )}
     </div>
   );
 };

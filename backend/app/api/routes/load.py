@@ -1178,7 +1178,11 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
                         "rationale": col.rationale or f"Extracted from uploaded data structure"
                     }
                     extracted_schema["schema"].append(schema_col)
-            
+
+            # Include observation_unit if session has one (critical for multi-row extraction)
+            if session.observation_unit:
+                extracted_schema["observation_unit"] = session.observation_unit.model_dump()
+
             # Store the converted schema in session metadata for processing
             session.metadata.extracted_schema = extracted_schema
             session_manager.update_session(session)
@@ -1569,6 +1573,11 @@ async def export_upload_rich_csv(session_id: str):
                             flat_row['row_name'] = row_data['row_name']
                         if row_data.get('papers'):
                             flat_row['papers'] = row_data['papers']
+                        # Include observation unit fields
+                        if row_data.get('_unit_name'):
+                            flat_row['_unit_name'] = row_data['_unit_name']
+                        if row_data.get('_source_document'):
+                            flat_row['_source_document'] = row_data['_source_document']
                         rows.append(flat_row)
                     else:
                         rows.append(row_data)
@@ -1589,7 +1598,7 @@ async def export_upload_rich_csv(session_id: str):
         for col_name in sorted(base_columns):
             enhanced_columns.append(col_name)
             # Add metadata columns for schema columns (not for standard columns)
-            if col_name not in ['row_name', 'papers']:
+            if col_name not in ['row_name', 'papers', '_unit_name', '_source_document']:
                 enhanced_columns.append(f"{col_name}_definition")
                 enhanced_columns.append(f"{col_name}_rationale")
                 enhanced_columns.append(f"{col_name}_allowed_values")
@@ -1633,7 +1642,7 @@ async def export_upload_rich_csv(session_id: str):
                 csv_row[col_name] = str(value) if value is not None else ""
                 
                 # Add metadata columns for schema columns (not for standard columns)
-                if col_name not in ['row_name', 'papers'] and col_name in column_metadata:
+                if col_name not in ['row_name', 'papers', '_unit_name', '_source_document'] and col_name in column_metadata:
                     csv_row[f"{col_name}_definition"] = column_metadata[col_name]['definition']
                     csv_row[f"{col_name}_rationale"] = column_metadata[col_name]['rationale']
                     csv_row[f"{col_name}_allowed_values"] = column_metadata[col_name]['allowed_values']

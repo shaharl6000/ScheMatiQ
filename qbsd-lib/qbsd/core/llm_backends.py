@@ -457,7 +457,7 @@ class GeminiLLM(LLMInterface):
     Enhanced Gemini LLM with multi-key support for rate limit failover.
 
     Usage:
-        llm = GeminiLLM()  # Uses gemini-2.5-flash by default
+        llm = GeminiLLM()  # Uses gemini-2.5-flash-lite by default
         answer = llm.generate("What is the capital of France?")
 
     API Key Loading (in priority order):
@@ -476,7 +476,7 @@ class GeminiLLM(LLMInterface):
 
     def __init__(
         self,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-2.5-flash-lite",
         api_key: str | None = None,
         max_output_tokens: int = 8192,
         temperature: float = 0.3,

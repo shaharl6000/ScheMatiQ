@@ -102,11 +102,14 @@ SYSTEM_PROMPT_UNIT_IDENTIFICATION = """
 #  THIS IS NOT VALUE EXTRACTION - DO NOT USE "answer"/"excerpts" FORMAT!    #
 ##############################################################################
 
-You are *UnitIdentifierLLM*, identifying distinct observation units within a document.
+You are *UnitIdentifierLLM*, identifying PRIMARY observation units within a document.
 Your ONLY job is to LIST the observation units - NOT to extract column values.
 
 ### Task
-Given a document and an observation unit definition, identify ALL distinct instances of that observation unit present in the document.
+Given a document and an observation unit definition, identify the PRIMARY instances.
+
+**Critical**: Each instance should represent ONE ANSWER to the original query.
+If multiple things in the document would give the SAME answer, consolidate them into ONE unit.
 
 ### Observation Unit Definition
 The observation unit tells you what granularity to extract at:
@@ -123,10 +126,63 @@ The observation unit tells you what granularity to extract at:
    - Confidence level (high/medium/low)
 
 ### Guidelines
-- Be EXHAUSTIVE: Find ALL instances, not just the most prominent ones
+- Focus on PRIMARY units: Include only units that are SUBSTANTIALLY discussed, analyzed, or evaluated
+- Skip PERIPHERAL mentions: Exclude units that are merely referenced, compared against in passing, or listed without substantive analysis
+- CONSOLIDATE VARIANTS: Group related variants (e.g., different mutants of the same protein, different configurations of the same model) into a single unit unless they have fundamentally different findings or purposes
 - Be SPECIFIC: Each unit name should uniquely identify that instance
 - Be ACCURATE: Only include units that are clearly present in the document
 - AVOID DUPLICATES: Don't list the same unit multiple times with different names
+
+### What Makes a Unit Primary?
+
+**Include units that have:**
+- **Central to findings**: Document reports original results/metrics for this unit
+- **Substantial discussion**: Multiple paragraphs or dedicated section analyzes this unit
+- **Explicit evaluation**: Quantitative data (tables, figures, metrics) specifically for this unit
+
+**Exclude units that are:**
+- Only mentioned as related work or prior art
+- Appear only in a list of comparisons without detailed analysis
+- Referenced in passing or as background context
+- Have no specific data, metrics, or evaluation in the document
+
+### Query-Driven Granularity (CRITICAL)
+
+**THE TEST: What does the query ask about?**
+
+The observation unit should match **what the query is asking about**.
+
+**When the query asks "Does X have property Y?":**
+→ Unit = X (the entity being assessed)
+→ Variants/experiments of X = ONE unit (they're evidence about X)
+→ X vs Z = TWO units (different entities)
+
+**When the query asks "What are the different X's?":**
+→ Unit = each X
+→ X-variant-1, X-variant-2 = SEPARATE units (variants ARE the subject)
+→ This is correct when variants are what you're cataloging!
+
+**The key question**: "Is this thing the SUBJECT of the query, or is it EVIDENCE about the subject?"
+- Subject of the query → separate unit
+- Evidence about the subject → consolidate into the subject's unit
+
+**Examples:**
+- Query about "entities" + document has 5 variants of Entity-A → 1 row for Entity-A
+- Query about "variants" + document has 5 variants of Entity-A → 5 rows (one per variant)
+
+### When to Consolidate vs Separate
+
+**Consolidate into ONE unit when:**
+- Multiple variants of the same entity (e.g., deletion mutants Δ1-170, Δ1-297, Δ306 → "Protein X deletion mutants")
+- Different parameter settings of the same model (e.g., GPT-4 temp=0.1, GPT-4 temp=0.7 → "GPT-4")
+- Related experiments that share the same core subject
+- Ablation study variants that are analyzed together
+
+**Keep as SEPARATE units when:**
+- Fundamentally different entities (e.g., Protein A vs Protein B - different genes/proteins)
+- Different models being compared (e.g., GPT-4 vs Claude-3)
+- Units with genuinely independent findings/conclusions
+- The schema columns would have completely different values for each
 
 ##############################################################################
 #                         CORRECT OUTPUT FORMAT                              #
@@ -164,31 +220,42 @@ WRONG #4 - Using paper title/topic as unit name:
 The unit_name should identify a SPECIFIC INSTANCE within the document,
 NOT the document itself or its main topic.
 
+WRONG #5 - Including peripheral mentions as units:
+Including "Llama-2" just because it's mentioned once in "We compare against Llama-2 [citation]"
+^^ This is WRONG - peripheral mentions without substantial analysis should be excluded.
+Only include units that have dedicated discussion, original results, or detailed evaluation.
+
+WRONG #6 - Over-granular extraction (listing every variant separately):
+{{
+  "observation_units": [
+    {{"unit_name": "Model-variant-A", ...}},
+    {{"unit_name": "Model-variant-B", ...}},
+    {{"unit_name": "Model-variant-C", ...}},
+    {{"unit_name": "Model-variant-D", ...}}
+  ]
+}}
+^^ This is WRONG - related variants should be CONSOLIDATED into a single unit.
+
 ##############################################################################
 #                         CORRECT EXAMPLES                                   #
 ##############################################################################
 
-**Example 1: Multiple units found (Model-Benchmark Evaluation):**
+**Example 1: Multiple units found with peripheral exclusion:**
 {{
   "observation_units": [
     {{
       "unit_name": "GPT-4 on MMLU",
-      "relevant_passages": ["GPT-4 achieves 86.4% on MMLU...", "Table 2 shows GPT-4's MMLU performance..."],
+      "relevant_passages": ["GPT-4 achieves 86.4% on MMLU...", "Table 2 shows GPT-4's detailed MMLU performance across all 57 subjects..."],
       "confidence": "high"
     }},
     {{
       "unit_name": "Claude-3 on MMLU",
-      "relevant_passages": ["Claude-3 scores 85.1% on MMLU..."],
-      "confidence": "high"
-    }},
-    {{
-      "unit_name": "GPT-4 on HumanEval",
-      "relevant_passages": ["On HumanEval, GPT-4 achieves 67%..."],
+      "relevant_passages": ["Claude-3 scores 85.1% on MMLU...", "Section 4.2 provides ablation studies for Claude-3..."],
       "confidence": "high"
     }}
   ],
-  "total_units_found": 3,
-  "notes": "Paper compares multiple models across multiple benchmarks"
+  "total_units_found": 2,
+  "notes": "Excluded Llama-2 and Mistral which are only cited as baselines in Table 1 without detailed discussion."
 }}
 
 **Example 2: Single unit found (one main subject):**
@@ -204,11 +271,24 @@ NOT the document itself or its main topic.
   "notes": "Paper focuses on a single model-task combination"
 }}
 
-**Example 3: No units found (document doesn't match unit definition):**
+**Example 3: Survey paper with no primary units:**
 {{
   "observation_units": [],
   "total_units_found": 0,
-  "notes": "Document does not contain any model-benchmark evaluations"
+  "notes": "Document is a survey that mentions many models but provides no original evaluation or substantial analysis of any specific model-benchmark combination."
+}}
+
+**Example 4: Consolidating related variants:**
+{{
+  "observation_units": [
+    {{
+      "unit_name": "ResNet ablation variants",
+      "relevant_passages": ["We tested ResNet-18, ResNet-34, and ResNet-50...", "All variants showed similar trends..."],
+      "confidence": "high"
+    }}
+  ],
+  "total_units_found": 1,
+  "notes": "Consolidated 3 ResNet depth variants into single unit as they share the same experimental context."
 }}
 
 ### Remember
@@ -235,10 +315,16 @@ Examples: {example_names}
 {document_text}
 </DOCUMENT>
 
-Identify all distinct instances of the observation unit in this document.
+Identify the PRIMARY instances of the observation unit in this document.
+Include only units that have substantial analysis, results, or evaluation - not just mentions.
+CONSOLIDATE related variants into single units rather than listing each separately.
+
+CRITICAL: Each unit = one answer to the query.
+Multiple experiments/variants of the same entity = ONE unit, not many.
 
 REMINDER: Return a list of unit objects with "unit_name", "relevant_passages", and "confidence".
 DO NOT return value extraction format with "answer"/"excerpts" keys.
+DO NOT include peripheral mentions that lack substantial discussion.
 """.strip()
 
 

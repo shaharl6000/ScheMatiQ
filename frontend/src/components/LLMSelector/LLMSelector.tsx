@@ -48,6 +48,7 @@ interface LLMSelectorProps {
   description?: string;
   preservedConfig?: LLMConfig | null;
   loading?: boolean;
+  defaultModel?: string;  // Override default model for this context
 }
 
 const DEFAULT_CONFIG: LLMConfig = {
@@ -79,6 +80,7 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
   description = 'Choose the AI model that will extract information from your uploaded documents.',
   preservedConfig,
   loading = false,
+  defaultModel,
 }) => {
   const [selectedConfig, setSelectedConfig] = useState<LLMConfig>(DEFAULT_CONFIG);
   const [usePreservedConfig, setUsePreservedConfig] = useState(false);
@@ -105,9 +107,11 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
       } else if (availableProviders.length > 0) {
         const defaultProvider = availableProviders[0];
         setSelectedProvider(defaultProvider);
+        // Use passed defaultModel if provided, otherwise use provider default
+        const modelToUse = defaultModel || getDefaultModelForProvider(defaultProvider);
         setSelectedConfig({
           provider: defaultProvider,
-          model: getDefaultModelForProvider(defaultProvider),
+          model: modelToUse,
           max_output_tokens: 1024,
           temperature: 0,
         });

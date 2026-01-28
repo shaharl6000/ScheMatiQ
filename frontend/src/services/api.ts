@@ -701,4 +701,77 @@ export const schemaAPI = {
   },
 };
 
+// Observation Unit API
+export const observationUnitAPI = {
+  list: async (sessionId: string): Promise<{
+    session_id: string;
+    observation_units: Array<{
+      unit_name: string;
+      document_id?: string;
+      confidence?: number;
+    }>;
+    count: number;
+  }> => {
+    const response = await api.get(`/observation-unit/list/${sessionId}`);
+    return response.data;
+  },
+
+  remove: async (sessionId: string, unitName: string): Promise<{
+    status: string;
+    message: string;
+    session_id: string;
+    observation_units: Array<{
+      unit_name: string;
+      document_id?: string;
+      confidence?: number;
+    }>;
+    row_count: number;
+  }> => {
+    const response = await api.delete(`/observation-unit/remove/${sessionId}`, {
+      data: { unit_name: unitName }
+    });
+    return response.data;
+  },
+
+  add: async (sessionId: string, request: {
+    unit_name: string;
+    document_id?: string;
+    relevant_passages?: string[];
+    confidence?: number;
+  }): Promise<{
+    status: string;
+    message: string;
+    session_id: string;
+    observation_units: Array<{
+      unit_name: string;
+      document_id?: string;
+      confidence?: number;
+    }>;
+    row_count: number;
+  }> => {
+    const response = await api.post(`/observation-unit/add/${sessionId}`, request);
+    return response.data;
+  },
+
+  updateDefinition: async (sessionId: string, request: {
+    name: string;
+    definition: string;
+    example_names?: string[];
+  }): Promise<{
+    status: string;
+    message: string;
+    observation_unit: {
+      name: string;
+      definition: string;
+      example_names?: string[];
+      source_document?: string;
+      discovery_iteration?: number;
+    };
+    warning?: string;
+  }> => {
+    const response = await api.patch(`/observation-unit/definition/${sessionId}`, request);
+    return response.data;
+  },
+};
+
 export default api;

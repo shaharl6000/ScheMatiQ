@@ -4,6 +4,7 @@ import json
 import asyncio
 import time
 import math
+import os
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -484,7 +485,9 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                 "data": clean_data,
                                 "row_name": None if row_name_column_in_data else row_name,
                                 "papers": papers_for_datarow,
-                                "_unit_name": row_data.get("_unit_name")
+                                "_unit_name": row_data.get("_unit_name"),
+                                "_source_document": row_data.get("_source_document"),
+                                "_parent_document": row_data.get("_parent_document"),
                             }
                             original_f.write(json.dumps(converted_row) + '\n')
                         else:
@@ -515,9 +518,18 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             if "_unit_name" not in row_copy and "unit_name" in row_copy:
                                 row_copy["_unit_name"] = row_copy.get("unit_name")
 
+                            # Preserve _source_document and _parent_document from original extraction
+                            if "_source_document" not in row_copy:
+                                row_copy["_source_document"] = row_data.get("_source_document")
+                            if "_parent_document" not in row_copy:
+                                row_copy["_parent_document"] = row_data.get("_parent_document")
+
                             original_f.write(json.dumps(row_copy) + '\n')
                         new_rows_added += 1
-        
+                # Ensure data is flushed to disk before context manager closes
+                original_f.flush()
+                os.fsync(original_f.fileno())
+
         print(f"Successfully appended {new_rows_added} new rows to session {session_id}. Total rows: {len(original_rows) + new_rows_added}")
 
         # Clean up the additional data file
@@ -721,11 +733,20 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             schema_columns.append(col_dict)
 
         # Build the final schema dict
-        return {
+        result = {
             "query": session.schema_query or base_schema.get("query", ""),
             "schema": schema_columns,
             "llm_configuration": base_schema.get("llm_configuration", {}),
         }
+
+        # Preserve observation_unit - check base_schema first, then session as fallback
+        # This is critical for multi-row extraction (one row per observation unit)
+        if base_schema.get("observation_unit"):
+            result["observation_unit"] = base_schema["observation_unit"]
+        elif session.observation_unit:
+            result["observation_unit"] = session.observation_unit.model_dump()
+
+        return result
 
     def _enhance_schema_for_extraction(self, extracted_schema: Dict[str, Any]) -> Dict[str, Any]:
         """Enhance schema with detailed extraction instructions based on column metadata."""

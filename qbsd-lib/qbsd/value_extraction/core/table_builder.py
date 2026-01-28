@@ -331,6 +331,14 @@ class TableBuilder:
                 "total_papers": len(papers)
             }
 
+            # Set document metadata for standard extraction
+            # For standard extraction, the document IS the observation unit
+            if papers:
+                current_row["_source_document"] = papers[0].stem
+                current_row["_parent_document"] = papers[0].stem
+            # Set _unit_name to row_name (document = observation unit in standard extraction)
+            current_row["_unit_name"] = row_name
+
             # Process papers similar to single directory version but track sources
             if mode == "one_by_one":
                 self._process_row_one_by_one_multi_dirs(

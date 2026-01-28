@@ -622,6 +622,11 @@ async def export_qbsd_data(
                     all_columns.add('row_name')
                 if row.papers:
                     all_columns.add('papers')
+                # Include observation unit fields if present
+                if row.unit_name:
+                    all_columns.add('_unit_name')
+                if row.source_document:
+                    all_columns.add('_source_document')
                 for col_name in row.data.keys():
                     all_columns.add(col_name)
                     # Add excerpt column for QBSD data
@@ -647,13 +652,18 @@ async def export_qbsd_data(
         # Write data rows
         for row in data.rows:
             csv_row = {}
-            
+
             # Add standard columns
             if row.row_name:
                 csv_row['row_name'] = row.row_name
             if row.papers:
                 csv_row['papers'] = '; '.join(row.papers) if isinstance(row.papers, list) else str(row.papers)
-            
+            # Add observation unit fields
+            if row.unit_name:
+                csv_row['_unit_name'] = row.unit_name
+            if row.source_document:
+                csv_row['_source_document'] = row.source_document
+
             # Process data columns
             for col_name, value in row.data.items():
                 if isinstance(value, dict) and 'answer' in value:
@@ -942,6 +952,11 @@ async def export_qbsd_rich_csv(
                 base_columns.add('row_name')
             if row.papers:
                 base_columns.add('papers')
+            # Include observation unit fields if present
+            if row.unit_name:
+                base_columns.add('_unit_name')
+            if row.source_document:
+                base_columns.add('_source_document')
             for col_name in row.data.keys():
                 base_columns.add(col_name)
                 # Add excerpt column for QBSD data
@@ -953,7 +968,7 @@ async def export_qbsd_rich_csv(
         for col_name in sorted(base_columns):
             enhanced_columns.append(col_name)
             # Add metadata columns for schema columns (not for standard or excerpt columns)
-            if (col_name not in ['row_name', 'papers'] and
+            if (col_name not in ['row_name', 'papers', '_unit_name', '_source_document'] and
                 not col_name.endswith('_excerpt')):
                 enhanced_columns.append(f"{col_name}_definition")
                 enhanced_columns.append(f"{col_name}_rationale")
@@ -996,6 +1011,11 @@ async def export_qbsd_rich_csv(
                 csv_row['row_name'] = row.row_name
             if row.papers:
                 csv_row['papers'] = '; '.join(row.papers) if isinstance(row.papers, list) else str(row.papers)
+            # Add observation unit fields
+            if row.unit_name:
+                csv_row['_unit_name'] = row.unit_name
+            if row.source_document:
+                csv_row['_source_document'] = row.source_document
 
             # Process data columns with metadata
             for col_name, value in row.data.items():

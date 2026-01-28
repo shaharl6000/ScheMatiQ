@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 class LLMConfig(BaseModel):
     """LLM backend configuration."""
     provider: str  # "openai", "together", "gemini"
-    model: str = ""  # Empty string = use provider default (e.g., gemini-2.5-flash for Gemini)
+    model: str = ""  # Empty string = use provider default (e.g., gemini-2.5-flash-lite for Gemini)
     max_output_tokens: int = 8192  # Increased default for Gemini 2.5+ models
     temperature: float = 0
     context_window_size: Optional[int] = None

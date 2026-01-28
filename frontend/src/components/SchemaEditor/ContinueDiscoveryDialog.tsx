@@ -319,7 +319,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           dynamic_k_threshold: retrieverConfig.dynamic_k_threshold ? parseFloat(retrieverConfig.dynamic_k_threshold) : undefined,
           dynamic_k_minimum: retrieverConfig.dynamic_k_minimum ? parseInt(retrieverConfig.dynamic_k_minimum) : undefined
         } : undefined,
-        max_keys_schema: 100,
+        max_keys_schema: 25,
         documents_batch_size: 1
       });
 
