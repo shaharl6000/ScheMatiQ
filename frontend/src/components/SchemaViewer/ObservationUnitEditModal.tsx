@@ -1,15 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Plus, X, Loader2, FileText, Clock, RefreshCw } from 'lucide-react';
-
-// Validation limits for observation unit fields
-const VALIDATION_LIMITS = {
-  NAME_MAX_LENGTH: 100,
-  DEFINITION_MIN_LENGTH: 10,
-  DEFINITION_MAX_LENGTH: 500,
-  MAX_EXAMPLE_NAMES: 20,
-  EXAMPLE_NAME_MAX_LENGTH: 100,
-} as const;
-
 import {
   Dialog,
   DialogContent,
@@ -33,6 +23,15 @@ import { useToast } from '@/components/ui/use-toast';
 
 import { ObservationUnitInfo } from '../../types';
 import { observationUnitAPI } from '../../services/api';
+
+// Validation limits for observation unit fields
+const VALIDATION_LIMITS = {
+  NAME_MAX_LENGTH: 100,
+  DEFINITION_MIN_LENGTH: 10,
+  DEFINITION_MAX_LENGTH: 500,
+  MAX_EXAMPLE_NAMES: 20,
+  EXAMPLE_NAME_MAX_LENGTH: 100,
+} as const;
 
 interface ObservationUnitEditModalProps {
   open: boolean;
