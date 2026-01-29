@@ -12,7 +12,11 @@ from qbsd.core.schema import Column, Schema, SchemaSnapshot, SchemaEvolution, Ob
 from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
 from qbsd.core.retrievers import EmbeddingRetriever
 from qbsd.core.prompts import SchemaMode
-from qbsd.core.qbsd import _discover_observation_unit as discover_observation_unit
+from qbsd.core.qbsd import (
+    _discover_observation_unit as discover_observation_unit,
+    ObservationUnitError,
+    ObservationUnitDiscoveryError,
+)
 
 __all__ = [
     "Column",
@@ -20,6 +24,8 @@ __all__ = [
     "SchemaSnapshot",
     "SchemaEvolution",
     "ObservationUnit",
+    "ObservationUnitError",
+    "ObservationUnitDiscoveryError",
     "SchemaMode",
     "LLMInterface",
     "TogetherLLM",

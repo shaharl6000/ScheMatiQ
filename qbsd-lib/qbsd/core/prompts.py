@@ -317,9 +317,10 @@ You are *ObservationUnitLLM*, a data analyst determining what constitutes a sing
 Given a query and sample document passages, determine the appropriate **observation unit** — what each row in the extracted table should represent.
 
 ### Key Concept: Observation Unit
-The observation unit defines the granularity of extraction:
-- **Document-level**: Each document = one row (simplest case)
-- **Sub-document-level**: Each document may contain MULTIPLE observation units, each becoming a separate row
+The observation unit is the specific entity type the query asks about:
+- Each document may contain ONE or MULTIPLE instances of the observation unit
+- Your task is to identify WHAT specific entity type the query is asking about
+- Even if a document discusses only one instance, consider WHAT that instance represents
 
 **Critical Principle: One Row = One Answer to the Query**
 - The observation unit should be the **minimal entity that independently answers the query**
@@ -347,10 +348,10 @@ The name should be:
 
 **Query**: "What datasets are used for NLP research?"
 **Observation Unit**:
-  - name: "Document"
-  - definition: "Each document is treated as one observation unit"
-  - example_names: []
-→ Default case: one row per document
+  - name: "Dataset"
+  - definition: "A single dataset mentioned or used in the research, with its characteristics and applications"
+  - example_names: ["ImageNet", "GLUE", "SQuAD"]
+→ A paper using 3 datasets produces 3 rows
 
 **Query**: "Analyze treatment outcomes in clinical trials"
 **Observation Unit**:
@@ -375,11 +376,11 @@ The name should be:
 - Each entity has its own set of measurable attributes
 - You would lose information by aggregating to document level
 
-**Use document-level units when:**
-- The query asks about document-level properties
-- Documents describe a single main subject
-- There's no natural repeated structure within documents
-- Sub-units would create artificial fragmentation
+**When a document discusses a single subject:**
+- Still consider WHAT that subject is (e.g., "Study", "System", "Method", "Paper")
+- The observation unit is the TYPE of entity being discussed
+- Example: A paper about one protein → unit could be "Protein"
+- "Document" is valid when the query truly asks about documents themselves
 
 ### Entity vs Measurement Distinction
 
@@ -413,7 +414,7 @@ IMPORTANT: The "name" field must be 1-3 words. Put all detailed explanation in "
 - **DEFINITION = detailed explanation** (full sentence describing what a row represents)
 - The observation unit should match the NATURAL structure of the data
 - Consider what would be most useful for answering the query
-- When in doubt, default to document-level (simpler, always works)
+- When in doubt, ask: "What entity is the query asking about?" - that's likely your observation unit
 - Example names should be CONCRETE instances you might find in the documents
 """.strip()
 

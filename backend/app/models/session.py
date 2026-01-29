@@ -33,25 +33,15 @@ class ObservationUnitInfo(BaseModel):
     - name: "Model-Benchmark Evaluation"
     - definition: "A single evaluation of one model on one benchmark dataset"
     - example_names: ["GPT-4 on MMLU", "Claude on HumanEval", "LLaMA on GSM8K"]
+
+    Note: Observation units are always required and must be discovered or provided.
+    There is no default "Document" fallback.
     """
     name: str                                    # e.g., "Model-Benchmark Evaluation"
     definition: str                              # What constitutes one row
     example_names: Optional[List[str]] = None    # ["GPT-4 on MMLU", "Claude on HumanEval"]
     source_document: Optional[str] = None        # Document that helped define this unit
     discovery_iteration: Optional[int] = None    # Iteration when this unit was discovered
-
-    @classmethod
-    def default(cls) -> "ObservationUnitInfo":
-        """Return the default observation unit (one row per document)."""
-        return cls(
-            name="Document",
-            definition="Each document is treated as one observation unit",
-            example_names=None,
-        )
-
-    def is_default(self) -> bool:
-        """Check if this is the default document-level observation unit."""
-        return self.name == "Document" and "one observation unit" in self.definition.lower()
 
 
 class PendingValue(BaseModel):

@@ -1209,7 +1209,7 @@ const DataTable: React.FC<DataTableProps> = ({
                 </span>
                 {currentDocumentProgress && (
                   <span className="text-sm text-muted-foreground">
-                    — Document {currentDocumentProgress.documentIndex} of {currentDocumentProgress.totalDocuments}
+                    — {hasObservationUnits ? 'Observation Unit' : 'Document'} {currentDocumentProgress.documentIndex} of {currentDocumentProgress.totalDocuments}
                   </span>
                 )}
               </div>

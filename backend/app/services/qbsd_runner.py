@@ -2,12 +2,14 @@
 
 import json
 import asyncio
+import logging
 import math
-import subprocess
 import time
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 # Project root for path resolution
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
@@ -17,9 +19,8 @@ from qbsd.core import qbsd as QBSD
 from qbsd.core.schema import Schema, Column, ObservationUnit
 from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
 from qbsd.core.retrievers import EmbeddingRetriever
-from qbsd.core import utils
 from qbsd.value_extraction.main import build_table_jsonl
-from qbsd import discover_observation_unit
+from qbsd import discover_observation_unit, ObservationUnitDiscoveryError
 
 QBSD_AVAILABLE = True
 
@@ -76,7 +77,7 @@ def build_llm_interface(
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
-from app.models.qbsd import QBSDConfig, QBSDStatus, QBSDProgress
+from app.models.qbsd import QBSDConfig, QBSDStatus
 from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus, SchemaEvolution, SchemaSnapshot, VisualizationSession, ObservationUnitInfo
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
@@ -132,7 +133,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     loop
                 )
             except Exception as e:
-                print(f"⚠️  Failed to broadcast cell {column_name} for {row_name}: {e}")
+                logger.warning("Failed to broadcast cell %s for %s: %s", column_name, row_name, e)
 
         return on_value_extracted
 
@@ -156,7 +157,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     loop
                 )
             except Exception as e:
-                print(f"⚠️  Failed to broadcast warning for {paper_title}: {e}")
+                logger.warning("Failed to broadcast warning for %s: %s", paper_title, e)
 
         return on_warning
 
@@ -179,7 +180,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                         "message": "Processing... (still working)"
                     })
                 except Exception as e:
-                    print(f"⚠️ Heartbeat failed: {e}")
+                    logger.warning("Heartbeat failed: %s", e)
                     break
 
         return asyncio.create_task(heartbeat_loop())
@@ -206,13 +207,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 local_dataset_dir = session_dir / "datasets" / dataset_name
                 local_dataset_dir.mkdir(parents=True, exist_ok=True)
 
-                print(f"📥 Downloading Supabase dataset '{dataset_name}' to {local_dataset_dir}")
+                logger.info("Downloading Supabase dataset '%s' to %s", dataset_name, local_dataset_dir)
                 downloaded_files = await storage.download_dataset_to_local(dataset_name, str(local_dataset_dir))
-                print(f"✓ Downloaded {len(downloaded_files)} files from '{dataset_name}'")
+                logger.info("Downloaded %d files from '%s'", len(downloaded_files), dataset_name)
 
                 return str(local_dataset_dir)
         except Exception as e:
-            print(f"⚠️ Error checking/downloading Supabase dataset '{dataset_name}': {e}")
+            logger.warning("Error checking/downloading Supabase dataset '%s': %s", dataset_name, e)
 
         return None
 
@@ -301,7 +302,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             uploaded_files = [f for f in sorted(data_dir.iterdir())
                             if f.is_file() and not f.name.startswith('.')]
             if uploaded_files:
-                print(f"✓ Using {len(uploaded_files)} uploaded documents from {data_dir}")
+                logger.info("Using %d uploaded documents from %s", len(uploaded_files), data_dir)
                 # Return the directory containing the files, not individual files
                 return [str(data_dir.absolute())]
 
@@ -311,7 +312,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         docs_paths = [p for p in docs_paths if p]
 
         if not docs_paths:
-            print("Warning: No document paths configured and no uploaded documents found")
+            logger.warning("No document paths configured and no uploaded documents found")
             return []
 
         resolved_docs_paths = []
@@ -337,111 +338,16 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 for candidate in candidates:
                     if candidate.exists():
                         resolved_docs_paths.append(str(candidate.absolute()))
-                        print(f"✓ Resolved document path: {path} -> {candidate.absolute()}")
+                        logger.info("Resolved document path: %s -> %s", path, candidate.absolute())
                         break
                 else:
-                    print(f"Warning: Document path not found: {path}")
+                    logger.warning("Document path not found: %s", path)
                     resolved_docs_paths.append(path)
             else:
                 resolved_docs_paths.append(str(doc_path))
 
         return resolved_docs_paths
 
-    def _convert_config_to_qbsd_format(self, config: QBSDConfig, session_id: str) -> Dict[str, Any]:
-        """Convert visualization QBSDConfig to QBSD pipeline format.
-
-        NOTE: This is now a sync wrapper. Use _resolve_docs_paths() first in async context.
-        """
-        session_dir = self.work_dir / session_id
-
-        # Convert docs_path to absolute paths (sync version - no Supabase download)
-        docs_paths = config.docs_path if isinstance(config.docs_path, list) else [config.docs_path]
-        resolved_docs_paths = []
-
-        for path in docs_paths:
-            doc_path = Path(path)
-            if not doc_path.is_absolute():
-                # Try relative to project root and common paths
-                candidates = [
-                    PROJECT_ROOT / path,
-                    PROJECT_ROOT / "research" / "data" / Path(path).name,  # Research data
-                    PROJECT_ROOT / "test" / "files",  # Test directory
-                    Path.cwd() / path,
-                    Path.cwd().parent / path,  # Try from parent directory
-                ]
-                for candidate in candidates:
-                    if candidate.exists():
-                        resolved_docs_paths.append(str(candidate.absolute()))
-                        print(f"✓ Resolved document path: {path} -> {candidate.absolute()}")
-                        break
-                else:
-                    print(f"Warning: Document path not found: {path}")
-                    resolved_docs_paths.append(path)  # Keep original for error reporting
-            else:
-                resolved_docs_paths.append(str(doc_path))
-        
-        # Build QBSD config
-        qbsd_config = {
-            "query": config.query,
-            "docs_path": resolved_docs_paths[0] if len(resolved_docs_paths) == 1 else resolved_docs_paths,
-            "max_keys_schema": config.max_keys_schema,
-            "documents_batch_size": config.documents_batch_size,
-            "output_path": str(session_dir / "discovered_schema.json"),
-            "document_randomization_seed": config.document_randomization_seed,
-            "schema_creation_backend": {
-                "provider": config.schema_creation_backend.provider,
-                "model": config.schema_creation_backend.model,
-                "max_output_tokens": config.schema_creation_backend.max_output_tokens,
-                "temperature": config.schema_creation_backend.temperature,
-                "context_window_size": config.schema_creation_backend.context_window_size,
-                "api_key": config.schema_creation_backend.api_key,
-                "gemini_key_type": config.schema_creation_backend.gemini_key_type
-            },
-            "value_extraction_backend": {
-                "provider": config.value_extraction_backend.provider,
-                "model": config.value_extraction_backend.model,
-                "max_output_tokens": config.value_extraction_backend.max_output_tokens,
-                "temperature": config.value_extraction_backend.temperature,
-                "context_window_size": config.value_extraction_backend.context_window_size,
-                "api_key": config.value_extraction_backend.api_key,
-                "gemini_key_type": config.value_extraction_backend.gemini_key_type
-            }
-        }
-        
-        # Add retriever config if provided
-        if config.retriever:
-            qbsd_config["retriever"] = {
-                "type": "embedding",  # Default to embedding retriever
-                "model_name": config.retriever.model_name,
-                "k": config.retriever.k,
-                "passage_chars": config.retriever.passage_chars,
-                "overlap": config.retriever.overlap,
-                "enable_dynamic_k": config.retriever.enable_dynamic_k,
-                "dynamic_k_threshold": config.retriever.dynamic_k_threshold,
-                "dynamic_k_minimum": config.retriever.dynamic_k_minimum
-            }
-        
-        # Add initial schema if provided (inline takes priority over file path)
-        if config.initial_schema:
-            # Inline schema provided - convert to the format expected by schema loader
-            qbsd_config["initial_schema"] = [
-                {
-                    "name": col.name,
-                    "definition": col.definition,
-                    "rationale": col.rationale,
-                    "allowed_values": col.allowed_values
-                }
-                for col in config.initial_schema
-            ]
-        elif config.initial_schema_path:
-            initial_schema_path = Path(config.initial_schema_path)
-            if not initial_schema_path.is_absolute():
-                initial_schema_path = (PROJECT_ROOT / initial_schema_path).resolve()
-            if initial_schema_path.exists():
-                qbsd_config["initial_schema_path"] = str(initial_schema_path)
-
-        return qbsd_config
-    
     async def validate_config(self, config: QBSDConfig) -> Dict[str, Any]:
         """Validate QBSD configuration.
 
@@ -468,7 +374,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         if has_documents:
             for path in docs_paths:
                 doc_path = Path(path)
-                print(f"DEBUG: Checking document path: {path} -> {doc_path.absolute()}")
+                logger.debug("Checking document path: %s -> %s", path, doc_path.absolute())
 
                 # Try relative to current directory and various parent directories
                 paths_to_try = [
@@ -489,14 +395,14 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     if try_path.exists():
                         path_exists = True
                         actual_path = try_path.absolute()
-                        print(f"DEBUG: Found path at: {actual_path}")
+                        logger.debug("Found path at: %s", actual_path)
                         # Check if directory has files
                         try:
                             file_count = len(list(try_path.glob("*.txt"))) + len(list(try_path.glob("*.md")))
                             if file_count == 0:
                                 warnings.append(f"Document path appears to be empty: {path} (no .txt or .md files)")
                             else:
-                                print(f"DEBUG: Found {file_count} document files")
+                                logger.debug("Found %d document files", file_count)
                         except Exception as e:
                             warnings.append(f"Could not check document count in {path}: {e}")
                         break
@@ -629,23 +535,23 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         
         try:
             # Step 1: Initializing
-            print(f"🐛 DEBUG: Starting QBSD execution for session {session_id}")
+            logger.debug("Starting QBSD execution for session %s", session_id)
             await update_progress("Initializing", 0.0)
 
             # Resolve document paths (download from Supabase if needed)
-            print(f"🐛 DEBUG: Resolving document paths (may download from Supabase)")
+            logger.debug("Resolving document paths (may download from Supabase)")
             resolved_docs_paths = await self._resolve_docs_paths(config, session_id)
-            print(f"🐛 DEBUG: Resolved paths: {resolved_docs_paths}")
+            logger.debug("Resolved paths: %s", resolved_docs_paths)
 
             # Convert config to QBSD format with resolved paths
-            print(f"🐛 DEBUG: Converting config to QBSD format")
+            logger.debug("Converting config to QBSD format")
             qbsd_config = self._convert_config_to_qbsd_format_sync(config, session_id, resolved_docs_paths)
             
             # Save QBSD config
             qbsd_config_file = session_dir / "qbsd_config.json"
             with open(qbsd_config_file, 'w') as f:
                 json.dump(qbsd_config, f, indent=2)
-            print(f"DEBUG: Saved QBSD config with keys: {list(qbsd_config.keys())}")
+            logger.debug("Saved QBSD config with keys: %s", list(qbsd_config.keys()))
             
             await update_progress("Initializing", 1.0)
             
@@ -675,7 +581,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                             documents.append(content)
                             filenames.append(doc_file.name)
                         except Exception as e:
-                            print(f"Warning: Could not read {doc_file}: {e}")
+                            logger.warning("Could not read %s: %s", doc_file, e)
             
             await update_progress("Loading documents", 1.0, {
                 "total_documents": total_docs,
@@ -691,19 +597,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
             # Log the mode we're operating in
             if has_query and has_documents:
-                print(f"🐛 DEBUG: STANDARD mode - query + {len(documents)} documents")
+                logger.debug("STANDARD mode - query + %d documents", len(documents))
             elif has_documents:
-                print(f"🐛 DEBUG: DOCUMENT_ONLY mode - {len(documents)} documents, no query")
+                logger.debug("DOCUMENT_ONLY mode - %d documents, no query", len(documents))
             else:
-                print(f"🐛 DEBUG: QUERY_ONLY mode - query provided, no documents")
+                logger.debug("QUERY_ONLY mode - query provided, no documents")
             
             # Step 3: Build LLM backend
             current_step += 1
-            print(f"🐛 DEBUG: Building Schema Creation LLM backend - provider: {qbsd_config['schema_creation_backend']['provider']}")
+            logger.debug("Building Schema Creation LLM backend - provider: %s", qbsd_config['schema_creation_backend']['provider'])
             await update_progress("Building LLM backend", 0.0)
             
             # Build Schema Creation LLM interface
-            print(f"🐛 DEBUG: Creating Schema Creation LLM interface...")
+            logger.debug("Creating Schema Creation LLM interface...")
             llm = build_llm_interface(
                 provider=qbsd_config["schema_creation_backend"]["provider"],
                 model=qbsd_config["schema_creation_backend"]["model"],
@@ -712,22 +618,22 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 api_key=qbsd_config["schema_creation_backend"].get("api_key"),
                 gemini_key_type=qbsd_config["schema_creation_backend"].get("gemini_key_type")
             )
-            print(f"🐛 DEBUG: LLM interface created successfully")
+            logger.debug("LLM interface created successfully")
             
-            print(f"🐛 DEBUG: Updating progress to 1.0...")
+            logger.debug("Updating progress to 1.0...")
             await update_progress("Building LLM backend", 1.0)
-            print(f"🐛 DEBUG: Progress update completed")
+            logger.debug("Progress update completed")
             
             # Step 4: Setup retriever
             current_step += 1
-            print(f"🐛 DEBUG: Setting up retriever...")
+            logger.debug("Setting up retriever...")
             await update_progress("Setting up retriever", 0.0)
             
             retriever = None
             if "retriever" in qbsd_config:
-                print(f"🐛 DEBUG: Creating EmbeddingRetriever...")
+                logger.debug("Creating EmbeddingRetriever...")
                 retriever_config = qbsd_config["retriever"]
-                print(f"🐛 DEBUG: Retriever config: {retriever_config}")
+                logger.debug("Retriever config: %s", retriever_config)
                 try:
                     retriever = EmbeddingRetriever(
                         model_name=retriever_config.get("model_name", "all-MiniLM-L6-v2"),
@@ -737,12 +643,12 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                         dynamic_k_threshold=retriever_config.get("dynamic_k_threshold", 0.65),
                         dynamic_k_minimum=retriever_config.get("dynamic_k_minimum", 3)
                     )
-                    print(f"🐛 DEBUG: EmbeddingRetriever created successfully!")
+                    logger.debug("EmbeddingRetriever created successfully!")
                 except Exception as e:
-                    print(f"🐛 DEBUG: ERROR creating EmbeddingRetriever: {e}")
+                    logger.error("ERROR creating EmbeddingRetriever: %s", e)
                     raise
             else:
-                print(f"🐛 DEBUG: No retriever config found, using None")
+                logger.debug("No retriever config found, using None")
             
             await update_progress("Setting up retriever", 1.0)
             
@@ -751,7 +657,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             await update_progress("Discovering schema", 0.0)
 
             # Run real schema discovery with heartbeat to keep WebSocket alive
-            print(f"🐛 DEBUG: Starting schema discovery with {len(documents)} documents")
+            logger.debug("Starting schema discovery with %d documents", len(documents))
             heartbeat_task = await self._start_heartbeat(session_id, interval=15.0)
             try:
                 discovered_schema, schema_evolution = await self._run_schema_discovery(
@@ -763,8 +669,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     await heartbeat_task
                 except asyncio.CancelledError:
                     pass  # Expected when cancelling
-            print(f"🐛 DEBUG: Schema discovery completed with {len(discovered_schema.columns)} columns")
-            print(f"🐛 DEBUG: Schema evolution: {len(schema_evolution.snapshots)} snapshots tracked")
+            logger.debug("Schema discovery completed with %d columns", len(discovered_schema.columns))
+            logger.debug("Schema evolution: %d snapshots tracked", len(schema_evolution.snapshots))
             
             # Save discovered schema with frontend-compatible format
             schema_file = session_dir / "discovered_schema.json"
@@ -801,7 +707,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             session = self.session_manager.get_session(session_id)
             session.status = SessionStatus.SCHEMA_READY
             session.metadata.schema_discovery_completed = True
-            print(f"🔄 DEBUG: Updated session {session_id} status to SCHEMA_READY with {len(discovered_schema.columns)} columns")
+            logger.debug("Updated session %s status to SCHEMA_READY with %d columns", session_id, len(discovered_schema.columns))
             
             # Update session with discovered schema
             schema_columns = []
@@ -831,7 +737,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     discovery_iteration=discovered_schema.observation_unit.discovery_iteration
                 )
             self.session_manager.update_session(session)
-            print(f"💾 DEBUG: Session {session_id} saved with {len(schema_columns)} columns, status: {session.status}")
+            logger.debug("Session %s saved with %d columns, status: %s", session_id, len(schema_columns), session.status)
             
             # Broadcast schema completion event
             await self.broadcast_schema_completed(session_id, {
@@ -842,13 +748,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
             # Check if stop was requested during schema discovery - skip remaining steps
             if self.is_stop_requested(session_id):
-                print(f"🛑 Stop requested - skipping value extraction and finalization")
+                logger.warning("Stop requested - skipping value extraction and finalization")
                 # Update status to STOPPED immediately (don't rely on stop_execution race)
                 session = self.session_manager.get_session(session_id)
                 session.status = SessionStatus.STOPPED
                 session.error_message = None
                 self.session_manager.update_session(session)
-                print(f"🛑 DEBUG: Updated session status to STOPPED (from schema discovery stop)")
+                logger.debug("Updated session status to STOPPED (from schema discovery stop)")
                 # Broadcast stopped message
                 await self.broadcast_stopped(session_id, {
                     "schema_saved": True,
@@ -859,14 +765,14 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
             # Step 6: Value extraction (skip if schema-only mode)
             if qbsd_config.get("skip_value_extraction", False):
-                print(f"⏭️ Skipping value extraction (schema-only mode)")
+                logger.info("Skipping value extraction (schema-only mode)")
                 # Skip to finalization without value extraction
             else:
                 current_step += 1
                 await update_progress("Extracting values", 0.0)
 
                 # Build Value Extraction LLM interface (separate from schema creation)
-                print(f"🐛 DEBUG: Creating Value Extraction LLM interface...")
+                logger.debug("Creating Value Extraction LLM interface...")
                 value_extraction_llm = build_llm_interface(
                     provider=qbsd_config["value_extraction_backend"]["provider"],
                     model=qbsd_config["value_extraction_backend"]["model"],
@@ -875,7 +781,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     api_key=qbsd_config["value_extraction_backend"].get("api_key"),
                     gemini_key_type=qbsd_config["value_extraction_backend"].get("gemini_key_type")
                 )
-                print(f"🐛 DEBUG: Value Extraction LLM interface created successfully")
+                logger.debug("Value Extraction LLM interface created successfully")
 
                 # Run real value extraction with dedicated LLM (with heartbeat for long operations)
                 heartbeat_task = await self._start_heartbeat(session_id, interval=15.0)
@@ -894,13 +800,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
             # Check if stop was requested during value extraction - skip finalization
             if self.is_stop_requested(session_id):
-                print(f"🛑 Stop requested - skipping finalization")
+                logger.warning("Stop requested - skipping finalization")
                 # Update status to STOPPED immediately (don't rely on stop_execution race)
                 session = self.session_manager.get_session(session_id)
                 session.status = SessionStatus.STOPPED
                 session.error_message = None
                 self.session_manager.update_session(session)
-                print(f"🛑 DEBUG: Updated session status to STOPPED (from value extraction stop)")
+                logger.debug("Updated session status to STOPPED (from value extraction stop)")
                 # Count rows saved
                 data_file = session_dir / "extracted_data.jsonl"
                 rows_saved = 0
@@ -991,9 +897,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     )
                     columns.append(col)
                 initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
-                print(f"Loaded inline initial schema with {len(columns)} columns")
+                logger.info("Loaded inline initial schema with %d columns", len(columns))
             except Exception as e:
-                print(f"Warning: Could not load inline initial schema: {e}")
+                logger.warning("Could not load inline initial schema: %s", e)
         elif "initial_schema_path" in qbsd_config:
             try:
                 with open(qbsd_config["initial_schema_path"]) as f:
@@ -1021,9 +927,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                             )
                             columns.append(col)
                         initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
-                print(f"Loaded initial schema from file with {len(columns)} columns")
+                logger.info("Loaded initial schema from file with %d columns", len(columns))
             except Exception as e:
-                print(f"Warning: Could not load initial schema from file: {e}")
+                logger.warning("Could not load initial schema from file: %s", e)
 
         current_schema = initial_schema or Schema(query=query, columns=[], max_keys=max_keys)
 
@@ -1037,7 +943,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
         filename_batches = [filenames[i:i+batch_size] for i in range(0, len(filenames), batch_size)]
 
-        print(f"🐛 DEBUG: Document batching - {len(documents)} docs, batch_size={batch_size}, {len(batches)} batches")
+        logger.debug("Document batching - %d docs, batch_size=%d, %d batches", len(documents), batch_size, len(batches))
 
         # Initialize schema evolution tracking
         evolution = SchemaEvolution(snapshots=[], column_sources={})
@@ -1059,7 +965,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
         # Handle QUERY_ONLY mode: no documents, generate schema from query alone
         if not documents:
-            print(f"🐛 DEBUG: QUERY_ONLY mode - generating schema from query without documents")
+            logger.debug("QUERY_ONLY mode - generating schema from query without documents")
             await progress_callback("Schema Discovery: Planning from query", 0.5, {
                 "mode": "query_only",
                 "current_columns": len(current_schema.columns)
@@ -1076,7 +982,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size", 8192)
                 )
                 new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
-                print(f"🐛 DEBUG: QUERY_ONLY generated schema with {len(new_schema.columns)} columns")
+                logger.debug("QUERY_ONLY generated schema with %d columns", len(new_schema.columns))
 
                 # Merge with any initial schema
                 merged_schema = current_schema.merge(new_schema) if current_schema.columns else new_schema
@@ -1098,11 +1004,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     cumulative_documents=0
                 ))
 
-                print(f"🐛 DEBUG: QUERY_ONLY mode completed with {len(merged_schema.columns)} columns: {[c.name for c in merged_schema.columns]}")
+                logger.debug("QUERY_ONLY mode completed with %d columns: %s", len(merged_schema.columns), [c.name for c in merged_schema.columns])
                 return merged_schema, evolution
 
             except Exception as e:
-                print(f"🐛 DEBUG: ERROR in QUERY_ONLY generate_schema: {e}")
+                logger.error("ERROR in QUERY_ONLY generate_schema: %s", e)
                 import traceback
                 traceback.print_exc()
                 raise
@@ -1117,19 +1023,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     name=initial_obs_unit["name"],
                     definition=initial_obs_unit["definition"]
                 )
-                print(f"✅ Using pre-configured observation unit: {initial_obs_unit['name']} - {initial_obs_unit['definition']}")
+                logger.info("Using pre-configured observation unit: %s - %s", initial_obs_unit['name'], initial_obs_unit['definition'])
             else:
                 # Name-only mode - store name for later discovery
                 pending_observation_unit_name = initial_obs_unit["name"]
-                print(f"📝 Observation unit name pre-configured: {pending_observation_unit_name} (definition will be discovered)")
+                logger.info("Observation unit name pre-configured: %s (definition will be discovered)", pending_observation_unit_name)
 
         for iteration, (batch_docs, batch_names) in enumerate(zip(batches, filename_batches)):
             # Check for stop request at the start of each iteration
             if self.is_stop_requested(session_id):
-                print(f"🛑 Stop requested during schema discovery - saving partial schema with {len(current_schema.columns)} columns")
+                logger.warning("Stop requested during schema discovery - saving partial schema with %d columns", len(current_schema.columns))
                 break
 
-            print(f"🐛 DEBUG: Schema discovery batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs: {batch_names})")
+            logger.debug("Schema discovery batch %d/%d (%d docs: %s)", iteration + 1, len(batches), len(batch_docs), batch_names)
             await progress_callback(f"Schema Discovery: Batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs)", iteration / len(batches), {
                 "iteration": iteration + 1,
                 "max_iterations": len(batches),
@@ -1142,22 +1048,22 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             cumulative_docs += len(batch_docs)
 
             # Select relevant content from this batch's documents
-            print(f"🐛 DEBUG: Selecting relevant content with retriever")
+            logger.debug("Selecting relevant content with retriever")
             relevant_content = QBSD.select_relevant_content(
                 docs=batch_docs,
                 query=query,
                 retriever=retriever
             )
-            print(f"🐛 DEBUG: Selected {len(relevant_content)} relevant passages from batch")
+            logger.debug("Selected %d relevant passages from batch", len(relevant_content))
 
             # Check for stop after content retrieval
             if self.is_stop_requested(session_id):
-                print(f"🛑 Stop requested after content retrieval - saving partial schema")
+                logger.warning("Stop requested after content retrieval - saving partial schema")
                 break
 
             # Discover observation unit in first iteration (if not already set)
             if iteration == 0 and query and relevant_content and not current_schema.observation_unit:
-                print(f"🔍 Discovering observation unit from first batch...")
+                logger.info("Discovering observation unit from first batch...")
                 try:
                     obs_unit = discover_observation_unit(
                         query=query,
@@ -1168,27 +1074,33 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     )
                     # If name was pre-configured, override discovered name
                     if pending_observation_unit_name:
-                        print(f"📝 Overriding discovered name '{obs_unit.name}' with pre-configured name '{pending_observation_unit_name}'")
+                        logger.info("Overriding discovered name '%s' with pre-configured name '%s'", obs_unit.name, pending_observation_unit_name)
                         obs_unit.name = pending_observation_unit_name
                     current_schema.observation_unit = obs_unit
-                    print(f"✅ Observation unit set: {obs_unit.name} - {obs_unit.definition}")
+                    logger.info("Observation unit set: %s - %s", obs_unit.name, obs_unit.definition)
                     if obs_unit.example_names:
-                        print(f"   Examples: {obs_unit.example_names}")
+                        logger.info("   Examples: %s", obs_unit.example_names)
+                except ObservationUnitDiscoveryError as e:
+                    # Re-raise discovery errors with clear message
+                    logger.error("Observation unit discovery failed: %s", e)
+                    raise RuntimeError(
+                        f"Failed to discover observation unit: {e}. "
+                        "Ensure documents contain extractable entities."
+                    ) from e
                 except Exception as e:
-                    print(f"⚠️ Failed to discover observation unit: {e}, using default")
-                    default_unit = ObservationUnit.default()
-                    # If name was pre-configured, use it even for default
-                    if pending_observation_unit_name:
-                        default_unit.name = pending_observation_unit_name
-                    current_schema.observation_unit = default_unit
+                    # Wrap unexpected errors
+                    logger.error("Unexpected error during observation unit discovery: %s", e)
+                    raise RuntimeError(
+                        f"Observation unit discovery failed unexpectedly: {e}"
+                    ) from e
 
             # Check for stop after observation unit discovery
             if self.is_stop_requested(session_id):
-                print(f"🛑 Stop requested after observation unit discovery - saving partial schema")
+                logger.warning("Stop requested after observation unit discovery - saving partial schema")
                 break
 
             # Generate schema for this iteration
-            print(f"🐛 DEBUG: Calling QBSD.generate_schema with LLM...")
+            logger.debug("Calling QBSD.generate_schema with LLM...")
             try:
                 schema_result = QBSD.generate_schema(
                     passages=relevant_content,
@@ -1200,32 +1112,32 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 )
                 # generate_schema returns a tuple (Schema, bool)
                 new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
-                print(f"🐛 DEBUG: Generated schema with {len(new_schema.columns)} columns")
+                logger.debug("Generated schema with %d columns", len(new_schema.columns))
             except Exception as e:
-                print(f"🐛 DEBUG: ERROR in generate_schema: {e}")
+                logger.error("ERROR in generate_schema: %s", e)
                 raise
 
             # Check for stop after schema generation
             if self.is_stop_requested(session_id):
-                print(f"🛑 Stop requested after schema generation - saving partial schema")
+                logger.warning("Stop requested after schema generation - saving partial schema")
                 break
 
             # Merge with existing schema
-            print(f"🐛 DEBUG: Merging schemas...")
-            print(f"🐛 DEBUG: Current schema has {len(current_schema.columns)} columns")
-            print(f"🐛 DEBUG: New schema has {len(new_schema.columns)} columns")
+            logger.debug("Merging schemas...")
+            logger.debug("Current schema has %d columns", len(current_schema.columns))
+            logger.debug("New schema has %d columns", len(new_schema.columns))
             try:
                 merged_schema = current_schema.merge(new_schema)
-                print(f"🐛 DEBUG: Merged schema has {len(merged_schema.columns)} columns")
+                logger.debug("Merged schema has %d columns", len(merged_schema.columns))
             except Exception as e:
-                print(f"🐛 DEBUG: ERROR in schema merge: {e}")
+                logger.error("ERROR in schema merge: %s", e)
                 import traceback
                 traceback.print_exc()
                 raise
 
             # Check for stop after schema merge
             if self.is_stop_requested(session_id):
-                print(f"🛑 Stop requested after schema merge - saving partial schema")
+                logger.warning("Stop requested after schema merge - saving partial schema")
                 break
 
             # Identify NEW columns added in this iteration
@@ -1248,22 +1160,22 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 cumulative_documents=cumulative_docs
             ))
 
-            print(f"🐛 DEBUG: Evolution - batch {iteration + 1}: {len(new_columns)} new columns: {new_columns}")
+            logger.debug("Evolution - batch %d: %d new columns: %s", iteration + 1, len(new_columns), new_columns)
 
             # Check convergence
-            print(f"🐛 DEBUG: Checking convergence...")
+            logger.debug("Checking convergence...")
             if QBSD.evaluate_schema_convergence(current_schema, merged_schema):
                 unchanged_count += 1
-                print(f"🐛 DEBUG: Schema unchanged (count: {unchanged_count}/{convergence_threshold})")
+                logger.debug("Schema unchanged (count: %d/%d)", unchanged_count, convergence_threshold)
                 if unchanged_count >= convergence_threshold:
-                    print(f"🐛 DEBUG: Schema converged after {iteration + 1} batches")
+                    logger.debug("Schema converged after %d batches", iteration + 1)
                     break
             else:
                 unchanged_count = 0
-                print(f"🐛 DEBUG: Schema changed, continuing to next batch")
+                logger.debug("Schema changed, continuing to next batch")
 
             current_schema = merged_schema
-            print(f"🐛 DEBUG: Completed batch {iteration + 1}, moving to next")
+            logger.debug("Completed batch %d, moving to next", iteration + 1)
 
             # Save partial schema to disk after each batch (for stop resilience)
             session_dir = self.work_dir / session_id
@@ -1285,13 +1197,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 partial_schema_data["observation_unit"] = current_schema.observation_unit.to_dict()
             with open(partial_schema_file, 'w') as f:
                 json.dump(partial_schema_data, f, indent=2)
-            print(f"🐛 DEBUG: Saved partial schema with {len(current_schema.columns)} columns")
+            logger.debug("Saved partial schema with %d columns", len(current_schema.columns))
 
             # Small delay to allow other tasks
             await asyncio.sleep(0.1)
 
-        print(f"🐛 DEBUG: Schema discovery completed with {len(current_schema.columns)} columns after {len(evolution.snapshots)} batches")
-        print(f"🐛 DEBUG: Evolution tracking: {len(evolution.snapshots)} snapshots, {len(evolution.column_sources)} column sources")
+        logger.debug("Schema discovery completed with %d columns after %d batches", len(current_schema.columns), len(evolution.snapshots))
+        logger.debug("Evolution tracking: %d snapshots, %d column sources", len(evolution.snapshots), len(evolution.column_sources))
         return current_schema, evolution
     
     async def _run_value_extraction(
@@ -1384,14 +1296,14 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             # Check for stop request - continue monitoring until thread actually stops
             if self.is_stop_requested(session_id):
                 if stop_requested_at is None:
-                    print(f"🛑 Stop requested during value extraction - waiting for graceful stop")
+                    logger.warning("Stop requested during value extraction - waiting for graceful stop")
                     stop_requested_at = time.time()
                     stopped_early = True
 
                 # Check if we've waited too long for graceful stop
                 elapsed = time.time() - stop_requested_at
                 if elapsed > MAX_STOP_WAIT:
-                    print(f"⚠️ Graceful stop timeout after {MAX_STOP_WAIT}s - forcing exit")
+                    logger.warning("Graceful stop timeout after %ds - forcing exit", MAX_STOP_WAIT)
                     break
 
                 # Poll more frequently while waiting for stop
@@ -1448,7 +1360,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 await asyncio.sleep(2)  # Check every 2 seconds
                 
             except Exception as e:
-                print(f"Progress monitoring error: {e}")
+                logger.warning("Progress monitoring error: %s", e)
                 await asyncio.sleep(2)
         
         # Wait for completion
@@ -1477,7 +1389,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
         # If stopped early, return without processing suggested values or sending "Complete"
         if stopped_early:
-            print(f"🛑 Value extraction stopped early with {final_line_count} rows extracted")
+            logger.warning("Value extraction stopped early with %d rows extracted", final_line_count)
             return
 
         # Process suggested values for schema evolution
@@ -1512,7 +1424,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         if not suggested_values:
             return
 
-        print(f"🔄 Processing {sum(len(vals) for vals in suggested_values.values())} suggested values for schema evolution")
+        logger.info("Processing %d suggested values for schema evolution", sum(len(vals) for vals in suggested_values.values()))
 
         for col in session.columns:
             if col.name not in suggested_values:
@@ -1542,7 +1454,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                         col.allowed_values = []
                     col.allowed_values.append(value)
                     auto_added.append(value)
-                    print(f"  ✅ Auto-added '{value}' to {col.name} (appeared in {doc_count} docs, threshold={threshold})")
+                    logger.info("  Auto-added '%s' to %s (appeared in %d docs, threshold=%d)", value, col.name, doc_count, threshold)
                 else:
                     # Add to pending values for user review
                     pending.append(PendingValue(
@@ -1557,10 +1469,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 if col.pending_values is None:
                     col.pending_values = []
                 col.pending_values.extend(pending)
-                print(f"  📋 Added {len(pending)} pending values to {col.name} for review")
+                logger.info("  Added %d pending values to %s for review", len(pending), col.name)
 
             if auto_added:
-                print(f"  🎉 Auto-expanded {col.name} allowed_values with {len(auto_added)} new values")
+                logger.info("  Auto-expanded %s allowed_values with %d new values", col.name, len(auto_added))
 
         # Broadcast schema update if there were changes
         total_auto_added = sum(1 for col in session.columns if col.allowed_values)
@@ -1594,7 +1506,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         data_file = session_dir / "extracted_data.jsonl"
 
         if not data_file.exists():
-            print(f"⚠️  Statistics: No extracted_data.jsonl found for session {session_id} (schema-only mode)")
+            logger.warning("Statistics: No extracted_data.jsonl found for session %s (schema-only mode)", session_id)
             # Schema-only mode: return statistics based on schema without data
             columns = []
             for col in schema.columns:
@@ -1627,11 +1539,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     if line.strip():
                         data_rows.append(json.loads(line))
         except Exception as e:
-            print(f"⚠️  Statistics: Error reading extracted data: {e}")
+            logger.warning("Statistics: Error reading extracted data: %s", e)
             return None
 
         if not data_rows:
-            print(f"⚠️  Statistics: No data rows found in extracted_data.jsonl")
+            logger.warning("Statistics: No data rows found in extracted_data.jsonl")
             return None
 
         # Build column stats from schema + data
@@ -1701,9 +1613,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             schema_evolution=schema_evolution
         )
 
-        print(f"✓ Statistics computed: {len(data_rows)} rows, {len(columns)} columns, {completeness:.1f}% complete")
+        logger.info("Statistics computed: %d rows, %d columns, %.1f%% complete", len(data_rows), len(columns), completeness)
         if schema_evolution:
-            print(f"✓ Schema evolution: {len(schema_evolution.snapshots)} snapshots, {len(schema_evolution.column_sources)} column sources")
+            logger.info("Schema evolution: %d snapshots, %d column sources", len(schema_evolution.snapshots), len(schema_evolution.column_sources))
         return stats
 
     async def get_status(self, session_id: str) -> QBSDStatus:
@@ -1903,7 +1815,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                                 data_row = DataRow(**normalized)
                                 rows.append(data_row)
                             except (json.JSONDecodeError, TypeError) as e:
-                                print(f"Warning: Could not parse row {global_line}: {e}")
+                                logger.warning("Could not parse row %d: %s", global_line, e)
                         global_line += 1
 
             return PaginatedData(
@@ -1921,8 +1833,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         Returns:
             Dict with status info including what was saved (schema, data counts)
         """
-        print(f"🛑 DEBUG stop_execution: Called for session {session_id}")
-        print(f"🛑 DEBUG stop_execution: running_sessions keys = {list(self.running_sessions.keys())}")
+        logger.debug("stop_execution: Called for session %s", session_id)
+        logger.debug("stop_execution: running_sessions keys = %s", list(self.running_sessions.keys()))
 
         result = {
             "stopped": False,
@@ -1932,7 +1844,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         }
 
         if session_id in self.running_sessions:
-            print(f"🛑 DEBUG stop_execution: Session found in running_sessions, setting stop flag")
+            logger.debug("stop_execution: Session found in running_sessions, setting stop flag")
             # Set stop flag first - the running task will check this and exit gracefully
             self.stop_flags[session_id] = True
 
@@ -1940,22 +1852,22 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
             # Give the task time to stop gracefully (LLM calls can take 30+ seconds)
             try:
-                print(f"🛑 DEBUG stop_execution: Waiting for task to finish gracefully...")
+                logger.debug("stop_execution: Waiting for task to finish gracefully...")
                 await asyncio.wait_for(asyncio.shield(task), timeout=60.0)
-                print(f"🛑 DEBUG stop_execution: Task finished gracefully")
+                logger.debug("stop_execution: Task finished gracefully")
             except asyncio.TimeoutError:
                 # If it doesn't stop gracefully after 60s, force cancel it
-                print(f"🛑 Graceful stop timed out after 60s, force cancelling task for {session_id}")
+                logger.warning("Graceful stop timed out after 60s, force cancelling task for %s", session_id)
                 task.cancel()
                 try:
                     await task
                 except asyncio.CancelledError:
                     pass
             except asyncio.CancelledError:
-                print(f"🛑 DEBUG stop_execution: Task was cancelled")
+                logger.debug("stop_execution: Task was cancelled")
                 pass  # Task was cancelled, which is expected
             except Exception as e:
-                print(f"🛑 Exception during stop: {e}")
+                logger.error("Exception during stop: %s", e)
 
             # Clean up
             if session_id in self.running_sessions:
@@ -1975,30 +1887,30 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     result["data_rows_saved"] = sum(1 for _ in f)
 
             # Update session status to STOPPED (not ERROR)
-            print(f"🛑 DEBUG stop_execution: Updating session status to STOPPED")
+            logger.debug("stop_execution: Updating session status to STOPPED")
             session = self.session_manager.get_session(session_id)
             if session:
-                print(f"🛑 DEBUG stop_execution: Current status = {session.status}, updating to STOPPED")
+                logger.debug("stop_execution: Current status = %s, updating to STOPPED", session.status)
                 session.status = SessionStatus.STOPPED
                 session.error_message = None  # Clear any error - this was intentional stop
                 self.session_manager.update_session(session)
-                print(f"🛑 DEBUG stop_execution: Session updated, new status = {session.status}")
+                logger.debug("stop_execution: Session updated, new status = %s", session.status)
             else:
-                print(f"🛑 DEBUG stop_execution: WARNING - session is None!")
+                logger.warning("stop_execution: WARNING - session is None!")
 
             # Broadcast stopped message
-            print(f"🛑 DEBUG stop_execution: Broadcasting stopped message")
+            logger.debug("stop_execution: Broadcasting stopped message")
             await self.broadcast_stopped(session_id, {
                 "schema_saved": result["schema_saved"],
                 "data_rows_saved": result["data_rows_saved"],
                 "message": "Processing stopped by user"
             })
-            print(f"🛑 DEBUG stop_execution: Broadcast complete")
+            logger.debug("stop_execution: Broadcast complete")
 
             result["stopped"] = True
             result["message"] = "Processing stopped successfully"
             return result
 
-        print(f"🛑 DEBUG stop_execution: Session NOT in running_sessions!")
+        logger.debug("stop_execution: Session NOT in running_sessions!")
         result["message"] = "No running session found"
         return result

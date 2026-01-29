@@ -1,12 +1,15 @@
 """FastAPI application for QBSD visualization module."""
 
 import logging
+import os
 import sys
 from pathlib import Path
 
 # Configure logging to show in container logs
+# Set LOG_LEVEL=DEBUG to see detailed schema column tracking
+log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level, logging.INFO),
     format='%(levelname)s:%(name)s:%(message)s',
     stream=sys.stdout,
     force=True

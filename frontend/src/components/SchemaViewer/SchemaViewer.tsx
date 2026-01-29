@@ -927,7 +927,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   return (
     <div className="space-y-6">
       {/* Observation Unit Info Card */}
-      {observationUnit && !observationUnit.name?.includes('Document') && (
+      {observationUnit && (
         <Card className="bg-purple-50 border-purple-200">
           <CardContent className="p-4">
             <div className="flex items-center justify-between mb-2">

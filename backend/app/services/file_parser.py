@@ -2,6 +2,7 @@
 
 import csv
 import json
+import logging
 import math
 import io
 import re
@@ -10,6 +11,8 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from fastapi import UploadFile
+
+logger = logging.getLogger(__name__)
 
 from app.models.upload import (
     FileValidationResult, ColumnMappingRequest, SchemaValidationResult,
@@ -27,6 +30,26 @@ class FileParser:
         '_unit_name', 'unit_name', '_source_document', 'source_document',
         '_parent_document', '_observation_unit', '_unit_confidence'
     }
+
+    @staticmethod
+    def _extract_and_pop_field(data: dict, field_variations: List[str]) -> Optional[str]:
+        """Extract field value from data dict, trying multiple field names.
+
+        Removes the field from the dict and returns the cleaned value.
+
+        Args:
+            data: Dictionary to extract from (will be modified)
+            field_variations: List of possible field names to try
+
+        Returns:
+            Stripped string value if found and non-empty, else None
+        """
+        for field_name in field_variations:
+            if field_name in data:
+                raw_val = data.pop(field_name)
+                if raw_val is not None and str(raw_val).strip():
+                    return str(raw_val).strip()
+        return None
 
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = Path(data_dir)
@@ -265,9 +288,9 @@ class FileParser:
                 config["documents_batch_size"] = result["documents_batch_size"]
                 with open(qbsd_config_file, 'w') as f:
                     json.dump(config, f, indent=2)
-                print(f"DEBUG: Saved documents_batch_size={result['documents_batch_size']} to qbsd_config.json")
+                logger.debug("Saved documents_batch_size=%s to qbsd_config.json", result['documents_batch_size'])
             except Exception as e:
-                print(f"DEBUG: Could not save documents_batch_size to config: {e}")
+                logger.debug("Could not save documents_batch_size to config: %s", e)
 
         return result
     
@@ -376,9 +399,9 @@ class FileParser:
                     snapshots=snapshots,
                     column_sources=evolution_data.get("column_sources", {})
                 )
-                print(f"DEBUG: Imported schema evolution from CSV with {len(snapshots)} snapshots")
+                logger.debug("Imported schema evolution from CSV with %d snapshots", len(snapshots))
             except Exception as e:
-                print(f"DEBUG: Could not parse CSV schema_evolution: {e}")
+                logger.debug("Could not parse CSV schema_evolution: %s", e)
 
         statistics = DataStatistics(
             total_rows=len(df),
@@ -399,35 +422,16 @@ class FileParser:
                 else:
                     merged_data = self._sanitize_data_dict(row_dict)
 
-                # Extract row_name field from data if present
-                row_name_col_names = ['row_name', 'Row Name', 'Row_Name', 'RowName']
-                row_name_value = None
-                for col_name in row_name_col_names:
-                    if col_name in merged_data:
-                        raw_val = merged_data.pop(col_name)  # Remove from data dict
-                        if raw_val is not None and str(raw_val).strip():
-                            row_name_value = str(raw_val).strip()
-                        break
-
-                # Extract _unit_name field from data if present (observation unit instance name)
-                unit_name_col_names = ['_unit_name', 'unit_name', 'Unit Name']
-                unit_name_value = None
-                for col_name in unit_name_col_names:
-                    if col_name in merged_data:
-                        raw_val = merged_data.pop(col_name)  # Remove from data dict
-                        if raw_val is not None and str(raw_val).strip():
-                            unit_name_value = str(raw_val).strip()
-                        break
-
-                # Extract _source_document field from data if present (original document name)
-                source_doc_col_names = ['_source_document', 'source_document', 'Source Document']
-                source_doc_value = None
-                for col_name in source_doc_col_names:
-                    if col_name in merged_data:
-                        raw_val = merged_data.pop(col_name)  # Remove from data dict
-                        if raw_val is not None and str(raw_val).strip():
-                            source_doc_value = str(raw_val).strip()
-                        break
+                # Extract metadata fields from data using helper
+                row_name_value = self._extract_and_pop_field(
+                    merged_data, ['row_name', 'Row Name', 'Row_Name', 'RowName']
+                )
+                unit_name_value = self._extract_and_pop_field(
+                    merged_data, ['_unit_name', 'unit_name', 'Unit Name']
+                )
+                source_doc_value = self._extract_and_pop_field(
+                    merged_data, ['_source_document', 'source_document', 'Source Document']
+                )
 
                 # Extract papers field from data if present
                 papers_col_names = ['Papers', 'papers', 'Paper', 'paper', 'Documents', 'documents']
@@ -509,23 +513,23 @@ class FileParser:
                                 snapshots=snapshots,
                                 column_sources=evolution_data.get("column_sources", {})
                             )
-                            print(f"DEBUG: Imported schema evolution with {len(snapshots)} snapshots")
+                            logger.debug("Imported schema evolution with %d snapshots", len(snapshots))
                         except Exception as e:
-                            print(f"DEBUG: Could not parse schema_evolution: {e}")
+                            logger.debug("Could not parse schema_evolution: %s", e)
 
                     # Extract observation_unit if present (backward compatible)
                     if "observation_unit" in data:
                         try:
                             observation_unit = data["observation_unit"]
-                            print(f"DEBUG: Imported observation unit: {observation_unit.get('name')}")
+                            logger.debug("Imported observation unit: %s", observation_unit.get('name'))
                         except Exception as e:
-                            print(f"DEBUG: Could not parse observation_unit: {e}")
+                            logger.debug("Could not parse observation_unit: %s", e)
 
                     # Extract documents_batch_size from metadata if present (backward compatible)
                     if "metadata" in data and isinstance(data["metadata"], dict):
                         documents_batch_size = data["metadata"].get("documents_batch_size")
                         if documents_batch_size is not None:
-                            print(f"DEBUG: Imported documents_batch_size: {documents_batch_size}")
+                            logger.debug("Imported documents_batch_size: %s", documents_batch_size)
 
                     # Check if this is a complete export format with "data" array
                     if "data" in data and isinstance(data["data"], list):
@@ -1381,9 +1385,9 @@ class FileParser:
                 schema_data = json.loads(content.decode('utf-8'))
                 if "llm_configuration" in schema_data:
                     parsed_schema["llm_configuration"] = schema_data["llm_configuration"]
-                    print(f"DEBUG: Preserved LLM configuration in parsed schema")
+                    logger.debug("Preserved LLM configuration in parsed schema")
             except Exception as e:
-                print(f"DEBUG: Could not extract LLM configuration: {e}")
+                logger.debug("Could not extract LLM configuration: %s", e)
             
             parsed_path = session_dir / "parsed_schema.json"
             with open(parsed_path, 'w') as f:
@@ -1407,7 +1411,7 @@ class FileParser:
                 
                 # Skip system file rows (like .DS_Store)
                 if self._is_system_row(row_data):
-                    print(f"🧹 Skipping system row during schema extraction: {self._get_row_identifier(row_data)}")
+                    logger.debug("Skipping system row during schema extraction: %s", self._get_row_identifier(row_data))
                     continue
                     
                 sample_rows.append(row_data)
@@ -1727,9 +1731,9 @@ class FileParser:
                             try:
                                 obs_unit_json = content.split(':', 1)[1].strip()
                                 metadata_info['observation_unit'] = json.loads(obs_unit_json)
-                                print(f"DEBUG: Imported observation unit from CSV: {metadata_info['observation_unit'].get('name')}")
+                                logger.debug("Imported observation unit from CSV: %s", metadata_info['observation_unit'].get('name'))
                             except Exception as e:
-                                print(f"DEBUG: Could not parse observation unit from CSV: {e}")
+                                logger.debug("Could not parse observation unit from CSV: %s", e)
                         elif content.startswith('Generated:'):
                             metadata_info['generated_timestamp'] = content.split(':', 1)[1].strip()
                         elif content.startswith('Schema Creation:'):
@@ -1819,7 +1823,7 @@ class FileParser:
                                 for col in new_columns:
                                     metadata_info['schema_evolution']['column_sources'][col] = source_name
                             except Exception as e:
-                                print(f"DEBUG: Could not parse iteration line '{content}': {e}")
+                                logger.debug("Could not parse iteration line '%s': %s", content, e)
                         elif content.startswith('Total:') and 'columns from' in content and 'iterations' in content:
                             # "Total: 5 columns from 2 iterations" - just informational, skip
                             pass
@@ -1856,7 +1860,7 @@ class FileParser:
                         break
                         
         except Exception as e:
-            print(f"DEBUG: Error extracting CSV metadata: {e}")
+            logger.debug("Error extracting CSV metadata: %s", e)
         
         return metadata_info
     
