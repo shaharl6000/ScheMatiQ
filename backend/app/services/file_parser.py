@@ -423,8 +423,9 @@ class FileParser:
                     merged_data = self._sanitize_data_dict(row_dict)
 
                 # Extract metadata fields from data using helper
+                # Note: _row_name is the export format, row_name is the legacy format
                 row_name_value = self._extract_and_pop_field(
-                    merged_data, ['row_name', 'Row Name', 'Row_Name', 'RowName']
+                    merged_data, ['_row_name', 'row_name', 'Row Name', 'Row_Name', 'RowName']
                 )
                 unit_name_value = self._extract_and_pop_field(
                     merged_data, ['_unit_name', 'unit_name', 'Unit Name']

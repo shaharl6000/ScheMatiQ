@@ -542,9 +542,13 @@ async def export_upload_data(
             return value
 
         # Read JSONL format and flatten DataRow objects
-        # First pass: collect all column names to ensure consistency
+        # First pass: collect all column names and check for row-level metadata fields
         all_columns = set()
         raw_rows = []
+        has_row_name = False
+        has_unit_name = False
+        has_source_document = False
+
         with open(data_file, 'r', encoding='utf-8') as f:
             for line in f:
                 if line.strip():
@@ -552,15 +556,17 @@ async def export_upload_data(
                     raw_rows.append(row_data)
                     if 'data' in row_data:
                         all_columns.update(row_data['data'].keys())
+                        # Check for row-level metadata fields (these are NOT in 'data' dict)
+                        if row_data.get('row_name'):
+                            has_row_name = True
+                        if row_data.get('_unit_name'):
+                            has_unit_name = True
+                        if row_data.get('_source_document'):
+                            has_source_document = True
                     else:
                         all_columns.update(row_data.keys())
 
-        # Check if the original data structure includes row_name or papers as data columns
-        # We only include these if they're part of the data schema to maintain consistency
-        has_row_name_column = 'row_name' in all_columns
-        has_papers_column = 'papers' in all_columns
-
-        # Second pass: flatten rows with consistent columns
+        # Second pass: flatten rows with consistent columns, including row-level metadata
         rows = []
         for row_data in raw_rows:
             if 'data' in row_data:
@@ -568,12 +574,14 @@ async def export_upload_data(
                 flat_row = {}
                 for key, value in row_data['data'].items():
                     flat_row[key] = flatten_cell_value(value)
-                # Only add row_name/papers if they're already expected columns in the data schema
-                # This ensures new rows don't introduce extra columns that original rows don't have
-                if has_row_name_column:
-                    flat_row['row_name'] = row_data.get('row_name', '')
-                if has_papers_column:
-                    flat_row['papers'] = str(row_data.get('papers', ''))
+                # Always include row-level metadata fields if ANY row has them
+                # These are critical for round-tripping data through export/import
+                if has_row_name:
+                    flat_row['_row_name'] = row_data.get('row_name', '')
+                if has_unit_name:
+                    flat_row['_unit_name'] = row_data.get('_unit_name', '')
+                if has_source_document:
+                    flat_row['_source_document'] = row_data.get('_source_document', '')
                 rows.append(flat_row)
             else:
                 # Flatten values for non-DataRow format too
@@ -646,7 +654,7 @@ async def export_upload_data(
 
         output.write("#\n")
         
-        # Get column names - use user-specified order if provided
+        # Get column names - establish consistent order with metadata columns first
         if rows:
             available_columns = set(rows[0].keys())
 
@@ -659,8 +667,27 @@ async def export_upload_data(
                 remaining_columns = [col for col in available_columns if col not in column_names]
                 column_names.extend(remaining_columns)
             else:
-                # Default: use first row's column order
-                column_names = list(rows[0].keys())
+                # Build ordered column list:
+                # 1. Metadata columns first (in priority order)
+                # 2. Schema columns (preserve schema order from session.columns)
+                # 3. Any remaining columns
+                column_names = []
+
+                # Priority metadata columns first
+                priority_cols = ['_row_name', '_unit_name', '_source_document']
+                for priority_col in priority_cols:
+                    if priority_col in available_columns:
+                        column_names.append(priority_col)
+
+                # Schema columns next (preserve schema order)
+                for col in session.columns:
+                    if col.name in available_columns and col.name not in column_names:
+                        column_names.append(col.name)
+
+                # Any remaining columns
+                for col in available_columns:
+                    if col not in column_names:
+                        column_names.append(col)
 
             writer = csv.DictWriter(output, fieldnames=column_names)
             writer.writeheader()
@@ -1569,8 +1596,9 @@ async def export_upload_rich_csv(session_id: str):
                     if 'data' in row_data:
                         # Extract data from DataRow format
                         flat_row = row_data['data'].copy()
+                        # Use _row_name for consistency with main export
                         if row_data.get('row_name'):
-                            flat_row['row_name'] = row_data['row_name']
+                            flat_row['_row_name'] = row_data['row_name']
                         if row_data.get('papers'):
                             flat_row['papers'] = row_data['papers']
                         # Include observation unit fields
@@ -1598,7 +1626,7 @@ async def export_upload_rich_csv(session_id: str):
         for col_name in sorted(base_columns):
             enhanced_columns.append(col_name)
             # Add metadata columns for schema columns (not for standard columns)
-            if col_name not in ['row_name', 'papers', '_unit_name', '_source_document']:
+            if col_name not in ['_row_name', 'row_name', 'papers', '_unit_name', '_source_document']:
                 enhanced_columns.append(f"{col_name}_definition")
                 enhanced_columns.append(f"{col_name}_rationale")
                 enhanced_columns.append(f"{col_name}_allowed_values")
@@ -1642,7 +1670,7 @@ async def export_upload_rich_csv(session_id: str):
                 csv_row[col_name] = str(value) if value is not None else ""
                 
                 # Add metadata columns for schema columns (not for standard columns)
-                if col_name not in ['row_name', 'papers', '_unit_name', '_source_document'] and col_name in column_metadata:
+                if col_name not in ['_row_name', 'row_name', 'papers', '_unit_name', '_source_document'] and col_name in column_metadata:
                     csv_row[f"{col_name}_definition"] = column_metadata[col_name]['definition']
                     csv_row[f"{col_name}_rationale"] = column_metadata[col_name]['rationale']
                     csv_row[f"{col_name}_allowed_values"] = column_metadata[col_name]['allowed_values']
