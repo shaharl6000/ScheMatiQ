@@ -201,13 +201,17 @@ Return valid JSON:
   "observation_units": [
     {{
       "unit_name": "Descriptive name for this instance",
-      "relevant_passages": ["Passage 1...", "Passage 2..."],
       "confidence": "high"
     }}
   ],
   "total_units_found": <number>,
   "notes": "Optional notes"
 }}
+
+IMPORTANT: Keep your response concise to avoid token limit errors.
+- The `relevant_passages` field is OPTIONAL - you may omit it entirely
+- If you include passages, use only brief 1-2 sentence excerpts
+- Do NOT copy large blocks of text from the document
 
 ##############################################################################
 #                    WRONG FORMATS - DO NOT USE                              #
@@ -229,49 +233,33 @@ WRONG - Including tools/controls as units:
 **Example 1: Subject vs Tool distinction (Drug study):**
 {{
   "observation_units": [
-    {{
-      "unit_name": "Drug-A",
-      "relevant_passages": ["Drug-A showed 85% response rate...", "We measured efficacy of Drug-A across 200 patients..."],
-      "confidence": "high"
-    }}
+    {{"unit_name": "Drug-A", "confidence": "high"}}
   ],
   "total_units_found": 1,
-  "notes": "Excluded placebo (control group), Biomarker-Y (measurement tool), and prior treatments (background context)."
+  "notes": "Excluded placebo (control), Biomarker-Y (tool), prior treatments (context)."
 }}
 
 **Example 2: Multiple subjects being compared:**
 {{
   "observation_units": [
-    {{
-      "unit_name": "GPT-4 on MMLU",
-      "relevant_passages": ["GPT-4 achieves 86.4% on MMLU...", "Table 2 shows detailed performance..."],
-      "confidence": "high"
-    }},
-    {{
-      "unit_name": "Claude-3 on MMLU",
-      "relevant_passages": ["Claude-3 scores 85.1% on MMLU...", "Section 4.2 provides ablation studies..."],
-      "confidence": "high"
-    }}
+    {{"unit_name": "GPT-4 on MMLU", "confidence": "high"}},
+    {{"unit_name": "Claude-3 on MMLU", "confidence": "high"}}
   ],
   "total_units_found": 2,
-  "notes": "Excluded Llama-2 (baseline only, no detailed analysis)."
+  "notes": "Excluded Llama-2 (baseline only)."
 }}
 
 **Example 3: Survey with no primary units:**
 {{
   "observation_units": [],
   "total_units_found": 0,
-  "notes": "Survey mentions many models but provides no original evaluation of any."
+  "notes": "Survey mentions many models but provides no original evaluation."
 }}
 
 **Example 4: Document-level unit:**
 {{
   "observation_units": [
-    {{
-      "unit_name": "This paper: [brief description]",
-      "relevant_passages": ["The entire document is the observation unit"],
-      "confidence": "high"
-    }}
+    {{"unit_name": "This paper: [brief description]", "confidence": "high"}}
   ],
   "total_units_found": 1,
   "notes": "Observation unit is 'Paper' - returning 1 unit for document itself."
