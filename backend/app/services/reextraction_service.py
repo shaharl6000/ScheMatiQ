@@ -456,8 +456,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         # Clean up doc_dir - handle different path formats
                         if doc_dir:
                             if 'qbsd_work/' in doc_dir or 'qbsd_work\\' in doc_dir:
-                                logger.debug("Detected qbsd_work path: %s - will use local files", doc_dir)
-                                doc_dir = None
+                                # Extract datasets folder from qbsd_work path if present
+                                if 'datasets/' in doc_dir:
+                                    doc_dir = 'datasets/' + doc_dir.split('datasets/')[-1]
+                                    logger.info("Extracted cloud path from qbsd_work: %s", doc_dir)
+                                else:
+                                    logger.debug("Detected qbsd_work path without datasets: %s - will use local files", doc_dir)
+                                    doc_dir = None
                             elif 'datasets/' in doc_dir:
                                 doc_dir = 'datasets/' + doc_dir.split('datasets/')[-1]
                             elif self._is_local_path(doc_dir):
