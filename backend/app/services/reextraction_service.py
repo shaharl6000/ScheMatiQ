@@ -380,6 +380,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
         row_paper_mapping: Dict[str, List[str]] = {}
         paper_doc_dirs: Dict[str, str] = {}
         total_rows = 0
+        rows_with_papers = 0
+        rows_using_source_doc_fallback = 0
 
         def extract_value(val: Any) -> str:
             """Extract value from QBSD answer format or plain value."""
@@ -433,6 +435,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     source_doc = source_doc.get('answer')
                                 if source_doc:
                                     papers = [str(source_doc)]
+                                    rows_using_source_doc_fallback += 1
+                                    if rows_using_source_doc_fallback <= 3:
+                                        logger.info("Row %d using _source_document fallback: %s -> papers=%s",
+                                                   total_rows, source_doc, papers)
+
+                        if papers:
+                            rows_with_papers += 1
 
                         # Get document directory from row data
                         doc_dir_raw = (
@@ -470,6 +479,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     except json.JSONDecodeError:
                         continue
 
+        logger.info("Paper collection summary: total_rows=%d, rows_with_papers=%d, "
+                   "rows_using_source_doc_fallback=%d, unique_papers=%d",
+                   total_rows, rows_with_papers, rows_using_source_doc_fallback, len(paper_refs))
+        if paper_refs:
+            sample_papers = list(paper_refs)[:5]
+            logger.info("Sample paper refs: %s", sample_papers)
+
         return total_rows, paper_refs, row_paper_mapping, paper_doc_dirs
 
     def _find_local_documents(
@@ -505,10 +521,21 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         for local_dir in local_dirs_to_check:
             if local_dir.exists():
+                dir_file_count = 0
                 for f in local_dir.iterdir():
                     if f.is_file() and not f.name.startswith('.'):
                         local_files.add(f.name)
                         local_files.add(f.stem)
+                        dir_file_count += 1
+                if dir_file_count > 0:
+                    logger.info("Found %d files in %s", dir_file_count, local_dir)
+            else:
+                logger.debug("Directory does not exist: %s", local_dir)
+
+        logger.info("Total local files found: %d unique names/stems", len(local_files))
+        if local_files:
+            sample_files = list(local_files)[:5]
+            logger.info("Sample local files: %s", sample_files)
 
         return local_files
 
@@ -537,6 +564,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Step 1: Check local files first
         papers_to_check_cloud: List[str] = []
+        no_doc_dir_count = 0
         for paper in paper_refs:
             if paper in local_files or f"{paper}.txt" in local_files:
                 local_papers.append(paper)
@@ -544,6 +572,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 papers_to_check_cloud.append(paper)
             else:
                 missing.append(paper)
+                no_doc_dir_count += 1
+                if no_doc_dir_count <= 3:
+                    logger.info("Paper '%s' not in local_files and no doc_dir mapping", paper)
+
+        logger.info("Categorization step 1: local=%d, need_cloud_check=%d, missing_no_doc_dir=%d",
+                   len(local_papers), len(papers_to_check_cloud), no_doc_dir_count)
 
         # Step 2: Group papers by their cloud folder
         folders_to_check: Dict[str, List[str]] = {}
@@ -579,6 +613,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 cloud_papers[paper] = f"{clean_doc_dir}/{paper[:-4]}"
             else:
                 missing.append(paper)
+
+        logger.info("Final categorization: local=%d, cloud=%d, missing=%d",
+                   len(local_papers), len(cloud_papers), len(missing))
+        if missing:
+            sample_missing = missing[:5]
+            logger.info("Sample missing papers: %s", sample_missing)
 
         return local_papers, cloud_papers, missing
 
