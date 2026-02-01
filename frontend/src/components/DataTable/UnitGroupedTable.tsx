@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb, FileText } from 'lucide-react';
+import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
@@ -31,10 +31,12 @@ import { UnitFilter } from '../ViewMode/UnitFilter';
 import { UnitMergeDialog } from '../ViewMode/UnitMergeDialog';
 import { UnitSimilarityCard } from '../Units/UnitSimilarityCard';
 import UnitGroupRow from './UnitGroupRow';
-import { DataRow, CellValue } from '../../types';
+import ContentModal from '../ContentModal/ContentModal';
+import { DataRow, CellValue, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { cn } from '@/lib/utils';
 import { formatColumnName } from '../../utils/formatting';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
+import { Eye } from 'lucide-react';
 
 interface UnitGroupedTableProps {
   /** Session ID */
@@ -75,6 +77,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   // Pagination state for unit data
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(50);
+
+  // Modal state for viewing cell content with excerpts
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalContent, setModalContent] = useState<ModalContent>({ title: '', content: null });
 
   // Fetch unit-grouped data
   const { data: unitData, isLoading: dataLoading, refetch: refetchData } = useQuery(
@@ -180,6 +186,15 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     setDismissedSuggestions(prev => new Set(prev).add(key));
   }, []);
 
+  // Handle viewing cell content in modal
+  const handleViewContent = useCallback((columnName: string, content: CellValue) => {
+    setModalContent({
+      title: `${formatColumnName(columnName)} - Full Content`,
+      content: content
+    });
+    setModalOpen(true);
+  }, []);
+
   // Get selected units for merge dialog
   const selectedUnitsForMerge = useMemo(() => {
     return units.filter(u => selectedForMerge.has(u.name));
@@ -210,16 +225,34 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     return groups;
   }, [unitData?.rows]);
 
-  // Determine which columns to show (filter out internal columns, excluding _source_document which we show separately)
+  // Determine which columns to show (filter out internal columns, but keep _unit_name and _source_document)
   const visibleColumns = useMemo(() => {
     return columns.filter(col =>
-      !col.startsWith('_') || col === '_unit_name'
+      !col.startsWith('_') || col === '_unit_name' || col === '_source_document'
     );
   }, [columns]);
 
-  // Check if we have source document data by looking at actual rows
-  const hasSourceDocument = useMemo(() => {
-    return unitData?.rows?.some(row => row._source_document !== undefined && row._source_document !== null) ?? false;
+  // Create mapping of main columns to their corresponding excerpt columns
+  const excerptMapping = useMemo(() => {
+    const mapping: Record<string, string> = {};
+
+    if (!unitData?.rows) return mapping;
+
+    const allDataColumns = new Set<string>();
+    unitData.rows.forEach(row => {
+      Object.keys(row.data).forEach(key => allDataColumns.add(key));
+    });
+
+    Array.from(allDataColumns).forEach(col => {
+      if (col.endsWith('_excerpt')) {
+        const baseColumn = col.replace('_excerpt', '');
+        if (allDataColumns.has(baseColumn)) {
+          mapping[baseColumn] = col;
+        }
+      }
+    });
+
+    return mapping;
   }, [unitData?.rows]);
 
   if (unitsLoading) {
@@ -406,15 +439,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10 bg-background border-b">
               <tr>
-                {/* Source Document column - always first */}
-                {hasSourceDocument && (
-                  <th className="px-4 py-3 text-left font-bold text-base min-w-[180px] bg-background border-r">
-                    <div className="flex items-center gap-1.5">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      Source Document
-                    </div>
-                  </th>
-                )}
                 {visibleColumns.map(column => (
                   <th
                     key={column}
@@ -448,7 +472,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                         onToggleExpand={() => toggleExpansion(unit.name)}
                         isSelectedForMerge={isSelectedForMerge}
                         onToggleMergeSelection={() => toggleMergeSelection(unit.name)}
-                        columnCount={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
+                        columnCount={visibleColumns.length}
                       />
 
                       {/* Unit rows (when expanded) */}
@@ -457,24 +481,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                           key={`${unit.name}-${rowIndex}`}
                           className="border-b hover:bg-muted/30 transition-colors"
                         >
-                          {/* Source Document cell - always first */}
-                          {hasSourceDocument && (
-                            <td className="px-4 py-3 text-sm border-r bg-muted/20">
-                              <div className="flex items-center gap-1.5">
-                                <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="truncate max-w-[160px] font-medium text-foreground/80 cursor-help">
-                                      {formatSourceDocument(row._source_document)}
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-[400px]">
-                                    <p className="break-all">{row._source_document || 'Unknown'}</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </div>
-                            </td>
-                          )}
                           {visibleColumns.map(column => {
                             let cellValue: CellValue;
                             if (column === '_unit_name') {
@@ -488,7 +494,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                                 key={column}
                                 className="px-4 py-3 text-sm"
                               >
-                                {formatCellValue(cellValue)}
+                                {formatCellValue(cellValue, column, row, excerptMapping, handleViewContent)}
                               </td>
                             );
                           })}
@@ -499,7 +505,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       {isExpanded && unitRows.length === 0 && (
                         <tr>
                           <td
-                            colSpan={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
+                            colSpan={visibleColumns.length}
                             className="px-4 py-8 text-center text-muted-foreground"
                           >
                             No rows loaded for this unit. Data may still be loading.
@@ -567,58 +573,321 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         loading={mergeLoading}
         error={mergeError}
       />
+
+      {/* Content Modal for viewing cell values with excerpts */}
+      <ContentModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title={modalContent.title}
+        content={modalContent.content}
+      />
     </Card>
   );
 };
 
 /**
- * Format source document name for display (extract filename from path).
+ * Parse Python-style dict/list strings to JSON objects.
+ * Handles single quotes, None, True/False, etc.
  */
-function formatSourceDocument(source: string | undefined | null): string {
-  if (!source) return 'Unknown';
+function parsePythonString(val: string): unknown {
+  const trimmed = val.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return val;
 
-  // Extract filename from path
-  const parts = source.split('/');
-  const filename = parts[parts.length - 1];
-
-  // Remove common extensions for cleaner display
-  return filename
-    .replace(/\.(pdf|txt|md|docx?)$/i, '')
-    .replace(/_/g, ' ')
-    .trim() || 'Unknown';
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    try {
+      const jsonified = trimmed
+        .replace(/'/g, '"')
+        .replace(/None/g, 'null')
+        .replace(/True/g, 'true')
+        .replace(/False/g, 'false');
+      return JSON.parse(jsonified);
+    } catch {
+      return val;
+    }
+  }
 }
 
 /**
- * Simple cell value formatter for the grouped table.
+ * Extract display string from various QBSD value formats.
+ * Handles: answer/excerpts, value/excerpt, text (ExcerptWithSource), arrays, etc.
  */
-function formatCellValue(value: CellValue): React.ReactNode {
+function extractDisplayValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+
+  // Parse string values that look like JSON/Python objects
+  if (typeof value === 'string') {
+    const parsed = parsePythonString(value);
+    // If parsing changed the value, recursively extract from parsed result
+    if (parsed !== value && typeof parsed === 'object') {
+      return extractDisplayValue(parsed);
+    }
+    return value;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
+  if (Array.isArray(value)) {
+    // If array of objects, extract from first item
+    if (value.length > 0 && typeof value[0] === 'object') {
+      return extractDisplayValue(value[0]);
+    }
+    return value.map(v => extractDisplayValue(v)).join(', ');
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    // QBSD format with answer/excerpts
+    if ('answer' in obj) {
+      return extractDisplayValue(obj.answer);
+    }
+    // Value/excerpt format (streaming cells)
+    if ('value' in obj) {
+      return extractDisplayValue(obj.value);
+    }
+    // ExcerptWithSource format
+    if ('text' in obj) {
+      return extractDisplayValue(obj.text);
+    }
+    // Last resort: stringify
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+}
+
+/**
+ * Parse pipe-separated excerpt strings like: {'text': '...', 'source': '...'} | {'text': '...'}
+ */
+function parseExcerpts(excerpts: unknown[]): Array<{text: string; source: string}> {
+  const result: Array<{text: string; source: string}> = [];
+
+  for (const exc of excerpts) {
+    if (typeof exc === 'string') {
+      // Check if it's pipe-separated
+      if (exc.includes("'text':") || exc.includes('"text":')) {
+        // Split by pipe and parse each part
+        const parts = exc.split(/\s*\|\s*/);
+        for (const part of parts) {
+          const parsed = parsePythonString(part.trim());
+          if (typeof parsed === 'object' && parsed !== null && 'text' in parsed) {
+            const obj = parsed as Record<string, unknown>;
+            result.push({
+              text: String(obj.text || ''),
+              source: String(obj.source || `Source ${result.length + 1}`)
+            });
+          } else if (typeof parsed === 'string' && parsed.trim()) {
+            result.push({ text: parsed, source: `Source ${result.length + 1}` });
+          }
+        }
+      } else if (exc.trim()) {
+        result.push({ text: exc, source: `Source ${result.length + 1}` });
+      }
+    } else if (typeof exc === 'object' && exc !== null) {
+      const obj = exc as Record<string, unknown>;
+      if ('text' in obj) {
+        result.push({
+          text: String(obj.text || ''),
+          source: String(obj.source || `Source ${result.length + 1}`)
+        });
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Normalize value to QBSD format with 'answer' and 'excerpts'.
+ */
+function normalizeToQBSD(val: unknown): unknown {
+  if (!val || typeof val !== 'object') return val;
+
+  // If it's an array with dict items, take first item
+  if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object') {
+    return normalizeToQBSD(val[0]);
+  }
+
+  const obj = val as Record<string, unknown>;
+
+  // Already in QBSD format
+  if ('answer' in obj) {
+    let answerVal = obj.answer;
+    let excerptsVal = obj.excerpts || [];
+
+    // Parse answer if it's a JSON string
+    if (typeof answerVal === 'string') {
+      const parsed = parsePythonString(answerVal);
+      if (parsed !== answerVal && Array.isArray(parsed) && parsed.length > 0) {
+        const firstItem = parsed[0];
+        if (typeof firstItem === 'object') {
+          const item = firstItem as Record<string, unknown>;
+          answerVal = item.value || item.answer || String(firstItem);
+          const allExcerpts: unknown[] = [];
+          for (const p of parsed) {
+            const pObj = p as Record<string, unknown>;
+            const exc = pObj.excerpt || pObj.excerpts;
+            if (exc) {
+              allExcerpts.push(...(Array.isArray(exc) ? exc : [exc]));
+            }
+          }
+          if (allExcerpts.length > 0) {
+            excerptsVal = allExcerpts;
+          }
+        }
+      }
+    }
+
+    // Parse excerpts using parseExcerpts
+    const parsedExcerpts = parseExcerpts(excerptsVal as unknown[]);
+
+    return {
+      answer: answerVal,
+      excerpts: parsedExcerpts
+    };
+  }
+
+  // Normalize 'value'/'excerpt'/'citation' format
+  if ('value' in obj) {
+    const excerptsRaw = obj.citation ? [obj.citation] :
+                        obj.excerpt ? [obj.excerpt] :
+                        (obj.excerpts || []);
+    return {
+      answer: obj.value,
+      excerpts: parseExcerpts(excerptsRaw as unknown[])
+    };
+  }
+
+  // ExcerptWithSource format - wrap text as answer with source
+  if ('text' in obj) {
+    return {
+      answer: obj.text,
+      excerpts: obj.source ? [{ text: String(obj.text), source: String(obj.source) }] : []
+    };
+  }
+
+  return val;
+}
+
+/**
+ * Cell value formatter for the grouped table.
+ * Handles QBSD answer/excerpts, value/excerpt, and text formats.
+ * Renders clickable cells with Eye icon for content with excerpts.
+ */
+function formatCellValue(
+  value: CellValue,
+  columnName: string,
+  rowData: DataRow | null,
+  excerptMapping: Record<string, string>,
+  onViewContent: (columnName: string, content: CellValue) => void
+): React.ReactNode {
   if (value === null || value === undefined) {
     return <Badge variant="outline" className="text-muted-foreground">null</Badge>;
   }
 
-  if (typeof value === 'object') {
-    // Handle QBSD format with answer/excerpts
-    if ('answer' in value) {
-      return String(value.answer);
-    }
-    return JSON.stringify(value);
+  // Try to parse string values that look like JSON/Python objects
+  let processedValue: unknown = typeof value === 'string' ? parsePythonString(value) : value;
+
+  // Check if parsing resulted in an empty value
+  const displayStr = extractDisplayValue(processedValue);
+  if (!displayStr || displayStr === 'null' || displayStr === 'None' || displayStr === 'N/A') {
+    return <Badge variant="outline" className="text-muted-foreground">null</Badge>;
   }
 
-  const str = String(value);
-  if (str.length > 100) {
+  // Check for excerpt in separate _excerpt column
+  const excerptColumnName = excerptMapping[columnName];
+  const hasExcerptColumn = rowData &&
+    excerptColumnName &&
+    rowData.data[excerptColumnName];
+
+  // Helper to get excerpts from the _excerpt column
+  const getExcerptsFromColumn = (): Array<{text: string; source: string}> => {
+    if (!hasExcerptColumn) return [];
+    const excerptStr = String(rowData!.data[excerptColumnName]);
+    return parseExcerpts([excerptStr]);
+  };
+
+  // Normalize to QBSD format if it's an object
+  if (typeof processedValue === 'object' && processedValue !== null) {
+    processedValue = normalizeToQBSD(processedValue);
+  }
+
+  // Handle QBSD format objects with answer and excerpts
+  if (typeof processedValue === 'object' && processedValue !== null) {
+    const obj = processedValue as Record<string, unknown>;
+    if ('answer' in obj && typeof obj.answer !== 'undefined') {
+      const qbsdValue = processedValue as QBSDAnswerWithExcerpts;
+      const answer = qbsdValue.answer;
+      let excerpts = qbsdValue.excerpts || [];
+
+      // Check if the answer itself is empty
+      const answerStr = extractDisplayValue(answer);
+      if (!answerStr || answerStr === 'null' || answerStr === 'None' || answerStr === 'N/A') {
+        return <Badge variant="outline" className="text-muted-foreground">null</Badge>;
+      }
+
+      // Also check for excerpts in _excerpt column if not already present
+      if (excerpts.length === 0 && hasExcerptColumn) {
+        excerpts = getExcerptsFromColumn();
+      }
+
+      const hasExcerptsData = excerpts.length > 0 || hasExcerptColumn;
+      const showExpandIcon = hasExcerptsData || answerStr.length > 30;
+
+      if (showExpandIcon) {
+        const tooltip = hasExcerptsData ? "Click to view excerpts" : "Click to view full content";
+        // Build content with excerpts from _excerpt column if available
+        const modalExcerpts = excerpts.length > 0 ? excerpts : (hasExcerptColumn ? getExcerptsFromColumn() : []);
+        return (
+          <div
+            className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 group"
+            onClick={() => onViewContent(columnName, { answer, excerpts: modalExcerpts })}
+            title={tooltip}
+          >
+            <div className="relative text-sm leading-relaxed line-clamp-3 break-words pr-6">
+              {answerStr.length > 100 ? `${answerStr.slice(0, 100)}...` : answerStr}
+              <span className="absolute right-0 top-0 flex items-center h-6 bg-gradient-to-l from-white dark:from-gray-900 from-60% to-transparent pl-2">
+                <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
+              </span>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <span className="text-sm leading-relaxed line-clamp-3">
+          {answerStr}
+        </span>
+      );
+    }
+  }
+
+  // Handle string values - check for excerpt column or long text
+  if (hasExcerptColumn || displayStr.length > 100) {
+    const modalExcerpts = hasExcerptColumn ? getExcerptsFromColumn() : [];
+    const tooltip = hasExcerptColumn ? "Click to view excerpts" : "Click to view full content";
+
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="cursor-help">{str.slice(0, 100)}...</span>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-md">
-          <p className="whitespace-pre-wrap">{str}</p>
-        </TooltipContent>
-      </Tooltip>
+      <div
+        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 group"
+        onClick={() => onViewContent(columnName, {
+          answer: displayStr,
+          excerpts: modalExcerpts
+        })}
+        title={tooltip}
+      >
+        <div className="relative text-sm leading-relaxed line-clamp-3 break-words pr-6">
+          {displayStr.length > 100 ? `${displayStr.slice(0, 100)}...` : displayStr}
+          <span className="absolute right-0 top-0 flex items-center h-6 bg-gradient-to-l from-white dark:from-gray-900 from-60% to-transparent pl-2">
+            <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
+          </span>
+        </div>
+      </div>
     );
   }
 
-  return str;
+  return <span className="text-sm leading-relaxed">{displayStr}</span>;
 }
 
 export default UnitGroupedTable;
