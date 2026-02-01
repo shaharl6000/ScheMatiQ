@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb } from 'lucide-react';
+import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb, FileText } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
@@ -225,10 +225,16 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     return groups;
   }, [unitData?.rows]);
 
-  // Determine which columns to show (filter out internal columns, but keep _unit_name and _source_document)
+  // Check if any row has _source_document
+  const hasSourceDocument = useMemo(() => {
+    return unitData?.rows?.some(row => row._source_document != null) ?? false;
+  }, [unitData?.rows]);
+
+  // Determine which columns to show (filter out internal columns, but keep _unit_name)
+  // Note: _source_document is rendered as a dedicated first column, not part of this array
   const visibleColumns = useMemo(() => {
     return columns.filter(col =>
-      !col.startsWith('_') || col === '_unit_name' || col === '_source_document'
+      !col.startsWith('_') || col === '_unit_name'
     );
   }, [columns]);
 
@@ -439,6 +445,15 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10 bg-background border-b">
               <tr>
+                {/* Source Document column - always first when present */}
+                {hasSourceDocument && (
+                  <th className="px-4 py-3 text-left font-bold text-base min-w-[180px] bg-background border-r">
+                    <div className="flex items-center gap-1.5">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      Source Document
+                    </div>
+                  </th>
+                )}
                 {visibleColumns.map(column => (
                   <th
                     key={column}
@@ -472,7 +487,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                         onToggleExpand={() => toggleExpansion(unit.name)}
                         isSelectedForMerge={isSelectedForMerge}
                         onToggleMergeSelection={() => toggleMergeSelection(unit.name)}
-                        columnCount={visibleColumns.length}
+                        columnCount={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
                       />
 
                       {/* Unit rows (when expanded) */}
@@ -481,6 +496,24 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                           key={`${unit.name}-${rowIndex}`}
                           className="border-b hover:bg-muted/30 transition-colors"
                         >
+                          {/* Source Document cell - always first when present */}
+                          {hasSourceDocument && (
+                            <td className="px-4 py-3 text-sm border-r bg-muted/20">
+                              <div className="flex items-center gap-1.5">
+                                <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="truncate max-w-[160px] font-medium text-foreground/80 cursor-help">
+                                      {formatSourceDocument(row._source_document)}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-[400px]">
+                                    <p className="break-all">{row._source_document || 'Unknown'}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                            </td>
+                          )}
                           {visibleColumns.map(column => {
                             let cellValue: CellValue;
                             if (column === '_unit_name') {
@@ -505,7 +538,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       {isExpanded && unitRows.length === 0 && (
                         <tr>
                           <td
-                            colSpan={visibleColumns.length}
+                            colSpan={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
                             className="px-4 py-8 text-center text-muted-foreground"
                           >
                             No rows loaded for this unit. Data may still be loading.
@@ -888,6 +921,20 @@ function formatCellValue(
   }
 
   return <span className="text-sm leading-relaxed">{displayStr}</span>;
+}
+
+/**
+ * Format source document path for display.
+ * Extracts filename and removes extension for cleaner display.
+ */
+function formatSourceDocument(source: string | undefined | null): string {
+  if (!source) return 'Unknown';
+  const parts = source.split('/');
+  const filename = parts[parts.length - 1];
+  return filename
+    .replace(/\.(pdf|txt|md|docx?)$/i, '')
+    .replace(/_/g, ' ')
+    .trim() || 'Unknown';
 }
 
 export default UnitGroupedTable;
