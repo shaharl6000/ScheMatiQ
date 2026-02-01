@@ -32,6 +32,12 @@ import {
   DocumentAvailabilityResponse,
   CostEstimate
 } from '../types';
+import {
+  UnitListResponse,
+  UnitSuggestionsResponse,
+  MergeUnitsRequest,
+  MergeUnitsResponse,
+} from '../types/unit';
 import { FilterRule, SortColumn } from '../components/DataTable/types/filters';
 
 // Railway backend URL - used when env vars aren't set at build time
@@ -771,6 +777,88 @@ export const observationUnitAPI = {
   }> => {
     const response = await api.patch(`/observation-unit/definition/${sessionId}`, request);
     return response.data;
+  },
+};
+
+// Units API (Observation Unit View and Merge)
+export const unitsAPI = {
+  /**
+   * List all observation units in a session.
+   */
+  list: async (sessionId: string): Promise<UnitListResponse> => {
+    const response = await api.get(`/units/list/${sessionId}`);
+    // Convert snake_case to camelCase for frontend
+    const data = response.data;
+    return {
+      units: data.units.map((u: any) => ({
+        name: u.name,
+        rowCount: u.row_count,
+        sourceDocuments: u.source_documents,
+        isMerged: u.is_merged,
+        originalUnits: u.original_units,
+      })),
+      totalUnits: data.total_units,
+      totalRows: data.total_rows,
+    };
+  },
+
+  /**
+   * Get paginated data optionally filtered by observation unit.
+   */
+  getData: async (
+    sessionId: string,
+    options?: {
+      unit?: string;
+      page?: number;
+      pageSize?: number;
+    }
+  ): Promise<PaginatedData> => {
+    const params = new URLSearchParams();
+    if (options?.unit) params.append('unit', options.unit);
+    if (options?.page !== undefined) params.append('page', options.page.toString());
+    if (options?.pageSize !== undefined) params.append('page_size', options.pageSize.toString());
+
+    const response = await api.get(`/units/data/${sessionId}?${params.toString()}`);
+    return response.data;
+  },
+
+  /**
+   * Merge multiple observation units into one.
+   */
+  merge: async (sessionId: string, request: MergeUnitsRequest): Promise<MergeUnitsResponse> => {
+    const response = await api.post(`/units/merge/${sessionId}`, request);
+    const data = response.data;
+    return {
+      success: data.success,
+      message: data.message,
+      merged_unit: data.merged_unit ? {
+        name: data.merged_unit.name,
+        rowCount: data.merged_unit.row_count,
+        sourceDocuments: data.merged_unit.source_documents,
+        isMerged: data.merged_unit.is_merged,
+        originalUnits: data.merged_unit.original_units,
+      } : undefined,
+      rows_affected: data.rows_affected,
+    };
+  },
+
+  /**
+   * Get suggestions for units that could be merged based on name similarity.
+   */
+  getSuggestions: async (sessionId: string, threshold: number = 0.8): Promise<UnitSuggestionsResponse> => {
+    const response = await api.get(`/units/suggestions/${sessionId}`, {
+      params: { threshold }
+    });
+    const data = response.data;
+    return {
+      suggestions: data.suggestions.map((s: any) => ({
+        units: s.units,
+        similarity: s.similarity,
+        suggestedName: s.suggested_name,
+        reason: s.reason,
+      })),
+      threshold: data.threshold,
+    };
   },
 };
 

@@ -633,6 +633,8 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                   <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
                   <SelectItem value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</SelectItem>
                   <SelectItem value="gemini-2.5-pro">Gemini 2.5 Pro</SelectItem>
+                  <SelectItem value="gemini-3">Gemini 3</SelectItem>
+                  <SelectItem value="gemini-3-pro">Gemini 3 Pro</SelectItem>
                 </>
               )}
               {llmProvider === 'openai' && (

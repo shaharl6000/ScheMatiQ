@@ -29,6 +29,7 @@ from app.api.routes.websocket import router as websocket_router
 from app.api.routes.schema import router as schema_router
 from app.api.routes.cloud_data import router as cloud_data_router
 from app.api.routes.observation_unit import router as observation_unit_router
+from app.api.routes.units import router as units_router
 from app.core.config import (
     API_TITLE, API_DESCRIPTION, API_VERSION,
     ALLOWED_ORIGINS, DEFAULT_HOST, DEFAULT_PORT,
@@ -70,6 +71,10 @@ app = FastAPI(
         {
             "name": "observation-unit",
             "description": "Observation unit management operations. Add or remove rows (observation units) from extracted tables."
+        },
+        {
+            "name": "units",
+            "description": "Unit view operations. List, filter, and merge observation units for grouped table views."
         }
     ]
 )
@@ -91,6 +96,7 @@ app.include_router(schema_router, prefix="/api/schema", tags=["schema"])
 app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
 app.include_router(cloud_data_router, prefix="/api", tags=["cloud-data"])
 app.include_router(observation_unit_router, prefix="/api/observation-unit", tags=["observation-unit"])
+app.include_router(units_router, prefix="/api/units", tags=["units"])
 
 @app.get("/", tags=["root"], summary="API Root", description="Returns API information and version")
 async def root():
