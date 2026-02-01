@@ -469,6 +469,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     logger.debug("No cloud_dataset fallback available")
                                     doc_dir = None
 
+                        # If no doc_dir but session has cloud_dataset, use it as fallback
+                        if not doc_dir and session_cloud_dataset:
+                            doc_dir = f"datasets/{session_cloud_dataset}"
+                            if total_rows <= 3:
+                                logger.info("Row %d: No doc_dir, using session cloud_dataset fallback: %s",
+                                           total_rows, doc_dir)
+
                         paper_refs.update(papers)
                         row_paper_mapping[row_name] = papers
 
