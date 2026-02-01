@@ -27,6 +27,20 @@ class RemoveObservationUnitRequest(BaseModel):
     unit_name: str = Field(..., description="Name of the observation unit to remove")
 
 
+class RemoveBulkObservationUnitsRequest(BaseModel):
+    """Request to remove multiple observation units."""
+    unit_names: List[str] = Field(..., description="Names of the observation units to remove", min_length=1)
+
+
+class RemoveBulkObservationUnitsResponse(BaseModel):
+    """Response after bulk observation unit removal."""
+    status: str
+    message: str
+    session_id: str
+    deleted_count: int
+    failed: List[str] = Field(default_factory=list, description="Units that failed to delete")
+
+
 class UpdateObservationUnitDefinitionRequest(BaseModel):
     """Request to update the observation unit definition (schema-level)."""
     name: str = Field(..., min_length=1, max_length=100, description="Name of the observation unit type")
@@ -114,6 +128,74 @@ async def remove_observation_unit(
             status_code=500,
             detail=f"Error removing observation unit: {str(e)}"
         )
+
+
+@router.delete("/remove-bulk/{session_id}")
+async def remove_bulk_observation_units(
+    session_id: str,
+    request: RemoveBulkObservationUnitsRequest
+) -> RemoveBulkObservationUnitsResponse:
+    """
+    Remove multiple observation units from the session.
+
+    This will:
+    1. Remove each unit from the observation_units list in the session
+    2. Remove the corresponding rows from the data table
+    3. Update the data file
+    4. Report any failures individually
+
+    Args:
+        session_id: Session identifier
+        request: Contains unit_names list to remove
+
+    Returns:
+        RemoveBulkObservationUnitsResponse with deletion results
+
+    Raises:
+        HTTPException: If session not found
+    """
+    logger.info("Bulk removing %d observation units from session %s", len(request.unit_names), session_id)
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+
+    deleted_count = 0
+    failed: List[str] = []
+
+    for unit_name in request.unit_names:
+        try:
+            await observation_unit_manager.remove_observation_unit(
+                session_id=session_id,
+                unit_name=unit_name
+            )
+            deleted_count += 1
+            logger.debug("Removed observation unit '%s' from session %s", unit_name, session_id)
+        except ValueError as e:
+            logger.warning("Failed to remove unit '%s': %s", unit_name, str(e))
+            failed.append(unit_name)
+        except Exception as e:
+            logger.error("Error removing unit '%s': %s", unit_name, str(e))
+            failed.append(unit_name)
+
+    logger.info(
+        "Bulk removal complete for session %s: %d deleted, %d failed",
+        session_id, deleted_count, len(failed)
+    )
+
+    status = "success" if not failed else "partial" if deleted_count > 0 else "failed"
+    message = f"Deleted {deleted_count} observation unit(s)"
+    if failed:
+        message += f". Failed to delete {len(failed)}: {', '.join(failed[:5])}"
+        if len(failed) > 5:
+            message += f" and {len(failed) - 5} more"
+
+    return RemoveBulkObservationUnitsResponse(
+        status=status,
+        message=message,
+        session_id=session_id,
+        deleted_count=deleted_count,
+        failed=failed
+    )
 
 
 @router.post("/add/{session_id}")

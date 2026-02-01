@@ -39,12 +39,16 @@ import {
 
 // Component imports
 import DataTable from '../components/DataTable/DataTable';
+import UnitGroupedTable from '../components/DataTable/UnitGroupedTable';
 import SchemaViewer from '../components/SchemaViewer/SchemaViewer';
 import StatsDashboard from '../components/StatsDashboard/StatsDashboard';
 import QBSDMonitor from '../components/QBSDMonitor/QBSDMonitor';
 import UploadProcessingMonitor from '../components/UploadProcessingMonitor/UploadProcessingMonitor';
 import DocumentUpload from '../components/DocumentUpload/DocumentUpload';
 import LLMSelector from '../components/LLMSelector';
+import { ViewModeToggle } from '../components/ViewMode';
+import { useViewMode } from '../contexts/ViewModeContext';
+import { useUnits } from '../hooks/useUnits';
 
 const Visualize = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -55,6 +59,12 @@ const Visualize = () => {
 
   const mode = searchParams.get('mode') as 'load' | 'qbsd' || 'load';
   const [activeTab, setActiveTab] = useState(mode === 'qbsd' ? 'monitor' : 'data');
+
+  // View mode context for unit view toggle
+  const { viewMode, setViewMode } = useViewMode();
+
+  // Fetch observation units for the session (to determine if unit view is available)
+  const { units: unitListResponse } = useUnits(sessionId);
 
   // Enhanced upload document management state
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
@@ -960,19 +970,51 @@ const Visualize = () => {
         <TabsContent value="data" className="mt-4">
           {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || isQBSDStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
             <div className="relative">
-              <DataTable
-                sessionId={sessionId!}
-                sessionType={mode}
-                newlyAddedRows={newlyAddedRows}
-                columnOrder={columnOrder}
-                onColumnReorder={handleColumnReorder}
-                streamingCells={streamingCells}
-                processingColumns={processingColumns}
-                currentDocumentProgress={currentDocumentProgress}
-                onStopReextraction={handleStopReextraction}
-                isStoppingReextraction={isStoppingReextraction}
-                columnInfo={session?.columns?.map(col => ({ name: col.name, allowed_values: col.allowed_values ?? undefined }))}
-              />
+              {/* View Mode Toggle - only show if observation units exist */}
+              {unitListResponse && unitListResponse.totalUnits > 0 && (
+                <div className="mb-4 flex items-center gap-4">
+                  <ViewModeToggle
+                    viewMode={viewMode}
+                    onViewModeChange={setViewMode}
+                    disabled={unitListResponse.totalUnits === 0}
+                    disabledTooltip="No observation units found in this session"
+                    unitCount={unitListResponse.totalUnits}
+                  />
+                  {viewMode === 'by_unit' && (
+                    <span className="text-sm text-muted-foreground">
+                      Viewing {unitListResponse.totalUnits} observation units with {unitListResponse.totalRows} total rows
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* Render either standard DataTable or UnitGroupedTable based on view mode */}
+              {viewMode === 'by_unit' && unitListResponse && unitListResponse.totalUnits > 0 ? (
+                <UnitGroupedTable
+                  sessionId={sessionId!}
+                  sessionType={mode}
+                  columns={session?.columns?.map(col => col.name) || []}
+                  columnInfo={session?.columns?.map(col => ({ name: col.name, allowed_values: col.allowed_values ?? undefined }))}
+                  onDataChange={() => {
+                    queryClient.invalidateQueries(['session', sessionId, mode]);
+                    queryClient.invalidateQueries(['data', sessionId, mode]);
+                  }}
+                />
+              ) : (
+                <DataTable
+                  sessionId={sessionId!}
+                  sessionType={mode}
+                  newlyAddedRows={newlyAddedRows}
+                  columnOrder={columnOrder}
+                  onColumnReorder={handleColumnReorder}
+                  streamingCells={streamingCells}
+                  processingColumns={processingColumns}
+                  currentDocumentProgress={currentDocumentProgress}
+                  onStopReextraction={handleStopReextraction}
+                  isStoppingReextraction={isStoppingReextraction}
+                  columnInfo={session?.columns?.map(col => ({ name: col.name, allowed_values: col.allowed_values ?? undefined }))}
+                />
+              )}
 
               {/* Document Upload Section */}
               {((mode === 'load' && ['documents_uploaded', 'processing_documents', 'completed'].includes(session?.status || '')) ||

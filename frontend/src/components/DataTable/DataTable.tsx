@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
-import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info, Plus, AlertCircle } from 'lucide-react';
+import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info, Plus, AlertCircle, Minus } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -37,6 +37,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { Checkbox } from '@/components/ui/checkbox';
 
 import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { sessionAPI, qbsdAPI, observationUnitAPI } from '../../services/api';
@@ -72,6 +73,9 @@ import FilterPresets from './FilterPresets';
 import ColumnVisibilityDropdown from './ColumnVisibilityDropdown';
 import FullnessFilter from './FullnessFilter';
 import RowActions from './RowActions';
+import BulkActionToolbar from './BulkActionToolbar';
+import BulkDeleteDialog from './BulkDeleteDialog';
+import { useRowSelection } from './hooks/useRowSelection';
 import {
   Dialog,
   DialogContent,
@@ -257,6 +261,9 @@ const DataTable: React.FC<DataTableProps> = ({
   const [newRowDocument, setNewRowDocument] = useState('');
   const [isAddingRow, setIsAddingRow] = useState(false);
   const [addRowError, setAddRowError] = useState<string | null>(null);
+
+  // Bulk delete dialog state
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
 
   // Ref for table container
   const tableContainerRef = useRef<HTMLDivElement>(null);
@@ -553,6 +560,46 @@ const DataTable: React.FC<DataTableProps> = ({
     }
     return 0;
   }, [hasObservationUnits, documentGroups]);
+
+  // Get row identifiers for the current page (used for selection)
+  const pageRowIds = useMemo(() => {
+    return processedRows.map(row => row._unit_name || row.row_name || '').filter(Boolean);
+  }, [processedRows]);
+
+  // Row selection hook
+  const {
+    selectedRows,
+    isAllPageSelected,
+    isIndeterminate,
+    toggleRow,
+    toggleAllPage,
+    clearSelection,
+    isSelected,
+    selectedCount,
+  } = useRowSelection(pageRowIds);
+
+  // Bulk delete handler
+  const handleBulkDelete = useCallback(async () => {
+    const unitNames = Array.from(selectedRows);
+    const result = await observationUnitAPI.removeBulk(sessionId, unitNames);
+
+    clearSelection();
+    refetchData();
+    onDataChange?.();
+
+    if (result.failed.length === 0) {
+      toast({
+        title: 'Rows deleted',
+        description: `Successfully deleted ${result.deleted_count} row${result.deleted_count !== 1 ? 's' : ''}.`,
+      });
+    } else {
+      toast({
+        title: 'Partial deletion',
+        description: result.message,
+        variant: 'destructive',
+      });
+    }
+  }, [sessionId, selectedRows, clearSelection, refetchData, onDataChange, toast]);
 
   // Get all column names with proper ordering
   const defaultColumns = useMemo(() => {
@@ -1198,6 +1245,16 @@ const DataTable: React.FC<DataTableProps> = ({
           </div>
         </div>
 
+        {/* Bulk Action Toolbar */}
+        {!readonly && selectedCount > 0 && (
+          <BulkActionToolbar
+            selectedCount={selectedCount}
+            onDelete={() => setShowBulkDeleteDialog(true)}
+            onClearSelection={clearSelection}
+            className="mb-4"
+          />
+        )}
+
         {/* Re-extraction Progress Bar */}
         {processingColumns && processingColumns.size > 0 && (
           <div className="mb-4 p-4 bg-muted/30 border rounded-lg">
@@ -1261,11 +1318,29 @@ const DataTable: React.FC<DataTableProps> = ({
             <table className="w-full border-collapse" style={{ minWidth: `${Math.max(600, columns.length * 150)}px` }}>
               <thead className="sticky top-0 z-10 bg-background border-b">
                 <tr>
+                  {/* Checkbox column header - only show if not readonly */}
+                  {!readonly && (
+                    <th className="px-3 py-3 w-[50px] min-w-[50px] sticky left-0 bg-background z-20">
+                      <Checkbox
+                        checked={isAllPageSelected}
+                        onCheckedChange={() => toggleAllPage(pageRowIds)}
+                        aria-label="Select all rows on this page"
+                        className="data-[state=checked]:bg-primary"
+                      />
+                      {isIndeterminate && !isAllPageSelected && (
+                        <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <Minus className="h-3 w-3 text-primary" />
+                        </span>
+                      )}
+                    </th>
+                  )}
+
                   {/* Frozen first column with sort/filter support */}
                   {frozenColumn && (
                     <th
                       className={cn(
-                        "px-4 py-3 text-left font-bold text-base min-w-[150px] max-w-[250px] sticky left-0 bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)]",
+                        "px-4 py-3 text-left font-bold text-base min-w-[150px] max-w-[250px] sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)]",
+                        readonly ? "left-0" : "left-[50px]",
                         getSortDirection(frozenColumn) && "bg-primary/5"
                       )}
                     >
@@ -1365,6 +1440,9 @@ const DataTable: React.FC<DataTableProps> = ({
                   const groupIndex = getGroupIndex(rowIndex);
                   const isOddGroup = groupIndex % 2 === 1;
 
+                  const rowId = row._unit_name || row.row_name || '';
+                  const rowIsSelected = isSelected(rowId);
+
                   return (
                     <tr
                       key={rowIndex}
@@ -1374,17 +1452,38 @@ const DataTable: React.FC<DataTableProps> = ({
                         isStreaming && "bg-blue-50 dark:bg-blue-950",
                         isGroupBoundary && "border-t-4 border-t-foreground/40",
                         // Alternating group backgrounds when observation units present
-                        hasObservationUnits && isOddGroup && !isNewlyAdded && !isStreaming && "bg-muted/30"
+                        hasObservationUnits && isOddGroup && !isNewlyAdded && !isStreaming && "bg-muted/30",
+                        // Selected row highlight
+                        rowIsSelected && "bg-blue-50 dark:bg-blue-950"
                       )}
                     >
+                      {/* Checkbox cell - only show if not readonly */}
+                      {!readonly && (
+                        <td
+                          className={cn(
+                            "px-3 py-3 w-[50px] min-w-[50px] sticky left-0 z-10",
+                            rowIsSelected ? "bg-blue-50 dark:bg-blue-950" :
+                              (isOddGroup && hasObservationUnits ? "bg-muted/30" : "bg-background")
+                          )}
+                        >
+                          <Checkbox
+                            checked={rowIsSelected}
+                            onCheckedChange={() => toggleRow(rowId)}
+                            aria-label={`Select row ${rowId}`}
+                          />
+                        </td>
+                      )}
+
                       {/* Frozen first column - visual grouping without rowSpan */}
                       {frozenColumn && (
                         hasObservationUnits ? (
                           <td
                             className={cn(
                               "px-4 py-3 min-w-[150px] max-w-[250px]",
-                              "sticky left-0 border-r",
-                              isOddGroup ? "bg-muted/30" : "bg-background",
+                              "sticky border-r",
+                              readonly ? "left-0" : "left-[50px]",
+                              rowIsSelected ? "bg-blue-50 dark:bg-blue-950" :
+                                (isOddGroup ? "bg-muted/30" : "bg-background"),
                               isGroupBoundary && "border-t-4 border-t-foreground/40",
                               // Visual connector for grouped rows
                               !shouldRenderDocNameCell(rowIndex) && "border-l-4 border-l-primary/20"
@@ -1409,7 +1508,11 @@ const DataTable: React.FC<DataTableProps> = ({
                           </td>
                         ) : (
                           // Regular frozen column (no grouping)
-                          <td className="px-4 py-3 min-w-[150px] max-w-[250px] sticky left-0 bg-background border-r">
+                          <td className={cn(
+                            "px-4 py-3 min-w-[150px] max-w-[250px] sticky border-r",
+                            readonly ? "left-0" : "left-[50px]",
+                            rowIsSelected ? "bg-blue-50 dark:bg-blue-950" : "bg-background"
+                          )}>
                             {!frozenColumn.startsWith('_') && row.row_name ? (
                               <EditableCell
                                 value={getFrozenCellValue()}
@@ -1641,6 +1744,14 @@ const DataTable: React.FC<DataTableProps> = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Bulk Delete Dialog */}
+      <BulkDeleteDialog
+        open={showBulkDeleteDialog}
+        onOpenChange={setShowBulkDeleteDialog}
+        selectedRows={Array.from(selectedRows)}
+        onConfirm={handleBulkDelete}
+      />
     </Card>
   );
 };
