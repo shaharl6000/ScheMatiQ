@@ -487,11 +487,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         continue
 
         logger.info("Paper collection summary: total_rows=%d, rows_with_papers=%d, "
-                   "rows_using_source_doc_fallback=%d, unique_papers=%d",
-                   total_rows, rows_with_papers, rows_using_source_doc_fallback, len(paper_refs))
+                   "rows_using_source_doc_fallback=%d, unique_papers=%d, papers_with_doc_dir=%d",
+                   total_rows, rows_with_papers, rows_using_source_doc_fallback,
+                   len(paper_refs), len(paper_doc_dirs))
         if paper_refs:
             sample_papers = list(paper_refs)[:5]
             logger.info("Sample paper refs: %s", sample_papers)
+        if paper_doc_dirs:
+            sample_dirs = list(paper_doc_dirs.items())[:3]
+            logger.info("Sample paper_doc_dirs: %s", sample_dirs)
 
         return total_rows, paper_refs, row_paper_mapping, paper_doc_dirs
 
@@ -659,7 +663,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
         session_cloud_dataset = None
         if session.metadata and session.metadata.cloud_dataset:
             session_cloud_dataset = session.metadata.cloud_dataset
-            logger.debug("Session has cloud_dataset fallback: %s", session_cloud_dataset)
+            logger.info("Session has cloud_dataset: %s", session_cloud_dataset)
+        else:
+            logger.info("Session has NO cloud_dataset (metadata=%s)",
+                       session.metadata if session.metadata else "None")
 
         session_dir = Path("./data") / session_id
         data_file = session_dir / "data.jsonl"
