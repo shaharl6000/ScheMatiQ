@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
-import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb } from 'lucide-react';
+import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb, FileText } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
@@ -16,6 +16,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 import { unitsAPI } from '../../services/api';
 import { useUnits, useMergeUnits, useUnitSuggestions } from '../../hooks/useUnits';
@@ -27,6 +34,7 @@ import UnitGroupRow from './UnitGroupRow';
 import { DataRow, CellValue } from '../../types';
 import { cn } from '@/lib/utils';
 import { formatColumnName } from '../../utils/formatting';
+import { AVAILABLE_PAGE_SIZES } from '../../constants';
 
 interface UnitGroupedTableProps {
   /** Session ID */
@@ -66,7 +74,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
   // Pagination state for unit data
   const [page, setPage] = useState(0);
-  const [pageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(50);
 
   // Fetch unit-grouped data
   const { data: unitData, isLoading: dataLoading, refetch: refetchData } = useQuery(
@@ -81,6 +89,19 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
       keepPreviousData: true,
     }
   );
+
+  // Pagination handlers
+  const handleChangePage = useCallback((newPage: number) => {
+    setPage(newPage);
+  }, []);
+
+  const handleChangeRowsPerPage = useCallback((value: string) => {
+    setPageSize(parseInt(value, 10));
+    setPage(0);
+  }, []);
+
+  // Total pages calculation
+  const totalPages = unitData ? Math.ceil(unitData.total_count / pageSize) : 0;
 
   // Toggle unit expansion
   const toggleExpansion = useCallback((unitName: string) => {
@@ -189,12 +210,17 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     return groups;
   }, [unitData?.rows]);
 
-  // Determine which columns to show (filter out internal columns)
+  // Determine which columns to show (filter out internal columns, excluding _source_document which we show separately)
   const visibleColumns = useMemo(() => {
     return columns.filter(col =>
-      !col.startsWith('_') || col === '_unit_name' || col === '_source_document'
+      !col.startsWith('_') || col === '_unit_name'
     );
   }, [columns]);
+
+  // Check if we have source document data by looking at actual rows
+  const hasSourceDocument = useMemo(() => {
+    return unitData?.rows?.some(row => row._source_document !== undefined && row._source_document !== null) ?? false;
+  }, [unitData?.rows]);
 
   if (unitsLoading) {
     return (
@@ -380,6 +406,15 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10 bg-background border-b">
               <tr>
+                {/* Source Document column - always first */}
+                {hasSourceDocument && (
+                  <th className="px-4 py-3 text-left font-bold text-base min-w-[180px] bg-background border-r">
+                    <div className="flex items-center gap-1.5">
+                      <FileText className="h-4 w-4 text-muted-foreground" />
+                      Source Document
+                    </div>
+                  </th>
+                )}
                 {visibleColumns.map(column => (
                   <th
                     key={column}
@@ -395,9 +430,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               </tr>
             </thead>
             <tbody>
-              {/* Render units with their rows */}
+              {/* Render units with their rows - only show units that have loaded data */}
               {units
                 .filter(unit => !selectedUnit || unit.name === selectedUnit)
+                .filter(unit => groupedRows.has(unit.name))
                 .map(unit => {
                   const isExpanded = expandedUnits.has(unit.name);
                   const isSelectedForMerge = selectedForMerge.has(unit.name);
@@ -412,7 +448,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                         onToggleExpand={() => toggleExpansion(unit.name)}
                         isSelectedForMerge={isSelectedForMerge}
                         onToggleMergeSelection={() => toggleMergeSelection(unit.name)}
-                        columnCount={visibleColumns.length}
+                        columnCount={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
                       />
 
                       {/* Unit rows (when expanded) */}
@@ -421,12 +457,28 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                           key={`${unit.name}-${rowIndex}`}
                           className="border-b hover:bg-muted/30 transition-colors"
                         >
+                          {/* Source Document cell - always first */}
+                          {hasSourceDocument && (
+                            <td className="px-4 py-3 text-sm border-r bg-muted/20">
+                              <div className="flex items-center gap-1.5">
+                                <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="truncate max-w-[160px] font-medium text-foreground/80 cursor-help">
+                                      {formatSourceDocument(row._source_document)}
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent side="right" className="max-w-[400px]">
+                                    <p className="break-all">{row._source_document || 'Unknown'}</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                            </td>
+                          )}
                           {visibleColumns.map(column => {
                             let cellValue: CellValue;
                             if (column === '_unit_name') {
                               cellValue = row._unit_name;
-                            } else if (column === '_source_document') {
-                              cellValue = row._source_document;
                             } else {
                               cellValue = row.data[column];
                             }
@@ -447,7 +499,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       {isExpanded && unitRows.length === 0 && (
                         <tr>
                           <td
-                            colSpan={visibleColumns.length}
+                            colSpan={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
                             className="px-4 py-8 text-center text-muted-foreground"
                           >
                             No rows loaded for this unit. Data may still be loading.
@@ -461,22 +513,44 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           </table>
         </div>
 
-        {/* Pagination info */}
+        {/* Pagination */}
         {unitData && (
-          <div className="flex items-center justify-between mt-4 text-sm text-muted-foreground">
-            <span>
-              Showing {unitData.rows.length} of {unitData.total_count} rows
-            </span>
-            {unitData.has_more && (
+          <div className="flex items-center justify-between mt-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Rows per page:</span>
+              <Select value={String(pageSize)} onValueChange={handleChangeRowsPerPage}>
+                <SelectTrigger className="w-20">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {AVAILABLE_PAGE_SIZES.map(size => (
+                    <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">
+                {unitData.total_count > 0 ? page * pageSize + 1 : 0}-{Math.min((page + 1) * pageSize, unitData.total_count)} of {unitData.total_count}
+              </span>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setPage(p => p + 1)}
-                disabled={dataLoading}
+                onClick={() => handleChangePage(page - 1)}
+                disabled={page === 0 || dataLoading}
               >
-                Load More
+                Previous
               </Button>
-            )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleChangePage(page + 1)}
+                disabled={page >= totalPages - 1 || dataLoading}
+              >
+                Next
+              </Button>
+            </div>
           </div>
         )}
       </div>
@@ -496,6 +570,23 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     </Card>
   );
 };
+
+/**
+ * Format source document name for display (extract filename from path).
+ */
+function formatSourceDocument(source: string | undefined | null): string {
+  if (!source) return 'Unknown';
+
+  // Extract filename from path
+  const parts = source.split('/');
+  const filename = parts[parts.length - 1];
+
+  // Remove common extensions for cleaner display
+  return filename
+    .replace(/\.(pdf|txt|md|docx?)$/i, '')
+    .replace(/_/g, ' ')
+    .trim() || 'Unknown';
+}
 
 /**
  * Simple cell value formatter for the grouped table.
