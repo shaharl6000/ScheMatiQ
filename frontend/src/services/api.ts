@@ -778,6 +778,19 @@ export const observationUnitAPI = {
     const response = await api.patch(`/observation-unit/definition/${sessionId}`, request);
     return response.data;
   },
+
+  removeBulk: async (sessionId: string, unitNames: string[]): Promise<{
+    status: string;
+    message: string;
+    session_id: string;
+    deleted_count: number;
+    failed: string[];
+  }> => {
+    const response = await api.delete(`/observation-unit/remove-bulk/${sessionId}`, {
+      data: { unit_names: unitNames }
+    });
+    return response.data;
+  },
 };
 
 // Units API (Observation Unit View and Merge)
