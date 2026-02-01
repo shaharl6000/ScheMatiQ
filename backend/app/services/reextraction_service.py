@@ -418,6 +418,22 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         else:
                             papers = []
 
+                        # Fallback to observation unit document fields if papers is empty
+                        if not papers:
+                            source_doc = (
+                                row.get('_source_document') or
+                                row.get('source_document') or
+                                row.get('_parent_document') or
+                                row.get('parent_document') or
+                                None
+                            )
+                            if source_doc:
+                                # Handle QBSD answer format
+                                if isinstance(source_doc, dict) and 'answer' in source_doc:
+                                    source_doc = source_doc.get('answer')
+                                if source_doc:
+                                    papers = [str(source_doc)]
+
                         # Get document directory from row data
                         doc_dir_raw = (
                             row.get('Document Directory') or
