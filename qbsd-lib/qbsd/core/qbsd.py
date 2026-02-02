@@ -859,7 +859,7 @@ def main(cfg_path: Path) -> None:
 
     # Run discovery with contribution tracking
     start_time = time.time()
-    context_window_size = backend_cfg.get("context_window_size", backend_cfg.get("max_context_tokens", 8192))
+    context_window_size = backend_cfg.get("context_window_size") or backend_cfg.get("max_context_tokens") or getattr(llm_for_schema, 'context_window_size', 8192)
     schema, contributing_files, non_contributing_files, schema_evolution = discover_schema(
         query=query, documents=docs, filenames=filenames,
         max_keys_schema=max_keys_schema, llm=llm_for_schema, retriever=retriever,

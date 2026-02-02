@@ -983,7 +983,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     max_keys_schema=qbsd_config.get("max_keys_schema", 100),
                     current_schema=current_schema,
                     llm=llm,
-                    context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size", 8192)
+                    context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192)
                 )
                 new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
                 logger.debug("QUERY_ONLY generated schema with %d columns", len(new_schema.columns))
@@ -1074,7 +1074,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                         query=query,
                         passages=relevant_content,
                         llm=llm,
-                        context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size", 8192),
+                        context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
                         source_document=batch_names[0] if batch_names else None
                     )
                     # If name was pre-configured, override discovered name
@@ -1113,7 +1113,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     max_keys_schema=qbsd_config.get("max_keys_schema", 100),
                     current_schema=current_schema,
                     llm=llm,
-                    context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size", 8192)
+                    context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192)
                 )
                 # generate_schema returns a tuple (Schema, bool)
                 new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result

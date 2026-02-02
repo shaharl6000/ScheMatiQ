@@ -363,7 +363,7 @@ def estimate_schema_discovery_cost(
     # 
     # Conservative estimate: 300 tokens average (most batches add 0-2 columns)
     avg_output_tokens = constants.get("schema_discovery_avg_output_tokens", 300)
-    output_tokens_per_call = min(avg_output_tokens, max_output_tokens)
+    output_tokens_per_call = min(avg_output_tokens, max_output_tokens or 4096)
     
     # Add observation unit discovery (separate call with different prompt)
     obs_unit_input = (_OBSERVATION_UNIT_PROMPT_TOKENS or 600) + query_tokens_estimate + (
@@ -497,7 +497,7 @@ def estimate_value_extraction_cost(
     tokens_per_column = constants.get("tokens_per_extracted_column", 40)
     fill_rate = constants.get("value_extraction_fill_rate", 0.7)
     extraction_output_per_call = int(num_columns * fill_rate * tokens_per_column)
-    extraction_output_per_call = max(100, min(extraction_output_per_call, max_output_tokens))
+    extraction_output_per_call = max(100, min(extraction_output_per_call, max_output_tokens or 4096))
     
     # Unit identification output
     unit_id_output = 200 if has_observation_units else 0

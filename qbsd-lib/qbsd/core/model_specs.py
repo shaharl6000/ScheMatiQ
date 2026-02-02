@@ -1,9 +1,8 @@
 """
-Model specifications for LLM providers.
+Model specifications for auto-detecting token limits based on model name.
 
-This module provides centralized model specifications including context window
-sizes and max output tokens for all supported LLM models. It enables auto-detection
-of appropriate token limits based on model names.
+This module provides a centralized registry of model specifications to prevent
+truncation issues caused by incorrect token limits.
 """
 
 from dataclasses import dataclass
@@ -50,14 +49,14 @@ def get_model_spec(provider: str, model: str) -> ModelSpec:
     Get model spec with prefix-based fallback.
 
     Lookup order:
-    1. Exact match for model name
+    1. Exact match for the model name
     2. Prefix match (handles versioned models like "-002", "-latest")
     3. Provider default
     4. Global fallback
 
     Args:
         provider: The LLM provider name (e.g., "gemini", "openai", "together")
-        model: The model name/ID
+        model: The model name (e.g., "gemini-2.5-flash", "gpt-4o")
 
     Returns:
         ModelSpec with context_window and max_output_tokens

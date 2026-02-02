@@ -230,7 +230,7 @@ class PaperProcessor:
         
         # Skip truncation for long context models
         should_truncate = not self._should_skip_truncation()
-        max_ctx = getattr(self.llm, 'context_window_size', 8192) if hasattr(self.llm, 'context_window_size') else 8192
+        max_ctx = getattr(self.llm, 'context_window_size', None) or 8192
         trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=512,
                                  safety_margins=SAFETY_MARGIN_SINGLE_MODE,
                                  context_window_size=max_ctx)
@@ -311,7 +311,7 @@ class PaperProcessor:
 
         # Skip truncation for long context models
         should_truncate = not self._should_skip_truncation()
-        max_ctx = getattr(self.llm, 'context_window_size', 8192) if hasattr(self.llm, 'context_window_size') else 8192
+        max_ctx = getattr(self.llm, 'context_window_size', None) or 8192
         trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=512,
                                  safety_margins=SAFETY_MARGIN_ALL_MODE,
                                  context_window_size=max_ctx)
@@ -398,7 +398,7 @@ class PaperProcessor:
             )
             # Skip truncation for long context models
             should_truncate = not self._should_skip_truncation()
-            max_ctx = getattr(self.llm, 'context_window_size', 8192) if hasattr(self.llm, 'context_window_size') else 8192
+            max_ctx = getattr(self.llm, 'context_window_size', None) or 8192
             trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens,
                                      safety_margins=SAFETY_MARGIN_SINGLE_MODE,
                                      context_window_size=max_ctx)
@@ -433,7 +433,7 @@ class PaperProcessor:
             )
             # Skip truncation for long context models
             should_truncate = not self._should_skip_truncation()
-            max_ctx = getattr(self.llm, 'context_window_size', 8192) if hasattr(self.llm, 'context_window_size') else 8192
+            max_ctx = getattr(self.llm, 'context_window_size', None) or 8192
             trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens,
                                      safety_margins=SAFETY_MARGIN_ALL_MODE,
                                      context_window_size=max_ctx)
@@ -698,7 +698,7 @@ class PaperProcessor:
         ]
 
         # Fit to context window
-        max_ctx = getattr(self.llm, 'context_window_size', 8192)
+        max_ctx = getattr(self.llm, 'context_window_size', None) or 8192
         trimmed = utils.fit_prompt(messages, truncate=True, max_new=1024,
                                    context_window_size=max_ctx)
 
@@ -835,7 +835,7 @@ class PaperProcessor:
 
         # Fit to context and generate
         should_truncate = not self._should_skip_truncation()
-        max_ctx = getattr(self.llm, 'context_window_size', 8192)
+        max_ctx = getattr(self.llm, 'context_window_size', None) or 8192
         trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens,
                                    safety_margins=SAFETY_MARGIN_ALL_MODE,
                                    context_window_size=max_ctx)
