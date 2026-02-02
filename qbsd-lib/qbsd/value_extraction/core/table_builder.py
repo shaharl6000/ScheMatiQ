@@ -39,6 +39,7 @@ class TableBuilder:
         self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted, should_stop, on_warning)
         self.row_manager = RowDataManager()
         self._stopped = False  # Track if we stopped early
+        self._skipped_documents: List[str] = []  # Track documents with no observation units found
 
     def get_suggested_values(self, threshold: int = 2) -> Dict[str, Dict[str, Any]]:
         """Get suggested values that meet the threshold from PaperProcessor."""
@@ -47,6 +48,38 @@ class TableBuilder:
     def get_all_suggested_values(self) -> Dict[str, Dict[str, Any]]:
         """Get all suggested values regardless of threshold."""
         return self.paper_processor.get_all_suggested_values()
+
+    def get_skipped_documents(self) -> List[str]:
+        """Get list of documents that were skipped due to no observation units found."""
+        return self._skipped_documents.copy()
+
+    def clear_skipped_documents(self) -> None:
+        """Clear the list of skipped documents."""
+        self._skipped_documents = []
+
+    def _report_skipped_documents_summary(self) -> None:
+        """Report summary of documents skipped due to no observation units found.
+
+        Prints to console and sends via on_warning callback for UI display.
+        """
+        if not self._skipped_documents:
+            return
+
+        count = len(self._skipped_documents)
+
+        # Console summary
+        print(f"\n⚠️  {count} document(s) skipped - no observation units found:")
+        for doc in self._skipped_documents:
+            print(f"    • {doc}")
+
+        # Send via callback for UI display
+        if self.on_warning:
+            # Send a summary warning
+            summary_message = f"No observation units found in {count} document(s): {', '.join(self._skipped_documents)}"
+            try:
+                self.on_warning("_extraction_summary", "no_observation_units", summary_message)
+            except Exception as e:
+                print(f"⚠️  Warning callback error: {e}")
     
     def _is_system_file(self, filename: str) -> bool:
         """Check if a filename is a system file that should be skipped."""
@@ -266,6 +299,9 @@ class TableBuilder:
             )
 
         print(f"\n✅ Processing complete! Wrote {len(written_rows)} rows to {output_path}")
+
+        # Print summary of skipped documents (no observation units found)
+        self._report_skipped_documents_summary()
     
     def _process_row_multi_dirs(self,
                                row_name: str,
@@ -362,6 +398,10 @@ class TableBuilder:
                 if self.should_stop and self.should_stop():
                     self._stopped = True
                     return
+
+                # Track documents with no observation units found
+                if not unit_rows:
+                    self._skipped_documents.append(paper_title)
 
                 # Write each unit row
                 for unit_row in unit_rows:

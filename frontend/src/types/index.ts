@@ -152,9 +152,9 @@ export interface FileValidationResult {
 export interface LLMConfig {
   provider: string;
   model: string;
-  max_output_tokens: number;
+  max_output_tokens?: number;  // Auto-detected from model specs if not provided
   temperature: number;
-  context_window_size?: number;
+  context_window_size?: number;  // Auto-detected from model specs if not provided
   api_key?: string;
 }
 

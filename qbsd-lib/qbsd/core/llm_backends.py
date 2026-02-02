@@ -11,8 +11,10 @@ import os
 import time
 import random
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Optional
 import re
+
+from qbsd.core.model_specs import get_model_spec
 
 
 ##############################################################################
@@ -107,8 +109,9 @@ class TogetherLLM(LLMInterface):
         self,
         model: str,
         api_key: str | None = None,
-        max_output_tokens: int = 1024,
+        max_output_tokens: Optional[int] = None,
         temperature: float = 0.3,
+        context_window_size: Optional[int] = None,
         **backend_kwargs,
     ):
         super().__init__(**backend_kwargs)
@@ -116,6 +119,12 @@ class TogetherLLM(LLMInterface):
         self.api_key = api_key or os.getenv("TOGETHER_API_KEY")
         if not self.api_key:
             raise ValueError("Together AI key missing. Set TOGETHER_API_KEY.")
+
+        # Auto-detect token limits from model specs
+        spec = get_model_spec("together", model)
+        self.max_output_tokens = max_output_tokens if max_output_tokens is not None else spec.max_output_tokens
+        self.context_window_size = context_window_size if context_window_size is not None else spec.context_window
+
         try:
             from together import Together   # import locally to keep deps optional
         except ImportError as e:
@@ -126,7 +135,7 @@ class TogetherLLM(LLMInterface):
         self._client = Together(api_key=self.api_key)
         self._default_args: Dict[str, Any] = dict(
             model=self.model,
-            max_tokens=max_output_tokens,  # Together API uses max_tokens
+            max_tokens=self.max_output_tokens,  # Together API uses max_tokens
             temperature=temperature,
         )
         # Removed API key printing for security
@@ -201,8 +210,9 @@ class OpenAILLM(LLMInterface):
         self,
         model: str,
         api_key: str | None = None,
-        max_output_tokens: int = 1024,
+        max_output_tokens: Optional[int] = None,
         temperature: float = 0.3,
+        context_window_size: Optional[int] = None,
         **backend_kwargs,
     ):
         super().__init__(**backend_kwargs)
@@ -210,6 +220,12 @@ class OpenAILLM(LLMInterface):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise ValueError("OpenAI key missing. Set OPENAI_API_KEY.")
+
+        # Auto-detect token limits from model specs
+        spec = get_model_spec("openai", model)
+        self.max_output_tokens = max_output_tokens if max_output_tokens is not None else spec.max_output_tokens
+        self.context_window_size = context_window_size if context_window_size is not None else spec.context_window
+
         try:
             import openai  # noqa: F401
             from openai import OpenAI
@@ -220,7 +236,7 @@ class OpenAILLM(LLMInterface):
         self._client = OpenAI(api_key=self.api_key)
         self._default_args: Dict[str, Any] = dict(
             model=self.model,
-            max_tokens=max_output_tokens,  # OpenAI API uses max_tokens
+            max_tokens=self.max_output_tokens,  # OpenAI API uses max_tokens
             temperature=temperature,
         )
 
@@ -379,12 +395,15 @@ class HuggingFaceLLM(LLMInterface):
 
 
 ##############################################################################
-# 4. Google Gemini implementation                                           #
+# 4. Google Gemini implementation (using new google.genai SDK)              #
 ##############################################################################
 
 class GeminiLLM(LLMInterface):
     """
-    Gemini LLM with single API key support.
+    Gemini LLM using the new google.genai SDK.
+
+    The old google.generativeai SDK was deprecated (support ended Nov 30, 2025).
+    This implementation uses the new google-genai package with client-based architecture.
 
     Usage:
         llm = GeminiLLM()  # Uses gemini-2.5-flash-lite by default
@@ -393,21 +412,29 @@ class GeminiLLM(LLMInterface):
     API Key Loading:
         1. Explicit api_key parameter
         2. GEMINI_API_KEY environment variable
+
+    Token Limits:
+        max_output_tokens and context_window_size are auto-detected from model specs
+        when not explicitly provided. Override with explicit values if needed.
     """
 
     def __init__(
         self,
         model: str = "gemini-2.5-flash-lite",
         api_key: str | None = None,
-        max_output_tokens: int = 8192,
+        max_output_tokens: Optional[int] = None,
         temperature: float = 0.3,
-        context_window_size: int = 1000000,  # Gemini has 1M context by default
+        context_window_size: Optional[int] = None,
         **backend_kwargs,
     ):
         super().__init__(**backend_kwargs)
         self.model = model
-        self.context_window_size = context_window_size
-        self.max_output_tokens = max_output_tokens
+        self.temperature = temperature
+
+        # Auto-detect token limits from model specs
+        spec = get_model_spec("gemini", model)
+        self.max_output_tokens = max_output_tokens if max_output_tokens is not None else spec.max_output_tokens
+        self.context_window_size = context_window_size if context_window_size is not None else spec.context_window
 
         # Load single API key
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -425,47 +452,39 @@ class GeminiLLM(LLMInterface):
         if not self._validate_api_key(self.api_key, "GEMINI_API_KEY"):
             raise ValueError("Invalid Gemini API key format.")
 
+        # Import new SDK
         try:
-            import google.generativeai as genai
+            from google import genai
+            from google.genai import types
             self.genai = genai
+            self.types = types
         except ImportError as e:
             raise ImportError(
-                "pip install google-generativeai "
-                "(https://pypi.org/project/google-generativeai/)") from e
+                "pip install google-genai "
+                "(https://pypi.org/project/google-genai/)") from e
+
+        # Create client with API key (new SDK uses client-based architecture)
+        self._client = genai.Client(api_key=self.api_key)
 
         # Configure safety settings to be less restrictive for scientific content
         self.safety_settings = [
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_ONLY_HIGH"
-            },
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_ONLY_HIGH"
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_ONLY_HIGH"
-            },
-            {
-                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                "threshold": "BLOCK_ONLY_HIGH"
-            }
+            types.SafetySetting(
+                category="HARM_CATEGORY_HARASSMENT",
+                threshold="BLOCK_ONLY_HIGH"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_HATE_SPEECH",
+                threshold="BLOCK_ONLY_HIGH"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                threshold="BLOCK_ONLY_HIGH"
+            ),
+            types.SafetySetting(
+                category="HARM_CATEGORY_DANGEROUS_CONTENT",
+                threshold="BLOCK_ONLY_HIGH"
+            ),
         ]
-
-        self._default_args: Dict[str, Any] = dict(
-            generation_config=genai.types.GenerationConfig(
-                max_output_tokens=max_output_tokens,
-                temperature=temperature,
-            )
-        )
-
-        # Configure Gemini with single key
-        self.genai.configure(api_key=self.api_key)
-        self._client = self.genai.GenerativeModel(
-            self.model,
-            safety_settings=self.safety_settings
-        )
 
     def _validate_api_key(self, key: str, key_source: str = "unknown") -> bool:
         """Validate that an API key doesn't have invalid characters.
@@ -521,12 +540,12 @@ class GeminiLLM(LLMInterface):
         scientific_context = "Context: This is a scientific research task about cellular biology and protein sequences. Terms like 'nuclear' refer to cell nuclei (the cellular organelle), not weapons or harmful content."
         prompt_text = f"{scientific_context}\n\n{prompt_text}"
 
-        # Merge generation config
-        gen_config = self._default_args["generation_config"]
-        if kwargs.get("max_output_tokens"):
-            gen_config.max_output_tokens = kwargs["max_output_tokens"]
-        if kwargs.get("temperature") is not None:
-            gen_config.temperature = kwargs["temperature"]
+        # Build generation config using new SDK types
+        config = self.types.GenerateContentConfig(
+            max_output_tokens=kwargs.get("max_output_tokens", self.max_output_tokens),
+            temperature=kwargs.get("temperature", self.temperature),
+            safety_settings=self.safety_settings,
+        )
 
         # Retry logic (3 retries like OpenAI/Together)
         max_retries = 3
@@ -534,26 +553,31 @@ class GeminiLLM(LLMInterface):
 
         for attempt in range(max_retries + 1):
             try:
-                response = self._client.generate_content(
-                    prompt_text,
-                    generation_config=gen_config
+                # New SDK API: client.models.generate_content()
+                response = self._client.models.generate_content(
+                    model=self.model,
+                    contents=prompt_text,
+                    config=config,
                 )
 
                 # Handle safety filtering or empty responses
                 if not response.candidates:
-                    print(f"Gemini returned no candidates. Feedback: {response.prompt_feedback}")
+                    feedback = getattr(response, 'prompt_feedback', None)
+                    print(f"Gemini returned no candidates. Feedback: {feedback}")
                     return "No response generated due to safety filters or other restrictions."
 
                 candidate = response.candidates[0]
-                finish_reason = candidate.finish_reason.name if candidate.finish_reason else None
+                finish_reason = getattr(candidate, 'finish_reason', None)
+                finish_reason_name = finish_reason.name if hasattr(finish_reason, 'name') else str(finish_reason)
 
                 # Log non-STOP finish reasons (including MAX_TOKENS) but continue
-                if finish_reason and finish_reason != "STOP":
-                    if finish_reason == "MAX_TOKENS":
+                if finish_reason and finish_reason_name != "STOP":
+                    if finish_reason_name == "MAX_TOKENS":
                         print(f"Response truncated (MAX_TOKENS). Output may be incomplete.")
                     else:
-                        print(f"Response finish reason: {finish_reason}")
+                        print(f"Response finish reason: {finish_reason_name}")
 
+                # Check for empty content
                 if not candidate.content or not candidate.content.parts:
                     print("Gemini returned empty content")
                     return "Empty response from Gemini."

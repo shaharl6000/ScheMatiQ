@@ -81,39 +81,52 @@ def _download_ok(pdf: bytes) -> bool:
 
 
 def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
+    """
+    Build an LLM instance from configuration.
+
+    Token limits (max_output_tokens, context_window_size) are auto-detected
+    from model specs when not explicitly provided in the config.
+    """
     provider = cfg.get("provider", "together").lower()
     print(f"-------provider: {provider}")
+
+    # Get optional token limits - pass None to let LLM classes auto-detect
+    max_output_tokens = cfg.get("max_output_tokens") or cfg.get("max_tokens")
+    context_window_size = cfg.get("context_window_size") or cfg.get("max_context_tokens")
+
     if provider == "together":
         return TogetherLLM(
             model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
-            max_output_tokens=cfg.get("max_output_tokens", cfg.get("max_tokens", 512)),
+            max_output_tokens=max_output_tokens,  # None = auto-detect
             temperature=cfg.get("temperature", 0.3),
-            api_key=cfg.get("api_key", TOGETHER_API_KEY),               # falls back to env var
+            context_window_size=context_window_size,  # None = auto-detect
+            api_key=cfg.get("api_key", TOGETHER_API_KEY),
         )
     elif provider == "openai":
         return OpenAILLM(
             model=cfg.get("model", "gpt-4o"),
-            max_output_tokens=cfg.get("max_output_tokens", cfg.get("max_tokens", 1024)),
+            max_output_tokens=max_output_tokens,  # None = auto-detect
             temperature=cfg.get("temperature", 0.3),
+            context_window_size=context_window_size,  # None = auto-detect
             api_key=cfg.get("api_key"),
         )
     elif provider == "hf":
         return HuggingFaceLLM(
             model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct"),
-            max_output_tokens=cfg.get("max_output_tokens", cfg.get("max_tokens", 1024)),
+            max_output_tokens=max_output_tokens or 1024,  # HF doesn't have auto-detect
             temperature=cfg.get("temperature", 0.3),
         )
     elif provider == "gemini":
         model_name = cfg.get("model", "gemini-2.5-flash-lite")
-        max_tokens = cfg.get("max_output_tokens", cfg.get("max_tokens", 8192))
-        print(f"🤖 Gemini model: {model_name}, max_output_tokens: {max_tokens}")
-        return GeminiLLM(
+        llm = GeminiLLM(
             model=model_name,
-            max_output_tokens=max_tokens,
+            max_output_tokens=max_output_tokens,  # None = auto-detect
             temperature=cfg.get("temperature", 0.3),
-            context_window_size=cfg.get("context_window_size", cfg.get("max_context_tokens", 1000000)),
+            context_window_size=context_window_size,  # None = auto-detect
             api_key=cfg.get("api_key"),
         )
+        print(f"🤖 Gemini model: {model_name}, max_output_tokens: {llm.max_output_tokens}, context_window: {llm.context_window_size}")
+        return llm
     else:
         raise ValueError(f"Unknown backend provider: {provider}")
 

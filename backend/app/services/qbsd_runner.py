@@ -27,18 +27,21 @@ QBSD_AVAILABLE = True
 def build_llm_interface(
     provider: str,
     model: str,
-    max_output_tokens: int,
+    max_output_tokens: Optional[int],
     temperature: float,
-    api_key: str = None
+    api_key: str = None,
+    context_window_size: Optional[int] = None
 ):
     """Build LLM interface based on provider.
 
     Args:
         provider: LLM provider name (together, openai, gemini)
         model: Model name/identifier (empty string uses provider default)
-        max_output_tokens: Maximum tokens the model can generate in its response
+        max_output_tokens: Maximum tokens the model can generate in its response.
+            If None, auto-detected from model specs.
         temperature: Sampling temperature
         api_key: Optional user-provided API key (falls back to env var if None)
+        context_window_size: Maximum context window size. If None, auto-detected from model specs.
     """
     if not QBSD_AVAILABLE:
         raise RuntimeError("QBSD components not available")
@@ -48,8 +51,9 @@ def build_llm_interface(
             raise ValueError("Model must be specified for Together AI provider")
         return TogetherLLM(
             model=model,
-            max_output_tokens=max_output_tokens,
+            max_output_tokens=max_output_tokens,  # None = auto-detect
             temperature=temperature,
+            context_window_size=context_window_size,  # None = auto-detect
             api_key=api_key
         )
     elif provider.lower() == "openai":
@@ -57,21 +61,24 @@ def build_llm_interface(
             raise ValueError("Model must be specified for OpenAI provider")
         return OpenAILLM(
             model=model,
-            max_output_tokens=max_output_tokens,
+            max_output_tokens=max_output_tokens,  # None = auto-detect
             temperature=temperature,
+            context_window_size=context_window_size,  # None = auto-detect
             api_key=api_key
         )
     elif provider.lower() == "gemini":
-        # GeminiLLM has default model="gemini-2.5-flash-lite" and max_output_tokens=8192
-        # Only pass model if explicitly provided (non-empty)
+        # Token limits are auto-detected from model specs when None
         kwargs = {
-            "max_output_tokens": max_output_tokens,
+            "max_output_tokens": max_output_tokens,  # None = auto-detect
             "temperature": temperature,
+            "context_window_size": context_window_size,  # None = auto-detect
             "api_key": api_key
         }
         if model:  # Only pass model if explicitly set
             kwargs["model"] = model
-        return GeminiLLM(**kwargs)
+        llm = GeminiLLM(**kwargs)
+        logger.info(f"Gemini LLM created: model={llm.model}, max_output_tokens={llm.max_output_tokens}, context_window={llm.context_window_size}")
+        return llm
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")
 
@@ -610,9 +617,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             llm = build_llm_interface(
                 provider=qbsd_config["schema_creation_backend"]["provider"],
                 model=qbsd_config["schema_creation_backend"]["model"],
-                max_output_tokens=qbsd_config["schema_creation_backend"]["max_output_tokens"],
+                max_output_tokens=qbsd_config["schema_creation_backend"].get("max_output_tokens"),  # None = auto-detect
                 temperature=qbsd_config["schema_creation_backend"]["temperature"],
-                api_key=qbsd_config["schema_creation_backend"].get("api_key")
+                api_key=qbsd_config["schema_creation_backend"].get("api_key"),
+                context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size")  # None = auto-detect
             )
             logger.debug("LLM interface created successfully")
             
@@ -772,9 +780,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 value_extraction_llm = build_llm_interface(
                     provider=qbsd_config["value_extraction_backend"]["provider"],
                     model=qbsd_config["value_extraction_backend"]["model"],
-                    max_output_tokens=qbsd_config["value_extraction_backend"]["max_output_tokens"],
+                    max_output_tokens=qbsd_config["value_extraction_backend"].get("max_output_tokens"),  # None = auto-detect
                     temperature=qbsd_config["value_extraction_backend"]["temperature"],
-                    api_key=qbsd_config["value_extraction_backend"].get("api_key")
+                    api_key=qbsd_config["value_extraction_backend"].get("api_key"),
+                    context_window_size=qbsd_config["value_extraction_backend"].get("context_window_size")  # None = auto-detect
                 )
                 logger.debug("Value Extraction LLM interface created successfully")
 
@@ -1252,15 +1261,15 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         # Create callback to broadcast warnings via WebSocket
         on_warning = self._create_warning_callback(session_id, loop)
 
-        suggested_values_result = {}
+        extraction_result = {}
 
         # Create should_stop callback that checks for stop requests
         def should_stop():
             return self.is_stop_requested(session_id)
 
         def run_value_extraction():
-            nonlocal suggested_values_result
-            suggested_values_result = build_table_jsonl(
+            nonlocal extraction_result
+            extraction_result = build_table_jsonl(
                 schema_path=value_extraction_schema_path,
                 docs_directories=docs_directories,
                 output_path=output_path,
@@ -1274,7 +1283,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 should_stop=should_stop,  # Allow graceful stop
                 on_warning=on_warning  # Broadcast warnings to UI
             )
-            return suggested_values_result
+            return extraction_result
 
         # Track progress by monitoring output file
         extraction_task = loop.run_in_executor(None, run_value_extraction)
@@ -1362,7 +1371,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         # Wait for completion
         if not stopped_early:
             try:
-                suggested_values_result = await extraction_task
+                extraction_result = await extraction_task
             except Exception as e:
                 raise RuntimeError(f"Value extraction failed: {e}")
         else:
@@ -1388,9 +1397,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             logger.warning("Value extraction stopped early with %d rows extracted", final_line_count)
             return
 
+        # Extract results from the new return format
+        suggested_values = extraction_result.get("suggested_values", {}) if extraction_result else {}
+        skipped_documents = extraction_result.get("skipped_documents", []) if extraction_result else []
+
         # Process suggested values for schema evolution
-        if suggested_values_result:
-            await self._process_suggested_values(session, schema, suggested_values_result)
+        if suggested_values:
+            await self._process_suggested_values(session, schema, suggested_values)
 
         self.session_manager.update_session(session)
 
@@ -1398,7 +1411,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             "rows_extracted": final_line_count,
             "total_documents": total_documents,
             "elapsed_time": int(time.time() - start_time),
-            "suggested_values_count": sum(len(vals) for vals in suggested_values_result.values()) if suggested_values_result else 0
+            "suggested_values_count": sum(len(vals) for vals in suggested_values.values()) if suggested_values else 0,
+            "skipped_documents": skipped_documents,
+            "skipped_documents_count": len(skipped_documents)
         })
 
     async def _process_suggested_values(

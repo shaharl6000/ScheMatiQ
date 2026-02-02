@@ -12,6 +12,7 @@ from qbsd.core.schema import Column, Schema, SchemaSnapshot, SchemaEvolution, Ob
 from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
 from qbsd.core.retrievers import EmbeddingRetriever
 from qbsd.core.prompts import SchemaMode
+from qbsd.core.model_specs import ModelSpec, get_model_spec, MODEL_SPECS, GLOBAL_FALLBACK
 from qbsd.core.qbsd import (
     _discover_observation_unit as discover_observation_unit,
     ObservationUnitError,
@@ -33,4 +34,8 @@ __all__ = [
     "GeminiLLM",
     "EmbeddingRetriever",
     "discover_observation_unit",
+    "ModelSpec",
+    "get_model_spec",
+    "MODEL_SPECS",
+    "GLOBAL_FALLBACK",
 ]
