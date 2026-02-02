@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -375,6 +375,19 @@ const Visualize = () => {
       keepPreviousData: true,
     }
   );
+
+  // Fallback check for unit column in table data headers
+  // This allows showing the "By Unit" toggle even when the API doesn't detect unit names
+  // but the data has columns like "Observation Unit", "Unit", etc.
+  const hasUnitColumn = useMemo(() => {
+    if (!dataResponse?.rows?.length) return false;
+    const firstRow = dataResponse.rows[0];
+    const headers = Object.keys(firstRow.data || {});
+    return headers.some(header =>
+      header.toLowerCase().includes('unit') ||
+      header.toLowerCase().includes('observation')
+    );
+  }, [dataResponse]);
 
   // WebSocket effect for re-extraction and document processing
   // Uses wsRef to maintain connection across effect re-runs
@@ -970,17 +983,17 @@ const Visualize = () => {
         <TabsContent value="data" className="mt-4">
           {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || isQBSDStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
             <div className="relative">
-              {/* View Mode Toggle - only show if observation units exist */}
-              {unitListResponse && unitListResponse.totalUnits > 0 && (
+              {/* View Mode Toggle - show if observation units exist (from API) OR if table has unit-related columns */}
+              {((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) && (
                 <div className="mb-4 flex items-center gap-4">
                   <ViewModeToggle
                     viewMode={viewMode}
                     onViewModeChange={setViewMode}
-                    disabled={unitListResponse.totalUnits === 0}
+                    disabled={!unitListResponse || unitListResponse.totalUnits === 0}
                     disabledTooltip="No observation units found in this session"
-                    unitCount={unitListResponse.totalUnits}
+                    unitCount={unitListResponse?.totalUnits}
                   />
-                  {viewMode === 'by_unit' && (
+                  {viewMode === 'by_unit' && unitListResponse && (
                     <span className="text-sm text-muted-foreground">
                       Viewing {unitListResponse.totalUnits} observation units with {unitListResponse.totalRows} total rows
                     </span>

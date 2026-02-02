@@ -1,59 +1,38 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Eye, EyeOff, Key, CheckCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   encryptAndStore,
   retrieveAndDecrypt,
-  storeGeminiKeyType,
 } from '@/utils/apiKeyStorage';
 
 interface ApiKeyInputProps {
   provider: string;
   value: string;
   onChange: (value: string) => void;
-  geminiKeyType?: 'single' | 'multi';
-  onGeminiKeyTypeChange?: (type: 'single' | 'multi') => void;
 }
 
 export const ApiKeyInput = ({
   provider,
   value,
   onChange,
-  geminiKeyType = 'single',
-  onGeminiKeyTypeChange,
 }: ApiKeyInputProps) => {
   const [showKey, setShowKey] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Get storage key based on provider and key type
-  const getStorageKey = useCallback(() => {
-    if (provider === 'gemini') {
-      return `gemini_${geminiKeyType}`;
-    }
-    return provider;
-  }, [provider, geminiKeyType]);
-
-  // Load saved key on mount and when provider/keyType changes
+  // Load saved key on mount and when provider changes
   useEffect(() => {
     const loadSavedKey = async () => {
       setIsLoading(true);
-      const storageKey = getStorageKey();
-      const savedKey = await retrieveAndDecrypt(storageKey);
+      const savedKey = await retrieveAndDecrypt(provider);
       if (savedKey) {
         onChange(savedKey);
         setIsSaved(true);
       } else {
-        // Clear the value if no saved key for this provider/type
+        // Clear the value if no saved key for this provider
         onChange('');
         setIsSaved(false);
       }
@@ -61,29 +40,17 @@ export const ApiKeyInput = ({
     };
     loadSavedKey();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [provider, geminiKeyType, getStorageKey]);
+  }, [provider]);
 
   // Save key when it changes (or clear from storage if empty)
   const handleKeyChange = async (newValue: string) => {
     onChange(newValue);
-    const storageKey = getStorageKey();
     // encryptAndStore handles empty values by clearing the stored key
-    await encryptAndStore(storageKey, newValue);
+    await encryptAndStore(provider, newValue);
     setIsSaved(!!newValue);
   };
 
-  // Handle Gemini key type change
-  const handleKeyTypeChange = (newType: 'single' | 'multi') => {
-    if (onGeminiKeyTypeChange) {
-      onGeminiKeyTypeChange(newType);
-      storeGeminiKeyType(newType);
-    }
-  };
-
   const getPlaceholder = () => {
-    if (provider === 'gemini' && geminiKeyType === 'multi') {
-      return 'key1,key2,key3 (comma-separated)';
-    }
     const placeholders: Record<string, string> = {
       openai: 'sk-...',
       together: 'Enter your Together AI API key',
@@ -96,7 +63,7 @@ export const ApiKeyInput = ({
     const labels: Record<string, string> = {
       openai: 'OpenAI API Key',
       together: 'Together AI API Key',
-      gemini: geminiKeyType === 'multi' ? 'Gemini API Keys' : 'Gemini API Key',
+      gemini: 'Gemini API Key',
     };
     return labels[provider] || `${provider} API Key`;
   };
@@ -127,22 +94,6 @@ export const ApiKeyInput = ({
           </span>
         )}
       </div>
-
-      {/* Gemini key type selector */}
-      {provider === 'gemini' && onGeminiKeyTypeChange && (
-        <Select
-          value={geminiKeyType}
-          onValueChange={(v) => handleKeyTypeChange(v as 'single' | 'multi')}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder="Key type" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="single">Single Key (GEMINI_API_KEY)</SelectItem>
-            <SelectItem value="multi">Multiple Keys (GEMINI_API_KEYS)</SelectItem>
-          </SelectContent>
-        </Select>
-      )}
 
       <div className="relative">
         <Input

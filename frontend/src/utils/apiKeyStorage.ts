@@ -9,7 +9,6 @@ export type LLMProvider = 'openai' | 'together' | 'gemini';
 
 const STORAGE_KEY_PREFIX = 'qbsd_api_key_';
 const ENCRYPTION_KEY_STORAGE = 'qbsd_enc_key';
-const GEMINI_KEY_TYPE_STORAGE = 'qbsd_gemini_key_type';
 
 /**
  * Get or create the encryption key for AES-GCM.
@@ -128,30 +127,38 @@ export function clearAllStoredKeys(): void {
 }
 
 /**
- * Store Gemini key type preference.
+ * Migrate old Gemini key storage format to new single-key format.
+ * Call this on app startup to handle users who had multi-key config.
  */
-export function storeGeminiKeyType(keyType: 'single' | 'multi'): void {
-  localStorage.setItem(GEMINI_KEY_TYPE_STORAGE, keyType);
-}
+export async function migrateGeminiKeys(): Promise<void> {
+  // Check for old storage format
+  const singleKey = await retrieveAndDecrypt('gemini_single');
+  const multiKey = await retrieveAndDecrypt('gemini_multi');
 
-/**
- * Get stored Gemini key type preference.
- */
-export function getGeminiKeyType(): 'single' | 'multi' {
-  const stored = localStorage.getItem(GEMINI_KEY_TYPE_STORAGE);
-  return (stored === 'single' || stored === 'multi') ? stored : 'single';
+  if (singleKey || multiKey) {
+    // Prefer single key, fall back to first of multi
+    let keyToMigrate = singleKey;
+    if (!keyToMigrate && multiKey) {
+      // If multi-key, use the first key
+      keyToMigrate = multiKey.split(',')[0]?.trim() || null;
+    }
+
+    if (keyToMigrate) {
+      await encryptAndStore('gemini', keyToMigrate);
+      console.log('Migrated Gemini API key to new storage format');
+    }
+
+    // Clean up old storage
+    clearStoredKey('gemini_single');
+    clearStoredKey('gemini_multi');
+    localStorage.removeItem('qbsd_gemini_key_type');
+  }
 }
 
 /**
  * Check if a specific provider has an API key configured.
- * For Gemini, checks both single and multi key types.
  */
 export async function hasApiKey(provider: LLMProvider): Promise<boolean> {
-  if (provider === 'gemini') {
-    const singleKey = await retrieveAndDecrypt('gemini_single');
-    const multiKey = await retrieveAndDecrypt('gemini_multi');
-    return !!(singleKey || multiKey);
-  }
   const key = await retrieveAndDecrypt(provider);
   return !!key;
 }
@@ -181,13 +188,9 @@ export async function hasAnyApiKeys(): Promise<boolean> {
 }
 
 /**
- * Get the API key for a provider (handling Gemini key type).
+ * Get the API key for a provider.
  * Returns null if not configured.
  */
 export async function getApiKeyForProvider(provider: LLMProvider): Promise<string | null> {
-  if (provider === 'gemini') {
-    const keyType = getGeminiKeyType();
-    return retrieveAndDecrypt(`gemini_${keyType}`);
-  }
   return retrieveAndDecrypt(provider);
 }

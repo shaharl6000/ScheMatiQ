@@ -26,15 +26,38 @@ class UnitViewService:
 
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = Path(data_dir)
+        self.work_dir = Path("./qbsd_work")
 
-    def _get_data_file(self, session_id: str) -> Path:
-        """Get the data file path for a session."""
-        return self.data_dir / session_id / "data.jsonl"
+    def _get_data_file(self, session_id: str) -> Optional[Path]:
+        """Get the data file path for a session, checking multiple locations.
+
+        Checks in order:
+        1. qbsd_work/{session_id}/extracted_data.jsonl (QBSD sessions)
+        2. qbsd_work/{session_id}/data.jsonl (fallback)
+        3. data/{session_id}/data.jsonl (load sessions)
+
+        Returns None if no data file exists.
+        """
+        # Check QBSD work directory first
+        qbsd_extracted = self.work_dir / session_id / "extracted_data.jsonl"
+        if qbsd_extracted.exists():
+            return qbsd_extracted
+
+        qbsd_data = self.work_dir / session_id / "data.jsonl"
+        if qbsd_data.exists():
+            return qbsd_data
+
+        # Fall back to data directory
+        data_file = self.data_dir / session_id / "data.jsonl"
+        if data_file.exists():
+            return data_file
+
+        return None
 
     def _load_all_rows(self, session_id: str) -> List[Dict]:
         """Load all data rows from a session's JSONL file."""
         data_file = self._get_data_file(session_id)
-        if not data_file.exists():
+        if not data_file:
             return []
 
         rows = []
@@ -47,6 +70,9 @@ class UnitViewService:
     def _save_all_rows(self, session_id: str, rows: List[Dict]) -> None:
         """Save all data rows to a session's JSONL file."""
         data_file = self._get_data_file(session_id)
+        if not data_file:
+            # Default to qbsd_work directory for new files
+            data_file = self.work_dir / session_id / "extracted_data.jsonl"
         data_file.parent.mkdir(parents=True, exist_ok=True)
 
         with open(data_file, 'w', encoding='utf-8') as f:
@@ -55,10 +81,28 @@ class UnitViewService:
 
     def _get_unit_name(self, row: Dict) -> Optional[str]:
         """Extract unit name from a row, checking multiple possible fields."""
-        # Check for unit_name with and without underscore prefix
+        # Check for unit_name with and without underscore prefix at root level
         for field in ['_unit_name', 'unit_name']:
             if field in row and row[field]:
                 return str(row[field]).strip()
+
+        # Also check within the 'data' field for unit-related columns
+        # This handles cases where the observation unit is stored as a regular column
+        data = row.get('data', {})
+        if isinstance(data, dict):
+            for key, value in data.items():
+                key_lower = key.lower()
+                # Match columns like "Observation Unit", "Unit", "Study Unit", etc.
+                if ('unit' in key_lower or 'observation' in key_lower) and value:
+                    # Get the actual value (handle CellValue structure)
+                    if isinstance(value, dict):
+                        # CellValue might have 'value' or 'answer' field
+                        actual_value = value.get('value') or value.get('answer')
+                        if actual_value:
+                            return str(actual_value).strip()
+                    elif isinstance(value, str) and value.strip():
+                        return value.strip()
+
         return None
 
     def _get_source_document(self, row: Dict) -> Optional[str]:

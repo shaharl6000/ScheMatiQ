@@ -29,7 +29,7 @@ import random
 from pathlib import Path
 from qbsd.core.schema import Schema, Column, SchemaEvolution, ObservationUnit
 from qbsd.core.prompts import (
-    get_prompts, SchemaMode, DRAFT_SCHEMA_TMPL,
+    get_prompts, get_observation_unit_prompts, SchemaMode, DRAFT_SCHEMA_TMPL,
     SYSTEM_PROMPT_OBSERVATION_UNIT, USER_PROMPT_TMPL_OBSERVATION_UNIT,
     OBSERVATION_UNIT_CONTEXT_TMPL
 )
@@ -243,21 +243,26 @@ def _parse_observation_unit_from_llm(raw_text: str) -> ObservationUnit:
 
 
 def _discover_observation_unit(
-    query: str,
-    passages: List[str],
+    query: str | None,
+    passages: List[str] | None,
     llm,
     context_window_size: int = 8192,
     source_document: str = None,
 ) -> ObservationUnit:
     """
-    Discover the appropriate observation unit for the schema based on query and sample passages.
+    Discover the appropriate observation unit for the schema based on available inputs.
 
     The observation unit defines what each row represents - a specific entity type
     that will be extracted from documents (e.g., "Model-Benchmark Evaluation").
 
+    Supports three modes:
+    - STANDARD: Query + passages (original behavior)
+    - DOCUMENT_ONLY: Passages only, no query (discover from document content)
+    - QUERY_ONLY: Query only, no passages (plan from query intent)
+
     Args:
-        query: User query describing what information to extract
-        passages: Sample document passages to analyze
+        query: User query describing what information to extract (optional)
+        passages: Sample document passages to analyze (optional)
         llm: LLM interface for generation
         context_window_size: Maximum context window size
         source_document: Document name that provided the passages
@@ -268,20 +273,36 @@ def _discover_observation_unit(
     Raises:
         ObservationUnitDiscoveryError: If discovery fails due to missing inputs or LLM errors.
     """
-    if not query or not query.strip():
-        raise ObservationUnitDiscoveryError("Query is required for observation unit discovery")
+    has_query = bool(query and query.strip())
+    has_passages = bool(passages)
 
-    if not passages:
-        raise ObservationUnitDiscoveryError("Passages are required for observation unit discovery")
+    if not has_query and not has_passages:
+        raise ObservationUnitDiscoveryError(
+            "At least one of query or passages is required for observation unit discovery"
+        )
 
-    # Build messages for observation unit discovery
-    user_content = USER_PROMPT_TMPL_OBSERVATION_UNIT.format(
-        query=query.strip(),
-        joined_passages="\n\n".join(p.strip() for p in passages[:5])  # Use first 5 passages as sample
-    )
+    # Get mode-appropriate prompts
+    system_prompt, user_prompt_tmpl, mode = get_observation_unit_prompts(query, has_passages)
+
+    # Build user content based on mode
+    if mode == SchemaMode.STANDARD:
+        user_content = user_prompt_tmpl.format(
+            query=query.strip(),
+            joined_passages="\n\n".join(p.strip() for p in passages[:5])
+        )
+    elif mode == SchemaMode.DOCUMENT_ONLY:
+        user_content = user_prompt_tmpl.format(
+            joined_passages="\n\n".join(p.strip() for p in passages[:5])
+        )
+    elif mode == SchemaMode.QUERY_ONLY:
+        user_content = user_prompt_tmpl.format(
+            query=query.strip()
+        )
+    else:
+        raise ObservationUnitDiscoveryError(f"Unknown mode: {mode}")
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT_OBSERVATION_UNIT},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_content},
     ]
 
@@ -295,9 +316,11 @@ def _discover_observation_unit(
         # Add source tracking
         if source_document:
             observation_unit.source_document = source_document
+        elif mode == SchemaMode.QUERY_ONLY:
+            observation_unit.source_document = "query_only"
         observation_unit.discovery_iteration = 1
 
-        logging.info(f"Discovered observation unit: {observation_unit.name} - {observation_unit.definition}")
+        logging.info(f"Discovered observation unit ({mode.value}): {observation_unit.name} - {observation_unit.definition}")
         return observation_unit
 
     except ObservationUnitDiscoveryError:
@@ -534,11 +557,15 @@ def discover_schema(
     # Handle QUERY_ONLY mode: no documents, just generate schema from query
     if not has_documents:
         logging.info("QUERY_ONLY mode: Generating schema from query without documents")
-        # In query-only mode, observation unit must be provided
-        if not observation_unit:
-            raise ObservationUnitDiscoveryError(
-                "Query-only mode requires initial_observation_unit parameter. "
-                "Cannot discover observation unit without documents."
+        # Auto-discover observation unit from query if not provided and discovery is enabled
+        if not observation_unit and discover_observation_unit:
+            logging.info("Discovering observation unit from query...")
+            observation_unit = _discover_observation_unit(
+                query=query,
+                passages=None,  # No passages in query-only mode
+                llm=llm,
+                context_window_size=context_window_size,
+                source_document="query_only"
             )
         schema.observation_unit = observation_unit
 
@@ -602,11 +629,12 @@ def discover_schema(
             continue
 
         # Discover observation unit in first iteration if not already set
-        if it == 1 and not observation_unit and discover_observation_unit and has_query:
+        # Supports STANDARD (query + docs) and DOCUMENT_ONLY (docs only) modes
+        if it == 1 and not observation_unit and discover_observation_unit and (has_query or passages):
             logging.info("Discovering observation unit from first batch...")
             source_doc = batch_filenames[0] if batch_filenames else None
             observation_unit = _discover_observation_unit(
-                query=query,
+                query=query if has_query else None,
                 passages=passages,
                 llm=llm,
                 context_window_size=context_window_size,
