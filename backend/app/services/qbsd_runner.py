@@ -1062,7 +1062,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 break
 
             # Discover observation unit in first iteration (if not already set)
-            if iteration == 0 and query and relevant_content and not current_schema.observation_unit:
+            # Support all modes: STANDARD (query + docs), DOCUMENT_ONLY (docs only), QUERY_ONLY handled separately
+            if iteration == 0 and (query or relevant_content) and not current_schema.observation_unit:
                 logger.info("Discovering observation unit from first batch...")
                 try:
                     obs_unit = discover_observation_unit(
