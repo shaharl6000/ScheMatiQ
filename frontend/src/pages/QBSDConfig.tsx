@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, Upload, Trash2, FileText, DollarSign, AlertTriangle, TrendingUp, HelpCircle } from 'lucide-react';
 import {
-  getGeminiKeyType,
   getConfiguredProviders,
   getApiKeyForProvider,
   LLMProvider,
@@ -356,7 +355,6 @@ const QBSDConfigPage = () => {
       const valueApiKey = await getApiKeyForProvider(
         config.value_extraction_backend.provider as LLMProvider
       );
-      const geminiKeyType = getGeminiKeyType();
 
       // Build observation unit config based on mode
       let initialObservationUnit: InitialObservationUnit | undefined;
@@ -374,19 +372,15 @@ const QBSDConfigPage = () => {
         ...config,
         // If using upload mode, set docs_path to null (documents will be added after session creation)
         docs_path: documentSource === 'upload' ? null : config.docs_path,
+        // Tell backend that documents will be uploaded after session creation
+        upload_pending: documentSource === 'upload' && uploadedFiles.length > 0,
         schema_creation_backend: {
           ...config.schema_creation_backend,
           api_key: schemaApiKey || undefined,
-          gemini_key_type: config.schema_creation_backend.provider === 'gemini'
-            ? geminiKeyType
-            : undefined,
         },
         value_extraction_backend: {
           ...config.value_extraction_backend,
           api_key: valueApiKey || undefined,
-          gemini_key_type: config.value_extraction_backend.provider === 'gemini'
-            ? geminiKeyType
-            : undefined,
         },
         // Add initial schema (inline data takes priority over file path)
         initial_schema: initialSchemaData,

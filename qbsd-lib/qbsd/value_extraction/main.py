@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Callable, Any, Optional, Dict
 
 from qbsd.core import utils
-from qbsd.core.llm_backends import AllKeysFailedError
 from .core.table_builder import TableBuilder
 from .core.paper_processor import OnValueExtractedCallback, OnWarningCallback
 from .config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
@@ -113,28 +112,20 @@ def main(cfg_path: Path) -> None:
     print(f"\nStarting value extraction for {total_docs_count} documents across {len(docs_directories)} directories...")
     start_time = time.time()
 
-    try:
-        build_table_jsonl(
-            schema_path,
-            docs_directories,
-            output_path,
-            llm,
-            retriever,
-            max_new_tokens=max_new,
-            resume=resume,
-            mode=mode,
-            retrieval_k=retrieval_k,
-            max_workers=max_workers,
-        )
-        elapsed_time = time.time() - start_time
-        print(f"\nValue extraction completed for {total_docs_count} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
-
-    except AllKeysFailedError as e:
-        elapsed_time = time.time() - start_time
-        print(f"\n⚠️  Value extraction interrupted after {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
-        print(f"📁 Output file: {output_path}")
-        print(f"💡 To resume, run again with resume=True in config or re-run the same command.")
-        sys.exit(1)  # Exit with error code to indicate incomplete processing
+    build_table_jsonl(
+        schema_path,
+        docs_directories,
+        output_path,
+        llm,
+        retriever,
+        max_new_tokens=max_new,
+        resume=resume,
+        mode=mode,
+        retrieval_k=retrieval_k,
+        max_workers=max_workers,
+    )
+    elapsed_time = time.time() - start_time
+    print(f"\nValue extraction completed for {total_docs_count} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
 
 
 if __name__ == "__main__":

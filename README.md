@@ -409,12 +409,6 @@ cd backend
 PYTHONPATH=$PYTHONPATH:../qbsd-lib uvicorn app.main:app --reload
 ```
 
-**LLM Rate Limits**
-Use multiple API keys with rotation:
-```bash
-GEMINI_API_KEYS="key1,key2,key3"
-```
-
 ---
 
 ## Contributing

@@ -156,7 +156,6 @@ export interface LLMConfig {
   temperature: number;
   context_window_size?: number;
   api_key?: string;
-  gemini_key_type?: 'single' | 'multi';
 }
 
 export interface RetrieverConfig {
@@ -189,6 +188,8 @@ export interface QBSDConfig {
   query: string;
   /** Document paths (optional for query-only mode - can be empty array or null) */
   docs_path: string | string[] | null;
+  /** True when documents will be uploaded after session creation */
+  upload_pending?: boolean;
   max_keys_schema: number;
   documents_batch_size: number;
   initial_schema_path?: string;  // Path to schema file

@@ -11,7 +11,6 @@ class LLMConfig(BaseModel):
     temperature: float = 0
     context_window_size: Optional[int] = None
     api_key: Optional[str] = None  # User-provided API key (falls back to env var)
-    gemini_key_type: Optional[str] = None  # "single" or "multi" for Gemini
 
 class RetrieverConfig(BaseModel):
     """Retriever configuration."""
@@ -50,6 +49,7 @@ class QBSDConfig(BaseModel):
     """
     query: str = ""  # Optional - can be empty for document-only mode
     docs_path: Union[str, List[str], None] = None  # Optional - can be None for query-only mode
+    upload_pending: bool = False  # True when documents will be uploaded after session creation
     max_keys_schema: int = 100
     documents_batch_size: int = 4
     initial_schema_path: Optional[str] = None  # Path to schema file
