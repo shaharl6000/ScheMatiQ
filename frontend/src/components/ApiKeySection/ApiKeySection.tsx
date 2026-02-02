@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { Key, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { ApiKeyInput } from '@/components/ApiKeyInput';
 import {
-  getGeminiKeyType,
   getConfiguredProviders,
+  migrateGeminiKeys,
   LLMProvider,
 } from '@/utils/apiKeyStorage';
 import { Card, CardContent } from '@/components/ui/card';
@@ -24,19 +24,19 @@ export const ApiKeySection = ({ onConfigurationChange }: ApiKeySectionProps) => 
   const [openaiKey, setOpenaiKey] = useState('');
   const [togetherKey, setTogetherKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
-  const [geminiKeyType, setGeminiKeyType] = useState<'single' | 'multi'>('single');
 
   // Track configured providers
   const [configuredProviders, setConfiguredProviders] = useState<LLMProvider[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
 
-  // Load initial state
+  // Load initial state and migrate old Gemini keys
   useEffect(() => {
     const loadState = async () => {
       setIsLoading(true);
-      const savedGeminiType = getGeminiKeyType();
-      setGeminiKeyType(savedGeminiType);
+
+      // Migrate old Gemini multi-key storage format
+      await migrateGeminiKeys();
 
       const providers = await getConfiguredProviders();
       setConfiguredProviders(providers);
@@ -150,8 +150,6 @@ export const ApiKeySection = ({ onConfigurationChange }: ApiKeySectionProps) => 
                   provider="gemini"
                   value={geminiKey}
                   onChange={setGeminiKey}
-                  geminiKeyType={geminiKeyType}
-                  onGeminiKeyTypeChange={setGeminiKeyType}
                 />
               </div>
             </div>
