@@ -66,12 +66,6 @@ const Visualize = () => {
   // Fetch observation units for the session (to determine if unit view is available)
   const { units: unitListResponse } = useUnits(sessionId);
 
-  // Debug: log when unitListResponse changes
-  useEffect(() => {
-    console.log('[Visualize] unitListResponse:', unitListResponse);
-    console.log('[Visualize] hasUnitColumn will be checked against dataResponse');
-  }, [unitListResponse]);
-
   // Enhanced upload document management state
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
   const [documentUploadLoading, setDocumentUploadLoading] = useState(false);

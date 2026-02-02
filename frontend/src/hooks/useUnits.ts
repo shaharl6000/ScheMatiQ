@@ -40,9 +40,7 @@ export function useUnits(sessionId: string | undefined): UseUnitsResult {
     setError(null);
 
     try {
-      console.log('[useUnits] Fetching units for session:', sessionId);
       const response = await unitsAPI.list(sessionId);
-      console.log('[useUnits] Got response:', response);
       setUnits(response);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch units';
