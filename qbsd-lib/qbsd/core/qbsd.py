@@ -84,6 +84,40 @@ def _extract_json(text: str) -> str:
     result = result.replace('{{', '{').replace('}}', '}')
     return result
 
+
+def _clean_column_name(name: str) -> str:
+    """
+    Clean column name by removing markdown formatting and list prefixes.
+    Gemini and other LLMs sometimes include markdown in JSON field values.
+    """
+    if not name:
+        return name
+
+    cleaned = name
+
+    # Remove numbered list prefixes (e.g., "1. ", "2. ")
+    cleaned = re.sub(r'^\d+\.\s*', '', cleaned)
+
+    # Remove bullet list prefixes (e.g., "- ", "* ")
+    cleaned = re.sub(r'^[-*]\s+', '', cleaned)
+
+    # Remove heading markers (e.g., "# ", "## ")
+    cleaned = re.sub(r'^#+\s*', '', cleaned)
+
+    # Remove markdown bold markers (** and __)
+    cleaned = re.sub(r'\*\*(.+?)\*\*', r'\1', cleaned)
+    cleaned = re.sub(r'__(.+?)__', r'\1', cleaned)
+
+    # Remove remaining unpaired bold/italic markers at start/end
+    cleaned = re.sub(r'^[\*_]+', '', cleaned)
+    cleaned = re.sub(r'[\*_]+$', '', cleaned)
+
+    # Normalize whitespace
+    cleaned = ' '.join(cleaned.split())
+
+    return cleaned.strip()
+
+
 def _parse_schema_from_llm(raw_text: str,
                            query: str,
                            max_keys_schema: int,
@@ -107,7 +141,7 @@ def _parse_schema_from_llm(raw_text: str,
             if columns_data:
                 columns = [
                     Column(
-                        name=c["name"],
+                        name=_clean_column_name(c["name"]),
                         definition=c.get("definition", ""),
                         rationale=c.get("rationale", ""),
                         allowed_values=c.get("allowed_values") if c.get("allowed_values") else None
@@ -120,7 +154,7 @@ def _parse_schema_from_llm(raw_text: str,
         elif isinstance(payload, list):
             columns = [
                 Column(
-                    name=c["name"],
+                    name=_clean_column_name(c["name"]),
                     definition=c.get("definition", ""),
                     rationale=c.get("rationale", ""),
                     allowed_values=c.get("allowed_values") if c.get("allowed_values") else None
@@ -158,7 +192,7 @@ def _parse_schema_from_llm(raw_text: str,
                 if not name or len(name) < 2:
                     continue
                 columns.append(Column(
-                    name=name,
+                    name=_clean_column_name(name),
                     definition="",
                     rationale=rationale
                 ))
