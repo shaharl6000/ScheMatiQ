@@ -329,10 +329,8 @@ const QBSDConfigPage = () => {
   }, [
     config.schema_creation_backend.provider,
     config.schema_creation_backend.model,
-    config.schema_creation_backend.max_output_tokens,
     config.value_extraction_backend.provider,
     config.value_extraction_backend.model,
-    config.value_extraction_backend.max_output_tokens,
     config.docs_path,
     config.documents_batch_size,
     config.skip_value_extraction,
@@ -838,7 +836,7 @@ const QBSDConfigPage = () => {
               </AccordionTrigger>
               <AccordionContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  LLM used for extracting actual data values from documents
+                  LLM used for extracting actual data values from documents. Token limits are auto-detected from model specifications.
                 </p>
                 <div className="grid md:grid-cols-3 gap-4">
                   <div className="space-y-2">
@@ -871,17 +869,6 @@ const QBSDConfigPage = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Max Output Tokens</Label>
-                    <Input
-                      type="number"
-                      value={config.value_extraction_backend.max_output_tokens}
-                      onChange={(e) => handleValueBackendChange('max_output_tokens', parseInt(e.target.value))}
-                      min={512}
-                      max={32768}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
                     <Label>Temperature</Label>
                     <Input
                       type="number"
@@ -890,16 +877,6 @@ const QBSDConfigPage = () => {
                       min={0}
                       max={2}
                       step={0.1}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Context Window Size</Label>
-                    <Input
-                      type="number"
-                      value={config.value_extraction_backend.context_window_size || ''}
-                      onChange={(e) => handleValueBackendChange('context_window_size', e.target.value ? parseInt(e.target.value) : undefined)}
-                      placeholder="Optional"
                     />
                   </div>
                 </div>

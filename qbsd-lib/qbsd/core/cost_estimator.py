@@ -667,21 +667,29 @@ def estimate_from_config(
 ) -> CostEstimateResult:
     """
     Estimate cost from a QBSD configuration dictionary.
-    
+
     This is a convenience function that extracts parameters from
     the standard QBSDConfig format used by the backend.
     """
+    from qbsd.core.model_specs import get_model_spec
+
     # Extract schema creation backend config
     schema_backend = config.get("schema_creation_backend", {})
     schema_provider = schema_backend.get("provider", "gemini")
     schema_model = schema_backend.get("model", "gemini-2.5-flash")
-    schema_max_tokens = schema_backend.get("max_output_tokens", 8192)
-    
+    # Auto-detect max_output_tokens from model specs if not provided or None
+    schema_max_tokens = schema_backend.get("max_output_tokens")
+    if schema_max_tokens is None:
+        schema_max_tokens = get_model_spec(schema_provider, schema_model).max_output_tokens
+
     # Extract value extraction backend config
     value_backend = config.get("value_extraction_backend", {})
     value_provider = value_backend.get("provider", schema_provider)
     value_model = value_backend.get("model", schema_model)
-    value_max_tokens = value_backend.get("max_output_tokens", 8192)
+    # Auto-detect max_output_tokens from model specs if not provided or None
+    value_max_tokens = value_backend.get("max_output_tokens")
+    if value_max_tokens is None:
+        value_max_tokens = get_model_spec(value_provider, value_model).max_output_tokens
     
     # Extract other config
     batch_size = config.get("documents_batch_size", 1)
