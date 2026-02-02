@@ -363,7 +363,7 @@ def estimate_schema_discovery_cost(
     # 
     # Conservative estimate: 300 tokens average (most batches add 0-2 columns)
     avg_output_tokens = constants.get("schema_discovery_avg_output_tokens", 300)
-    output_tokens_per_call = min(avg_output_tokens, max_output_tokens)
+    output_tokens_per_call = min(avg_output_tokens, max_output_tokens or 4096)
     
     # Add observation unit discovery (separate call with different prompt)
     obs_unit_input = (_OBSERVATION_UNIT_PROMPT_TOKENS or 600) + query_tokens_estimate + (
@@ -497,7 +497,7 @@ def estimate_value_extraction_cost(
     tokens_per_column = constants.get("tokens_per_extracted_column", 40)
     fill_rate = constants.get("value_extraction_fill_rate", 0.7)
     extraction_output_per_call = int(num_columns * fill_rate * tokens_per_column)
-    extraction_output_per_call = max(100, min(extraction_output_per_call, max_output_tokens))
+    extraction_output_per_call = max(100, min(extraction_output_per_call, max_output_tokens or 4096))
     
     # Unit identification output
     unit_id_output = 200 if has_observation_units else 0
@@ -667,21 +667,29 @@ def estimate_from_config(
 ) -> CostEstimateResult:
     """
     Estimate cost from a QBSD configuration dictionary.
-    
+
     This is a convenience function that extracts parameters from
     the standard QBSDConfig format used by the backend.
     """
+    from qbsd.core.model_specs import get_model_spec
+
     # Extract schema creation backend config
     schema_backend = config.get("schema_creation_backend", {})
     schema_provider = schema_backend.get("provider", "gemini")
     schema_model = schema_backend.get("model", "gemini-2.5-flash")
-    schema_max_tokens = schema_backend.get("max_output_tokens", 8192)
-    
+    # Auto-detect max_output_tokens from model specs if not provided or None
+    schema_max_tokens = schema_backend.get("max_output_tokens")
+    if schema_max_tokens is None:
+        schema_max_tokens = get_model_spec(schema_provider, schema_model).max_output_tokens
+
     # Extract value extraction backend config
     value_backend = config.get("value_extraction_backend", {})
     value_provider = value_backend.get("provider", schema_provider)
     value_model = value_backend.get("model", schema_model)
-    value_max_tokens = value_backend.get("max_output_tokens", 8192)
+    # Auto-detect max_output_tokens from model specs if not provided or None
+    value_max_tokens = value_backend.get("max_output_tokens")
+    if value_max_tokens is None:
+        value_max_tokens = get_model_spec(value_provider, value_model).max_output_tokens
     
     # Extract other config
     batch_size = config.get("documents_batch_size", 1)

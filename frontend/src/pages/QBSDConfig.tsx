@@ -200,16 +200,14 @@ const QBSDConfigPage = () => {
     schema_creation_backend: {
       provider: 'gemini',
       model: 'gemini-2.5-flash',
-      max_output_tokens: 8192,
+      // max_output_tokens and context_window_size are auto-detected from model specs
       temperature: 0,
-      context_window_size: 1000000,
     },
     value_extraction_backend: {
       provider: 'gemini',
       model: 'gemini-2.5-flash-lite',
-      max_output_tokens: 8192,
+      // max_output_tokens and context_window_size are auto-detected from model specs
       temperature: 0,
-      context_window_size: 1000000,
     },
     output_path: 'outputs/visualization_output.json',
     document_randomization_seed: 42,
@@ -331,10 +329,8 @@ const QBSDConfigPage = () => {
   }, [
     config.schema_creation_backend.provider,
     config.schema_creation_backend.model,
-    config.schema_creation_backend.max_output_tokens,
     config.value_extraction_backend.provider,
     config.value_extraction_backend.model,
-    config.value_extraction_backend.max_output_tokens,
     config.docs_path,
     config.documents_batch_size,
     config.skip_value_extraction,
@@ -781,7 +777,7 @@ const QBSDConfigPage = () => {
               </AccordionTrigger>
               <AccordionContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  LLM used for discovering schema structure and column definitions
+                  LLM used for discovering schema structure and column definitions. Token limits are auto-detected from model specifications.
                 </p>
                 <div className="grid md:grid-cols-3 gap-4">
                   <div className="space-y-2">
@@ -814,17 +810,6 @@ const QBSDConfigPage = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Max Output Tokens</Label>
-                    <Input
-                      type="number"
-                      value={config.schema_creation_backend.max_output_tokens}
-                      onChange={(e) => handleSchemaBackendChange('max_output_tokens', parseInt(e.target.value))}
-                      min={512}
-                      max={32768}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
                     <Label>Temperature</Label>
                     <Input
                       type="number"
@@ -833,16 +818,6 @@ const QBSDConfigPage = () => {
                       min={0}
                       max={2}
                       step={0.1}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Context Window Size</Label>
-                    <Input
-                      type="number"
-                      value={config.schema_creation_backend.context_window_size || ''}
-                      onChange={(e) => handleSchemaBackendChange('context_window_size', e.target.value ? parseInt(e.target.value) : undefined)}
-                      placeholder="Optional"
                     />
                   </div>
                 </div>
@@ -861,7 +836,7 @@ const QBSDConfigPage = () => {
               </AccordionTrigger>
               <AccordionContent>
                 <p className="text-sm text-muted-foreground mb-4">
-                  LLM used for extracting actual data values from documents
+                  LLM used for extracting actual data values from documents. Token limits are auto-detected from model specifications.
                 </p>
                 <div className="grid md:grid-cols-3 gap-4">
                   <div className="space-y-2">
@@ -894,17 +869,6 @@ const QBSDConfigPage = () => {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Max Output Tokens</Label>
-                    <Input
-                      type="number"
-                      value={config.value_extraction_backend.max_output_tokens}
-                      onChange={(e) => handleValueBackendChange('max_output_tokens', parseInt(e.target.value))}
-                      min={512}
-                      max={32768}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
                     <Label>Temperature</Label>
                     <Input
                       type="number"
@@ -913,16 +877,6 @@ const QBSDConfigPage = () => {
                       min={0}
                       max={2}
                       step={0.1}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Context Window Size</Label>
-                    <Input
-                      type="number"
-                      value={config.value_extraction_backend.context_window_size || ''}
-                      onChange={(e) => handleValueBackendChange('context_window_size', e.target.value ? parseInt(e.target.value) : undefined)}
-                      placeholder="Optional"
                     />
                   </div>
                 </div>

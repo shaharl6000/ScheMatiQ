@@ -31,7 +31,7 @@ def build_table_jsonl(
     on_value_extracted: Optional[OnValueExtractedCallback] = None,
     should_stop: Optional[ShouldStopCallback] = None,
     on_warning: Optional[OnWarningCallback] = None,
-) -> Dict[str, Dict[str, Any]]:
+) -> Dict[str, Any]:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
     Each row represents a unique row name with data from potentially multiple papers.
@@ -48,8 +48,11 @@ def build_table_jsonl(
             Used to surface issues like observation unit parsing failures to the UI.
 
     Returns:
-        Dict of suggested values for schema evolution:
-        {column_name: {value: {"count": N, "documents": [...]}}}
+        Dict containing:
+        - "suggested_values": Dict of suggested values for schema evolution
+          {column_name: {value: {"count": N, "documents": [...]}}}
+        - "skipped_documents": List of document names that were skipped
+          (no observation units found)
 
     This is the main entry point that maintains backward compatibility with the original API.
     """
@@ -69,8 +72,11 @@ def build_table_jsonl(
         retrieval_k=retrieval_k,
         max_workers=max_workers,
     )
-    # Return all suggested values for schema evolution review
-    return table_builder.get_all_suggested_values()
+    # Return extraction results including suggested values and skipped documents
+    return {
+        "suggested_values": table_builder.get_all_suggested_values(),
+        "skipped_documents": table_builder.get_skipped_documents(),
+    }
 
 
 def main(cfg_path: Path) -> None:

@@ -4,12 +4,16 @@ from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 
 class LLMConfig(BaseModel):
-    """LLM backend configuration."""
+    """LLM backend configuration.
+
+    Token limits (max_output_tokens, context_window_size) are auto-detected
+    from model specs when not provided. Explicit values override auto-detection.
+    """
     provider: str  # "openai", "together", "gemini"
     model: str = ""  # Empty string = use provider default (e.g., gemini-2.5-flash-lite for Gemini)
-    max_output_tokens: int = 8192  # Increased default for Gemini 2.5+ models
+    max_output_tokens: Optional[int] = None  # Auto-detected from model specs if None
     temperature: float = 0
-    context_window_size: Optional[int] = None
+    context_window_size: Optional[int] = None  # Auto-detected from model specs if None
     api_key: Optional[str] = None  # User-provided API key (falls back to env var)
 
 class RetrieverConfig(BaseModel):

@@ -885,7 +885,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
             # Initialize tracking
             current_schema = initial_schema
-            context_window_size = llm_config.get("context_window_size", 8192)
+            context_window_size = llm_config.get("context_window_size") or getattr(llm, 'context_window_size', 8192)
             convergence_threshold = 2
             unchanged_count = 0
             evolution = SchemaEvolution()

@@ -29,6 +29,7 @@ dependencies = [
     "requests",
     "openai",
     "together",
+    "google-genai>=1.0.0",
     "tiktoken",
     "arxiv",
     "PyPDF2",
