@@ -59,6 +59,7 @@ import {
   SHORT_TEXT_THRESHOLD,
   MAX_CELL_LINES,
 } from '../../constants/index';
+import { webSocketService } from '../../services/websocket';
 
 // New filter/sort imports
 import { useTableSort } from './hooks/useTableSort';
@@ -323,7 +324,12 @@ const DataTable: React.FC<DataTableProps> = ({
     {
       keepPreviousData: true,
       enabled: !!sessionId,
-      refetchInterval: sessionType === 'qbsd' ? QBSD_REFRESH_INTERVAL : false,
+      // Only poll when WebSocket is disconnected (fallback polling)
+      // When WebSocket is connected, data updates come via real-time messages
+      refetchInterval: () => {
+        if (webSocketService.isConnected()) return false;
+        return sessionType === 'qbsd' ? QBSD_REFRESH_INTERVAL : false;
+      },
     }
   );
 
