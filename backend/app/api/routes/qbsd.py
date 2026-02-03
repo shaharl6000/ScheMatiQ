@@ -604,6 +604,12 @@ async def export_qbsd_data(
                 for col_name, source in evolution.column_sources.items():
                     output.write(f"#   {col_name}: {source}\n")
             output.write("#\n")
+
+        # Write skipped documents if present
+        if session.statistics and session.statistics.skipped_documents:
+            skipped_docs = session.statistics.skipped_documents
+            output.write(f"# Skipped Documents: {json.dumps(skipped_docs)}\n")
+            output.write("#\n")
         
         # Determine all column names including excerpt columns
         all_columns = set()
