@@ -28,43 +28,69 @@ class UnitViewService:
         self.data_dir = Path(data_dir)
         self.work_dir = Path("./qbsd_work")
 
-    def _get_data_file(self, session_id: str) -> Optional[Path]:
-        """Get the data file path for a session, checking multiple locations.
+    def _get_all_data_files(self, session_id: str) -> List[Path]:
+        """Get all data file paths for a session, checking multiple locations.
 
-        Checks in order:
+        Returns list of existing files from:
         1. qbsd_work/{session_id}/extracted_data.jsonl (QBSD sessions)
-        2. qbsd_work/{session_id}/data.jsonl (fallback)
-        3. data/{session_id}/data.jsonl (load sessions)
-
-        Returns None if no data file exists.
+        2. qbsd_work/{session_id}/data.jsonl (fallback if extracted_data doesn't exist)
+        3. data/{session_id}/data.jsonl (always check - may have additional docs)
         """
-        # Check QBSD work directory first
+        data_files = []
+
+        # Check QBSD work directory (original QBSD extraction)
         qbsd_extracted = self.work_dir / session_id / "extracted_data.jsonl"
         if qbsd_extracted.exists():
-            return qbsd_extracted
+            data_files.append(qbsd_extracted)
 
-        qbsd_data = self.work_dir / session_id / "data.jsonl"
-        if qbsd_data.exists():
-            return qbsd_data
+        # Check qbsd_work for data.jsonl (only if extracted_data.jsonl doesn't exist)
+        if not data_files:
+            qbsd_data = self.work_dir / session_id / "data.jsonl"
+            if qbsd_data.exists():
+                data_files.append(qbsd_data)
 
-        # Fall back to data directory
+        # Always check data directory - may contain additional documents
         data_file = self.data_dir / session_id / "data.jsonl"
         if data_file.exists():
-            return data_file
+            # Use resolve() to handle symlinks and relative paths correctly
+            resolved_files = [f.resolve() for f in data_files]
+            if data_file.resolve() not in resolved_files:
+                data_files.append(data_file)
 
-        return None
+        return data_files
+
+    def _get_data_file(self, session_id: str) -> Optional[Path]:
+        """Get the primary data file path for a session (for backwards compatibility)."""
+        files = self._get_all_data_files(session_id)
+        return files[0] if files else None
 
     def _load_all_rows(self, session_id: str) -> List[Dict]:
-        """Load all data rows from a session's JSONL file."""
-        data_file = self._get_data_file(session_id)
-        if not data_file:
+        """Load all data rows from all session data files.
+
+        Deduplicates rows by row_name to prevent duplicates when data exists
+        in multiple locations (e.g., both qbsd_work/ and data/ directories).
+        """
+        data_files = self._get_all_data_files(session_id)
+        if not data_files:
             return []
 
         rows = []
-        with open(data_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.strip():
-                    rows.append(json.loads(line))
+        seen_row_names = set()
+        for data_file in data_files:
+            try:
+                with open(data_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        if line.strip():
+                            row = json.loads(line)
+                            # Deduplicate by row_name
+                            row_name = row.get('_row_name') or row.get('row_name')
+                            if row_name and row_name in seen_row_names:
+                                continue
+                            if row_name:
+                                seen_row_names.add(row_name)
+                            rows.append(row)
+            except Exception as e:
+                logger.warning(f"Error reading {data_file}: {e}")
         return rows
 
     def _save_all_rows(self, session_id: str, rows: List[Dict]) -> None:
