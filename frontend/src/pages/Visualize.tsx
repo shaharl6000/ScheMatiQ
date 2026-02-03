@@ -388,11 +388,16 @@ const Visualize = () => {
     }
   );
 
-  // Fallback check for unit column in table data headers
+  // Fallback check for observation units in table data
   // This allows showing the "By Unit" toggle even when the API doesn't detect unit names
-  // but the data has columns like "Observation Unit", "Unit", etc.
+  // Check for _unit_name metadata field OR columns with "unit"/"observation" in the name
   const hasUnitColumn = useMemo(() => {
     if (!dataResponse?.rows?.length) return false;
+
+    // Check for _unit_name field (observation unit metadata) - same as DataTable's hasObservationUnits
+    if (dataResponse.rows.some(row => row._unit_name != null)) return true;
+
+    // Fallback: check column headers in data object
     const firstRow = dataResponse.rows[0];
     const headers = Object.keys(firstRow.data || {});
     return headers.some(header =>
@@ -1001,9 +1006,9 @@ const Visualize = () => {
                   <ViewModeToggle
                     viewMode={viewMode}
                     onViewModeChange={setViewMode}
-                    disabled={!unitListResponse || unitListResponse.totalUnits === 0}
+                    disabled={(!unitListResponse || unitListResponse.totalUnits === 0) && !hasUnitColumn}
                     disabledTooltip="No observation units found in this session"
-                    unitCount={unitListResponse?.totalUnits}
+                    unitCount={unitListResponse?.totalUnits || (hasUnitColumn ? undefined : 0)}
                   />
                   {viewMode === 'by_unit' && unitListResponse && (
                     <span className="text-sm text-muted-foreground">
@@ -1014,7 +1019,7 @@ const Visualize = () => {
               )}
 
               {/* Render either standard DataTable or UnitGroupedTable based on view mode */}
-              {viewMode === 'by_unit' && unitListResponse && unitListResponse.totalUnits > 0 ? (
+              {viewMode === 'by_unit' && ((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) ? (
                 <UnitGroupedTable
                   sessionId={sessionId!}
                   sessionType={mode}
