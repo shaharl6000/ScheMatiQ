@@ -131,6 +131,7 @@ class DataStatistics(BaseModel):
     completeness: float  # Percentage of non-null values
     column_stats: List[ColumnInfo]
     schema_evolution: Optional[SchemaEvolution] = None  # How schema evolved during discovery
+    skipped_documents: List[str] = Field(default_factory=list)  # Documents skipped during value extraction (no observation units found)
 
 class VisualizationSession(BaseModel):
     """Main session model for visualization."""

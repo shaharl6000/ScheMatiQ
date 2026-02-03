@@ -347,6 +347,11 @@ const Visualize = () => {
     {
       enabled: !!sessionId,
       refetchInterval: (data) => {
+        // Don't poll if WebSocket is connected - rely on real-time updates
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          return false;
+        }
+        // Fallback polling when WebSocket is not connected
         if (mode === 'qbsd') return PROCESSING_REFRESH_INTERVAL;
         if (data?.status === 'processing_documents') return PROCESSING_REFRESH_INTERVAL;
         return false;
@@ -371,7 +376,14 @@ const Visualize = () => {
         session?.status === 'processing_documents' ||
         session?.status === 'documents_uploaded'
       ),
-      refetchInterval: session?.status === 'processing_documents' ? PROCESSING_REFRESH_INTERVAL : false,
+      refetchInterval: () => {
+        // Don't poll if WebSocket is connected - rely on real-time updates
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          return false;
+        }
+        // Fallback polling when WebSocket is not connected
+        return session?.status === 'processing_documents' ? PROCESSING_REFRESH_INTERVAL : false;
+      },
       keepPreviousData: true,
     }
   );

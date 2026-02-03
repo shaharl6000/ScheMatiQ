@@ -768,6 +768,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 return
 
             # Step 6: Value extraction (skip if schema-only mode)
+            skipped_documents: List[str] = []
             if qbsd_config.get("skip_value_extraction", False):
                 logger.info("Skipping value extraction (schema-only mode)")
                 # Skip to finalization without value extraction
@@ -790,7 +791,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 # Run real value extraction with dedicated LLM (with heartbeat for long operations)
                 heartbeat_task = await self._start_heartbeat(session_id, interval=15.0)
                 try:
-                    await self._run_value_extraction(
+                    skipped_documents = await self._run_value_extraction(
                         session_id, qbsd_config, discovered_schema, value_extraction_llm, retriever, update_progress
                     )
                 finally:
@@ -829,8 +830,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             current_step += 1
             await update_progress("Finalizing results", 0.0)
 
-            # Compute statistics from extracted data (include evolution)
-            statistics = self._compute_statistics_from_extracted_data(session_id, discovered_schema, schema_evolution)
+            # Compute statistics from extracted data (include evolution and skipped documents)
+            statistics = self._compute_statistics_from_extracted_data(
+                session_id, discovered_schema, schema_evolution, skipped_documents
+            )
 
             # Update session as completed with statistics
             session = self.session_manager.get_session(session_id)
@@ -1212,15 +1215,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         return current_schema, evolution
     
     async def _run_value_extraction(
-        self, 
-        session_id: str, 
-        qbsd_config: Dict[str, Any], 
-        schema: Schema, 
-        llm: LLMInterface, 
-        retriever, 
+        self,
+        session_id: str,
+        qbsd_config: Dict[str, Any],
+        schema: Schema,
+        llm: LLMInterface,
+        retriever,
         progress_callback
-    ):
-        """Run real value extraction using the value extraction pipeline."""
+    ) -> List[str]:
+        """Run real value extraction using the value extraction pipeline.
+
+        Returns:
+            List of skipped document names (documents with no observation units found)
+        """
         
         session_dir = self.work_dir / session_id
 
@@ -1395,7 +1402,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         # If stopped early, return without processing suggested values or sending "Complete"
         if stopped_early:
             logger.warning("Value extraction stopped early with %d rows extracted", final_line_count)
-            return
+            return []
 
         # Extract results from the new return format
         suggested_values = extraction_result.get("suggested_values", {}) if extraction_result else {}
@@ -1415,6 +1422,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             "skipped_documents": skipped_documents,
             "skipped_documents_count": len(skipped_documents)
         })
+
+        return skipped_documents
 
     async def _process_suggested_values(
         self,
@@ -1501,7 +1510,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         self,
         session_id: str,
         schema: Schema,
-        schema_evolution: Optional[SchemaEvolution] = None
+        schema_evolution: Optional[SchemaEvolution] = None,
+        skipped_documents: Optional[List[str]] = None
     ) -> Optional[DataStatistics]:
         """Compute statistics from extracted JSONL data.
 
@@ -1509,6 +1519,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             session_id: The session ID
             schema: The discovered schema with column definitions
             schema_evolution: Optional schema evolution data from discovery
+            skipped_documents: Optional list of documents skipped during value extraction
 
         Returns:
             DataStatistics object or None if no data available
@@ -1539,7 +1550,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 total_columns=len(schema.columns),
                 completeness=0.0,
                 column_stats=columns,
-                schema_evolution=schema_evolution
+                schema_evolution=schema_evolution,
+                skipped_documents=skipped_documents or []
             )
 
         # Read all rows from the extracted data
@@ -1621,10 +1633,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             total_columns=len(columns),
             completeness=completeness,
             column_stats=columns,
-            schema_evolution=schema_evolution
+            schema_evolution=schema_evolution,
+            skipped_documents=skipped_documents or []
         )
 
         logger.info("Statistics computed: %d rows, %d columns, %.1f%% complete", len(data_rows), len(columns), completeness)
+        if skipped_documents:
+            logger.info("Skipped documents: %d", len(skipped_documents))
         if schema_evolution:
             logger.info("Schema evolution: %d snapshots, %d column sources", len(schema_evolution.snapshots), len(schema_evolution.column_sources))
         return stats

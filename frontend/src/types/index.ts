@@ -98,6 +98,7 @@ export interface DataStatistics {
   completeness: number;
   column_stats: ColumnInfo[];
   schema_evolution?: SchemaEvolution;  // How schema evolved during discovery
+  skipped_documents?: string[];  // Documents skipped during value extraction (no observation units found)
 }
 
 export interface VisualizationSession {

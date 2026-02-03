@@ -76,12 +76,16 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   // Stop button loading state - shows immediate feedback when user clicks stop
   const [isStopping, setIsStopping] = useState(false);
 
-  // Fetch QBSD status
+  // Fetch QBSD status - disable polling when WebSocket is connected
   const { data: status, isLoading } = useQuery(
     ['qbsd-status', sessionId],
     () => qbsdAPI.getStatus(sessionId),
     {
-      refetchInterval: 2000,
+      refetchInterval: () => {
+        // Don't poll if WebSocket is connected - rely on real-time updates
+        if (webSocketService.isConnected()) return false;
+        return 2000; // Fallback polling if WebSocket disconnects
+      },
     }
   );
 
@@ -99,18 +103,8 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
     }
   }, [status?.status]);
 
-  // WebSocket connection polling fallback
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const isConnected = webSocketService.isConnected();
-      if (isConnected && connectionStatus !== 'connected') {
-        setConnectionStatus('connected');
-      } else if (!isConnected && connectionStatus === 'connected') {
-        setConnectionStatus('disconnected');
-      }
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [connectionStatus]);
+  // WebSocket connection status is now updated via message handlers below
+  // (removed redundant 1-second polling interval)
 
   // WebSocket connection for real-time updates
   useEffect(() => {

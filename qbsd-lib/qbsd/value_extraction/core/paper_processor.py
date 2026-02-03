@@ -7,6 +7,7 @@ from typing import Dict, Any, Set, Callable, Optional, List, Iterator
 from qbsd.core.schema import Schema, Column, ObservationUnit
 from qbsd.core.llm_backends import LLMInterface
 from qbsd.core import utils
+from qbsd.core.document_preprocessor import DocumentPreprocessor
 
 from .llm_cache import LLMCache
 from .json_parser import JSONResponseParser
@@ -56,7 +57,8 @@ class PaperProcessor:
     def __init__(self, llm: LLMInterface, cache: LLMCache = None, retriever=None,
                  on_value_extracted: Optional[OnValueExtractedCallback] = None,
                  should_stop: Optional[ShouldStopCallback] = None,
-                 on_warning: Optional[OnWarningCallback] = None):
+                 on_warning: Optional[OnWarningCallback] = None,
+                 enable_preprocessing: bool = True):
         self.llm = llm
         self.cache = cache or LLMCache()
         self.retriever = retriever
@@ -71,6 +73,8 @@ class PaperProcessor:
         self.suggested_values: Dict[str, Dict[str, list]] = {}
         # Cache for fallback retriever (created on-demand, reused across papers)
         self._cached_fallback_retriever = None
+        # Document preprocessing for academic papers
+        self.preprocessor = DocumentPreprocessor() if enable_preprocessing else None
 
     def _check_stop_requested(self) -> bool:
         """Check if stop was requested. Returns True if should stop."""
@@ -353,6 +357,10 @@ class PaperProcessor:
         Args:
             row_name: If provided, used for streaming callbacks to identify the row.
         """
+        # Preprocess paper text (remove references, acknowledgments from academic papers)
+        if self.preprocessor:
+            paper_text = self.preprocessor.preprocess(paper_text)
+
         if mode == "one":
             mode = "one_by_one"
 
@@ -897,6 +905,10 @@ class PaperProcessor:
             - _observation_unit: The unit type name
             - <column values>
         """
+        # Preprocess paper text (remove references, acknowledgments from academic papers)
+        if self.preprocessor:
+            paper_text = self.preprocessor.preprocess(paper_text)
+
         observation_unit = schema.observation_unit
 
         # Observation unit is required
@@ -914,6 +926,7 @@ class PaperProcessor:
         print(f"  📊 Found {len(units)} observation units: {[u['unit_name'] for u in units]}")
 
         # Extract values for each unit
+        import time as time_module
         results = []
         for i, unit in enumerate(units, 1):
             if self._check_stop_requested():
@@ -925,6 +938,7 @@ class PaperProcessor:
             confidence = unit.get("confidence", "medium")
 
             print(f"  → Extracting values for unit {i}/{len(units)}: {unit_name} (confidence: {confidence})")
+            unit_start = time_module.time()
 
             # Extract values for this specific unit
             unit_values = self.extract_values_for_unit(
@@ -934,6 +948,8 @@ class PaperProcessor:
                 max_new_tokens=max_new_tokens,
                 paper_title=paper_title,
             )
+
+            unit_elapsed = time_module.time() - unit_start
 
             if unit_values:
                 # Add metadata fields
@@ -949,9 +965,10 @@ class PaperProcessor:
                 if on_unit_extracted:
                     on_unit_extracted(unit_name, unit_values)
 
-                print(f"    ✓ Extracted {len([k for k in unit_values if not k.startswith('_')])} columns for {unit_name}")
+                col_count = len([k for k in unit_values if not k.startswith('_')])
+                print(f"    ✓ Extracted {col_count} columns for {unit_name} ({unit_elapsed:.1f}s)")
             else:
-                print(f"    ✗ No values extracted for {unit_name}")
+                print(f"    ✗ No values extracted for {unit_name} ({unit_elapsed:.1f}s)")
 
         print(f"  ✅ Completed {paper_title}: {len(results)} rows from {len(units)} units")
         return results

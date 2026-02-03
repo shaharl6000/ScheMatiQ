@@ -17,7 +17,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { TrendingUp, FileText, Info, Plus, Edit, Trash2, Brain } from 'lucide-react';
+import { TrendingUp, FileText, Info, Plus, Edit, Trash2, Brain, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 
 import { DataStatistics, SchemaEvolution, CreationMetadata, ModificationAction, VisualizationSession } from '../../types';
 import { CollapsibleSection, InfoCard } from '../shared';
@@ -294,6 +294,12 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
           </div>
         </CardContent>
       </Card>
+
+      {/* Document Processing Section - Always visible, shows extraction status */}
+      <DocumentProcessingSection
+        statistics={statistics}
+        observationUnitName={session?.observation_unit?.name}
+      />
 
       {/* Advanced Statistics Section - Collapsible */}
       <CollapsibleSection title="Advanced Statistics" defaultExpanded={false}>
@@ -659,6 +665,142 @@ const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evoluti
         </CardContent>
       </Card>
     </>
+  );
+};
+
+// Document Processing Section Component
+interface DocumentProcessingSectionProps {
+  statistics: DataStatistics;
+  observationUnitName?: string;
+}
+
+const DocumentProcessingSection: React.FC<DocumentProcessingSectionProps> = ({
+  statistics,
+  observationUnitName
+}) => {
+  const [isExpanded, setIsExpanded] = React.useState(false);
+
+  const skippedDocuments = statistics.skipped_documents || [];
+  const skippedCount = skippedDocuments.length;
+  const totalDocuments = statistics.total_rows + skippedCount;
+  const processedCount = statistics.total_rows;
+  const skippedPercentage = totalDocuments > 0 ? Math.round((skippedCount / totalDocuments) * 100) : 0;
+
+  // Determine state: none skipped, few skipped (1-5), many skipped (>5 or >20%)
+  const isManySkipped = skippedCount > 5 || skippedPercentage > 20;
+  const hasSkipped = skippedCount > 0;
+
+  // Don't render if no extraction happened (schema-only mode or loaded session without extraction data)
+  if (totalDocuments === 0) {
+    return null;
+  }
+
+  // State 1: None skipped - green success state
+  if (!hasSkipped) {
+    return (
+      <Card>
+        <CardContent className="pt-4 pb-4">
+          <div className="flex items-center gap-3">
+            <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+            <div>
+              <h4 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                Document Processing
+              </h4>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                All {totalDocuments} document{totalDocuments !== 1 ? 's' : ''} successfully processed
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // State 2 & 3: Some documents skipped
+  return (
+    <Card className="border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/50">
+      <CardContent className="pt-4 pb-4">
+        <div className="flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-0">
+            <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-1">
+              Document Processing
+            </h4>
+
+            {/* Summary stats */}
+            <div className="flex items-center gap-3 text-sm text-amber-800 dark:text-amber-200 mb-2">
+              <span>Processed: <strong>{processedCount}</strong></span>
+              <span className="text-amber-400">|</span>
+              <span>Skipped: <strong>{skippedCount}</strong> ({skippedPercentage}%)</span>
+            </div>
+
+            {/* Warning for many skipped */}
+            {isManySkipped && skippedPercentage > 20 && (
+              <p className="text-sm text-amber-700 dark:text-amber-300 mb-2 italic">
+                Consider reviewing your observation unit definition or document relevance.
+              </p>
+            )}
+
+            {/* Collapsible document list for many skipped, always visible for few */}
+            {isManySkipped ? (
+              <div>
+                <button
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  aria-expanded={isExpanded}
+                  aria-label={isExpanded ? "Hide skipped documents list" : "Show skipped documents list"}
+                  className="flex items-center gap-1 text-sm font-medium text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
+                >
+                  {isExpanded ? (
+                    <>
+                      <ChevronUp className="h-4 w-4" />
+                      Hide Skipped Documents
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-4 w-4" />
+                      View Skipped Documents ({skippedCount})
+                    </>
+                  )}
+                </button>
+                {isExpanded && (
+                  <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+                    {skippedDocuments.map((doc, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200 py-0.5"
+                      >
+                        <FileText className="h-3 w-3 flex-shrink-0 opacity-60" />
+                        <span className="truncate">{doc}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {skippedDocuments.map((doc, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200 py-0.5"
+                  >
+                    <FileText className="h-3 w-3 flex-shrink-0 opacity-60" />
+                    <span className="truncate">{doc}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Explanation with observation unit name */}
+            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1">
+              <Info className="h-3 w-3 flex-shrink-0 mt-0.5" />
+              <span>
+                These documents did not contain any "{observationUnitName || 'observation unit'}" instances.
+              </span>
+            </p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 };
 
