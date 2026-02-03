@@ -128,6 +128,7 @@ class DataStatistics(BaseModel):
     """Statistics about the dataset."""
     total_rows: int
     total_columns: int
+    total_documents: int = 0  # Actual document count (rows may have multiple observation units per document)
     completeness: float  # Percentage of non-null values
     column_stats: List[ColumnInfo]
     schema_evolution: Optional[SchemaEvolution] = None  # How schema evolved during discovery

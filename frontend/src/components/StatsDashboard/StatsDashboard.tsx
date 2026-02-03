@@ -682,8 +682,10 @@ const DocumentProcessingSection: React.FC<DocumentProcessingSectionProps> = ({
 
   const skippedDocuments = statistics.skipped_documents || [];
   const skippedCount = skippedDocuments.length;
-  const totalDocuments = statistics.total_rows + skippedCount;
-  const processedCount = statistics.total_rows;
+  // Use total_documents if available (actual document count), otherwise fallback to total_rows
+  const processedDocuments = statistics.total_documents ?? statistics.total_rows;
+  const totalDocuments = processedDocuments + skippedCount;
+  const processedCount = processedDocuments;
   const skippedPercentage = totalDocuments > 0 ? Math.round((skippedCount / totalDocuments) * 100) : 0;
 
   // Determine state: none skipped, few skipped (1-5), many skipped (>5 or >20%)

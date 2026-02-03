@@ -1548,6 +1548,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             return DataStatistics(
                 total_rows=0,
                 total_columns=len(schema.columns),
+                total_documents=0,
                 completeness=0.0,
                 column_stats=columns,
                 schema_evolution=schema_evolution,
@@ -1568,6 +1569,16 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         if not data_rows:
             logger.warning("Statistics: No data rows found in extracted_data.jsonl")
             return None
+
+        # Count unique documents from _papers field
+        unique_documents = set()
+        for row in data_rows:
+            papers = row.get('_papers', [])
+            if isinstance(papers, list):
+                unique_documents.update(papers)
+            elif isinstance(papers, str) and papers:
+                unique_documents.add(papers)
+        total_documents = len(unique_documents)
 
         # Build column stats from schema + data
         columns = []
@@ -1631,13 +1642,14 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         stats = DataStatistics(
             total_rows=len(data_rows),
             total_columns=len(columns),
+            total_documents=total_documents,
             completeness=completeness,
             column_stats=columns,
             schema_evolution=schema_evolution,
             skipped_documents=skipped_documents or []
         )
 
-        logger.info("Statistics computed: %d rows, %d columns, %.1f%% complete", len(data_rows), len(columns), completeness)
+        logger.info("Statistics computed: %d rows, %d documents, %d columns, %.1f%% complete", len(data_rows), total_documents, len(columns), completeness)
         if skipped_documents:
             logger.info("Skipped documents: %d", len(skipped_documents))
         if schema_evolution:

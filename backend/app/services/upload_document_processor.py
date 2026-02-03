@@ -1092,6 +1092,16 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             print(f"⚠️  Statistics: No columns defined in session {session_id}")
             return None
 
+        # Count unique documents from papers field
+        unique_documents = set()
+        for row in data_rows:
+            papers = row.get('papers', row.get('_papers', []))
+            if isinstance(papers, list):
+                unique_documents.update(papers)
+            elif isinstance(papers, str) and papers:
+                unique_documents.add(papers)
+        total_documents = len(unique_documents) if unique_documents else len(data_rows)
+
         # Build column stats from session.columns + data
         columns = []
         for col in session.columns:
@@ -1157,10 +1167,11 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         stats = DataStatistics(
             total_rows=len(data_rows),
             total_columns=len(columns),
+            total_documents=total_documents,
             completeness=completeness,
             column_stats=columns,
             schema_evolution=None  # Upload sessions don't have schema evolution
         )
 
-        print(f"✓ Statistics computed: {len(data_rows)} rows, {len(columns)} columns, {completeness:.1f}% complete")
+        print(f"✓ Statistics computed: {len(data_rows)} rows, {total_documents} documents, {len(columns)} columns, {completeness:.1f}% complete")
         return stats
