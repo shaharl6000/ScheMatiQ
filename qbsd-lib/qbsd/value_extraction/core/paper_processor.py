@@ -7,7 +7,6 @@ from typing import Dict, Any, Set, Callable, Optional, List, Iterator
 from qbsd.core.schema import Schema, Column, ObservationUnit
 from qbsd.core.llm_backends import LLMInterface
 from qbsd.core import utils
-from qbsd.core.document_preprocessor import DocumentPreprocessor
 
 from .llm_cache import LLMCache
 from .json_parser import JSONResponseParser
@@ -57,8 +56,7 @@ class PaperProcessor:
     def __init__(self, llm: LLMInterface, cache: LLMCache = None, retriever=None,
                  on_value_extracted: Optional[OnValueExtractedCallback] = None,
                  should_stop: Optional[ShouldStopCallback] = None,
-                 on_warning: Optional[OnWarningCallback] = None,
-                 enable_preprocessing: bool = True):
+                 on_warning: Optional[OnWarningCallback] = None):
         self.llm = llm
         self.cache = cache or LLMCache()
         self.retriever = retriever
@@ -73,8 +71,6 @@ class PaperProcessor:
         self.suggested_values: Dict[str, Dict[str, list]] = {}
         # Cache for fallback retriever (created on-demand, reused across papers)
         self._cached_fallback_retriever = None
-        # Document preprocessing for academic papers
-        self.preprocessor = DocumentPreprocessor() if enable_preprocessing else None
 
     def _check_stop_requested(self) -> bool:
         """Check if stop was requested. Returns True if should stop."""
@@ -356,11 +352,10 @@ class PaperProcessor:
 
         Args:
             row_name: If provided, used for streaming callbacks to identify the row.
-        """
-        # Preprocess paper text (remove references, acknowledgments from academic papers)
-        if self.preprocessor:
-            paper_text = self.preprocessor.preprocess(paper_text)
 
+        Note: Document preprocessing is handled by the retriever when configured,
+        avoiding redundant preprocessing overhead.
+        """
         if mode == "one":
             mode = "one_by_one"
 
@@ -904,11 +899,10 @@ class PaperProcessor:
             - _source_document: Original document filename
             - _observation_unit: The unit type name
             - <column values>
-        """
-        # Preprocess paper text (remove references, acknowledgments from academic papers)
-        if self.preprocessor:
-            paper_text = self.preprocessor.preprocess(paper_text)
 
+        Note: Document preprocessing is handled by the retriever when configured,
+        avoiding redundant preprocessing overhead.
+        """
         observation_unit = schema.observation_unit
 
         # Observation unit is required

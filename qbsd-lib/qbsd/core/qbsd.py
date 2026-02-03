@@ -58,12 +58,17 @@ def select_relevant_content(
     query: str,
     retriever,
 ) -> List[str]:
-    """Return a flat list of passages drawn from all docs, or whole docs if no retriever."""
+    """Return a flat list of passages drawn from all docs, or whole docs if no retriever.
+
+    Note: Document preprocessing (removing references, acknowledgments, etc.) is handled
+    by the retriever when configured. This avoids redundant preprocessing overhead.
+    """
     if retriever is None:
         # No retriever configured - return whole documents
         return list(docs)
-    
+
     # Use retriever to select relevant passages
+    # Note: retriever handles preprocessing internally
     passages = []
     for doc in docs:
         passages.extend(retriever.query([doc], question=query))
