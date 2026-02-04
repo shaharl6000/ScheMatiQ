@@ -47,3 +47,6 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["qbsd*"]
+
+[tool.setuptools.package-data]
+"qbsd.core" = ["*.json"]
