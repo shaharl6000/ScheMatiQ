@@ -75,6 +75,9 @@ DEFAULT_TIMEOUT = 120  # seconds
 DEFAULT_MAX_OUTPUT_TOKENS = 4096
 DEFAULT_TEMPERATURE = 0
 
+# Usage limiting (per-user budget when using server API keys)
+USER_BUDGET_USD = float(os.environ.get("USER_BUDGET_USD", "20"))
+
 # Storage Configuration
 DEFAULT_SESSIONS_DIR = "./sessions"
 DEFAULT_DATA_DIR = "./data"

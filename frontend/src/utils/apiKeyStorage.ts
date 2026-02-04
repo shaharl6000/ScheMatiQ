@@ -1,3 +1,5 @@
+import { qbsdAPI } from '../services/api';
+
 /**
  * API Key Storage Utility
  *
@@ -168,15 +170,28 @@ export async function hasApiKey(provider: LLMProvider): Promise<boolean> {
  */
 export async function getConfiguredProviders(): Promise<LLMProvider[]> {
   const providers: LLMProvider[] = ['openai', 'together', 'gemini'];
-  const configured: LLMProvider[] = [];
+  const configured = new Set<LLMProvider>();
 
   for (const provider of providers) {
     if (await hasApiKey(provider)) {
-      configured.push(provider);
+      configured.add(provider);
     }
   }
 
-  return configured;
+  try {
+    const availability = await qbsdAPI.getLlmAvailability();
+    if (availability?.available_providers?.length) {
+      availability.available_providers.forEach((provider) => {
+        if (providers.includes(provider as LLMProvider)) {
+          configured.add(provider as LLMProvider);
+        }
+      });
+    }
+  } catch (error) {
+    console.warn('Failed to fetch server LLM availability:', error);
+  }
+
+  return Array.from(configured);
 }
 
 /**
@@ -194,3 +209,4 @@ export async function hasAnyApiKeys(): Promise<boolean> {
 export async function getApiKeyForProvider(provider: LLMProvider): Promise<string | null> {
   return retrieveAndDecrypt(provider);
 }
+

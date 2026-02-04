@@ -25,7 +25,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
 
 import { loadAPI, qbsdAPI, cloudAPI } from '../services/api';
-import { getApiKeyForProvider, LLMProvider } from '../utils/apiKeyStorage';
+import { getApiKeyForProvider, getConfiguredProviders, LLMProvider } from '../utils/apiKeyStorage';
 import { VisualizationSession, CellValue, CellExtractedData } from '../types';
 import {
   PROCESSING_REFRESH_INTERVAL,
@@ -717,15 +717,18 @@ const Visualize = () => {
       // Retrieve API key from storage for the selected provider
       const apiKey = await getApiKeyForProvider(llmConfig.provider as LLMProvider);
       if (!apiKey) {
-        setDocumentUploadError(`No API key configured for ${llmConfig.provider}. Please add your API key on the home page.`);
-        setDocumentUploadLoading(false);
-        return;
+        const availableProviders = await getConfiguredProviders();
+        if (!availableProviders.includes(llmConfig.provider as LLMProvider)) {
+          setDocumentUploadError(`No API key configured for ${llmConfig.provider}. Please add your API key on the home page.`);
+          setDocumentUploadLoading(false);
+          return;
+        }
       }
 
       // Include API key in the config
       const configWithKey = {
         ...llmConfig,
-        api_key: apiKey,
+        api_key: apiKey || undefined,
       };
 
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {

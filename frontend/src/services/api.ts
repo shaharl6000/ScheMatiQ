@@ -39,6 +39,7 @@ import {
   MergeUnitsResponse,
 } from '../types/unit';
 import { FilterRule, SortColumn } from '../components/DataTable/types/filters';
+import { getOrCreateClientId } from '../utils/clientId';
 
 // Railway backend URL - used when env vars aren't set at build time
 const RAILWAY_BACKEND_URL = 'https://backend-production-5a26.up.railway.app';
@@ -81,6 +82,13 @@ export const getBackendBaseUrl = (): string => {
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 30000,
+});
+
+api.interceptors.request.use((config) => {
+  const clientId = getOrCreateClientId();
+  config.headers = config.headers ?? {};
+  config.headers['X-Client-Id'] = clientId;
+  return config;
 });
 
 // Load API (for loading existing QBSD data)
@@ -341,6 +349,24 @@ export const qbsdAPI = {
       config, 
       uploaded_files: uploadedFiles 
     });
+    return response.data;
+  },
+
+  getLlmAvailability: async (): Promise<{
+    providers: Record<string, boolean>;
+    available_providers: string[];
+    budget_usd: number;
+  }> => {
+    const response = await api.get('/qbsd/llm-availability');
+    return response.data;
+  },
+
+  getUsage: async (): Promise<{
+    total_spent_usd: number;
+    budget_usd: number;
+    remaining_usd: number;
+  }> => {
+    const response = await api.get('/qbsd/usage');
     return response.data;
   },
 };
