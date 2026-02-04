@@ -16,6 +16,7 @@ from app.models.qbsd import QBSDConfig, QBSDStatus, CostEstimate, CostEstimateRe
 from app.services.qbsd_runner import QBSDRunner
 from app.services.data_editor import DataEditor
 from app.services import websocket_manager, session_manager
+from app.storage import get_storage
 
 from qbsd.core.cost_estimator import estimate_from_config
 
@@ -232,14 +233,31 @@ async def estimate_qbsd_cost_preview(request: CostEstimateRequest):
                 for file_info in request.uploaded_files
             ]
         else:
-            # Load from docs_path (for cloud datasets)
+            # Load from docs_path (local or cloud datasets)
             docs_path = config.docs_path
             if docs_path:
                 paths = [docs_path] if isinstance(docs_path, str) else docs_path
+                unresolved_paths = []
                 for path in paths:
                     resolved = _resolve_docs_path(path)
                     if resolved:
                         documents.extend(_load_documents_from_path(resolved))
+                    else:
+                        unresolved_paths.append(path)
+
+                # If nothing was loaded locally, try cloud storage sizes
+                if not documents and unresolved_paths:
+                    storage = get_storage()
+                    cloud_token_counts = []
+                    for path in unresolved_paths:
+                        dataset_name = Path(path).name
+                        files = await storage.list_dataset_files(dataset_name)
+                        if files:
+                            cloud_token_counts.extend(
+                                max(1, file_info.size // 4) for file_info in files
+                            )
+                    if cloud_token_counts:
+                        document_token_counts = cloud_token_counts
         
         # Run the estimation
         result = estimate_from_config(
