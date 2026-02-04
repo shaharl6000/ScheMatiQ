@@ -406,9 +406,11 @@ class FileParser:
         statistics = DataStatistics(
             total_rows=len(df),
             total_columns=len(columns),  # Use filtered column count
+            total_documents=metadata_info.get('total_documents', 0) or len(df),  # Fallback to row count
             completeness=completeness,
             column_stats=columns,
-            schema_evolution=schema_evolution  # Include if parsed (backward compatible - None if not present)
+            schema_evolution=schema_evolution,  # Include if parsed (backward compatible - None if not present)
+            skipped_documents=metadata_info.get('skipped_documents', [])
         )
 
         # Save processed data as JSONL
@@ -636,9 +638,11 @@ class FileParser:
         statistics = DataStatistics(
             total_rows=len(data_rows),
             total_columns=len(columns),
+            total_documents=metadata_info.get('total_documents', 0) or len(data_rows),  # Fallback to row count
             completeness=completeness,
             column_stats=columns,
-            schema_evolution=schema_evolution  # Include if parsed (backward compatible - None if not present)
+            schema_evolution=schema_evolution,  # Include if parsed (backward compatible - None if not present)
+            skipped_documents=metadata_info.get('skipped_documents', [])
         )
 
         # Save processed data as JSONL
@@ -1682,7 +1686,9 @@ class FileParser:
             'column_definitions': {},
             'generated_timestamp': None,
             'schema_evolution': None,  # Will hold parsed SchemaEvolution if present
-            'observation_unit': None  # Will hold parsed observation unit if present
+            'observation_unit': None,  # Will hold parsed observation unit if present
+            'total_documents': 0,  # Will hold parsed total documents if present
+            'skipped_documents': []  # Will hold parsed skipped documents if present
         }
 
         # State tracking for multi-line sections
@@ -1828,6 +1834,21 @@ class FileParser:
                         elif content.startswith('Total:') and 'columns from' in content and 'iterations' in content:
                             # "Total: 5 columns from 2 iterations" - just informational, skip
                             pass
+                        elif content.startswith('Total Documents:'):
+                            # Parse total documents count
+                            try:
+                                metadata_info['total_documents'] = int(content[len('Total Documents:'):].strip())
+                                logger.debug("Imported total documents from CSV: %d", metadata_info['total_documents'])
+                            except ValueError as e:
+                                logger.debug("Could not parse total_documents: %s", e)
+                        elif content.startswith('Skipped Documents:'):
+                            # Parse skipped documents JSON
+                            try:
+                                skipped_json = content[len('Skipped Documents:'):].strip()
+                                metadata_info['skipped_documents'] = json.loads(skipped_json)
+                                logger.debug("Imported skipped documents from CSV: %d documents", len(metadata_info['skipped_documents']))
+                            except (json.JSONDecodeError, Exception) as e:
+                                logger.debug("Could not parse skipped_documents: %s", e)
                         elif content.startswith('Column Sources:'):
                             # Start of column sources section
                             in_column_sources_section = True

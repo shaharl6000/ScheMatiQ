@@ -95,9 +95,11 @@ export interface SessionMetadata {
 export interface DataStatistics {
   total_rows: number;
   total_columns: number;
+  total_documents?: number;  // Actual document count (rows may have multiple observation units per document)
   completeness: number;
   column_stats: ColumnInfo[];
   schema_evolution?: SchemaEvolution;  // How schema evolved during discovery
+  skipped_documents?: string[];  // Documents skipped during value extraction (no observation units found)
 }
 
 export interface VisualizationSession {

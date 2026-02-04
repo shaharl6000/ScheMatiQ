@@ -235,13 +235,21 @@ class EmbeddingRetriever(Retriever):
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: int = 512, batch_size: int = 32, k: int = 3,
                  device: str | None = None, enable_dynamic_k: bool = False,
                  dynamic_k_threshold: float = 0.65, dynamic_k_minimum: int = 2,
-                 enable_embedding_cache: bool = True, max_cache_size: int = 100):
+                 enable_embedding_cache: bool = True, max_cache_size: int = 1000,
+                 enable_preprocessing: bool = True):
         super().__init__()
         if SentenceTransformer is None:
             raise ImportError(
                 "sentence-transformers not installed. "
                 "pip install 'sentence-transformers>=2.5 numpy'"
             )
+
+        # Document preprocessing for academic papers
+        self.enable_preprocessing = enable_preprocessing
+        self.preprocessor = None
+        if enable_preprocessing:
+            from qbsd.core.document_preprocessor import DocumentPreprocessor
+            self.preprocessor = DocumentPreprocessor()
 
         self.k = k
         self.is_cross_encoder = False
@@ -419,6 +427,10 @@ class EmbeddingRetriever(Retriever):
 
 
     def query(self, docs: Sequence[str], question: str, k: int | None = None) -> list[str]:
+        # ---- 0. Preprocess documents (remove references, etc.) -------------
+        if self.preprocessor:
+            docs = [self.preprocessor.preprocess(d) for d in docs]
+
         # ---- 1. Check cache for single document case -----------------------
         # Caching works best when querying a single document multiple times
         cached_passages = None

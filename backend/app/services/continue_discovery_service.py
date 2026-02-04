@@ -225,8 +225,11 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             print(f"DEBUG: No data rows found for statistics computation")
             return
 
-        # Preserve existing schema evolution, but fix any corrupted data
+        # Preserve existing schema evolution and skipped_documents, but fix any corrupted data
         existing_evolution = None
+        existing_skipped = []
+        if session.statistics:
+            existing_skipped = session.statistics.skipped_documents or []
         if preserve_evolution and session.statistics and session.statistics.schema_evolution:
             existing_evolution = session.statistics.schema_evolution
             actual_total = actual_column_count  # Use deduplicated count
@@ -336,6 +339,16 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         if math.isnan(completeness) or math.isinf(completeness):
             completeness = 0.0
 
+        # Count unique documents from papers field
+        unique_documents = set()
+        for row in data_rows:
+            papers = row.get('papers', row.get('_papers', []))
+            if isinstance(papers, list):
+                unique_documents.update(papers)
+            elif isinstance(papers, str) and papers:
+                unique_documents.add(papers)
+        total_documents = len(unique_documents) if unique_documents else len(data_rows)
+
         # Import model for type checking
         from app.models.session import DataStatistics
 
@@ -343,13 +356,15 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         session.statistics = DataStatistics(
             total_rows=len(data_rows),
             total_columns=len(columns),
+            total_documents=total_documents,
             completeness=completeness,
             column_stats=columns,
-            schema_evolution=existing_evolution  # Preserve existing evolution
+            schema_evolution=existing_evolution,  # Preserve existing evolution
+            skipped_documents=existing_skipped  # Preserve skipped documents
         )
 
         self.session_manager.update_session(session)
-        print(f"DEBUG: Statistics recomputed - {len(data_rows)} rows, {len(columns)} columns, {completeness:.1f}% complete")
+        print(f"DEBUG: Statistics recomputed - {len(data_rows)} rows, {total_documents} documents, {len(columns)} columns, {completeness:.1f}% complete")
 
     # ==================== Document Discovery ====================
 

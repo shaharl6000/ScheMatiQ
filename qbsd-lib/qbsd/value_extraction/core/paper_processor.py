@@ -352,6 +352,9 @@ class PaperProcessor:
 
         Args:
             row_name: If provided, used for streaming callbacks to identify the row.
+
+        Note: Document preprocessing is handled by the retriever when configured,
+        avoiding redundant preprocessing overhead.
         """
         if mode == "one":
             mode = "one_by_one"
@@ -896,6 +899,9 @@ class PaperProcessor:
             - _source_document: Original document filename
             - _observation_unit: The unit type name
             - <column values>
+
+        Note: Document preprocessing is handled by the retriever when configured,
+        avoiding redundant preprocessing overhead.
         """
         observation_unit = schema.observation_unit
 
@@ -914,6 +920,7 @@ class PaperProcessor:
         print(f"  📊 Found {len(units)} observation units: {[u['unit_name'] for u in units]}")
 
         # Extract values for each unit
+        import time as time_module
         results = []
         for i, unit in enumerate(units, 1):
             if self._check_stop_requested():
@@ -925,6 +932,7 @@ class PaperProcessor:
             confidence = unit.get("confidence", "medium")
 
             print(f"  → Extracting values for unit {i}/{len(units)}: {unit_name} (confidence: {confidence})")
+            unit_start = time_module.time()
 
             # Extract values for this specific unit
             unit_values = self.extract_values_for_unit(
@@ -934,6 +942,8 @@ class PaperProcessor:
                 max_new_tokens=max_new_tokens,
                 paper_title=paper_title,
             )
+
+            unit_elapsed = time_module.time() - unit_start
 
             if unit_values:
                 # Add metadata fields
@@ -949,9 +959,10 @@ class PaperProcessor:
                 if on_unit_extracted:
                     on_unit_extracted(unit_name, unit_values)
 
-                print(f"    ✓ Extracted {len([k for k in unit_values if not k.startswith('_')])} columns for {unit_name}")
+                col_count = len([k for k in unit_values if not k.startswith('_')])
+                print(f"    ✓ Extracted {col_count} columns for {unit_name} ({unit_elapsed:.1f}s)")
             else:
-                print(f"    ✗ No values extracted for {unit_name}")
+                print(f"    ✗ No values extracted for {unit_name} ({unit_elapsed:.1f}s)")
 
         print(f"  ✅ Completed {paper_title}: {len(results)} rows from {len(units)} units")
         return results

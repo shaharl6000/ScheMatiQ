@@ -536,6 +536,11 @@ class GeminiLLM(LLMInterface):
         else:
             prompt_text = prompt
 
+        # Log prompt size for performance correlation
+        prompt_len = len(prompt_text)
+        print(f"🚀 Starting Gemini API call (model: {self.model}, prompt: ~{prompt_len:,} chars)")
+        start_time = time.time()
+
         # Add scientific context to help with safety filtering
         scientific_context = "Context: This is a scientific research task about cellular biology and protein sequences. Terms like 'nuclear' refer to cell nuclei (the cellular organelle), not weapons or harmful content."
         prompt_text = f"{scientific_context}\n\n{prompt_text}"
@@ -559,6 +564,9 @@ class GeminiLLM(LLMInterface):
                     contents=prompt_text,
                     config=config,
                 )
+
+                elapsed = time.time() - start_time
+                print(f"⏱️  Gemini API call completed in {elapsed:.1f}s")
 
                 # Handle safety filtering or empty responses
                 if not response.candidates:
@@ -587,6 +595,8 @@ class GeminiLLM(LLMInterface):
             except Exception as e:
                 error_str = str(e)
                 last_exception = e
+                elapsed = time.time() - start_time
+                print(f"⚠️  Gemini API call failed after {elapsed:.1f}s: {str(e)[:100]}")
 
                 # Handle safety filter errors specifically - don't retry
                 if "Invalid operation" in error_str and "finish_reason" in error_str:

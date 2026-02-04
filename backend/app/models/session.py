@@ -128,9 +128,11 @@ class DataStatistics(BaseModel):
     """Statistics about the dataset."""
     total_rows: int
     total_columns: int
+    total_documents: int = 0  # Actual document count (rows may have multiple observation units per document)
     completeness: float  # Percentage of non-null values
     column_stats: List[ColumnInfo]
     schema_evolution: Optional[SchemaEvolution] = None  # How schema evolved during discovery
+    skipped_documents: List[str] = Field(default_factory=list)  # Documents skipped during value extraction (no observation units found)
 
 class VisualizationSession(BaseModel):
     """Main session model for visualization."""
