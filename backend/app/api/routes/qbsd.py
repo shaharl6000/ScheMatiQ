@@ -5,11 +5,10 @@ import asyncio
 import csv
 import io
 import json
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Query, Request
+from typing import List, Optional
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.models.session import VisualizationSession, SessionType, SessionMetadata, FilterSortRequest
@@ -18,8 +17,6 @@ from app.services.qbsd_runner import QBSDRunner
 from app.services.data_editor import DataEditor
 from app.services import websocket_manager, session_manager
 from app.storage import get_storage
-from app.services.usage_tracker import UsageTracker
-from app.core.config import USER_BUDGET_USD
 
 from qbsd.core.cost_estimator import estimate_from_config
 
@@ -28,7 +25,6 @@ router = APIRouter()
 qbsd_runner = QBSDRunner(websocket_manager=websocket_manager, session_manager=session_manager)
 # Create data editor instance
 data_editor = DataEditor()
-usage_tracker = UsageTracker()
 
 # Project root for path resolution (backend/app/api/routes -> project root = 5 levels up)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
@@ -103,74 +99,6 @@ def _convert_estimate_result(result) -> CostEstimate:
         warnings=result.warnings,
         document_stats=DocumentStats(**result.document_stats)
     )
-
-
-_SERVER_KEY_ENV_MAP = {
-    "openai": "OPENAI_API_KEY",
-    "together": "TOGETHER_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-}
-
-
-def _get_client_id(request: Request, session_id: str) -> str:
-    return request.headers.get("X-Client-Id") or session_id
-
-
-def _server_key_available(provider: str) -> bool:
-    env_key = _SERVER_KEY_ENV_MAP.get(provider.lower())
-    return bool(env_key and os.getenv(env_key))
-
-
-def _load_documents_for_config(config_data: Dict[str, Any], session_id: str) -> Dict[str, Any]:
-    """Load documents for cost estimation. Always reads file content so tiktoken can be used."""
-    documents: List[str] = []
-
-    docs_path = config_data.get("docs_path")
-    if docs_path:
-        paths = [docs_path] if isinstance(docs_path, str) else docs_path
-        for path in paths:
-            resolved = _resolve_docs_path(path, session_id)
-            if resolved:
-                documents.extend(_load_documents_from_path(resolved))
-
-    # Always load from pending_documents if they exist
-    upload_dir = Path("./data") / session_id / "pending_documents"
-    if upload_dir.exists():
-        documents.extend(_load_documents_from_path(upload_dir))
-
-    # tiktoken will be used by estimate_from_config when documents are provided
-    return {"documents": documents, "document_token_counts": None}
-
-
-def _calculate_server_cost(config: QBSDConfig, estimate: CostEstimate) -> float:
-    total = 0.0
-    if not (config.schema_creation_backend.api_key or "").strip():
-        total += estimate.schema_discovery.cost_usd
-    if not config.skip_value_extraction and not (config.value_extraction_backend.api_key or "").strip():
-        total += estimate.value_extraction.cost_usd
-    return round(total, 6)
-
-
-@router.get("/llm-availability")
-async def get_llm_availability():
-    """Return which providers have server-side API keys configured."""
-    providers = {
-        name: _server_key_available(name)
-        for name in _SERVER_KEY_ENV_MAP.keys()
-    }
-    available = [name for name, enabled in providers.items() if enabled]
-    return {
-        "providers": providers,
-        "available_providers": available,
-        "budget_usd": USER_BUDGET_USD,
-    }
-
-
-@router.get("/usage")
-async def get_usage(request: Request):
-    """Return usage info for the current client ID."""
-    user_id = _get_client_id(request, "anonymous")
-    return usage_tracker.get_usage(user_id)
 
 @router.post("/configure", response_model=dict)
 async def configure_qbsd(config: QBSDConfig):
@@ -346,69 +274,12 @@ async def estimate_qbsd_cost_preview(request: CostEstimateRequest):
 
 
 @router.post("/run/{session_id}")
-async def run_qbsd(session_id: str, background_tasks: BackgroundTasks, request: Request):
+async def run_qbsd(session_id: str, background_tasks: BackgroundTasks):
     """Start QBSD execution."""
     try:
         session = session_manager.get_session(session_id)
         if not session or session.type != SessionType.QBSD:
             raise HTTPException(status_code=404, detail="QBSD session not found")
-
-        config_file = Path("./qbsd_work") / session_id / "config.json"
-        if not config_file.exists():
-            raise HTTPException(status_code=400, detail="No configuration found for this session")
-
-        with open(config_file) as f:
-            config_data = json.load(f)
-        config = QBSDConfig(**config_data)
-
-        # Validate server key availability when user did not provide a key
-        schema_provider = (config.schema_creation_backend.provider or "").lower()
-        value_provider = (config.value_extraction_backend.provider or "").lower()
-        if not (config.schema_creation_backend.api_key or "").strip() and not _server_key_available(schema_provider):
-            raise HTTPException(
-                status_code=400,
-                detail=f"No server API key configured for {schema_provider}. Please provide your own API key."
-            )
-        if not config.skip_value_extraction and not (config.value_extraction_backend.api_key or "").strip():
-            if not _server_key_available(value_provider):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"No server API key configured for {value_provider}. Please provide your own API key."
-                )
-
-        # Enforce per-user budget when using server keys
-        estimate_inputs = _load_documents_for_config(config_data, session_id)
-        estimate_result = estimate_from_config(
-            estimate_inputs["documents"],
-            config_data,
-            document_token_counts=estimate_inputs["document_token_counts"],
-        )
-        estimate = _convert_estimate_result(estimate_result)
-        server_cost = _calculate_server_cost(config, estimate)
-
-        if server_cost > 0:
-            user_id = _get_client_id(request, session_id)
-            allowance = usage_tracker.can_spend(user_id, server_cost)
-            if not allowance["allowed"]:
-                remaining = allowance["remaining_usd"]
-                raise HTTPException(
-                    status_code=403,
-                    detail=(
-                        f"Budget exceeded. Remaining ${remaining:.2f}, "
-                        f"attempted ${server_cost:.2f}."
-                    ),
-                )
-
-            usage_tracker.add_spend(
-                user_id,
-                server_cost,
-                metadata={
-                    "session_id": session_id,
-                    "schema_provider": schema_provider,
-                    "value_provider": value_provider,
-                    "estimated_cost_usd": estimate.total_cost_usd,
-                },
-            )
         
         # Start QBSD in background
         background_tasks.add_task(qbsd_runner.run_qbsd, session_id)
