@@ -270,9 +270,8 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   };
 
   const handleStartDiscovery = async () => {
-    const hasProviderAccess = !!apiKey || configuredProviders.includes(llmProvider);
-    if (!hasProviderAccess) {
-      onError('API key is required unless a server key is available.');
+    if (!apiKey) {
+      onError('API key is required');
       return;
     }
 
@@ -307,7 +306,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         llm_config: {
           provider: llmProvider,
           model: llmModel,
-          api_key: apiKey || undefined,
+          api_key: apiKey,
           max_output_tokens: 8192,
           temperature: 0,
           context_window_size: 1000000
@@ -664,7 +663,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
             placeholder={`Enter your ${llmProvider} API key`}
           />
           <p className="text-xs text-muted-foreground">
-            Your API key is stored locally and never sent to our servers. Leave it blank to use the server key if available.
+            Your API key is stored locally and never sent to our servers.
           </p>
         </div>
 
@@ -747,10 +746,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
 
       <DialogFooter>
         <Button variant="outline" onClick={() => setStep('documents')}>Back</Button>
-        <Button
-          onClick={handleStartDiscovery}
-          disabled={(!apiKey && !configuredProviders.includes(llmProvider)) || loading}
-        >
+        <Button onClick={handleStartDiscovery} disabled={!apiKey || loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
           Start Discovery
         </Button>
