@@ -4,10 +4,13 @@ import json
 import asyncio
 import logging
 import math
+import random
 import time
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
+
+from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE
 
 logger = logging.getLogger(__name__)
 
@@ -586,7 +589,26 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                             filenames.append(doc_file.name)
                         except Exception as e:
                             logger.warning("Could not read %s: %s", doc_file, e)
-            
+
+            # Cap documents at MAX_DOCUMENTS (with seeded randomization for reproducibility)
+            bypass_limit = qbsd_config.get("bypass_limit", False)
+            if not (DEVELOPER_MODE and bypass_limit) and len(documents) > MAX_DOCUMENTS:
+                seed = qbsd_config.get("document_randomization_seed", 42)
+                original_count = len(documents)
+                combined = list(zip(documents, filenames))
+                rng = random.Random(seed)
+                rng.shuffle(combined)
+                combined = combined[:MAX_DOCUMENTS]
+                if combined:
+                    documents, filenames = zip(*combined)
+                    documents = list(documents)
+                    filenames = list(filenames)
+                else:
+                    documents = []
+                    filenames = []
+                total_docs = MAX_DOCUMENTS
+                logger.info("Document limit applied: selected %d of %d documents (seed=%d)", MAX_DOCUMENTS, original_count, seed)
+
             await update_progress("Loading documents", 1.0, {
                 "total_documents": total_docs,
                 "loaded_documents": len(documents)

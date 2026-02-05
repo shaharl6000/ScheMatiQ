@@ -83,6 +83,14 @@ const api = axios.create({
   timeout: 30000,
 });
 
+// Config API (for public configuration)
+export const configAPI = {
+  getConfig: async (): Promise<{ max_documents: number; developer_mode: boolean }> => {
+    const response = await api.get('/config');
+    return response.data;
+  },
+};
+
 // Load API (for loading existing QBSD data)
 export const loadAPI = {
   uploadFile: async (file: File): Promise<{
@@ -153,17 +161,21 @@ export const loadAPI = {
     return response.data;
   },
 
-  addDocuments: async (sessionId: string, files: File[]): Promise<DocumentUploadResult> => {
+  addDocuments: async (sessionId: string, files: File[], bypassLimit = false): Promise<DocumentUploadResult> => {
     const formData = new FormData();
     files.forEach(file => {
       formData.append('files', file);
     });
 
-    const response = await api.post(`/load/add-documents/${sessionId}`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    const response = await api.post(
+      `/load/add-documents/${sessionId}?bypass_limit=${bypassLimit}`,
+      formData,
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      }
+    );
 
     return response.data;
   },

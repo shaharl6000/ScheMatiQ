@@ -88,6 +88,24 @@ STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "local")
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
+# ── Release Mode vs Developer Mode ──────────────────────────────
+# Default: release mode (restricted). Set DEVELOPER_MODE=true to unlock.
+DEVELOPER_MODE = os.environ.get("DEVELOPER_MODE", "false").lower() == "true"
+
+# All mode-dependent feature flags live here.
+# To add a new release restriction, add a key with its release-mode default.
+RELEASE_CONFIG = {
+    "max_documents": 20,           # release mode cap
+    # Future flags go here, e.g.:
+    # "enable_experimental_merging": False,
+    # "max_iterations": 5,
+}
+
+# Effective values (resolved once at startup)
+MAX_DOCUMENTS = int(os.environ.get("MAX_DOCUMENTS", str(
+    RELEASE_CONFIG["max_documents"] if not DEVELOPER_MODE else 10_000
+)))
+
 # Status Messages
 HEALTH_CHECK_MESSAGE = "healthy"
 API_ROOT_MESSAGE = "QBSD Visualization API"

@@ -47,10 +47,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
-import { qbsdAPI, cloudAPI, loadAPI } from '../services/api';
+import { qbsdAPI, cloudAPI, loadAPI, configAPI } from '../services/api';
 import { useFileUpload } from '../hooks/useFileUpload';
 import { formatFileSize } from '../utils/apiHelpers';
 import { QBSDConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn, InitialObservationUnit, CostEstimate } from '../types';
+import { DEFAULT_MAX_DOCUMENTS } from '../constants';
 
 const QBSDConfigPage = () => {
   const navigate = useNavigate();
@@ -84,7 +85,14 @@ const QBSDConfigPage = () => {
   const [costEstimateLoading, setCostEstimateLoading] = useState(false);
   const [costEstimateError, setCostEstimateError] = useState<string | null>(null);
 
+  // Document limit state (Public Release)
+  const [maxDocuments, setMaxDocuments] = useState(DEFAULT_MAX_DOCUMENTS);
+  const [developerMode, setDeveloperMode] = useState(false);
+  const [limitBypassEnabled, setLimitBypassEnabled] = useState(false);
+
   // File upload hook for document uploads
+  // Note: limit enforcement is handled by form validation + UI warnings, not in the callback,
+  // to avoid stale closure issues with useDropzone.
   const { getRootProps, getInputProps, isDragActive, dragError } = useFileUpload({
     allowMultiple: true,
     acceptedTypes: {
@@ -192,6 +200,16 @@ const QBSDConfigPage = () => {
     fetchDatasets();
   }, []);
 
+  // Fetch document limit config on mount
+  useEffect(() => {
+    configAPI.getConfig()
+      .then(cfg => {
+        setMaxDocuments(cfg.max_documents);
+        setDeveloperMode(cfg.developer_mode);
+      })
+      .catch(() => console.log('Using default document limit'));
+  }, []);
+
   const [config, setConfig] = useState<QBSDConfig>({
     query: 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?',
     docs_path: ['../research/data/file'],
@@ -213,6 +231,20 @@ const QBSDConfigPage = () => {
     document_randomization_seed: 42,
     skip_value_extraction: false,
   });
+
+  // Computed values for document limit (must be after config state is defined)
+  const effectiveMaxDocs = (developerMode && limitBypassEnabled) ? Infinity : maxDocuments;
+  const isOverLimit = uploadedFiles.length > effectiveMaxDocs;
+
+  // Cloud file count calculation
+  const cloudFileCount = useMemo(() => {
+    const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path : [];
+    return selectedPaths.reduce((total, name) => {
+      const ds = datasets.find(d => d.name === name);
+      return total + (ds?.file_count || 0);
+    }, 0);
+  }, [config.docs_path, datasets]);
+  const isCloudOverLimit = cloudFileCount > effectiveMaxDocs;
 
   const handleConfigChange = (field: string, value: any) => {
     setConfig(prev => ({
@@ -301,9 +333,11 @@ const QBSDConfigPage = () => {
       try {
         // If using uploaded files, send file metadata (name, size) for estimation
         // Backend will estimate tokens from file size (~4 bytes per token)
+        // Cap at document limit to match what backend will actually process
         let uploadedFileInfo: Array<{ name: string; size: number }> | undefined;
         if (documentSource === 'upload' && uploadedFiles.length > 0) {
-          uploadedFileInfo = uploadedFiles.map(file => ({
+          const filesToEstimate = uploadedFiles.slice(0, effectiveMaxDocs);
+          uploadedFileInfo = filesToEstimate.map(file => ({
             name: file.name,
             size: file.size
           }));
@@ -337,6 +371,7 @@ const QBSDConfigPage = () => {
     config.retriever?.k,
     documentSource,
     uploadedFiles.length,
+    effectiveMaxDocs,
   ]);
 
   const handleSubmit = async () => {
@@ -393,7 +428,7 @@ const QBSDConfigPage = () => {
       if (documentSource === 'upload' && uploadedFiles.length > 0) {
         setIsUploading(true);
         try {
-          const uploadResult = await loadAPI.addDocuments(sessionId, uploadedFiles);
+          const uploadResult = await loadAPI.addDocuments(sessionId, uploadedFiles, limitBypassEnabled);
           if (uploadResult.warnings && uploadResult.warnings.length > 0) {
             console.warn('Upload warnings:', uploadResult.warnings);
           }
@@ -480,6 +515,17 @@ const QBSDConfigPage = () => {
               <Label>
                 Documents {!hasQuery && <span className="text-destructive">*</span>}
               </Label>
+
+              {/* Document limit notice - visible upfront before any selection */}
+              {!limitBypassEnabled && (
+                <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+                  <FileText className="h-4 w-4 text-blue-600" />
+                  <AlertDescription className="text-sm text-blue-700 dark:text-blue-400">
+                    <strong>Document limit:</strong> Analysis is limited to {maxDocuments} documents to ensure fast results and reasonable costs. If you provide more, a representative sample will be used.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               <Tabs value={documentSource} onValueChange={(v) => setDocumentSource(v as 'upload' | 'cloud')}>
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="upload" className="flex items-center gap-2">
@@ -519,37 +565,56 @@ const QBSDConfigPage = () => {
 
                   {uploadedFiles.length > 0 && (
                     <div className="mt-3 space-y-2">
-                      {uploadedFiles.map((file, index) => (
-                        <div
-                          key={`${file.name}-${index}`}
-                          className="flex items-center justify-between p-2 bg-muted/50 rounded-md"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                            <span className="text-sm truncate">{file.name}</span>
-                            <span className="text-xs text-muted-foreground flex-shrink-0">
-                              ({formatFileSize(file.size)})
-                            </span>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => removeUploadedFile(file)}
-                            className="h-7 w-7 p-0 flex-shrink-0"
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      ))}
-                      <p className="text-xs text-muted-foreground">
-                        Total: {uploadedFiles.length} file{uploadedFiles.length > 1 ? 's' : ''} ({formatFileSize(totalUploadSize)})
-                      </p>
+                      <Collapsible>
+                        <CollapsibleTrigger className="group flex items-center gap-2 w-full text-sm text-muted-foreground hover:text-foreground transition-colors">
+                          <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                          <span>
+                            Total: {uploadedFiles.length} file{uploadedFiles.length > 1 ? 's' : ''} ({formatFileSize(totalUploadSize)})
+                          </span>
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="space-y-2 mt-2">
+                          {uploadedFiles.map((file, index) => (
+                            <div
+                              key={`${file.name}-${index}`}
+                              className="flex items-center justify-between p-2 bg-muted/50 rounded-md"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                <span className="text-sm truncate">{file.name}</span>
+                                <span className="text-xs text-muted-foreground flex-shrink-0">
+                                  ({formatFileSize(file.size)})
+                                </span>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeUploadedFile(file)}
+                                className="h-7 w-7 p-0 flex-shrink-0"
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          ))}
+                        </CollapsibleContent>
+                      </Collapsible>
+
+                      {/* Document limit warning - only show when approaching or exceeding limit */}
+                      {!limitBypassEnabled && uploadedFiles.length >= Math.floor(maxDocuments * 0.75) && (
+                        <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                          <AlertTriangle className="h-4 w-4 text-amber-600" />
+                          <AlertDescription className="text-amber-700 dark:text-amber-400">
+                            {isOverLimit
+                              ? `You've selected ${uploadedFiles.length} documents. We'll analyze a representative sample of ${maxDocuments} documents.`
+                              : `${uploadedFiles.length} of ${maxDocuments} documents selected.`}
+                          </AlertDescription>
+                        </Alert>
+                      )}
                     </div>
                   )}
                 </TabsContent>
 
                 {/* Cloud Datasets Tab */}
-                <TabsContent value="cloud" className="mt-3">
+                <TabsContent value="cloud" className="mt-3 space-y-3">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button
@@ -600,6 +665,18 @@ const QBSDConfigPage = () => {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
+
+                  {/* Cloud dataset document limit warning - only show when approaching or exceeding limit */}
+                  {!limitBypassEnabled && cloudFileCount >= Math.floor(maxDocuments * 0.75) && (
+                    <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      <AlertDescription className="text-amber-700 dark:text-amber-400">
+                        {isCloudOverLimit
+                          ? `Your selection contains ${cloudFileCount} documents. We'll analyze a representative sample of ${maxDocuments} documents.`
+                          : `${cloudFileCount} of ${maxDocuments} documents in selected datasets.`}
+                      </AlertDescription>
+                    </Alert>
+                  )}
                 </TabsContent>
               </Tabs>
               <p className="text-sm text-muted-foreground">
@@ -762,6 +839,19 @@ const QBSDConfigPage = () => {
                   </p>
                   <InitialSchemaEditor onSchemaChange={handleInitialSchemaChange} />
                 </div>
+
+                {/* Developer Mode: Bypass Document Limit */}
+                {developerMode && (
+                  <div className="flex items-center justify-between p-4 border rounded-lg bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800 mt-4">
+                    <div>
+                      <Label className="text-base font-medium">Developer Mode: Bypass Document Limit</Label>
+                      <p className="text-sm text-muted-foreground">
+                        Disable the {maxDocuments}-document limit for testing.
+                      </p>
+                    </div>
+                    <Switch checked={limitBypassEnabled} onCheckedChange={setLimitBypassEnabled} />
+                  </div>
+                )}
               </AccordionContent>
             </AccordionItem>
 

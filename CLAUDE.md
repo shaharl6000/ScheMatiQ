@@ -164,6 +164,27 @@ REACT_APP_WS_URL=ws://localhost:8000
 REACT_APP_ENABLE_DEBUG=true
 ```
 
+### Release Mode vs Developer Mode
+
+The backend runs in **release mode** by default, which restricts certain features
+for public/production use. Set `DEVELOPER_MODE=true` to unlock all features.
+
+| Setting            | Release Mode (default) | Developer Mode          |
+|--------------------|------------------------|-------------------------|
+| Document limit     | 20                     | 10,000 (effectively unlimited) |
+| Bypass UI toggle   | Hidden                 | Visible                 |
+
+**How it works:**
+- All mode-dependent settings are centralized in `RELEASE_CONFIG` in `backend/app/core/config.py`
+- The `/api/config` endpoint exposes the active configuration to the frontend
+- The frontend adapts its UI based on the `developer_mode` flag (e.g., showing/hiding the limit bypass toggle)
+
+**Adding a new release restriction:**
+1. Add the default (release) value to `RELEASE_CONFIG` in `backend/app/core/config.py`
+2. Resolve the effective value using `DEVELOPER_MODE` (same pattern as `MAX_DOCUMENTS`)
+3. Return it in `/api/config` if the frontend needs it
+4. Update this table
+
 ### Using qbsd-lib Directly
 ```bash
 cd qbsd-lib

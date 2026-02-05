@@ -16,6 +16,7 @@ from app.models.qbsd import QBSDConfig, QBSDStatus, CostEstimate, CostEstimateRe
 from app.services.qbsd_runner import QBSDRunner
 from app.services.data_editor import DataEditor
 from app.services import websocket_manager, session_manager
+from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE
 
 from qbsd.core.cost_estimator import estimate_from_config
 
@@ -241,6 +242,13 @@ async def estimate_qbsd_cost_preview(request: CostEstimateRequest):
                     if resolved:
                         documents.extend(_load_documents_from_path(resolved))
         
+        # Cap at MAX_DOCUMENTS for accurate estimation (unless developer mode)
+        if not DEVELOPER_MODE:
+            if document_token_counts and len(document_token_counts) > MAX_DOCUMENTS:
+                document_token_counts = document_token_counts[:MAX_DOCUMENTS]
+            elif documents and len(documents) > MAX_DOCUMENTS:
+                documents = documents[:MAX_DOCUMENTS]
+
         # Run the estimation
         result = estimate_from_config(
             documents,
@@ -248,7 +256,7 @@ async def estimate_qbsd_cost_preview(request: CostEstimateRequest):
             document_token_counts=document_token_counts
         )
         return _convert_estimate_result(result)
-        
+
     except HTTPException:
         raise
     except Exception as e:
