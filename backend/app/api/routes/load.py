@@ -4,6 +4,7 @@ import uuid
 import json
 import csv
 import io
+import random
 import tempfile
 import zipfile
 from datetime import datetime, timedelta
@@ -786,15 +787,17 @@ async def extract_schema(session_id: str, query: str = ""):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/add-documents/{session_id}", response_model=dict)
-async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
+async def add_documents(session_id: str, files: List[UploadFile] = File(...), bypass_limit: bool = Query(False)):
     """Upload documents for processing with extracted schema."""
+    from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE
+
     try:
         print(f"DEBUG: Adding {len(files)} documents to session: {session_id}")
-        
+
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         # Allow both upload sessions (various states) and QBSD sessions (created or completed)
         is_valid_upload_session = (
             session.type == SessionType.UPLOAD and
@@ -810,7 +813,38 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
                 status_code=400,
                 detail=f"Cannot upload documents for session type '{session.type}' in status '{session.status}'. Upload sessions need schema extracted/completed, QBSD sessions must be created or completed."
             )
-        
+
+        # Document count: separate valid files from system files
+        valid_files = [f for f in files if not _is_system_file(f.filename)]
+        system_files = [f for f in files if _is_system_file(f.filename)]
+
+        existing_count = len(session.metadata.uploaded_documents or [])
+        new_count = len(valid_files)
+        total_count = existing_count + new_count
+
+        # Ignore bypass_limit if DEVELOPER_MODE is not enabled
+        if bypass_limit and not DEVELOPER_MODE:
+            print(f"WARNING: bypass_limit requested but DEVELOPER_MODE is disabled (session: {session_id})")
+            bypass_limit = False
+
+        # If over limit and not bypassed, randomly select files to fit within limit
+        limit_applied = False
+        enforce_limit = not (DEVELOPER_MODE and bypass_limit)
+        available_slots = MAX_DOCUMENTS - existing_count
+        if enforce_limit and new_count > available_slots > 0:
+            random.shuffle(valid_files)
+            valid_files = valid_files[:available_slots]
+            limit_applied = True
+            print(f"DEBUG: Document limit applied. Selected {len(valid_files)} of {new_count} files (max {MAX_DOCUMENTS}, existing {existing_count})")
+        elif enforce_limit and available_slots <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Document limit reached: you already have {existing_count} documents (maximum is {MAX_DOCUMENTS}). Remove documents or enable developer mode to add more."
+            )
+
+        # Reconstruct files list: valid (possibly trimmed) + system files
+        files = valid_files + system_files
+
         print(f"DEBUG: Session status: {session.status}, extracted schema available")
         
         # Validate files
@@ -908,13 +942,19 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...)):
         
         print(f"DEBUG: Updated session with {len(uploaded_filenames)} uploaded documents")
         
-        return {
+        response = {
             "status": "success",
             "message": f"Successfully uploaded {len(uploaded_filenames)} documents",
             "uploaded_files": uploaded_filenames,
             "warnings": warnings,
-            "documents_directory": str(docs_dir)
+            "documents_directory": str(docs_dir),
         }
+        if limit_applied:
+            response["limit_applied"] = True
+            response["message"] = f"Document limit applied: randomly selected {len(uploaded_filenames)} of {new_count} uploaded documents (maximum {MAX_DOCUMENTS})."
+            response["warnings"] = warnings + [f"Only {MAX_DOCUMENTS} documents are allowed. {new_count - len(uploaded_filenames)} documents were excluded by random selection."]
+
+        return response
         
     except HTTPException:
         raise

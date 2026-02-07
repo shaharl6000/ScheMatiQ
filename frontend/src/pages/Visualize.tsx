@@ -24,7 +24,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
 
-import { loadAPI, qbsdAPI, cloudAPI } from '../services/api';
+import { loadAPI, qbsdAPI, cloudAPI, configAPI } from '../services/api';
 import { getApiKeyForProvider, LLMProvider } from '../utils/apiKeyStorage';
 import { VisualizationSession, CellValue, CellExtractedData } from '../types';
 import {
@@ -700,7 +700,25 @@ const Visualize = () => {
   };
 
   const handleDocumentProcessing = async () => {
-    setShowLLMSelector(true);
+    // Check if LLM config is allowed (developer mode)
+    const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
+    if (!cfg.allow_llm_config) {
+      // Release mode: use default Gemini config directly, get API key from storage
+      const geminiKey = await getApiKeyForProvider('gemini');
+      if (!geminiKey) {
+        setDocumentUploadError('No Gemini API key configured. Please add your API key on the home page.');
+        return;
+      }
+      handleLLMSelection({
+        provider: 'gemini',
+        model: 'gemini-2.5-flash-lite',
+        temperature: 0,
+        api_key: geminiKey,
+      });
+    } else {
+      // Developer mode: show LLM selector
+      setShowLLMSelector(true);
+    }
   };
 
   const handleLLMSelection = async (llmConfig: any) => {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Loader2, Check, Info, AlertTriangle, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings, Brain } from 'lucide-react';
+import { Plus, Loader2, Check, Info, AlertTriangle, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings, Brain, FileText } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
@@ -20,6 +20,7 @@ import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -35,7 +36,7 @@ import {
   ColumnInfo,
   DocumentAvailabilityResponse,
 } from '../../types';
-import { schemaAPI, loadAPI } from '../../services/api';
+import { schemaAPI, loadAPI, configAPI } from '../../services/api';
 import MissingDocumentsSection from './MissingDocumentsSection';
 import { getApiKeyForProvider, encryptAndStore, getConfiguredProviders } from '../../utils/apiKeyStorage';
 import {
@@ -45,6 +46,7 @@ import {
   getAvailableProviders,
   LLM_PROVIDER_NAMES,
 } from '@/constants/llmModels';
+import { DEFAULT_MAX_DOCUMENTS } from '@/constants';
 
 type DialogStep = 'documents' | 'llm_config' | 'discovery' | 'review' | 'rows' | 'extraction' | 'no_new_columns';
 
@@ -94,6 +96,12 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [configuredProviders, setConfiguredProviders] = useState<LLMProviderKey[]>([]);
   const [extractionProvider, setExtractionProvider] = useState<LLMProviderKey>('gemini');
   const [extractionModel, setExtractionModel] = useState('gemini-2.5-flash-lite');
+  const [allowLlmConfig, setAllowLlmConfig] = useState(false);
+
+  // Document limit state
+  const [maxDocuments, setMaxDocuments] = useState(DEFAULT_MAX_DOCUMENTS);
+  const [developerMode, setDeveloperMode] = useState(false);
+  const [limitBypassEnabled, setLimitBypassEnabled] = useState(false);
 
   // Retriever config state (collapsed by default, empty = use defaults)
   const [showRetrieverConfig, setShowRetrieverConfig] = useState(false);
@@ -137,10 +145,21 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     }
   }, [open, sessionId]);
 
-  // Load configured providers when dialog opens
+  // Load configured providers and config when dialog opens
   useEffect(() => {
     const loadProviders = async () => {
       if (!open) return;
+
+      // Check if LLM config is allowed (release mode vs developer mode)
+      const cfg = await configAPI.getConfig().catch(() => ({
+        allow_llm_config: true,
+        max_documents: DEFAULT_MAX_DOCUMENTS,
+        developer_mode: false
+      }));
+      setAllowLlmConfig(cfg.allow_llm_config);
+      setMaxDocuments(cfg.max_documents ?? DEFAULT_MAX_DOCUMENTS);
+      setDeveloperMode(cfg.developer_mode ?? false);
+
       const providers = await getConfiguredProviders();
       const available = getAvailableProviders(providers);
       setConfiguredProviders(available);
@@ -213,6 +232,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setExtractionModel('gemini-2.5-flash-lite');
       setDocumentAvailability(null);
       setCheckingAvailability(false);
+      setLimitBypassEnabled(false);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -320,7 +340,8 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           dynamic_k_minimum: retrieverConfig.dynamic_k_minimum ? parseInt(retrieverConfig.dynamic_k_minimum) : undefined
         } : undefined,
         max_keys_schema: 25,
-        documents_batch_size: 1
+        documents_batch_size: 1,
+        bypass_limit: limitBypassEnabled
       });
 
       setOperationId(response.operation_id);
@@ -507,6 +528,17 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         <div className="space-y-4 py-4">
           <Label className="text-sm font-medium">Select Document Source</Label>
 
+          {/* Document limit notice - visible upfront before any selection */}
+          {!limitBypassEnabled && (
+            <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+              <FileText className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-sm text-blue-700 dark:text-blue-400">
+                <strong>Document limit:</strong> Analysis is limited to {maxDocuments} documents.
+                If you provide more, a representative sample will be used.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <RadioGroup value={documentSource} onValueChange={(v) => setDocumentSource(v as any)}>
             {/* Cloud Storage */}
             <div className="flex items-start space-x-3 p-3 border rounded-lg">
@@ -567,6 +599,17 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                         {uploadedFiles.length} file{uploadedFiles.length !== 1 ? 's' : ''} selected
                       </p>
                     )}
+                    {/* Document limit warning - only show when approaching or exceeding limit */}
+                    {!limitBypassEnabled && uploadedFiles.length >= Math.floor(maxDocuments * 0.75) && (
+                      <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20 mt-2">
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        <AlertDescription className="text-amber-700 dark:text-amber-400">
+                          {uploadedFiles.length > maxDocuments
+                            ? `You've selected ${uploadedFiles.length} documents. We'll analyze a representative sample of ${maxDocuments} documents.`
+                            : `${uploadedFiles.length} of ${maxDocuments} documents selected.`}
+                        </AlertDescription>
+                      </Alert>
+                    )}
                   </div>
                 )}
               </div>
@@ -582,16 +625,36 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
               onRefresh={checkDocumentAvailability}
             />
           )}
+
+          {/* Developer Mode: Bypass Document Limit */}
+          {developerMode && (
+            <div className="flex items-center justify-between p-4 border rounded-lg bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800">
+              <div>
+                <Label className="text-base font-medium">Developer Mode: Bypass Document Limit</Label>
+                <p className="text-sm text-muted-foreground">
+                  Disable the {maxDocuments}-document limit for testing.
+                </p>
+              </div>
+              <Switch checked={limitBypassEnabled} onCheckedChange={setLimitBypassEnabled} />
+            </div>
+          )}
         </div>
       )}
 
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
         <Button
-          onClick={() => setStep('llm_config')}
+          onClick={() => {
+            if (allowLlmConfig) {
+              setStep('llm_config');
+            } else {
+              // Release mode: skip LLM config, use defaults and start discovery directly
+              handleStartDiscovery();
+            }
+          }}
           disabled={loading || (documentSource === 'cloud' && !selectedCloudDataset) || (documentSource === 'upload' && uploadedFiles.length === 0)}
         >
-          Next
+          {allowLlmConfig ? 'Next' : 'Start Discovery'}
         </Button>
       </DialogFooter>
     </>
@@ -915,73 +978,75 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           </div>
         </RadioGroup>
 
-        {/* Model Settings (Collapsible) */}
-        <Collapsible open={showModelSettings} onOpenChange={setShowModelSettings}>
-          <CollapsibleTrigger asChild>
-            <Button variant="ghost" className="w-full justify-between p-2 h-auto">
-              <div className="flex items-center gap-2 text-sm">
-                <Brain className="h-4 w-4" />
-                <span>Model Settings</span>
-                <Badge variant="outline" className="text-xs">
-                  {LLM_PROVIDER_NAMES[extractionProvider]} / {extractionModel}
-                </Badge>
+        {/* Model Settings (Collapsible) - Only show in developer mode */}
+        {allowLlmConfig && (
+          <Collapsible open={showModelSettings} onOpenChange={setShowModelSettings}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-between p-2 h-auto">
+                <div className="flex items-center gap-2 text-sm">
+                  <Brain className="h-4 w-4" />
+                  <span>Model Settings</span>
+                  <Badge variant="outline" className="text-xs">
+                    {LLM_PROVIDER_NAMES[extractionProvider]} / {extractionModel}
+                  </Badge>
+                </div>
+                <ChevronDown className={`h-4 w-4 transition-transform ${showModelSettings ? 'rotate-180' : ''}`} />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2 space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Choose which AI model will be used for extracting values.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Provider</Label>
+                  <Select
+                    value={extractionProvider}
+                    onValueChange={(value) => handleExtractionProviderChange(value as LLMProviderKey)}
+                    disabled={configuredProviders.length === 0}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {configuredProviders.map((provider) => (
+                        <SelectItem key={provider} value={provider}>
+                          {LLM_PROVIDER_NAMES[provider]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Model</Label>
+                  <Select
+                    value={extractionModel}
+                    onValueChange={setExtractionModel}
+                    disabled={getModelsForProvider(extractionProvider).length === 0}
+                  >
+                    <SelectTrigger className="h-8">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {getModelsForProvider(extractionProvider).map((model) => (
+                        <SelectItem key={model.id} value={model.id}>
+                          {model.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <ChevronDown className={`h-4 w-4 transition-transform ${showModelSettings ? 'rotate-180' : ''}`} />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2 space-y-3">
-            <p className="text-xs text-muted-foreground">
-              Choose which AI model will be used for extracting values.
-            </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Provider</Label>
-                <Select
-                  value={extractionProvider}
-                  onValueChange={(value) => handleExtractionProviderChange(value as LLMProviderKey)}
-                  disabled={configuredProviders.length === 0}
-                >
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {configuredProviders.map((provider) => (
-                      <SelectItem key={provider} value={provider}>
-                        {LLM_PROVIDER_NAMES[provider]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Model</Label>
-                <Select
-                  value={extractionModel}
-                  onValueChange={setExtractionModel}
-                  disabled={getModelsForProvider(extractionProvider).length === 0}
-                >
-                  <SelectTrigger className="h-8">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {getModelsForProvider(extractionProvider).map((model) => (
-                      <SelectItem key={model.id} value={model.id}>
-                        {model.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            {configuredProviders.length === 0 && (
-              <Alert>
-                <AlertDescription className="text-xs">
-                  No API keys configured. Add an API key on the home page to select a model.
-                </AlertDescription>
-              </Alert>
-            )}
-          </CollapsibleContent>
-        </Collapsible>
+              {configuredProviders.length === 0 && (
+                <Alert>
+                  <AlertDescription className="text-xs">
+                    No API keys configured. Add an API key on the home page to select a model.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
 
         <Separator />
 

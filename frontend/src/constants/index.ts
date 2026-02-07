@@ -44,6 +44,9 @@ export const SESSION_REFRESH_INTERVAL = 3000; // milliseconds
 
 // File Upload Configuration
 export const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB in bytes
+
+// Document Upload Limits (Public Release)
+export const DEFAULT_MAX_DOCUMENTS = 20;
 export const ALLOWED_FILE_TYPES = {
   'text/csv': ['.csv'],
   'application/json': ['.json'],

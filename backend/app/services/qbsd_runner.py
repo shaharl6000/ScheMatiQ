@@ -4,10 +4,13 @@ import json
 import asyncio
 import logging
 import math
+import random
 import time
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
+
+from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +84,29 @@ def build_llm_interface(
         return llm
     else:
         raise ValueError(f"Unsupported LLM provider: {provider}")
+
+
+def enforce_release_llm_config(backend_config: dict, is_schema_creation: bool = False) -> dict:
+    """Override LLM config with release-mode defaults if not in developer mode.
+
+    Args:
+        backend_config: The original LLM backend configuration dict
+        is_schema_creation: True for schema creation LLM, False for value extraction
+
+    Returns:
+        The config dict, potentially with provider/model/temperature overridden
+    """
+    if DEVELOPER_MODE:
+        return backend_config  # No override in developer mode
+
+    # Force release-mode LLM settings
+    return {
+        **backend_config,
+        "provider": RELEASE_CONFIG["llm_provider"],
+        "model": RELEASE_CONFIG["schema_creation_model"] if is_schema_creation else RELEASE_CONFIG["value_extraction_model"],
+        "temperature": RELEASE_CONFIG["llm_temperature"],
+    }
+
 
 from app.models.qbsd import QBSDConfig, QBSDStatus
 from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus, SchemaEvolution, SchemaSnapshot, VisualizationSession, ObservationUnitInfo
@@ -586,7 +612,26 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                             filenames.append(doc_file.name)
                         except Exception as e:
                             logger.warning("Could not read %s: %s", doc_file, e)
-            
+
+            # Cap documents at MAX_DOCUMENTS (with seeded randomization for reproducibility)
+            bypass_limit = qbsd_config.get("bypass_limit", False)
+            if not (DEVELOPER_MODE and bypass_limit) and len(documents) > MAX_DOCUMENTS:
+                seed = qbsd_config.get("document_randomization_seed", 42)
+                original_count = len(documents)
+                combined = list(zip(documents, filenames))
+                rng = random.Random(seed)
+                rng.shuffle(combined)
+                combined = combined[:MAX_DOCUMENTS]
+                if combined:
+                    documents, filenames = zip(*combined)
+                    documents = list(documents)
+                    filenames = list(filenames)
+                else:
+                    documents = []
+                    filenames = []
+                total_docs = MAX_DOCUMENTS
+                logger.info("Document limit applied: selected %d of %d documents (seed=%d)", MAX_DOCUMENTS, original_count, seed)
+
             await update_progress("Loading documents", 1.0, {
                 "total_documents": total_docs,
                 "loaded_documents": len(documents)
@@ -611,16 +656,18 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             current_step += 1
             logger.debug("Building Schema Creation LLM backend - provider: %s", qbsd_config['schema_creation_backend']['provider'])
             await update_progress("Building LLM backend", 0.0)
-            
+
             # Build Schema Creation LLM interface
+            # In release mode, force the release-mode LLM settings
+            schema_backend = enforce_release_llm_config(qbsd_config["schema_creation_backend"], is_schema_creation=True)
             logger.debug("Creating Schema Creation LLM interface...")
             llm = build_llm_interface(
-                provider=qbsd_config["schema_creation_backend"]["provider"],
-                model=qbsd_config["schema_creation_backend"]["model"],
-                max_output_tokens=qbsd_config["schema_creation_backend"].get("max_output_tokens"),  # None = auto-detect
-                temperature=qbsd_config["schema_creation_backend"]["temperature"],
-                api_key=qbsd_config["schema_creation_backend"].get("api_key"),
-                context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size")  # None = auto-detect
+                provider=schema_backend["provider"],
+                model=schema_backend["model"],
+                max_output_tokens=schema_backend.get("max_output_tokens"),  # None = auto-detect
+                temperature=schema_backend["temperature"],
+                api_key=schema_backend.get("api_key"),
+                context_window_size=schema_backend.get("context_window_size")  # None = auto-detect
             )
             logger.debug("LLM interface created successfully")
             
@@ -777,14 +824,16 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 await update_progress("Extracting values", 0.0)
 
                 # Build Value Extraction LLM interface (separate from schema creation)
+                # In release mode, force the release-mode LLM settings
+                value_backend = enforce_release_llm_config(qbsd_config["value_extraction_backend"], is_schema_creation=False)
                 logger.debug("Creating Value Extraction LLM interface...")
                 value_extraction_llm = build_llm_interface(
-                    provider=qbsd_config["value_extraction_backend"]["provider"],
-                    model=qbsd_config["value_extraction_backend"]["model"],
-                    max_output_tokens=qbsd_config["value_extraction_backend"].get("max_output_tokens"),  # None = auto-detect
-                    temperature=qbsd_config["value_extraction_backend"]["temperature"],
-                    api_key=qbsd_config["value_extraction_backend"].get("api_key"),
-                    context_window_size=qbsd_config["value_extraction_backend"].get("context_window_size")  # None = auto-detect
+                    provider=value_backend["provider"],
+                    model=value_backend["model"],
+                    max_output_tokens=value_backend.get("max_output_tokens"),  # None = auto-detect
+                    temperature=value_backend["temperature"],
+                    api_key=value_backend.get("api_key"),
+                    context_window_size=value_backend.get("context_window_size")  # None = auto-detect
                 )
                 logger.debug("Value Extraction LLM interface created successfully")
 
