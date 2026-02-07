@@ -1070,6 +1070,7 @@ class ContinueDiscoveryRequest(BaseModel):
     retriever_config: Optional[Dict[str, Any]] = None  # Retriever settings (empty = defaults)
     max_keys_schema: int = 100
     documents_batch_size: int = 1
+    bypass_limit: bool = False  # Developer mode: bypass document limit
 
 
 class ContinueDiscoveryResponse(BaseModel):
@@ -1158,7 +1159,8 @@ async def start_continue_discovery(
             cloud_dataset=request.cloud_dataset,
             retriever_config=request.retriever_config,
             max_keys_schema=request.max_keys_schema,
-            documents_batch_size=request.documents_batch_size
+            documents_batch_size=request.documents_batch_size,
+            bypass_limit=request.bypass_limit
         )
 
         return ContinueDiscoveryResponse(**result)

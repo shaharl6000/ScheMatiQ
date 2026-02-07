@@ -22,6 +22,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.storage.factory import get_storage
+from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG, MAX_DOCUMENTS
 
 # QBSD library imports
 from qbsd.core import qbsd as QBSD
@@ -33,6 +34,28 @@ from qbsd.core import utils as qbsd_utils
 from qbsd.value_extraction.main import build_table_jsonl
 
 QBSD_AVAILABLE = True
+
+
+def _enforce_release_llm_config(llm_config: dict, is_schema_creation: bool = False) -> dict:
+    """Override LLM config with release-mode defaults if not in developer mode.
+
+    Args:
+        llm_config: The original LLM configuration dict
+        is_schema_creation: True for schema creation LLM, False for value extraction
+
+    Returns:
+        The config dict, potentially with provider/model/temperature overridden
+    """
+    if DEVELOPER_MODE:
+        return llm_config  # No override in developer mode
+
+    # Force release-mode LLM settings
+    return {
+        **llm_config,
+        "provider": RELEASE_CONFIG["llm_provider"],
+        "model": RELEASE_CONFIG["schema_creation_model"] if is_schema_creation else RELEASE_CONFIG["value_extraction_model"],
+        "temperature": RELEASE_CONFIG["llm_temperature"],
+    }
 
 
 class ContinueDiscoveryOperation:
@@ -578,7 +601,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         session_id: str,
         document_source: str,
         cloud_dataset: Optional[str] = None,
-        uploaded_files: Optional[List[str]] = None
+        uploaded_files: Optional[List[str]] = None,
+        bypass_limit: bool = False
     ) -> tuple[Path, List[str], List[str]]:
         """
         Prepare documents for schema discovery.
@@ -588,6 +612,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             document_source: 'original', 'upload', or 'cloud'
             cloud_dataset: Cloud dataset name (if document_source is 'cloud')
             uploaded_files: List of uploaded filenames (if document_source is 'upload')
+            bypass_limit: Developer mode flag to bypass document limit
 
         Returns:
             Tuple of (docs_directory, document_contents, filenames)
@@ -671,6 +696,19 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         except Exception as e:
                             print(f"DEBUG: Could not read {f}: {e}")
 
+        # Enforce document limit (same as initial QBSD creation)
+        # The limit can be bypassed in developer mode via config
+        if not (DEVELOPER_MODE and bypass_limit) and len(documents) > MAX_DOCUMENTS:
+            import random
+            original_count = len(documents)
+            combined = list(zip(documents, filenames))
+            rng = random.Random(42)  # deterministic sampling for reproducibility
+            rng.shuffle(combined)
+            combined = combined[:MAX_DOCUMENTS]
+            documents, filenames = zip(*combined) if combined else ([], [])
+            documents, filenames = list(documents), list(filenames)
+            print(f"DEBUG: Document limit applied: {original_count} → {len(documents)} (max: {MAX_DOCUMENTS})")
+
         print(f"DEBUG: Prepared {len(documents)} documents from {document_source}")
         return docs_dir, documents, filenames
 
@@ -726,7 +764,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         cloud_dataset: Optional[str] = None,
         retriever_config: Optional[Dict[str, Any]] = None,
         max_keys_schema: int = 100,
-        documents_batch_size: int = 1
+        documents_batch_size: int = 1,
+        bypass_limit: bool = False
     ) -> Dict[str, Any]:
         """
         Start schema discovery continuation.
@@ -739,6 +778,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             retriever_config: Retriever configuration (None = use defaults)
             max_keys_schema: Maximum schema columns
             documents_batch_size: Documents per batch
+            bypass_limit: Developer mode flag to bypass document limit
 
         Returns:
             Dictionary with operation details
@@ -776,7 +816,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             "retriever_config": retriever_config,
             "max_keys_schema": max_keys_schema,
             "documents_batch_size": documents_batch_size,
-            "query": session.schema_query or ""
+            "query": session.schema_query or "",
+            "bypass_limit": bypass_limit
         }
         config_file = session_dir / f"continue_discovery_config_{operation_id}.json"
         with open(config_file, 'w') as f:
@@ -838,7 +879,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             docs_dir, documents, filenames = await self._prepare_documents(
                 operation.session_id,
                 config["document_source"],
-                config.get("cloud_dataset")
+                config.get("cloud_dataset"),
+                bypass_limit=config.get("bypass_limit", False)
             )
 
             operation.total_documents = len(documents)
@@ -852,8 +894,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             initial_schema = self._convert_session_columns_to_schema(session.columns, query)
             print(f"DEBUG: Initial schema has {len(initial_schema.columns)} columns")
 
-            # Build LLM
-            llm = qbsd_utils.build_llm(llm_config)
+            # Build LLM - enforce release mode settings if applicable
+            enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=True)
+            llm = qbsd_utils.build_llm(enforced_llm_config)
 
             # Build retriever - use config if provided, otherwise use library defaults
             retriever_cfg = config.get("retriever_config")
@@ -1331,7 +1374,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 json.dump(schema_data, f, indent=2)
 
             # Setup LLM and retriever - use config if provided, otherwise use library defaults
-            llm = qbsd_utils.build_llm(llm_config)
+            # Enforce release mode settings if applicable (value extraction)
+            enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=False)
+            llm = qbsd_utils.build_llm(enforced_llm_config)
             if retriever_cfg:
                 retriever = EmbeddingRetriever(
                     model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
