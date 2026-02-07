@@ -419,6 +419,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if data_dir_file.exists() and data_dir_file not in data_files:
             data_files.append(data_dir_file)
 
+        logger.info(f"discover_papers: data_files={[str(f) for f in data_files]}, "
+                     f"data_session_dir exists={data_session_dir.exists()}, "
+                     f"qbsd_session_dir exists={qbsd_session_dir.exists()}")
+
         # Collect paper references and document directories from all rows
         paper_refs: Set[str] = set()
         row_paper_mapping: Dict[str, List[str]] = {}  # row_name -> [papers]
@@ -501,7 +505,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             continue
 
         # Check which papers exist in local storage
-        # Check documents/, pending_documents/, and qbsd_work datasets directories
+        # Check documents/, pending_documents/, qbsd_work datasets, and original docs_path
         local_files: Set[str] = set()
         pending_dir = data_session_dir / "pending_documents"
 
@@ -516,6 +520,23 @@ class ReextractionService(WebSocketBroadcasterMixin):
         capped_dir = qbsd_session_dir / "capped_documents"
         if capped_dir.exists():
             local_dirs_to_check.append(capped_dir)
+        # Also check original docs_path from QBSD config (the directories used during creation)
+        qbsd_config_file = qbsd_session_dir / "qbsd_config.json"
+        if qbsd_config_file.exists():
+            try:
+                with open(qbsd_config_file) as f:
+                    qbsd_config = json.load(f)
+                config_docs_path = qbsd_config.get("docs_path", [])
+                if isinstance(config_docs_path, str):
+                    config_docs_path = [config_docs_path]
+                for dp in config_docs_path:
+                    if dp:
+                        dp_path = Path(dp)
+                        if dp_path.is_dir() and dp_path not in local_dirs_to_check:
+                            local_dirs_to_check.append(dp_path)
+                            logger.debug(f"Added docs_path from QBSD config: {dp_path}")
+            except Exception as e:
+                logger.debug(f"Could not read QBSD config for docs_path: {e}")
 
         for local_dir in local_dirs_to_check:
             if local_dir.exists():
@@ -523,6 +544,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     if f.is_file() and not f.name.startswith('.'):
                         local_files.add(f.name)
                         local_files.add(f.stem)  # Also match without extension
+
+        logger.info(f"discover_papers: total_rows={total_rows}, paper_refs={len(paper_refs)}, "
+                     f"local_files={len(local_files)}, dirs_checked={[str(d) for d in local_dirs_to_check if d.exists()]}")
 
         # Categorize papers: local, cloud, or missing
         local_papers: List[str] = []
@@ -966,7 +990,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 except Exception as e:
                     logger.warning(f"Broadcast error: {e}")
 
-            # Run extraction - check documents/, pending_documents/, and qbsd_work datasets
+            # Run extraction - check documents/, pending_documents/, qbsd_work datasets, and original docs_path
             candidate_dirs = [docs_dir, pending_dir]
             # Also check qbsd_work datasets directories (Supabase datasets downloaded during QBSD creation)
             qbsd_datasets_dir = qbsd_dir / "datasets"
@@ -978,8 +1002,24 @@ class ReextractionService(WebSocketBroadcasterMixin):
             capped_dir = qbsd_dir / "capped_documents"
             if capped_dir.exists():
                 candidate_dirs.append(capped_dir)
+            # Also check original docs_path from QBSD config
+            qbsd_config_file = qbsd_dir / "qbsd_config.json"
+            if qbsd_config_file.exists():
+                try:
+                    with open(qbsd_config_file) as f:
+                        qbsd_cfg = json.load(f)
+                    config_docs_path = qbsd_cfg.get("docs_path", [])
+                    if isinstance(config_docs_path, str):
+                        config_docs_path = [config_docs_path]
+                    for dp in config_docs_path:
+                        if dp:
+                            dp_path = Path(dp)
+                            if dp_path.is_dir() and dp_path not in candidate_dirs:
+                                candidate_dirs.append(dp_path)
+                except Exception:
+                    pass
             docs_directories = [d for d in candidate_dirs if d.exists()]
-            logger.debug(f"docs_directories={docs_directories}, count={len(docs_directories)}")
+            logger.info(f"Re-extraction docs_directories={[str(d) for d in docs_directories]}, count={len(docs_directories)}")
 
             if docs_directories:
                 logger.debug(f"Starting build_table_jsonl extraction...")
