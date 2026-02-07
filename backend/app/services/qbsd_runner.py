@@ -5,6 +5,7 @@ import asyncio
 import functools
 import logging
 import math
+import os
 import random
 import threading
 import time
@@ -641,6 +642,20 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     filenames = []
                 total_docs = MAX_DOCUMENTS
                 logger.info("Document limit applied: selected %d of %d documents (seed=%d)", MAX_DOCUMENTS, original_count, seed)
+
+                # Create a filtered directory so value extraction only sees capped documents
+                capped_dir = session_dir / "capped_documents"
+                capped_dir.mkdir(exist_ok=True)
+                for fname in filenames:
+                    for docs_path in docs_paths:
+                        source = Path(docs_path) / fname
+                        if source.exists():
+                            dest = capped_dir / fname
+                            if not dest.exists():
+                                os.symlink(source.resolve(), dest)
+                            break
+                qbsd_config["docs_path"] = [str(capped_dir)]
+                logger.info("Value extraction redirected to capped_documents/ with %d files", len(filenames))
 
             await update_progress("Loading documents", 1.0, {
                 "total_documents": total_docs,
