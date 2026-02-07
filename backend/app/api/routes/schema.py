@@ -256,6 +256,7 @@ async def add_column(
     background_tasks: BackgroundTasks
 ):
     """Add a new column to the schema and extract values from documents."""
+    slot_acquired = False
     try:
         set_session_context(session_id)
         session = session_manager.get_session(session_id)
@@ -333,6 +334,7 @@ async def add_column(
 
         # Reserve a concurrency slot for value extraction
         await concurrency_limiter.acquire(session_id, "add_column_extraction")
+        slot_acquired = True
 
         # Schedule value extraction for new column
         background_tasks.add_task(
@@ -357,7 +359,8 @@ async def add_column(
     except HTTPException:
         raise
     except Exception as e:
-        await concurrency_limiter.release(session_id)
+        if slot_acquired:
+            await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/merge-columns/{session_id}")

@@ -826,7 +826,11 @@ class SchemaManager(WebSocketBroadcasterMixin):
             if docs_dir.exists():
                 # Extract values with enhanced schema context
                 output_file = session_dir / f"enhanced_reprocessed_{column_name}.jsonl"
-                
+
+                # Create should_stop callback for graceful cancellation
+                def should_stop():
+                    return self.is_stop_requested(session_id)
+
                 await asyncio.get_event_loop().run_in_executor(
                     qbsd_thread_pool,
                     functools.partial(
@@ -840,6 +844,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         mode="one_by_one",  # More focused extraction
                         retrieval_k=10,
                         max_workers=1,
+                        should_stop=should_stop,
                     )
                 )
                 
