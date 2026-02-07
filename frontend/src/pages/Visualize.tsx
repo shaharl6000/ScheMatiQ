@@ -87,6 +87,9 @@ const Visualize = () => {
     totalDocuments: number;
   } | null>(null);
 
+  // Document limit state
+  const [maxDocuments, setMaxDocuments] = useState<number | undefined>(undefined);
+
   // LLM selection state
   const [showLLMSelector, setShowLLMSelector] = useState(false);
 
@@ -117,6 +120,13 @@ const Visualize = () => {
       }
     }
   }, [sessionId]);
+
+  // Fetch config to get document limit
+  useEffect(() => {
+    configAPI.getConfig()
+      .then(cfg => setMaxDocuments(cfg.max_documents))
+      .catch(() => {});
+  }, []);
 
   const handleColumnReorder = (newOrder: string[]) => {
     setColumnOrder(newOrder);
@@ -188,6 +198,7 @@ const Visualize = () => {
             case 'completion':
               console.log('✅ WebSocket completion received, refetching data...');
               setStreamingCells(new Map());
+              setCurrentDocumentProgress(null);
               setForceWebSocketConnect(false);
               // Use broader query filter to match all data queries (including DataTable's paginated queries)
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
@@ -470,6 +481,7 @@ const Visualize = () => {
               case 'completion':
                 console.log('✅ WebSocket completion received, refetching data...');
                 setStreamingCells(new Map());
+                setCurrentDocumentProgress(null);
                 setForceWebSocketConnect(false);
                 // Use broader query filter to match all data queries (including DataTable's paginated queries)
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
@@ -1063,6 +1075,9 @@ const Visualize = () => {
                   currentDocumentProgress={currentDocumentProgress}
                   onStopReextraction={handleStopReextraction}
                   isStoppingReextraction={isStoppingReextraction}
+                  isProcessingDocuments={isEnhancedUploadProcessing}
+                  onStopProcessing={handleStopProcessing}
+                  isStoppingProcessing={isStoppingProcessing}
                   columnInfo={session?.columns?.map(col => ({ name: col.name, allowed_values: col.allowed_values ?? undefined }))}
                 />
               )}
@@ -1137,6 +1152,8 @@ const Visualize = () => {
                         canUpload={true}
                         uploadResult={documentUploadResult}
                         sessionId={sessionId}
+                        maxDocuments={maxDocuments}
+                        existingDocumentCount={session?.metadata?.uploaded_documents?.length || 0}
                         onCloudDocumentsAdd={async (dataset, files) => {
                           const result = await cloudAPI.addCloudDocuments(sessionId!, dataset, files);
                           if (result.added_files?.length > 0) {
@@ -1181,7 +1198,7 @@ const Visualize = () => {
                               ) : null}
                               {documentUploadLoading ? 'Starting...' :
                                 session?.status?.includes('processing') ? 'Processing...' :
-                                  'Select AI Model & Process Documents'}
+                                  'Process Documents'}
                             </Button>
                           )}
                         </div>

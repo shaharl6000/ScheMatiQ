@@ -42,13 +42,36 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         self.running_sessions: Dict[str, bool] = {}
         self._state_lock = threading.Lock()
 
-    def _create_value_extracted_callback(self, session_id: str, loop: asyncio.AbstractEventLoop):
+    def _create_value_extracted_callback(self, session_id: str, loop: asyncio.AbstractEventLoop, total_documents: int):
         """Create a callback that streams extracted cell values via WebSocket.
 
         The callback bridges sync extraction code to async WebSocket broadcasting.
         """
+        current_document = [None]
+        document_index = [0]
+
         def on_value_extracted(row_name: str, column_name: str, value: Any):
             """Called for each cell value as it's extracted."""
+            # Broadcast document_started when we start processing a new document
+            if row_name != current_document[0]:
+                current_document[0] = row_name
+                document_index[0] += 1
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self.websocket_manager.broadcast_to_session(session_id, {
+                            "type": "document_started",
+                            "data": {
+                                "document_name": row_name,
+                                "document_index": document_index[0],
+                                "total_documents": total_documents
+                            },
+                            "timestamp": datetime.now().isoformat()
+                        }),
+                        loop
+                    )
+                except Exception as e:
+                    logger.warning(f"Document started broadcast error: {e}")
+
             logger.debug(f"CELL EXTRACTED: {row_name} / {column_name} = {str(value)[:50]}...")
             try:
                 future = asyncio.run_coroutine_threadsafe(
@@ -160,9 +183,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # Run extraction in executor to avoid blocking
             # Use get_running_loop() to ensure we have the active event loop
             loop = asyncio.get_running_loop()
+            total_docs = len(session.metadata.uploaded_documents)
 
             # Create callback to stream cell values as they're extracted
-            on_value_extracted = self._create_value_extracted_callback(session_id, loop)
+            on_value_extracted = self._create_value_extracted_callback(session_id, loop, total_docs)
 
             # Create should_stop callback that checks for stop requests
             def should_stop():
@@ -200,7 +224,6 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             extraction_task = loop.run_in_executor(qbsd_thread_pool, run_extraction)
 
             start_time = time.time()
-            total_docs = len(session.metadata.uploaded_documents)
             last_processed_line = 0
 
             while not extraction_task.done():

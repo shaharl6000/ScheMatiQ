@@ -115,6 +115,12 @@ interface DataTableProps {
   onStopReextraction?: () => void;
   /** Whether stop is in progress */
   isStoppingReextraction?: boolean;
+  /** Whether document processing is in progress (Add More Documents flow) */
+  isProcessingDocuments?: boolean;
+  /** Callback to stop document processing */
+  onStopProcessing?: () => void;
+  /** Whether stop processing is in progress */
+  isStoppingProcessing?: boolean;
   /** Whether the table is in readonly mode (disables row actions) */
   readonly?: boolean;
   /** Callback when data changes (e.g., row added/deleted) */
@@ -243,6 +249,9 @@ const DataTable: React.FC<DataTableProps> = ({
   currentDocumentProgress,
   onStopReextraction,
   isStoppingReextraction,
+  isProcessingDocuments,
+  onStopProcessing,
+  isStoppingProcessing,
   readonly = false,
   onDataChange,
 }) => {
@@ -1261,14 +1270,16 @@ const DataTable: React.FC<DataTableProps> = ({
           />
         )}
 
-        {/* Re-extraction Progress Bar */}
-        {processingColumns && processingColumns.size > 0 && (
+        {/* Re-extraction / Document Processing Progress Bar */}
+        {((processingColumns && processingColumns.size > 0) || isProcessingDocuments) && (
           <div className="mb-4 p-4 bg-muted/30 border rounded-lg">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-primary" />
                 <span className="font-medium">
-                  Re-extracting {processingColumns.size} column{processingColumns.size !== 1 ? 's' : ''}
+                  {processingColumns && processingColumns.size > 0
+                    ? `Re-extracting ${processingColumns.size} column${processingColumns.size !== 1 ? 's' : ''}`
+                    : 'Extracting data from new documents'}
                 </span>
                 {currentDocumentProgress && (
                   <span className="text-sm text-muted-foreground">
@@ -1276,15 +1287,15 @@ const DataTable: React.FC<DataTableProps> = ({
                   </span>
                 )}
               </div>
-              {onStopReextraction && (
+              {(processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing) && (
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={onStopReextraction}
-                  disabled={isStoppingReextraction}
+                  onClick={processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing}
+                  disabled={processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing}
                   className="gap-1"
                 >
-                  {isStoppingReextraction ? (
+                  {(processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing) ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
                       Stopping...
