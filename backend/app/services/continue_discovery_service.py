@@ -6,6 +6,8 @@ discovering new columns, and incremental value extraction.
 
 import json
 import asyncio
+import functools
+import threading
 import uuid
 import math
 import shutil
@@ -21,6 +23,7 @@ from app.models.session import (
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
+from app.services import qbsd_thread_pool, concurrency_limiter
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG, MAX_DOCUMENTS
 
@@ -96,14 +99,17 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         self.active_operations: Dict[str, ContinueDiscoveryOperation] = {}
         self.stop_flags: Dict[str, bool] = {}
         self._tasks: Dict[str, asyncio.Task] = {}
+        self._state_lock = threading.Lock()
 
     def is_stop_requested(self, operation_id: str) -> bool:
         """Check if stop was requested for an operation."""
-        return self.stop_flags.get(operation_id, False)
+        with self._state_lock:
+            return self.stop_flags.get(operation_id, False)
 
     def clear_stop_flag(self, operation_id: str) -> None:
         """Clear the stop flag for an operation."""
-        self.stop_flags.pop(operation_id, None)
+        with self._state_lock:
+            self.stop_flags.pop(operation_id, None)
 
     def _get_data_dir(self) -> Path:
         """Get the data directory path - uses module location for reliability."""
@@ -800,7 +806,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         operation.initial_columns = [col.name for col in session.columns if col.name]
         operation.document_source = document_source
         operation.llm_config = llm_config
-        self.active_operations[operation_id] = operation
+        with self._state_lock:
+            self.active_operations[operation_id] = operation
 
         # Save LLM config for later use
         session_dir = self._get_data_dir() / session_id
@@ -825,7 +832,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
         # Start background task
         task = asyncio.create_task(self._run_continue_discovery(operation_id))
-        self._tasks[operation_id] = task
+        with self._state_lock:
+            self._tasks[operation_id] = task
 
         return {
             "status": "started",
@@ -988,23 +996,27 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 columns_before = {col.name.lower() for col in current_schema.columns}
                 cumulative_docs += len(batch_docs)
 
-                # Select relevant content from this batch's documents
-                relevant_content = QBSD.select_relevant_content(
-                    docs=batch_docs,
-                    query=query,
-                    retriever=retriever
+                # Select relevant content from this batch's documents (offloaded to thread pool)
+                loop = asyncio.get_running_loop()
+                relevant_content = await loop.run_in_executor(
+                    qbsd_thread_pool,
+                    functools.partial(QBSD.select_relevant_content, docs=batch_docs, query=query, retriever=retriever),
                 )
                 print(f"DEBUG: Selected {len(relevant_content)} relevant passages from batch")
 
-                # Generate schema for this batch
+                # Generate schema for this batch (offloaded to thread pool)
                 try:
-                    schema_result = QBSD.generate_schema(
-                        passages=relevant_content,
-                        query=query,
-                        max_keys_schema=config.get("max_keys_schema", 100),
-                        current_schema=current_schema,
-                        llm=llm,
-                        context_window_size=context_window_size
+                    schema_result = await loop.run_in_executor(
+                        qbsd_thread_pool,
+                        functools.partial(
+                            QBSD.generate_schema,
+                            passages=relevant_content,
+                            query=query,
+                            max_keys_schema=config.get("max_keys_schema", 100),
+                            current_schema=current_schema,
+                            llm=llm,
+                            context_window_size=context_window_size,
+                        ),
                     )
                     # generate_schema returns a tuple (Schema, bool)
                     new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
@@ -1013,8 +1025,11 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     print(f"DEBUG: ERROR in generate_schema: {e}")
                     raise
 
-                # Merge with existing schema
-                merged_schema = current_schema.merge(new_schema)
+                # Merge with existing schema (offloaded to thread pool)
+                merged_schema = await loop.run_in_executor(
+                    qbsd_thread_pool,
+                    functools.partial(current_schema.merge, new_schema),
+                )
                 print(f"DEBUG: Merged schema has {len(merged_schema.columns)} columns")
 
                 # Identify NEW columns added in this iteration
@@ -1037,8 +1052,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     cumulative_documents=cumulative_docs
                 ))
 
-                # Check convergence
-                if QBSD.evaluate_schema_convergence(current_schema, merged_schema):
+                # Check convergence (offloaded to thread pool)
+                converged = await loop.run_in_executor(
+                    qbsd_thread_pool,
+                    functools.partial(QBSD.evaluate_schema_convergence, current_schema, merged_schema),
+                )
+                if converged:
                     unchanged_count += 1
                     print(f"DEBUG: Schema unchanged (count: {unchanged_count}/{convergence_threshold})")
                     if unchanged_count >= convergence_threshold:
@@ -1209,6 +1228,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     "error": str(e)
                 }
             )
+        finally:
+            await concurrency_limiter.release(operation.session_id)
 
     # ==================== Incremental Extraction ====================
 
@@ -1298,7 +1319,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
         # Start extraction in background
         task = asyncio.create_task(self._run_incremental_extraction(operation_id))
-        self._tasks[operation_id] = task
+        with self._state_lock:
+            self._tasks[operation_id] = task
 
         return {
             "status": "started",
@@ -1490,7 +1512,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         should_stop=should_stop
                     )
 
-                await asyncio.get_event_loop().run_in_executor(None, run_extraction)
+                await asyncio.get_event_loop().run_in_executor(qbsd_thread_pool, run_extraction)
                 print(f"DEBUG: Incremental extraction completed")
 
             # Clean up filtered docs directory
@@ -1567,6 +1589,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     "error": str(e)
                 }
             )
+        finally:
+            await concurrency_limiter.release(operation.session_id)
 
     async def _merge_incremental_data(
         self,
@@ -1687,7 +1711,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
     async def stop_operation(self, operation_id: str) -> Dict[str, Any]:
         """Stop a running operation."""
-        operation = self.active_operations.get(operation_id)
+        with self._state_lock:
+            operation = self.active_operations.get(operation_id)
         if not operation:
             return {"stopped": False, "message": f"Operation {operation_id} not found"}
 
@@ -1695,11 +1720,13 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             return {"stopped": False, "message": f"Operation already {operation.status}"}
 
         # Set stop flag
-        self.stop_flags[operation_id] = True
+        with self._state_lock:
+            self.stop_flags[operation_id] = True
         print(f"DEBUG: Stop requested for operation {operation_id}")
 
         # Cancel task if running - wait for it to finish gracefully
-        task = self._tasks.get(operation_id)
+        with self._state_lock:
+            task = self._tasks.get(operation_id)
         if task and not task.done():
             task.cancel()
             try:

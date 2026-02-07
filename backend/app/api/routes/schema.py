@@ -18,7 +18,8 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.schema_manager import SchemaManager
 from app.services.reextraction_service import ReextractionService
 from app.services.continue_discovery_service import ContinueDiscoveryService
-from app.services import session_manager, websocket_manager
+from app.services import session_manager, websocket_manager, concurrency_limiter
+from app.core.exceptions import CapacityExceededError
 
 router = APIRouter(tags=["schema"])
 
@@ -410,13 +411,16 @@ async def reprocess_documents(
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         # Validate columns if specified
         columns_to_process = reprocess_request.columns or [col.name for col in session.columns]
         for col_name in columns_to_process:
             if not any(col.name == col_name for col in session.columns):
                 raise HTTPException(status_code=404, detail=f"Column '{col_name}' not found")
-        
+
+        # Reserve a concurrency slot
+        await concurrency_limiter.acquire(session_id, "reprocess")
+
         # Schedule reprocessing
         background_tasks.add_task(
             schema_manager.reprocess_documents,
@@ -425,15 +429,22 @@ async def reprocess_documents(
             reprocess_request.incremental,
             reprocess_request.force_reprocess
         )
-        
+
         return {
             "status": "success",
             "message": "Document reprocessing started",
             "columns": columns_to_process,
             "incremental": reprocess_request.incremental
         }
-        
+
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
+        await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/reprocessing-status/{session_id}")
@@ -935,17 +946,29 @@ async def start_reextraction(
             has_api_key = 'api_key' in request.llm_config and request.llm_config['api_key']
             print(f"DEBUG: Saved user LLM config for re-extraction: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
 
-        result = await reextraction_service.start_reextraction(
-            session_id,
-            request.columns
-        )
+        # Reserve a concurrency slot
+        await concurrency_limiter.acquire(session_id, "reextraction")
+
+        try:
+            result = await reextraction_service.start_reextraction(
+                session_id,
+                request.columns
+            )
+        except Exception:
+            # Release slot if start_reextraction fails before creating its task
+            await concurrency_limiter.release(session_id)
+            raise
 
         return ReextractionResponse(**result)
 
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1152,23 +1175,35 @@ async def start_continue_discovery(
         if not request.llm_config:
             raise HTTPException(status_code=400, detail="LLM configuration is required")
 
-        result = await continue_discovery_service.start_continue_discovery(
-            session_id=session_id,
-            document_source=request.document_source,
-            llm_config=request.llm_config,
-            cloud_dataset=request.cloud_dataset,
-            retriever_config=request.retriever_config,
-            max_keys_schema=request.max_keys_schema,
-            documents_batch_size=request.documents_batch_size,
-            bypass_limit=request.bypass_limit
-        )
+        # Reserve a concurrency slot
+        await concurrency_limiter.acquire(session_id, "continue_discovery")
+
+        try:
+            result = await continue_discovery_service.start_continue_discovery(
+                session_id=session_id,
+                document_source=request.document_source,
+                llm_config=request.llm_config,
+                cloud_dataset=request.cloud_dataset,
+                retriever_config=request.retriever_config,
+                max_keys_schema=request.max_keys_schema,
+                documents_batch_size=request.documents_batch_size,
+                bypass_limit=request.bypass_limit
+            )
+        except Exception:
+            # Release slot if start fails before creating its task
+            await concurrency_limiter.release(session_id)
+            raise
 
         return ContinueDiscoveryResponse(**result)
 
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1224,18 +1259,31 @@ async def confirm_new_columns(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        result = await continue_discovery_service.confirm_and_start_extraction(
-            operation_id=operation_id,
-            selected_columns=request.selected_columns,
-            row_selection=request.row_selection,
-            selected_rows=request.selected_rows,
-            llm_config=request.llm_config
-        )
+        # Reserve a concurrency slot for extraction phase
+        await concurrency_limiter.acquire(session_id, "continue_discovery_extraction")
+
+        try:
+            result = await continue_discovery_service.confirm_and_start_extraction(
+                operation_id=operation_id,
+                selected_columns=request.selected_columns,
+                row_selection=request.row_selection,
+                selected_rows=request.selected_rows,
+                llm_config=request.llm_config
+            )
+        except Exception:
+            await concurrency_limiter.release(session_id)
+            raise
 
         return ConfirmColumnsResponse(**result)
 
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

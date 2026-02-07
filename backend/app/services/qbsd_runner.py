@@ -2,15 +2,18 @@
 
 import json
 import asyncio
+import functools
 import logging
 import math
 import random
+import threading
 import time
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
 
 from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG
+from app.services import qbsd_thread_pool, concurrency_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -137,15 +140,17 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         self.work_dir.mkdir(exist_ok=True)
         self.running_sessions: Dict[str, asyncio.Task] = {}
         self.stop_flags: Dict[str, bool] = {}  # Track stop requests per session
+        self._state_lock = threading.Lock()
 
     def is_stop_requested(self, session_id: str) -> bool:
         """Check if stop has been requested for a session."""
-        return self.stop_flags.get(session_id, False)
+        with self._state_lock:
+            return self.stop_flags.get(session_id, False)
 
     def clear_stop_flag(self, session_id: str):
         """Clear the stop flag for a session."""
-        if session_id in self.stop_flags:
-            del self.stop_flags[session_id]
+        with self._state_lock:
+            self.stop_flags.pop(session_id, None)
 
     def _create_value_extracted_callback(self, session_id: str, loop: asyncio.AbstractEventLoop):
         """Create a callback that streams extracted cell values via WebSocket.
@@ -510,25 +515,28 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             
             # Create task for QBSD execution
             task = asyncio.create_task(self._execute_qbsd(session_id, config))
-            self.running_sessions[session_id] = task
-            
+            with self._state_lock:
+                self.running_sessions[session_id] = task
+
             # Wait for completion
             await task
-            
+
         except Exception as e:
             # Update session with error
             session = self.session_manager.get_session(session_id)
             session.status = SessionStatus.ERROR
             session.error_message = str(e)
             self.session_manager.update_session(session)
-            
+
             await self.broadcast_error(session_id, str(e))
-        
+
         finally:
             # Clean up
-            if session_id in self.running_sessions:
-                del self.running_sessions[session_id]
-    
+            with self._state_lock:
+                self.running_sessions.pop(session_id, None)
+            # Release concurrency slot (safe even if not acquired)
+            await concurrency_limiter.release(session_id)
+
     async def _execute_qbsd(self, session_id: str, config: QBSDConfig):
         """Execute the real QBSD process."""
         if not QBSD_AVAILABLE:
@@ -1028,20 +1036,33 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             })
 
             try:
-                # Call generate_schema with empty passages
-                schema_result = QBSD.generate_schema(
-                    passages=[],
-                    query=query,
-                    max_keys_schema=qbsd_config.get("max_keys_schema", 100),
-                    current_schema=current_schema,
-                    llm=llm,
-                    context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192)
+                # Call generate_schema with empty passages (offloaded to thread pool)
+                loop = asyncio.get_running_loop()
+                logger.debug("[%s] Offloading QUERY_ONLY generate_schema to thread pool", session_id)
+                schema_result = await loop.run_in_executor(
+                    qbsd_thread_pool,
+                    functools.partial(
+                        QBSD.generate_schema,
+                        passages=[],
+                        query=query,
+                        max_keys_schema=qbsd_config.get("max_keys_schema", 100),
+                        current_schema=current_schema,
+                        llm=llm,
+                        context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
+                    )
                 )
                 new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
                 logger.debug("QUERY_ONLY generated schema with %d columns", len(new_schema.columns))
 
-                # Merge with any initial schema
-                merged_schema = current_schema.merge(new_schema) if current_schema.columns else new_schema
+                # Merge with any initial schema (offloaded to thread pool)
+                if current_schema.columns:
+                    logger.debug("[%s] Offloading QUERY_ONLY schema merge to thread pool", session_id)
+                    merged_schema = await loop.run_in_executor(
+                        qbsd_thread_pool,
+                        functools.partial(current_schema.merge, new_schema),
+                    )
+                else:
+                    merged_schema = new_schema
 
                 # Track new columns
                 new_column_names = [col.name for col in merged_schema.columns
@@ -1103,12 +1124,17 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             columns_before = {col.name.lower() for col in current_schema.columns}
             cumulative_docs += len(batch_docs)
 
-            # Select relevant content from this batch's documents
-            logger.debug("Selecting relevant content with retriever")
-            relevant_content = QBSD.select_relevant_content(
-                docs=batch_docs,
-                query=query,
-                retriever=retriever
+            # Select relevant content from this batch's documents (offloaded to thread pool)
+            loop = asyncio.get_running_loop()
+            logger.debug("[%s] Offloading select_relevant_content to thread pool", session_id)
+            relevant_content = await loop.run_in_executor(
+                qbsd_thread_pool,
+                functools.partial(
+                    QBSD.select_relevant_content,
+                    docs=batch_docs,
+                    query=query,
+                    retriever=retriever,
+                )
             )
             logger.debug("Selected %d relevant passages from batch", len(relevant_content))
 
@@ -1122,12 +1148,17 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             if iteration == 0 and (query or relevant_content) and not current_schema.observation_unit:
                 logger.info("Discovering observation unit from first batch...")
                 try:
-                    obs_unit = discover_observation_unit(
-                        query=query,
-                        passages=relevant_content,
-                        llm=llm,
-                        context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
-                        source_document=batch_names[0] if batch_names else None
+                    logger.debug("[%s] Offloading discover_observation_unit to thread pool", session_id)
+                    obs_unit = await loop.run_in_executor(
+                        qbsd_thread_pool,
+                        functools.partial(
+                            discover_observation_unit,
+                            query=query,
+                            passages=relevant_content,
+                            llm=llm,
+                            context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
+                            source_document=batch_names[0] if batch_names else None,
+                        )
                     )
                     # If name was pre-configured, override discovered name
                     if pending_observation_unit_name:
@@ -1156,16 +1187,20 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 logger.warning("Stop requested after observation unit discovery - saving partial schema")
                 break
 
-            # Generate schema for this iteration
-            logger.debug("Calling QBSD.generate_schema with LLM...")
+            # Generate schema for this iteration (offloaded to thread pool)
+            logger.debug("[%s] Offloading generate_schema to thread pool", session_id)
             try:
-                schema_result = QBSD.generate_schema(
-                    passages=relevant_content,
-                    query=query,
-                    max_keys_schema=qbsd_config.get("max_keys_schema", 100),
-                    current_schema=current_schema,
-                    llm=llm,
-                    context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192)
+                schema_result = await loop.run_in_executor(
+                    qbsd_thread_pool,
+                    functools.partial(
+                        QBSD.generate_schema,
+                        passages=relevant_content,
+                        query=query,
+                        max_keys_schema=qbsd_config.get("max_keys_schema", 100),
+                        current_schema=current_schema,
+                        llm=llm,
+                        context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
+                    )
                 )
                 # generate_schema returns a tuple (Schema, bool)
                 new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
@@ -1179,12 +1214,15 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 logger.warning("Stop requested after schema generation - saving partial schema")
                 break
 
-            # Merge with existing schema
-            logger.debug("Merging schemas...")
+            # Merge with existing schema (offloaded to thread pool)
+            logger.debug("[%s] Offloading schema merge to thread pool", session_id)
             logger.debug("Current schema has %d columns", len(current_schema.columns))
             logger.debug("New schema has %d columns", len(new_schema.columns))
             try:
-                merged_schema = current_schema.merge(new_schema)
+                merged_schema = await loop.run_in_executor(
+                    qbsd_thread_pool,
+                    functools.partial(current_schema.merge, new_schema),
+                )
                 logger.debug("Merged schema has %d columns", len(merged_schema.columns))
             except Exception as e:
                 logger.error("ERROR in schema merge: %s", e)
@@ -1219,9 +1257,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
             logger.debug("Evolution - batch %d: %d new columns: %s", iteration + 1, len(new_columns), new_columns)
 
-            # Check convergence
-            logger.debug("Checking convergence...")
-            if QBSD.evaluate_schema_convergence(current_schema, merged_schema):
+            # Check convergence (offloaded to thread pool)
+            logger.debug("[%s] Offloading evaluate_schema_convergence to thread pool", session_id)
+            converged = await loop.run_in_executor(
+                qbsd_thread_pool,
+                functools.partial(QBSD.evaluate_schema_convergence, current_schema, merged_schema),
+            )
+            if converged:
                 unchanged_count += 1
                 logger.debug("Schema unchanged (count: %d/%d)", unchanged_count, convergence_threshold)
                 if unchanged_count >= convergence_threshold:
@@ -1342,7 +1384,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             return extraction_result
 
         # Track progress by monitoring output file
-        extraction_task = loop.run_in_executor(None, run_value_extraction)
+        extraction_task = loop.run_in_executor(qbsd_thread_pool, run_value_extraction)
         
         # Monitor progress while extraction runs
         start_time = time.time()
@@ -1707,9 +1749,10 @@ class QBSDRunner(WebSocketBroadcasterMixin):
 
     async def get_status(self, session_id: str) -> QBSDStatus:
         """Get current status of QBSD execution."""
-        if session_id in self.running_sessions:
+        with self._state_lock:
+            is_running = session_id in self.running_sessions
+        if is_running:
             status = "processing"
-            # You could track more detailed progress here
             progress = 0.5  # Mock progress
         else:
             # Check session status
@@ -1930,12 +1973,14 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             "message": ""
         }
 
-        if session_id in self.running_sessions:
-            logger.debug("stop_execution: Session found in running_sessions, setting stop flag")
-            # Set stop flag first - the running task will check this and exit gracefully
-            self.stop_flags[session_id] = True
+        with self._state_lock:
+            is_running = session_id in self.running_sessions
+            if is_running:
+                logger.debug("stop_execution: Session found in running_sessions, setting stop flag")
+                self.stop_flags[session_id] = True
+                task = self.running_sessions[session_id]
 
-            task = self.running_sessions[session_id]
+        if is_running:
 
             # Give the task time to stop gracefully (LLM calls can take 30+ seconds)
             try:
@@ -1957,9 +2002,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 logger.error("Exception during stop: %s", e)
 
             # Clean up
-            if session_id in self.running_sessions:
-                del self.running_sessions[session_id]
-            self.clear_stop_flag(session_id)
+            with self._state_lock:
+                self.running_sessions.pop(session_id, None)
+                self.stop_flags.pop(session_id, None)
 
             # Check what was saved
             session_dir = self.work_dir / session_id

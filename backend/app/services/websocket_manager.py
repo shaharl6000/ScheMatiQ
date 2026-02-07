@@ -15,81 +15,94 @@ class WebSocketManager:
         self.log_connections: Dict[str, Set[WebSocket]] = {}
         # Buffer for cell events when no connections exist (handles race condition)
         self.pending_cell_events: Dict[str, List[Dict[str, Any]]] = {}
-    
-    def add_connection(self, session_id: str, websocket: WebSocket):
-        """Add a WebSocket connection for a session and flush any buffered events."""
-        if session_id not in self.connections:
-            self.connections[session_id] = set()
-        self.connections[session_id].add(websocket)
+        self._lock = asyncio.Lock()
 
-        # Schedule flush of any buffered cell events
+    async def add_connection(self, session_id: str, websocket: WebSocket):
+        """Add a WebSocket connection for a session and flush any buffered events."""
+        async with self._lock:
+            if session_id not in self.connections:
+                self.connections[session_id] = set()
+            self.connections[session_id].add(websocket)
+
+        # Schedule flush of any buffered cell events (outside lock)
         asyncio.create_task(self._flush_buffered_events(session_id))
-    
-    def remove_connection(self, session_id: str, websocket: WebSocket):
+
+    async def remove_connection(self, session_id: str, websocket: WebSocket):
         """Remove a WebSocket connection."""
-        if session_id in self.connections:
-            self.connections[session_id].discard(websocket)
-            if not self.connections[session_id]:
-                del self.connections[session_id]
-    
-    def add_log_connection(self, session_id: str, websocket: WebSocket):
+        async with self._lock:
+            if session_id in self.connections:
+                self.connections[session_id].discard(websocket)
+                if not self.connections[session_id]:
+                    del self.connections[session_id]
+
+    async def add_log_connection(self, session_id: str, websocket: WebSocket):
         """Add a WebSocket connection for log streaming."""
-        if session_id not in self.log_connections:
-            self.log_connections[session_id] = set()
-        self.log_connections[session_id].add(websocket)
-    
-    def remove_log_connection(self, session_id: str, websocket: WebSocket):
+        async with self._lock:
+            if session_id not in self.log_connections:
+                self.log_connections[session_id] = set()
+            self.log_connections[session_id].add(websocket)
+
+    async def remove_log_connection(self, session_id: str, websocket: WebSocket):
         """Remove a log WebSocket connection."""
-        if session_id in self.log_connections:
-            self.log_connections[session_id].discard(websocket)
-            if not self.log_connections[session_id]:
-                del self.log_connections[session_id]
+        async with self._lock:
+            if session_id in self.log_connections:
+                self.log_connections[session_id].discard(websocket)
+                if not self.log_connections[session_id]:
+                    del self.log_connections[session_id]
     
     async def broadcast_progress(self, session_id: str, progress_data: Dict[str, Any]):
         """Broadcast progress update to all connected clients."""
-        if session_id not in self.connections:
-            return
-        
+        # Snapshot connections under lock
+        async with self._lock:
+            ws_set = self.connections.get(session_id)
+            if not ws_set:
+                return
+            snapshot = list(ws_set)
+
         message = {
             "type": "progress",
             "timestamp": datetime.now().isoformat(),
             "data": progress_data
         }
-        
-        # Send to all connections for this session
+
+        # Send to all connections (outside lock to avoid blocking during I/O)
         dead_connections = []
-        for websocket in self.connections[session_id]:
+        for websocket in snapshot:
             try:
                 await websocket.send_json(message)
             except Exception:
                 dead_connections.append(websocket)
-        
+
         # Remove dead connections
         for websocket in dead_connections:
-            self.remove_connection(session_id, websocket)
+            await self.remove_connection(session_id, websocket)
     
     async def broadcast_log(self, session_id: str, log_data: Dict[str, Any]):
         """Broadcast log message to all log connections."""
-        if session_id not in self.log_connections:
-            return
-        
+        # Snapshot connections under lock
+        async with self._lock:
+            ws_set = self.log_connections.get(session_id)
+            if not ws_set:
+                return
+            snapshot = list(ws_set)
+
         message = {
             "type": "log",
             "timestamp": datetime.now().isoformat(),
             "data": log_data
         }
-        
-        # Send to all log connections for this session
+
+        # Send to all log connections (outside lock)
         dead_connections = []
-        for websocket in self.log_connections[session_id]:
+        for websocket in snapshot:
             try:
                 await websocket.send_json(message)
             except Exception:
                 dead_connections.append(websocket)
-        
+
         # Remove dead connections
         for websocket in dead_connections:
-            self.remove_log_connection(session_id, websocket)
+            await self.remove_log_connection(session_id, websocket)
     
     async def broadcast_error(self, session_id: str, error_message: str):
         """Broadcast error message to all connections."""
@@ -104,24 +117,30 @@ class WebSocketManager:
     
     async def broadcast_completion(self, session_id: str, result_data: Dict[str, Any]):
         """Broadcast completion message."""
+        # Snapshot connections under lock
+        async with self._lock:
+            ws_set = self.connections.get(session_id)
+            if not ws_set:
+                return
+            snapshot = list(ws_set)
+
         message = {
             "type": "completion",
             "timestamp": datetime.now().isoformat(),
             "data": result_data
         }
-        
-        # Send to all connections for this session
-        if session_id in self.connections:
-            dead_connections = []
-            for websocket in self.connections[session_id]:
-                try:
-                    await websocket.send_json(message)
-                except Exception:
-                    dead_connections.append(websocket)
-            
-            # Remove dead connections
-            for websocket in dead_connections:
-                self.remove_connection(session_id, websocket)
+
+        # Send to all connections (outside lock)
+        dead_connections = []
+        for websocket in snapshot:
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                dead_connections.append(websocket)
+
+        # Remove dead connections
+        for websocket in dead_connections:
+            await self.remove_connection(session_id, websocket)
     
     # Schema editing specific broadcast methods
     async def broadcast_schema_updated(self, session_id: str, update_data: Dict[str, Any]):
@@ -159,22 +178,26 @@ class WebSocketManager:
     
     async def broadcast_to_session(self, session_id: str, message: Dict[str, Any]):
         """Generic method to broadcast a message to all connections for a session."""
-        if session_id not in self.connections:
-            print(f"⚠️ NO CONNECTIONS for session {session_id}")
-            print(f"⚠️ Active sessions: {list(self.connections.keys())}")
-            return
-        
+        # Snapshot connections under lock
+        async with self._lock:
+            ws_set = self.connections.get(session_id)
+            if not ws_set:
+                print(f"⚠️ NO CONNECTIONS for session {session_id}")
+                print(f"⚠️ Active sessions: {list(self.connections.keys())}")
+                return
+            snapshot = list(ws_set)
+
         dead_connections = []
-        for websocket in self.connections[session_id]:
+        for websocket in snapshot:
             try:
                 await websocket.send_json(message)
             except Exception as e:
                 print(f"Failed to send message to websocket: {e}")
                 dead_connections.append(websocket)
-        
+
         # Remove dead connections
         for websocket in dead_connections:
-            self.remove_connection(session_id, websocket)
+            await self.remove_connection(session_id, websocket)
     
     async def broadcast_schema_completed(self, session_id: str, schema_data: Dict[str, Any]):
         """Broadcast schema discovery completion."""
@@ -188,24 +211,29 @@ class WebSocketManager:
     
     async def broadcast_row_completed(self, session_id: str, row_data: Dict[str, Any]):
         """Broadcast individual row completion during value extraction."""
+        # Snapshot connections under lock
+        async with self._lock:
+            ws_set = self.connections.get(session_id)
+            if not ws_set:
+                return
+            snapshot = list(ws_set)
+
         message = {
-            "type": "row_completed", 
+            "type": "row_completed",
             "timestamp": datetime.now().isoformat(),
             "data": row_data
         }
-        
-        # Send to all connections for this session
-        if session_id in self.connections:
-            dead_connections = []
-            for websocket in self.connections[session_id]:
-                try:
-                    await websocket.send_json(message)
-                except Exception:
-                    dead_connections.append(websocket)
-            
-            # Remove dead connections
-            for websocket in dead_connections:
-                self.remove_connection(session_id, websocket)
+
+        dead_connections = []
+        for websocket in snapshot:
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                dead_connections.append(websocket)
+
+        # Remove dead connections
+        for websocket in dead_connections:
+            await self.remove_connection(session_id, websocket)
     
     def get_connection_count(self, session_id: str) -> int:
         """Get number of active connections for a session."""
@@ -221,23 +249,25 @@ class WebSocketManager:
         This handles the race condition where cell extraction starts
         before the WebSocket connection is fully registered.
         """
-        if session_id not in self.connections or len(self.connections[session_id]) == 0:
-            # Buffer the event for later delivery
-            if session_id not in self.pending_cell_events:
-                self.pending_cell_events[session_id] = []
-            self.pending_cell_events[session_id].append(message)
-            cell_info = message.get('data', {})
-            print(f"📥 BUFFERED cell event: {cell_info.get('row_name')}/{cell_info.get('column')} (will flush when connected)")
-            return
+        async with self._lock:
+            has_conns = session_id in self.connections and len(self.connections[session_id]) > 0
+            if not has_conns:
+                # Buffer the event for later delivery
+                if session_id not in self.pending_cell_events:
+                    self.pending_cell_events[session_id] = []
+                self.pending_cell_events[session_id].append(message)
+                cell_info = message.get('data', {})
+                print(f"📥 BUFFERED cell event: {cell_info.get('row_name')}/{cell_info.get('column')} (will flush when connected)")
+                return
 
-        # Connection exists, broadcast immediately
+        # Connection exists, broadcast immediately (broadcast_to_session handles its own lock)
         await self.broadcast_to_session(session_id, message)
 
     async def _flush_buffered_events(self, session_id: str):
         """Send any buffered cell events to newly connected client."""
-        if session_id in self.pending_cell_events:
+        async with self._lock:
             events = self.pending_cell_events.pop(session_id, [])
-            if events:
-                print(f"📤 Flushing {len(events)} buffered cell events for {session_id}")
-                for event in events:
-                    await self.broadcast_to_session(session_id, event)
+        if events:
+            print(f"📤 Flushing {len(events)} buffered cell events for {session_id}")
+            for event in events:
+                await self.broadcast_to_session(session_id, event)

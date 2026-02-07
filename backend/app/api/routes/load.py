@@ -21,8 +21,9 @@ from app.models.upload import (
 )
 from app.services.file_parser import FileParser
 from app.services.session_manager import SessionManager
-from app.services import session_manager
+from app.services import session_manager, concurrency_limiter
 from app.storage import get_storage
+from app.core.exceptions import CapacityExceededError
 
 router = APIRouter()
 
@@ -1295,11 +1296,14 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
         
         session_manager.update_session(session)
         
+        # Reserve a concurrency slot
+        await concurrency_limiter.acquire(session_id, "upload_extraction")
+
         # Start processing in background
         background_tasks.add_task(processor.process_documents, session_id)
-        
+
         print(f"DEBUG: Document processing started in background for session: {session_id}")
-        
+
         return {
             "status": "success",
             "message": "Document processing started",
@@ -1307,10 +1311,15 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
             "total_documents": len(session.metadata.uploaded_documents),
             "schema_columns": len(session.metadata.extracted_schema['schema'])
         }
-        
+
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
+        await concurrency_limiter.release(session_id)
         print(f"DEBUG: Exception in process_documents: {e}")
         import traceback
         traceback.print_exc()

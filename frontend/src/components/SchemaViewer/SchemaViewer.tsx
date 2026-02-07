@@ -804,11 +804,18 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       await schemaAPI.reprocessDocuments(sessionId, { incremental: true });
       toast({ title: 'Reprocessing Started', description: 'Document reprocessing started' });
     } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: extractErrorMessage(error, 'Failed to start reprocessing'),
-        variant: 'destructive',
-      });
+      if (error.response?.status === 503) {
+        toast({
+          title: 'Server Busy',
+          description: extractErrorMessage(error, 'The server is currently busy. Please try again in a few minutes.'),
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: extractErrorMessage(error, 'Failed to start reprocessing'),
+          variant: 'destructive',
+        });
+      }
     } finally {
       setLoading(false);
     }

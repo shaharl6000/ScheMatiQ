@@ -35,7 +35,7 @@ async def websocket_progress(websocket: WebSocket, session_id: str):
 
     try:
         # Add connection to manager
-        websocket_manager.add_connection(session_id, websocket)
+        await websocket_manager.add_connection(session_id, websocket)
         print(f"🔌 WebSocket REGISTERED: {session_id} (total: {websocket_manager.get_connection_count(session_id)})")
 
         # Send initial connection confirmation
@@ -85,7 +85,7 @@ async def websocket_progress(websocket: WebSocket, session_id: str):
             await heartbeat_task
         except asyncio.CancelledError:
             pass
-        websocket_manager.remove_connection(session_id, websocket)
+        await websocket_manager.remove_connection(session_id, websocket)
         print(f"🔌 WebSocket REMOVED: {session_id} (remaining: {websocket_manager.get_connection_count(session_id)})")
 
 
@@ -112,7 +112,7 @@ async def websocket_logs(websocket: WebSocket, session_id: str):
     heartbeat_task = asyncio.create_task(server_heartbeat())
 
     try:
-        websocket_manager.add_log_connection(session_id, websocket)
+        await websocket_manager.add_log_connection(session_id, websocket)
 
         await websocket.send_json({
             "type": "log_connected",
@@ -145,5 +145,5 @@ async def websocket_logs(websocket: WebSocket, session_id: str):
             await heartbeat_task
         except asyncio.CancelledError:
             pass
-        websocket_manager.remove_log_connection(session_id, websocket)
+        await websocket_manager.remove_log_connection(session_id, websocket)
         print(f"🔌 Log WebSocket REMOVED: {session_id}")

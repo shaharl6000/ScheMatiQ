@@ -10,6 +10,7 @@ import {
   Loader2,
   XCircle,
   ChevronDown,
+  Clock,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -53,6 +54,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   const [processingState, setProcessingState] = useState<ProcessingState>('idle');
   const [currentStepMessage, setCurrentStepMessage] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [capacityMessage, setCapacityMessage] = useState<string>('');
 
   // Phase tracking state
   const [schemaProgress, setSchemaProgress] = useState({
@@ -219,6 +221,13 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
     };
   }, [sessionId, queryClient]);
 
+  // Auto-dismiss capacity message after 30 seconds
+  useEffect(() => {
+    if (!capacityMessage) return;
+    const timer = setTimeout(() => setCapacityMessage(''), 30000);
+    return () => clearTimeout(timer);
+  }, [capacityMessage]);
+
   const addLog = (level: LogEntry['level'], message: string, details?: any) => {
     const now = new Date();
     setLogs(prev => [
@@ -241,6 +250,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
     setProcessingState('starting');
     setCurrentStepMessage('Initializing...');
     setErrorMessage('');
+    setCapacityMessage('');
     setStoppedInfo(null);
 
     // Reset progress
@@ -261,9 +271,20 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       addLog('info', 'QBSD execution started');
       // Stay in 'starting' state until we receive progress updates
     } catch (error: any) {
-      setProcessingState('error');
-      setErrorMessage(error.message || 'Failed to start QBSD');
-      addLog('error', `Failed to start QBSD: ${error.message}`);
+      const status = error?.response?.status;
+      const detail = error?.response?.data?.detail;
+
+      if (status === 503) {
+        // Server busy — show friendly amber banner, not error state
+        setProcessingState('idle');
+        setCapacityMessage(detail || 'The server is currently busy processing other requests. Please try again in a few minutes.');
+        addLog('warning', 'Server busy — please retry shortly');
+      } else {
+        setProcessingState('error');
+        const message = detail || error.message || 'Failed to start QBSD';
+        setErrorMessage(message);
+        addLog('error', `Failed to start QBSD: ${message}`);
+      }
     }
   };
 
@@ -311,17 +332,35 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
           {/* IDLE STATE */}
           {processingState === 'idle' && (
             <>
-              <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
-                <Play className="h-7 w-7 text-muted-foreground" />
-              </div>
-              <p className="text-xl font-semibold text-muted-foreground mb-1">Ready to Start</p>
-              <p className="text-sm text-muted-foreground mb-4">
-                Click the button below to begin QBSD execution
-              </p>
-              <Button size="lg" onClick={handleStart} className="px-8">
-                <Play className="h-5 w-5 mr-2" />
-                Start QBSD
-              </Button>
+              {capacityMessage ? (
+                <>
+                  <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mb-4">
+                    <Clock className="h-7 w-7 text-amber-600" />
+                  </div>
+                  <p className="text-xl font-semibold text-amber-600 mb-1">Server Busy</p>
+                  <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
+                    {capacityMessage}
+                  </p>
+                  <Button size="lg" onClick={handleStart} className="px-8">
+                    <Play className="h-5 w-5 mr-2" />
+                    Try Again
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="w-14 h-14 rounded-full bg-muted flex items-center justify-center mb-4">
+                    <Play className="h-7 w-7 text-muted-foreground" />
+                  </div>
+                  <p className="text-xl font-semibold text-muted-foreground mb-1">Ready to Start</p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Click the button below to begin QBSD execution
+                  </p>
+                  <Button size="lg" onClick={handleStart} className="px-8">
+                    <Play className="h-5 w-5 mr-2" />
+                    Start QBSD
+                  </Button>
+                </>
+              )}
             </>
           )}
 

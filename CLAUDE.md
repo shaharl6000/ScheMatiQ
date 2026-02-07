@@ -58,6 +58,7 @@ QueryDiscovery/
   - `upload_document_processor.py` - Document processing
   - `session_manager.py` - Session state management
 - `app/core/config.py` - Configuration and environment variables
+- `app/core/exceptions.py` - Custom exceptions (CapacityExceededError)
 - `app/models/` - Pydantic models (session.py, qbsd.py, upload.py)
 - `requirements.txt` - Python dependencies
 - `railway.json` - Railway deployment configuration
@@ -155,6 +156,10 @@ SUPABASE_KEY=your-anon-key
 DEFAULT_MAX_TOKENS=4096
 DEFAULT_TEMPERATURE=0.7
 DEFAULT_RETRIEVAL_K=5
+
+# Concurrency (optional, defaults shown)
+MAX_CONCURRENT_SESSIONS=5      # Max parallel LLM-heavy operations
+QBSD_THREAD_POOL_SIZE=6        # Thread pool workers for blocking calls
 ```
 
 **Frontend (.env):**
@@ -187,6 +192,28 @@ for public/production use. Set `DEVELOPER_MODE=true` to unlock all features.
 2. Resolve the effective value using `DEVELOPER_MODE` (same pattern as `MAX_DOCUMENTS`)
 3. Return it in `/api/config` if the frontend needs it
 4. Update this table
+
+### Concurrency & Multi-User Support
+
+The backend supports multiple concurrent QBSD sessions (target: 5-8 on Railway 8 vCPU / 8 GB RAM). Key architectural decisions:
+
+**Thread Pool**: All blocking LLM/embedding calls from `qbsd-lib` are offloaded via `loop.run_in_executor(qbsd_thread_pool, ...)` using `functools.partial` to avoid closure capture issues. The shared `ThreadPoolExecutor` lives in `app/services/__init__.py`.
+
+**Concurrency Limiter**: A shared `ConcurrencyLimiter` in `app/services/__init__.py` tracks active long-running operations across all services (QBSD creation, reextraction, continue discovery, document processing). Routes call `acquire()` before scheduling work and services call `release()` in `finally` blocks. Exceeding capacity returns HTTP 503 with a friendly message.
+
+**Thread Safety**:
+- `SessionManager` uses `threading.Lock` (accessed from both event loop and thread pool workers)
+- `WebSocketManager` uses `asyncio.Lock` with snapshot-before-broadcast pattern (event-loop only)
+- `QBSDRunner`, `ReextractionService`, `ContinueDiscoveryService`, `SchemaManager`, `UploadDocumentProcessor` all use `threading.Lock` for stop flags and running task dicts (stop flags are read from thread pool workers via `should_stop` callbacks)
+
+**Frontend Capacity Handling**: HTTP 503 from the backend shows an amber "Server Busy" banner in `QBSDMonitor` (not a red error) with a "Try Again" button and 30-second auto-dismiss. Other flows (continue discovery, reextraction, reprocess, document processing) detect 503 and show the backend's friendly message.
+
+**Observability**: All concurrency logs use the `[concurrency]` prefix for easy filtering in Railway. The `/api/config` endpoint returns `active_sessions` and `max_concurrent_sessions`.
+
+| Setting                  | Env Var                    | Default |
+|--------------------------|----------------------------|---------|
+| Max concurrent sessions  | `MAX_CONCURRENT_SESSIONS`  | 5       |
+| Thread pool workers      | `QBSD_THREAD_POOL_SIZE`    | 6       |
 
 ### Using qbsd-lib Directly
 ```bash

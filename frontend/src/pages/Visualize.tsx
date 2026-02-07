@@ -763,7 +763,10 @@ const Visualize = () => {
       await loadAPI.processDocuments(sessionId, configWithKey);
       queryClient.invalidateQueries(['session', sessionId]);
     } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || err.message || 'Failed to start processing';
+      const detail = err.response?.data?.detail;
+      const errorMessage = err.response?.status === 503
+        ? (detail || 'The server is currently busy. Please try again in a few minutes.')
+        : (detail || err.message || 'Failed to start processing');
       setDocumentUploadError(errorMessage);
       setForceWebSocketConnect(false);
       if (wsRef.current) {
