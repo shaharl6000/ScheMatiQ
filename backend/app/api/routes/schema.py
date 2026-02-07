@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from datetime import datetime
 import json
 import asyncio
+import logging
 from pathlib import Path
 
 from app.models.session import VisualizationSession, SessionStatus, ColumnInfo
@@ -20,7 +21,9 @@ from app.services.reextraction_service import ReextractionService
 from app.services.continue_discovery_service import ContinueDiscoveryService
 from app.services import session_manager, websocket_manager, concurrency_limiter
 from app.core.exceptions import CapacityExceededError
+from app.core.logging_utils import set_session_context
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["schema"])
 
 # Create schema manager instance
@@ -158,6 +161,7 @@ async def edit_column(
 async def delete_column(session_id: str, column_name: str):
     """Delete a column from the schema and existing data."""
     try:
+        set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -189,9 +193,9 @@ async def delete_column(session_id: str, column_name: str):
         session_manager.update_session(session)
 
         # Remove column data from existing records
-        print(f"DEBUG: Starting column data removal for '{column_name}' in session {session_id}")
+        logger.debug(f"Starting column data removal for '{column_name}'")
         await schema_manager.remove_column_data(session_id, column_name)
-        print(f"DEBUG: Column data removal completed for '{column_name}'")
+        logger.debug(f"Column data removal completed for '{column_name}'")
         
         # Update statistics to reflect deleted column
         if session.statistics and session.statistics.column_stats:
@@ -235,12 +239,13 @@ async def delete_column(session_id: str, column_name: str):
 
 @router.post("/add-column/{session_id}")
 async def add_column(
-    session_id: str, 
+    session_id: str,
     add_request: ColumnAddRequest,
     background_tasks: BackgroundTasks
 ):
     """Add a new column to the schema and extract values from documents."""
     try:
+        set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -312,7 +317,7 @@ async def add_column(
                 json.dump(add_request.llm_config, f, indent=2)
             config_for_log = {k: v for k, v in add_request.llm_config.items() if k != 'api_key'}
             has_api_key = 'api_key' in add_request.llm_config and add_request.llm_config['api_key']
-            print(f"DEBUG: Saved user LLM config for add-column: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
+            logger.debug(f"Saved user LLM config for add-column: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
 
         # Schedule value extraction for new column
         background_tasks.add_task(
@@ -927,6 +932,7 @@ async def start_reextraction(
 ) -> ReextractionResponse:
     """Start selective re-extraction for specified columns."""
     try:
+        set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -944,7 +950,7 @@ async def start_reextraction(
             # Log without exposing full API key
             config_for_log = {k: v for k, v in request.llm_config.items() if k != 'api_key'}
             has_api_key = 'api_key' in request.llm_config and request.llm_config['api_key']
-            print(f"DEBUG: Saved user LLM config for re-extraction: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
+            logger.debug(f"Saved user LLM config for re-extraction: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
 
         # Reserve a concurrency slot
         await concurrency_limiter.acquire(session_id, "reextraction")

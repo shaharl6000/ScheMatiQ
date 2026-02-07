@@ -4,6 +4,7 @@ Handles continuing schema discovery with existing schema as starting point,
 discovering new columns, and incremental value extraction.
 """
 
+import logging
 import json
 import asyncio
 import functools
@@ -14,6 +15,8 @@ import shutil
 from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from app.models.session import (
     ColumnInfo, VisualizationSession
@@ -26,6 +29,7 @@ from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import qbsd_thread_pool, concurrency_limiter
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG, MAX_DOCUMENTS
+from app.core.logging_utils import set_session_context
 
 # QBSD library imports
 from qbsd.core import qbsd as QBSD
@@ -202,11 +206,11 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         """
         session = self.session_manager.get_session(session_id)
         if not session:
-            print(f"DEBUG: Cannot recompute statistics - session {session_id} not found")
+            logger.debug(f"Cannot recompute statistics - session {session_id} not found")
             return
 
         # Debug: print all column names before filtering
-        print(f"DEBUG: session.columns before filtering ({len(session.columns)}): {[c.name for c in session.columns]}")
+        logger.debug(f"session.columns before filtering ({len(session.columns)}): {[c.name for c in session.columns]}")
 
         # Deduplicate session.columns by name (keep first occurrence)
         # AND filter out _excerpt columns for statistics counting
@@ -221,22 +225,22 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 if not col.name.lower().endswith('_excerpt'):
                     non_excerpt_columns.append(col)
             elif col.name:
-                print(f"DEBUG: Removing duplicate column: {col.name}")
+                logger.debug(f"Removing duplicate column: {col.name}")
 
         if len(unique_columns) != len(session.columns):
-            print(f"DEBUG: Deduplicated columns: {len(session.columns)} -> {len(unique_columns)}")
+            logger.debug(f"Deduplicated columns: {len(session.columns)} -> {len(unique_columns)}")
             session.columns = unique_columns
             self.session_manager.update_session(session)
 
         # Use non-excerpt count for statistics (this is what users care about)
         actual_column_count = len(non_excerpt_columns)
-        print(f"DEBUG: Non-excerpt columns for statistics: {actual_column_count} (total with excerpts: {len(unique_columns)})")
+        logger.debug(f"Non-excerpt columns for statistics: {actual_column_count} (total with excerpts: {len(unique_columns)})")
 
         session_dir = self._get_data_dir() / session_id
         data_file = session_dir / "data.jsonl"
 
         if not data_file.exists():
-            print(f"DEBUG: Cannot recompute statistics - no data.jsonl found")
+            logger.debug(f"Cannot recompute statistics - no data.jsonl found")
             return
 
         # Read all rows from data file
@@ -247,11 +251,11 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     if line.strip():
                         data_rows.append(json.loads(line))
         except Exception as e:
-            print(f"DEBUG: Error reading data for statistics: {e}")
+            logger.error(f"Error reading data for statistics: {e}")
             return
 
         if not data_rows:
-            print(f"DEBUG: No data rows found for statistics computation")
+            logger.debug(f"No data rows found for statistics computation")
             return
 
         # Preserve existing schema evolution and skipped_documents, but fix any corrupted data
@@ -263,14 +267,14 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             existing_evolution = session.statistics.schema_evolution
             actual_total = actual_column_count  # Use deduplicated count
 
-            print(f"DEBUG: Schema evolution cleanup - actual columns: {actual_total}")
-            print(f"DEBUG: Before cleanup - {len(existing_evolution.snapshots)} snapshots:")
+            logger.debug(f"Schema evolution cleanup - actual columns: {actual_total}")
+            logger.debug(f"Before cleanup - {len(existing_evolution.snapshots)} snapshots:")
             for i, snap in enumerate(existing_evolution.snapshots):
                 # Handle both dict and object formats
                 if isinstance(snap, dict):
-                    print(f"DEBUG:   Snapshot {i} (dict): iteration={snap.get('iteration')}, total_columns={snap.get('total_columns')}, new_columns={snap.get('new_columns')}")
+                    logger.debug(f"  Snapshot {i} (dict): iteration={snap.get('iteration')}, total_columns={snap.get('total_columns')}, new_columns={snap.get('new_columns')}")
                 else:
-                    print(f"DEBUG:   Snapshot {i} (obj): iteration={snap.iteration}, total_columns={snap.total_columns}, new_columns={snap.new_columns}")
+                    logger.debug(f"  Snapshot {i} (obj): iteration={snap.iteration}, total_columns={snap.total_columns}, new_columns={snap.new_columns}")
 
             # Helper to get/set snapshot attributes (handles both dict and object)
             def get_snap_attr(snap, attr):
@@ -294,9 +298,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         seen_iterations.add(iteration)
                         unique_snapshots.append(snapshot)
                     else:
-                        print(f"DEBUG: Removing duplicate snapshot for iteration {iteration}")
+                        logger.debug(f"Removing duplicate snapshot for iteration {iteration}")
                 if len(unique_snapshots) != len(existing_evolution.snapshots):
-                    print(f"DEBUG: Removed {len(existing_evolution.snapshots) - len(unique_snapshots)} duplicate snapshots")
+                    logger.debug(f"Removed {len(existing_evolution.snapshots) - len(unique_snapshots)} duplicate snapshots")
                     existing_evolution.snapshots = unique_snapshots
 
                 # Fix all snapshots to ensure total_columns doesn't exceed actual column count
@@ -304,10 +308,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     total_cols = get_snap_attr(snapshot, 'total_columns')
                     iteration = get_snap_attr(snapshot, 'iteration')
                     if total_cols and total_cols > actual_total:
-                        print(f"DEBUG: Fixing snapshot {iteration} total_columns: {total_cols} -> {actual_total}")
+                        logger.debug(f"Fixing snapshot {iteration} total_columns: {total_cols} -> {actual_total}")
                         set_snap_attr(snapshot, 'total_columns', actual_total)
 
-            print(f"DEBUG: After cleanup - {len(existing_evolution.snapshots)} snapshots")
+            logger.debug(f"After cleanup - {len(existing_evolution.snapshots)} snapshots")
 
         # Helper function to check if a value is valid (non-null)
         def is_valid_value(value):
@@ -393,7 +397,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         )
 
         self.session_manager.update_session(session)
-        print(f"DEBUG: Statistics recomputed - {len(data_rows)} rows, {total_documents} documents, {len(columns)} columns, {completeness:.1f}% complete")
+        logger.info(f"Statistics recomputed - {len(data_rows)} rows, {total_documents} documents, {len(columns)} columns, {completeness:.1f}% complete")
 
     # ==================== Document Discovery ====================
 
@@ -421,39 +425,39 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         all_papers: Set[str] = set()
         paper_doc_dirs: Dict[str, str] = {}  # paper_name -> document_directory
 
-        print(f"DEBUG get_available_documents: session_id={session_id}")
-        print(f"DEBUG: storage type = {type(storage).__name__}")
-        print(f"DEBUG: cloud_dataset from session = {session.metadata.cloud_dataset if session.metadata else None}")
+        logger.debug(f"get_available_documents: session_id={session_id}")
+        logger.debug(f"storage type = {type(storage).__name__}")
+        logger.debug(f"cloud_dataset from session = {session.metadata.cloud_dataset if session.metadata else None}")
 
         # 1. Get data.jsonl content - try Supabase first, then local
         data_content = None
         try:
             # Try to download from Supabase 'data' bucket
-            print(f"DEBUG: Attempting Supabase download: data/{session_id}/data.jsonl")
+            logger.debug(f"Attempting Supabase download: data/{session_id}/data.jsonl")
             data_bytes = await storage.download_file('data', f'{session_id}/data.jsonl')
             if data_bytes:
                 data_content = data_bytes.decode('utf-8')
-                print(f"DEBUG: Downloaded data.jsonl from Supabase, size={len(data_content)} bytes")
+                logger.debug(f"Downloaded data.jsonl from Supabase, size={len(data_content)} bytes")
         except Exception as e:
-            print(f"DEBUG: Supabase download failed: {type(e).__name__}: {e}")
+            logger.debug(f"Supabase download failed: {type(e).__name__}: {e}")
 
         # Fallback to local file if Supabase didn't work
         if not data_content:
             data_dir = self._get_data_dir()
-            print(f"DEBUG: Local data_dir = {data_dir}")
+            logger.debug(f"Local data_dir = {data_dir}")
             session_dir = data_dir / session_id
             data_file = session_dir / "data.jsonl"
-            print(f"DEBUG: Checking local file: {data_file}, exists={data_file.exists()}")
+            logger.debug(f"Checking local file: {data_file}, exists={data_file.exists()}")
             if data_file.exists():
                 data_content = data_file.read_text()
-                print(f"DEBUG: Read data.jsonl from local, size={len(data_content)} bytes")
+                logger.debug(f"Read data.jsonl from local, size={len(data_content)} bytes")
             else:
                 # List what's in the data_dir
                 if data_dir.exists():
                     sessions_in_dir = list(data_dir.iterdir())[:5]
-                    print(f"DEBUG: data_dir exists, sample contents: {[s.name for s in sessions_in_dir]}")
+                    logger.debug(f"data_dir exists, sample contents: {[s.name for s in sessions_in_dir]}")
                 else:
-                    print(f"DEBUG: data_dir does not exist: {data_dir}")
+                    logger.debug(f"data_dir does not exist: {data_dir}")
 
         # 2. Parse data.jsonl to collect paper references
         if data_content:
@@ -495,7 +499,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 except json.JSONDecodeError:
                     continue
 
-        print(f"DEBUG: Found {len(all_papers)} paper references in data.jsonl")
+        logger.debug(f"Found {len(all_papers)} paper references in data.jsonl")
 
         # 3. Check local documents
         local_docs: Set[str] = set()
@@ -530,12 +534,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
                 # If doc_dir is a local path, try to use cloud_dataset as fallback
                 if doc_dir and self._is_local_path(doc_dir):
-                    print(f"DEBUG: Detected local path for paper {paper}: {doc_dir}")
+                    logger.debug(f"Detected local path for paper {paper}: {doc_dir}")
                     if cloud_dataset:
                         doc_dir = f"datasets/{cloud_dataset}"
-                        print(f"DEBUG: Using cloud_dataset fallback: {doc_dir}")
+                        logger.debug(f"Using cloud_dataset fallback: {doc_dir}")
                     else:
-                        print(f"DEBUG: No cloud_dataset fallback - skipping paper {paper}")
+                        logger.debug(f"No cloud_dataset fallback - skipping paper {paper}")
                         continue
 
                 # If no doc_dir, try cloud_dataset as fallback
@@ -552,16 +556,16 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             for folder, papers in folders_to_check.items():
                 try:
                     folder_files = await storage.list_folder_files('datasets', folder)
-                    print(f"DEBUG: Found {len(folder_files)} files in datasets/{folder}")
+                    logger.debug(f"Found {len(folder_files)} files in datasets/{folder}")
                     for paper in papers:
                         if paper in folder_files or f"{paper}.txt" in folder_files:
                             cloud_docs.add(paper)
                 except Exception as e:
-                    print(f"DEBUG: Could not list folder {folder}: {e}")
+                    logger.debug(f"Could not list folder {folder}: {e}")
 
         # 6. Combine results
         available_docs = local_docs | cloud_docs
-        print(f"DEBUG: Available docs: {len(local_docs)} local + {len(cloud_docs)} cloud = {len(available_docs)} total")
+        logger.debug(f"Available docs: {len(local_docs)} local + {len(cloud_docs)} cloud = {len(available_docs)} total")
 
         # 7. Get list of all available cloud datasets
         cloud_datasets = []
@@ -572,7 +576,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 for item in items:
                     if not item.get('id'):  # Folders don't have 'id'
                         cloud_datasets.append(item.get('name'))
-                print(f"DEBUG: Found {len(cloud_datasets)} cloud datasets via Supabase client")
+                logger.debug(f"Found {len(cloud_datasets)} cloud datasets via Supabase client")
             else:
                 # Local storage fallback
                 files = await storage.list_files('datasets', '')
@@ -587,9 +591,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     elif isinstance(f, str) and '/' in f:
                         seen_folders.add(f.split('/')[0])
                 cloud_datasets.extend(list(seen_folders))
-                print(f"DEBUG: Found {len(cloud_datasets)} cloud datasets via list_files")
+                logger.debug(f"Found {len(cloud_datasets)} cloud datasets via list_files")
         except Exception as e:
-            print(f"DEBUG: Could not list cloud datasets: {e}")
+            logger.debug(f"Could not list cloud datasets: {e}")
 
         return {
             "original_documents": sorted(list(available_docs)),
@@ -644,7 +648,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                             documents.append(content)
                             filenames.append(f.name)
                         except Exception as e:
-                            print(f"DEBUG: Could not read {f}: {e}")
+                            logger.debug(f"Could not read {f}: {e}")
 
             # Also check qbsd_work directory
             if not documents and qbsd_work_dir.exists():
@@ -657,7 +661,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                                     documents.append(content)
                                     filenames.append(f.name)
                                 except Exception as e:
-                                    print(f"DEBUG: Could not read {f}: {e}")
+                                    logger.debug(f"Could not read {f}: {e}")
 
         elif document_source == "cloud":
             # Download from cloud storage
@@ -682,9 +686,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                                 documents.append(text_content)
                                 filenames.append(file_info['name'])
                             except UnicodeDecodeError:
-                                print(f"DEBUG: Could not decode {file_info['name']} as UTF-8")
+                                logger.debug(f"Could not decode {file_info['name']} as UTF-8")
             except Exception as e:
-                print(f"DEBUG: Error downloading cloud documents: {e}")
+                logger.error(f"Error downloading cloud documents: {e}")
                 raise
 
         elif document_source == "upload":
@@ -700,7 +704,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                             # Copy to documents dir
                             (docs_dir / f.name).write_text(content, encoding='utf-8')
                         except Exception as e:
-                            print(f"DEBUG: Could not read {f}: {e}")
+                            logger.debug(f"Could not read {f}: {e}")
 
         # Enforce document limit (same as initial QBSD creation)
         # The limit can be bypassed in developer mode via config
@@ -713,9 +717,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             combined = combined[:MAX_DOCUMENTS]
             documents, filenames = zip(*combined) if combined else ([], [])
             documents, filenames = list(documents), list(filenames)
-            print(f"DEBUG: Document limit applied: {original_count} → {len(documents)} (max: {MAX_DOCUMENTS})")
+            logger.info(f"Document limit applied: {original_count} → {len(documents)} (max: {MAX_DOCUMENTS})")
 
-        print(f"DEBUG: Prepared {len(documents)} documents from {document_source}")
+        logger.info(f"Prepared {len(documents)} documents from {document_source}")
         return docs_dir, documents, filenames
 
     # ==================== Schema Discovery ====================
@@ -844,11 +848,15 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
     async def _run_continue_discovery(self, operation_id: str):
         """Execute continued schema discovery in background."""
-        print(f"DEBUG: _run_continue_discovery started for operation {operation_id}")
         operation = self.active_operations.get(operation_id)
         if not operation:
-            print(f"DEBUG: Operation {operation_id} not found")
+            logger.debug(f"Operation {operation_id} not found")
             return
+
+        # Set session context for logging
+        set_session_context(operation.session_id)
+
+        logger.info(f"_run_continue_discovery started for operation {operation_id}")
 
         try:
             operation.status = "running"
@@ -883,7 +891,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             )
 
             # Prepare documents
-            print(f"DEBUG: Preparing documents from {config['document_source']}")
+            logger.info(f"Preparing documents from {config['document_source']}")
             docs_dir, documents, filenames = await self._prepare_documents(
                 operation.session_id,
                 config["document_source"],
@@ -892,7 +900,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             )
 
             operation.total_documents = len(documents)
-            print(f"DEBUG: Prepared {len(documents)} documents")
+            logger.info(f"Prepared {len(documents)} documents")
 
             if not documents:
                 raise ValueError("No documents available for schema discovery")
@@ -900,7 +908,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Build initial schema from session columns
             query = config.get("query") or session.schema_query or ""
             initial_schema = self._convert_session_columns_to_schema(session.columns, query)
-            print(f"DEBUG: Initial schema has {len(initial_schema.columns)} columns")
+            logger.debug(f"Initial schema has {len(initial_schema.columns)} columns")
 
             # Build LLM - enforce release mode settings if applicable
             enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=True)
@@ -940,7 +948,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             )
 
             # Manual iteration loop for schema discovery (allows stop between batches)
-            print(f"DEBUG: Starting manual schema discovery loop with initial_schema")
+            logger.info(f"Starting manual schema discovery loop with initial_schema")
 
             # Create document batches
             batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
@@ -961,7 +969,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             for iteration, (batch_docs, batch_names) in enumerate(zip(batches, filename_batches)):
                 # CHECK STOP FLAG BEFORE EACH ITERATION
                 if self.is_stop_requested(operation_id):
-                    print(f"🛑 Stop requested during schema discovery at iteration {iteration}")
+                    logger.info(f"Stop requested during schema discovery at iteration {iteration}")
                     stopped = True
                     operation.status = "stopped"
                     operation.completed_at = datetime.now()
@@ -990,7 +998,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     }
                 )
 
-                print(f"DEBUG: Schema discovery batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs: {batch_names})")
+                logger.debug(f"Schema discovery batch {iteration + 1}/{len(batches)} ({len(batch_docs)} docs: {batch_names})")
 
                 # Track column names before this iteration
                 columns_before = {col.name.lower() for col in current_schema.columns}
@@ -1002,7 +1010,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     qbsd_thread_pool,
                     functools.partial(QBSD.select_relevant_content, docs=batch_docs, query=query, retriever=retriever),
                 )
-                print(f"DEBUG: Selected {len(relevant_content)} relevant passages from batch")
+                logger.debug(f"Selected {len(relevant_content)} relevant passages from batch")
 
                 # Generate schema for this batch (offloaded to thread pool)
                 try:
@@ -1020,9 +1028,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     )
                     # generate_schema returns a tuple (Schema, bool)
                     new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
-                    print(f"DEBUG: Generated schema with {len(new_schema.columns)} columns")
+                    logger.debug(f"Generated schema with {len(new_schema.columns)} columns")
                 except Exception as e:
-                    print(f"DEBUG: ERROR in generate_schema: {e}")
+                    logger.error(f"ERROR in generate_schema: {e}")
                     raise
 
                 # Merge with existing schema (offloaded to thread pool)
@@ -1030,7 +1038,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     qbsd_thread_pool,
                     functools.partial(current_schema.merge, new_schema),
                 )
-                print(f"DEBUG: Merged schema has {len(merged_schema.columns)} columns")
+                logger.debug(f"Merged schema has {len(merged_schema.columns)} columns")
 
                 # Identify NEW columns added in this iteration
                 columns_after = {col.name.lower() for col in merged_schema.columns}
@@ -1059,9 +1067,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 )
                 if converged:
                     unchanged_count += 1
-                    print(f"DEBUG: Schema unchanged (count: {unchanged_count}/{convergence_threshold})")
+                    logger.debug(f"Schema unchanged (count: {unchanged_count}/{convergence_threshold})")
                     if unchanged_count >= convergence_threshold:
-                        print(f"DEBUG: Schema converged after {iteration + 1} batches")
+                        logger.info(f"Schema converged after {iteration + 1} batches")
                         break
                 else:
                     unchanged_count = 0
@@ -1072,12 +1080,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 await asyncio.sleep(0.1)
 
             result_schema = current_schema
-            print(f"DEBUG: Schema discovery completed with {len(result_schema.columns)} columns after {len(evolution.snapshots)} batches")
+            logger.info(f"Schema discovery completed with {len(result_schema.columns)} columns after {len(evolution.snapshots)} batches")
 
             # Identify new columns
             new_columns = self._identify_new_columns(operation.initial_columns, result_schema)
             operation.new_columns = new_columns
-            print(f"DEBUG: Discovered {len(new_columns)} new columns")
+            logger.info(f"Discovered {len(new_columns)} new columns")
 
             # Add new columns to session immediately after discovery
             # So they appear in Schema tab even without extraction
@@ -1094,7 +1102,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         seen_names.add(col.name)
                         unique_cols.append(col)
                 if len(unique_cols) != len(session.columns):
-                    print(f"DEBUG: Deduplicated existing columns: {len(session.columns)} -> {len(unique_cols)}")
+                    logger.debug(f"Deduplicated existing columns: {len(session.columns)} -> {len(unique_cols)}")
                     session.columns = unique_cols
 
                 for col_data in new_columns:
@@ -1113,7 +1121,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 # Count only non-excerpt columns for statistics (what users care about)
                 non_excerpt_count = sum(1 for c in session.columns if c.name and not c.name.lower().endswith('_excerpt'))
                 actual_unique_count = non_excerpt_count
-                print(f"DEBUG: Column count after adding new columns: {actual_unique_count} (non-excerpt), {len(session.columns)} (total with excerpts)")
+                logger.debug(f"Column count after adding new columns: {actual_unique_count} (non-excerpt), {len(session.columns)} (total with excerpts)")
 
                 # Add null values for new columns in data.jsonl
                 data_file = self._get_data_dir() / operation.session_id / "data.jsonl"
@@ -1131,7 +1139,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     with open(data_file, 'w') as f:
                         for row in rows:
                             f.write(json.dumps(row) + '\n')
-                    print(f"DEBUG: Added null values for {len(new_columns)} new columns in data.jsonl")
+                    logger.info(f"Added null values for {len(new_columns)} new columns in data.jsonl")
 
                 # Update schema_evolution for Statistics chart
                 if session.statistics:
@@ -1159,7 +1167,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         cumulative_documents=operation.total_batches
                     )
                     stats_evolution.snapshots.append(new_snapshot)
-                    print(f"DEBUG: Created snapshot with total_columns={actual_unique_count}, new_columns={len(non_excerpt_new_cols)}")
+                    logger.debug(f"Created snapshot with total_columns={actual_unique_count}, new_columns={len(non_excerpt_new_cols)}")
 
                     # Update column sources with actual document name (not generic iteration)
                     for col_data in new_columns:
@@ -1175,18 +1183,18 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     session.statistics.total_columns = actual_unique_count  # Use deduplicated count
 
                 self.session_manager.update_session(session)
-                print(f"DEBUG: Added {len(new_columns)} new columns to session after discovery")
+                logger.info(f"Added {len(new_columns)} new columns to session after discovery")
 
             # Ensure session status is 'completed' so Data tab is enabled (always, even if no new columns)
             session = self.session_manager.get_session(operation.session_id)
             if session:
                 session.status = "completed"
                 self.session_manager.update_session(session)
-                print(f"DEBUG: Set session status to 'completed' after discovery")
+                logger.info(f"Set session status to 'completed' after discovery")
 
             # Recompute statistics with proper column stats (non_null_count, unique_count, etc.)
             self._recompute_statistics(operation.session_id, preserve_evolution=True)
-            print(f"DEBUG: Statistics recomputed after discovery phase")
+            logger.info(f"Statistics recomputed after discovery phase")
 
             # Complete discovery phase
             operation.status = "completed"
@@ -1212,9 +1220,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             llm_config_file.unlink(missing_ok=True)
 
         except Exception as e:
-            print(f"DEBUG: Continue discovery FAILED: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Continue discovery FAILED: {e}", exc_info=True)
 
             operation.status = "failed"
             operation.error = str(e)
@@ -1290,7 +1296,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             session.columns.append(new_col)
 
         self.session_manager.update_session(session)
-        print(f"DEBUG: Added {len(new_columns_to_add)} new columns to session")
+        logger.info(f"Added {len(new_columns_to_add)} new columns to session")
 
         # Determine rows to process
         if row_selection == "all":
@@ -1331,10 +1337,14 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
     async def _run_incremental_extraction(self, operation_id: str):
         """Execute incremental value extraction for new columns."""
-        print(f"DEBUG: _run_incremental_extraction started for operation {operation_id}")
         operation = self.active_operations.get(operation_id)
         if not operation:
             return
+
+        # Set session context for logging
+        set_session_context(operation.session_id)
+
+        logger.info(f"_run_incremental_extraction started for operation {operation_id}")
 
         try:
             session = self.session_manager.get_session(operation.session_id)
@@ -1425,7 +1435,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                             row_name = row_data.get('row_name') or row_data.get('_row_name')
                             if row_name:
                                 existing_rows.add(row_name)
-            print(f"DEBUG: Existing rows to extract: {existing_rows}")
+            logger.debug(f"Existing rows to extract: {existing_rows}")
 
             # Create filtered docs directory with only documents for existing rows
             filtered_docs_dir = session_dir / "documents_filtered"
@@ -1441,13 +1451,13 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         row_name = doc_path.stem.split('_')[0]
                         if row_name in existing_rows:
                             shutil.copy2(doc_path, filtered_docs_dir / doc_path.name)
-                            print(f"DEBUG: Including document for existing row: {doc_path.name}")
+                            logger.debug(f"Including document for existing row: {doc_path.name}")
                         else:
-                            print(f"DEBUG: Skipping document for new row: {doc_path.name}")
+                            logger.debug(f"Skipping document for new row: {doc_path.name}")
 
             # Count filtered documents
             doc_count = sum(1 for f in filtered_docs_dir.iterdir() if f.is_file()) if filtered_docs_dir.exists() else 0
-            print(f"DEBUG: Filtered to {doc_count} documents for existing rows")
+            logger.info(f"Filtered to {doc_count} documents for existing rows")
             operation.total_documents = doc_count
 
             # Track progress via callback
@@ -1488,14 +1498,14 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         loop
                     )
                 except Exception as e:
-                    print(f"DEBUG: Broadcast error: {e}")
+                    logger.warning(f"Broadcast error: {e}")
 
             def should_stop():
                 return self.is_stop_requested(operation_id)
 
             # Run extraction (using filtered docs directory with only existing rows)
             if filtered_docs_dir.exists() and doc_count > 0:
-                print(f"DEBUG: Starting incremental extraction for {len(columns_to_extract)} columns on {doc_count} documents")
+                logger.info(f"Starting incremental extraction for {len(columns_to_extract)} columns on {doc_count} documents")
 
                 def run_extraction():
                     return build_table_jsonl(
@@ -1513,7 +1523,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     )
 
                 await asyncio.get_event_loop().run_in_executor(qbsd_thread_pool, run_extraction)
-                print(f"DEBUG: Incremental extraction completed")
+                logger.info(f"Incremental extraction completed")
 
             # Clean up filtered docs directory
             if filtered_docs_dir.exists():
@@ -1539,18 +1549,18 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 # Update total columns in statistics (should already be correct from discovery phase)
                 session.statistics.total_columns = len(session.columns)
                 self.session_manager.update_session(session)
-                print(f"DEBUG: Extraction complete, total columns: {len(session.columns)}")
+                logger.info(f"Extraction complete, total columns: {len(session.columns)}")
 
             # Update session status to completed after extraction
             session = self.session_manager.get_session(operation.session_id)
             if session:
                 session.status = "completed"
                 self.session_manager.update_session(session)
-                print(f"DEBUG: Set session status to 'completed' after incremental extraction")
+                logger.info(f"Set session status to 'completed' after incremental extraction")
 
             # Recompute statistics with proper column stats (non_null_count, unique_count, etc.)
             self._recompute_statistics(operation.session_id, preserve_evolution=True)
-            print(f"DEBUG: Statistics recomputed after extraction phase")
+            logger.info(f"Statistics recomputed after extraction phase")
 
             # Cleanup
             schema_file.unlink(missing_ok=True)
@@ -1573,9 +1583,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             )
 
         except Exception as e:
-            print(f"DEBUG: Incremental extraction FAILED: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Incremental extraction FAILED: {e}", exc_info=True)
 
             operation.status = "failed"
             operation.error = str(e)
@@ -1603,14 +1611,14 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         Only adds NEW column values, preserves all existing columns.
         """
         if not extraction_file.exists():
-            print(f"DEBUG: Extraction file not found: {extraction_file}")
+            logger.debug(f"Extraction file not found: {extraction_file}")
             return
 
         session_dir = self._get_data_dir() / session_id
         data_file = session_dir / "data.jsonl"
 
         if not data_file.exists():
-            print(f"DEBUG: Data file not found: {data_file}")
+            logger.debug(f"Data file not found: {data_file}")
             return
 
         # Read extracted values indexed by row_name
@@ -1623,7 +1631,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     if row_name:
                         extracted_by_row[row_name] = row_data
 
-        print(f"DEBUG: Extracted data for {len(extracted_by_row)} rows")
+        logger.debug(f"Extracted data for {len(extracted_by_row)} rows")
 
         # Build paper stem mapping for fallback matching
         extracted_by_paper_stem: Dict[str, Dict[str, Any]] = {}
@@ -1688,7 +1696,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             for row in updated_rows:
                 f.write(json.dumps(row) + '\n')
 
-        print(f"DEBUG: Merged incremental data for {len(new_columns)} columns, {rows_updated} rows updated")
+        logger.info(f"Merged incremental data for {len(new_columns)} columns, {rows_updated} rows updated")
 
         # Update session statistics
         session = self.session_manager.get_session(session_id)
@@ -1722,7 +1730,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         # Set stop flag
         with self._state_lock:
             self.stop_flags[operation_id] = True
-        print(f"DEBUG: Stop requested for operation {operation_id}")
+        logger.info(f"Stop requested for operation {operation_id}")
 
         # Cancel task if running - wait for it to finish gracefully
         with self._state_lock:

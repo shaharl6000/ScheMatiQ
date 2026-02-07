@@ -2,9 +2,12 @@
 
 import json
 import asyncio
+import logging
 from typing import Dict, Set, Any, List
 from fastapi import WebSocket
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 class WebSocketManager:
     """Manages WebSocket connections for real-time updates."""
@@ -182,8 +185,8 @@ class WebSocketManager:
         async with self._lock:
             ws_set = self.connections.get(session_id)
             if not ws_set:
-                print(f"⚠️ NO CONNECTIONS for session {session_id}")
-                print(f"⚠️ Active sessions: {list(self.connections.keys())}")
+                logger.warning(f"No connections for session {session_id}")
+                logger.warning(f"Active sessions: {list(self.connections.keys())}")
                 return
             snapshot = list(ws_set)
 
@@ -192,7 +195,7 @@ class WebSocketManager:
             try:
                 await websocket.send_json(message)
             except Exception as e:
-                print(f"Failed to send message to websocket: {e}")
+                logger.warning(f"Failed to send message to websocket: {e}")
                 dead_connections.append(websocket)
 
         # Remove dead connections
@@ -257,7 +260,7 @@ class WebSocketManager:
                     self.pending_cell_events[session_id] = []
                 self.pending_cell_events[session_id].append(message)
                 cell_info = message.get('data', {})
-                print(f"📥 BUFFERED cell event: {cell_info.get('row_name')}/{cell_info.get('column')} (will flush when connected)")
+                logger.debug(f"Buffered cell event: {cell_info.get('row_name')}/{cell_info.get('column')} (will flush when connected)")
                 return
 
         # Connection exists, broadcast immediately (broadcast_to_session handles its own lock)
@@ -268,6 +271,6 @@ class WebSocketManager:
         async with self._lock:
             events = self.pending_cell_events.pop(session_id, [])
         if events:
-            print(f"📤 Flushing {len(events)} buffered cell events for {session_id}")
+            logger.info(f"Flushing {len(events)} buffered cell events for {session_id}")
             for event in events:
                 await self.broadcast_to_session(session_id, event)

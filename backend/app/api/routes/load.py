@@ -1,5 +1,6 @@
 """Upload API endpoints."""
 
+import logging
 import uuid
 import json
 import csv
@@ -24,6 +25,9 @@ from app.services.session_manager import SessionManager
 from app.services import session_manager, concurrency_limiter
 from app.storage import get_storage
 from app.core.exceptions import CapacityExceededError
+from app.core.logging_utils import set_session_context
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -67,6 +71,7 @@ async def load_template(template_name: str):
 
         # Create session
         session_id = str(uuid.uuid4())
+        set_session_context(session_id)
         metadata = SessionMetadata(
             source=f"template:{template_name}",
             file_size=len(template_content)
@@ -103,13 +108,13 @@ async def load_template(template_name: str):
             if metadata.get('observation_unit'):
                 from app.models.session import ObservationUnitInfo
                 session.observation_unit = ObservationUnitInfo(**metadata['observation_unit'])
-                print(f"DEBUG: Restored observation unit from template CSV: {session.observation_unit.name}")
+                logger.debug(f"Restored observation unit from template CSV: {session.observation_unit.name}")
 
         # Restore observation_unit from JSON parse result if present (and not already set)
         if result.get("observation_unit") and not session.observation_unit:
             from app.models.session import ObservationUnitInfo
             session.observation_unit = ObservationUnitInfo(**result["observation_unit"])
-            print(f"DEBUG: Restored observation unit from template JSON: {session.observation_unit.name}")
+            logger.debug(f"Restored observation unit from template JSON: {session.observation_unit.name}")
 
         # Update session with parsed data
         session.columns = result["columns"]
@@ -136,7 +141,7 @@ async def load_template(template_name: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error loading template {template_name}: {e}")
+        logger.error(f"Error loading template {template_name}: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -145,48 +150,49 @@ async def load_template(template_name: str):
 async def upload_file(file: UploadFile = File(...)):
     """Upload and validate a file."""
     try:
-        print(f"DEBUG: Received file upload: {file.filename}, size: {file.size}")
-        
+        session_id = str(uuid.uuid4())
+        set_session_context(session_id)
+        logger.debug(f"Received file upload: {file.filename}, size: {file.size}")
+
         # Validate file
         parser = FileParser()
         validation = await parser.validate_file(file)
-        
-        print(f"DEBUG: File validation result: {validation}")
-        
+
+        logger.debug(f"File validation result: {validation}")
+
         if not validation.is_valid:
             raise HTTPException(status_code=400, detail=validation.errors)
-        
+
         # Create session
-        session_id = str(uuid.uuid4())
         metadata = SessionMetadata(
             source=file.filename,
             file_size=file.size
         )
-        
+
         session = VisualizationSession(
             id=session_id,
             type=SessionType.UPLOAD,
             metadata=metadata
         )
-        
-        print(f"DEBUG: Created session: {session_id}")
-        
+
+        logger.debug(f"Created session: {session_id}")
+
         # Save file content for processing
         await parser.save_uploaded_file(session_id, file)
-        print(f"DEBUG: File saved for session: {session_id}")
-        
+        logger.debug(f"File saved for session: {session_id}")
+
         # Store session
         session_manager.create_session(session)
-        print(f"DEBUG: Session stored")
-        
+        logger.debug("Session stored")
+
         return {
             "session_id": session_id,
             "validation": validation,
             "requires_column_mapping": validation.detected_format == "csv"
         }
-        
+
     except Exception as e:
-        print(f"DEBUG: Exception in upload_file: {e}")
+        logger.error(f"Exception in upload_file: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -195,24 +201,25 @@ async def upload_file(file: UploadFile = File(...)):
 async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = None):
     """Parse uploaded file with optional column mapping."""
     try:
-        print(f"DEBUG: Parsing file for session: {session_id}")
-        
+        set_session_context(session_id)
+        logger.debug(f"Parsing file for session: {session_id}")
+
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        print(f"DEBUG: Found session: {session}")
-        
+
+        logger.debug(f"Found session: {session}")
+
         parser = FileParser()
         result = await parser.parse_file(session_id, mapping)
-        
-        print(f"DEBUG: Parse result: columns={len(result['columns'])}, statistics={result['statistics']}")
-        
+
+        logger.debug(f"Parse result: columns={len(result['columns'])}, statistics={result['statistics']}")
+
         # Check for extracted metadata from CSV comments
         if "extracted_metadata" in result:
             metadata = result["extracted_metadata"]
-            print(f"DEBUG: Found CSV metadata - query: {metadata.get('query')}, LLM config: {bool(metadata.get('llm_config'))}")
-            
+            logger.debug(f"Found CSV metadata - query: {metadata.get('query')}, LLM config: {bool(metadata.get('llm_config'))}")
+
             # Store extracted query
             if metadata.get('query'):
                 session.schema_query = metadata['query']
@@ -221,7 +228,7 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
             if metadata.get('observation_unit'):
                 from app.models.session import ObservationUnitInfo
                 session.observation_unit = ObservationUnitInfo(**metadata['observation_unit'])
-                print(f"DEBUG: Restored observation unit from CSV: {session.observation_unit.name}")
+                logger.debug(f"Restored observation unit from CSV: {session.observation_unit.name}")
 
             # Create a parsed schema file with the extracted LLM configuration
             if metadata.get('llm_config'):
@@ -253,13 +260,13 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
                 # Also populate the session's extracted_schema for frontend access
                 session.metadata.extracted_schema = schema_data
 
-                print(f"DEBUG: Saved parsed schema with extracted LLM configuration")
-        
+                logger.debug("Saved parsed schema with extracted LLM configuration")
+
         # Restore observation_unit from JSON parse result if present (and not already set from CSV metadata)
         if result.get("observation_unit") and not session.observation_unit:
             from app.models.session import ObservationUnitInfo
             session.observation_unit = ObservationUnitInfo(**result["observation_unit"])
-            print(f"DEBUG: Restored observation unit from JSON: {session.observation_unit.name}")
+            logger.debug(f"Restored observation unit from JSON: {session.observation_unit.name}")
 
         # Update session with parsed data
         session.columns = result["columns"]
@@ -270,7 +277,7 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
         # Capture schema baseline for re-extraction change detection
         session_manager.capture_schema_baseline(session_id)
 
-        print(f"DEBUG: Session updated successfully")
+        logger.debug("Session updated successfully")
         
         # Include metadata info in response if available
         response = {"status": "success", "message": "File parsed successfully"}
@@ -283,9 +290,9 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
             }
         
         return response
-        
+
     except Exception as e:
-        print(f"DEBUG: Exception in parse_file: {e}")
+        logger.error(f"Exception in parse_file: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -323,7 +330,7 @@ async def get_data_with_filters(
         return data
 
     except Exception as e:
-        print(f"DEBUG: Exception in get_data_with_filters: {e}")
+        logger.error(f"Exception in get_data_with_filters: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -362,44 +369,45 @@ async def upload_dual_files(
 ):
     """Upload and validate both schema and data files."""
     try:
-        print(f"DEBUG: Received dual file upload - schema: {schema_file.filename}, data: {data_file.filename}")
-        
-        parser = FileParser()
-        
-        # Validate schema file
-        print("DEBUG: Validating schema file...")
-        schema_validation = await parser.validate_schema_file(schema_file)
-        print(f"DEBUG: Schema validation result: {schema_validation}")
-        
-        # Validate data file  
-        print("DEBUG: Validating data file...")
-        data_validation = await parser.validate_file(data_file)
-        print(f"DEBUG: Data validation result: {data_validation}")
-        
-        # Create session
         session_id = str(uuid.uuid4())
+        set_session_context(session_id)
+        logger.debug(f"Received dual file upload - schema: {schema_file.filename}, data: {data_file.filename}")
+
+        parser = FileParser()
+
+        # Validate schema file
+        logger.debug("Validating schema file...")
+        schema_validation = await parser.validate_schema_file(schema_file)
+        logger.debug(f"Schema validation result: {schema_validation}")
+
+        # Validate data file
+        logger.debug("Validating data file...")
+        data_validation = await parser.validate_file(data_file)
+        logger.debug(f"Data validation result: {data_validation}")
+
+        # Create session
         metadata = SessionMetadata(
             source=f"Dual Upload: {schema_file.filename} + {data_file.filename}"
         )
-        
+
         session = VisualizationSession(
             id=session_id,
             type=SessionType.UPLOAD,
             metadata=metadata
         )
-        
-        print(f"DEBUG: Created session: {session_id}")
-        
+
+        logger.debug(f"Created session: {session_id}")
+
         # Save files
         await parser.save_schema_file(session_id, schema_file, schema_validation)
         await parser.save_uploaded_file(session_id, data_file)
-        print(f"DEBUG: Files saved for session: {session_id}")
-        
+        logger.debug(f"Files saved for session: {session_id}")
+
         # Check compatibility if both files are valid
         compatibility = CompatibilityCheck(is_compatible=False)
         if schema_validation.is_valid and data_validation.is_valid:
-            print("DEBUG: Checking schema-data compatibility...")
-            
+            logger.debug("Checking schema-data compatibility...")
+
             # Get data columns from sample data or parse file preview
             data_columns = []
             if data_validation.sample_data:
@@ -408,20 +416,20 @@ async def upload_dual_files(
                     if isinstance(sample, dict):
                         data_columns.extend(sample.keys())
                         break
-            
+
             # Remove duplicates and clean column names
             data_columns = list(set(data_columns))
-            print(f"DEBUG: Data columns: {data_columns}")
-            print(f"DEBUG: Schema columns: {schema_validation.detected_columns}")
-            
+            logger.debug(f"Data columns: {data_columns}")
+            logger.debug(f"Schema columns: {schema_validation.detected_columns}")
+
             compatibility = parser.check_schema_data_compatibility(
                 schema_validation, data_validation, data_columns
             )
-            print(f"DEBUG: Compatibility result: {compatibility}")
-        
+            logger.debug(f"Compatibility result: {compatibility}")
+
         # Store session
         session_manager.create_session(session)
-        print(f"DEBUG: Session stored")
+        logger.debug("Session stored")
         
         return {
             "session_id": session_id,
@@ -430,9 +438,9 @@ async def upload_dual_files(
             "compatibility": compatibility.model_dump(),
             "requires_column_mapping": data_validation.detected_format == "csv"
         }
-        
+
     except Exception as e:
-        print(f"DEBUG: Exception in upload_dual_files: {e}")
+        logger.error(f"Exception in upload_dual_files: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -441,13 +449,14 @@ async def upload_dual_files(
 async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingRequest] = None):
     """Process dual uploaded files with optional column mapping."""
     try:
-        print(f"DEBUG: Processing dual files for session: {session_id}")
-        
+        set_session_context(session_id)
+        logger.debug(f"Processing dual files for session: {session_id}")
+
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        print(f"DEBUG: Found session: {session}")
+
+        logger.debug(f"Found session: {session}")
         
         parser = FileParser()
         
@@ -483,7 +492,7 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
             if schema_data.get('observation_unit'):
                 from app.models.session import ObservationUnitInfo
                 session.observation_unit = ObservationUnitInfo(**schema_data['observation_unit'])
-                print(f"DEBUG: Restored observation unit from parsed schema: {session.observation_unit.name}")
+                logger.debug(f"Restored observation unit from parsed schema: {session.observation_unit.name}")
         else:
             # Fallback to basic column info from data
             session.columns = result["columns"]
@@ -492,7 +501,7 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
         if result.get("observation_unit") and not session.observation_unit:
             from app.models.session import ObservationUnitInfo
             session.observation_unit = ObservationUnitInfo(**result["observation_unit"])
-            print(f"DEBUG: Restored observation unit from data file: {session.observation_unit.name}")
+            logger.debug(f"Restored observation unit from data file: {session.observation_unit.name}")
 
         session.statistics = result["statistics"]
         session.status = SessionStatus.COMPLETED
@@ -501,12 +510,12 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
         # Capture schema baseline for re-extraction change detection
         session_manager.capture_schema_baseline(session_id)
 
-        print(f"DEBUG: Dual file processing completed successfully")
+        logger.debug("Dual file processing completed successfully")
 
         return {"status": "success", "message": "Files processed successfully"}
 
     except Exception as e:
-        print(f"DEBUG: Exception in process_dual_files: {e}")
+        logger.error(f"Exception in process_dual_files: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -725,30 +734,31 @@ async def export_upload_data(
 async def extract_schema(session_id: str, query: str = ""):
     """Extract schema from uploaded data and convert to QBSD format."""
     try:
-        print(f"DEBUG: Extracting schema for session: {session_id}")
-        
+        set_session_context(session_id)
+        logger.debug(f"Extracting schema for session: {session_id}")
+
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         if session.type != SessionType.UPLOAD:
             raise HTTPException(status_code=400, detail="Schema extraction only available for upload sessions")
-        
+
         # Ensure session data is processed
         if session.status != SessionStatus.COMPLETED:
             raise HTTPException(status_code=400, detail="Session must be completed before schema extraction. Please parse the file first.")
-        
-        print(f"DEBUG: Session status: {session.status}, type: {session.type}")
-        
+
+        logger.debug(f"Session status: {session.status}, type: {session.type}")
+
         parser = FileParser()
-        
+
         # Extract schema from parsed data
         extracted_schema = await parser.extract_schema_from_data(
-            session_id, 
+            session_id,
             query if query.strip() else None
         )
-        
-        print(f"DEBUG: Extracted schema with {len(extracted_schema['schema'])} columns")
+
+        logger.debug(f"Extracted schema with {len(extracted_schema['schema'])} columns")
         
         # Update session with extracted schema
         session.status = SessionStatus.SCHEMA_EXTRACTED
@@ -771,18 +781,18 @@ async def extract_schema(session_id: str, query: str = ""):
         session.columns = schema_columns
         session.schema_query = extracted_schema['query']
         session_manager.update_session(session)
-        
-        print(f"DEBUG: Session updated with extracted schema, status: {session.status}")
-        
+
+        logger.debug(f"Session updated with extracted schema, status: {session.status}")
+
         return {
             "status": "success",
             "message": "Schema extracted successfully",
             "schema": extracted_schema,
             "total_columns": len(extracted_schema['schema'])
         }
-        
+
     except Exception as e:
-        print(f"DEBUG: Exception in extract_schema: {e}")
+        logger.error(f"Exception in extract_schema: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -793,7 +803,8 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
     from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE
 
     try:
-        print(f"DEBUG: Adding {len(files)} documents to session: {session_id}")
+        set_session_context(session_id)
+        logger.debug(f"Adding {len(files)} documents to session: {session_id}")
 
         session = session_manager.get_session(session_id)
         if not session:
@@ -825,7 +836,7 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
 
         # Ignore bypass_limit if DEVELOPER_MODE is not enabled
         if bypass_limit and not DEVELOPER_MODE:
-            print(f"WARNING: bypass_limit requested but DEVELOPER_MODE is disabled (session: {session_id})")
+            logger.warning(f"bypass_limit requested but DEVELOPER_MODE is disabled (session: {session_id})")
             bypass_limit = False
 
         # If over limit and not bypassed, randomly select files to fit within limit
@@ -836,7 +847,7 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
             random.shuffle(valid_files)
             valid_files = valid_files[:available_slots]
             limit_applied = True
-            print(f"DEBUG: Document limit applied. Selected {len(valid_files)} of {new_count} files (max {MAX_DOCUMENTS}, existing {existing_count})")
+            logger.debug(f"Document limit applied. Selected {len(valid_files)} of {new_count} files (max {MAX_DOCUMENTS}, existing {existing_count})")
         elif enforce_limit and available_slots <= 0:
             raise HTTPException(
                 status_code=400,
@@ -846,7 +857,7 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         # Reconstruct files list: valid (possibly trimmed) + system files
         files = valid_files + system_files
 
-        print(f"DEBUG: Session status: {session.status}, extracted schema available")
+        logger.debug(f"Session status: {session.status}, extracted schema available")
         
         # Validate files
         errors = []
@@ -865,11 +876,11 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         # Process each uploaded file
         total_size = 0
         for i, file in enumerate(files):
-            print(f"DEBUG: Processing file {i+1}/{len(files)}: {file.filename}")
-            
+            logger.debug(f"Processing file {i+1}/{len(files)}: {file.filename}")
+
             # Skip system files that shouldn't be processed
             if _is_system_file(file.filename):
-                print(f"DEBUG: Skipping system file: {file.filename}")
+                logger.debug(f"Skipping system file: {file.filename}")
                 continue
             
             # Validate file size (10MB limit per file)
@@ -917,13 +928,13 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
                         file_path.unlink()
                         file_path = txt_path
                         safe_filename = txt_path.name
-                        print(f"DEBUG: Converted PDF to text: {txt_path}")
+                        logger.debug(f"Converted PDF to text: {txt_path}")
                     except Exception as e:
                         errors.append(f"Failed to convert PDF '{file.filename}': {str(e)}")
                         continue
 
                 uploaded_filenames.append(safe_filename)
-                print(f"DEBUG: Saved file to pending: {file_path}")
+                logger.debug(f"Saved file to pending: {file_path}")
                 
             except Exception as e:
                 errors.append(f"Failed to save file '{file.filename}': {str(e)}")
@@ -940,8 +951,8 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         session.metadata.uploaded_documents = uploaded_filenames
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
-        
-        print(f"DEBUG: Updated session with {len(uploaded_filenames)} uploaded documents")
+
+        logger.debug(f"Updated session with {len(uploaded_filenames)} uploaded documents")
         
         response = {
             "status": "success",
@@ -956,11 +967,11 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
             response["warnings"] = warnings + [f"Only {MAX_DOCUMENTS} documents are allowed. {new_count - len(uploaded_filenames)} documents were excluded by random selection."]
 
         return response
-        
+
     except HTTPException:
         raise
     except Exception as e:
-        print(f"DEBUG: Exception in add_documents: {e}")
+        logger.error(f"Exception in add_documents: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -992,7 +1003,8 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
         Status and updated list of uploaded documents
     """
     try:
-        print(f"DEBUG: Removing document '{request.filename}' from session: {session_id}")
+        set_session_context(session_id)
+        logger.debug(f"Removing document '{request.filename}' from session: {session_id}")
 
         session = session_manager.get_session(session_id)
         if not session:
@@ -1028,11 +1040,11 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
         if pending_file.exists():
             pending_file.unlink()
             files_removed.append(str(pending_file))
-            print(f"DEBUG: Removed file from pending: {pending_file}")
+            logger.debug(f"Removed file from pending: {pending_file}")
         if docs_file.exists():
             docs_file.unlink()
             files_removed.append(str(docs_file))
-            print(f"DEBUG: Removed file from documents: {docs_file}")
+            logger.debug(f"Removed file from documents: {docs_file}")
 
         # Update session status if no more documents
         if not session.metadata.uploaded_documents:
@@ -1045,7 +1057,7 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
 
-        print(f"DEBUG: Document removed. Remaining: {session.metadata.uploaded_documents}")
+        logger.debug(f"Document removed. Remaining: {session.metadata.uploaded_documents}")
 
         return {
             "status": "success",
@@ -1057,7 +1069,7 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
     except HTTPException:
         raise
     except Exception as e:
-        print(f"DEBUG: Exception in remove_uploaded_document: {e}")
+        logger.error(f"Exception in remove_uploaded_document: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1078,7 +1090,8 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
         Status and list of added files
     """
     try:
-        print(f"DEBUG: Adding cloud documents from '{request.dataset}' to session: {session_id}")
+        set_session_context(session_id)
+        logger.debug(f"Adding cloud documents from '{request.dataset}' to session: {session_id}")
 
         session = session_manager.get_session(session_id)
         if not session:
@@ -1131,7 +1144,7 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
                     with open(file_path, 'wb') as f:
                         f.write(content)
                     downloaded_files.append(filename)
-                    print(f"DEBUG: Downloaded cloud file: {filename}")
+                    logger.debug(f"Downloaded cloud file: {filename}")
                 else:
                     errors.append(f"Could not download file: {filename}")
             except Exception as e:
@@ -1151,7 +1164,7 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
 
-        print(f"DEBUG: Added {len(downloaded_files)} cloud documents to session")
+        logger.debug(f"Added {len(downloaded_files)} cloud documents to session")
 
         return {
             "status": "success",
@@ -1164,7 +1177,7 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"DEBUG: Exception in add_cloud_documents: {e}")
+        logger.error(f"Exception in add_cloud_documents: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1185,8 +1198,9 @@ async def confirm_websocket_ready(session_id: str):
     """
     from services import websocket_manager
 
+    set_session_context(session_id)
     conn_count = websocket_manager.get_connection_count(session_id)
-    print(f"🔍 WebSocket confirmation request for {session_id}: {conn_count} connections")
+    logger.info(f"WebSocket confirmation request for {session_id}: {conn_count} connections")
 
     if conn_count == 0:
         raise HTTPException(
@@ -1201,7 +1215,8 @@ async def confirm_websocket_ready(session_id: str):
 async def process_documents(session_id: str, background_tasks: BackgroundTasks, request: Optional[DocumentProcessingRequest] = None):
     """Start processing uploaded documents with extracted schema using QBSD pipeline."""
     try:
-        print(f"DEBUG: Starting document processing for session: {session_id}")
+        set_session_context(session_id)
+        logger.debug(f"Starting document processing for session: {session_id}")
         
         session = session_manager.get_session(session_id)
         if not session:
@@ -1229,14 +1244,14 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
 
         # If session has columns but no extracted_schema, create it (for regular upload or QBSD sessions)
         if not session.metadata.extracted_schema and session.columns:
-            print(f"DEBUG: Converting session columns to extracted_schema format (type: {session.type})")
+            logger.debug(f"Converting session columns to extracted_schema format (type: {session.type})")
             # Use schema_query for QBSD sessions, fallback for upload sessions
             query = session.schema_query if session.schema_query else f"Data processing for {session.metadata.source}"
             extracted_schema = {
                 "query": query,
                 "schema": []
             }
-            
+
             # Convert columns to schema format, excluding excerpt columns
             for col in session.columns:
                 if col.name and not col.name.lower().endswith('_excerpt'):
@@ -1254,13 +1269,13 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
             # Store the converted schema in session metadata for processing
             session.metadata.extracted_schema = extracted_schema
             session_manager.update_session(session)
-            print(f"DEBUG: Created extracted_schema with {len(extracted_schema['schema'])} columns")
-        
+            logger.debug(f"Created extracted_schema with {len(extracted_schema['schema'])} columns")
+
         if not session.metadata.uploaded_documents:
             raise HTTPException(status_code=400, detail="No uploaded documents found for processing")
-        
+
         schema_count = len(session.metadata.extracted_schema['schema']) if session.metadata.extracted_schema else 0
-        print(f"DEBUG: Session ready for processing - {len(session.metadata.uploaded_documents)} documents, {schema_count} schema columns")
+        logger.debug(f"Session ready for processing - {len(session.metadata.uploaded_documents)} documents, {schema_count} schema columns")
         
         # Create UploadDocumentProcessor and start processing in background
         from app.services.upload_document_processor import UploadDocumentProcessor
@@ -1284,7 +1299,7 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
             config_for_log = {k: v for k, v in user_llm_config.items() if k != 'api_key'}
             has_api_key = 'api_key' in user_llm_config and user_llm_config['api_key']
             api_key_info = f"api_key={'present ('+str(len(user_llm_config['api_key']))+' chars)' if has_api_key else 'MISSING'}"
-            print(f"DEBUG: Using user-provided LLM config: {config_for_log}, {api_key_info}")
+            logger.debug(f"Using user-provided LLM config: {config_for_log}, {api_key_info}")
 
             # Store the user configuration in session directory for processing
             session_dir = Path("./data") / session_id
@@ -1293,16 +1308,16 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
 
             with open(user_config_file, 'w') as f:
                 json.dump(user_llm_config, f, indent=2)
-        
+
         session_manager.update_session(session)
-        
+
         # Reserve a concurrency slot
         await concurrency_limiter.acquire(session_id, "upload_extraction")
 
         # Start processing in background
         background_tasks.add_task(processor.process_documents, session_id)
 
-        print(f"DEBUG: Document processing started in background for session: {session_id}")
+        logger.debug(f"Document processing started in background for session: {session_id}")
 
         return {
             "status": "success",
@@ -1320,7 +1335,7 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
         raise
     except Exception as e:
         await concurrency_limiter.release(session_id)
-        print(f"DEBUG: Exception in process_documents: {e}")
+        logger.error(f"Exception in process_documents: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1396,7 +1411,7 @@ async def stop_document_processing(session_id: str):
             }
 
     except Exception as e:
-        print(f"DEBUG: Exception in stop_document_processing: {e}")
+        logger.error(f"Exception in stop_document_processing: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1433,9 +1448,9 @@ async def get_processing_status(session_id: str):
             status_info["progress"] = 0.0
         
         return status_info
-        
+
     except Exception as e:
-        print(f"DEBUG: Exception in get_processing_status: {e}")
+        logger.error(f"Exception in get_processing_status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/export-complete/{session_id}")
@@ -1616,7 +1631,7 @@ async def export_complete_data(session_id: str, format: str = "json"):
             raise HTTPException(status_code=400, detail="Unsupported format. Use 'json' or 'zip'")
         
     except Exception as e:
-        print(f"DEBUG: Exception in export_complete_data: {e}")
+        logger.error(f"Exception in export_complete_data: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1746,7 +1761,7 @@ async def export_upload_rich_csv(session_id: str):
         )
         
     except Exception as e:
-        print(f"DEBUG: Exception in export_upload_rich_csv: {e}")
+        logger.error(f"Exception in export_upload_rich_csv: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1810,9 +1825,9 @@ async def export_schema_only(session_id: str):
             media_type='application/json',
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
-        
+
     except Exception as e:
-        print(f"DEBUG: Exception in export_schema_only: {e}")
+        logger.error(f"Exception in export_schema_only: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

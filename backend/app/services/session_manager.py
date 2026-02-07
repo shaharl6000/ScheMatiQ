@@ -1,6 +1,7 @@
 """Session management service."""
 
 import hashlib
+import logging
 import threading
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -8,6 +9,8 @@ from datetime import datetime
 from app.models.session import VisualizationSession, SessionType, SessionStatus, ColumnInfo, ColumnBaseline, SchemaBaseline
 from app.models.modification import CreationMetadata, ModificationAction
 from app.storage import get_storage, StorageInterface
+
+logger = logging.getLogger(__name__)
 
 
 class SessionManager:
@@ -40,9 +43,9 @@ class SessionManager:
                         session = self.migrate_session(session)
                         self._sessions[session.id] = session
                 except Exception as e:
-                    print(f"Error loading session {session_id}: {e}")
+                    logger.error(f"Error loading session {session_id}: {e}")
         except Exception as e:
-            print(f"Error loading sessions: {e}")
+            logger.error(f"Error loading sessions: {e}")
 
     def _save_session(self, session: VisualizationSession):
         """Save session to storage."""
@@ -135,7 +138,7 @@ class SessionManager:
         )
 
         self.update_session(session)
-        print(f"DEBUG: Captured schema baseline for session {session_id} with {len(columns_dict)} columns")
+        logger.debug(f"Captured schema baseline for session {session_id} with {len(columns_dict)} columns")
         return True
 
     def finalize_creation(self, session_id: str, llm_model: str = "", llm_provider: str = "") -> bool:
@@ -157,7 +160,7 @@ class SessionManager:
 
         # Only finalize if not already finalized
         if session.creation_metadata is not None:
-            print(f"DEBUG: Session {session_id} already has creation metadata, skipping finalize")
+            logger.debug(f"Session {session_id} already has creation metadata, skipping finalize")
             return True
 
         # Create immutable creation metadata
@@ -172,7 +175,7 @@ class SessionManager:
         )
 
         self.update_session(session)
-        print(f"DEBUG: Finalized creation for session {session_id}")
+        logger.debug(f"Finalized creation for session {session_id}")
         return True
 
     def migrate_session(self, session: VisualizationSession) -> VisualizationSession:
@@ -223,6 +226,6 @@ class SessionManager:
             modified = True
 
         if modified:
-            print(f"DEBUG: Migrated session {session.id} with new fields")
+            logger.debug(f"Migrated session {session.id} with new fields")
 
         return session

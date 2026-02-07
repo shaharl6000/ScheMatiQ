@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import threading
 import uuid
+import logging
 from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
 from datetime import datetime
@@ -21,6 +22,7 @@ from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import qbsd_thread_pool, concurrency_limiter
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.logging_utils import set_session_context
 
 # QBSD library imports
 from qbsd.value_extraction.main import build_table_jsonl
@@ -31,6 +33,8 @@ from qbsd.core.retrievers import EmbeddingRetriever
 from qbsd.core import utils as qbsd_utils
 
 QBSD_AVAILABLE = True
+
+logger = logging.getLogger(__name__)
 
 
 class ReextractionOperation:
@@ -78,7 +82,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
     def get_cached_retriever(cls):
         """Get or create the cached retriever instance."""
         if cls._cached_retriever is None:
-            print("📡 Creating cached EmbeddingRetriever (will be reused for all re-extractions)")
+            logger.info("Creating cached EmbeddingRetriever (will be reused for all re-extractions)")
             cls._cached_retriever = EmbeddingRetriever(**cls._retriever_config)
         return cls._cached_retriever
 
@@ -116,7 +120,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         # Set stop flag
         with self._state_lock:
             self.stop_flags[operation_id] = True
-        print(f"🛑 Stop requested for re-extraction operation {operation_id}")
+        logger.info(f"Stop requested for re-extraction operation {operation_id}")
 
         # Cancel the extraction task if it exists
         with self._state_lock:
@@ -133,7 +137,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             session_dir = Path("./data") / operation.session_id
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
             if output_file.exists():
-                print(f"📦 Merging partial results from {output_file}")
+                logger.info(f"Merging partial results from {output_file}")
                 await self._merge_reextracted_data(
                     operation.session_id,
                     operation.columns,
@@ -143,9 +147,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 output_file.unlink(missing_ok=True)
                 schema_file = session_dir / f"reextract_schema_{operation_id}.json"
                 schema_file.unlink(missing_ok=True)
-                print(f"✅ Partial results merged and temp files cleaned up")
+                logger.info(f"Partial results merged and temp files cleaned up")
         except Exception as e:
-            print(f"⚠️ Warning: Could not merge partial results: {e}")
+            logger.warning(f"Warning: Could not merge partial results: {e}")
 
         # Update operation status
         operation.status = "stopped"
@@ -254,7 +258,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         baseline = self.capture_baseline(session)
         session.schema_baseline = baseline
         self.session_manager.update_session(session)
-        print(f"DEBUG: Captured schema baseline for session {session_id} with {len(baseline.columns)} columns")
+        logger.debug(f"Captured schema baseline for session {session_id} with {len(baseline.columns)} columns")
 
     def detect_schema_changes(self, session: VisualizationSession) -> Dict[str, Any]:
         """
@@ -396,7 +400,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         session_cloud_dataset = None
         if session.metadata and session.metadata.cloud_dataset:
             session_cloud_dataset = session.metadata.cloud_dataset
-            print(f"DEBUG: Session has cloud_dataset fallback: {session_cloud_dataset}")
+            logger.debug(f"Session has cloud_dataset fallback: {session_cloud_dataset}")
 
         session_dir = Path("./data") / session_id
         data_file = session_dir / "data.jsonl"
@@ -463,12 +467,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             # These indicate documents were uploaded locally, not from cloud storage
                             # Fall back to session's cloud_dataset if available
                             elif doc_dir and self._is_local_path(doc_dir):
-                                print(f"DEBUG: Detected local path in document_directory: {doc_dir}")
+                                logger.debug(f"Detected local path in document_directory: {doc_dir}")
                                 if session_cloud_dataset:
                                     doc_dir = f"datasets/{session_cloud_dataset}"
-                                    print(f"DEBUG: Using session cloud_dataset fallback: {doc_dir}")
+                                    logger.debug(f"Using session cloud_dataset fallback: {doc_dir}")
                                 else:
-                                    print(f"DEBUG: No cloud_dataset fallback available - documents may not be found")
+                                    logger.debug(f"No cloud_dataset fallback available - documents may not be found")
                                     # No cloud fallback - will be checked locally only
                                     doc_dir = None
 
@@ -526,12 +530,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
         # Step 3: List each folder ONCE (instead of N HTTP requests per paper)
         folder_contents: Dict[str, set] = {}
         for folder in folders_to_check:
-            print(f"DEBUG: Listing Supabase folder: {folder} (checking {len(folders_to_check[folder])} papers)")
+            logger.debug(f"Listing Supabase folder: {folder} (checking {len(folders_to_check[folder])} papers)")
             try:
                 folder_contents[folder] = await storage.list_folder_files('datasets', folder)
-                print(f"DEBUG: Found {len(folder_contents[folder])} files in {folder}")
+                logger.debug(f"Found {len(folder_contents[folder])} files in {folder}")
             except Exception as e:
-                print(f"DEBUG: Error listing Supabase folder {folder}: {e}")
+                logger.debug(f"Error listing Supabase folder {folder}: {e}")
                 folder_contents[folder] = set()
 
         # Step 4: Check membership (no HTTP requests - just set lookups)
@@ -565,11 +569,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
 
-        print(f"DEBUG: Paper discovery - local: {len(local_papers)}, cloud: {len(cloud_papers)}, missing: {len(missing)}")
+        logger.debug(f"Paper discovery - local: {len(local_papers)}, cloud: {len(cloud_papers)}, missing: {len(missing)}")
 
         # Backfill papers field for rows with empty papers but available documents
         if local_files and any(not papers for papers in row_paper_mapping.values()):
-            print(f"DEBUG: Some rows have empty papers, attempting to backfill from {len(local_files)} local documents")
+            logger.debug(f"Some rows have empty papers, attempting to backfill from {len(local_files)} local documents")
             await self._backfill_papers_from_documents(session_id, list(local_files), total_rows)
             # Re-read row_paper_mapping after backfill to update rows_with_papers count
             if data_file.exists():
@@ -590,7 +594,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             except json.JSONDecodeError:
                                 continue
                 rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
-                print(f"DEBUG: After backfill - rows_with_papers: {rows_with_papers}")
+                logger.debug(f"After backfill - rows_with_papers: {rows_with_papers}")
 
         return {
             "total_rows": total_rows,
@@ -627,7 +631,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Sort local files for consistent ordering
         sorted_docs = sorted(local_files)
-        print(f"DEBUG: Backfill - {len(sorted_docs)} documents available for {total_rows} rows")
+        logger.debug(f"Backfill - {len(sorted_docs)} documents available for {total_rows} rows")
 
         # Read all rows
         rows = []
@@ -690,9 +694,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     local_path = docs_dir / local_filename
                     local_path.write_bytes(content)
                     downloaded.append(paper_name)
-                    print(f"DEBUG: Downloaded {paper_name} from Supabase to {local_path}")
+                    logger.debug(f"Downloaded {paper_name} from Supabase to {local_path}")
             except Exception as e:
-                print(f"DEBUG: Error downloading {paper_name} from Supabase: {e}")
+                logger.debug(f"Error downloading {paper_name} from Supabase: {e}")
 
         return downloaded
 
@@ -786,16 +790,18 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     async def _run_reextraction(self, operation_id: str):
         """Execute re-extraction in background."""
-        print(f"DEBUG: _run_reextraction started for operation {operation_id}")
         operation = self.active_operations.get(operation_id)
         if not operation:
-            print(f"DEBUG: Operation {operation_id} not found in active_operations")
+            logger.debug(f"Operation {operation_id} not found in active_operations")
             return
+
+        set_session_context(operation.session_id)
+        logger.debug(f"_run_reextraction started for operation {operation_id}")
 
         try:
             operation.status = "running"
             operation.started_at = datetime.now()
-            print(f"DEBUG: Re-extraction running for session {operation.session_id}, columns: {operation.columns}")
+            logger.debug(f"Re-extraction running for session {operation.session_id}, columns: {operation.columns}")
 
             session = self.session_manager.get_session(operation.session_id)
             if not session:
@@ -816,19 +822,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
 
             # Download cloud papers before extraction
-            print(f"DEBUG: Discovering papers for re-extraction...")
+            logger.debug(f"Discovering papers for re-extraction...")
             paper_discovery = await self.discover_papers(operation.session_id)
-            print(f"DEBUG: Paper discovery result - available: {len(paper_discovery.get('available_papers', []))}, cloud: {len(paper_discovery.get('cloud_papers', {}))}, missing: {len(paper_discovery.get('missing_papers', []))}")
+            logger.debug(f"Paper discovery result - available: {len(paper_discovery.get('available_papers', []))}, cloud: {len(paper_discovery.get('cloud_papers', {}))}, missing: {len(paper_discovery.get('missing_papers', []))}")
 
             if paper_discovery.get("cloud_papers"):
-                print(f"DEBUG: Downloading {len(paper_discovery['cloud_papers'])} cloud papers...")
+                logger.debug(f"Downloading {len(paper_discovery['cloud_papers'])} cloud papers...")
                 downloaded = await self.download_cloud_papers(
                     operation.session_id,
                     paper_discovery["cloud_papers"]
                 )
-                print(f"DEBUG: Downloaded {len(downloaded)} papers from cloud storage for re-extraction")
+                logger.debug(f"Downloaded {len(downloaded)} papers from cloud storage for re-extraction")
             else:
-                print(f"DEBUG: No cloud papers to download")
+                logger.debug(f"No cloud papers to download")
 
             # Get target columns
             target_columns = [
@@ -892,7 +898,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             loop
                         )
                     except Exception as e:
-                        print(f"⚠️ Document started broadcast error: {e}")
+                        logger.warning(f"Document started broadcast error: {e}")
 
                 # Schedule broadcasts on main event loop from thread (fire and forget)
                 try:
@@ -929,14 +935,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         loop
                     )
                 except Exception as e:
-                    print(f"⚠️ Broadcast error: {e}")
+                    logger.warning(f"Broadcast error: {e}")
 
             # Run extraction - check both documents/ and pending_documents/
             docs_directories = [d for d in [docs_dir, pending_dir] if d.exists()]
-            print(f"DEBUG: docs_directories={docs_directories}, count={len(docs_directories)}")
+            logger.debug(f"docs_directories={docs_directories}, count={len(docs_directories)}")
 
             if docs_directories:
-                print(f"DEBUG: Starting build_table_jsonl extraction...")
+                logger.debug(f"Starting build_table_jsonl extraction...")
 
                 # Create should_stop callback that checks for stop requests
                 def should_stop():
@@ -958,12 +964,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     )
 
                 await asyncio.get_event_loop().run_in_executor(qbsd_thread_pool, run_extraction)
-                print(f"DEBUG: build_table_jsonl completed, output_file exists: {output_file.exists()}")
+                logger.debug(f"build_table_jsonl completed, output_file exists: {output_file.exists()}")
             else:
-                print(f"DEBUG: No document directories exist, skipping extraction")
+                logger.debug(f"No document directories exist, skipping extraction")
 
             # Merge results with existing data
-            print(f"DEBUG: Merging re-extracted data...")
+            logger.debug(f"Merging re-extracted data...")
             await self._merge_reextracted_data(
                 operation.session_id,
                 operation.columns,
@@ -981,7 +987,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             operation.progress = 1.0
             operation.completed_at = datetime.now()
 
-            print(f"DEBUG: Re-extraction completed successfully for operation {operation_id}")
+            logger.info(f"Re-extraction completed successfully for operation {operation_id}")
 
             await self.broadcast_event(
                 operation.session_id,
@@ -994,9 +1000,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
 
         except Exception as e:
-            print(f"DEBUG: Re-extraction FAILED for operation {operation_id}: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Re-extraction FAILED for operation {operation_id}: {e}", exc_info=True)
             operation.status = "failed"
             operation.error = str(e)
             operation.completed_at = datetime.now()
@@ -1039,7 +1043,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     if row_name:
                         extracted_by_row[row_name] = row_data
 
-        print(f"DEBUG: Extracted row names from extraction file: {list(extracted_by_row.keys())}")
+        logger.debug(f"Extracted row names from extraction file: {list(extracted_by_row.keys())}")
 
         # Build a mapping from paper name stem to extracted data for fallback matching
         # This handles cases where existing data uses row_1, row_2, etc. but extraction uses paper names
@@ -1047,7 +1051,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         for row_name, row_data in extracted_by_row.items():
             # The row_name from extraction is typically the paper stem (e.g., "CCTalpha")
             extracted_by_paper_stem[row_name.lower()] = row_data
-            print(f"DEBUG: Paper stem mapping: '{row_name.lower()}' -> extracted data")
+            logger.debug(f"Paper stem mapping: '{row_name.lower()}' -> extracted data")
 
         # Backup existing data
         backup_file = session_dir / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
@@ -1103,7 +1107,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             for row in updated_rows:
                 f.write(json.dumps(row) + '\n')
 
-        print(f"DEBUG: Merged re-extracted data for {len(columns)} columns, {rows_updated} rows updated")
+        logger.debug(f"Merged re-extracted data for {len(columns)} columns, {rows_updated} rows updated")
 
         # Update session statistics to reflect new data
         session = self.session_manager.get_session(session_id)
@@ -1118,17 +1122,17 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     )
                     old_count = col_stat.non_null_count
                     col_stat.non_null_count = non_null_count
-                    print(f"DEBUG: Updated stats for column '{col_stat.name}': non_null_count {old_count} -> {non_null_count}")
+                    logger.debug(f"Updated stats for column '{col_stat.name}': non_null_count {old_count} -> {non_null_count}")
 
             # Update session
             self.session_manager.update_session(session)
-            print(f"DEBUG: Updated session statistics for {len(columns)} columns")
+            logger.debug(f"Updated session statistics for {len(columns)} columns")
 
     def _get_llm_from_session(self, session_id: str):
         """Get LLM configuration from session, including API key."""
         # In release mode, always use the release-mode LLM (ignore user config)
         if not DEVELOPER_MODE:
-            print(f"DEBUG: Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']}")
+            logger.debug(f"Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']}")
             return GeminiLLM(
                 model=RELEASE_CONFIG["value_extraction_model"],
                 max_output_tokens=2048,
@@ -1143,10 +1147,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
             if user_config_file.exists():
                 with open(user_config_file) as f:
                     user_config = json.load(f)
-                print(f"DEBUG: Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
+                logger.debug(f"Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
                 return qbsd_utils.build_llm(user_config)
         except Exception as e:
-            print(f"DEBUG: Could not load user LLM config: {e}")
+            logger.debug(f"Could not load user LLM config: {e}")
 
         # Priority 1: Check session's metadata.extracted_schema for llm_configuration
         try:
@@ -1158,10 +1162,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     # Use value_extraction_backend if available, fallback to schema_creation_backend
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
-                        print(f"DEBUG: Using LLM config from session metadata: {backend_config.get('provider')} {backend_config.get('model')}")
+                        logger.debug(f"Using LLM config from session metadata: {backend_config.get('provider')} {backend_config.get('model')}")
                         return qbsd_utils.build_llm(backend_config)
         except Exception as e:
-            print(f"DEBUG: Could not load LLM config from session metadata: {e}")
+            logger.debug(f"Could not load LLM config from session metadata: {e}")
 
         # Priority 2: Check parsed_schema.json (contains llm_configuration with api_key)
         try:
@@ -1173,10 +1177,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     llm_config = parsed_schema["llm_configuration"]
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
-                        print(f"DEBUG: Using LLM config from parsed_schema.json: {backend_config.get('provider')} {backend_config.get('model')}")
+                        logger.debug(f"Using LLM config from parsed_schema.json: {backend_config.get('provider')} {backend_config.get('model')}")
                         return qbsd_utils.build_llm(backend_config)
         except Exception as e:
-            print(f"DEBUG: Could not load LLM config from parsed_schema.json: {e}")
+            logger.debug(f"Could not load LLM config from parsed_schema.json: {e}")
 
         # Priority 3: Check qbsd_config.json (legacy location)
         try:
@@ -1186,13 +1190,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     qbsd_config = json.load(f)
                 backend_config = qbsd_config.get("value_extraction_backend") or qbsd_config.get("schema_creation_backend")
                 if backend_config:
-                    print(f"DEBUG: Using LLM config from qbsd_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
+                    logger.debug(f"Using LLM config from qbsd_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
                     return qbsd_utils.build_llm(backend_config)
         except Exception as e:
-            print(f"DEBUG: Could not load LLM config from qbsd_config.json: {e}")
+            logger.debug(f"Could not load LLM config from qbsd_config.json: {e}")
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
-        print(f"DEBUG: Using default GeminiLLM - this will use GEMINI_API_KEY env var")
+        logger.debug(f"Using default GeminiLLM - this will use GEMINI_API_KEY env var")
         return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0)
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):

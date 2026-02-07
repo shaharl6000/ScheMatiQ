@@ -7,13 +7,19 @@ from pathlib import Path
 
 # Configure logging to show in container logs
 # Set LOG_LEVEL=DEBUG to see detailed schema column tracking
+# Format includes [session_id] for Railway log filtering per session
+from app.core.logging_utils import SessionFilter
+
 log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=getattr(logging, log_level, logging.INFO),
-    format='%(levelname)s:%(name)s:%(message)s',
+    format='%(levelname)s:%(name)s:[%(session_id)s] %(message)s',
     stream=sys.stdout,
     force=True
 )
+# Attach session filter to all root handlers so every logger gets session_id
+for _handler in logging.root.handlers:
+    _handler.addFilter(SessionFilter())
 
 # Add qbsd-lib to Python path (sibling directory to backend)
 _QBSD_LIB_PATH = Path(__file__).parent.parent.parent / "qbsd-lib"
