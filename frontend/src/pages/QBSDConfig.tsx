@@ -89,6 +89,7 @@ const QBSDConfigPage = () => {
   const [maxDocuments, setMaxDocuments] = useState(DEFAULT_MAX_DOCUMENTS);
   const [developerMode, setDeveloperMode] = useState(false);
   const [limitBypassEnabled, setLimitBypassEnabled] = useState(false);
+  const [allowLlmConfig, setAllowLlmConfig] = useState(false);
 
   // File upload hook for document uploads
   // Note: limit enforcement is handled by form validation + UI warnings, not in the callback,
@@ -120,6 +121,22 @@ const QBSDConfigPage = () => {
       setProvidersLoading(true);
       const providers = await getConfiguredProviders();
 
+      // Fetch config to check if LLM config is allowed
+      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
+
+      // In release mode, only Gemini is needed (LLM config is locked)
+      if (!cfg.allow_llm_config) {
+        // Release mode: just need Gemini key
+        if (!providers.includes('gemini')) {
+          navigate('/');
+          return;
+        }
+        setConfiguredProviders(['gemini'] as LLMProvider[]);
+        setProvidersLoading(false);
+        return;
+      }
+
+      // Developer mode: full provider selection
       // Filter to only providers that have models defined
       const availableProviders = getAvailableProviders(providers);
       setConfiguredProviders(availableProviders as LLMProvider[]);
@@ -206,6 +223,7 @@ const QBSDConfigPage = () => {
       .then(cfg => {
         setMaxDocuments(cfg.max_documents);
         setDeveloperMode(cfg.developer_mode);
+        setAllowLlmConfig(cfg.allow_llm_config);
       })
       .catch(() => console.log('Using default document limit'));
   }, []);
@@ -855,123 +873,127 @@ const QBSDConfigPage = () => {
               </AccordionContent>
             </AccordionItem>
 
-            {/* Schema Creation LLM */}
-            <AccordionItem value="schema-llm">
-              <AccordionTrigger className="hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  <span className="font-semibold">Schema Creation LLM</span>
-                  <Badge className="ml-2">{config.schema_creation_backend.provider.toUpperCase()}</Badge>
-                  <Badge variant="outline">{config.schema_creation_backend.model}</Badge>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <p className="text-sm text-muted-foreground mb-4">
-                  LLM used for discovering schema structure and column definitions. Token limits are auto-detected from model specifications.
-                </p>
-                <div className="grid md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label>Provider</Label>
-                    <Select
-                      value={config.schema_creation_backend.provider}
-                      onValueChange={(value) => handleSchemaBackendChange('provider', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {configuredProviders.map((provider) => (
-                          <SelectItem key={provider} value={provider}>
-                            {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+            {/* Schema Creation LLM - only visible in developer mode */}
+            {allowLlmConfig && (
+              <AccordionItem value="schema-llm">
+                <AccordionTrigger className="hover:no-underline">
+                  <div className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
+                    <span className="font-semibold">Schema Creation LLM</span>
+                    <Badge className="ml-2">{config.schema_creation_backend.provider.toUpperCase()}</Badge>
+                    <Badge variant="outline">{config.schema_creation_backend.model}</Badge>
                   </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    LLM used for discovering schema structure and column definitions. Token limits are auto-detected from model specifications.
+                  </p>
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Provider</Label>
+                      <Select
+                        value={config.schema_creation_backend.provider}
+                        onValueChange={(value) => handleSchemaBackendChange('provider', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {configuredProviders.map((provider) => (
+                            <SelectItem key={provider} value={provider}>
+                              {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                  <div className="md:col-span-2 space-y-2">
-                    <Label>Model</Label>
-                    <ModelSelector
-                      provider={config.schema_creation_backend.provider as LLMProviderKey}
-                      value={config.schema_creation_backend.model}
-                      onChange={(modelId) => handleSchemaBackendChange('model', modelId)}
-                      showDetails={true}
-                    />
-                  </div>
+                    <div className="md:col-span-2 space-y-2">
+                      <Label>Model</Label>
+                      <ModelSelector
+                        provider={config.schema_creation_backend.provider as LLMProviderKey}
+                        value={config.schema_creation_backend.model}
+                        onChange={(modelId) => handleSchemaBackendChange('model', modelId)}
+                        showDetails={true}
+                      />
+                    </div>
 
-                  <div className="space-y-2">
-                    <Label>Temperature</Label>
-                    <Input
-                      type="number"
-                      value={config.schema_creation_backend.temperature}
-                      onChange={(e) => handleSchemaBackendChange('temperature', parseFloat(e.target.value))}
-                      min={0}
-                      max={2}
-                      step={0.1}
-                    />
+                    <div className="space-y-2">
+                      <Label>Temperature</Label>
+                      <Input
+                        type="number"
+                        value={config.schema_creation_backend.temperature}
+                        onChange={(e) => handleSchemaBackendChange('temperature', parseFloat(e.target.value))}
+                        min={0}
+                        max={2}
+                        step={0.1}
+                      />
+                    </div>
                   </div>
+                </AccordionContent>
+              </AccordionItem>
+            )}
+
+            {/* Value Extraction LLM - only visible in developer mode */}
+            {allowLlmConfig && (
+              <AccordionItem value="value-llm">
+                <AccordionTrigger className="hover:no-underline">
+                  <div className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
+                    <span className="font-semibold">Value Extraction LLM</span>
+                    <Badge variant="secondary" className="ml-2">{config.value_extraction_backend.provider.toUpperCase()}</Badge>
+                    <Badge variant="outline">{config.value_extraction_backend.model}</Badge>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    LLM used for extracting actual data values from documents. Token limits are auto-detected from model specifications.
+                  </p>
+                  <div className="grid md:grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label>Provider</Label>
+                      <Select
+                        value={config.value_extraction_backend.provider}
+                        onValueChange={(value) => handleValueBackendChange('provider', value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {configuredProviders.map((provider) => (
+                            <SelectItem key={provider} value={provider}>
+                              {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="md:col-span-2 space-y-2">
+                      <Label>Model</Label>
+                      <ModelSelector
+                        provider={config.value_extraction_backend.provider as LLMProviderKey}
+                        value={config.value_extraction_backend.model}
+                        onChange={(modelId) => handleValueBackendChange('model', modelId)}
+                        showDetails={true}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Temperature</Label>
+                      <Input
+                        type="number"
+                        value={config.value_extraction_backend.temperature}
+                        onChange={(e) => handleValueBackendChange('temperature', parseFloat(e.target.value))}
+                        min={0}
+                        max={2}
+                        step={0.1}
+                      />
+                    </div>
                 </div>
               </AccordionContent>
             </AccordionItem>
-
-            {/* Value Extraction LLM */}
-            <AccordionItem value="value-llm">
-              <AccordionTrigger className="hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  <span className="font-semibold">Value Extraction LLM</span>
-                  <Badge variant="secondary" className="ml-2">{config.value_extraction_backend.provider.toUpperCase()}</Badge>
-                  <Badge variant="outline">{config.value_extraction_backend.model}</Badge>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <p className="text-sm text-muted-foreground mb-4">
-                  LLM used for extracting actual data values from documents. Token limits are auto-detected from model specifications.
-                </p>
-                <div className="grid md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label>Provider</Label>
-                    <Select
-                      value={config.value_extraction_backend.provider}
-                      onValueChange={(value) => handleValueBackendChange('provider', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {configuredProviders.map((provider) => (
-                          <SelectItem key={provider} value={provider}>
-                            {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="md:col-span-2 space-y-2">
-                    <Label>Model</Label>
-                    <ModelSelector
-                      provider={config.value_extraction_backend.provider as LLMProviderKey}
-                      value={config.value_extraction_backend.model}
-                      onChange={(modelId) => handleValueBackendChange('model', modelId)}
-                      showDetails={true}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Temperature</Label>
-                    <Input
-                      type="number"
-                      value={config.value_extraction_backend.temperature}
-                      onChange={(e) => handleValueBackendChange('temperature', parseFloat(e.target.value))}
-                      min={0}
-                      max={2}
-                      step={0.1}
-                    />
-                  </div>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
+            )}
 
             {/* Retriever Settings */}
             <AccordionItem value="retriever">

@@ -173,6 +173,9 @@ for public/production use. Set `DEVELOPER_MODE=true` to unlock all features.
 |--------------------|------------------------|-------------------------|
 | Document limit     | 20                     | 10,000 (effectively unlimited) |
 | Bypass UI toggle   | Hidden                 | Visible                 |
+| LLM configuration  | Locked (Gemini only)   | User-configurable       |
+| Schema creation model | gemini-2.5-flash    | User's choice           |
+| Value extraction model | gemini-2.5-flash-lite | User's choice        |
 
 **How it works:**
 - All mode-dependent settings are centralized in `RELEASE_CONFIG` in `backend/app/core/config.py`

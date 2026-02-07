@@ -111,11 +111,12 @@ async def health_check():
 @app.get("/api/config", tags=["root"], summary="Public Configuration", description="Returns public configuration for frontend")
 async def get_public_config():
     """Return public configuration for frontend."""
-    from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG
+    from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, ALLOW_LLM_CONFIG
     return {
         "max_documents": MAX_DOCUMENTS,
         "developer_mode": DEVELOPER_MODE,
         "release_config": RELEASE_CONFIG,
+        "allow_llm_config": ALLOW_LLM_CONFIG,
     }
 
 if __name__ == "__main__":

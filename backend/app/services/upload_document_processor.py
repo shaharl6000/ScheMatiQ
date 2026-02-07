@@ -21,7 +21,7 @@ from app.models.session import SessionStatus, DataRow, DataStatistics, ColumnInf
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.core.config import DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL
+from app.core.config import DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEVELOPER_MODE, RELEASE_CONFIG
 
 
 class UploadDocumentProcessor(WebSocketBroadcasterMixin):
@@ -111,10 +111,21 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             
             # Build LLM and retriever
             await self.broadcast_progress(session_id, "Setting up AI models", 0.2, "processing_documents")
-            
+
             # Try to use preserved LLM configuration, fallback to defaults
             backend_config = self._get_llm_config_for_extraction(current_schema, session_id)
-            
+
+            # In release mode, override with locked LLM settings
+            if not DEVELOPER_MODE:
+                print(f"🔄 DEBUG: Release mode - overriding LLM config to {RELEASE_CONFIG['value_extraction_model']}")
+                backend_config = {
+                    "provider": RELEASE_CONFIG["llm_provider"],
+                    "model": RELEASE_CONFIG["value_extraction_model"],
+                    "temperature": RELEASE_CONFIG["llm_temperature"],
+                    "max_output_tokens": backend_config.get("max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS),
+                    "api_key": backend_config.get("api_key"),  # Preserve API key from user
+                }
+
             llm = utils.build_llm(backend_config)
             print(f"🔄 DEBUG: LLM interface created successfully")
             

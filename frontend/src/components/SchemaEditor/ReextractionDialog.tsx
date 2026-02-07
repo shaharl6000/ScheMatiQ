@@ -38,7 +38,7 @@ import {
   ReextractionRequest,
   DocumentAvailabilityResponse,
 } from '../../types';
-import { schemaAPI } from '../../services/api';
+import { schemaAPI, configAPI } from '../../services/api';
 import MissingDocumentsSection from './MissingDocumentsSection';
 import { getApiKeyForProvider, getConfiguredProviders } from '../../utils/apiKeyStorage';
 import {
@@ -82,6 +82,7 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
   const [llmProvider, setLlmProvider] = useState<LLMProviderKey>('gemini');
   const [llmModel, setLlmModel] = useState('gemini-2.5-flash-lite');
   const [showModelSettings, setShowModelSettings] = useState(false);
+  const [allowLlmConfig, setAllowLlmConfig] = useState(false);
 
   // Extraction progress state
   const [isExtracting, setIsExtracting] = useState(false);
@@ -143,10 +144,15 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
     loadStatus();
   }, [loadStatus]);
 
-  // Load configured providers when dialog opens
+  // Load configured providers and config when dialog opens
   useEffect(() => {
     const loadProviders = async () => {
       if (!open) return;
+
+      // Check if LLM config is allowed (release mode vs developer mode)
+      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
+      setAllowLlmConfig(cfg.allow_llm_config);
+
       const providers = await getConfiguredProviders();
       const available = getAvailableProviders(providers);
       setConfiguredProviders(available);
@@ -443,73 +449,75 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
               </ScrollArea>
             </div>
 
-            {/* Model Selection (Collapsible) */}
-            <Collapsible open={showModelSettings} onOpenChange={setShowModelSettings}>
-              <CollapsibleTrigger asChild>
-                <Button variant="ghost" className="w-full justify-between p-2 h-auto">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Brain className="h-4 w-4" />
-                    <span>Model Settings</span>
-                    <Badge variant="outline" className="text-xs">
-                      {LLM_PROVIDER_NAMES[llmProvider]} / {llmModel}
-                    </Badge>
+            {/* Model Selection (Collapsible) - Only show in developer mode */}
+            {allowLlmConfig && (
+              <Collapsible open={showModelSettings} onOpenChange={setShowModelSettings}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-between p-2 h-auto">
+                    <div className="flex items-center gap-2 text-sm">
+                      <Brain className="h-4 w-4" />
+                      <span>Model Settings</span>
+                      <Badge variant="outline" className="text-xs">
+                        {LLM_PROVIDER_NAMES[llmProvider]} / {llmModel}
+                      </Badge>
+                    </div>
+                    <ChevronDown className={`h-4 w-4 transition-transform ${showModelSettings ? 'rotate-180' : ''}`} />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-2 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Choose which AI model will be used for re-extracting values.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Provider</Label>
+                      <Select
+                        value={llmProvider}
+                        onValueChange={(value) => handleProviderChange(value as LLMProviderKey)}
+                        disabled={configuredProviders.length === 0}
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {configuredProviders.map((provider) => (
+                            <SelectItem key={provider} value={provider}>
+                              {LLM_PROVIDER_NAMES[provider]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Model</Label>
+                      <Select
+                        value={llmModel}
+                        onValueChange={setLlmModel}
+                        disabled={getModelsForProvider(llmProvider).length === 0}
+                      >
+                        <SelectTrigger className="h-8">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {getModelsForProvider(llmProvider).map((model) => (
+                            <SelectItem key={model.id} value={model.id}>
+                              {model.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <ChevronDown className={`h-4 w-4 transition-transform ${showModelSettings ? 'rotate-180' : ''}`} />
-                </Button>
-              </CollapsibleTrigger>
-              <CollapsibleContent className="pt-2 space-y-3">
-                <p className="text-xs text-muted-foreground">
-                  Choose which AI model will be used for re-extracting values.
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Provider</Label>
-                    <Select
-                      value={llmProvider}
-                      onValueChange={(value) => handleProviderChange(value as LLMProviderKey)}
-                      disabled={configuredProviders.length === 0}
-                    >
-                      <SelectTrigger className="h-8">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {configuredProviders.map((provider) => (
-                          <SelectItem key={provider} value={provider}>
-                            {LLM_PROVIDER_NAMES[provider]}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs">Model</Label>
-                    <Select
-                      value={llmModel}
-                      onValueChange={setLlmModel}
-                      disabled={getModelsForProvider(llmProvider).length === 0}
-                    >
-                      <SelectTrigger className="h-8">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {getModelsForProvider(llmProvider).map((model) => (
-                          <SelectItem key={model.id} value={model.id}>
-                            {model.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                {configuredProviders.length === 0 && (
-                  <Alert variant="warning">
-                    <AlertDescription className="text-xs">
-                      No API keys configured. Add an API key on the home page to select a model.
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </CollapsibleContent>
-            </Collapsible>
+                  {configuredProviders.length === 0 && (
+                    <Alert variant="warning">
+                      <AlertDescription className="text-xs">
+                        No API keys configured. Add an API key on the home page to select a model.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+            )}
 
           </>
         )}

@@ -96,10 +96,15 @@ DEVELOPER_MODE = os.environ.get("DEVELOPER_MODE", "false").lower() == "true"
 # To add a new release restriction, add a key with its release-mode default.
 RELEASE_CONFIG = {
     "max_documents": 20,           # release mode cap
-    # Future flags go here, e.g.:
-    # "enable_experimental_merging": False,
-    # "max_iterations": 5,
+    # LLM configuration for release mode (locked to Gemini)
+    "schema_creation_model": "gemini-2.5-flash",
+    "value_extraction_model": "gemini-2.5-flash-lite",
+    "llm_provider": "gemini",
+    "llm_temperature": 0,
 }
+
+# Convenience: whether LLM config UI should be shown
+ALLOW_LLM_CONFIG = DEVELOPER_MODE
 
 # Effective values (resolved once at startup)
 MAX_DOCUMENTS = int(os.environ.get("MAX_DOCUMENTS", str(

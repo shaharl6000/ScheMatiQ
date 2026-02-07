@@ -681,6 +681,7 @@ export interface ContinueDiscoveryRequest {
   };
   max_keys_schema?: number;
   documents_batch_size?: number;
+  bypass_limit?: boolean;
 }
 
 export interface ContinueDiscoveryResponse {

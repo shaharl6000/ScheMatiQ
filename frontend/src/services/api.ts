@@ -85,7 +85,12 @@ const api = axios.create({
 
 // Config API (for public configuration)
 export const configAPI = {
-  getConfig: async (): Promise<{ max_documents: number; developer_mode: boolean }> => {
+  getConfig: async (): Promise<{
+    max_documents: number;
+    developer_mode: boolean;
+    allow_llm_config: boolean;
+    release_config: Record<string, any>;
+  }> => {
     const response = await api.get('/config');
     return response.data;
   },

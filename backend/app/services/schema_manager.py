@@ -14,6 +14,7 @@ from app.models.session import ColumnInfo, SessionStatus
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
+from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
 
 # QBSD library imports
 from qbsd.value_extraction.main import build_table_jsonl
@@ -35,6 +36,15 @@ class SchemaManager(WebSocketBroadcasterMixin):
         
     def _get_value_extraction_llm_from_session(self, session_id: str):
         """Get value extraction LLM configuration from session, including API key."""
+        # In release mode, always use the release-mode LLM (ignore user config)
+        if not DEVELOPER_MODE:
+            print(f"DEBUG: Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']}")
+            return GeminiLLM(
+                model=RELEASE_CONFIG["value_extraction_model"],
+                max_output_tokens=2048,
+                temperature=RELEASE_CONFIG["llm_temperature"]
+            )
+
         session_dir = Path("./data") / session_id
 
         # Priority 0: Check user_llm_config.json (user-provided config from frontend)
