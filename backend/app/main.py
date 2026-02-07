@@ -21,6 +21,9 @@ logging.basicConfig(
 for _handler in logging.root.handlers:
     _handler.addFilter(SessionFilter())
 
+# Suppress noisy uvicorn access logs (frontend polling every ~3s floods Railway logs)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
 # Add qbsd-lib to Python path (sibling directory to backend)
 _QBSD_LIB_PATH = Path(__file__).parent.parent.parent / "qbsd-lib"
 if _QBSD_LIB_PATH.exists() and str(_QBSD_LIB_PATH) not in sys.path:
