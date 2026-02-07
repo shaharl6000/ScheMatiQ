@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Trash2, FileText, CheckCircle2, AlertCircle, Cloud, Loader2 } from 'lucide-react';
+import { Upload, Trash2, FileText, CheckCircle2, AlertCircle, AlertTriangle, Cloud, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -45,6 +45,9 @@ interface DocumentUploadProps {
   // New props for cloud document selection
   sessionId?: string;
   onCloudDocumentsAdd?: (dataset: string, files: string[]) => Promise<void>;
+  // Document limit props
+  maxDocuments?: number;
+  existingDocumentCount?: number;
 }
 
 const DocumentUpload: React.FC<DocumentUploadProps> = ({
@@ -56,6 +59,8 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
   uploadResult,
   sessionId,
   onCloudDocumentsAdd,
+  maxDocuments,
+  existingDocumentCount = 0,
 }) => {
   // Cloud datasets state
   const [cloudDatasets, setCloudDatasets] = useState<CloudDataset[]>([]);
@@ -181,6 +186,18 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
         </p>
       </div>
 
+      {maxDocuments && (
+        <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
+          <FileText className="h-4 w-4 text-blue-600" />
+          <AlertDescription className="text-sm text-blue-700 dark:text-blue-400">
+            <strong>Document limit:</strong> Processing is limited to {maxDocuments} documents.
+            {existingDocumentCount > 0
+              ? ` You currently have ${existingDocumentCount} document${existingDocumentCount !== 1 ? 's' : ''}, so you can add up to ${Math.max(0, maxDocuments - existingDocumentCount)} more.`
+              : ' If you provide more, a representative sample will be used.'}
+          </AlertDescription>
+        </Alert>
+      )}
+
       <Tabs defaultValue="upload" className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="upload">
@@ -276,6 +293,25 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
               </div>
             </Card>
           )}
+
+          {/* Document limit warning */}
+          {maxDocuments && (() => {
+            const remainingSlots = maxDocuments - (existingDocumentCount || 0);
+            const threshold = Math.floor(remainingSlots * 0.75);
+            if (uploadedFiles.length >= threshold && threshold > 0) {
+              return (
+                <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription className="text-amber-700 dark:text-amber-400">
+                    {uploadedFiles.length > remainingSlots
+                      ? `You've selected ${uploadedFiles.length} documents but only ${remainingSlots} more can be added. A representative sample of ${remainingSlots} will be used.`
+                      : `${uploadedFiles.length} of ${remainingSlots} available slots used.`}
+                  </AlertDescription>
+                </Alert>
+              );
+            }
+            return null;
+          })()}
 
           {/* Upload Result */}
           {uploadResult && (

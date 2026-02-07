@@ -1229,50 +1229,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={handleValidate} disabled={loading}>
-                      <ShieldCheck className="h-4 w-4 mr-2" />
-                      Validate Schema
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleBackup} disabled={loading}>
-                      <Save className="h-4 w-4 mr-2" />
-                      Create Backup
-                    </DropdownMenuItem>
-                    {schemaChanges?.missing_baseline && (
-                      <DropdownMenuItem
-                        onClick={async () => {
-                          try {
-                            await schemaAPI.captureBaseline(sessionId);
-                            toast({ title: 'Success', description: 'Schema baseline captured. Now edit columns to enable re-extraction.' });
-                            loadSchemaChangeStatus();
-                          } catch (e: any) {
-                            toast({ title: 'Error', description: e.response?.data?.detail || 'Failed to capture baseline', variant: 'destructive' });
-                          }
-                        }}
-                        disabled={loading}
-                      >
-                        <RefreshCw className="h-4 w-4 mr-2" />
-                        Capture Schema Baseline
-                      </DropdownMenuItem>
-                    )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={handleReprocessClick} disabled={loading || Boolean(reprocessingStatus)}>
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Reprocess All
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => setContinueDiscoveryDialogOpen(true)} disabled={loading}>
                       <Plus className="h-4 w-4 mr-2" />
                       Continue Schema Discovery
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={handleExportSchemaWithClusters}>
-                      <Download className="h-4 w-4 mr-2" />
-                      Export Schema with Clusters
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
-                      <Upload className="h-4 w-4 mr-2" />
-                      Import Clusters
-                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={handleResetClusters}>
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Reset Clusters
