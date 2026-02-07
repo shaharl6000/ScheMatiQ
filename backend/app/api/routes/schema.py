@@ -56,8 +56,9 @@ class ColumnAddRequest(BaseModel):
 class ColumnMergeRequest(BaseModel):
     source_columns: List[str]
     target_column: str
-    merge_strategy: str = "CONCATENATE"  # CONCATENATE, COMBINE_UNIQUE, TAKE_FIRST, TAKE_LONGEST
-    new_definition: Optional[str] = None
+    merge_strategy: str = "concatenate"
+    definition: Optional[str] = None
+    rationale: Optional[str] = None
     separator: str = " | "
 
 class ReprocessRequest(BaseModel):
@@ -83,16 +84,17 @@ class ReprocessingStatusResponse(BaseModel):
 
 @router.put("/edit-column/{session_id}")
 async def edit_column(
-    session_id: str, 
+    session_id: str,
     edit_request: ColumnEditRequest,
     background_tasks: BackgroundTasks
 ):
     """Edit a column's properties and optionally reprocess documents."""
+    slot_acquired = False
     try:
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
+
         # Find the column to edit
         column_found = False
         for col in session.columns:
@@ -109,7 +111,7 @@ async def edit_column(
                     col.allowed_values = edit_request.allowed_values if edit_request.allowed_values else None
                 column_found = True
                 break
-        
+
         if not column_found:
             raise HTTPException(status_code=404, detail=f"Column '{edit_request.old_name}' not found")
 
@@ -130,7 +132,7 @@ async def edit_column(
         # Update session
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
-        
+
         # Broadcast schema update
         await websocket_manager.broadcast_schema_updated(session_id, {
             "operation": "edit_column",
@@ -138,15 +140,17 @@ async def edit_column(
             "new_name": edit_request.new_name,
             "columns": [col.model_dump() for col in session.columns]
         })
-        
-        # Schedule reprocessing if requested
+
+        # Schedule reprocessing if requested (requires concurrency slot)
         if edit_request.reprocess:
+            await concurrency_limiter.acquire(session_id, "reprocess_column")
+            slot_acquired = True
             background_tasks.add_task(
-                schema_manager.reprocess_column, 
-                session_id, 
+                schema_manager.reprocess_column,
+                session_id,
                 edit_request.new_name or edit_request.old_name
             )
-        
+
         return {
             "status": "success",
             "message": f"Column '{edit_request.old_name}' updated successfully",
@@ -154,7 +158,15 @@ async def edit_column(
             "columns": [col.model_dump() for col in session.columns]  # Return updated columns
         }
 
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
+        if slot_acquired:
+            await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/delete-column/{session_id}/{column_name}")
@@ -319,6 +331,9 @@ async def add_column(
             has_api_key = 'api_key' in add_request.llm_config and add_request.llm_config['api_key']
             logger.debug(f"Saved user LLM config for add-column: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
 
+        # Reserve a concurrency slot for value extraction
+        await concurrency_limiter.acquire(session_id, "add_column_extraction")
+
         # Schedule value extraction for new column
         background_tasks.add_task(
             schema_manager.extract_values_for_new_column,
@@ -326,7 +341,7 @@ async def add_column(
             new_column,
             add_request.documents_path
         )
-        
+
         return {
             "status": "success",
             "message": f"Column '{add_request.name}' added successfully",
@@ -335,7 +350,14 @@ async def add_column(
             "extracting_values": True
         }
 
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
+        await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/merge-columns/{session_id}")
@@ -363,11 +385,12 @@ async def merge_columns(
             raise HTTPException(status_code=400, detail=f"Target column '{merge_request.target_column}' already exists")
         
         # Create merged column
-        merged_definition = merge_request.new_definition or f"Merged from: {', '.join(merge_request.source_columns)}"
+        merged_definition = merge_request.definition or f"Merged from: {', '.join(merge_request.source_columns)}"
+        merged_rationale = merge_request.rationale or f"Merged column using {merge_request.merge_strategy} strategy"
         merged_column = ColumnInfo(
             name=merge_request.target_column,
             definition=merged_definition,
-            rationale=f"Merged column using {merge_request.merge_strategy} strategy",
+            rationale=merged_rationale,
             data_type="text"
         )
         
@@ -377,7 +400,7 @@ async def merge_columns(
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
         
-        # Broadcast schema update
+        # Broadcast schema update (schema columns changed, but data merge is still pending in background)
         await websocket_manager.broadcast_schema_updated(session_id, {
             "operation": "merge_columns",
             "source_columns": merge_request.source_columns,
@@ -399,6 +422,7 @@ async def merge_columns(
             "status": "success",
             "message": f"Columns {merge_request.source_columns} merged into '{merge_request.target_column}'",
             "merged_column": merged_column.model_dump(),
+            "columns": [col.model_dump() for col in session.columns],
             "processing": True
         }
         

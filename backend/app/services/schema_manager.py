@@ -5,6 +5,7 @@ Handles schema editing operations and document reprocessing.
 
 import json
 import asyncio
+import functools
 import logging
 import threading
 from typing import List, Dict, Any, Optional
@@ -39,7 +40,23 @@ class SchemaManager(WebSocketBroadcasterMixin):
         self.session_manager = session_manager
         self.reprocessing_status: Dict[str, Dict[str, Any]] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
+        self._stop_flags: Dict[str, bool] = {}  # session_id -> stop requested
         self._state_lock = threading.Lock()
+
+    def is_stop_requested(self, session_id: str) -> bool:
+        """Check if stop was requested for an operation on this session."""
+        with self._state_lock:
+            return self._stop_flags.get(session_id, False)
+
+    def request_stop(self, session_id: str) -> None:
+        """Request stop for an operation on this session."""
+        with self._state_lock:
+            self._stop_flags[session_id] = True
+
+    def clear_stop_flag(self, session_id: str) -> None:
+        """Clear the stop flag for a session."""
+        with self._state_lock:
+            self._stop_flags.pop(session_id, None)
         
     def _get_value_extraction_llm_from_session(self, session_id: str):
         """Get value extraction LLM configuration from session, including API key."""
@@ -113,18 +130,22 @@ class SchemaManager(WebSocketBroadcasterMixin):
     
     async def reprocess_column(self, session_id: str, column_name: str):
         """Reprocess documents for a specific column after editing."""
+        # Track this task for stop support
+        with self._state_lock:
+            self._stop_flags.pop(session_id, None)
+
         try:
             session = self.session_manager.get_session(session_id)
             if not session or not QBSD_AVAILABLE:
                 return
-            
+
             await self.broadcast_progress(
-                session_id, 
-                f"Starting reprocessing for column '{column_name}'", 
-                0.0, 
+                session_id,
+                f"Starting reprocessing for column '{column_name}'",
+                0.0,
                 "reprocessing_column"
             )
-            
+
             # Update reprocessing status
             self.reprocessing_status[session_id] = {
                 "is_running": True,
@@ -134,12 +155,12 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 "total_columns": 1,
                 "start_time": datetime.now().isoformat()
             }
-            
+
             # Find the column definition
             column = next((col for col in session.columns if col.name == column_name), None)
             if not column:
                 raise ValueError(f"Column '{column_name}' not found")
-            
+
             # Create schema for value extraction
             schema_data = {
                 "query": session.schema_query or "Extract information",
@@ -149,13 +170,13 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     "explanation": column.rationale or ""
                 }]
             }
-            
+
             # Save temporary schema file
             session_dir = Path("./data") / session_id
             schema_file = session_dir / f"temp_schema_{column_name}.json"
             with open(schema_file, 'w') as f:
                 json.dump(schema_data, f, indent=2)
-            
+
             # Setup LLM and retriever for extraction
             llm = self._get_value_extraction_llm_from_session(session_id)
             retriever = EmbeddingRetriever(
@@ -163,7 +184,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 k=8,
                 max_words=512
             )
-            
+
             # Find documents directory
             docs_dir = session_dir / "documents"
             if not docs_dir.exists():
@@ -171,14 +192,19 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 if session.metadata.uploaded_documents:
                     # Create docs directory and copy files if needed
                     docs_dir.mkdir(exist_ok=True)
-            
+
             if docs_dir.exists():
                 # Extract values for the column
                 output_file = session_dir / f"reprocessed_{column_name}.jsonl"
-                
+
+                # Create should_stop callback for graceful cancellation
+                def should_stop():
+                    return self.is_stop_requested(session_id)
+
                 await asyncio.get_event_loop().run_in_executor(
                     qbsd_thread_pool,
-                    lambda: build_table_jsonl(
+                    functools.partial(
+                        build_table_jsonl,
                         schema_path=schema_file,
                         docs_directories=[docs_dir],
                         output_path=output_file,
@@ -187,20 +213,21 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         resume=False,
                         mode="all",
                         retrieval_k=8,
-                        max_workers=1
+                        max_workers=1,
+                        should_stop=should_stop,
                     )
                 )
-                
+
                 # Update existing data with new values
                 await self._update_column_data(session_id, column_name, output_file)
-            
+
             # Update progress
             self.reprocessing_status[session_id].update({
                 "is_running": False,
                 "progress": 1.0,
                 "columns_processed": 1
             })
-            
+
             await self.broadcast_completion(
                 session_id,
                 f"Reprocessing completed for column '{column_name}'"
@@ -222,6 +249,9 @@ class SchemaManager(WebSocketBroadcasterMixin):
             }
             await self.broadcast_error(session_id, f"Reprocessing failed: {str(e)}")
             raise
+        finally:
+            self.clear_stop_flag(session_id)
+            await concurrency_limiter.release(session_id)
     
     async def remove_column_data(self, session_id: str, column_name: str):
         """Remove a column's data from all existing records, including excerpt columns."""
@@ -317,22 +347,26 @@ class SchemaManager(WebSocketBroadcasterMixin):
     
     async def extract_values_for_new_column(self, session_id: str, column: ColumnInfo, documents_path: Optional[str] = None):
         """Extract values for a newly added column using comprehensive schema context."""
+        # Clear any stale stop flag
+        with self._state_lock:
+            self._stop_flags.pop(session_id, None)
+
         try:
             if not QBSD_AVAILABLE:
                 await self.broadcast_error(session_id, "QBSD components not available")
                 return
-            
+
             await self.broadcast_progress(
                 session_id,
                 f"Extracting values for new column '{column.name}' with schema context",
                 0.0,
                 "extracting_new_column"
             )
-            
+
             session = self.session_manager.get_session(session_id)
             if not session:
                 return
-            
+
             # Validate column metadata
             if not column.definition and not column.rationale:
                 await self.broadcast_progress(
@@ -341,7 +375,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     0.0,
                     "schema_warning"
                 )
-            
+
             # Create comprehensive schema context including existing columns
             session_dir = Path("./data") / session_id
             comprehensive_schema = {
@@ -357,43 +391,48 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 },
                 "existing_schema_context": []
             }
-            
+
             # Add existing column context to help with coherent extraction
             for existing_col in session.columns:
-                if (existing_col.name != column.name and 
-                    existing_col.name and 
+                if (existing_col.name != column.name and
+                    existing_col.name and
                     not existing_col.name.lower().endswith('_excerpt')):
                     comprehensive_schema["existing_schema_context"].append({
                         "column": existing_col.name,
                         "definition": existing_col.definition or "",
                         "explanation": existing_col.rationale or ""
                     })
-            
+
             schema_file = session_dir / f"new_column_enhanced_schema_{column.name}.json"
             with open(schema_file, 'w') as f:
                 json.dump(comprehensive_schema, f, indent=2)
-            
+
             # Setup enhanced extraction components
             llm = self._get_value_extraction_llm_from_session(session_id)
             retriever = EmbeddingRetriever(
-                model_name="all-MiniLM-L6-v2", 
+                model_name="all-MiniLM-L6-v2",
                 k=10,              # More retrieval for better context
                 max_words=768      # More text for understanding
             )
-            
+
             # Determine documents directory
             docs_dir = Path(documents_path) if documents_path else session_dir / "documents"
-            
+
             if not docs_dir.exists():
                 await self.broadcast_error(session_id, f"Documents directory not found: {docs_dir}")
                 return
-            
+
             # Extract values with enhanced schema awareness
             output_file = session_dir / f"new_column_enhanced_values_{column.name}.jsonl"
-            
+
+            # Create should_stop callback for graceful cancellation
+            def should_stop():
+                return self.is_stop_requested(session_id)
+
             await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: build_table_jsonl(
+                qbsd_thread_pool,
+                functools.partial(
+                    build_table_jsonl,
                     schema_path=schema_file,
                     docs_directories=[docs_dir],
                     output_path=output_file,
@@ -402,25 +441,29 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     resume=False,
                     mode="one_by_one",  # More focused extraction for new columns
                     retrieval_k=10,
-                    max_workers=1
+                    max_workers=1,
+                    should_stop=should_stop,
                 )
             )
-            
+
             # Add new column data to existing records
             await self._add_new_column_data(session_id, column.name, output_file)
-            
+
             await self.broadcast_completion(
                 session_id,
                 f"Enhanced extraction completed for new column '{column.name}'"
             )
-            
+
             # Cleanup
             schema_file.unlink(missing_ok=True)
             output_file.unlink(missing_ok=True)
-            
+
         except Exception as e:
             await self.broadcast_error(session_id, f"Enhanced extraction failed for new column: {str(e)}")
             raise
+        finally:
+            self.clear_stop_flag(session_id)
+            await concurrency_limiter.release(session_id)
     
     async def merge_column_data(self, session_id: str, source_columns: List[str], target_column: str, strategy: str, separator: str = " | "):
         """Merge data from multiple columns into a new column."""
@@ -473,7 +516,18 @@ class SchemaManager(WebSocketBroadcasterMixin):
             with open(data_file, 'w') as f:
                 for row in updated_rows:
                     f.write(json.dumps(row) + '\n')
-            
+
+            # Broadcast schema_updated with refresh flags so the Table tab refetches
+            session = self.session_manager.get_session(session_id)
+            await self.websocket_manager.broadcast_schema_updated(session_id, {
+                "operation": "merge_columns",
+                "source_columns": source_columns,
+                "target_column": target_column,
+                "columns": [col.model_dump() for col in session.columns] if session else [],
+                "data_updated": True,
+                "refresh_data": True
+            })
+
             await self.broadcast_completion(
                 session_id,
                 f"Successfully merged {len(source_columns)} columns into '{target_column}'"
@@ -487,15 +541,23 @@ class SchemaManager(WebSocketBroadcasterMixin):
         """Merge values according to the specified strategy."""
         if not values:
             return ""
-        
-        if strategy == "CONCATENATE":
+
+        # Normalize strategy: map frontend names and uppercase for matching
+        strategy_map = {
+            "FIRST_NON_EMPTY": "TAKE_FIRST",
+            "SMART_MERGE": "COMBINE_UNIQUE",
+        }
+        normalized = strategy.upper()
+        normalized = strategy_map.get(normalized, normalized)
+
+        if normalized == "CONCATENATE":
             return separator.join(values)
-        elif strategy == "COMBINE_UNIQUE":
+        elif normalized == "COMBINE_UNIQUE":
             unique_values = list(dict.fromkeys(values))  # Preserve order
             return separator.join(unique_values)
-        elif strategy == "TAKE_FIRST":
+        elif normalized == "TAKE_FIRST":
             return values[0]
-        elif strategy == "TAKE_LONGEST":
+        elif normalized == "TAKE_LONGEST":
             return max(values, key=len)
         else:
             # Default to concatenate
@@ -767,7 +829,8 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 
                 await asyncio.get_event_loop().run_in_executor(
                     qbsd_thread_pool,
-                    lambda: build_table_jsonl(
+                    functools.partial(
+                        build_table_jsonl,
                         schema_path=enhanced_schema_file,
                         docs_directories=[docs_dir],
                         output_path=output_file,
@@ -776,7 +839,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         resume=False,
                         mode="one_by_one",  # More focused extraction
                         retrieval_k=10,
-                        max_workers=1
+                        max_workers=1,
                     )
                 )
                 

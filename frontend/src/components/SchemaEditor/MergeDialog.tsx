@@ -37,7 +37,7 @@ interface MergeDialogProps {
   columns: ColumnInfo[];
   preselectedColumns?: string[];
   onClose: () => void;
-  onSuccess: (message: string) => void;
+  onSuccess: (message: string, updatedColumns?: ColumnInfo[]) => void;
   onError: (error: string) => void;
 }
 
@@ -164,8 +164,11 @@ const MergeDialog: React.FC<MergeDialogProps> = ({
         separator: mergeStrategy === 'concatenate' ? separator : undefined,
       };
 
-      await schemaAPI.mergeColumns(sessionId, request);
-      onSuccess(`Merged ${sourceColumns.length} columns into "${targetColumn}" - processing started`);
+      const response = await schemaAPI.mergeColumns(sessionId, request);
+      onSuccess(
+        `Merged ${sourceColumns.length} columns into "${targetColumn}" - processing started`,
+        response.columns
+      );
       onClose();
     } catch (error: any) {
       console.error('Merge operation failed:', error);
