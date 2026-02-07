@@ -13,6 +13,7 @@ from pathlib import Path
 from datetime import datetime
 
 from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.logging_utils import set_session_context
 from app.services import qbsd_thread_pool, concurrency_limiter
 
 logger = logging.getLogger(__name__)
@@ -491,6 +492,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
     
     async def run_qbsd(self, session_id: str):
         """Run QBSD discovery process."""
+        set_session_context(session_id)
         try:
             # Update session status
             session = self.session_manager.get_session(session_id)

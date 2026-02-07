@@ -3,8 +3,11 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import json
 import asyncio
+import logging
 from app.services import websocket_manager
+from app.core.logging_utils import set_session_context
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Server-side heartbeat interval (seconds) - keeps connection alive on Railway
@@ -15,7 +18,8 @@ SERVER_HEARTBEAT_INTERVAL = 20
 async def websocket_progress(websocket: WebSocket, session_id: str):
     """WebSocket endpoint for real-time progress updates."""
     await websocket.accept()
-    print(f"🔌 WebSocket CONNECTED: {session_id}")
+    set_session_context(session_id)
+    logger.info("WebSocket connected")
 
     # Flag to control heartbeat task
     connection_active = True
@@ -36,7 +40,7 @@ async def websocket_progress(websocket: WebSocket, session_id: str):
     try:
         # Add connection to manager
         await websocket_manager.add_connection(session_id, websocket)
-        print(f"🔌 WebSocket REGISTERED: {session_id} (total: {websocket_manager.get_connection_count(session_id)})")
+        logger.info(f"WebSocket registered (total: {websocket_manager.get_connection_count(session_id)})")
 
         # Send initial connection confirmation
         await websocket.send_json({
@@ -67,7 +71,7 @@ async def websocket_progress(websocket: WebSocket, session_id: str):
             except WebSocketDisconnect:
                 break
             except Exception as e:
-                print(f"🔌 WebSocket error for {session_id}: {e}")
+                logger.error(f"WebSocket error: {e}")
                 try:
                     await websocket.send_json({
                         "type": "error",
@@ -77,7 +81,7 @@ async def websocket_progress(websocket: WebSocket, session_id: str):
                     break
 
     except WebSocketDisconnect:
-        print(f"🔌 WebSocket DISCONNECTED: {session_id}")
+        logger.info("WebSocket disconnected")
     finally:
         connection_active = False
         heartbeat_task.cancel()
@@ -86,14 +90,15 @@ async def websocket_progress(websocket: WebSocket, session_id: str):
         except asyncio.CancelledError:
             pass
         await websocket_manager.remove_connection(session_id, websocket)
-        print(f"🔌 WebSocket REMOVED: {session_id} (remaining: {websocket_manager.get_connection_count(session_id)})")
+        logger.info(f"WebSocket removed (remaining: {websocket_manager.get_connection_count(session_id)})")
 
 
 @router.websocket("/logs/{session_id}")
 async def websocket_logs(websocket: WebSocket, session_id: str):
     """WebSocket endpoint for real-time log streaming."""
     await websocket.accept()
-    print(f"🔌 Log WebSocket CONNECTED: {session_id}")
+    set_session_context(session_id)
+    logger.info("Log WebSocket connected")
 
     # Flag to control heartbeat task
     connection_active = True
@@ -146,4 +151,4 @@ async def websocket_logs(websocket: WebSocket, session_id: str):
         except asyncio.CancelledError:
             pass
         await websocket_manager.remove_log_connection(session_id, websocket)
-        print(f"🔌 Log WebSocket REMOVED: {session_id}")
+        logger.info("Log WebSocket removed")

@@ -11,6 +11,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+from app.core.logging_utils import set_session_context
 from app.services.session_manager import SessionManager
 from app.services.observation_unit_manager import ObservationUnitManager
 from app.services import session_manager, websocket_manager
@@ -101,6 +102,7 @@ async def remove_observation_unit(
     Raises:
         HTTPException: If session not found or unit doesn't exist
     """
+    set_session_context(session_id)
     logger.info("Removing observation unit '%s' from session %s", request.unit_name, session_id)
     session = session_manager.get_session(session_id)
     if not session:
@@ -154,6 +156,7 @@ async def remove_bulk_observation_units(
     Raises:
         HTTPException: If session not found
     """
+    set_session_context(session_id)
     logger.info("Bulk removing %d observation units from session %s", len(request.unit_names), session_id)
     session = session_manager.get_session(session_id)
     if not session:
@@ -223,6 +226,7 @@ async def add_observation_unit(
     Raises:
         HTTPException: If session not found or unit already exists
     """
+    set_session_context(session_id)
     logger.info("Adding observation unit '%s' to session %s", request.unit_name, session_id)
     session = session_manager.get_session(session_id)
     if not session:
@@ -269,6 +273,7 @@ async def list_observation_units(session_id: str) -> dict:
     Raises:
         HTTPException: If session not found
     """
+    set_session_context(session_id)
     logger.debug("Listing observation units for session %s", session_id)
     session = session_manager.get_session(session_id)
     if not session:
@@ -305,6 +310,7 @@ async def update_observation_unit_definition(
     Raises:
         HTTPException: If session not found or validation fails
     """
+    set_session_context(session_id)
     logger.info("Updating observation unit definition for session %s: name='%s'", session_id, request.name)
     session = session_manager.get_session(session_id)
     if not session:

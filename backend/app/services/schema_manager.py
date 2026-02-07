@@ -5,6 +5,7 @@ Handles schema editing operations and document reprocessing.
 
 import json
 import asyncio
+import logging
 import threading
 from typing import List, Dict, Any, Optional
 from pathlib import Path
@@ -17,6 +18,9 @@ from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import qbsd_thread_pool, concurrency_limiter
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.logging_utils import set_session_context
+
+logger = logging.getLogger(__name__)
 
 # QBSD library imports
 from qbsd.value_extraction.main import build_table_jsonl
@@ -41,7 +45,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
         """Get value extraction LLM configuration from session, including API key."""
         # In release mode, always use the release-mode LLM (ignore user config)
         if not DEVELOPER_MODE:
-            print(f"DEBUG: Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']}")
+            logger.debug(f"Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']}")
             return GeminiLLM(
                 model=RELEASE_CONFIG["value_extraction_model"],
                 max_output_tokens=2048,
@@ -56,10 +60,10 @@ class SchemaManager(WebSocketBroadcasterMixin):
             if user_config_file.exists():
                 with open(user_config_file) as f:
                     user_config = json.load(f)
-                print(f"DEBUG: Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
+                logger.debug(f"Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
                 return utils.build_llm(user_config)
         except Exception as e:
-            print(f"DEBUG: Could not load user LLM config: {e}")
+            logger.debug(f"Could not load user LLM config: {e}")
 
         # Priority 1: Check session's metadata.extracted_schema for llm_configuration
         try:
@@ -70,10 +74,10 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     llm_config = extracted_schema["llm_configuration"]
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
-                        print(f"DEBUG: Using LLM config from session metadata: {backend_config.get('provider')} {backend_config.get('model')}")
+                        logger.debug(f"Using LLM config from session metadata: {backend_config.get('provider')} {backend_config.get('model')}")
                         return utils.build_llm(backend_config)
         except Exception as e:
-            print(f"DEBUG: Could not load LLM config from session metadata: {e}")
+            logger.debug(f"Could not load LLM config from session metadata: {e}")
 
         # Priority 2: Check parsed_schema.json (contains llm_configuration with api_key)
         try:
@@ -85,10 +89,10 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     llm_config = parsed_schema["llm_configuration"]
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
-                        print(f"DEBUG: Using LLM config from parsed_schema.json: {backend_config.get('provider')} {backend_config.get('model')}")
+                        logger.debug(f"Using LLM config from parsed_schema.json: {backend_config.get('provider')} {backend_config.get('model')}")
                         return utils.build_llm(backend_config)
         except Exception as e:
-            print(f"DEBUG: Could not load LLM config from parsed_schema.json: {e}")
+            logger.debug(f"Could not load LLM config from parsed_schema.json: {e}")
 
         # Priority 3: Check qbsd_config.json (legacy location)
         try:
@@ -98,13 +102,13 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     qbsd_config = json.load(f)
                 backend_config = qbsd_config.get("value_extraction_backend") or qbsd_config.get("schema_creation_backend")
                 if backend_config:
-                    print(f"DEBUG: Using LLM config from qbsd_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
+                    logger.debug(f"Using LLM config from qbsd_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
                     return utils.build_llm(backend_config)
         except Exception as e:
-            print(f"DEBUG: Could not load LLM config from qbsd_config.json: {e}")
+            logger.debug(f"Could not load LLM config from qbsd_config.json: {e}")
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
-        print(f"DEBUG: Using default GeminiLLM - this will use GEMINI_API_KEY env var")
+        logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
         return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0)
     
     async def reprocess_column(self, session_id: str, column_name: str):
@@ -253,7 +257,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
             if excerpt_column in columns_found:
                 columns_to_remove.append(excerpt_column)
             
-            print(f"DEBUG: Removing columns {columns_to_remove} from {len(existing_rows)} rows")
+            logger.debug(f"Removing columns {columns_to_remove} from {len(existing_rows)} rows")
             
             # Remove the columns from all rows
             updated_rows = []
@@ -265,7 +269,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         if col_to_remove in row_data['data']:
                             del row_data['data'][col_to_remove]
                             row_updated = True
-                            print(f"DEBUG: Removed column '{col_to_remove}' from row with row_name: {row_data.get('row_name', 'unknown')}")
+                            logger.debug(f"Removed column '{col_to_remove}' from row: {row_data.get('row_name', 'unknown')}")
                 
                 if row_updated:
                     columns_removed_count += 1
@@ -277,7 +281,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 for row in updated_rows:
                     f.write(json.dumps(row) + '\n')
             
-            print(f"DEBUG: Successfully removed columns {columns_to_remove} from {columns_removed_count} rows")
+            logger.info(f"Successfully removed columns {columns_to_remove} from {columns_removed_count} rows")
             
             await self.broadcast_progress(
                 session_id,
@@ -302,14 +306,12 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     with open(json_data_file, 'w') as f:
                         json.dump(json_data, f, indent=2)
                     
-                    print(f"DEBUG: Also updated data.json file")
+                    logger.debug("Also updated data.json file")
                 except Exception as json_error:
-                    print(f"DEBUG: Could not update data.json: {json_error}")
+                    logger.warning(f"Could not update data.json: {json_error}")
             
         except Exception as e:
-            print(f"DEBUG: Failed to remove column data: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Failed to remove column data: {e}", exc_info=True)
             await self.broadcast_error(session_id, f"Failed to remove column data: {str(e)}")
             raise
     

@@ -6,6 +6,7 @@ import threading
 import time
 import math
 import os
+import logging
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime
@@ -24,6 +25,9 @@ from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import qbsd_thread_pool, concurrency_limiter
 from app.core.config import DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.logging_utils import set_session_context
+
+logger = logging.getLogger(__name__)
 
 
 class UploadDocumentProcessor(WebSocketBroadcasterMixin):
@@ -45,7 +49,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         """
         def on_value_extracted(row_name: str, column_name: str, value: Any):
             """Called for each cell value as it's extracted."""
-            print(f"📤 CELL EXTRACTED: {row_name} / {column_name} = {str(value)[:50]}...")
+            logger.debug(f"CELL EXTRACTED: {row_name} / {column_name} = {str(value)[:50]}...")
             try:
                 future = asyncio.run_coroutine_threadsafe(
                     self.broadcast_cell_extracted(session_id, {
@@ -58,21 +62,23 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 # Check if future completed (with short timeout to not block extraction)
                 try:
                     future.result(timeout=0.1)
-                    print(f"✅ CELL BROADCAST SUCCESS: {row_name}/{column_name}")
+                    logger.debug(f"CELL BROADCAST SUCCESS: {row_name}/{column_name}")
                 except TimeoutError:
                     pass  # Still running, that's fine - async broadcast in progress
                 except Exception as e:
-                    print(f"❌ CELL BROADCAST FAILED: {row_name}/{column_name}: {e}")
+                    logger.warning(f"CELL BROADCAST FAILED: {row_name}/{column_name}: {e}")
             except Exception as e:
-                print(f"⚠️  Failed to schedule broadcast for {column_name}: {e}")
+                logger.warning(f"Failed to schedule broadcast for {column_name}: {e}")
 
         return on_value_extracted
     
     async def process_documents(self, session_id: str):
         """Process uploaded documents using QBSD pipeline."""
+        set_session_context(session_id)
+
         if not QBSD_AVAILABLE:
             raise RuntimeError("QBSD components not available for document processing")
-        
+
         with self._state_lock:
             self.running_sessions[session_id] = True
 
@@ -80,8 +86,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             session = self.session_manager.get_session(session_id)
             if not session:
                 raise ValueError(f"Session {session_id} not found")
-            
-            print(f"🔄 DEBUG: Starting document processing for session {session_id}")
+
+            logger.debug(f"Starting document processing for session {session_id}")
             
             # Progress tracking
             await self.broadcast_progress(session_id, "Initializing document processing", 0.0, "processing_documents")
@@ -101,7 +107,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # This ensures that edits like allowed_values affect new document processing
             current_schema = self._build_schema_from_session(session)
 
-            print(f"🔄 DEBUG: Processing with schema: {len(current_schema['schema'])} columns")
+            logger.debug(f"Processing with schema: {len(current_schema['schema'])} columns")
 
             # Create enhanced QBSD schema file for value extraction
             await self.broadcast_progress(session_id, "Preparing schema for processing", 0.1, "processing_documents")
@@ -121,7 +127,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
             # In release mode, override with locked LLM settings
             if not DEVELOPER_MODE:
-                print(f"🔄 DEBUG: Release mode - overriding LLM config to {RELEASE_CONFIG['value_extraction_model']}")
+                logger.debug(f"Release mode - overriding LLM config to {RELEASE_CONFIG['value_extraction_model']}")
                 backend_config = {
                     "provider": RELEASE_CONFIG["llm_provider"],
                     "model": RELEASE_CONFIG["value_extraction_model"],
@@ -131,7 +137,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 }
 
             llm = utils.build_llm(backend_config)
-            print(f"🔄 DEBUG: LLM interface created successfully")
+            logger.debug("LLM interface created successfully")
             
             # Create retriever
             retriever_config = {
@@ -144,7 +150,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 "dynamic_k_minimum": 3
             }
             retriever = utils.build_retriever(retriever_config)
-            print(f"🔄 DEBUG: Retriever created successfully")
+            logger.debug("Retriever created successfully")
             
             # Run value extraction
             await self.broadcast_progress(session_id, "Processing documents with AI", 0.3, "processing_documents")
@@ -164,10 +170,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                     return not self.running_sessions.get(session_id, True)
 
             def run_extraction():
-                print(f"🚀 EXTRACTION STARTING for session {session_id}")
-                print(f"   Schema: {schema_path}")
-                print(f"   Docs: {pending_dir}")
-                print(f"   Output: {output_path}")
+                logger.info(f"EXTRACTION STARTING for session {session_id}")
+                logger.debug(f"Schema: {schema_path}")
+                logger.debug(f"Docs: {pending_dir}")
+                logger.debug(f"Output: {output_path}")
                 try:
                     result = build_table_jsonl(
                         schema_path=schema_path,
@@ -182,12 +188,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         on_value_extracted=on_value_extracted,  # Stream values as extracted
                         should_stop=should_stop  # Allow graceful stop
                     )
-                    print(f"✅ EXTRACTION COMPLETED for session {session_id}")
+                    logger.info(f"EXTRACTION COMPLETED for session {session_id}")
                     return result
                 except Exception as e:
-                    print(f"❌ EXTRACTION FAILED for session {session_id}: {type(e).__name__}: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    logger.error(f"EXTRACTION FAILED for session {session_id}: {type(e).__name__}: {e}", exc_info=True)
                     raise
             
             # Monitor progress while extraction runs
@@ -204,12 +208,12 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 with self._state_lock:
                     stop_requested = not self.running_sessions.get(session_id, True)
                 if stop_requested:
-                    print(f"🛑 Stop requested for session {session_id}, cancelling extraction...")
+                    logger.info(f"Stop requested for session {session_id}, cancelling extraction...")
                     extraction_task.cancel()
                     try:
                         await extraction_task
                     except asyncio.CancelledError:
-                        print(f"✓ Extraction task cancelled for session {session_id}")
+                        logger.info(f"Extraction task cancelled for session {session_id}")
 
                     # Update session with partial results
                     session = self.session_manager.get_session(session_id)
@@ -225,7 +229,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             session.metadata.additional_rows_added = rows_added
                             self.session_manager.update_session(session)
                         except Exception as e:
-                            print(f"⚠️ Failed to merge partial data after stop: {e}")
+                            logger.warning(f"Failed to merge partial data after stop: {e}")
 
                     # Broadcast stopped message
                     await self.broadcast_message(session_id, {
@@ -294,7 +298,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                 })
 
                     except Exception as e:
-                        print(f"Progress monitoring error: {e}")
+                        logger.warning(f"Progress monitoring error: {e}")
 
                 await asyncio.sleep(PROGRESS_CHECK_INTERVAL)  # Check every few seconds for faster updates
             
@@ -310,7 +314,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             await self.broadcast_progress(session_id, "Processing complete", 1.0, "processing_documents")
 
             session = self.session_manager.get_session(session_id)
-            print(f"🔍 DEBUG: Session before completion update: status={session.status}")
+            logger.debug(f"Session before completion update: status={session.status}")
 
             session.status = SessionStatus.COMPLETED
             session.metadata.last_modified = datetime.now()
@@ -319,7 +323,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             session.metadata.additional_rows_added = rows_added
             session.metadata.processed_documents = len(session.metadata.uploaded_documents)
 
-            print(f"🔍 DEBUG: Session after completion update: status={session.status}, additional_rows={session.metadata.additional_rows_added}")
+            logger.debug(f"Session after completion update: status={session.status}, additional_rows={session.metadata.additional_rows_added}")
 
             self.session_manager.update_session(session)
 
@@ -329,11 +333,11 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 if statistics:
                     session.statistics = statistics
                     self.session_manager.update_session(session)
-                    print(f"✓ Session statistics updated after document processing")
+                    logger.info("Session statistics updated after document processing")
                 else:
-                    print(f"⚠️  No statistics generated for session {session_id}")
+                    logger.warning(f"No statistics generated for session {session_id}")
             except Exception as e:
-                print(f"⚠️  Failed to compute statistics for session {session_id}: {e}")
+                logger.warning(f"Failed to compute statistics for session {session_id}: {e}")
                 # Don't fail the entire operation - statistics are supplementary
 
             # Capture schema baseline for re-extraction change detection
@@ -341,7 +345,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
             # Verify the update was successful
             updated_session = self.session_manager.get_session(session_id)
-            print(f"🔍 DEBUG: Session after manager update: status={updated_session.status}, additional_rows={updated_session.metadata.additional_rows_added}")
+            logger.debug(f"Session after manager update: status={updated_session.status}, additional_rows={updated_session.metadata.additional_rows_added}")
 
             # Small delay to ensure session update is committed before broadcasting completion
             await asyncio.sleep(0.5)
@@ -351,12 +355,12 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 "additional_rows": rows_added,
                 "total_documents": len(session.metadata.uploaded_documents)
             }
-            
-            print(f"🎯 DEBUG: Broadcasting completion for session {session_id} with data: {completion_data}")
-            await self.broadcast_completion(session_id, 
+
+            logger.debug(f"Broadcasting completion for session {session_id} with data: {completion_data}")
+            await self.broadcast_completion(session_id,
                 "Document processing completed successfully", completion_data)
-            
-            print(f"✅ DEBUG: Document processing completed and broadcast sent for session {session_id}")
+
+            logger.info(f"Document processing completed and broadcast sent for session {session_id}")
             
         except Exception as e:
             # Update session with error
@@ -365,9 +369,9 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 session.status = SessionStatus.ERROR
                 session.error_message = f"Document processing failed: {str(e)}"
                 self.session_manager.update_session(session)
-            
+
             await self.broadcast_error(session_id, str(e))
-            print(f"❌ DEBUG: Document processing failed for session {session_id}: {e}")
+            logger.error(f"Document processing failed for session {session_id}: {e}")
             raise
         
         finally:
@@ -389,14 +393,14 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         additional_data_file = session_dir / "additional_data.jsonl"
 
         if not additional_data_file.exists():
-            print(f"No additional data to merge for session {session_id}")
+            logger.info(f"No additional data to merge for session {session_id}")
             return 0
 
         # Get cloud dataset name for document_directory if available
         cloud_dataset = None
         if session and session.metadata and session.metadata.cloud_dataset:
             cloud_dataset = session.metadata.cloud_dataset
-            print(f"DEBUG: Using cloud_dataset '{cloud_dataset}' for document_directory")
+            logger.debug(f"Using cloud_dataset '{cloud_dataset}' for document_directory")
 
         # Read original data to get the base row count and detect row name/papers column patterns
         original_rows = []
@@ -420,12 +424,12 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                 if row_name_column_in_data is None:
                                     if key_lower in ['row name', 'rowname', 'row_name', 'name', 'id', 'identifier']:
                                         row_name_column_in_data = key
-                                        print(f"DEBUG: Detected row name column in data: '{key}'")
+                                        logger.debug(f"Detected row name column in data: '{key}'")
                                 # Detect papers column
                                 if papers_column_in_data is None:
                                     if key_lower in ['papers', 'paper']:
                                         papers_column_in_data = key
-                                        print(f"DEBUG: Detected papers column in data: '{key}'")
+                                        logger.debug(f"Detected papers column in data: '{key}'")
 
         # Read new extracted data and append to original file
         new_rows_added = 0
@@ -550,7 +554,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 original_f.flush()
                 os.fsync(original_f.fileno())
 
-        print(f"Successfully appended {new_rows_added} new rows to session {session_id}. Total rows: {len(original_rows) + new_rows_added}")
+        logger.info(f"Successfully appended {new_rows_added} new rows to session {session_id}. Total rows: {len(original_rows) + new_rows_added}")
 
         # Clean up the additional data file
         additional_data_file.unlink(missing_ok=True)
@@ -574,7 +578,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             dest_path = docs_dir / f"{base_name}_{counter}{extension}"
                             counter += 1
                     shutil.move(str(file_path), str(dest_path))
-                    print(f"Moved {file_path.name} to documents/")
+                    logger.debug(f"Moved {file_path.name} to documents/")
 
         return new_rows_added
 
@@ -1011,10 +1015,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             try:
                 with open(user_config_file) as f:
                     user_config = json.load(f)
-                    print(f"DEBUG: Using user-selected LLM configuration for session {session_id}")
+                    logger.debug(f"Using user-selected LLM configuration for session {session_id}")
                     return user_config
             except Exception as e:
-                print(f"DEBUG: Could not load user LLM config: {e}")
+                logger.debug(f"Could not load user LLM config: {e}")
         
         # Second priority: Preserved schema metadata LLM configuration
         if "llm_configuration" in extracted_schema:
@@ -1022,10 +1026,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             
             # Use value_extraction_backend if available, fallback to schema_creation_backend
             if llm_config.get("value_extraction_backend"):
-                print(f"DEBUG: Using preserved value_extraction_backend for session {session_id}")
+                logger.debug(f"Using preserved value_extraction_backend for session {session_id}")
                 return llm_config["value_extraction_backend"]
             elif llm_config.get("schema_creation_backend"):
-                print(f"DEBUG: Using preserved schema_creation_backend for extraction in session {session_id}")
+                logger.debug(f"Using preserved schema_creation_backend for extraction in session {session_id}")
                 return llm_config["schema_creation_backend"]
         
         # Third priority: Session-level QBSD config file
@@ -1037,19 +1041,19 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                     
                 # Use value_extraction_backend if available
                 if "value_extraction_backend" in qbsd_config:
-                    print(f"DEBUG: Using session QBSD value_extraction_backend for session {session_id}")
+                    logger.debug(f"Using session QBSD value_extraction_backend for session {session_id}")
                     return qbsd_config["value_extraction_backend"]
                 elif "schema_creation_backend" in qbsd_config:
-                    print(f"DEBUG: Using session QBSD schema_creation_backend for extraction in session {session_id}")
+                    logger.debug(f"Using session QBSD schema_creation_backend for extraction in session {session_id}")
                     return qbsd_config["schema_creation_backend"]
                 elif "backend" in qbsd_config:  # Legacy support
-                    print(f"DEBUG: Using legacy backend config for session {session_id}")
+                    logger.debug(f"Using legacy backend config for session {session_id}")
                     return qbsd_config["backend"]
             except Exception as e:
-                print(f"DEBUG: Could not load session QBSD config: {e}")
+                logger.debug(f"Could not load session QBSD config: {e}")
         
         # Fallback to default configuration
-        print(f"DEBUG: Using default LLM configuration for extraction in session {session_id}")
+        logger.debug(f"Using default LLM configuration for extraction in session {session_id}")
         return {
             "provider": "gemini",
             "model": "gemini-2.5-flash-lite",  # Use lite model for extraction by default
@@ -1064,12 +1068,12 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         for system_file in system_files:
             file_path = directory / system_file
             if file_path.exists():
-                print(f"🧹 Removing system file: {file_path}")
+                logger.debug(f"Removing system file: {file_path}")
                 file_path.unlink()
-                
+
         # Also remove any hidden files starting with ._
         for file_path in directory.glob('._*'):
-            print(f"🧹 Removing hidden system file: {file_path}")
+            logger.debug(f"Removing hidden system file: {file_path}")
             file_path.unlink()
 
     def _compute_statistics_from_data(self, session_id: str, session: VisualizationSession) -> Optional[DataStatistics]:
@@ -1091,7 +1095,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         data_file = session_dir / "data.jsonl"
 
         if not data_file.exists():
-            print(f"⚠️  Statistics: No data.jsonl found for session {session_id}")
+            logger.warning(f"Statistics: No data.jsonl found for session {session_id}")
             return None
 
         # Read all rows from the data file
@@ -1102,15 +1106,15 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                     if line.strip():
                         data_rows.append(json.loads(line))
         except Exception as e:
-            print(f"⚠️  Statistics: Error reading data: {e}")
+            logger.warning(f"Statistics: Error reading data: {e}")
             return None
 
         if not data_rows:
-            print(f"⚠️  Statistics: No data rows found in data.jsonl")
+            logger.warning("Statistics: No data rows found in data.jsonl")
             return None
 
         if not session.columns:
-            print(f"⚠️  Statistics: No columns defined in session {session_id}")
+            logger.warning(f"Statistics: No columns defined in session {session_id}")
             return None
 
         # Count unique documents from papers field
@@ -1194,5 +1198,5 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             schema_evolution=None  # Upload sessions don't have schema evolution
         )
 
-        print(f"✓ Statistics computed: {len(data_rows)} rows, {total_documents} documents, {len(columns)} columns, {completeness:.1f}% complete")
+        logger.info(f"Statistics computed: {len(data_rows)} rows, {total_documents} documents, {len(columns)} columns, {completeness:.1f}% complete")
         return stats
