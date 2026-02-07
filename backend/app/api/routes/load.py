@@ -843,16 +843,18 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         limit_applied = False
         enforce_limit = not (DEVELOPER_MODE and bypass_limit)
         available_slots = MAX_DOCUMENTS - existing_count
-        if enforce_limit and new_count > available_slots > 0:
+        if enforce_limit and new_count > MAX_DOCUMENTS:
+            # Session is full or new batch alone exceeds limit — sample from new uploads to MAX_DOCUMENTS
+            random.shuffle(valid_files)
+            valid_files = valid_files[:MAX_DOCUMENTS]
+            limit_applied = True
+            print(f"DEBUG: Document limit applied. Selected {len(valid_files)} of {new_count} files (max {MAX_DOCUMENTS}, existing {existing_count})")
+        elif enforce_limit and available_slots > 0 and new_count > available_slots:
+            # There's room but not enough — sample to fit
             random.shuffle(valid_files)
             valid_files = valid_files[:available_slots]
             limit_applied = True
             logger.debug(f"Document limit applied. Selected {len(valid_files)} of {new_count} files (max {MAX_DOCUMENTS}, existing {existing_count})")
-        elif enforce_limit and available_slots <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Document limit reached: you already have {existing_count} documents (maximum is {MAX_DOCUMENTS}). Remove documents or enable developer mode to add more."
-            )
 
         # Reconstruct files list: valid (possibly trimmed) + system files
         files = valid_files + system_files
