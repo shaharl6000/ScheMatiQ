@@ -6,6 +6,7 @@ Handles schema change detection, paper discovery, and selective re-extraction.
 import json
 import asyncio
 import hashlib
+import threading
 import uuid
 from typing import List, Dict, Any, Optional, Set
 from pathlib import Path
@@ -17,6 +18,7 @@ from app.models.session import (
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
+from app.services import qbsd_thread_pool, concurrency_limiter
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
 
@@ -70,6 +72,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         self.active_operations: Dict[str, ReextractionOperation] = {}
         self.stop_flags: Dict[str, bool] = {}  # operation_id -> stop requested
         self._extraction_tasks: Dict[str, asyncio.Task] = {}  # operation_id -> task
+        self._state_lock = threading.Lock()
 
     @classmethod
     def get_cached_retriever(cls):
@@ -81,11 +84,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     def is_stop_requested(self, operation_id: str) -> bool:
         """Check if stop was requested for an operation."""
-        return self.stop_flags.get(operation_id, False)
+        with self._state_lock:
+            return self.stop_flags.get(operation_id, False)
 
     def clear_stop_flag(self, operation_id: str) -> None:
         """Clear the stop flag for an operation."""
-        self.stop_flags.pop(operation_id, None)
+        with self._state_lock:
+            self.stop_flags.pop(operation_id, None)
 
     async def stop_operation(self, operation_id: str) -> Dict[str, Any]:
         """
@@ -94,7 +99,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
         Returns:
             Dictionary with stop status and any partial results
         """
-        operation = self.active_operations.get(operation_id)
+        with self._state_lock:
+            operation = self.active_operations.get(operation_id)
         if not operation:
             return {
                 "stopped": False,
@@ -108,11 +114,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
             }
 
         # Set stop flag
-        self.stop_flags[operation_id] = True
+        with self._state_lock:
+            self.stop_flags[operation_id] = True
         print(f"🛑 Stop requested for re-extraction operation {operation_id}")
 
         # Cancel the extraction task if it exists
-        task = self._extraction_tasks.get(operation_id)
+        with self._state_lock:
+            task = self._extraction_tasks.get(operation_id)
         if task and not task.done():
             task.cancel()
             try:
@@ -760,7 +768,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             status="starting"
         )
         operation.total_documents = len(paper_discovery["available_papers"])
-        self.active_operations[operation_id] = operation
+        with self._state_lock:
+            self.active_operations[operation_id] = operation
 
         # Start background task and store reference for potential cancellation
         task = asyncio.create_task(self._run_reextraction(operation_id))
@@ -948,7 +957,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         should_stop=should_stop  # Allow graceful stop
                     )
 
-                await asyncio.get_event_loop().run_in_executor(None, run_extraction)
+                await asyncio.get_event_loop().run_in_executor(qbsd_thread_pool, run_extraction)
                 print(f"DEBUG: build_table_jsonl completed, output_file exists: {output_file.exists()}")
             else:
                 print(f"DEBUG: No document directories exist, skipping extraction")
@@ -1001,6 +1010,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 }
             )
             raise
+        finally:
+            await concurrency_limiter.release(operation.session_id)
 
     async def _merge_reextracted_data(
         self,

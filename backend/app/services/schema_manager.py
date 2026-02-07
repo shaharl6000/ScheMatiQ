@@ -5,6 +5,7 @@ Handles schema editing operations and document reprocessing.
 
 import json
 import asyncio
+import threading
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
@@ -14,6 +15,7 @@ from app.models.session import ColumnInfo, SessionStatus
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
+from app.services import qbsd_thread_pool, concurrency_limiter
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
 
 # QBSD library imports
@@ -33,6 +35,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
         self.session_manager = session_manager
         self.reprocessing_status: Dict[str, Dict[str, Any]] = {}
         self.running_tasks: Dict[str, asyncio.Task] = {}
+        self._state_lock = threading.Lock()
         
     def _get_value_extraction_llm_from_session(self, session_id: str):
         """Get value extraction LLM configuration from session, including API key."""
@@ -170,7 +173,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 output_file = session_dir / f"reprocessed_{column_name}.jsonl"
                 
                 await asyncio.get_event_loop().run_in_executor(
-                    None,
+                    qbsd_thread_pool,
                     lambda: build_table_jsonl(
                         schema_path=schema_file,
                         docs_directories=[docs_dir],
@@ -674,7 +677,9 @@ class SchemaManager(WebSocketBroadcasterMixin):
             }
             await self.broadcast_error(session_id, f"Schema-aware document reprocessing failed: {str(e)}")
             raise
-    
+        finally:
+            await concurrency_limiter.release(session_id)
+
     def _generate_extraction_instructions(self, session) -> str:
         """Generate enhanced extraction instructions based on schema context."""
         instructions = [
@@ -759,7 +764,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 output_file = session_dir / f"enhanced_reprocessed_{column_name}.jsonl"
                 
                 await asyncio.get_event_loop().run_in_executor(
-                    None,
+                    qbsd_thread_pool,
                     lambda: build_table_jsonl(
                         schema_path=enhanced_schema_file,
                         docs_directories=[docs_dir],

@@ -15,8 +15,9 @@ from app.models.session import VisualizationSession, SessionType, SessionMetadat
 from app.models.qbsd import QBSDConfig, QBSDStatus, CostEstimate, CostEstimateRequest, PhaseEstimate, DocumentStats
 from app.services.qbsd_runner import QBSDRunner
 from app.services.data_editor import DataEditor
-from app.services import websocket_manager, session_manager
+from app.services import websocket_manager, session_manager, concurrency_limiter
 from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE
+from app.core.exceptions import CapacityExceededError
 from app.storage import get_storage
 
 from qbsd.core.cost_estimator import estimate_from_config
@@ -288,13 +289,25 @@ async def run_qbsd(session_id: str, background_tasks: BackgroundTasks):
         session = session_manager.get_session(session_id)
         if not session or session.type != SessionType.QBSD:
             raise HTTPException(status_code=404, detail="QBSD session not found")
-        
-        # Start QBSD in background
+
+        # Reserve a concurrency slot (raises on capacity/duplicate)
+        await concurrency_limiter.acquire(session_id, "qbsd_creation")
+
+        # Start QBSD in background (slot released in run_qbsd's finally block)
         background_tasks.add_task(qbsd_runner.run_qbsd, session_id)
-        
+
         return {"message": "QBSD execution started", "session_id": session_id}
-        
+
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except RuntimeError as e:
+        # Duplicate session execution
+        raise HTTPException(status_code=409, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
+        # Release slot if we acquired but failed before scheduling
+        await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/status/{session_id}", response_model=QBSDStatus)

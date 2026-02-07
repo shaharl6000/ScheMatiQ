@@ -284,7 +284,12 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
       onClose();
 
     } catch (error: any) {
-      onError(error.response?.data?.detail || 'Failed to start re-extraction');
+      const detail = error.response?.data?.detail;
+      if (error.response?.status === 503) {
+        onError(detail || 'The server is currently busy. Please try again in a few minutes.');
+      } else {
+        onError(detail || 'Failed to start re-extraction');
+      }
     } finally {
       setLoading(false);
     }

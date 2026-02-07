@@ -111,6 +111,10 @@ MAX_DOCUMENTS = int(os.environ.get("MAX_DOCUMENTS", str(
     RELEASE_CONFIG["max_documents"] if not DEVELOPER_MODE else 10_000
 )))
 
+# ── Concurrency Configuration ────────────────────────────────────
+MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "5"))
+QBSD_THREAD_POOL_SIZE = int(os.environ.get("QBSD_THREAD_POOL_SIZE", "6"))
+
 # Status Messages
 HEALTH_CHECK_MESSAGE = "healthy"
 API_ROOT_MESSAGE = "QBSD Visualization API"

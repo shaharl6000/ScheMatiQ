@@ -33,7 +33,8 @@ from app.api.routes.units import router as units_router
 from app.core.config import (
     API_TITLE, API_DESCRIPTION, API_VERSION,
     ALLOWED_ORIGINS, DEFAULT_HOST, DEFAULT_PORT,
-    HEALTH_CHECK_MESSAGE, API_ROOT_MESSAGE
+    HEALTH_CHECK_MESSAGE, API_ROOT_MESSAGE,
+    MAX_CONCURRENT_SESSIONS, QBSD_THREAD_POOL_SIZE,
 )
 
 app = FastAPI(
@@ -98,6 +99,12 @@ app.include_router(cloud_data_router, prefix="/api", tags=["cloud-data"])
 app.include_router(observation_unit_router, prefix="/api/observation-unit", tags=["observation-unit"])
 app.include_router(units_router, prefix="/api/units", tags=["units"])
 
+logger = logging.getLogger(__name__)
+logger.info(
+    "[concurrency] Server starting with MAX_CONCURRENT_SESSIONS=%d, THREAD_POOL_SIZE=%d",
+    MAX_CONCURRENT_SESSIONS, QBSD_THREAD_POOL_SIZE,
+)
+
 @app.get("/", tags=["root"], summary="API Root", description="Returns API information and version")
 async def root():
     """Root endpoint returning API info and version."""
@@ -112,11 +119,14 @@ async def health_check():
 async def get_public_config():
     """Return public configuration for frontend."""
     from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, ALLOW_LLM_CONFIG
+    from app.services import concurrency_limiter
     return {
         "max_documents": MAX_DOCUMENTS,
         "developer_mode": DEVELOPER_MODE,
         "release_config": RELEASE_CONFIG,
         "allow_llm_config": ALLOW_LLM_CONFIG,
+        "max_concurrent_sessions": MAX_CONCURRENT_SESSIONS,
+        "active_sessions": await concurrency_limiter.get_active_count(),
     }
 
 if __name__ == "__main__":

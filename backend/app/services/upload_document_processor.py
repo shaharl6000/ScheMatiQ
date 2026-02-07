@@ -2,6 +2,7 @@
 
 import json
 import asyncio
+import threading
 import time
 import math
 import os
@@ -21,6 +22,7 @@ from app.models.session import SessionStatus, DataRow, DataStatistics, ColumnInf
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
+from app.services import qbsd_thread_pool, concurrency_limiter
 from app.core.config import DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEVELOPER_MODE, RELEASE_CONFIG
 
 
@@ -34,6 +36,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
         self.running_sessions: Dict[str, bool] = {}
+        self._state_lock = threading.Lock()
 
     def _create_value_extracted_callback(self, session_id: str, loop: asyncio.AbstractEventLoop):
         """Create a callback that streams extracted cell values via WebSocket.
@@ -70,8 +73,9 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         if not QBSD_AVAILABLE:
             raise RuntimeError("QBSD components not available for document processing")
         
-        self.running_sessions[session_id] = True
-        
+        with self._state_lock:
+            self.running_sessions[session_id] = True
+
         try:
             session = self.session_manager.get_session(session_id)
             if not session:
@@ -156,7 +160,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
             # Create should_stop callback that checks for stop requests
             def should_stop():
-                return not self.running_sessions.get(session_id, True)
+                with self._state_lock:
+                    return not self.running_sessions.get(session_id, True)
 
             def run_extraction():
                 print(f"🚀 EXTRACTION STARTING for session {session_id}")
@@ -188,7 +193,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # Monitor progress while extraction runs
             # NOTE: We only track progress here - actual data writing happens in _merge_extracted_data()
             # to avoid duplicate writes
-            extraction_task = loop.run_in_executor(None, run_extraction)
+            extraction_task = loop.run_in_executor(qbsd_thread_pool, run_extraction)
 
             start_time = time.time()
             total_docs = len(session.metadata.uploaded_documents)
@@ -196,7 +201,9 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
             while not extraction_task.done():
                 # Check for stop request
-                if not self.running_sessions.get(session_id, True):
+                with self._state_lock:
+                    stop_requested = not self.running_sessions.get(session_id, True)
+                if stop_requested:
                     print(f"🛑 Stop requested for session {session_id}, cancelling extraction...")
                     extraction_task.cancel()
                     try:
@@ -232,7 +239,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                     })
 
                     # Clean up and return
-                    self.running_sessions.pop(session_id, None)
+                    with self._state_lock:
+                        self.running_sessions.pop(session_id, None)
                     return
 
                 # Check output file for progress tracking only
@@ -364,8 +372,9 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         
         finally:
             # Clean up
-            if session_id in self.running_sessions:
-                del self.running_sessions[session_id]
+            with self._state_lock:
+                self.running_sessions.pop(session_id, None)
+            await concurrency_limiter.release(session_id)
     
     
     async def _merge_extracted_data(self, session_id: str, session: VisualizationSession = None) -> int:
@@ -702,10 +711,11 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
     def stop_processing(self, session_id: str) -> bool:
         """Stop document processing for a session."""
-        if session_id in self.running_sessions:
-            self.running_sessions[session_id] = False
-            return True
-        return False
+        with self._state_lock:
+            if session_id in self.running_sessions:
+                self.running_sessions[session_id] = False
+                return True
+            return False
     
     def _build_schema_from_session(self, session) -> Dict[str, Any]:
         """Build schema dict from session.columns (includes user edits from SCHEMA tab).

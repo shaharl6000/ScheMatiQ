@@ -388,7 +388,12 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       }, 2000);
 
     } catch (error: any) {
-      onError(error.response?.data?.detail || 'Failed to start schema discovery');
+      const detail = error.response?.data?.detail;
+      if (error.response?.status === 503) {
+        onError(detail || 'The server is currently busy. Please try again in a few minutes.');
+      } else {
+        onError(detail || 'Failed to start schema discovery');
+      }
       setStep('documents');
     } finally {
       setLoading(false);
@@ -469,7 +474,12 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       }, 2000);
 
     } catch (error: any) {
-      onError(error.response?.data?.detail || 'Failed to start extraction');
+      const detail = error.response?.data?.detail;
+      if (error.response?.status === 503) {
+        onError(detail || 'The server is currently busy. Please try again in a few minutes.');
+      } else {
+        onError(detail || 'Failed to start extraction');
+      }
       setStep('review');
     } finally {
       setLoading(false);
