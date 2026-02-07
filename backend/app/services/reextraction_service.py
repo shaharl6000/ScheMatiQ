@@ -402,9 +402,22 @@ class ReextractionService(WebSocketBroadcasterMixin):
             session_cloud_dataset = session.metadata.cloud_dataset
             logger.debug(f"Session has cloud_dataset fallback: {session_cloud_dataset}")
 
-        session_dir = Path("./data") / session_id
-        data_file = session_dir / "data.jsonl"
-        docs_dir = session_dir / "documents"
+        data_session_dir = Path("./data") / session_id
+        qbsd_session_dir = Path("./qbsd_work") / session_id
+        docs_dir = data_session_dir / "documents"
+
+        # Find data files from all possible locations (same logic as qbsd_runner.get_extracted_data)
+        data_files = []
+        extracted_file = qbsd_session_dir / "extracted_data.jsonl"
+        if extracted_file.exists():
+            data_files.append(extracted_file)
+        if not data_files:
+            qbsd_data_file = qbsd_session_dir / "data.jsonl"
+            if qbsd_data_file.exists():
+                data_files.append(qbsd_data_file)
+        data_dir_file = data_session_dir / "data.jsonl"
+        if data_dir_file.exists() and data_dir_file not in data_files:
+            data_files.append(data_dir_file)
 
         # Collect paper references and document directories from all rows
         paper_refs: Set[str] = set()
@@ -412,7 +425,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         paper_doc_dirs: Dict[str, str] = {}  # paper_name -> document_directory
         total_rows = 0
 
-        if data_file.exists():
+        for data_file in data_files:
             with open(data_file, 'r') as f:
                 for line in f:
                     if line.strip():
@@ -488,11 +501,23 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             continue
 
         # Check which papers exist in local storage
-        # Check both documents/ and pending_documents/ directories
+        # Check documents/, pending_documents/, and qbsd_work datasets directories
         local_files: Set[str] = set()
-        pending_dir = session_dir / "pending_documents"
+        pending_dir = data_session_dir / "pending_documents"
 
-        for local_dir in [docs_dir, pending_dir]:
+        local_dirs_to_check = [docs_dir, pending_dir]
+        # Also check qbsd_work datasets directories (Supabase datasets downloaded during QBSD creation)
+        qbsd_datasets_dir = qbsd_session_dir / "datasets"
+        if qbsd_datasets_dir.exists():
+            for dataset_dir in qbsd_datasets_dir.iterdir():
+                if dataset_dir.is_dir():
+                    local_dirs_to_check.append(dataset_dir)
+        # Also check qbsd_work capped_documents (if document limit was applied)
+        capped_dir = qbsd_session_dir / "capped_documents"
+        if capped_dir.exists():
+            local_dirs_to_check.append(capped_dir)
+
+        for local_dir in local_dirs_to_check:
             if local_dir.exists():
                 for f in local_dir.iterdir():
                     if f.is_file() and not f.name.startswith('.'):
@@ -576,23 +601,25 @@ class ReextractionService(WebSocketBroadcasterMixin):
             logger.debug(f"Some rows have empty papers, attempting to backfill from {len(local_files)} local documents")
             await self._backfill_papers_from_documents(session_id, list(local_files), total_rows)
             # Re-read row_paper_mapping after backfill to update rows_with_papers count
-            if data_file.exists():
+            if data_files:
                 row_paper_mapping = {}
-                with open(data_file, 'r') as f:
-                    row_idx = 0
-                    for line in f:
-                        if line.strip():
-                            row_idx += 1
-                            try:
-                                row = json.loads(line)
-                                row_name = row.get('row_name') or row.get('_row_name') or f"row_{row_idx}"
-                                papers_raw = row.get('papers') or row.get('_papers') or []
-                                if isinstance(papers_raw, list):
-                                    row_paper_mapping[row_name] = papers_raw
-                                else:
-                                    row_paper_mapping[row_name] = [papers_raw] if papers_raw else []
-                            except json.JSONDecodeError:
-                                continue
+                for df in data_files:
+                    if df.exists():
+                        with open(df, 'r') as f:
+                            row_idx = 0
+                            for line in f:
+                                if line.strip():
+                                    row_idx += 1
+                                    try:
+                                        row = json.loads(line)
+                                        row_name = row.get('row_name') or row.get('_row_name') or f"row_{row_idx}"
+                                        papers_raw = row.get('papers') or row.get('_papers') or []
+                                        if isinstance(papers_raw, list):
+                                            row_paper_mapping[row_name] = papers_raw
+                                        else:
+                                            row_paper_mapping[row_name] = [papers_raw] if papers_raw else []
+                                    except json.JSONDecodeError:
+                                        continue
                 rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
                 logger.debug(f"After backfill - rows_with_papers: {rows_with_papers}")
 
@@ -807,9 +834,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
             if not session:
                 raise ValueError(f"Session {operation.session_id} not found")
 
-            session_dir = Path("./data") / operation.session_id
-            docs_dir = session_dir / "documents"
-            pending_dir = session_dir / "pending_documents"
+            data_dir = Path("./data") / operation.session_id
+            qbsd_dir = Path("./qbsd_work") / operation.session_id
+            session_dir = data_dir  # Keep for schema/output file paths
+            docs_dir = data_dir / "documents"
+            pending_dir = data_dir / "pending_documents"
 
             await self.broadcast_event(
                 operation.session_id,
@@ -937,8 +966,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 except Exception as e:
                     logger.warning(f"Broadcast error: {e}")
 
-            # Run extraction - check both documents/ and pending_documents/
-            docs_directories = [d for d in [docs_dir, pending_dir] if d.exists()]
+            # Run extraction - check documents/, pending_documents/, and qbsd_work datasets
+            candidate_dirs = [docs_dir, pending_dir]
+            # Also check qbsd_work datasets directories (Supabase datasets downloaded during QBSD creation)
+            qbsd_datasets_dir = qbsd_dir / "datasets"
+            if qbsd_datasets_dir.exists():
+                for dataset_subdir in qbsd_datasets_dir.iterdir():
+                    if dataset_subdir.is_dir():
+                        candidate_dirs.append(dataset_subdir)
+            # Also check qbsd_work capped_documents
+            capped_dir = qbsd_dir / "capped_documents"
+            if capped_dir.exists():
+                candidate_dirs.append(capped_dir)
+            docs_directories = [d for d in candidate_dirs if d.exists()]
             logger.debug(f"docs_directories={docs_directories}, count={len(docs_directories)}")
 
             if docs_directories:
@@ -1282,12 +1322,23 @@ class ReextractionService(WebSocketBroadcasterMixin):
         # Format missing documents with affected rows
         # For missing papers, we need to find which rows reference them
         missing_documents = []
-        session_dir = Path("./data") / session_id
-        data_file = session_dir / "data.jsonl"
+
+        # Find data files from all possible locations
+        precheck_data_files = []
+        qbsd_extracted = Path("./qbsd_work") / session_id / "extracted_data.jsonl"
+        if qbsd_extracted.exists():
+            precheck_data_files.append(qbsd_extracted)
+        if not precheck_data_files:
+            qbsd_data = Path("./qbsd_work") / session_id / "data.jsonl"
+            if qbsd_data.exists():
+                precheck_data_files.append(qbsd_data)
+        data_dir_file = Path("./data") / session_id / "data.jsonl"
+        if data_dir_file.exists() and data_dir_file not in precheck_data_files:
+            precheck_data_files.append(data_dir_file)
 
         # Build a mapping from paper name to rows for missing papers
         missing_paper_to_rows: Dict[str, List[str]] = {}
-        if data_file.exists():
+        for data_file in precheck_data_files:
             with open(data_file, 'r') as f:
                 row_idx = 0
                 for line in f:
