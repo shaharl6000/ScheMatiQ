@@ -517,17 +517,6 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 for row in updated_rows:
                     f.write(json.dumps(row) + '\n')
 
-            # Broadcast schema_updated with refresh flags so the Table tab refetches
-            session = self.session_manager.get_session(session_id)
-            await self.websocket_manager.broadcast_schema_updated(session_id, {
-                "operation": "merge_columns",
-                "source_columns": source_columns,
-                "target_column": target_column,
-                "columns": [col.model_dump() for col in session.columns] if session else [],
-                "data_updated": True,
-                "refresh_data": True
-            })
-
             await self.broadcast_completion(
                 session_id,
                 f"Successfully merged {len(source_columns)} columns into '{target_column}'"

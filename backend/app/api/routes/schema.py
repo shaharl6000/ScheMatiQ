@@ -365,9 +365,8 @@ async def add_column(
 
 @router.post("/merge-columns/{session_id}")
 async def merge_columns(
-    session_id: str, 
-    merge_request: ColumnMergeRequest,
-    background_tasks: BackgroundTasks
+    session_id: str,
+    merge_request: ColumnMergeRequest
 ):
     """Merge multiple columns into a single column."""
     try:
@@ -403,23 +402,24 @@ async def merge_columns(
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
         
-        # Broadcast schema update (schema columns changed, but data merge is still pending in background)
-        await websocket_manager.broadcast_schema_updated(session_id, {
-            "operation": "merge_columns",
-            "source_columns": merge_request.source_columns,
-            "target_column": merge_request.target_column,
-            "columns": [col.model_dump() for col in session.columns]
-        })
-        
-        # Schedule data merging
-        background_tasks.add_task(
-            schema_manager.merge_column_data,
+        # Merge column data synchronously (just file I/O, completes in milliseconds)
+        await schema_manager.merge_column_data(
             session_id,
             merge_request.source_columns,
             merge_request.target_column,
             merge_request.merge_strategy,
             merge_request.separator
         )
+
+        # Broadcast schema update with refresh flags (data is already merged)
+        await websocket_manager.broadcast_schema_updated(session_id, {
+            "operation": "merge_columns",
+            "source_columns": merge_request.source_columns,
+            "target_column": merge_request.target_column,
+            "columns": [col.model_dump() for col in session.columns],
+            "data_updated": True,
+            "refresh_data": True
+        })
         
         return {
             "status": "success",
