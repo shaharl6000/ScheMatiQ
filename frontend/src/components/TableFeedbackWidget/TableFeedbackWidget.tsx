@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { ThumbsUp, ThumbsDown, MessageSquare, X, Check } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -13,7 +13,7 @@ interface TableFeedbackWidgetProps {
   tableColumnCount: number;
 }
 
-type WidgetState = 'hidden' | 'collapsed' | 'expanded' | 'submitted';
+type WidgetState = 'hidden' | 'expanded' | 'submitted';
 
 const SHOW_DELAY_MS = 10_000;
 
@@ -30,8 +30,8 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const interactionTriggered = useRef(false);
+  const dismissedThisView = useRef(false);
 
-  const dismissedKey = `qbsd_feedback_dismissed_${sessionId}`;
   const submittedKey = `qbsd_feedback_submitted_${sessionId}`;
 
   // Check if should show based on conditions
@@ -42,17 +42,25 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
   // Reset feedback state on reextraction completion
   useEffect(() => {
     const handleReextractionReset = () => {
-      sessionStorage.removeItem(dismissedKey);
       sessionStorage.removeItem(submittedKey);
       setWidgetState('hidden');
       setRating(null);
       setComment('');
       interactionTriggered.current = false;
+      dismissedThisView.current = false;
     };
 
     window.addEventListener('reextraction_completed', handleReextractionReset);
     return () => window.removeEventListener('reextraction_completed', handleReextractionReset);
-  }, [dismissedKey, submittedKey]);
+  }, [submittedKey]);
+
+  // Reset dismissedThisView when user leaves the Data tab (shouldBeVisible goes false)
+  useEffect(() => {
+    if (!shouldBeVisible) {
+      dismissedThisView.current = false;
+      interactionTriggered.current = false;
+    }
+  }, [shouldBeVisible]);
 
   // Timer-based trigger: show after SHOW_DELAY_MS on the Data tab
   useEffect(() => {
@@ -64,19 +72,20 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
       return;
     }
 
-    // Already dismissed or submitted for this session
-    if (sessionStorage.getItem(dismissedKey) || sessionStorage.getItem(submittedKey)) {
-      if (sessionStorage.getItem(submittedKey)) {
-        setWidgetState('submitted');
-      }
+    // Already submitted for this session
+    if (sessionStorage.getItem(submittedKey)) {
+      setWidgetState('submitted');
       return;
     }
+
+    // Dismissed during this tab view — don't re-show until they leave and come back
+    if (dismissedThisView.current) return;
 
     // Already visible
     if (widgetState !== 'hidden') return;
 
     timerRef.current = setTimeout(() => {
-      setWidgetState('collapsed');
+      setWidgetState('expanded');
     }, SHOW_DELAY_MS);
 
     return () => {
@@ -85,7 +94,7 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
         timerRef.current = null;
       }
     };
-  }, [shouldBeVisible, dismissedKey, submittedKey, widgetState]);
+  }, [shouldBeVisible, submittedKey, widgetState]);
 
   // Interaction-based trigger: show on table scroll, sort, filter, or click
   // Use refs for dynamic values to keep the callback identity stable
@@ -97,9 +106,9 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
   const handleUserInteraction = useCallback(() => {
     if (
       interactionTriggered.current ||
+      dismissedThisView.current ||
       !shouldBeVisibleRef.current ||
       widgetStateRef.current !== 'hidden' ||
-      sessionStorage.getItem(dismissedKey) ||
       sessionStorage.getItem(submittedKey)
     ) {
       return;
@@ -110,8 +119,8 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
       clearTimeout(timerRef.current);
       timerRef.current = null;
     }
-    setWidgetState('collapsed');
-  }, [dismissedKey, submittedKey]);
+    setWidgetState('expanded');
+  }, [submittedKey]);
 
   useEffect(() => {
     if (!shouldBeVisible || widgetState !== 'hidden') return;
@@ -133,7 +142,7 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
   }, [shouldBeVisible, widgetState, handleUserInteraction]);
 
   const handleDismiss = () => {
-    sessionStorage.setItem(dismissedKey, 'true');
+    dismissedThisView.current = true;
     setWidgetState('hidden');
   };
 
@@ -174,20 +183,7 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
         </div>
       )}
 
-      {/* Collapsed state: small button */}
-      {widgetState === 'collapsed' && (
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={() => setWidgetState('expanded')}
-          className="shadow-md animate-in fade-in slide-in-from-right-4 duration-300 gap-2"
-        >
-          <MessageSquare className="h-4 w-4" />
-          Rate this table
-        </Button>
-      )}
-
-      {/* Expanded state: feedback card */}
+      {/* Expanded state: feedback card with thumbs up/down */}
       {widgetState === 'expanded' && (
         <Card className="w-80 shadow-lg animate-in fade-in slide-in-from-right-4 duration-300">
           <CardHeader className="flex flex-row items-center justify-between py-3 px-4 space-y-0">
