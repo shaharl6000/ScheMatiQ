@@ -1,316 +1,105 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
-QueryDiscovery is a production-ready application and research project implementing Query-Based Schema Discovery (QBSD), a modern approach to information extraction. The system takes a user query and a collection of documents, then iteratively discovers a table schema (column headers + rationales) that best captures information needed to answer the query.
+QueryDiscovery implements Query-Based Schema Discovery (QBSD) — takes a user query + documents, iteratively discovers a table schema, then extracts values into a structured table. Production-deployed on Railway with Supabase storage.
 
 ## Architecture
 
-The project is structured for production deployment on Railway with Supabase storage:
-
 ```
 QueryDiscovery/
-├── frontend/           # React Application (Railway Service 1)
-├── backend/            # FastAPI Application (Railway Service 2)
-├── qbsd-lib/           # QBSD Core Library (Python Package)
-├── research/           # Research Data & Experiments
-├── shared/             # Shared types and constants
-├── docs/               # Documentation
-├── .venv/              # Python virtual environment
-├── CLAUDE.md           # Project documentation
-├── README.md           # Project readme
-├── requirements.txt    # Root Python dependencies
-└── .gitignore          # Git ignore rules
+├── frontend/     # React 18 + TypeScript + Tailwind/shadcn (Railway Service 1)
+├── backend/      # FastAPI + WebSocket (Railway Service 2)
+├── qbsd-lib/     # Core QBSD algorithms (Python package, imported by backend)
+├── research/     # Datasets, experiments, evaluation results
+└── shared/       # (currently empty)
 ```
 
-### frontend/ - React Application
-- Modern React 18 with TypeScript
-- Tailwind CSS + shadcn/ui components
-- Real-time WebSocket updates for QBSD creation progress
-- Pages: Landing, CreateQBSD, LoadQBSD, Results
+**Request flow:** Frontend → Backend route (`app/api/routes/`) → Service (`app/services/`) → qbsd-lib (`qbsd/`) → LLM API. Real-time progress via WebSocket.
 
-**Key Files:**
-- `src/App.tsx` - Main app router
-- `src/pages/` - Page components
-- `src/components/ui/` - shadcn/ui components
-- `src/services/api.ts` - Backend API client
-- `src/constants/index.ts` - App configuration and constants
-- `package.json` - Dependencies and scripts
-- `railway.json` - Railway deployment configuration
-- `.env.example` - Environment variables template
+### Frontend
+- Pages: **Landing, QBSDConfig, Load, Visualize**
+- Key dirs: `src/pages/`, `src/components/ui/`, `src/contexts/`, `src/hooks/`, `src/types/`, `src/services/`, `src/constants/`
 
-### backend/ - FastAPI Application
-- FastAPI with CORS and WebSocket support
-- Modular route structure in `app/api/routes/`
-- Service layer for business logic
-- Imports QBSD core from `qbsd-lib/`
+### Backend
+- **Routes** (`app/api/routes/`): `qbsd.py`, `schema.py`, `load.py`, `observation_unit.py`, `units.py`, `cloud_data.py`, `websocket.py`
+- **Services** (`app/services/`):
+  - Core pipeline: `qbsd_runner`, `continue_discovery_service`, `reextraction_service`
+  - Data management: `session_manager`, `schema_manager`, `observation_unit_manager`, `unit_view_service`, `data_editor`, `file_parser`, `upload_document_processor`
+  - Infrastructure: `websocket_manager`, `websocket_mixin`, `pdf_utils`
+- **Storage** (`app/storage/`): `StorageInterface` ABC → `LocalStorage` (dev) / `SupabaseStorage` (prod), via `StorageFactory`
+- **Models** (`app/models/`): `session`, `qbsd`, `upload`, `modification`, `unit`
+- **Core** (`app/core/`): `config.py` (RELEASE_CONFIG, env vars), `exceptions.py`, `logging_utils.py`
+- **Working dirs** (gitignored, runtime): `sessions/`, `qbsd_work/`, `data/`, `templates/`, `initial_schemas/`
 
-**Key Files:**
-- `app/main.py` - FastAPI application entry point
-- `app/api/routes/` - API endpoints (qbsd.py, load.py, schema.py, websocket.py)
-- `app/services/` - Business logic:
-  - `qbsd_runner.py` - QBSD pipeline orchestration
-  - `file_parser.py` - File parsing and validation
-  - `websocket_manager.py` - WebSocket connection management
-  - `schema_manager.py` - Schema editing operations
-  - `upload_document_processor.py` - Document processing
-  - `session_manager.py` - Session state management
-- `app/core/config.py` - Configuration and environment variables
-- `app/core/exceptions.py` - Custom exceptions (CapacityExceededError)
-- `app/models/` - Pydantic models (session.py, qbsd.py, upload.py)
-- `requirements.txt` - Python dependencies
-- `railway.json` - Railway deployment configuration
-- `.env.example` - Environment variables template
-
-### qbsd-lib/ - QBSD Core Library
-Self-contained Python package with all QBSD algorithms. The backend imports from this package.
-
-**Package Structure:**
-- `qbsd/` - Main package
-  - `__init__.py` - Package exports (Schema, Column, LLMInterface, etc.)
-  - `core/` - Core QBSD implementation
-    - `qbsd.py` - Main pipeline (select_relevant_content, generate_schema, merge_schemas)
-    - `schema.py` - Schema data structures (Column, Schema classes)
-    - `llm_backends.py` - LLM interfaces (TogetherLLM, OpenAILLM, GeminiLLM)
-    - `retrievers.py` - Embedding-based content retrieval (EmbeddingRetriever)
-    - `utils.py` - Utility functions for text processing
-  - `value_extraction/` - Modular value extraction framework
-    - `main.py` - Entry point (build_table_jsonl function)
-    - `core/` - Business logic (TableBuilder, PaperProcessor, JSONResponseParser, LLMCache, RowDataManager)
-    - `utils/` - Utilities (TextProcessor, PromptBuilder)
-    - `config/` - Configuration constants and system prompts
-  - `evaluation/` - Evaluation metrics (from arxivDIGESTables)
-    - `metrics.py` - SchemaRecallMetric, BaseMetric
-    - `metrics_utils.py` - Featurizers and scorers
-    - `run_eval.py` - Evaluation runner
-  - `scripts/` - Data processing scripts (run.py, create_data.py, generate_tables.py)
-- `pyproject.toml` - Package configuration
-- `tests/` - Test directory
-
-### research/ - Research Data & Experiments
-All research datasets and experimental configurations consolidated here:
-
-- `data/` - Research datasets
-  - `abstracts/` - NES research paper abstracts
-  - `full_text/` - Full research papers
-  - `manually/` - Manual annotations
-  - `arxivDIGESTables/` - ArxivDIGESTables evaluation data
-  - `NES_DATA/` - NES database files
-  - Various `.jsonl`, `.csv` data files
-- `experiments/` - Experiment configurations
-  - `configurations/` - JSON config files for QBSD experiments
-  - Example configs for evaluation and extraction
-- `results/` - Evaluation outputs and predictions
-- `notebooks/` - Jupyter notebooks (if any)
-
-### shared/ - Shared Types and Constants
-- `types/` - Shared TypeScript type definitions
-- `constants/` - Shared constants
-
-## Development Commands
-
-### Frontend Development
-```bash
-cd frontend
-npm install --legacy-peer-deps
-npm start                    # Development server on :3000
-npm run build               # Production build
-```
-
-### Backend Development
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
-```
-
-### Running Both Locally
-```bash
-# Terminal 1 - Backend
-cd backend && uvicorn app.main:app --reload --port 8000
-
-# Terminal 2 - Frontend
-cd frontend && npm start
-```
-
-### Environment Variables
-
-**Backend (.env):**
-```bash
-# LLM API Keys (at least one required)
-OPENAI_API_KEY=your-key
-TOGETHER_API_KEY=your-key
-GEMINI_API_KEY=your-key
-
-# Server Configuration
-ALLOWED_ORIGINS=http://localhost:3000
-DEBUG=true
-
-# Supabase (optional)
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-anon-key
-
-# QBSD Defaults
-DEFAULT_MAX_TOKENS=4096
-DEFAULT_TEMPERATURE=0.7
-DEFAULT_RETRIEVAL_K=5
-
-# Concurrency (optional, defaults shown)
-MAX_CONCURRENT_SESSIONS=5      # Max parallel LLM-heavy operations
-QBSD_THREAD_POOL_SIZE=6        # Thread pool workers for blocking calls
-```
-
-**Frontend (.env):**
-```bash
-REACT_APP_API_URL=http://localhost:8000
-REACT_APP_WS_URL=ws://localhost:8000
-REACT_APP_ENABLE_DEBUG=true
-```
-
-### Release Mode vs Developer Mode
-
-The backend runs in **release mode** by default, which restricts certain features
-for public/production use. Set `DEVELOPER_MODE=true` to unlock all features.
-
-| Setting            | Release Mode (default) | Developer Mode          |
-|--------------------|------------------------|-------------------------|
-| Document limit     | 20                     | 10,000 (effectively unlimited) |
-| Bypass UI toggle   | Hidden                 | Visible                 |
-| LLM configuration  | Locked (Gemini only)   | User-configurable       |
-| Schema creation model | gemini-2.5-flash    | User's choice           |
-| Value extraction model | gemini-2.5-flash-lite | User's choice        |
-
-**How it works:**
-- All mode-dependent settings are centralized in `RELEASE_CONFIG` in `backend/app/core/config.py`
-- The `/api/config` endpoint exposes the active configuration to the frontend
-- The frontend adapts its UI based on the `developer_mode` flag (e.g., showing/hiding the limit bypass toggle)
-
-**Adding a new release restriction:**
-1. Add the default (release) value to `RELEASE_CONFIG` in `backend/app/core/config.py`
-2. Resolve the effective value using `DEVELOPER_MODE` (same pattern as `MAX_DOCUMENTS`)
-3. Return it in `/api/config` if the frontend needs it
-4. Update this table
-
-### Concurrency & Multi-User Support
-
-The backend supports multiple concurrent QBSD sessions (target: 5-8 on Railway 8 vCPU / 8 GB RAM). Key architectural decisions:
-
-**Thread Pool**: All blocking LLM/embedding calls from `qbsd-lib` are offloaded via `loop.run_in_executor(qbsd_thread_pool, ...)` using `functools.partial` to avoid closure capture issues. The shared `ThreadPoolExecutor` lives in `app/services/__init__.py`.
-
-**Concurrency Limiter**: A shared `ConcurrencyLimiter` in `app/services/__init__.py` tracks active long-running operations across all services (QBSD creation, reextraction, continue discovery, document processing). Routes call `acquire()` before scheduling work and services call `release()` in `finally` blocks. Exceeding capacity returns HTTP 503 with a friendly message.
-
-**Thread Safety**:
-- `SessionManager` uses `threading.Lock` (accessed from both event loop and thread pool workers)
-- `WebSocketManager` uses `asyncio.Lock` with snapshot-before-broadcast pattern (event-loop only)
-- `QBSDRunner`, `ReextractionService`, `ContinueDiscoveryService`, `SchemaManager`, `UploadDocumentProcessor` all use `threading.Lock` for stop flags and running task dicts (stop flags are read from thread pool workers via `should_stop` callbacks)
-
-**Frontend Capacity Handling**: HTTP 503 from the backend shows an amber "Server Busy" banner in `QBSDMonitor` (not a red error) with a "Try Again" button and 30-second auto-dismiss. Other flows (continue discovery, reextraction, reprocess, document processing) detect 503 and show the backend's friendly message.
-
-**Observability**: All concurrency logs use the `[concurrency]` prefix for easy filtering in Railway. The `/api/config` endpoint returns `active_sessions` and `max_concurrent_sessions`.
-
-| Setting                  | Env Var                    | Default |
-|--------------------------|----------------------------|---------|
-| Max concurrent sessions  | `MAX_CONCURRENT_SESSIONS`  | 5       |
-| Thread pool workers      | `QBSD_THREAD_POOL_SIZE`    | 6       |
-
-### Using qbsd-lib Directly
-```bash
-cd qbsd-lib
-pip install -e .
-
-# In Python
-from qbsd import Schema, Column, EmbeddingRetriever
-from qbsd.core.llm_backends import OpenAILLM, TogetherLLM, GeminiLLM
-from qbsd.value_extraction.main import build_table_jsonl
-```
+### qbsd-lib
+- `qbsd/core/` — Schema discovery pipeline, observation unit discovery, LLM backends, retrievers, cost estimation, document preprocessing, prompts, model specs
+- `qbsd/value_extraction/` — TableBuilder, PaperProcessor, LLMCache (subpackages: `core/`, `utils/`, `config/`)
+- `qbsd/evaluation/` — Schema/row evaluation, ground truth comparison, data quality metrics
+- See `qbsd/__init__.py` for all public exports
 
 ## Key Concepts
 
-**Schema Discovery Pipeline:**
-1. Content retrieval using embedding-based similarity
-2. LLM-based schema generation with iterative refinement
-3. Schema merging using semantic similarity
-4. Convergence evaluation to determine completion
+- **Observation Unit**: The entity each table row describes (e.g., "research paper", "patient"). Discovered automatically from query + documents BEFORE schema generation. Defined in `qbsd.core.schema.ObservationUnit`.
+- **Schema Discovery**: Embedding-based retrieval → LLM schema generation → semantic merging → convergence check. Iterative across document batches.
+- **Value Extraction**: Groups documents by observation unit, extracts column values per document, assembles rows. Writes incrementally to prevent data loss.
+- **Continue Discovery**: Extends schema after initial convergence by processing more documents. Managed by `ContinueDiscoveryService`.
+- **Reextraction**: Re-runs value extraction with current/edited schema. Managed by `ReextractionService`.
+- **Cost Estimation**: Estimates API costs before expensive LLM ops. `qbsd.core.cost_estimator` → `/api/qbsd/cost-estimate` endpoint.
 
-**Value Extraction Pipeline:**
-1. Paper Grouping by row name
-2. Resume Logic for incomplete extractions
-3. Paper Processing with retrieval-based text selection
-4. Row Assembly from multiple papers
-5. Incremental Writing to prevent data loss
+## Development Commands
 
-**Core Classes:**
-- `Column` - Individual schema column with name, rationale, definition
-- `Schema` - Collection of columns with merging operations
-- `LLMInterface` - Abstract base for LLM providers
-- `TogetherLLM`, `OpenAILLM`, `GeminiLLM` - Concrete LLM implementations
-- `EmbeddingRetriever` - Document passage retrieval
-- `TableBuilder` - Value extraction orchestrator
-- `PaperProcessor` - Per-paper value extraction
+```bash
+# Frontend
+cd frontend && npm install --legacy-peer-deps && npm start    # Dev server :3000
+
+# Backend
+cd backend && pip install -r requirements.txt && uvicorn app.main:app --reload --port 8000
+
+# qbsd-lib (editable install)
+cd qbsd-lib && pip install -e .
+```
+
+## Environment Variables
+
+**Backend** — MUST set at least one LLM key:
+- `OPENAI_API_KEY`, `TOGETHER_API_KEY`, `GEMINI_API_KEY`
+- `ALLOWED_ORIGINS` (default: http://localhost:3000)
+- `SUPABASE_URL`, `SUPABASE_KEY` (optional, for prod storage)
+- `MAX_CONCURRENT_SESSIONS` (default: 5), `QBSD_THREAD_POOL_SIZE` (default: 6)
+- `DEVELOPER_MODE=true` to unlock all features (see below)
+
+**Frontend** — `REACT_APP_API_URL`, `REACT_APP_WS_URL`, `REACT_APP_ENABLE_DEBUG`
+
+## Release Mode vs Developer Mode
+
+Release mode (default) restricts features for public use. Set `DEVELOPER_MODE=true` to unlock.
+
+| Setting                  | Release Mode           | Developer Mode          |
+|--------------------------|------------------------|-------------------------|
+| Document limit           | 20                     | 10,000                  |
+| Bypass UI toggle         | Hidden                 | Visible                 |
+| LLM configuration        | Locked (Gemini only)   | User-configurable       |
+| Schema creation model    | gemini-2.5-flash       | User's choice           |
+| Value extraction model   | gemini-2.5-flash-lite  | User's choice           |
+
+All mode settings in `RELEASE_CONFIG` in `backend/app/core/config.py`. Frontend adapts via `/api/config`.
+
+## Concurrency
+
+- All blocking LLM/embedding calls offloaded via `loop.run_in_executor(qbsd_thread_pool, ...)` with `functools.partial`
+- `ConcurrencyLimiter` in `app/services/__init__.py` tracks active sessions; exceeding capacity → HTTP 503 (frontend shows amber banner, not red error)
+- Thread safety: `SessionManager` uses `threading.Lock`, `WebSocketManager` uses `asyncio.Lock`, services use `threading.Lock` for stop flags
 
 ## Deployment
 
-### Railway Configuration
+Both services use **Dockerfile-based** builds (NOT NIXPACKS):
+- `frontend/Dockerfile` — Multi-stage Node 18 → Nginx. Has `railway.json` with `builder: "DOCKERFILE"`.
+- `backend/Dockerfile` — Python 3.11-slim, CPU-only PyTorch, copies `qbsd-lib/`. **No `railway.json`**.
 
-**Frontend Service (frontend/railway.json):**
-```json
-{
-  "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "npm install --legacy-peer-deps && npm run build"
-  },
-  "deploy": {
-    "startCommand": "npm run serve",
-    "healthcheckPath": "/",
-    "restartPolicyType": "ON_FAILURE"
-  }
-}
-```
+## Important Rules
 
-**Backend Service (backend/railway.json):**
-```json
-{
-  "build": {
-    "builder": "NIXPACKS",
-    "buildCommand": "pip install -r requirements.txt"
-  },
-  "deploy": {
-    "startCommand": "uvicorn app.main:app --host 0.0.0.0 --port $PORT",
-    "healthcheckPath": "/health",
-    "restartPolicyType": "ON_FAILURE"
-  }
-}
-```
-
-### Supabase Storage (Optional)
-- `documents/` bucket - User uploaded files
-- `exports/` bucket - Generated exports
-
-## API Endpoints
-
-The backend exposes the following main routes:
-
-- `GET /` - Root endpoint with version info
-- `GET /health` - Health check
-- `POST /api/load/file` - Upload file for loading existing QBSD
-- `GET /api/load/data/{session_id}` - Get session data
-- `POST /api/qbsd/configure` - Configure new QBSD session
-- `POST /api/qbsd/start/{session_id}` - Start QBSD processing
-- `GET /api/qbsd/status/{session_id}` - Get processing status
-- `PUT /api/schema/edit-column/{session_id}` - Edit schema column
-- `DELETE /api/schema/delete-column/{session_id}/{column_name}` - Delete column
-- `POST /api/schema/add-column/{session_id}` - Add new column
-- `WS /ws/progress/{session_id}` - WebSocket for real-time updates
-
-## Important Notes
-
-- **NEVER run LLM flows without explicit user permission due to API costs**
-- Frontend and backend are independent services - start both for full functionality
-- WebSocket connections provide real-time progress updates during QBSD creation
-- All API keys must be set as environment variables
-- Use `--legacy-peer-deps` when installing frontend dependencies due to react-json-view peer dependency
-- The backend imports QBSD core from `qbsd-lib/` - ensure the path is correct
-- Research data in `research/` is gitignored to avoid committing large files
-- Run backend from the `backend/` directory for correct path resolution
+- **NEVER run LLM flows without explicit user permission** — API costs
+- MUST use `--legacy-peer-deps` for frontend npm install
+- MUST run backend from the `backend/` directory for correct path resolution
+- Research data in `research/` is gitignored — do not commit large data files
