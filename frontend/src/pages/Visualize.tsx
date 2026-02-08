@@ -49,6 +49,7 @@ import LLMSelector from '../components/LLMSelector';
 import { ViewModeToggle } from '../components/ViewMode';
 import { useViewMode } from '../contexts/ViewModeContext';
 import { useUnits } from '../hooks/useUnits';
+import TableFeedbackWidget from '../components/TableFeedbackWidget/TableFeedbackWidget';
 
 const Visualize = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -90,6 +91,9 @@ const Visualize = () => {
   // Document limit state
   const [maxDocuments, setMaxDocuments] = useState<number | undefined>(undefined);
 
+  // Developer mode state (for conditionally showing feedback widget)
+  const [developerMode, setDeveloperMode] = useState<boolean>(true);
+
   // LLM selection state
   const [showLLMSelector, setShowLLMSelector] = useState(false);
 
@@ -121,10 +125,13 @@ const Visualize = () => {
     }
   }, [sessionId]);
 
-  // Fetch config to get document limit
+  // Fetch config to get document limit and developer mode
   useEffect(() => {
     configAPI.getConfig()
-      .then(cfg => setMaxDocuments(cfg.max_documents))
+      .then(cfg => {
+        setMaxDocuments(cfg.max_documents);
+        setDeveloperMode(cfg.developer_mode);
+      })
       .catch(() => {});
   }, []);
 
@@ -532,6 +539,8 @@ const Visualize = () => {
                 // Force immediate data refetch (not just invalidate)
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                // Notify feedback widget to reset (new table deserves fresh feedback)
+                window.dispatchEvent(new Event('reextraction_completed'));
                 // Delay WebSocket close to allow refetch to complete
                 setTimeout(() => {
                   setForceWebSocketConnect(false);
@@ -1038,7 +1047,7 @@ const Visualize = () => {
         {/* Data Tab */}
         <TabsContent value="data" className="mt-4">
           {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || isQBSDStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
-            <div className="relative">
+            <div className="relative" data-table-container>
               {/* View Mode Toggle - show if observation units exist (from API) OR if table has unit-related columns */}
               {((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) && (
                 <div className="mb-4 flex items-center gap-4">
@@ -1301,6 +1310,17 @@ const Visualize = () => {
           </TabsContent>
         )}
       </Tabs>
+
+      {/* Table Feedback Widget (release mode only) */}
+      {!developerMode && sessionId && (
+        <TableFeedbackWidget
+          sessionId={sessionId}
+          sessionStatus={session?.status || ''}
+          activeTab={activeTab}
+          tableRowCount={dataResponse?.total_count || 0}
+          tableColumnCount={session?.columns?.length || 0}
+        />
+      )}
 
       {/* LLM Selection Dialog */}
       <LLMSelector

@@ -19,7 +19,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.schema_manager import SchemaManager
 from app.services.reextraction_service import ReextractionService
 from app.services.continue_discovery_service import ContinueDiscoveryService
-from app.services import session_manager, websocket_manager, concurrency_limiter
+from app.services import session_manager, websocket_manager, concurrency_limiter, data_collection_service
 from app.core.exceptions import CapacityExceededError
 from app.core.logging_utils import set_session_context
 
@@ -30,10 +30,12 @@ router = APIRouter(tags=["schema"])
 schema_manager = SchemaManager(websocket_manager, session_manager)
 
 # Create reextraction service instance
-reextraction_service = ReextractionService(websocket_manager, session_manager)
+reextraction_service = ReextractionService(websocket_manager, session_manager,
+                                           data_collection_service=data_collection_service)
 
 # Create continue discovery service instance
-continue_discovery_service = ContinueDiscoveryService(websocket_manager, session_manager)
+continue_discovery_service = ContinueDiscoveryService(websocket_manager, session_manager,
+                                                      data_collection_service=data_collection_service)
 
 # Request/Response Models
 class ColumnEditRequest(BaseModel):

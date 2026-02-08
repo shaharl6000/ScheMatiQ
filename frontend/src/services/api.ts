@@ -83,6 +83,20 @@ const api = axios.create({
   timeout: 30000,
 });
 
+// Feedback API (release mode only)
+export const feedbackAPI = {
+  submitFeedback: async (data: {
+    session_id: string;
+    rating: 'positive' | 'negative';
+    comment?: string;
+    table_row_count: number;
+    table_column_count: number;
+  }): Promise<{ status: string }> => {
+    const response = await api.post('/feedback/table', data);
+    return response.data;
+  },
+};
+
 // Config API (for public configuration)
 export const configAPI = {
   getConfig: async (): Promise<{

@@ -103,3 +103,45 @@ def find_session_data_file(session_id: str) -> Optional[Path]:
 # Create singleton instances
 websocket_manager = WebSocketManager()
 session_manager = SessionManager()
+
+# ── Research data collection (Google Drive archival) ─────────────
+# Gracefully disabled when credentials are not configured or
+# google packages are not installed.
+from app.core.config import (
+    DATA_COLLECTION_ENABLED, DEVELOPER_MODE,
+    GOOGLE_DRIVE_FOLDER_ID, GOOGLE_SERVICE_ACCOUNT_JSON,
+    GOOGLE_SERVICE_ACCOUNT_FILE, GOOGLE_OAUTH_CREDENTIALS_JSON,
+)
+
+if DATA_COLLECTION_ENABLED:
+    try:
+        from app.storage.google_drive import GoogleDriveUploader
+        from app.storage.google_sheets import GoogleSheetsLogger
+        from app.services.data_collection_service import DataCollectionService
+
+        _drive_uploader = GoogleDriveUploader.get_instance()
+        _sheets_logger = GoogleSheetsLogger.get_instance()
+        data_collection_service = DataCollectionService(
+            session_manager=session_manager,
+            uploader=_drive_uploader,
+            sheets_logger=_sheets_logger,
+        )
+        if data_collection_service.is_enabled:
+            logger.info("[data-collection] Service enabled — sessions will be archived to Google Drive")
+        else:
+            logger.info("[data-collection] Credentials invalid or missing — archival disabled")
+            data_collection_service = None
+    except Exception as e:
+        logger.warning("[data-collection] Could not initialize: %s", e, exc_info=True)
+        data_collection_service = None
+else:
+    data_collection_service = None
+    # Log exactly why data collection is disabled so users can diagnose easily
+    _reasons = []
+    if DEVELOPER_MODE:
+        _reasons.append("DEVELOPER_MODE=true")
+    if not GOOGLE_DRIVE_FOLDER_ID:
+        _reasons.append("GOOGLE_DRIVE_FOLDER_ID not set")
+    if not (GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE or GOOGLE_OAUTH_CREDENTIALS_JSON):
+        _reasons.append("no Google credentials set (need GOOGLE_OAUTH_CREDENTIALS_JSON or GOOGLE_SERVICE_ACCOUNT_JSON)")
+    logger.info("[data-collection] Disabled — %s", "; ".join(_reasons) if _reasons else "DATA_COLLECTION_ENABLED=False")

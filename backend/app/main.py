@@ -39,6 +39,7 @@ from app.api.routes.schema import router as schema_router
 from app.api.routes.cloud_data import router as cloud_data_router
 from app.api.routes.observation_unit import router as observation_unit_router
 from app.api.routes.units import router as units_router
+from app.api.routes.feedback import router as feedback_router
 from app.core.config import (
     API_TITLE, API_DESCRIPTION, API_VERSION,
     ALLOWED_ORIGINS, DEFAULT_HOST, DEFAULT_PORT,
@@ -107,6 +108,7 @@ app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
 app.include_router(cloud_data_router, prefix="/api", tags=["cloud-data"])
 app.include_router(observation_unit_router, prefix="/api/observation-unit", tags=["observation-unit"])
 app.include_router(units_router, prefix="/api/units", tags=["units"])
+app.include_router(feedback_router, prefix="/api/feedback", tags=["feedback"])
 
 logger = logging.getLogger(__name__)
 logger.info(

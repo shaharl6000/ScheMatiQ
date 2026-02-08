@@ -16,7 +16,7 @@ from app.models.session import VisualizationSession, SessionType, SessionMetadat
 from app.models.qbsd import QBSDConfig, QBSDStatus, CostEstimate, CostEstimateRequest, PhaseEstimate, DocumentStats
 from app.services.qbsd_runner import QBSDRunner
 from app.services.data_editor import DataEditor
-from app.services import websocket_manager, session_manager, concurrency_limiter
+from app.services import websocket_manager, session_manager, concurrency_limiter, data_collection_service
 from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE
 from app.core.exceptions import CapacityExceededError
 from app.storage import get_storage
@@ -27,7 +27,8 @@ from qbsd.core.cost_estimator import estimate_from_config
 logger = logging.getLogger(__name__)
 router = APIRouter()
 # Create shared QBSD runner instance with shared managers
-qbsd_runner = QBSDRunner(websocket_manager=websocket_manager, session_manager=session_manager)
+qbsd_runner = QBSDRunner(websocket_manager=websocket_manager, session_manager=session_manager,
+                         data_collection_service=data_collection_service)
 # Create data editor instance
 data_editor = DataEditor()
 
