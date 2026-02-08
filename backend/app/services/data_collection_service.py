@@ -9,6 +9,7 @@ Enabled only in release mode with valid Google credentials configured.
 """
 
 import asyncio
+import csv
 import io
 import json
 import logging
@@ -16,7 +17,7 @@ import re
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 
 from app.core.config import DATA_COLLECTION_ENABLED, DEVELOPER_MODE
 
@@ -77,6 +78,7 @@ class DataCollectionService:
         data_bytes = self._read_data_file(session_id)
         documents = self._gather_documents(session_id)
         config_json = self._read_and_sanitize_config(session_id)
+        export_csv = self._build_export_csv(session, session_id, config_json)
 
         # Build ZIP
         zip_buffer = io.BytesIO()
@@ -85,6 +87,8 @@ class DataCollectionService:
             zf.writestr("schema.json", json.dumps(schema_json, indent=2, default=str))
             if data_bytes:
                 zf.writestr("data.jsonl", data_bytes)
+            if export_csv:
+                zf.writestr("export.csv", export_csv)
             if config_json:
                 zf.writestr("config.json", json.dumps(config_json, indent=2, default=str))
             for doc_name, doc_content in documents:
@@ -188,19 +192,146 @@ class DataCollectionService:
         return None
 
     def _gather_documents(self, session_id: str):
-        """Collect uploaded documents as (name, bytes) pairs."""
-        results = []
-        docs_dir = Path("./data") / session_id / "documents"
-        if not docs_dir.exists():
-            return results
+        """Collect uploaded documents as (name, bytes) pairs.
 
-        for f in sorted(docs_dir.iterdir()):
-            if f.is_file() and not f.name.startswith("."):
-                try:
-                    results.append((f.name, f.read_bytes()))
-                except Exception as e:
-                    logger.warning("[data-collection] Could not read document %s: %s", f.name, e)
+        Checks all locations where documents may live:
+        - data/{id}/documents/          (processed uploads)
+        - data/{id}/pending_documents/  (uploads during initial QBSD creation)
+        - qbsd_work/{id}/datasets/      (Supabase dataset downloads)
+        """
+        seen_names: set = set()
+        results = []
+
+        candidate_dirs = [
+            Path("./data") / session_id / "documents",
+            Path("./data") / session_id / "pending_documents",
+        ]
+        # Supabase datasets: qbsd_work/{id}/datasets/{dataset_name}/
+        datasets_root = Path("./qbsd_work") / session_id / "datasets"
+        if datasets_root.exists():
+            for sub in sorted(datasets_root.iterdir()):
+                if sub.is_dir():
+                    candidate_dirs.append(sub)
+
+        for docs_dir in candidate_dirs:
+            if not docs_dir.exists():
+                continue
+            for f in sorted(docs_dir.iterdir()):
+                if f.is_file() and not f.name.startswith(".") and f.name not in seen_names:
+                    try:
+                        results.append((f.name, f.read_bytes()))
+                        seen_names.add(f.name)
+                    except Exception as e:
+                        logger.warning("[data-collection] Could not read document %s: %s", f.name, e)
+
         return results
+
+    def _build_export_csv(self, session, session_id: str, config: Optional[Dict[str, Any]]) -> Optional[str]:
+        """Build a CSV export matching the /export endpoint format."""
+        from app.services import find_session_data_file
+
+        data_path = find_session_data_file(session_id)
+        if not data_path or not data_path.exists():
+            return None
+
+        # Parse all rows from JSONL
+        rows: List[Dict[str, Any]] = []
+        try:
+            for line in data_path.read_text(encoding="utf-8").splitlines():
+                if line.strip():
+                    row_data = json.loads(line.strip())
+                    # Normalize _row_name format to standard format
+                    if "_row_name" in row_data:
+                        rows.append({
+                            "row_name": row_data.get("_row_name"),
+                            "papers": row_data.get("_papers", []),
+                            "unit_name": row_data.get("_unit_name"),
+                            "source_document": row_data.get("_source_document"),
+                            "data": {k: v for k, v in row_data.items() if not k.startswith("_")},
+                        })
+                    else:
+                        rows.append(row_data)
+        except Exception as e:
+            logger.warning("[data-collection] Could not parse data for CSV export: %s", e)
+            return None
+
+        if not rows:
+            return None
+
+        output = io.StringIO()
+
+        # Write metadata header comments (matches /export endpoint)
+        output.write("# QBSD Export with Schema Metadata\n")
+        output.write(f"# Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
+        output.write(f"# Session ID: {session_id}\n")
+        output.write(f"# Query: {session.schema_query or 'N/A'}\n")
+        if session.observation_unit:
+            output.write(f"# Observation Unit: {session.observation_unit.name} - {session.observation_unit.definition}\n")
+        if config:
+            sc = config.get("schema_creation_backend", {})
+            ve = config.get("value_extraction_backend", {})
+            if sc:
+                output.write(f"# Schema Creation: {sc.get('provider', '?')} {sc.get('model', '?')}\n")
+            if ve:
+                output.write(f"# Value Extraction: {ve.get('provider', '?')} {ve.get('model', '?')}\n")
+        output.write("#\n")
+        output.write("# Column Definitions:\n")
+        for col in session.columns:
+            if col.name and not col.name.lower().endswith("_excerpt"):
+                output.write(f"# {col.name}: {col.definition or 'No definition'}\n")
+                if col.allowed_values:
+                    output.write(f"#   Allowed Values: {', '.join(col.allowed_values)}\n")
+        output.write("#\n")
+
+        # Determine all column names
+        all_columns: set = set()
+        for row in rows:
+            if row.get("row_name"):
+                all_columns.add("row_name")
+            if row.get("papers"):
+                all_columns.add("papers")
+            if row.get("unit_name"):
+                all_columns.add("_unit_name")
+            if row.get("source_document"):
+                all_columns.add("_source_document")
+            for col_name, value in row.get("data", {}).items():
+                all_columns.add(col_name)
+                if isinstance(value, dict) and "excerpts" in value:
+                    all_columns.add(f"{col_name}_excerpt")
+
+        column_names = sorted(all_columns)
+        writer = csv.DictWriter(output, fieldnames=column_names)
+        writer.writeheader()
+
+        for row in rows:
+            csv_row: Dict[str, Any] = {}
+            if row.get("row_name"):
+                csv_row["row_name"] = row["row_name"]
+            if row.get("papers"):
+                papers = row["papers"]
+                csv_row["papers"] = "; ".join(papers) if isinstance(papers, list) else str(papers)
+            if row.get("unit_name"):
+                csv_row["_unit_name"] = row["unit_name"]
+            if row.get("source_document"):
+                csv_row["_source_document"] = row["source_document"]
+
+            for col_name, value in row.get("data", {}).items():
+                if isinstance(value, dict) and "answer" in value:
+                    csv_row[col_name] = value["answer"]
+                    if "excerpts" in value and value["excerpts"]:
+                        excerpts = value["excerpts"]
+                        if isinstance(excerpts, list):
+                            csv_row[f"{col_name}_excerpt"] = " | ".join(str(ex) for ex in excerpts)
+                        else:
+                            csv_row[f"{col_name}_excerpt"] = str(excerpts)
+                elif isinstance(value, (list, dict)):
+                    csv_row[col_name] = str(value)
+                else:
+                    csv_row[col_name] = value
+
+            writer.writerow(csv_row)
+
+        return output.getvalue()
 
     def _read_and_sanitize_config(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Read QBSD config, strip secrets."""

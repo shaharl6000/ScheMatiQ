@@ -107,7 +107,11 @@ session_manager = SessionManager()
 # ── Research data collection (Google Drive archival) ─────────────
 # Gracefully disabled when credentials are not configured or
 # google packages are not installed.
-from app.core.config import DATA_COLLECTION_ENABLED
+from app.core.config import (
+    DATA_COLLECTION_ENABLED, DEVELOPER_MODE,
+    GOOGLE_DRIVE_FOLDER_ID, GOOGLE_SERVICE_ACCOUNT_JSON,
+    GOOGLE_SERVICE_ACCOUNT_FILE, GOOGLE_OAUTH_CREDENTIALS_JSON,
+)
 
 if DATA_COLLECTION_ENABLED:
     try:
@@ -128,7 +132,16 @@ if DATA_COLLECTION_ENABLED:
             logger.info("[data-collection] Credentials invalid or missing — archival disabled")
             data_collection_service = None
     except Exception as e:
-        logger.debug("[data-collection] Could not initialize: %s", e)
+        logger.warning("[data-collection] Could not initialize: %s", e, exc_info=True)
         data_collection_service = None
 else:
     data_collection_service = None
+    # Log exactly why data collection is disabled so users can diagnose easily
+    _reasons = []
+    if DEVELOPER_MODE:
+        _reasons.append("DEVELOPER_MODE=true")
+    if not GOOGLE_DRIVE_FOLDER_ID:
+        _reasons.append("GOOGLE_DRIVE_FOLDER_ID not set")
+    if not (GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE or GOOGLE_OAUTH_CREDENTIALS_JSON):
+        _reasons.append("no Google credentials set (need GOOGLE_OAUTH_CREDENTIALS_JSON or GOOGLE_SERVICE_ACCOUNT_JSON)")
+    logger.info("[data-collection] Disabled — %s", "; ".join(_reasons) if _reasons else "DATA_COLLECTION_ENABLED=False")

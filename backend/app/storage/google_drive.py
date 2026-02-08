@@ -12,6 +12,7 @@ All errors are caught internally — callers never see exceptions.
 import json
 import logging
 import os
+import re
 from io import BytesIO
 from typing import Optional
 
@@ -67,7 +68,9 @@ class GoogleDriveUploader:
         if GOOGLE_OAUTH_CREDENTIALS_JSON:
             try:
                 from google.oauth2.credentials import Credentials
-                creds_data = json.loads(GOOGLE_OAUTH_CREDENTIALS_JSON)
+                # Strip newlines/tabs that sneak in from terminal line-wrapping
+                cleaned = re.sub(r"[\n\r\t]+\s*", "", GOOGLE_OAUTH_CREDENTIALS_JSON)
+                creds_data = json.loads(cleaned)
                 credentials = Credentials(
                     token=creds_data.get("token"),
                     refresh_token=creds_data["refresh_token"],
@@ -88,7 +91,8 @@ class GoogleDriveUploader:
                 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
                 if GOOGLE_SERVICE_ACCOUNT_JSON:
-                    info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+                    cleaned_sa = re.sub(r"[\n\r\t]+\s*", "", GOOGLE_SERVICE_ACCOUNT_JSON)
+                    info = json.loads(cleaned_sa)
                     return service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
                 else:
                     return service_account.Credentials.from_service_account_file(
@@ -172,7 +176,10 @@ if __name__ == "__main__":
 
     flow = InstalledAppFlow.from_client_secrets_file(
         sys.argv[1],
-        scopes=["https://www.googleapis.com/auth/drive.file"],
+        scopes=[
+            "https://www.googleapis.com/auth/drive.file",
+            "https://www.googleapis.com/auth/spreadsheets",
+        ],
     )
     credentials = flow.run_local_server(port=0)
 
