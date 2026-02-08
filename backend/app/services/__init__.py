@@ -5,7 +5,8 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Tuple
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
 from .websocket_manager import WebSocketManager
 from .session_manager import SessionManager
@@ -82,6 +83,21 @@ class ConcurrencyLimiter:
 
 concurrency_limiter = ConcurrencyLimiter(MAX_CONCURRENT_SESSIONS)
 logger.info("[concurrency] Concurrency limiter initialized: max %d sessions", MAX_CONCURRENT_SESSIONS)
+
+
+def find_session_data_file(session_id: str) -> Optional[Path]:
+    """Find the primary data file for a session (QBSD or load).
+
+    QBSD sessions store extracted data in ./qbsd_work/{session_id}/extracted_data.jsonl.
+    Load sessions store data in ./data/{session_id}/data.jsonl.
+    """
+    qbsd_file = Path("./qbsd_work") / session_id / "extracted_data.jsonl"
+    if qbsd_file.exists():
+        return qbsd_file
+    load_file = Path("./data") / session_id / "data.jsonl"
+    if load_file.exists():
+        return load_file
+    return None
 
 
 # Create singleton instances

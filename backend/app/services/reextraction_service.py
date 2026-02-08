@@ -915,6 +915,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 ]
             }
 
+            # Add observation_unit (required by value extraction)
+            if session.observation_unit:
+                schema_data["observation_unit"] = {
+                    "name": session.observation_unit.name,
+                    "definition": session.observation_unit.definition,
+                }
+                if session.observation_unit.example_names:
+                    schema_data["observation_unit"]["example_names"] = session.observation_unit.example_names
+
             # Save schema file
             schema_file = session_dir / f"reextract_schema_{operation_id}.json"
             with open(schema_file, 'w') as f:
@@ -1113,18 +1122,32 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if not extraction_file.exists():
             return
 
-        session_dir = Path("./data") / session_id
-        data_file = session_dir / "data.jsonl"
+        # Find the correct data file
+        # QBSD sessions: data in ./qbsd_work/{session_id}/extracted_data.jsonl
+        # Load sessions: data in ./data/{session_id}/data.jsonl
+        qbsd_data_file = Path("./qbsd_work") / session_id / "extracted_data.jsonl"
+        load_data_file = Path("./data") / session_id / "data.jsonl"
 
-        if not data_file.exists():
+        if qbsd_data_file.exists():
+            data_file = qbsd_data_file
+        elif load_data_file.exists():
+            data_file = load_data_file
+        else:
+            logger.warning(f"No data file found for merge in session {session_id}")
             return
+
+        session_dir = data_file.parent
 
         # Read extracted values indexed by row_name
         extracted_by_row: Dict[str, Dict[str, Any]] = {}
         with open(extraction_file, 'r') as f:
             for line in f:
                 if line.strip():
-                    row_data = json.loads(line)
+                    try:
+                        row_data = json.loads(line)
+                    except json.JSONDecodeError:
+                        logger.warning(f"Skipping malformed line in extraction output: {line[:100]}")
+                        continue
                     row_name = row_data.get('_row_name') or row_data.get('row_name')
                     if row_name:
                         extracted_by_row[row_name] = row_data
@@ -1185,6 +1208,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 row['data'][col_name] = extracted[col_name]
                             else:
                                 row[col_name] = extracted[col_name]
+                else:
+                    logger.debug(f"No extracted match for row '{row_name}' (papers: {papers[:3]})")
 
                 updated_rows.append(row)
 
@@ -1201,10 +1226,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
             # Recalculate column stats for re-extracted columns
             for col_stat in session.statistics.column_stats:
                 if col_stat.name in columns:
-                    # Count non-null values for this column
+                    # Count non-null values for this column (handle both nested and flat formats)
                     non_null_count = sum(
                         1 for row in updated_rows
-                        if row.get('data', {}).get(col_stat.name) is not None
+                        if (row.get('data', {}).get(col_stat.name) is not None
+                            or row.get(col_stat.name) is not None)
                     )
                     old_count = col_stat.non_null_count
                     col_stat.non_null_count = non_null_count

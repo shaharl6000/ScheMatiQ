@@ -255,8 +255,9 @@ const Visualize = () => {
               setIsStoppingReextraction(false); // Clear stopping state
               setCurrentDocumentProgress(null); // Clear document progress
               setStreamingCells(new Map());    // Clear streaming cells
-              queryClient.invalidateQueries(['session', sessionId, mode]);
-              queryClient.invalidateQueries(['data', sessionId, mode]);
+              // Force immediate data refetch to show partial results
+              queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               break;
 
             case 'stopped':
@@ -528,9 +529,13 @@ const Visualize = () => {
                 setStreamingCells(new Map());    // Clear streaming cells
                 setActiveReextractionId(null);   // Clear operation ID
                 setIsStoppingReextraction(false); // Clear stopping state
-                setForceWebSocketConnect(false); // Allow WebSocket to close
-                queryClient.invalidateQueries(['session', sessionId, mode]);
-                queryClient.invalidateQueries(['data', sessionId, mode]);
+                // Force immediate data refetch (not just invalidate)
+                queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                // Delay WebSocket close to allow refetch to complete
+                setTimeout(() => {
+                  setForceWebSocketConnect(false);
+                }, 3000);
                 break;
               case 'reextraction_stopped':
                 console.log('Re-extraction stopped:', message.data);
@@ -540,8 +545,9 @@ const Visualize = () => {
                 setActiveReextractionId(null);   // Clear operation ID
                 setIsStoppingReextraction(false); // Clear stopping state
                 setForceWebSocketConnect(false); // Allow WebSocket to close
-                queryClient.invalidateQueries(['session', sessionId, mode]);
-                queryClient.invalidateQueries(['data', sessionId, mode]);
+                // Force immediate data refetch to show partial results
+                queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 break;
 
               case 'stopped':
