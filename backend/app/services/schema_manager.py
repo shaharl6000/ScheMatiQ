@@ -17,7 +17,7 @@ from app.models.session import ColumnInfo, SessionStatus
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.services import qbsd_thread_pool, concurrency_limiter
+from app.services import qbsd_thread_pool, concurrency_limiter, find_session_data_file
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
 from app.core.logging_utils import set_session_context
 
@@ -60,27 +60,40 @@ class SchemaManager(WebSocketBroadcasterMixin):
         
     def _get_value_extraction_llm_from_session(self, session_id: str):
         """Get value extraction LLM configuration from session, including API key."""
-        # In release mode, always use the release-mode LLM (ignore user config)
-        if not DEVELOPER_MODE:
-            logger.debug(f"Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']}")
-            return GeminiLLM(
-                model=RELEASE_CONFIG["value_extraction_model"],
-                max_output_tokens=2048,
-                temperature=RELEASE_CONFIG["llm_temperature"]
-            )
-
         session_dir = Path("./data") / session_id
 
         # Priority 0: Check user_llm_config.json (user-provided config from frontend)
+        # This is checked FIRST even in release mode, because it contains the user's API key.
         try:
             user_config_file = session_dir / "user_llm_config.json"
             if user_config_file.exists():
                 with open(user_config_file) as f:
                     user_config = json.load(f)
-                logger.debug(f"Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
-                return utils.build_llm(user_config)
+                if not DEVELOPER_MODE:
+                    # Release mode: use locked model but with user's API key
+                    api_key = user_config.get('api_key')
+                    if api_key:
+                        logger.info(f"Release mode - using locked LLM {RELEASE_CONFIG['value_extraction_model']} with user API key")
+                        return GeminiLLM(
+                            model=RELEASE_CONFIG["value_extraction_model"],
+                            api_key=api_key,
+                            max_output_tokens=2048,
+                            temperature=RELEASE_CONFIG["llm_temperature"]
+                        )
+                else:
+                    logger.debug(f"Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
+                    return utils.build_llm(user_config)
         except Exception as e:
             logger.debug(f"Could not load user LLM config: {e}")
+
+        # In release mode without user config, use the release-mode LLM (requires GEMINI_API_KEY env var)
+        if not DEVELOPER_MODE:
+            logger.info(f"Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']} (no user API key, using env var)")
+            return GeminiLLM(
+                model=RELEASE_CONFIG["value_extraction_model"],
+                max_output_tokens=2048,
+                temperature=RELEASE_CONFIG["llm_temperature"]
+            )
 
         # Priority 1: Check session's metadata.extracted_schema for llm_configuration
         try:
@@ -171,6 +184,15 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 }]
             }
 
+            # Add observation_unit (required by value extraction)
+            if session.observation_unit:
+                schema_data["observation_unit"] = {
+                    "name": session.observation_unit.name,
+                    "definition": session.observation_unit.definition,
+                }
+                if session.observation_unit.example_names:
+                    schema_data["observation_unit"]["example_names"] = session.observation_unit.example_names
+
             # Save temporary schema file
             session_dir = Path("./data") / session_id
             schema_file = session_dir / f"temp_schema_{column_name}.json"
@@ -256,10 +278,9 @@ class SchemaManager(WebSocketBroadcasterMixin):
     async def remove_column_data(self, session_id: str, column_name: str):
         """Remove a column's data from all existing records, including excerpt columns."""
         try:
-            session_dir = Path("./data") / session_id
-            data_file = session_dir / "data.jsonl"
-            
-            if not data_file.exists():
+            data_file = find_session_data_file(session_id)
+
+            if not data_file:
                 await self.broadcast_progress(
                     session_id,
                     f"No data file found for column '{column_name}' deletion",
@@ -321,6 +342,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
             )
             
             # Also check for and update data.json if it exists (backup format)
+            session_dir = data_file.parent
             json_data_file = session_dir / "data.json"
             if json_data_file.exists():
                 try:
@@ -391,6 +413,15 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 },
                 "existing_schema_context": []
             }
+
+            # Add observation_unit (required by value extraction)
+            if session.observation_unit:
+                comprehensive_schema["observation_unit"] = {
+                    "name": session.observation_unit.name,
+                    "definition": session.observation_unit.definition,
+                }
+                if session.observation_unit.example_names:
+                    comprehensive_schema["observation_unit"]["example_names"] = session.observation_unit.example_names
 
             # Add existing column context to help with coherent extraction
             for existing_col in session.columns:
@@ -475,19 +506,18 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 "merging_columns"
             )
             
-            session_dir = Path("./data") / session_id
-            data_file = session_dir / "data.jsonl"
-            
-            if not data_file.exists():
+            data_file = find_session_data_file(session_id)
+
+            if not data_file:
                 return
-            
+
             # Read and update data
             updated_rows = []
             with open(data_file, 'r') as f:
                 for line in f:
                     if line.strip():
                         row_data = json.loads(line)
-                        
+
                         # Extract source values
                         source_values = []
                         for col_name in source_columns:
@@ -556,7 +586,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
         """Update existing data with newly extracted values for a column."""
         if not extraction_file.exists():
             return
-        
+
         # Read extracted values
         extracted_data = {}
         with open(extraction_file, 'r') as f:
@@ -565,12 +595,11 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     row_data = json.loads(line)
                     if column_name in row_data:
                         extracted_data[line_num] = row_data[column_name]
-        
+
         # Update main data file
-        session_dir = Path("./data") / session_id
-        data_file = session_dir / "data.jsonl"
-        
-        if not data_file.exists():
+        data_file = find_session_data_file(session_id)
+
+        if not data_file:
             return
         
         updated_rows = []
@@ -596,7 +625,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
         """Add data for a new column to existing records."""
         if not extraction_file.exists():
             return
-        
+
         # Read extracted values
         extracted_data = {}
         with open(extraction_file, 'r') as f:
@@ -605,13 +634,15 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     row_data = json.loads(line)
                     if column_name in row_data:
                         extracted_data[line_num] = row_data[column_name]
-        
+
         # Update main data file
-        session_dir = Path("./data") / session_id
-        data_file = session_dir / "data.jsonl"
-        
-        if not data_file.exists():
-            # Create new data file with extracted values
+        data_file = find_session_data_file(session_id)
+
+        if not data_file:
+            # Create new data file in default location
+            session_dir = Path("./data") / session_id
+            session_dir.mkdir(parents=True, exist_ok=True)
+            data_file = session_dir / "data.jsonl"
             with open(data_file, 'w') as f:
                 for line_num, value in extracted_data.items():
                     row_data = {
@@ -676,7 +707,16 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 "extraction_instructions": self._generate_extraction_instructions(session),
                 "schema": []
             }
-            
+
+            # Add observation_unit (required by value extraction)
+            if session.observation_unit:
+                comprehensive_schema["observation_unit"] = {
+                    "name": session.observation_unit.name,
+                    "definition": session.observation_unit.definition,
+                }
+                if session.observation_unit.example_names:
+                    comprehensive_schema["observation_unit"]["example_names"] = session.observation_unit.example_names
+
             # Add all column definitions for context, even if only processing some
             for col in session.columns:
                 if col.name and not col.name.lower().endswith('_excerpt'):
@@ -791,11 +831,20 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     "data_type": column.data_type or "text"
                 },
                 "schema_context": [
-                    col for col in comprehensive_schema["schema"] 
+                    col for col in comprehensive_schema["schema"]
                     if col["processing_status"] == "reference"
                 ][:5]  # Limit to top 5 for context
             }
-            
+
+            # Add observation_unit (required by value extraction)
+            if session.observation_unit:
+                enhanced_schema["observation_unit"] = {
+                    "name": session.observation_unit.name,
+                    "definition": session.observation_unit.definition,
+                }
+                if session.observation_unit.example_names:
+                    enhanced_schema["observation_unit"]["example_names"] = session.observation_unit.example_names
+
             # Save enhanced schema file
             session_dir = Path("./data") / session_id
             enhanced_schema_file = session_dir / f"enhanced_schema_{column_name}.json"
