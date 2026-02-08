@@ -125,7 +125,7 @@ const Load = () => {
       </p>
 
       <p className="text-sm text-muted-foreground mb-6">
-        Supported formats: CSV, JSON, JSONL (up to 100MB)
+        Supported formats: QBSD Project (.qbsd.json), CSV, JSON, JSONL (up to 100MB)
       </p>
 
       {/* Template Selection */}
