@@ -129,3 +129,41 @@ class GoogleSheetsLogger:
             trigger_source,
             drive_file_id or "",
         ])
+
+    def log_feedback(
+        self,
+        session_id: str,
+        rating: str,
+        comment: Optional[str],
+        table_row_count: int,
+        table_column_count: int,
+    ) -> bool:
+        """Log user feedback to the 'Feedback' sheet tab.
+
+        Returns True on success, False on failure.
+        """
+        if not self._enabled or not self._service:
+            return False
+
+        try:
+            values = [
+                datetime.now(timezone.utc).isoformat(),
+                session_id,
+                rating,
+                comment or "",
+                table_row_count,
+                table_column_count,
+            ]
+            body = {"values": [values]}
+            self._service.spreadsheets().values().append(
+                spreadsheetId=GOOGLE_SHEETS_SPREADSHEET_ID,
+                range="Feedback!A:F",
+                valueInputOption="USER_ENTERED",
+                insertDataOption="INSERT_ROWS",
+                body=body,
+            ).execute()
+            logger.debug("[data-collection] Appended feedback row to Google Sheet")
+            return True
+        except Exception as e:
+            logger.error("[data-collection] Sheets feedback append failed: %s", e)
+            return False
