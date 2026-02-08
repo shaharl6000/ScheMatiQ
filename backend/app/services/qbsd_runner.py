@@ -123,24 +123,26 @@ from app.storage import get_storage
 class QBSDRunner(WebSocketBroadcasterMixin):
     """Handles QBSD execution and integration."""
     
-    def __init__(self, work_dir: str = "./qbsd_work", websocket_manager=None, session_manager=None):
+    def __init__(self, work_dir: str = "./qbsd_work", websocket_manager=None, session_manager=None,
+                 data_collection_service=None):
         # Use provided managers or create new ones
         if websocket_manager is not None:
             self.websocket_manager = websocket_manager
         else:
             self.websocket_manager = WebSocketManager()
-            
+
         if session_manager is not None:
             self.session_manager = session_manager
         else:
             self.session_manager = SessionManager()
-        
+
         # Initialize mixin
         super().__init__(self.websocket_manager)
-        
+
         self.work_dir = Path(work_dir)
         self.work_dir.mkdir(exist_ok=True)
         self.running_sessions: Dict[str, asyncio.Task] = {}
+        self._data_collection_service = data_collection_service
         self.stop_flags: Dict[str, bool] = {}  # Track stop requests per session
         self._state_lock = threading.Lock()
 
@@ -898,6 +900,9 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     "data_rows_saved": rows_saved,
                     "message": "Processing stopped during value extraction"
                 })
+                # Archive partial results for research (fire-and-forget)
+                if self._data_collection_service and rows_saved > 0:
+                    await self._data_collection_service.trigger_archive(session_id, "qbsd_stopped_partial")
                 return
 
             # Step 7: Finalize
@@ -932,7 +937,11 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 "schema_columns": len(discovered_schema.columns),
                 "schema_only": schema_only
             })
-            
+
+            # Archive session data for research (fire-and-forget)
+            if self._data_collection_service:
+                await self._data_collection_service.trigger_archive(session_id, "qbsd_completion")
+
         except Exception as e:
             # Update session with error
             session = self.session_manager.get_session(session_id)

@@ -97,13 +97,15 @@ class ContinueDiscoveryOperation:
 class ContinueDiscoveryService(WebSocketBroadcasterMixin):
     """Handles continued schema discovery operations."""
 
-    def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager):
+    def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager,
+                 data_collection_service=None):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
         self.active_operations: Dict[str, ContinueDiscoveryOperation] = {}
         self.stop_flags: Dict[str, bool] = {}
         self._tasks: Dict[str, asyncio.Task] = {}
         self._state_lock = threading.Lock()
+        self._data_collection_service = data_collection_service
 
     def is_stop_requested(self, operation_id: str) -> bool:
         """Check if stop was requested for an operation."""
@@ -1215,6 +1217,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 }
             )
 
+            # Archive session data for research (fire-and-forget)
+            if self._data_collection_service:
+                await self._data_collection_service.trigger_archive(
+                    operation.session_id, "continue_discovery_completion"
+                )
+
             # Cleanup config files
             config_file.unlink(missing_ok=True)
             llm_config_file.unlink(missing_ok=True)
@@ -1581,6 +1589,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     "status": "success"
                 }
             )
+
+            # Archive session data for research (fire-and-forget)
+            if self._data_collection_service:
+                await self._data_collection_service.trigger_archive(
+                    operation.session_id, "continue_discovery_extraction"
+                )
 
         except Exception as e:
             logger.error(f"Incremental extraction FAILED: {e}", exc_info=True)

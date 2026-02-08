@@ -103,3 +103,32 @@ def find_session_data_file(session_id: str) -> Optional[Path]:
 # Create singleton instances
 websocket_manager = WebSocketManager()
 session_manager = SessionManager()
+
+# ── Research data collection (Google Drive archival) ─────────────
+# Gracefully disabled when credentials are not configured or
+# google packages are not installed.
+from app.core.config import DATA_COLLECTION_ENABLED
+
+if DATA_COLLECTION_ENABLED:
+    try:
+        from app.storage.google_drive import GoogleDriveUploader
+        from app.storage.google_sheets import GoogleSheetsLogger
+        from app.services.data_collection_service import DataCollectionService
+
+        _drive_uploader = GoogleDriveUploader.get_instance()
+        _sheets_logger = GoogleSheetsLogger.get_instance()
+        data_collection_service = DataCollectionService(
+            session_manager=session_manager,
+            uploader=_drive_uploader,
+            sheets_logger=_sheets_logger,
+        )
+        if data_collection_service.is_enabled:
+            logger.info("[data-collection] Service enabled — sessions will be archived to Google Drive")
+        else:
+            logger.info("[data-collection] Credentials invalid or missing — archival disabled")
+            data_collection_service = None
+    except Exception as e:
+        logger.debug("[data-collection] Could not initialize: %s", e)
+        data_collection_service = None
+else:
+    data_collection_service = None

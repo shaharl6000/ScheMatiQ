@@ -111,6 +111,17 @@ MAX_DOCUMENTS = int(os.environ.get("MAX_DOCUMENTS", str(
     RELEASE_CONFIG["max_documents"] if not DEVELOPER_MODE else 10_000
 )))
 
+# ── Research Data Collection (Google Drive) ──────────────────────
+GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+GOOGLE_SERVICE_ACCOUNT_FILE = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE", "")
+GOOGLE_DRIVE_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "")
+GOOGLE_SHEETS_SPREADSHEET_ID = os.environ.get("GOOGLE_SHEETS_SPREADSHEET_ID", "")
+DATA_COLLECTION_ENABLED = (
+    not DEVELOPER_MODE
+    and bool(GOOGLE_DRIVE_FOLDER_ID)
+    and bool(GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE)
+)
+
 # ── Concurrency Configuration ────────────────────────────────────
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "5"))
 QBSD_THREAD_POOL_SIZE = int(os.environ.get("QBSD_THREAD_POOL_SIZE", "6"))

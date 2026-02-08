@@ -70,13 +70,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
         "max_words": 768
     }
 
-    def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager):
+    def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager,
+                 data_collection_service=None):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
         self.active_operations: Dict[str, ReextractionOperation] = {}
         self.stop_flags: Dict[str, bool] = {}  # operation_id -> stop requested
         self._extraction_tasks: Dict[str, asyncio.Task] = {}  # operation_id -> task
         self._state_lock = threading.Lock()
+        self._data_collection_service = data_collection_service
 
     @classmethod
     def get_cached_retriever(cls):
@@ -1093,6 +1095,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     "status": "success"
                 }
             )
+
+            # Archive session data for research (fire-and-forget)
+            if self._data_collection_service:
+                await self._data_collection_service.trigger_archive(
+                    operation.session_id, "reextraction_completion"
+                )
 
         except Exception as e:
             logger.error(f"Re-extraction FAILED for operation {operation_id}: {e}", exc_info=True)
