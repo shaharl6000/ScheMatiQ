@@ -1807,23 +1807,26 @@ class QBSDRunner(WebSocketBroadcasterMixin):
     
     async def get_schema(self, session_id: str) -> Dict[str, Any]:
         """Get discovered schema."""
-        schema_file = self.work_dir / session_id / "discovered_schema.json"
-        if schema_file.exists():
-            with open(schema_file) as f:
-                return json.load(f)
-        
-        # Fall back to session schema (return query even if no columns yet)
+        # Prefer session.columns (always up-to-date with user edits)
         session = self.session_manager.get_session(session_id)
-        if session:
+        if session and session.columns:
             result = {
                 "query": session.schema_query or "",
-                "schema": [col.model_dump() for col in session.columns] if session.columns else []
+                "schema": [col.model_dump() for col in session.columns]
             }
-            # Include observation_unit if present
             if session.observation_unit:
                 result["observation_unit"] = session.observation_unit.model_dump()
             return result
 
+        # Fall back to file (during QBSD creation, before columns are synced to session)
+        schema_file = self.work_dir / session_id / "discovered_schema.json"
+        if schema_file.exists():
+            with open(schema_file) as f:
+                return json.load(f)
+
+        # Last resort
+        if session:
+            return {"query": session.schema_query or "", "schema": []}
         return {"query": "", "schema": []}
     
     async def get_data(
