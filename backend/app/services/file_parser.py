@@ -90,11 +90,11 @@ class FileParser:
                 sample_data = csv_result.get("sample_data")
 
             elif detected_format == "json":
-                content = await file.read(8192)  # Read first 8KB
-                await file.seek(0)  # Reset file position
                 # Validate JSON structure
                 try:
                     if filename.endswith('.jsonl'):
+                        content = await file.read(8192)  # Read first 8KB for JSONL
+                        await file.seek(0)
                         # JSONL format - each line is a JSON object
                         lines = content.decode('utf-8').strip().split('\n')
                         sample_obj = json.loads(lines[0])
@@ -104,8 +104,11 @@ class FileParser:
                         sample_obj = {k: v for k, v in sample_obj.items() if k is not None}
                         sample_data = [sample_obj]
                     else:
-                        # Regular JSON - could be array or single object
-                        data = json.loads(content.decode('utf-8'))
+                        # Regular JSON - read full file to avoid truncation errors
+                        # (complete QBSD exports can be large with embedded data)
+                        full_content = await file.read()
+                        await file.seek(0)
+                        data = json.loads(full_content.decode('utf-8'))
                         if isinstance(data, list):
                             estimated_rows = len(data)
                             if data:
@@ -117,7 +120,15 @@ class FileParser:
                                     for item in data[:3]
                                 ]
                         elif isinstance(data, dict):
-                            if 'schema' in data:
+                            if 'data' in data and isinstance(data.get('data'), list):
+                                # Complete export format with "data" array
+                                warnings.append("Detected QBSD complete export format")
+                                estimated_rows = len(data['data'])
+                                if 'schema' in data and isinstance(data['schema'], dict):
+                                    estimated_columns = len(data['schema'].get('columns', []))
+                                else:
+                                    estimated_columns = len(data['data'][0].get('data', {}).keys()) if data['data'] else 0
+                            elif 'schema' in data:
                                 # QBSD schema format
                                 warnings.append("Detected QBSD schema format")
                                 estimated_columns = len(data.get('schema', []))
@@ -482,6 +493,9 @@ class FileParser:
         schema_evolution = None  # Will be extracted if present (backward compatible)
         documents_batch_size = None  # Will be extracted if present (backward compatible)
         observation_unit = None  # Will be extracted if present (backward compatible)
+        metadata_info = {}  # Will hold query, llm_config, etc. from complete export
+
+        schema_metadata_from_export = {}  # Populated from complete export's schema.columns
 
         if file_path.suffix.lower() == '.jsonl':
             # JSONL format
@@ -534,6 +548,26 @@ class FileParser:
                         if documents_batch_size is not None:
                             logger.debug("Imported documents_batch_size: %s", documents_batch_size)
 
+                    # Extract metadata from complete QBSD export (.qbsd.json format)
+                    if "query" in data and "schema" in data and isinstance(data["schema"], dict) and "columns" in data["schema"]:
+                        metadata_info["query"] = data["query"]
+                        if data.get("llm_configuration"):
+                            metadata_info["llm_config"] = data["llm_configuration"]
+                        export_meta = data.get("metadata", {})
+                        for field in ("total_documents", "skipped_documents", "session_id", "generated_timestamp"):
+                            if export_meta.get(field):
+                                metadata_info[field] = export_meta[field]
+                        # Pre-populate schema column definitions from the export
+                        for col_def in data["schema"]["columns"]:
+                            if isinstance(col_def, dict) and "name" in col_def:
+                                schema_metadata_from_export[col_def["name"]] = {
+                                    "definition": col_def.get("definition", ""),
+                                    "rationale": col_def.get("rationale", ""),
+                                    "allowed_values": col_def.get("allowed_values"),
+                                }
+                        logger.debug("Extracted QBSD export metadata: query=%s, %d column definitions",
+                                     data["query"][:50] if data["query"] else "", len(schema_metadata_from_export))
+
                     # Check if this is a complete export format with "data" array
                     if "data" in data and isinstance(data["data"], list):
                         data_rows = data["data"]
@@ -550,22 +584,49 @@ class FileParser:
         if not data_rows:
             raise ValueError("No data found in file")
 
-        # Extract schema metadata (including allowed_values) from JSON if present
+        # Extract schema metadata from row-level "schema" field (legacy formats)
+        # Only needed when we don't already have column definitions from a complete export
         schema_metadata = {}
         sample_row = data_rows[0]
-        if isinstance(sample_row, dict) and "schema" in sample_row and isinstance(sample_row["schema"], list):
-            for schema_col in sample_row["schema"]:
-                if isinstance(schema_col, dict) and "name" in schema_col:
-                    schema_metadata[schema_col["name"]] = {
-                        "definition": schema_col.get("definition", ""),
-                        "rationale": schema_col.get("rationale", ""),
-                        "allowed_values": schema_col.get("allowed_values")
-                    }
+        if not schema_metadata_from_export:
+            if isinstance(sample_row, dict) and "schema" in sample_row and isinstance(sample_row["schema"], list):
+                for schema_col in sample_row["schema"]:
+                    if isinstance(schema_col, dict) and "name" in schema_col:
+                        schema_metadata[schema_col["name"]] = {
+                            "definition": schema_col.get("definition", ""),
+                            "rationale": schema_col.get("rationale", ""),
+                            "allowed_values": schema_col.get("allowed_values")
+                        }
 
         columns = []
 
-        # Handle QBSD format
-        if '_row_name' in sample_row and '_papers' in sample_row:
+        # When we have schema definitions from a complete export, use those as the
+        # definitive column list (individual rows may be sparse / missing columns)
+        if schema_metadata_from_export:
+            for key, meta in schema_metadata_from_export.items():
+                # Count non-null across all rows, handling both DataRow and flat formats
+                non_null = 0
+                values_set = set()
+                for row in data_rows:
+                    if 'data' in row and isinstance(row.get('data'), dict):
+                        val = row['data'].get(key)
+                    else:
+                        val = row.get(key)
+                    if val is not None:
+                        non_null += 1
+                    values_set.add(json.dumps(val, sort_keys=True) if val is not None else 'null')
+
+                col_info = ColumnInfo(
+                    name=key,
+                    data_type="object",
+                    non_null_count=non_null,
+                    unique_count=len(values_set),
+                    definition=meta.get("definition", ""),
+                    rationale=meta.get("rationale", ""),
+                    allowed_values=meta.get("allowed_values")
+                )
+                columns.append(col_info)
+        elif '_row_name' in sample_row and '_papers' in sample_row:
             # QBSD extracted data format
             for key, value in sample_row.items():
                 # Skip metadata columns - these are not schema columns for LLM extraction
@@ -691,6 +752,18 @@ class FileParser:
             result["documents_batch_size"] = documents_batch_size
         if observation_unit is not None:
             result["observation_unit"] = observation_unit
+
+        # Include extracted_metadata for complete export format (same structure as CSV path)
+        if metadata_info.get("query") or metadata_info.get("llm_config"):
+            result["extracted_metadata"] = {
+                "query": metadata_info.get("query"),
+                "llm_config": metadata_info.get("llm_config"),
+                "original_session_id": metadata_info.get("session_id"),
+                "generated_timestamp": metadata_info.get("generated_timestamp"),
+                "column_count_with_metadata": len(schema_metadata_from_export),
+                "observation_unit": observation_unit,
+            }
+
         return result
     
     def _sanitize_value(self, value):

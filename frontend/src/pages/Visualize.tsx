@@ -6,6 +6,8 @@ import {
   Database,
   BarChart3,
   Download,
+  Save,
+  ChevronDown,
   CheckCircle2,
   Play,
   XCircle,
@@ -23,6 +25,12 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/components/ui/use-toast';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 import { loadAPI, qbsdAPI, cloudAPI, configAPI } from '../services/api';
 import { getApiKeyForProvider, LLMProvider } from '../utils/apiKeyStorage';
@@ -684,17 +692,15 @@ const Visualize = () => {
     };
   }, [sessionId, mode, queryClient]);
 
-  const handleExport = async () => {
+  const handleDownloadTable = async () => {
     try {
-      // Use API_BASE_URL for production deployment
       const baseUrl = API_BASE_URL ? `${API_BASE_URL}/api` : '/api';
       let apiUrl = mode === 'load'
         ? `${baseUrl}/load/export/${sessionId}`
         : `${baseUrl}/qbsd/export/${sessionId}`;
 
-      // Add timezone offset for correct timestamp in filename
       const tzOffset = new Date().getTimezoneOffset();
-      apiUrl += `?tz_offset=${tzOffset}`;
+      apiUrl += `?tz_offset=${tzOffset}&include_metadata=false`;
 
       if (columnOrder.length > 0) {
         const orderParam = encodeURIComponent(columnOrder.join(','));
@@ -705,7 +711,7 @@ const Visualize = () => {
       if (!response.ok) throw new Error('Export failed');
 
       const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'exported_data.csv';
+      let filename = 'table_data.csv';
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
         if (filenameMatch) filename = filenameMatch[1];
@@ -722,7 +728,40 @@ const Visualize = () => {
       document.body.removeChild(link);
     } catch (error) {
       console.error('Export error:', error);
-      alert('Export failed. Please try again.');
+      alert('Download failed. Please try again.');
+    }
+  };
+
+  const handleSaveProject = async () => {
+    try {
+      const baseUrl = API_BASE_URL ? `${API_BASE_URL}/api` : '/api';
+      const tzOffset = new Date().getTimezoneOffset();
+      const apiUrl = mode === 'load'
+        ? `${baseUrl}/load/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`
+        : `${baseUrl}/qbsd/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`;
+
+      const response = await fetch(apiUrl);
+      if (!response.ok) throw new Error('Export failed');
+
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'project.qbsd.json';
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (filenameMatch) filename = filenameMatch[1];
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(link);
+    } catch (error) {
+      console.error('Export error:', error);
+      alert('Save failed. Please try again.');
     }
   };
 
@@ -997,10 +1036,31 @@ const Visualize = () => {
         <div className="flex items-center gap-2">
           {getStatusBadge()}
           {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
-            <Button variant="outline" size="sm" onClick={handleExport}>
-              <Download className="h-4 w-4 mr-2" />
-              Export{isQBSDStopped ? ' Partial' : ''}
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Download className="h-4 w-4 mr-2" />
+                  Export{isQBSDStopped ? ' Partial' : ''}
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72">
+                <DropdownMenuItem onClick={handleDownloadTable}>
+                  <Download className="h-4 w-4 mr-2 shrink-0" />
+                  <div>
+                    <div>Download Table (.csv)</div>
+                    <div className="text-xs text-muted-foreground">Clean data for Excel — no metadata</div>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleSaveProject}>
+                  <Save className="h-4 w-4 mr-2 shrink-0" />
+                  <div>
+                    <div>Save Project (.qbsd.json)</div>
+                    <div className="text-xs text-muted-foreground">Full project with schema and history — for reloading</div>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       </div>
