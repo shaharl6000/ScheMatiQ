@@ -814,6 +814,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
         # Discover papers
         paper_discovery = await self.discover_papers(session_id)
 
+        # Validate LLM config before starting background task (fail fast with HTTP error)
+        try:
+            llm = self._get_llm_from_session(session_id)
+        except Exception as e:
+            raise ValueError(f"LLM configuration error: {e}")
+
         # Create operation
         operation_id = str(uuid.uuid4())[:8]
         operation = ReextractionOperation(
@@ -1210,27 +1216,40 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     def _get_llm_from_session(self, session_id: str):
         """Get LLM configuration from session, including API key."""
-        # In release mode, always use the release-mode LLM (ignore user config)
-        if not DEVELOPER_MODE:
-            logger.debug(f"Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']}")
-            return GeminiLLM(
-                model=RELEASE_CONFIG["value_extraction_model"],
-                max_output_tokens=2048,
-                temperature=RELEASE_CONFIG["llm_temperature"]
-            )
-
         session_dir = Path("./data") / session_id
 
         # Priority 0: Check user_llm_config.json (user-provided config from frontend)
+        # This is checked FIRST even in release mode, because it contains the user's API key.
         try:
             user_config_file = session_dir / "user_llm_config.json"
             if user_config_file.exists():
                 with open(user_config_file) as f:
                     user_config = json.load(f)
-                logger.debug(f"Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
-                return qbsd_utils.build_llm(user_config)
+                if not DEVELOPER_MODE:
+                    # Release mode: use locked model but with user's API key
+                    api_key = user_config.get('api_key')
+                    if api_key:
+                        logger.info(f"Release mode - using locked LLM {RELEASE_CONFIG['value_extraction_model']} with user API key")
+                        return GeminiLLM(
+                            model=RELEASE_CONFIG["value_extraction_model"],
+                            api_key=api_key,
+                            max_output_tokens=2048,
+                            temperature=RELEASE_CONFIG["llm_temperature"]
+                        )
+                else:
+                    logger.debug(f"Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
+                    return qbsd_utils.build_llm(user_config)
         except Exception as e:
             logger.debug(f"Could not load user LLM config: {e}")
+
+        # In release mode without user config, use the release-mode LLM (requires GEMINI_API_KEY env var)
+        if not DEVELOPER_MODE:
+            logger.info(f"Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']} (no user API key, using env var)")
+            return GeminiLLM(
+                model=RELEASE_CONFIG["value_extraction_model"],
+                max_output_tokens=2048,
+                temperature=RELEASE_CONFIG["llm_temperature"]
+            )
 
         # Priority 1: Check session's metadata.extracted_schema for llm_configuration
         try:
