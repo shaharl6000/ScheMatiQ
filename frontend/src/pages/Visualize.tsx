@@ -16,6 +16,7 @@ import {
   FileText,
   Square,
   Copy,
+  HelpCircle,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -58,6 +59,7 @@ import { ViewModeToggle } from '../components/ViewMode';
 import { useViewMode } from '../contexts/ViewModeContext';
 import { useUnits } from '../hooks/useUnits';
 import TableFeedbackWidget from '../components/TableFeedbackWidget/TableFeedbackWidget';
+import { VisualizeGuideDialog } from '../components/VisualizeGuideDialog/VisualizeGuideDialog';
 
 const Visualize = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -105,6 +107,10 @@ const Visualize = () => {
   // LLM selection state
   const [showLLMSelector, setShowLLMSelector] = useState(false);
 
+  // Visualize guide dialog state
+  const [visualizeGuideAutoOpen, setVisualizeGuideAutoOpen] = useState(false);
+  const [visualizeGuideForceOpen, setVisualizeGuideForceOpen] = useState(false);
+
   // Stop processing state
   const [isStoppingProcessing, setIsStoppingProcessing] = useState(false);
 
@@ -114,6 +120,9 @@ const Visualize = () => {
 
   // Column order state
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
+
+  // Add More Documents collapsed state
+  const [addDocsExpanded, setAddDocsExpanded] = useState(false);
 
   // WebSocket state
   const [forceWebSocketConnect, setForceWebSocketConnect] = useState(false);
@@ -215,6 +224,9 @@ const Visualize = () => {
               setStreamingCells(new Map());
               setCurrentDocumentProgress(null);
               setForceWebSocketConnect(false);
+              if (mode === 'qbsd') {
+                setVisualizeGuideAutoOpen(true);
+              }
               // Use broader query filter to match all data queries (including DataTable's paginated queries)
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
@@ -499,6 +511,9 @@ const Visualize = () => {
                 setStreamingCells(new Map());
                 setCurrentDocumentProgress(null);
                 setForceWebSocketConnect(false);
+                if (mode === 'qbsd') {
+                  setVisualizeGuideAutoOpen(true);
+                }
                 // Use broader query filter to match all data queries (including DataTable's paginated queries)
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
@@ -1035,6 +1050,17 @@ const Visualize = () => {
 
         <div className="flex items-center gap-2">
           {getStatusBadge()}
+          {(isCompleted || isQBSDStopped) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setVisualizeGuideForceOpen(true)}
+              aria-label="Show results guide"
+              className="text-muted-foreground"
+            >
+              <HelpCircle className="h-5 w-5" />
+            </Button>
+          )}
           {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1118,11 +1144,6 @@ const Visualize = () => {
                     disabledTooltip="No observation units found in this session"
                     unitCount={unitListResponse?.totalUnits || (hasUnitColumn ? undefined : 0)}
                   />
-                  {viewMode === 'by_unit' && unitListResponse && (
-                    <span className="text-sm text-muted-foreground">
-                      Viewing {unitListResponse.totalUnits} observation units with {unitListResponse.totalRows} total rows
-                    </span>
-                  )}
                 </div>
               )}
 
@@ -1157,128 +1178,136 @@ const Visualize = () => {
                 />
               )}
 
-              {/* Document Upload Section */}
+              {/* Document Upload Section (collapsible) */}
               {((mode === 'load' && ['documents_uploaded', 'processing_documents', 'completed'].includes(session?.status || '')) ||
                 (mode === 'qbsd' && ['completed', 'documents_uploaded', 'processing_documents'].includes(session?.status || ''))) &&
                 !sessionLoading && !dataLoading && dataResponse && (
                   <Card className="mt-6">
-                    <CardHeader>
-                      <CardTitle>
-                        {mode === 'qbsd'
-                          ? 'Add More Documents'
-                          : session?.status === 'documents_uploaded'
-                            ? 'Process Your Documents'
-                            : 'Add More Documents'}
-                      </CardTitle>
+                    <CardHeader
+                      className="cursor-pointer select-none"
+                      onClick={() => setAddDocsExpanded(!addDocsExpanded)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base">
+                          {mode === 'qbsd'
+                            ? 'Add More Documents'
+                            : session?.status === 'documents_uploaded'
+                              ? 'Process Your Documents'
+                              : 'Add More Documents'}
+                        </CardTitle>
+                        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${addDocsExpanded ? 'rotate-180' : ''}`} />
+                      </div>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                      <p className="text-sm text-muted-foreground">
-                        {mode === 'qbsd'
-                          ? 'Upload additional documents to extract more data using your discovered schema.'
-                          : session?.status === 'documents_uploaded'
-                            ? 'You have uploaded documents that are ready to be processed.'
-                            : 'Upload additional documents to extract more data using your existing schema.'}
-                      </p>
+                    {addDocsExpanded && (
+                      <CardContent className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                          {mode === 'qbsd'
+                            ? 'Upload additional documents to extract more data using your discovered schema.'
+                            : session?.status === 'documents_uploaded'
+                              ? 'You have uploaded documents that are ready to be processed.'
+                              : 'Upload additional documents to extract more data using your existing schema.'}
+                        </p>
 
-                      {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium">Uploaded documents ({session.metadata.uploaded_documents.length}):</p>
-                          <div className="flex flex-wrap gap-2">
-                            {session.metadata.uploaded_documents.map((doc, index) => (
-                              <div
-                                key={`${doc}-${index}`}
-                                className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full text-sm"
-                              >
-                                <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                                <span className="text-blue-700 dark:text-blue-300 max-w-[200px] truncate" title={doc}>
-                                  {doc}
-                                </span>
-                                {session.status !== 'processing_documents' && (
-                                  <button
-                                    onClick={() => handleRemoveDocument(doc)}
-                                    disabled={removingDocument === doc}
-                                    className="ml-1 p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full transition-colors disabled:opacity-50"
-                                    title={`Remove ${doc}`}
-                                  >
-                                    {removingDocument === doc ? (
-                                      <Loader2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
-                                    ) : (
-                                      <X className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 hover:text-red-600 dark:hover:text-red-400" />
-                                    )}
-                                  </button>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {documentUploadError && (
-                        <Alert variant="destructive">
-                          <AlertDescription>{documentUploadError}</AlertDescription>
-                        </Alert>
-                      )}
-
-                      <DocumentUpload
-                        onFilesChange={setUploadedDocuments}
-                        uploadedFiles={uploadedDocuments}
-                        loading={documentUploadLoading}
-                        onUpload={handleDocumentUpload}
-                        canUpload={true}
-                        uploadResult={documentUploadResult}
-                        sessionId={sessionId}
-                        maxDocuments={maxDocuments}
-                        existingDocumentCount={session?.metadata?.uploaded_documents?.length || 0}
-                        onCloudDocumentsAdd={async (dataset, files) => {
-                          const result = await cloudAPI.addCloudDocuments(sessionId!, dataset, files);
-                          if (result.added_files?.length > 0) {
-                            queryClient.invalidateQueries(['session', sessionId]);
-                            setDocumentUploadResult({
-                              status: 'success',
-                              message: `Added ${result.added_files.length} cloud documents`,
-                              uploaded_files: result.added_files,
-                              warnings: result.errors || []
-                            });
-                          }
-                          if (result.errors?.length) {
-                            throw new Error(result.errors.join(', '));
-                          }
-                        }}
-                      />
-
-                      {((session?.metadata?.uploaded_documents?.length || 0) > 0 || documentUploadResult?.uploaded_files?.length > 0) && (
-                        <div className="pt-4 border-t">
-                          {session?.status === 'processing_documents' && (
-                            <div className="flex items-center gap-2 mb-4">
-                              <Loader2 className="h-5 w-5 animate-spin" />
-                              <span>Processing in progress...</span>
+                        {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium">Uploaded documents ({session.metadata.uploaded_documents.length}):</p>
+                            <div className="flex flex-wrap gap-2">
+                              {session.metadata.uploaded_documents.map((doc, index) => (
+                                <div
+                                  key={`${doc}-${index}`}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full text-sm"
+                                >
+                                  <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                                  <span className="text-blue-700 dark:text-blue-300 max-w-[200px] truncate" title={doc}>
+                                    {doc}
+                                  </span>
+                                  {session.status !== 'processing_documents' && (
+                                    <button
+                                      onClick={() => handleRemoveDocument(doc)}
+                                      disabled={removingDocument === doc}
+                                      className="ml-1 p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full transition-colors disabled:opacity-50"
+                                      title={`Remove ${doc}`}
+                                    >
+                                      {removingDocument === doc ? (
+                                        <Loader2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
+                                      ) : (
+                                        <X className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 hover:text-red-600 dark:hover:text-red-400" />
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
                             </div>
-                          )}
+                          </div>
+                        )}
 
-                          {session?.status === 'completed' && (session?.metadata?.additional_rows_added ?? 0) > 0 && (
-                            <Alert variant="success" className="mb-4">
-                              <AlertDescription>
-                                Processing completed! Added {session.metadata.additional_rows_added} new rows.
-                              </AlertDescription>
-                            </Alert>
-                          )}
+                        {documentUploadError && (
+                          <Alert variant="destructive">
+                            <AlertDescription>{documentUploadError}</AlertDescription>
+                          </Alert>
+                        )}
 
-                          {session?.status !== 'completed' && (
-                            <Button
-                              onClick={handleDocumentProcessing}
-                              disabled={session?.status?.includes('processing') || documentUploadLoading}
-                            >
-                              {documentUploadLoading ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              ) : null}
-                              {documentUploadLoading ? 'Starting...' :
-                                session?.status?.includes('processing') ? 'Processing...' :
-                                  'Process Documents'}
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </CardContent>
+                        <DocumentUpload
+                          onFilesChange={setUploadedDocuments}
+                          uploadedFiles={uploadedDocuments}
+                          loading={documentUploadLoading}
+                          onUpload={handleDocumentUpload}
+                          canUpload={true}
+                          uploadResult={documentUploadResult}
+                          sessionId={sessionId}
+                          maxDocuments={maxDocuments}
+                          existingDocumentCount={session?.metadata?.uploaded_documents?.length || 0}
+                          onCloudDocumentsAdd={async (dataset, files) => {
+                            const result = await cloudAPI.addCloudDocuments(sessionId!, dataset, files);
+                            if (result.added_files?.length > 0) {
+                              queryClient.invalidateQueries(['session', sessionId]);
+                              setDocumentUploadResult({
+                                status: 'success',
+                                message: `Added ${result.added_files.length} cloud documents`,
+                                uploaded_files: result.added_files,
+                                warnings: result.errors || []
+                              });
+                            }
+                            if (result.errors?.length) {
+                              throw new Error(result.errors.join(', '));
+                            }
+                          }}
+                        />
+
+                        {((session?.metadata?.uploaded_documents?.length || 0) > 0 || documentUploadResult?.uploaded_files?.length > 0) && (
+                          <div className="pt-4 border-t">
+                            {session?.status === 'processing_documents' && (
+                              <div className="flex items-center gap-2 mb-4">
+                                <Loader2 className="h-5 w-5 animate-spin" />
+                                <span>Processing in progress...</span>
+                              </div>
+                            )}
+
+                            {session?.status === 'completed' && (session?.metadata?.additional_rows_added ?? 0) > 0 && (
+                              <Alert variant="success" className="mb-4">
+                                <AlertDescription>
+                                  Processing completed! Added {session.metadata.additional_rows_added} new rows.
+                                </AlertDescription>
+                              </Alert>
+                            )}
+
+                            {session?.status !== 'completed' && (
+                              <Button
+                                onClick={handleDocumentProcessing}
+                                disabled={session?.status?.includes('processing') || documentUploadLoading}
+                              >
+                                {documentUploadLoading ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : null}
+                                {documentUploadLoading ? 'Starting...' :
+                                  session?.status?.includes('processing') ? 'Processing...' :
+                                    'Process Documents'}
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+                    )}
                   </Card>
                 )}
             </div>
@@ -1392,6 +1421,19 @@ const Visualize = () => {
         preservedConfig={session?.metadata?.extracted_schema?.llm_configuration?.value_extraction_backend || null}
         loading={documentUploadLoading}
         defaultModel="gemini-2.5-flash-lite"
+      />
+
+      {/* Visualize Guide Dialog */}
+      <VisualizeGuideDialog
+        autoOpen={visualizeGuideAutoOpen}
+        forceOpen={visualizeGuideForceOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setVisualizeGuideAutoOpen(false);
+            setVisualizeGuideForceOpen(false);
+          }
+        }}
+        onDismiss={() => setActiveTab('data')}
       />
     </div>
   );
