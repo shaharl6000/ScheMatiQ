@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -38,6 +38,7 @@ const steps = [
 export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
   const [open, setOpen] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
+  const prevForceOpenRef = useRef(forceOpen);
 
   // Auto-show on first visit (localStorage check)
   useEffect(() => {
@@ -47,11 +48,12 @@ export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
     }
   }, []);
 
-  // Handle forceOpen from parent (help button)
+  // Handle forceOpen from parent (help button) — detect false→true transition
   useEffect(() => {
-    if (forceOpen) {
+    if (forceOpen && !prevForceOpenRef.current) {
       setOpen(true);
     }
+    prevForceOpenRef.current = forceOpen;
   }, [forceOpen]);
 
   const handleClose = () => {

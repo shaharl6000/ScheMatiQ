@@ -1,20 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
-  Table2,
-  Database,
-  BarChart3,
   Download,
   Save,
   ChevronDown,
-  CheckCircle2,
-  Play,
-  XCircle,
   Loader2,
   X,
   FileText,
-  Square,
   Copy,
   HelpCircle,
 } from 'lucide-react';
@@ -33,7 +26,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { loadAPI, qbsdAPI, cloudAPI, configAPI } from '../services/api';
+import { loadAPI, qbsdAPI, cloudAPI, configAPI, downloadBlob } from '../services/api';
 import { getApiKeyForProvider, LLMProvider } from '../utils/apiKeyStorage';
 import { VisualizationSession, CellValue, CellExtractedData } from '../types';
 import {
@@ -42,7 +35,6 @@ import {
   WS_RECONNECT_ATTEMPTS,
   WS_RECONNECT_DELAY_BASE,
   WS_RECONNECT_MAX_DELAY,
-  API_BASE_URL,
   WS_BASE_URL
 } from '../constants/index';
 
@@ -709,38 +701,19 @@ const Visualize = () => {
 
   const handleDownloadTable = async () => {
     try {
-      const baseUrl = API_BASE_URL ? `${API_BASE_URL}/api` : '/api';
-      let apiUrl = mode === 'load'
-        ? `${baseUrl}/load/export/${sessionId}`
-        : `${baseUrl}/qbsd/export/${sessionId}`;
+      const exportPath = mode === 'load'
+        ? `/load/export/${sessionId}`
+        : `/qbsd/export/${sessionId}`;
 
       const tzOffset = new Date().getTimezoneOffset();
-      apiUrl += `?tz_offset=${tzOffset}&include_metadata=false`;
+      let queryStr = `?tz_offset=${tzOffset}&include_metadata=false`;
 
       if (columnOrder.length > 0) {
         const orderParam = encodeURIComponent(columnOrder.join(','));
-        apiUrl += `&column_order=${orderParam}`;
+        queryStr += `&column_order=${orderParam}`;
       }
 
-      const response = await fetch(apiUrl);
-      if (!response.ok) throw new Error('Export failed');
-
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'table_data.csv';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-        if (filenameMatch) filename = filenameMatch[1];
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
+      await downloadBlob(`${exportPath}${queryStr}`, 'table_data.csv');
     } catch (error) {
       console.error('Export error:', error);
       alert('Download failed. Please try again.');
@@ -749,31 +722,12 @@ const Visualize = () => {
 
   const handleSaveProject = async () => {
     try {
-      const baseUrl = API_BASE_URL ? `${API_BASE_URL}/api` : '/api';
       const tzOffset = new Date().getTimezoneOffset();
-      const apiUrl = mode === 'load'
-        ? `${baseUrl}/load/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`
-        : `${baseUrl}/qbsd/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`;
+      const exportPath = mode === 'load'
+        ? `/load/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`
+        : `/qbsd/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`;
 
-      const response = await fetch(apiUrl);
-      if (!response.ok) throw new Error('Export failed');
-
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'project.qbsd.json';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-        if (filenameMatch) filename = filenameMatch[1];
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
+      await downloadBlob(exportPath, 'project.qbsd.json');
     } catch (error) {
       console.error('Export error:', error);
       alert('Save failed. Please try again.');
@@ -1022,29 +976,21 @@ const Visualize = () => {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
-          <div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Link to="/" className="hover:text-foreground">Home</Link>
-              <span>/</span>
-              <span>{session?.type === 'load' ? 'Load Session' : 'QBSD Session'}</span>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-xs text-muted-foreground font-medium">Query</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5"
-                onClick={() => {
-                  navigator.clipboard.writeText(session?.schema_query || '');
-                  toast({ title: "Query copied to clipboard" });
-                }}
-              >
-                <Copy className="h-3 w-3" />
-              </Button>
-            </div>
+          <div className="group flex items-center gap-2 mt-1">
             <h1 className="text-base font-medium text-foreground">
               {session?.schema_query}
             </h1>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={() => {
+                navigator.clipboard.writeText(session?.schema_query || '');
+                toast({ title: "Query copied to clipboard" });
+              }}
+            >
+              <Copy className="h-3 w-3" />
+            </Button>
           </div>
         </div>
 
@@ -1094,30 +1040,19 @@ const Visualize = () => {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
-          <TabsTrigger value="data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded'} className="gap-2">
-            <Table2 className="h-4 w-4" />
+          <TabsTrigger value="data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded'}>
             Data
           </TabsTrigger>
-          <TabsTrigger value="schema" disabled={!isSchemaReady || (!session?.columns?.length && !isSessionRefetching)} className="gap-2">
-            <Database className="h-4 w-4" />
+          <TabsTrigger value="schema" disabled={!isSchemaReady || (!session?.columns?.length && !isSessionRefetching)}>
             Schema
           </TabsTrigger>
-          <TabsTrigger value="stats" disabled={!isCompleted && !isQBSDStopped} className="gap-2">
-            <BarChart3 className="h-4 w-4" />
+          <TabsTrigger value="stats" disabled={!isCompleted && !isQBSDStopped}>
             Statistics
           </TabsTrigger>
           {mode === 'qbsd' && (
-            <TabsTrigger value="monitor" className="gap-2">
-              {session?.status === 'processing' ? (
+            <TabsTrigger value="monitor" className={session?.status === 'processing' ? 'gap-2' : undefined}>
+              {session?.status === 'processing' && (
                 <Loader2 className="h-4 w-4 animate-spin" />
-              ) : session?.status === 'completed' ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              ) : session?.status === 'stopped' ? (
-                <Square className="h-4 w-4 text-yellow-500" />
-              ) : session?.status === 'error' ? (
-                <XCircle className="h-4 w-4 text-red-500" />
-              ) : (
-                <Play className="h-4 w-4" />
               )}
               QBSD Monitor
             </TabsTrigger>

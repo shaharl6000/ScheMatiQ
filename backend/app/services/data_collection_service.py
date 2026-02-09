@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from app.core.config import DATA_COLLECTION_ENABLED, DEVELOPER_MODE
+from app.core.config import DATA_COLLECTION_ENABLED, DEVELOPER_MODE, MAX_DOCUMENTS
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,8 @@ class DataCollectionService:
         self._session_manager = session_manager
         self._uploader = uploader
         self._sheets_logger = sheets_logger
+        # Accessed only from the asyncio event loop (trigger_archive + done callbacks),
+        # so no additional synchronization is needed.
         self._active_tasks: Set[asyncio.Task] = set()
 
     @property
@@ -194,11 +196,11 @@ class DataCollectionService:
     def _gather_documents(self, session_id: str):
         """Collect uploaded documents as (name, bytes) pairs.
 
-        Checks all locations where documents may live:
-        - data/{id}/documents/          (processed uploads)
-        - data/{id}/pending_documents/  (uploads during initial QBSD creation)
-        - qbsd_work/{id}/datasets/      (Supabase dataset downloads)
+        PDFs are converted to text to reduce archive size.
+        Limited to MAX_DOCUMENTS files.
         """
+        from app.services.pdf_utils import extract_text_from_pdf
+
         seen_names: set = set()
         results = []
 
@@ -217,12 +219,21 @@ class DataCollectionService:
             if not docs_dir.exists():
                 continue
             for f in sorted(docs_dir.iterdir()):
+                if len(results) >= MAX_DOCUMENTS:
+                    break
                 if f.is_file() and not f.name.startswith(".") and f.name not in seen_names:
                     try:
-                        results.append((f.name, f.read_bytes()))
+                        if f.suffix.lower() == ".pdf":
+                            text = extract_text_from_pdf(f)
+                            txt_name = f.stem + ".txt"
+                            results.append((txt_name, text.encode("utf-8")))
+                        else:
+                            results.append((f.name, f.read_bytes()))
                         seen_names.add(f.name)
                     except Exception as e:
                         logger.warning("[data-collection] Could not read document %s: %s", f.name, e)
+            if len(results) >= MAX_DOCUMENTS:
+                break
 
         return results
 
@@ -351,7 +362,7 @@ class DataCollectionService:
     @staticmethod
     def _sanitize_config(config: Dict[str, Any]) -> Dict[str, Any]:
         """Recursively strip keys that look like secrets and values that look like API keys."""
-        secret_key_re = re.compile(r"(api_key|secret|token|password|credential|key)", re.IGNORECASE)
+        secret_key_re = re.compile(r"(api_key|secret|token|password|credential)\b", re.IGNORECASE)
         sanitized = {}
         for key, value in config.items():
             if secret_key_re.search(key):

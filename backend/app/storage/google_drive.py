@@ -11,7 +11,6 @@ All errors are caught internally — callers never see exceptions.
 
 import json
 import logging
-import os
 import re
 from io import BytesIO
 from typing import Optional
@@ -20,12 +19,11 @@ from app.core.config import (
     GOOGLE_SERVICE_ACCOUNT_JSON,
     GOOGLE_SERVICE_ACCOUNT_FILE,
     GOOGLE_DRIVE_FOLDER_ID,
+    GOOGLE_OAUTH_CREDENTIALS_JSON,
 )
 
 logger = logging.getLogger(__name__)
 
-# OAuth2 user credentials (JSON string with token, refresh_token, client_id, client_secret)
-GOOGLE_OAUTH_CREDENTIALS_JSON = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON", "")
 
 
 class GoogleDriveUploader:

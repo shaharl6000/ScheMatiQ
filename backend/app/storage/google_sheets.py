@@ -10,16 +10,12 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import os
-
 from app.core.config import (
     GOOGLE_SERVICE_ACCOUNT_JSON,
     GOOGLE_SERVICE_ACCOUNT_FILE,
     GOOGLE_SHEETS_SPREADSHEET_ID,
+    GOOGLE_OAUTH_CREDENTIALS_JSON,
 )
-
-# OAuth2 user credentials (same env var as google_drive.py)
-GOOGLE_OAUTH_CREDENTIALS_JSON = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON", "")
 
 logger = logging.getLogger(__name__)
 
@@ -196,10 +192,11 @@ class GoogleSheetsLogger:
             ).execute()
             values = result.get("values", [])
 
-            # Find the row index (1-based in Sheets)
+            # Only search last 10 rows for efficiency
+            search_start = max(0, len(values) - 10)
             row_index = None
-            for i, row in enumerate(values):
-                if row and row[0] == session_id:
+            for i in range(len(values) - 1, search_start - 1, -1):
+                if values[i] and values[i][0] == session_id:
                     row_index = i + 1  # Sheets rows are 1-based
                     break
 

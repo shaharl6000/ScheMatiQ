@@ -40,6 +40,7 @@ export function VisualizeGuideDialog({ autoOpen, forceOpen, onOpenChange, onDism
   const [open, setOpen] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
   const prevAutoOpenRef = useRef(autoOpen);
+  const prevForceOpenRef = useRef(forceOpen);
 
   // Detect autoOpen false→true transition, check localStorage before opening
   useEffect(() => {
@@ -52,11 +53,12 @@ export function VisualizeGuideDialog({ autoOpen, forceOpen, onOpenChange, onDism
     prevAutoOpenRef.current = autoOpen;
   }, [autoOpen]);
 
-  // Handle forceOpen from parent (help button) — always opens
+  // Handle forceOpen from parent (help button) — detect false→true transition
   useEffect(() => {
-    if (forceOpen) {
+    if (forceOpen && !prevForceOpenRef.current) {
       setOpen(true);
     }
+    prevForceOpenRef.current = forceOpen;
   }, [forceOpen]);
 
   const handleClose = () => {

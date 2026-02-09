@@ -48,10 +48,9 @@ function App() {
               alt="HUJI NLP Lab"
               className="h-14 w-auto dark:invert"
             />
-            <div className="flex flex-col items-center sm:items-start gap-1 text-sm text-muted-foreground">
-              <p className="font-semibold text-foreground">The Hebrew University of Jerusalem · NLP Research</p>
-              <p>LLM-based schema discovery from unstructured documents</p>
-              <div className="flex items-center gap-4 flex-wrap mt-1">
+            <div className="flex flex-col items-center sm:items-start gap-1.5 text-muted-foreground">
+              <p className="font-semibold text-foreground text-base">The Hebrew University of Jerusalem · NLP Research</p>
+              <div className="flex items-center gap-4 flex-wrap text-sm">
                 <a
                   href="mailto:shahar.levy2@mail.huji.ac.il"
                   className="inline-flex items-center gap-1 hover:text-primary hover:underline transition-colors"
