@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, Upload, Trash2, FileText, DollarSign, AlertTriangle, TrendingUp, HelpCircle } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, Upload, Trash2, FileText, DollarSign, AlertTriangle, TrendingUp, HelpCircle, RotateCcw } from 'lucide-react';
 import {
   getConfiguredProviders,
   getApiKeyForProvider,
@@ -53,12 +53,44 @@ import { qbsdAPI, cloudAPI, loadAPI, configAPI } from '../services/api';
 import { useFileUpload } from '../hooks/useFileUpload';
 import { formatFileSize } from '../utils/apiHelpers';
 import { QBSDConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn, InitialObservationUnit, CostEstimate } from '../types';
-import { DEFAULT_MAX_DOCUMENTS } from '../constants';
+import {
+  DEFAULT_MAX_DOCUMENTS,
+  DEFAULT_MAX_KEYS_SCHEMA,
+  DEFAULT_DOCUMENTS_BATCH_SIZE,
+  DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
+} from '../constants';
+
+const DEFAULT_CONFIG: QBSDConfig = {
+  query: '',
+  docs_path: [],
+  max_keys_schema: DEFAULT_MAX_KEYS_SCHEMA,
+  documents_batch_size: DEFAULT_DOCUMENTS_BATCH_SIZE,
+  schema_creation_backend: {
+    provider: 'gemini',
+    model: 'gemini-2.5-flash',
+    temperature: 0,
+  },
+  value_extraction_backend: {
+    provider: 'gemini',
+    model: 'gemini-2.5-flash-lite',
+    temperature: 0,
+  },
+  output_path: 'outputs/visualization_output.json',
+  document_randomization_seed: DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
+  skip_value_extraction: false,
+};
 
 const QBSDConfigPage = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Previous session file names (restored from navigation state)
+  const [previousUploadedFiles, setPreviousUploadedFiles] = useState<string[]>([]);
+
+  // Accordion state
+  const [openAccordions, setOpenAccordions] = useState<string[]>([]);
 
   // Configured providers state
   const [configuredProviders, setConfiguredProviders] = useState<LLMProvider[]>([]);
@@ -230,27 +262,119 @@ const QBSDConfigPage = () => {
       .catch(() => console.log('Using default document limit'));
   }, []);
 
-  const [config, setConfig] = useState<QBSDConfig>({
-    query: '',
-    docs_path: [],
-    max_keys_schema: 25,
-    documents_batch_size: 1,
-    schema_creation_backend: {
-      provider: 'gemini',
-      model: 'gemini-2.5-flash',
-      // max_output_tokens and context_window_size are auto-detected from model specs
-      temperature: 0,
-    },
-    value_extraction_backend: {
-      provider: 'gemini',
-      model: 'gemini-2.5-flash-lite',
-      // max_output_tokens and context_window_size are auto-detected from model specs
-      temperature: 0,
-    },
-    output_path: 'outputs/visualization_output.json',
-    document_randomization_seed: 42,
-    skip_value_extraction: false,
-  });
+  // Restore state when navigating back from Visualization screen
+  useEffect(() => {
+    const state = location.state as {
+      config?: QBSDConfig;
+      previousSessionId?: string;
+      uploadedFileNames?: string[];
+    } | null;
+
+    if (!state?.config) return;
+
+    const restoredConfig = state.config;
+
+    // Restore configuration values
+    setConfig(prev => ({
+      ...prev,
+      query: restoredConfig.query || '',
+      docs_path: restoredConfig.docs_path || [],
+      max_keys_schema: restoredConfig.max_keys_schema ?? DEFAULT_MAX_KEYS_SCHEMA,
+      documents_batch_size: restoredConfig.documents_batch_size ?? DEFAULT_DOCUMENTS_BATCH_SIZE,
+      document_randomization_seed: restoredConfig.document_randomization_seed ?? DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
+      skip_value_extraction: restoredConfig.skip_value_extraction ?? false,
+      schema_creation_backend: restoredConfig.schema_creation_backend || prev.schema_creation_backend,
+      value_extraction_backend: restoredConfig.value_extraction_backend || prev.value_extraction_backend,
+      retriever: restoredConfig.retriever || prev.retriever,
+      previous_session_id: state.previousSessionId,
+    }));
+
+    // Restore document source tab
+    if (restoredConfig.upload_pending || (state.uploadedFileNames && state.uploadedFileNames.length > 0)) {
+      setDocumentSource('upload');
+      setPreviousUploadedFiles(state.uploadedFileNames || []);
+    } else if (restoredConfig.docs_path && (
+      (typeof restoredConfig.docs_path === 'string' && restoredConfig.docs_path) ||
+      (Array.isArray(restoredConfig.docs_path) && restoredConfig.docs_path.length > 0)
+    )) {
+      setDocumentSource('cloud');
+    }
+
+    // Restore Observation Unit state
+    if (restoredConfig.initial_observation_unit) {
+      const unit = restoredConfig.initial_observation_unit;
+      if (unit.definition) {
+        setObservationUnitMode('full');
+        setObservationUnitName(unit.name);
+        setObservationUnitDefinition(unit.definition);
+      } else {
+        setObservationUnitMode('name_only');
+        setObservationUnitName(unit.name);
+      }
+    }
+
+    // Note: Initial Schema (initialSchemaData/initialSchemaPath) cannot be restored here
+    // because InitialSchemaEditor manages its own internal state and resets on mount.
+
+    // Determine which accordions to open based on restored config
+    const newOpenAccordions: string[] = [];
+
+    // Check Advanced Config
+    if (
+      restoredConfig.max_keys_schema !== DEFAULT_MAX_KEYS_SCHEMA ||
+      restoredConfig.documents_batch_size !== DEFAULT_DOCUMENTS_BATCH_SIZE ||
+      restoredConfig.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED ||
+      restoredConfig.initial_observation_unit
+    ) {
+      newOpenAccordions.push('advanced-config');
+    }
+
+    // Check Schema LLM
+    if (
+      restoredConfig.schema_creation_backend.provider !== DEFAULT_CONFIG.schema_creation_backend.provider ||
+      restoredConfig.schema_creation_backend.model !== DEFAULT_CONFIG.schema_creation_backend.model ||
+      restoredConfig.schema_creation_backend.temperature !== DEFAULT_CONFIG.schema_creation_backend.temperature
+    ) {
+      newOpenAccordions.push('schema-llm');
+    }
+
+    // Check Value LLM
+    if (
+      restoredConfig.value_extraction_backend.provider !== DEFAULT_CONFIG.value_extraction_backend.provider ||
+      restoredConfig.value_extraction_backend.model !== DEFAULT_CONFIG.value_extraction_backend.model ||
+      restoredConfig.value_extraction_backend.temperature !== DEFAULT_CONFIG.value_extraction_backend.temperature
+    ) {
+      newOpenAccordions.push('value-llm');
+    }
+
+    // Check Retriever
+    if (restoredConfig.retriever) {
+      newOpenAccordions.push('retriever');
+    }
+
+    setOpenAccordions(newOpenAccordions);
+
+    // Clear navigation state to prevent re-restoration on refresh
+    window.history.replaceState({}, document.title);
+  }, []); // Run only once on mount
+
+  const handleReset = () => {
+    setConfig(DEFAULT_CONFIG);
+    setUploadedFiles([]);
+    setPreviousUploadedFiles([]);
+    setDocumentSource('upload');
+    setInitialSchemaPath(undefined);
+    setInitialSchemaData(undefined);
+    setObservationUnitMode('auto');
+    setObservationUnitName('');
+    setObservationUnitDefinition('');
+    setCostEstimate(null);
+    setOpenAccordions([]);
+    setError(null);
+    window.history.replaceState({}, document.title);
+  };
+
+  const [config, setConfig] = useState<QBSDConfig>(DEFAULT_CONFIG);
 
   // Computed values for document limit (must be after config state is defined)
   const effectiveMaxDocs = (developerMode && limitBypassEnabled) ? Infinity : maxDocuments;
@@ -425,12 +549,18 @@ const QBSDConfigPage = () => {
       }
 
       // Build config with API keys and initial schema
+      const hasNewUploads = uploadedFiles.length > 0;
+      const hasRestoredFiles = previousUploadedFiles.length > 0;
       const configWithKeys: QBSDConfig = {
         ...config,
         // If using upload mode, set docs_path to null (documents will be added after session creation)
         docs_path: documentSource === 'upload' ? null : config.docs_path,
-        // Tell backend that documents will be uploaded after session creation
-        upload_pending: documentSource === 'upload' && uploadedFiles.length > 0,
+        // Tell backend that documents will be uploaded or reused
+        upload_pending: documentSource === 'upload' && (hasNewUploads || hasRestoredFiles),
+        // If reusing files from a previous session, pass the session ID so backend copies them
+        previous_session_id: (documentSource === 'upload' && hasRestoredFiles && !hasNewUploads)
+          ? config.previous_session_id
+          : undefined,
         schema_creation_backend: {
           ...config.schema_creation_backend,
           api_key: schemaApiKey || undefined,
@@ -479,7 +609,7 @@ const QBSDConfigPage = () => {
   const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path.filter(Boolean) : [config.docs_path].filter(Boolean);
   const hasQuery = config.query.trim() !== '';
   const hasCloudDocuments = documentSource === 'cloud' && selectedPaths.length > 0;
-  const hasUploadedFiles = documentSource === 'upload' && uploadedFiles.length > 0;
+  const hasUploadedFiles = documentSource === 'upload' && (uploadedFiles.length > 0 || previousUploadedFiles.length > 0);
   const hasDocuments = hasCloudDocuments || hasUploadedFiles;
   // Valid if at least one of query or documents is provided
   const isFormValid = hasQuery || hasDocuments;
@@ -491,19 +621,25 @@ const QBSDConfigPage = () => {
         onOpenChange={setWelcomeDialogOpen}
       />
 
-      <div className="flex items-center gap-2 mb-2">
-        <h1 className="text-3xl font-bold tracking-tight">
-          Configure QBSD
-        </h1>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => setWelcomeDialogOpen(true)}
-          aria-label="Show welcome guide"
-          className="text-muted-foreground"
-        >
-          <HelpCircle className="h-5 w-5" />
-        </Button>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <h1 className="text-3xl font-bold tracking-tight">
+            Configure QBSD
+          </h1>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setWelcomeDialogOpen(true)}
+            aria-label="Show welcome guide"
+            className="text-muted-foreground"
+          >
+            <HelpCircle className="h-5 w-5" />
+          </Button>
+        </div>
+          <Button variant="ghost" onClick={handleReset} className="text-muted-foreground">
+            <RotateCcw className="mr-2 h-4 w-4" />
+            Reset
+          </Button>
       </div>
       <p className="text-muted-foreground mb-6">
         Set up your Query-Based Schema Discovery parameters to run AI-powered data extraction.
@@ -617,6 +753,13 @@ const QBSDConfigPage = () => {
                     <Alert variant="destructive" className="mt-3">
                       <AlertDescription>{dragError}</AlertDescription>
                     </Alert>
+                  )}
+
+                  {/* Restored files from previous session */}
+                  {previousUploadedFiles.length > 0 && uploadedFiles.length === 0 && (
+                    <div className="mt-3 text-sm text-muted-foreground">
+                      {previousUploadedFiles.length} file{previousUploadedFiles.length > 1 ? 's' : ''} from previous session
+                    </div>
                   )}
 
                   {uploadedFiles.length > 0 && (
@@ -763,7 +906,12 @@ const QBSDConfigPage = () => {
           </div>
 
           {/* Configuration Accordions */}
-          <Accordion type="multiple" className="mt-6">
+          <Accordion 
+            type="multiple" 
+            className="mt-6"
+            value={openAccordions}
+            onValueChange={setOpenAccordions}
+          >
             {/* Advanced Configuration */}
             <AccordionItem value="advanced-config">
               <AccordionTrigger className="hover:no-underline">

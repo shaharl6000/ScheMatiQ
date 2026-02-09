@@ -5,7 +5,6 @@ import asyncio
 import csv
 import io
 import json
-import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
@@ -16,19 +15,13 @@ from app.models.session import VisualizationSession, SessionType, SessionMetadat
 from app.models.qbsd import QBSDConfig, QBSDStatus, CostEstimate, CostEstimateRequest, PhaseEstimate, DocumentStats
 from app.services.qbsd_runner import QBSDRunner
 from app.services.data_editor import DataEditor
-from app.services import websocket_manager, session_manager, concurrency_limiter, data_collection_service
-from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE
-from app.core.exceptions import CapacityExceededError
-from app.storage import get_storage
-from app.core.logging_utils import set_session_context
+from app.services import websocket_manager, session_manager
 
 from qbsd.core.cost_estimator import estimate_from_config
 
-logger = logging.getLogger(__name__)
 router = APIRouter()
 # Create shared QBSD runner instance with shared managers
-qbsd_runner = QBSDRunner(websocket_manager=websocket_manager, session_manager=session_manager,
-                         data_collection_service=data_collection_service)
+qbsd_runner = QBSDRunner(websocket_manager=websocket_manager, session_manager=session_manager)
 # Create data editor instance
 data_editor = DataEditor()
 
@@ -109,42 +102,39 @@ def _convert_estimate_result(result) -> CostEstimate:
 @router.post("/configure", response_model=dict)
 async def configure_qbsd(config: QBSDConfig):
     """Configure a new QBSD session."""
-    session_id = None
     try:
-        logger.debug(f"Received QBSD config: {config}")
-
+        print(f"DEBUG: Received QBSD config: {config}")
+        
         # Validate configuration
         validation = await qbsd_runner.validate_config(config)
-
-        logger.debug(f"Validation result: {validation}")
-
+        
+        print(f"DEBUG: Validation result: {validation}")
+        
         if not validation["is_valid"]:
             raise HTTPException(status_code=400, detail=validation["errors"])
-
+        
         # Create session
         session_id = str(uuid.uuid4())
-        set_session_context(session_id)
-
         metadata = SessionMetadata(source=f"QBSD Query: {config.query[:50]}...")
-
+        
         session = VisualizationSession(
             id=session_id,
             type=SessionType.QBSD,
             metadata=metadata,
             schema_query=config.query
         )
-
+        
         # Store session and config
         session_manager.create_session(session)
         await qbsd_runner.save_config(session_id, config)
-
+        
         return {
             "session_id": session_id,
             "message": "QBSD session configured successfully"
         }
-
+        
     except Exception as e:
-        logger.error(f"Exception in configure_qbsd: {e}")
+        print(f"DEBUG: Exception in configure_qbsd: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -242,39 +232,15 @@ async def estimate_qbsd_cost_preview(request: CostEstimateRequest):
                 for file_info in request.uploaded_files
             ]
         else:
-            # Load from docs_path (local or cloud datasets)
+            # Load from docs_path (for cloud datasets)
             docs_path = config.docs_path
             if docs_path:
                 paths = [docs_path] if isinstance(docs_path, str) else docs_path
-                unresolved_paths = []
                 for path in paths:
                     resolved = _resolve_docs_path(path)
                     if resolved:
                         documents.extend(_load_documents_from_path(resolved))
-                    else:
-                        unresolved_paths.append(path)
-
-                # If nothing was loaded locally, try cloud storage sizes
-                if not documents and unresolved_paths:
-                    storage = get_storage()
-                    cloud_token_counts = []
-                    for path in unresolved_paths:
-                        dataset_name = Path(path).name
-                        files = await storage.list_dataset_files(dataset_name)
-                        if files:
-                            cloud_token_counts.extend(
-                                max(1, file_info.size // 4) for file_info in files
-                            )
-                    if cloud_token_counts:
-                        document_token_counts = cloud_token_counts
         
-        # Cap at MAX_DOCUMENTS for accurate estimation (unless developer mode)
-        if not DEVELOPER_MODE:
-            if document_token_counts and len(document_token_counts) > MAX_DOCUMENTS:
-                document_token_counts = document_token_counts[:MAX_DOCUMENTS]
-            elif documents and len(documents) > MAX_DOCUMENTS:
-                documents = documents[:MAX_DOCUMENTS]
-
         # Run the estimation
         result = estimate_from_config(
             documents,
@@ -282,7 +248,7 @@ async def estimate_qbsd_cost_preview(request: CostEstimateRequest):
             document_token_counts=document_token_counts
         )
         return _convert_estimate_result(result)
-
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -296,25 +262,13 @@ async def run_qbsd(session_id: str, background_tasks: BackgroundTasks):
         session = session_manager.get_session(session_id)
         if not session or session.type != SessionType.QBSD:
             raise HTTPException(status_code=404, detail="QBSD session not found")
-
-        # Reserve a concurrency slot (raises on capacity/duplicate)
-        await concurrency_limiter.acquire(session_id, "qbsd_creation")
-
-        # Start QBSD in background (slot released in run_qbsd's finally block)
+        
+        # Start QBSD in background
         background_tasks.add_task(qbsd_runner.run_qbsd, session_id)
-
+        
         return {"message": "QBSD execution started", "session_id": session_id}
-
-    except CapacityExceededError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except RuntimeError as e:
-        # Duplicate session execution
-        raise HTTPException(status_code=409, detail=str(e))
-    except HTTPException:
-        raise
+        
     except Exception as e:
-        # Release slot if we acquired but failed before scheduling
-        await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/status/{session_id}", response_model=QBSDStatus)
@@ -457,7 +411,7 @@ async def list_document_directories():
                 break
 
         if research_data_path is None:
-            logger.debug(f"Could not find research/data directory. Tried: {[str(c) for c in candidates]}")
+            print(f"DEBUG: Could not find research/data directory. Tried: {[str(c) for c in candidates]}")
             return []
 
         directories = []
@@ -471,7 +425,7 @@ async def list_document_directories():
         return directories
 
     except Exception as e:
-        logger.error(f"Error listing directories: {e}")
+        print(f"DEBUG: Error listing directories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -498,7 +452,7 @@ async def list_schema_files():
                 break
 
         if config_path is None:
-            logger.debug(f"Could not find research/experiments/configurations directory. Tried: {[str(c) for c in candidates]}")
+            print(f"DEBUG: Could not find research/experiments/configurations directory. Tried: {[str(c) for c in candidates]}")
             return []
 
         schema_files = []
@@ -539,7 +493,7 @@ async def list_schema_files():
         return schema_files
 
     except Exception as e:
-        logger.error(f"Error listing schema files: {e}")
+        print(f"DEBUG: Error listing schema files: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -557,7 +511,6 @@ async def export_qbsd_data(
         tz_offset: Timezone offset in minutes from UTC (for filename timestamp)
     """
     try:
-        set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -600,7 +553,6 @@ async def export_qbsd_data(
                         backend = qbsd_config["backend"]
                         output.write(f"# AI Model: {backend.get('provider', 'unknown')} {backend.get('model', 'unknown')}\n")
             except Exception as e:
-                logger.warning(f"Error loading LLM config for export: {e}")
                 output.write(f"# LLM Config: Error loading ({e})\n")
         
         output.write("#\n")
@@ -768,7 +720,6 @@ async def export_complete_qbsd_data(
 ):
     """Export complete QBSD data with schema metadata in multiple formats."""
     try:
-        set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -791,8 +742,8 @@ async def export_complete_qbsd_data(
                         "value_extraction_backend": qbsd_config.get("value_extraction_backend")
                     }
             except Exception as e:
-                logger.warning(f"Could not load LLM configuration for complete export: {e}")
-
+                print(f"DEBUG: Could not load LLM configuration for complete export: {e}")
+        
         # Prepare complete export data structure
         export_data = {
             "session_id": session_id,
@@ -979,7 +930,7 @@ async def export_complete_qbsd_data(
             raise HTTPException(status_code=400, detail="Unsupported format. Use 'json' or 'zip'")
         
     except Exception as e:
-        logger.error(f"Exception in export_complete_qbsd_data: {e}")
+        print(f"DEBUG: Exception in export_complete_qbsd_data: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -991,7 +942,6 @@ async def export_qbsd_rich_csv(
 ):
     """Export QBSD data as metadata-rich CSV with definition and rationale columns."""
     try:
-        set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -1127,7 +1077,6 @@ async def export_qbsd_schema_only(
 ):
     """Export only the QBSD schema metadata."""
     try:
-        set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -1146,7 +1095,7 @@ async def export_qbsd_schema_only(
                         "value_extraction_backend": qbsd_config.get("value_extraction_backend")
                     }
             except Exception as e:
-                logger.warning(f"Could not load LLM configuration: {e}")
+                print(f"DEBUG: Could not load LLM configuration: {e}")
 
         # Create QBSD schema export
         schema_columns = []
@@ -1203,5 +1152,5 @@ async def export_qbsd_schema_only(
         )
         
     except Exception as e:
-        logger.error(f"Exception in export_qbsd_schema_only: {e}")
+        print(f"DEBUG: Exception in export_qbsd_schema_only: {e}")
         raise HTTPException(status_code=500, detail=str(e))

@@ -65,6 +65,7 @@ class QBSDConfig(BaseModel):
     output_path: str
     document_randomization_seed: int = 42
     skip_value_extraction: bool = False  # Schema discovery only mode
+    previous_session_id: Optional[str] = None  # Session ID to copy uploaded files from
 
 class QBSDStatus(BaseModel):
     """Status of QBSD execution."""

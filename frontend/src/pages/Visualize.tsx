@@ -902,6 +902,38 @@ const Visualize = () => {
     }
   };
 
+  const handleBackNavigation = async () => {
+    if (session && mode === 'qbsd') {
+      try {
+        // Fetch full configuration used for this session
+        const config = await qbsdAPI.getConfig(sessionId!);
+        
+        // Navigate back to QBSD config with state restoration
+        // Keys must match what QBSDConfig.tsx expects: config, previousSessionId, uploadedFileNames
+        navigate('/qbsd', {
+          state: {
+            config,
+            previousSessionId: sessionId,
+            uploadedFileNames: session?.metadata?.uploaded_documents || []
+          }
+        });
+      } catch (err) {
+        console.error('Failed to fetch config for restoration:', err);
+        // Fallback: navigate with basic state from session
+        navigate('/qbsd', {
+          state: {
+            config: {
+              query: session.schema_query || '',
+              docs_path: session.metadata.cloud_dataset ? session.metadata.cloud_dataset.split(', ') : [],
+            }
+          }
+        });
+      }
+    } else {
+      navigate('/');
+    }
+  };
+
   if (!sessionId) {
     return (
       <Alert variant="destructive">
@@ -975,7 +1007,7 @@ const Visualize = () => {
       {/* Header */}
       <div className="flex items-center justify-between border-b pb-4">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+          <Button variant="ghost" size="sm" onClick={handleBackNavigation}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>

@@ -90,6 +90,7 @@ export interface SessionMetadata {
   processing_stats?: ProcessingStats;
   original_row_count?: number;
   additional_rows_added?: number;
+  cloud_dataset?: string;
 }
 
 export interface DataStatistics {
@@ -203,6 +204,7 @@ export interface QBSDConfig {
   output_path: string;
   document_randomization_seed: number;
   skip_value_extraction?: boolean;  // Schema discovery only mode
+  previous_session_id?: string;  // Session ID to copy uploaded files from
 }
 
 export interface QBSDStatus {

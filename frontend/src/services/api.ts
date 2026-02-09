@@ -263,6 +263,11 @@ export const qbsdAPI = {
     return response.data;
   },
 
+  getConfig: async (sessionId: string): Promise<QBSDConfig> => {
+    const response = await api.get(`/qbsd/config/${sessionId}`);
+    return response.data;
+  },
+
   getSchema: async (sessionId: string): Promise<SchemaData> => {
     const response = await api.get(`/qbsd/schema/${sessionId}`);
     return response.data;
@@ -907,26 +912,30 @@ export const unitsAPI = {
 };
 
 /**
- * Download a blob from the API and trigger a browser download.
- * Uses the shared axios instance (with correct baseURL and interceptors).
+ * Download a blob from an API endpoint and save it as a file.
+ * @param path - API path (relative to API_BASE)
+ * @param fallbackFilename - Default filename if Content-Disposition header is missing
  */
-export async function downloadBlob(url: string, fallbackFilename: string): Promise<void> {
-  const response = await api.get(url, { responseType: 'blob' });
-  const contentDisposition = response.headers['content-disposition'];
+export async function downloadBlob(path: string, fallbackFilename: string): Promise<void> {
+  const response = await api.get(path, { responseType: 'blob' });
+
+  // Try to extract filename from Content-Disposition header
+  const disposition = response.headers['content-disposition'];
   let filename = fallbackFilename;
-  if (contentDisposition) {
-    const match = contentDisposition.match(/filename="?([^"]+)"?/);
-    if (match) filename = match[1];
+  if (disposition) {
+    const match = disposition.match(/filename=(.+?)(?:;|$)/);
+    if (match) {
+      filename = match[1].replace(/["']/g, '').trim();
+    }
   }
+
   const blob = new Blob([response.data]);
-  const blobUrl = window.URL.createObjectURL(blob);
+  const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
-  link.href = blobUrl;
+  link.href = url;
   link.download = filename;
-  document.body.appendChild(link);
   link.click();
-  window.URL.revokeObjectURL(blobUrl);
-  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
 }
 
 export default api;
