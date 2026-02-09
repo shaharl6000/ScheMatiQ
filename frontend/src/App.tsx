@@ -1,5 +1,5 @@
 import { Routes, Route, Link } from 'react-router-dom';
-import { Database } from 'lucide-react';
+import { Database, Mail } from 'lucide-react';
 
 import Landing from './pages/Landing';
 import Load from './pages/Load';
@@ -13,7 +13,7 @@ function App() {
   return (
     <TooltipProvider>
     <ViewModeProvider>
-      <div className="min-h-screen bg-background">
+      <div className="min-h-screen flex flex-col bg-background">
         {/* Header */}
         <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="container flex h-14 items-center">
@@ -31,7 +31,7 @@ function App() {
         </header>
 
         {/* Main Content */}
-        <main className="container py-6">
+        <main className="container py-6 flex-1">
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/load" element={<Load />} />
@@ -39,6 +39,37 @@ function App() {
             <Route path="/visualize/:sessionId" element={<Visualize />} />
           </Routes>
         </main>
+
+        {/* Footer */}
+        <footer className="border-t mt-auto bg-muted/40">
+          <div className="container py-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
+            <img
+              src="/huji_icon.png"
+              alt="HUJI NLP Lab"
+              className="h-14 w-auto dark:invert"
+            />
+            <div className="flex flex-col items-center sm:items-start gap-1 text-sm text-muted-foreground">
+              <p className="font-semibold text-foreground">The Hebrew University of Jerusalem · NLP Research</p>
+              <p>LLM-based schema discovery from unstructured documents</p>
+              <div className="flex items-center gap-4 flex-wrap mt-1">
+                <a
+                  href="mailto:shahar.levy2@mail.huji.ac.il"
+                  className="inline-flex items-center gap-1 hover:text-primary hover:underline transition-colors"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  shahar.levy2@mail.huji.ac.il
+                </a>
+                <a
+                  href="mailto:eliya.habba@mail.huji.ac.il"
+                  className="inline-flex items-center gap-1 hover:text-primary hover:underline transition-colors"
+                >
+                  <Mail className="h-3.5 w-3.5" />
+                  eliya.habba@mail.huji.ac.il
+                </a>
+              </div>
+            </div>
+          </div>
+        </footer>
       </div>
     </ViewModeProvider>
     </TooltipProvider>
