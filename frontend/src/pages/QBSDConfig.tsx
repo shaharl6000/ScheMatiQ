@@ -327,8 +327,13 @@ const QBSDConfigPage = () => {
     setInitialSchemaData(schemaData);
   }, []);
 
-  // Debounced cost estimate fetching
+  // Debounced cost estimate fetching (developer mode only)
   useEffect(() => {
+    // Cost estimation is hidden in release mode
+    if (!developerMode) {
+      return;
+    }
+
     // Don't fetch if essential config is missing
     if (!config.schema_creation_backend.provider || !config.schema_creation_backend.model) {
       return;
@@ -390,6 +395,7 @@ const QBSDConfigPage = () => {
     documentSource,
     uploadedFiles.length,
     effectiveMaxDocs,
+    developerMode,
   ]);
 
   const handleSubmit = async () => {
@@ -1062,8 +1068,8 @@ const QBSDConfigPage = () => {
             </AccordionItem>
           </Accordion>
 
-          {/* Cost Estimate - Always visible */}
-          <Card className="border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
+          {/* Cost Estimate - Developer mode only */}
+          {developerMode && <Card className="border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg flex items-center gap-2">
                 <DollarSign className="h-5 w-5 text-emerald-600" />
@@ -1271,9 +1277,9 @@ const QBSDConfigPage = () => {
                 </div>
               )}
             </CardContent>
-          </Card>
+          </Card>}
 
-          {costEstimateError && (
+          {developerMode && costEstimateError && (
             <Alert variant="destructive">
               <AlertTriangle className="h-4 w-4" />
               <AlertDescription>{costEstimateError}</AlertDescription>
