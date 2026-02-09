@@ -1036,7 +1036,8 @@ const QBSDConfigPage = () => {
             </AccordionItem>
             )}
 
-            {/* Retriever Settings */}
+            {/* Retriever Settings - developer mode only */}
+            {developerMode && (
             <AccordionItem value="retriever">
               <AccordionTrigger className="hover:no-underline">
                 <div className="flex items-center gap-2">
@@ -1101,6 +1102,7 @@ const QBSDConfigPage = () => {
                 </div>
               </AccordionContent>
             </AccordionItem>
+            )}
           </Accordion>
 
           {/* Cost Estimate - Developer mode only */}
