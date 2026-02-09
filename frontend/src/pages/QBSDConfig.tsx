@@ -78,7 +78,7 @@ const QBSDConfigPage = () => {
   const [datasetsLoading, setDatasetsLoading] = useState(true);
 
   // Document source state (upload vs cloud)
-  const [documentSource, setDocumentSource] = useState<'upload' | 'cloud'>('cloud');
+  const [documentSource, setDocumentSource] = useState<'upload' | 'cloud'>('upload');
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -205,12 +205,9 @@ const QBSDConfigPage = () => {
         if (datasetsArray.length > 0) {
           setConfig(prev => {
             const currentPaths = Array.isArray(prev.docs_path) ? prev.docs_path : [prev.docs_path];
-            // Check if current paths exist in the fetched datasets
-            const validPaths = currentPaths.filter(path => datasetsArray.some(d => d.name === path));
-            if (validPaths.length === 0) {
-              return { ...prev, docs_path: [datasetsArray[0].name] };
-            }
-            return prev;
+            // Only keep paths that exist in the fetched datasets (don't auto-select any)
+            const validPaths = currentPaths.filter((path): path is string => path != null && datasetsArray.some(d => d.name === path));
+            return { ...prev, docs_path: validPaths };
           });
         }
       } catch (err) {
@@ -235,7 +232,7 @@ const QBSDConfigPage = () => {
 
   const [config, setConfig] = useState<QBSDConfig>({
     query: '',
-    docs_path: ['../research/data/file'],
+    docs_path: [],
     max_keys_schema: 25,
     documents_batch_size: 1,
     schema_creation_backend: {
