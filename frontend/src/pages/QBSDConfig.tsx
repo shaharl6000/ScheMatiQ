@@ -14,6 +14,8 @@ import {
 } from '@/constants/llmModels';
 import { ModelSelector } from '@/components/ModelSelector';
 import InitialSchemaEditor from '@/components/InitialSchemaEditor/InitialSchemaEditor';
+import { WelcomeDialog } from '@/components/WelcomeDialog/WelcomeDialog';
+import { InfoTooltip } from '@/components/InfoTooltip/InfoTooltip';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -79,6 +81,9 @@ const QBSDConfigPage = () => {
   const [documentSource, setDocumentSource] = useState<'upload' | 'cloud'>('cloud');
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+
+  // Welcome dialog state
+  const [welcomeDialogOpen, setWelcomeDialogOpen] = useState(false);
 
   // Cost estimate state
   const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
@@ -484,9 +489,25 @@ const QBSDConfigPage = () => {
 
   return (
     <div className="max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold tracking-tight mb-2">
-        Configure QBSD
-      </h1>
+      <WelcomeDialog
+        forceOpen={welcomeDialogOpen}
+        onOpenChange={setWelcomeDialogOpen}
+      />
+
+      <div className="flex items-center gap-2 mb-2">
+        <h1 className="text-3xl font-bold tracking-tight">
+          Configure QBSD
+        </h1>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setWelcomeDialogOpen(true)}
+          aria-label="Show welcome guide"
+          className="text-muted-foreground"
+        >
+          <HelpCircle className="h-5 w-5" />
+        </Button>
+      </div>
       <p className="text-muted-foreground mb-6">
         Set up your Query-Based Schema Discovery parameters to run AI-powered data extraction.
       </p>
@@ -514,8 +535,9 @@ const QBSDConfigPage = () => {
 
           {/* Research Query */}
           <div className="space-y-2">
-            <Label htmlFor="query">
+            <Label htmlFor="query" className="inline-flex items-center gap-1.5">
               Research Query {!hasDocuments && <span className="text-destructive">*</span>}
+              <InfoTooltip text="The question you want to answer using your documents. Be specific — this guides what information we extract." />
             </Label>
             <Textarea
               id="query"
@@ -715,8 +737,9 @@ const QBSDConfigPage = () => {
           {/* Schema Only Mode Toggle */}
           <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/30">
             <div className="space-y-0.5">
-              <Label htmlFor="schema-only" className="text-base font-medium">
+              <Label htmlFor="schema-only" className="text-base font-medium inline-flex items-center gap-1.5">
                 Schema Only Mode
+                <InfoTooltip text="Preview the table structure without extracting values. Useful for checking if the columns match your needs before running the full extraction." />
               </Label>
               <p className="text-sm text-muted-foreground">
                 Skip value extraction — faster and lower cost. Only discover the schema structure.
@@ -753,7 +776,10 @@ const QBSDConfigPage = () => {
                   <Label className="text-sm font-medium">Schema Parameters</Label>
                   <div className="grid md:grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="max_keys" className="text-sm text-muted-foreground">Max Schema Keys</Label>
+                      <Label htmlFor="max_keys" className="text-sm text-muted-foreground inline-flex items-center gap-1.5">
+                        Max Schema Keys
+                        <InfoTooltip text="Maximum number of columns in your table. Higher numbers capture more detail but increase processing time and cost." />
+                      </Label>
                       <Input
                         id="max_keys"
                         type="number"
@@ -764,7 +790,10 @@ const QBSDConfigPage = () => {
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="batch_size" className="text-sm text-muted-foreground">Document Batch Size</Label>
+                      <Label htmlFor="batch_size" className="text-sm text-muted-foreground inline-flex items-center gap-1.5">
+                        Document Batch Size
+                        <InfoTooltip text="How many documents to process before refining the schema. The default works well for most cases." />
+                      </Label>
                       <Input
                         id="batch_size"
                         type="number"
@@ -788,7 +817,10 @@ const QBSDConfigPage = () => {
 
                 {/* Observation Unit */}
                 <div className="space-y-3 pt-4 border-t">
-                  <Label className="text-sm font-medium">Observation Unit</Label>
+                  <Label className="text-sm font-medium inline-flex items-center gap-1.5">
+                    Observation Unit
+                    <InfoTooltip text="What each row in your table represents (e.g., 'a research paper' or 'a patient'). Usually auto-detected, but you can customize it if needed." />
+                  </Label>
                   <p className="text-sm text-muted-foreground">
                     Define what constitutes a single row in your output table.
                   </p>
@@ -857,7 +889,10 @@ const QBSDConfigPage = () => {
 
                 {/* Initial Schema */}
                 <div className="space-y-3 pt-4 border-t">
-                  <Label className="text-sm font-medium">Initial Schema</Label>
+                  <Label className="text-sm font-medium inline-flex items-center gap-1.5">
+                    Initial Schema
+                    <InfoTooltip text="Provide column names upfront to guide the extraction. Optional — the tool discovers columns automatically if you leave this blank." />
+                  </Label>
                   <p className="text-sm text-muted-foreground">
                     Optionally provide an initial schema to guide the discovery process. The LLM will start with these columns and expand as needed.
                   </p>
@@ -1074,6 +1109,7 @@ const QBSDConfigPage = () => {
               <CardTitle className="text-lg flex items-center gap-2">
                 <DollarSign className="h-5 w-5 text-emerald-600" />
                 Estimated Cost
+                <InfoTooltip text="Estimated API credits this extraction will consume. Actual cost may vary based on document complexity." />
                 {costEstimateLoading && (
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground ml-2" />
                 )}

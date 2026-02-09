@@ -6,10 +6,12 @@ import Load from './pages/Load';
 import QBSDConfig from './pages/QBSDConfig';
 import Visualize from './pages/Visualize';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { ViewModeProvider } from './contexts/ViewModeContext';
 
 function App() {
   return (
+    <TooltipProvider>
     <ViewModeProvider>
       <div className="min-h-screen bg-background">
         {/* Header */}
@@ -39,6 +41,7 @@ function App() {
         </main>
       </div>
     </ViewModeProvider>
+    </TooltipProvider>
   );
 }
 
