@@ -39,21 +39,18 @@ export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
   const [open, setOpen] = useState(false);
   const [dontShowAgain, setDontShowAgain] = useState(false);
 
+  // Auto-show on first visit (localStorage check)
   useEffect(() => {
-    if (forceOpen) {
-      setOpen(true);
-      return;
-    }
     const dismissed = localStorage.getItem(STORAGE_KEY);
     if (!dismissed) {
       setOpen(true);
     }
-  }, [forceOpen]);
+  }, []);
 
-  // Sync forceOpen prop changes
+  // Handle forceOpen from parent (help button)
   useEffect(() => {
-    if (forceOpen !== undefined) {
-      setOpen(forceOpen);
+    if (forceOpen) {
+      setOpen(true);
     }
   }, [forceOpen]);
 
