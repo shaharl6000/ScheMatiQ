@@ -102,6 +102,7 @@ const Visualize = () => {
   // Visualize guide dialog state
   const [visualizeGuideAutoOpen, setVisualizeGuideAutoOpen] = useState(false);
   const [visualizeGuideForceOpen, setVisualizeGuideForceOpen] = useState(false);
+  const hasShownGuideRef = React.useRef(false);
 
   // Stop processing state
   const [isStoppingProcessing, setIsStoppingProcessing] = useState(false);
@@ -216,7 +217,8 @@ const Visualize = () => {
               setStreamingCells(new Map());
               setCurrentDocumentProgress(null);
               setForceWebSocketConnect(false);
-              if (mode === 'qbsd') {
+              if (mode === 'qbsd' && !hasShownGuideRef.current) {
+                hasShownGuideRef.current = true;
                 setVisualizeGuideAutoOpen(true);
               }
               // Use broader query filter to match all data queries (including DataTable's paginated queries)
@@ -503,7 +505,8 @@ const Visualize = () => {
                 setStreamingCells(new Map());
                 setCurrentDocumentProgress(null);
                 setForceWebSocketConnect(false);
-                if (mode === 'qbsd') {
+                if (mode === 'qbsd' && !hasShownGuideRef.current) {
+                  hasShownGuideRef.current = true;
                   setVisualizeGuideAutoOpen(true);
                 }
                 // Use broader query filter to match all data queries (including DataTable's paginated queries)
