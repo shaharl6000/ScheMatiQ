@@ -21,12 +21,12 @@ const steps = [
     number: 1,
     title: 'Ask a Question',
     description: 'What do you want to know?',
-    example: 'e.g., "Which papers found a correlation between sleep and memory?"',
+    example: 'e.g., "What methods were used to detect nuclear export signals in proteins?"',
   },
   {
     number: 2,
     title: 'Upload Documents',
-    description: 'Add your PDFs or select sample datasets to analyze',
+    description: 'Add your PDFs / text files or select sample datasets to analyze',
   },
   {
     number: 3,
@@ -74,9 +74,9 @@ export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-xl">Welcome to QueryDiscovery!</DialogTitle>
+          <DialogTitle className="text-xl">Welcome to QueryBasedSchemaDiscovery!</DialogTitle>
           <DialogDescription className="text-base pt-2">
-            Turn research documents into structured tables in three simple steps:
+            Turn your documents into structured data in three simple steps:
           </DialogDescription>
         </DialogHeader>
 
