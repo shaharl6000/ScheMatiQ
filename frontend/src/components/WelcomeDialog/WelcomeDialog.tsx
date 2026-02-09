@@ -100,7 +100,6 @@ export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
         </div>
 
         <p className="text-sm text-muted-foreground">
-          Most settings have smart defaults — just fill in steps 1 and 2 to get started.
           Look for the <span className="inline-flex items-center text-muted-foreground">(i)</span> icons to learn more about any option.
         </p>
 
