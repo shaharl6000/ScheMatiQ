@@ -3,6 +3,8 @@
 Only active in release mode (DEVELOPER_MODE=false). Logs feedback to Google Sheets.
 """
 
+import asyncio
+import functools
 import logging
 from typing import Optional
 
@@ -10,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import DEVELOPER_MODE
+from app.services import qbsd_thread_pool
 
 logger = logging.getLogger(__name__)
 
@@ -39,12 +42,17 @@ async def submit_table_feedback(request: TableFeedbackRequest):
 
         sheets_logger = GoogleSheetsLogger.get_instance()
         if sheets_logger:
-            sheets_logger.log_feedback(
-                session_id=request.session_id,
-                rating=request.rating,
-                comment=request.comment,
-                table_row_count=request.table_row_count,
-                table_column_count=request.table_column_count,
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                qbsd_thread_pool,
+                functools.partial(
+                    sheets_logger.log_feedback,
+                    session_id=request.session_id,
+                    rating=request.rating,
+                    comment=request.comment,
+                    table_row_count=request.table_row_count,
+                    table_column_count=request.table_column_count,
+                ),
             )
             logger.info("[feedback] Logged feedback for session %s: %s", request.session_id, request.rating)
         else:

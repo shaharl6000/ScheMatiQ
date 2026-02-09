@@ -906,4 +906,27 @@ export const unitsAPI = {
   },
 };
 
+/**
+ * Download a blob from the API and trigger a browser download.
+ * Uses the shared axios instance (with correct baseURL and interceptors).
+ */
+export async function downloadBlob(url: string, fallbackFilename: string): Promise<void> {
+  const response = await api.get(url, { responseType: 'blob' });
+  const contentDisposition = response.headers['content-disposition'];
+  let filename = fallbackFilename;
+  if (contentDisposition) {
+    const match = contentDisposition.match(/filename="?([^"]+)"?/);
+    if (match) filename = match[1];
+  }
+  const blob = new Blob([response.data]);
+  const blobUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  window.URL.revokeObjectURL(blobUrl);
+  document.body.removeChild(link);
+}
+
 export default api;

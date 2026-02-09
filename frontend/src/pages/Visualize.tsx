@@ -1,21 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useSearchParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
-  Table2,
-  Database,
-  BarChart3,
   Download,
   Save,
   ChevronDown,
-  CheckCircle2,
-  Play,
-  XCircle,
   Loader2,
   X,
   FileText,
-  Square,
   Copy,
+  HelpCircle,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -32,7 +26,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { loadAPI, qbsdAPI, cloudAPI, configAPI } from '../services/api';
+import { loadAPI, qbsdAPI, cloudAPI, configAPI, downloadBlob } from '../services/api';
 import { getApiKeyForProvider, LLMProvider } from '../utils/apiKeyStorage';
 import { VisualizationSession, CellValue, CellExtractedData } from '../types';
 import {
@@ -41,7 +35,6 @@ import {
   WS_RECONNECT_ATTEMPTS,
   WS_RECONNECT_DELAY_BASE,
   WS_RECONNECT_MAX_DELAY,
-  API_BASE_URL,
   WS_BASE_URL
 } from '../constants/index';
 
@@ -58,6 +51,7 @@ import { ViewModeToggle } from '../components/ViewMode';
 import { useViewMode } from '../contexts/ViewModeContext';
 import { useUnits } from '../hooks/useUnits';
 import TableFeedbackWidget from '../components/TableFeedbackWidget/TableFeedbackWidget';
+import { VisualizeGuideDialog } from '../components/VisualizeGuideDialog/VisualizeGuideDialog';
 
 const Visualize = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -105,6 +99,11 @@ const Visualize = () => {
   // LLM selection state
   const [showLLMSelector, setShowLLMSelector] = useState(false);
 
+  // Visualize guide dialog state
+  const [visualizeGuideAutoOpen, setVisualizeGuideAutoOpen] = useState(false);
+  const [visualizeGuideForceOpen, setVisualizeGuideForceOpen] = useState(false);
+  const hasShownGuideRef = React.useRef(false);
+
   // Stop processing state
   const [isStoppingProcessing, setIsStoppingProcessing] = useState(false);
 
@@ -114,6 +113,9 @@ const Visualize = () => {
 
   // Column order state
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
+
+  // Add More Documents collapsed state
+  const [addDocsExpanded, setAddDocsExpanded] = useState(false);
 
   // WebSocket state
   const [forceWebSocketConnect, setForceWebSocketConnect] = useState(false);
@@ -215,6 +217,10 @@ const Visualize = () => {
               setStreamingCells(new Map());
               setCurrentDocumentProgress(null);
               setForceWebSocketConnect(false);
+              if (mode === 'qbsd' && !hasShownGuideRef.current) {
+                hasShownGuideRef.current = true;
+                setVisualizeGuideAutoOpen(true);
+              }
               // Use broader query filter to match all data queries (including DataTable's paginated queries)
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
@@ -499,6 +505,10 @@ const Visualize = () => {
                 setStreamingCells(new Map());
                 setCurrentDocumentProgress(null);
                 setForceWebSocketConnect(false);
+                if (mode === 'qbsd' && !hasShownGuideRef.current) {
+                  hasShownGuideRef.current = true;
+                  setVisualizeGuideAutoOpen(true);
+                }
                 // Use broader query filter to match all data queries (including DataTable's paginated queries)
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
@@ -694,38 +704,19 @@ const Visualize = () => {
 
   const handleDownloadTable = async () => {
     try {
-      const baseUrl = API_BASE_URL ? `${API_BASE_URL}/api` : '/api';
-      let apiUrl = mode === 'load'
-        ? `${baseUrl}/load/export/${sessionId}`
-        : `${baseUrl}/qbsd/export/${sessionId}`;
+      const exportPath = mode === 'load'
+        ? `/load/export/${sessionId}`
+        : `/qbsd/export/${sessionId}`;
 
       const tzOffset = new Date().getTimezoneOffset();
-      apiUrl += `?tz_offset=${tzOffset}&include_metadata=false`;
+      let queryStr = `?tz_offset=${tzOffset}&include_metadata=false`;
 
       if (columnOrder.length > 0) {
         const orderParam = encodeURIComponent(columnOrder.join(','));
-        apiUrl += `&column_order=${orderParam}`;
+        queryStr += `&column_order=${orderParam}`;
       }
 
-      const response = await fetch(apiUrl);
-      if (!response.ok) throw new Error('Export failed');
-
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'table_data.csv';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-        if (filenameMatch) filename = filenameMatch[1];
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
+      await downloadBlob(`${exportPath}${queryStr}`, 'table_data.csv');
     } catch (error) {
       console.error('Export error:', error);
       alert('Download failed. Please try again.');
@@ -734,31 +725,12 @@ const Visualize = () => {
 
   const handleSaveProject = async () => {
     try {
-      const baseUrl = API_BASE_URL ? `${API_BASE_URL}/api` : '/api';
       const tzOffset = new Date().getTimezoneOffset();
-      const apiUrl = mode === 'load'
-        ? `${baseUrl}/load/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`
-        : `${baseUrl}/qbsd/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`;
+      const exportPath = mode === 'load'
+        ? `/load/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`
+        : `/qbsd/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`;
 
-      const response = await fetch(apiUrl);
-      if (!response.ok) throw new Error('Export failed');
-
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'project.qbsd.json';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="?([^"]+)"?/);
-        if (filenameMatch) filename = filenameMatch[1];
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(link);
+      await downloadBlob(exportPath, 'project.qbsd.json');
     } catch (error) {
       console.error('Export error:', error);
       alert('Save failed. Please try again.');
@@ -1007,34 +979,37 @@ const Visualize = () => {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
-          <div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Link to="/" className="hover:text-foreground">Home</Link>
-              <span>/</span>
-              <span>{session?.type === 'load' ? 'Load Session' : 'QBSD Session'}</span>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-xs text-muted-foreground font-medium">Query</span>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5"
-                onClick={() => {
-                  navigator.clipboard.writeText(session?.schema_query || '');
-                  toast({ title: "Query copied to clipboard" });
-                }}
-              >
-                <Copy className="h-3 w-3" />
-              </Button>
-            </div>
+          <div className="group flex items-center gap-2 mt-1">
             <h1 className="text-base font-medium text-foreground">
               {session?.schema_query}
             </h1>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={() => {
+                navigator.clipboard.writeText(session?.schema_query || '');
+                toast({ title: "Query copied to clipboard" });
+              }}
+            >
+              <Copy className="h-3 w-3" />
+            </Button>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           {getStatusBadge()}
+          {(isCompleted || isQBSDStopped) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setVisualizeGuideForceOpen(true)}
+              aria-label="Show results guide"
+              className="text-muted-foreground"
+            >
+              <HelpCircle className="h-5 w-5" />
+            </Button>
+          )}
           {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1068,30 +1043,19 @@ const Visualize = () => {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
-          <TabsTrigger value="data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded'} className="gap-2">
-            <Table2 className="h-4 w-4" />
+          <TabsTrigger value="data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded'}>
             Data
           </TabsTrigger>
-          <TabsTrigger value="schema" disabled={!isSchemaReady || (!session?.columns?.length && !isSessionRefetching)} className="gap-2">
-            <Database className="h-4 w-4" />
+          <TabsTrigger value="schema" disabled={!isSchemaReady || (!session?.columns?.length && !isSessionRefetching)}>
             Schema
           </TabsTrigger>
-          <TabsTrigger value="stats" disabled={!isCompleted && !isQBSDStopped} className="gap-2">
-            <BarChart3 className="h-4 w-4" />
+          <TabsTrigger value="stats" disabled={!isCompleted && !isQBSDStopped}>
             Statistics
           </TabsTrigger>
           {mode === 'qbsd' && (
-            <TabsTrigger value="monitor" className="gap-2">
-              {session?.status === 'processing' ? (
+            <TabsTrigger value="monitor" className={session?.status === 'processing' ? 'gap-2' : undefined}>
+              {session?.status === 'processing' && (
                 <Loader2 className="h-4 w-4 animate-spin" />
-              ) : session?.status === 'completed' ? (
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-              ) : session?.status === 'stopped' ? (
-                <Square className="h-4 w-4 text-yellow-500" />
-              ) : session?.status === 'error' ? (
-                <XCircle className="h-4 w-4 text-red-500" />
-              ) : (
-                <Play className="h-4 w-4" />
               )}
               QBSD Monitor
             </TabsTrigger>
@@ -1118,11 +1082,6 @@ const Visualize = () => {
                     disabledTooltip="No observation units found in this session"
                     unitCount={unitListResponse?.totalUnits || (hasUnitColumn ? undefined : 0)}
                   />
-                  {viewMode === 'by_unit' && unitListResponse && (
-                    <span className="text-sm text-muted-foreground">
-                      Viewing {unitListResponse.totalUnits} observation units with {unitListResponse.totalRows} total rows
-                    </span>
-                  )}
                 </div>
               )}
 
@@ -1157,128 +1116,136 @@ const Visualize = () => {
                 />
               )}
 
-              {/* Document Upload Section */}
+              {/* Document Upload Section (collapsible) */}
               {((mode === 'load' && ['documents_uploaded', 'processing_documents', 'completed'].includes(session?.status || '')) ||
                 (mode === 'qbsd' && ['completed', 'documents_uploaded', 'processing_documents'].includes(session?.status || ''))) &&
                 !sessionLoading && !dataLoading && dataResponse && (
                   <Card className="mt-6">
-                    <CardHeader>
-                      <CardTitle>
-                        {mode === 'qbsd'
-                          ? 'Add More Documents'
-                          : session?.status === 'documents_uploaded'
-                            ? 'Process Your Documents'
-                            : 'Add More Documents'}
-                      </CardTitle>
+                    <CardHeader
+                      className="cursor-pointer select-none"
+                      onClick={() => setAddDocsExpanded(!addDocsExpanded)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-base">
+                          {mode === 'qbsd'
+                            ? 'Add More Documents'
+                            : session?.status === 'documents_uploaded'
+                              ? 'Process Your Documents'
+                              : 'Add More Documents'}
+                        </CardTitle>
+                        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${addDocsExpanded ? 'rotate-180' : ''}`} />
+                      </div>
                     </CardHeader>
-                    <CardContent className="space-y-4">
-                      <p className="text-sm text-muted-foreground">
-                        {mode === 'qbsd'
-                          ? 'Upload additional documents to extract more data using your discovered schema.'
-                          : session?.status === 'documents_uploaded'
-                            ? 'You have uploaded documents that are ready to be processed.'
-                            : 'Upload additional documents to extract more data using your existing schema.'}
-                      </p>
+                    {addDocsExpanded && (
+                      <CardContent className="space-y-4">
+                        <p className="text-sm text-muted-foreground">
+                          {mode === 'qbsd'
+                            ? 'Upload additional documents to extract more data using your discovered schema.'
+                            : session?.status === 'documents_uploaded'
+                              ? 'You have uploaded documents that are ready to be processed.'
+                              : 'Upload additional documents to extract more data using your existing schema.'}
+                        </p>
 
-                      {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium">Uploaded documents ({session.metadata.uploaded_documents.length}):</p>
-                          <div className="flex flex-wrap gap-2">
-                            {session.metadata.uploaded_documents.map((doc, index) => (
-                              <div
-                                key={`${doc}-${index}`}
-                                className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full text-sm"
-                              >
-                                <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                                <span className="text-blue-700 dark:text-blue-300 max-w-[200px] truncate" title={doc}>
-                                  {doc}
-                                </span>
-                                {session.status !== 'processing_documents' && (
-                                  <button
-                                    onClick={() => handleRemoveDocument(doc)}
-                                    disabled={removingDocument === doc}
-                                    className="ml-1 p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full transition-colors disabled:opacity-50"
-                                    title={`Remove ${doc}`}
-                                  >
-                                    {removingDocument === doc ? (
-                                      <Loader2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
-                                    ) : (
-                                      <X className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 hover:text-red-600 dark:hover:text-red-400" />
-                                    )}
-                                  </button>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {documentUploadError && (
-                        <Alert variant="destructive">
-                          <AlertDescription>{documentUploadError}</AlertDescription>
-                        </Alert>
-                      )}
-
-                      <DocumentUpload
-                        onFilesChange={setUploadedDocuments}
-                        uploadedFiles={uploadedDocuments}
-                        loading={documentUploadLoading}
-                        onUpload={handleDocumentUpload}
-                        canUpload={true}
-                        uploadResult={documentUploadResult}
-                        sessionId={sessionId}
-                        maxDocuments={maxDocuments}
-                        existingDocumentCount={session?.metadata?.uploaded_documents?.length || 0}
-                        onCloudDocumentsAdd={async (dataset, files) => {
-                          const result = await cloudAPI.addCloudDocuments(sessionId!, dataset, files);
-                          if (result.added_files?.length > 0) {
-                            queryClient.invalidateQueries(['session', sessionId]);
-                            setDocumentUploadResult({
-                              status: 'success',
-                              message: `Added ${result.added_files.length} cloud documents`,
-                              uploaded_files: result.added_files,
-                              warnings: result.errors || []
-                            });
-                          }
-                          if (result.errors?.length) {
-                            throw new Error(result.errors.join(', '));
-                          }
-                        }}
-                      />
-
-                      {((session?.metadata?.uploaded_documents?.length || 0) > 0 || documentUploadResult?.uploaded_files?.length > 0) && (
-                        <div className="pt-4 border-t">
-                          {session?.status === 'processing_documents' && (
-                            <div className="flex items-center gap-2 mb-4">
-                              <Loader2 className="h-5 w-5 animate-spin" />
-                              <span>Processing in progress...</span>
+                        {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
+                          <div className="space-y-2">
+                            <p className="text-sm font-medium">Uploaded documents ({session.metadata.uploaded_documents.length}):</p>
+                            <div className="flex flex-wrap gap-2">
+                              {session.metadata.uploaded_documents.map((doc, index) => (
+                                <div
+                                  key={`${doc}-${index}`}
+                                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full text-sm"
+                                >
+                                  <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                                  <span className="text-blue-700 dark:text-blue-300 max-w-[200px] truncate" title={doc}>
+                                    {doc}
+                                  </span>
+                                  {session.status !== 'processing_documents' && (
+                                    <button
+                                      onClick={() => handleRemoveDocument(doc)}
+                                      disabled={removingDocument === doc}
+                                      className="ml-1 p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full transition-colors disabled:opacity-50"
+                                      title={`Remove ${doc}`}
+                                    >
+                                      {removingDocument === doc ? (
+                                        <Loader2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
+                                      ) : (
+                                        <X className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 hover:text-red-600 dark:hover:text-red-400" />
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
                             </div>
-                          )}
+                          </div>
+                        )}
 
-                          {session?.status === 'completed' && (session?.metadata?.additional_rows_added ?? 0) > 0 && (
-                            <Alert variant="success" className="mb-4">
-                              <AlertDescription>
-                                Processing completed! Added {session.metadata.additional_rows_added} new rows.
-                              </AlertDescription>
-                            </Alert>
-                          )}
+                        {documentUploadError && (
+                          <Alert variant="destructive">
+                            <AlertDescription>{documentUploadError}</AlertDescription>
+                          </Alert>
+                        )}
 
-                          {session?.status !== 'completed' && (
-                            <Button
-                              onClick={handleDocumentProcessing}
-                              disabled={session?.status?.includes('processing') || documentUploadLoading}
-                            >
-                              {documentUploadLoading ? (
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              ) : null}
-                              {documentUploadLoading ? 'Starting...' :
-                                session?.status?.includes('processing') ? 'Processing...' :
-                                  'Process Documents'}
-                            </Button>
-                          )}
-                        </div>
-                      )}
-                    </CardContent>
+                        <DocumentUpload
+                          onFilesChange={setUploadedDocuments}
+                          uploadedFiles={uploadedDocuments}
+                          loading={documentUploadLoading}
+                          onUpload={handleDocumentUpload}
+                          canUpload={true}
+                          uploadResult={documentUploadResult}
+                          sessionId={sessionId}
+                          maxDocuments={maxDocuments}
+                          existingDocumentCount={session?.metadata?.uploaded_documents?.length || 0}
+                          onCloudDocumentsAdd={async (dataset, files) => {
+                            const result = await cloudAPI.addCloudDocuments(sessionId!, dataset, files);
+                            if (result.added_files?.length > 0) {
+                              queryClient.invalidateQueries(['session', sessionId]);
+                              setDocumentUploadResult({
+                                status: 'success',
+                                message: `Added ${result.added_files.length} cloud documents`,
+                                uploaded_files: result.added_files,
+                                warnings: result.errors || []
+                              });
+                            }
+                            if (result.errors?.length) {
+                              throw new Error(result.errors.join(', '));
+                            }
+                          }}
+                        />
+
+                        {((session?.metadata?.uploaded_documents?.length || 0) > 0 || documentUploadResult?.uploaded_files?.length > 0) && (
+                          <div className="pt-4 border-t">
+                            {session?.status === 'processing_documents' && (
+                              <div className="flex items-center gap-2 mb-4">
+                                <Loader2 className="h-5 w-5 animate-spin" />
+                                <span>Processing in progress...</span>
+                              </div>
+                            )}
+
+                            {session?.status === 'completed' && (session?.metadata?.additional_rows_added ?? 0) > 0 && (
+                              <Alert variant="success" className="mb-4">
+                                <AlertDescription>
+                                  Processing completed! Added {session.metadata.additional_rows_added} new rows.
+                                </AlertDescription>
+                              </Alert>
+                            )}
+
+                            {session?.status !== 'completed' && (
+                              <Button
+                                onClick={handleDocumentProcessing}
+                                disabled={session?.status?.includes('processing') || documentUploadLoading}
+                              >
+                                {documentUploadLoading ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : null}
+                                {documentUploadLoading ? 'Starting...' :
+                                  session?.status?.includes('processing') ? 'Processing...' :
+                                    'Process Documents'}
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </CardContent>
+                    )}
                   </Card>
                 )}
             </div>
@@ -1392,6 +1359,19 @@ const Visualize = () => {
         preservedConfig={session?.metadata?.extracted_schema?.llm_configuration?.value_extraction_backend || null}
         loading={documentUploadLoading}
         defaultModel="gemini-2.5-flash-lite"
+      />
+
+      {/* Visualize Guide Dialog */}
+      <VisualizeGuideDialog
+        autoOpen={visualizeGuideAutoOpen}
+        forceOpen={visualizeGuideForceOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setVisualizeGuideAutoOpen(false);
+            setVisualizeGuideForceOpen(false);
+          }
+        }}
+        onDismiss={() => setActiveTab('data')}
       />
     </div>
   );
