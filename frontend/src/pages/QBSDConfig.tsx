@@ -234,7 +234,7 @@ const QBSDConfigPage = () => {
   }, []);
 
   const [config, setConfig] = useState<QBSDConfig>({
-    query: 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?',
+    query: '',
     docs_path: ['../research/data/file'],
     max_keys_schema: 25,
     documents_batch_size: 1,
@@ -539,16 +539,29 @@ const QBSDConfigPage = () => {
               Research Query {!hasDocuments && <span className="text-destructive">*</span>}
               <InfoTooltip text="The question you want to answer using your documents. Be specific — this guides what information we extract." />
             </Label>
-            <Textarea
-              id="query"
-              rows={3}
-              value={config.query}
-              onChange={(e) => handleConfigChange('query', e.target.value)}
-              placeholder="e.g., Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)?"
-              className="resize-none"
-              aria-required={!hasDocuments}
-              aria-describedby="query-hint"
-            />
+            <div className="relative">
+              {config.query === '' && (
+                <div className="absolute inset-0 pointer-events-none p-[9px] text-muted-foreground/40 text-sm leading-[1.43] whitespace-pre-wrap">
+                  Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?
+                </div>
+              )}
+              <Textarea
+                id="query"
+                rows={3}
+                value={config.query}
+                onChange={(e) => handleConfigChange('query', e.target.value)}
+                placeholder=""
+                className="resize-none bg-transparent"
+                aria-required={!hasDocuments}
+                aria-describedby="query-hint"
+                onKeyDown={(e) => {
+                  if (e.key === 'Tab' && config.query === '') {
+                    e.preventDefault();
+                    handleConfigChange('query', 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?');
+                  }
+                }}
+              />
+            </div>
             <p id="query-hint" className="text-sm text-muted-foreground">
               {hasDocuments && !hasQuery
                 ? 'Optional — leave empty to discover schema from document content'
