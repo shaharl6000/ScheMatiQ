@@ -151,7 +151,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [clusteringEnabled, setClusteringEnabled] = useState(() => {
     // Load from localStorage, default to true
     const saved = localStorage.getItem('schemaViewer.clusteringEnabled');
-    return saved !== null ? saved === 'true' : true;
+    return saved !== null ? saved === 'true' : false;
   });
   const [editingClusterId, setEditingClusterId] = useState<string | null>(null);
   const [editingClusterName, setEditingClusterName] = useState('');
@@ -1047,7 +1047,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           <div className="flex justify-between items-center mb-4">
             <div className="flex items-center gap-3">
               <h3 className="font-semibold">
-                Schema Overview ({displayColumns.length} columns)
+                Schema Overview
               </h3>
 
               {/* Validation Status Badge */}
@@ -1607,23 +1607,36 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                     </div>
                                   )}
                                   {column.rationale && (
-                                    <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
-                                      <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">Rationale</p>
-                                      <p className="text-sm">{column.rationale}</p>
-                                    </div>
+                                    <details className="mb-3">
+                                      <summary className="text-xs text-blue-600 dark:text-blue-400 cursor-pointer hover:underline">
+                                        Why this column?
+                                      </summary>
+                                      <div className="mt-1 p-3 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
+                                        <p className="text-sm">{column.rationale}</p>
+                                      </div>
+                                    </details>
                                   )}
-                                  {column.allowed_values && column.allowed_values.length > 0 ? (
+                                  {column.allowed_values && column.allowed_values.length > 0 && (
                                     <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-950 rounded-md border border-purple-200 dark:border-purple-800">
                                       <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-2">Allowed Values</p>
-                                      <div className="flex flex-wrap gap-1">
-                                        {column.allowed_values.map((value, idx) => (
-                                          <Badge key={idx} variant="outline" className="text-xs">{value}</Badge>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div className="mb-3 p-2 bg-gray-50 dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700">
-                                      <p className="text-xs text-gray-500 dark:text-gray-400 italic">Free-form</p>
+                                      {column.allowed_values.length <= 3 ? (
+                                        <div className="flex flex-wrap gap-1">
+                                          {column.allowed_values.map((value, idx) => (
+                                            <Badge key={idx} variant="outline" className="text-xs">{value}</Badge>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <details>
+                                          <summary className="text-xs text-purple-600 dark:text-purple-400 cursor-pointer hover:underline">
+                                            {column.allowed_values.length} values
+                                          </summary>
+                                          <div className="flex flex-wrap gap-1 mt-1">
+                                            {column.allowed_values.map((value, idx) => (
+                                              <Badge key={idx} variant="outline" className="text-xs">{value}</Badge>
+                                            ))}
+                                          </div>
+                                        </details>
+                                      )}
                                     </div>
                                   )}
                                   {(column.non_null_count !== undefined || column.unique_count !== undefined) && (
@@ -1791,6 +1804,18 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                           Extracting...
                         </Badge>
                       )}
+                      {sessionType === 'load' && (!column.definition || !column.rationale) && (
+                        <Tooltip>
+                          <TooltipTrigger>
+                            <AlertTriangle className="h-3.5 w-3.5 text-yellow-500" />
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {!column.definition && !column.rationale
+                              ? 'Missing definition and rationale'
+                              : !column.definition ? 'Missing definition' : 'Missing rationale'}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                     </div>
 
                     {!readonly && (
@@ -1839,14 +1864,18 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   )}
 
                   {column.rationale && (
-                    <div className="mb-3 p-3 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
-                      <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">Rationale</p>
-                      <p className="text-sm">{column.rationale}</p>
-                    </div>
+                    <details className="mb-3">
+                      <summary className="text-xs text-blue-600 dark:text-blue-400 cursor-pointer hover:underline">
+                        Why this column?
+                      </summary>
+                      <div className="mt-1 p-3 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
+                        <p className="text-sm">{column.rationale}</p>
+                      </div>
+                    </details>
                   )}
 
-                  {/* Allowed Values (Closed Set) or Free-form indicator */}
-                  {column.allowed_values && column.allowed_values.length > 0 ? (
+                  {/* Allowed Values (Closed Set) */}
+                  {column.allowed_values && column.allowed_values.length > 0 && (
                     <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-950 rounded-md border border-purple-200 dark:border-purple-800">
                       <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-2">
                         {/* Detect constraint type for better labeling */}
@@ -1856,29 +1885,38 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                             ? 'Range Constraint'
                             : 'Allowed Values'}
                       </p>
-                      <div className="flex flex-wrap gap-1">
-                        {column.allowed_values.length === 1 && column.allowed_values[0].toLowerCase() === 'number' ? (
-                          <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
-                            Any Number (int/float)
-                          </Badge>
-                        ) : column.allowed_values.length === 1 && /^(-?\d+(\.\d+)?)-(-?\d+(\.\d+)?)$/.test(column.allowed_values[0]) ? (
-                          <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
-                            Range: {column.allowed_values[0]}
-                          </Badge>
-                        ) : (
-                          column.allowed_values.map((value, idx) => (
-                            <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
-                              {value}
+                      {column.allowed_values.length <= 3 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {column.allowed_values.length === 1 && column.allowed_values[0].toLowerCase() === 'number' ? (
+                            <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
+                              Any Number (int/float)
                             </Badge>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="mb-3 p-2 bg-gray-50 dark:bg-gray-900 rounded-md border border-gray-200 dark:border-gray-700">
-                      <p className="text-xs text-gray-500 dark:text-gray-400 italic">
-                        Free-form (any value accepted)
-                      </p>
+                          ) : column.allowed_values.length === 1 && /^(-?\d+(\.\d+)?)-(-?\d+(\.\d+)?)$/.test(column.allowed_values[0]) ? (
+                            <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
+                              Range: {column.allowed_values[0]}
+                            </Badge>
+                          ) : (
+                            column.allowed_values.map((value, idx) => (
+                              <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
+                                {value}
+                              </Badge>
+                            ))
+                          )}
+                        </div>
+                      ) : (
+                        <details>
+                          <summary className="text-xs text-purple-600 dark:text-purple-400 cursor-pointer hover:underline">
+                            {column.allowed_values.length} values
+                          </summary>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {column.allowed_values.map((value, idx) => (
+                              <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
+                                {value}
+                              </Badge>
+                            ))}
+                          </div>
+                        </details>
+                      )}
                     </div>
                   )}
 
@@ -1904,20 +1942,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                           </p>
                         )}
                       </div>
-                    </div>
-                  )}
-
-                  {/* Missing metadata warning for loaded schemas */}
-                  {sessionType === 'load' && (!column.definition || !column.rationale) && (
-                    <div className="mb-2 p-2 bg-yellow-50 dark:bg-yellow-950 rounded-md border border-yellow-200 dark:border-yellow-800">
-                      <p className="text-xs text-yellow-700 dark:text-yellow-300 flex items-center gap-1">
-                        <AlertTriangle className="h-3 w-3" />
-                        {!column.definition && !column.rationale
-                          ? 'Missing definition and rationale'
-                          : !column.definition
-                            ? 'Missing definition'
-                            : 'Missing rationale'}
-                      </p>
                     </div>
                   )}
 
