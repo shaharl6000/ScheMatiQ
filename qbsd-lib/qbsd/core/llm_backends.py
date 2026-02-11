@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Union, Optional
 import re
 
 from qbsd.core.model_specs import get_model_spec
+from qbsd.core.llm_call_tracker import LLMCallTracker
 
 
 ##############################################################################
@@ -151,6 +152,10 @@ class TogetherLLM(LLMInterface):
             • str  – plain prompt → wrapped as [{'role':'user', 'content': prompt}]
             • list – already‑formatted chat messages (role/content pairs)
         """
+        # Track LLM call
+        prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
+        LLMCallTracker.get_instance().increment(model=self.model, prompt_length=prompt_len)
+
         params = {**self._default_args, **kwargs}
 
         # Detect format
@@ -250,6 +255,10 @@ class OpenAILLM(LLMInterface):
             • str  – plain prompt → wrapped as [{'role':'user', 'content': prompt}]
             • list – already‑formatted chat messages (role/content pairs)
         """
+        # Track LLM call
+        prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
+        LLMCallTracker.get_instance().increment(model=self.model, prompt_length=prompt_len)
+
         params = {**self._default_args, **kwargs}
 
         # Detect format
@@ -379,6 +388,10 @@ class HuggingFaceLLM(LLMInterface):
             • str  – plain prompt
             • list – chat-style messages (merged to prompt text)
         """
+        # Track LLM call
+        prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
+        LLMCallTracker.get_instance().increment(model=self.model_name, prompt_length=prompt_len)
+
         if isinstance(prompt, list):
             # Convert messages to plain prompt text
             prompt = "\n".join([f"{m['role']}: {m['content']}" for m in prompt])
@@ -530,6 +543,10 @@ class GeminiLLM(LLMInterface):
             • str  – plain prompt
             • list – chat-style messages (converted to plain prompt)
         """
+        # Track LLM call
+        prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
+        LLMCallTracker.get_instance().increment(model=self.model, prompt_length=prompt_len)
+
         # Convert chat messages to plain text if needed
         if isinstance(prompt, list):
             prompt_text = "\n".join([f"{m['role']}: {m['content']}" for m in prompt])
@@ -537,8 +554,7 @@ class GeminiLLM(LLMInterface):
             prompt_text = prompt
 
         # Log prompt size for performance correlation
-        prompt_len = len(prompt_text)
-        print(f"🚀 Starting Gemini API call (model: {self.model}, prompt: ~{prompt_len:,} chars)")
+        print(f"🚀 Starting Gemini API call (model: {self.model}, prompt: ~{len(prompt_text):,} chars)")
         start_time = time.time()
 
         # Add scientific context to help with safety filtering

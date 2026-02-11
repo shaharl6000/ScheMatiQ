@@ -123,6 +123,12 @@ DATA_COLLECTION_ENABLED = (
     and bool(GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE or GOOGLE_OAUTH_CREDENTIALS_JSON)
 )
 
+# ── LLM Call Quota ───────────────────────────────────────────────
+# Global limit on cumulative LLM API calls across all sessions.
+# Always enforced in release mode. In developer mode the quota is bypassed.
+# Set to 0 to allow unlimited calls (no quota enforced).
+LLM_CALL_GLOBAL_LIMIT = int(os.environ.get("LLM_CALL_GLOBAL_LIMIT", "20"))
+
 # ── Concurrency Configuration ────────────────────────────────────
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "5"))
 QBSD_THREAD_POOL_SIZE = int(os.environ.get("QBSD_THREAD_POOL_SIZE", "6"))

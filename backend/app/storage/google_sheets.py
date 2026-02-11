@@ -20,7 +20,7 @@ from app.core.config import (
 logger = logging.getLogger(__name__)
 
 # Column headers for the summary sheet (must match append_row order)
-# A-L: session data + feedback in a single row
+# A-M: session data + feedback in a single row
 HEADER_ROW = [
     "Timestamp",
     "Session ID",
@@ -34,6 +34,7 @@ HEADER_ROW = [
     "Drive File ID",
     "Rating",
     "Comment",
+    "LLM Calls",  # Total LLM API calls made during this session
 ]
 
 
@@ -128,7 +129,7 @@ class GoogleSheetsLogger:
             body = {"values": [values]}
             self._service.spreadsheets().values().append(
                 spreadsheetId=GOOGLE_SHEETS_SPREADSHEET_ID,
-                range="Sheet1!A:L",
+                range="Sheet1!A:M",
                 valueInputOption="USER_ENTERED",
                 insertDataOption="INSERT_ROWS",
                 body=body,
@@ -150,6 +151,7 @@ class GoogleSheetsLogger:
         observation_unit: str,
         trigger_source: str,
         drive_file_id: Optional[str],
+        llm_calls: int = 0,
     ) -> bool:
         """Log a session summary row with default Rating=N/A."""
         return self.append_row([
@@ -165,7 +167,36 @@ class GoogleSheetsLogger:
             drive_file_id or "",
             "N/A",  # Rating — updated later if user submits feedback
             "",     # Comment
+            llm_calls,
         ])
+
+    def read_total_llm_calls(self) -> int:
+        """Read the sum of all LLM calls from column M of the Google Sheet.
+
+        Returns 0 if the sheet is empty, inaccessible, or Sheets logging
+        is not configured.
+        """
+        if not self._enabled or not self._service:
+            return 0
+
+        try:
+            result = self._service.spreadsheets().values().get(
+                spreadsheetId=GOOGLE_SHEETS_SPREADSHEET_ID,
+                range="Sheet1!M:M",
+            ).execute()
+            values = result.get("values", [])
+            total = 0
+            for row in values[1:]:  # skip header row
+                if row and row[0]:
+                    try:
+                        total += int(row[0])
+                    except (ValueError, TypeError):
+                        pass
+            logger.debug("[data-collection] Read total LLM calls from Sheet: %d", total)
+            return total
+        except Exception as e:
+            logger.error("[data-collection] Failed to read LLM calls from Sheet: %s", e)
+            return 0
 
     def log_feedback(
         self,

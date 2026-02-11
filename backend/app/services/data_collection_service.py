@@ -114,6 +114,16 @@ class DataCollectionService:
             if session.observation_unit:
                 obs_unit = session.observation_unit.name or ""
 
+            # Read LLM call count from session stats file
+            llm_calls = 0
+            try:
+                llm_stats_file = Path("./qbsd_work") / session_id / "llm_call_stats.json"
+                if llm_stats_file.exists():
+                    llm_stats = json.loads(llm_stats_file.read_text(encoding="utf-8"))
+                    llm_calls = llm_stats.get("total_calls", 0)
+            except Exception as e:
+                logger.debug("[data-collection] Could not read LLM call stats: %s", e)
+
             self._sheets_logger.log_session(
                 session_id=session_id,
                 query=query,
@@ -124,6 +134,7 @@ class DataCollectionService:
                 observation_unit=obs_unit,
                 trigger_source=trigger_source,
                 drive_file_id=file_id,
+                llm_calls=llm_calls,
             )
 
     # ── Helpers ─────────────────────────────────────────────────────

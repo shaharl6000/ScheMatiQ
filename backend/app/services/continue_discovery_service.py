@@ -38,6 +38,7 @@ from qbsd.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot
 from qbsd.core.llm_backends import GeminiLLM
 from qbsd.core.retrievers import EmbeddingRetriever
 from qbsd.core import utils as qbsd_utils
+from qbsd.core.llm_call_tracker import LLMCallTracker
 from qbsd.value_extraction.main import build_table_jsonl
 
 QBSD_AVAILABLE = True
@@ -857,6 +858,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
         # Set session context for logging
         set_session_context(operation.session_id)
+        LLMCallTracker.get_instance().set_stage("continue_discovery")
 
         logger.info(f"_run_continue_discovery started for operation {operation_id}")
 

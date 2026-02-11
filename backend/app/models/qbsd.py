@@ -66,6 +66,8 @@ class QBSDConfig(BaseModel):
     document_randomization_seed: int = 42
     skip_value_extraction: bool = False  # Schema discovery only mode
     previous_session_id: Optional[str] = None  # Session ID to copy uploaded files from
+    count_toward_quota: bool = True  # If False, this session's LLM calls won't count toward the global quota
+    llm_call_limit: Optional[int] = None  # Developer-only: override the global quota limit for this session
 
 class QBSDStatus(BaseModel):
     """Status of QBSD execution."""

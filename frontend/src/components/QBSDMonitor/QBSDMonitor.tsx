@@ -55,6 +55,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
   const [currentStepMessage, setCurrentStepMessage] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [capacityMessage, setCapacityMessage] = useState<string>('');
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
 
   // Phase tracking state
   const [schemaProgress, setSchemaProgress] = useState({
@@ -152,6 +153,10 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
         setProcessingState('error');
         setErrorMessage(message.message || 'An error occurred');
         addLog('error', message.message || 'An error occurred', message.data);
+      } else if (message.type === 'quota_exceeded') {
+        setProcessingState('idle');
+        setQuotaExceeded(true);
+        addLog('warning', message.message || 'API usage limit reached', message.data);
       } else if (message.type === 'completed') {
         addLog('success', 'QBSD execution completed successfully!', message.data);
         setProcessingState('completed');
@@ -251,6 +256,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
     setCurrentStepMessage('Initializing...');
     setErrorMessage('');
     setCapacityMessage('');
+    setQuotaExceeded(false);
     setStoppedInfo(null);
 
     // Reset progress
@@ -332,7 +338,20 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
           {/* IDLE STATE */}
           {processingState === 'idle' && (
             <>
-              {capacityMessage ? (
+              {quotaExceeded ? (
+                <>
+                  <div className="w-14 h-14 rounded-full bg-orange-100 flex items-center justify-center mb-4">
+                    <AlertTriangle className="h-7 w-7 text-orange-600" />
+                  </div>
+                  <p className="text-xl font-semibold text-orange-600 mb-1">Service Temporarily Unavailable</p>
+                  <p className="text-sm text-muted-foreground mb-3 text-center max-w-md">
+                    The system has reached its processing capacity and is unable to start new sessions at this time.
+                  </p>
+                  <p className="text-xs text-muted-foreground text-center max-w-sm">
+                    Please try again later or contact us for assistance.
+                  </p>
+                </>
+              ) : capacityMessage ? (
                 <>
                   <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center mb-4">
                     <Clock className="h-7 w-7 text-amber-600" />
