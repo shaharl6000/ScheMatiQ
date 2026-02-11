@@ -1478,7 +1478,8 @@ async def export_complete_data(session_id: str, format: str = "json"):
                         "rationale": col.rationale or "",
                         "data_type": col.data_type,
                         "source_document": col.source_document,
-                        "discovery_iteration": col.discovery_iteration
+                        "discovery_iteration": col.discovery_iteration,
+                        "allowed_values": col.allowed_values,
                     }
                     for col in session.columns
                 ]

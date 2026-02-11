@@ -2,11 +2,12 @@
  * Hooks for unit view functionality.
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { unitsAPI } from '../services/api';
 import {
   UnitListResponse,
   UnitSuggestionsResponse,
+  AutoMergeResult,
   MergeUnitsRequest,
   MergeUnitsResponse,
 } from '../types/unit';
@@ -125,43 +126,62 @@ interface UseUnitSuggestionsResult {
   loading: boolean;
   /** Error state */
   error: string | null;
-  /** Fetch suggestions with threshold */
-  fetchSuggestions: (threshold?: number) => Promise<void>;
+  /** Auto-merge results from the initial fetch */
+  autoMerged: AutoMergeResult[];
+  /** Fetch suggestions with threshold — returns the response */
+  fetchSuggestions: (threshold?: number) => Promise<UnitSuggestionsResponse | null>;
 }
 
 /**
  * Hook to fetch merge suggestions for similar units.
+ * Auto-fetches on mount with autoMerge=true to merge exact matches immediately.
  */
 export function useUnitSuggestions(sessionId: string | undefined): UseUnitSuggestionsResult {
   const [suggestions, setSuggestions] = useState<UnitSuggestionsResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autoMerged, setAutoMerged] = useState<AutoMergeResult[]>([]);
+  const initialFetchDone = useRef(false);
 
-  const fetchSuggestions = useCallback(async (threshold: number = 0.8) => {
+  const fetchSuggestions = useCallback(async (threshold: number = 0.8, autoMerge: boolean = false): Promise<UnitSuggestionsResponse | null> => {
     if (!sessionId) {
       setSuggestions(null);
-      return;
+      return null;
     }
 
     setLoading(true);
     setError(null);
 
     try {
-      const response = await unitsAPI.getSuggestions(sessionId, threshold);
+      const response = await unitsAPI.getSuggestions(sessionId, threshold, autoMerge);
       setSuggestions(response);
+      if (autoMerge && response.autoMerged.length > 0) {
+        setAutoMerged(response.autoMerged);
+      }
+      return response;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to fetch suggestions';
       setError(message);
       console.error('Error fetching unit suggestions:', err);
+      return null;
     } finally {
       setLoading(false);
     }
   }, [sessionId]);
 
+  // Auto-fetch on mount with autoMerge=true
+  useEffect(() => {
+    if (sessionId && !initialFetchDone.current) {
+      initialFetchDone.current = true;
+      fetchSuggestions(0.8, true);
+    }
+  }, [sessionId, fetchSuggestions]);
+
   return {
     suggestions,
     loading,
     error,
+    autoMerged,
     fetchSuggestions,
   };
 }

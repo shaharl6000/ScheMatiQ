@@ -44,10 +44,18 @@ export interface UnitSimilarity {
   reason: string;
 }
 
+/** Result of an individual auto-merge group */
+export interface AutoMergeResult {
+  mergedUnits: string[];
+  targetUnit: string;
+  rowsAffected: number;
+}
+
 /** Response containing merge suggestions */
 export interface UnitSuggestionsResponse {
   suggestions: UnitSimilarity[];
   threshold: number;
+  autoMerged: AutoMergeResult[];
 }
 
 /** State for a unit group in the grouped table view */

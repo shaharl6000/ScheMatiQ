@@ -3,7 +3,7 @@
  * Provides collapsible unit groups with merge functionality.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb, FileText } from 'lucide-react';
 import { useQuery } from 'react-query';
 
@@ -34,9 +34,12 @@ import UnitGroupRow from './UnitGroupRow';
 import ContentModal from '../ContentModal/ContentModal';
 import { DataRow, CellValue, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/components/ui/use-toast';
 import { formatColumnName } from '../../utils/formatting';
+import { parsePythonString, extractDisplayValue } from './utils';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
 import { Eye } from 'lucide-react';
+import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
 
 interface UnitGroupedTableProps {
   /** Session ID */
@@ -61,7 +64,19 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   // Unit data hooks
   const { units: unitListResponse, loading: unitsLoading, error: unitsError, refresh: refreshUnits } = useUnits(sessionId);
   const { merge, loading: mergeLoading, error: mergeError, clearError: clearMergeError } = useMergeUnits(sessionId);
-  const { suggestions, loading: suggestionsLoading, fetchSuggestions } = useUnitSuggestions(sessionId);
+  const { suggestions, loading: suggestionsLoading, autoMerged, fetchSuggestions } = useUnitSuggestions(sessionId);
+  const { toast } = useToast();
+
+  // Column resize hook
+  const {
+    columnWidths,
+    getColumnWidth,
+    handleResizeStart,
+  } = useColumnResize({ sessionId });
+  const hasCustomWidths = Object.keys(columnWidths).length > 0;
+
+  // Refs for header cells (for resize start width measurement)
+  const headerRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
 
   // Memoize units array to prevent unnecessary re-renders
   const units = useMemo(() => unitListResponse?.units || [], [unitListResponse?.units]);
@@ -155,13 +170,28 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
       await merge(request);
       setMergeDialogOpen(false);
       clearMergeSelections();
-      refreshUnits();
-      refetchData();
+      await refreshUnits();
+      await refetchData();
       onDataChange?.();
     } catch (err) {
       // Error is handled by the hook
     }
   }, [merge, clearMergeSelections, refreshUnits, refetchData, onDataChange]);
+
+  // Handle backend auto-merge results — refresh table and show toast
+  useEffect(() => {
+    if (autoMerged.length > 0) {
+      const totalMerged = autoMerged.reduce((sum, g) => sum + g.mergedUnits.length, 0);
+      refreshUnits();
+      refetchData();
+      onDataChange?.();
+      toast({
+        title: 'Auto-merged identical units',
+        description: `Merged ${totalMerged} units into ${autoMerged.length} ${autoMerged.length === 1 ? 'group' : 'groups'}`,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoMerged]);
 
   // Handle suggestion merge
   const handleSuggestionMerge = useCallback(async (suggestion: any) => {
@@ -171,9 +201,9 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         target_unit: suggestion.suggestedName,
         strategy: 'rename',
       });
-      refreshUnits();
-      refetchData();
-      fetchSuggestions();
+      await refreshUnits();
+      await refetchData();
+      await fetchSuggestions();
       onDataChange?.();
     } catch (err) {
       // Error is handled by the hook
@@ -182,7 +212,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
   // Dismiss suggestion
   const handleDismissSuggestion = useCallback((suggestion: any) => {
-    const key = suggestion.units.sort().join('|');
+    const key = [...suggestion.units].sort().join('|');
     setDismissedSuggestions(prev => new Set(prev).add(key));
   }, []);
 
@@ -204,7 +234,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   const visibleSuggestions = useMemo(() => {
     if (!suggestions?.suggestions) return [];
     return suggestions.suggestions.filter(s => {
-      const key = s.units.sort().join('|');
+      const key = [...s.units].sort().join('|');
       return !dismissedSuggestions.has(key);
     });
   }, [suggestions, dismissedSuggestions]);
@@ -238,6 +268,11 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     );
   }, [columns]);
 
+  // All table columns including source document (used for computing total table width)
+  const allTableColumns = useMemo(() => {
+    return hasSourceDocument ? ['_source_document', ...visibleColumns] : visibleColumns;
+  }, [hasSourceDocument, visibleColumns]);
+
   // Create mapping of main columns to their corresponding excerpt columns
   const excerptMapping = useMemo(() => {
     const mapping: Record<string, string> = {};
@@ -261,7 +296,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     return mapping;
   }, [unitData?.rows]);
 
-  if (unitsLoading) {
+  if (unitsLoading && !unitListResponse) {
     return (
       <Card className="p-8">
         <div className="flex items-center justify-center gap-2 text-muted-foreground">
@@ -384,12 +419,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                 <Button
                   variant={showSuggestions ? 'secondary' : 'outline'}
                   size="sm"
-                  onClick={() => {
-                    if (!showSuggestions && !suggestions) {
-                      fetchSuggestions();
-                    }
-                    setShowSuggestions(!showSuggestions);
-                  }}
+                  onClick={() => setShowSuggestions(!showSuggestions)}
                   className="gap-1"
                 >
                   <Lightbulb className="h-4 w-4" />
@@ -442,28 +472,64 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
         {/* Table */}
         <div className="overflow-auto max-h-[600px] border rounded-md">
-          <table className="w-full border-collapse">
+          <table
+            className="w-full border-collapse"
+            style={{
+              ...(hasCustomWidths ? { tableLayout: 'fixed' as const } : {}),
+              minWidth: hasCustomWidths
+                ? `${allTableColumns.reduce((sum, col) => sum + (getColumnWidth(col) || 150), 0)}px`
+                : undefined,
+            }}
+          >
             <thead className="sticky top-0 z-10 bg-background border-b">
               <tr>
                 {/* Source Document column - always first when present */}
                 {hasSourceDocument && (
-                  <th className="px-4 py-3 text-left font-bold text-base min-w-[180px] bg-background border-r">
+                  <th
+                    ref={(el) => { headerRefs.current['_source_document'] = el; }}
+                    className={cn(
+                      "px-4 py-3 text-left font-bold text-base bg-background border-r relative",
+                      !getColumnWidth('_source_document') && "min-w-[180px]"
+                    )}
+                    style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                  >
                     <div className="flex items-center gap-1.5">
                       <FileText className="h-4 w-4 text-muted-foreground" />
                       Source Document
                     </div>
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        const th = headerRefs.current['_source_document'];
+                        if (th) handleResizeStart(e, '_source_document', th.offsetWidth);
+                      }}
+                    />
                   </th>
                 )}
                 {visibleColumns.map(column => (
                   <th
                     key={column}
-                    className="px-4 py-3 text-left font-bold text-base min-w-[120px] bg-background"
+                    ref={(el) => { headerRefs.current[column] = el; }}
+                    className={cn(
+                      "px-4 py-3 text-left font-bold text-base bg-background relative",
+                      !getColumnWidth(column) && "min-w-[120px]"
+                    )}
+                    style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
                   >
                     {column.startsWith('_') ? (
                       <Badge variant="outline">{formatColumnName(column)}</Badge>
                     ) : (
                       formatColumnName(column)
                     )}
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        const th = headerRefs.current[column];
+                        if (th) handleResizeStart(e, column, th.offsetWidth);
+                      }}
+                    />
                   </th>
                 ))}
               </tr>
@@ -472,7 +538,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               {/* Render units with their rows - only show units that have loaded data */}
               {units
                 .filter(unit => !selectedUnit || unit.name === selectedUnit)
-                .filter(unit => groupedRows.has(unit.name))
                 .map(unit => {
                   const isExpanded = expandedUnits.has(unit.name);
                   const isSelectedForMerge = selectedForMerge.has(unit.name);
@@ -498,7 +563,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                         >
                           {/* Source Document cell - always first when present */}
                           {hasSourceDocument && (
-                            <td className="px-4 py-3 text-sm border-r bg-muted/20">
+                            <td
+                              className="px-4 py-3 text-sm border-r bg-muted/20"
+                              style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                            >
                               <div className="flex items-center gap-1.5">
                                 <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                 <Tooltip>
@@ -526,6 +594,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                               <td
                                 key={column}
                                 className="px-4 py-3 text-sm"
+                                style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
                               >
                                 {formatCellValue(cellValue, column, row, excerptMapping, handleViewContent)}
                               </td>
@@ -617,78 +686,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     </Card>
   );
 };
-
-/**
- * Parse Python-style dict/list strings to JSON objects.
- * Handles single quotes, None, True/False, etc.
- */
-function parsePythonString(val: string): unknown {
-  const trimmed = val.trim();
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return val;
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    try {
-      const jsonified = trimmed
-        .replace(/'/g, '"')
-        .replace(/None/g, 'null')
-        .replace(/True/g, 'true')
-        .replace(/False/g, 'false');
-      return JSON.parse(jsonified);
-    } catch {
-      return val;
-    }
-  }
-}
-
-/**
- * Extract display string from various QBSD value formats.
- * Handles: answer/excerpts, value/excerpt, text (ExcerptWithSource), arrays, etc.
- */
-function extractDisplayValue(value: unknown): string {
-  if (value === null || value === undefined) return '';
-
-  // Parse string values that look like JSON/Python objects
-  if (typeof value === 'string') {
-    const parsed = parsePythonString(value);
-    // If parsing changed the value, recursively extract from parsed result
-    if (parsed !== value && typeof parsed === 'object') {
-      return extractDisplayValue(parsed);
-    }
-    return value;
-  }
-
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-
-  if (Array.isArray(value)) {
-    // If array of objects, extract from first item
-    if (value.length > 0 && typeof value[0] === 'object') {
-      return extractDisplayValue(value[0]);
-    }
-    return value.map(v => extractDisplayValue(v)).join(', ');
-  }
-
-  if (typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    // QBSD format with answer/excerpts
-    if ('answer' in obj) {
-      return extractDisplayValue(obj.answer);
-    }
-    // Value/excerpt format (streaming cells)
-    if ('value' in obj) {
-      return extractDisplayValue(obj.value);
-    }
-    // ExcerptWithSource format
-    if ('text' in obj) {
-      return extractDisplayValue(obj.text);
-    }
-    // Last resort: stringify
-    return JSON.stringify(value);
-  }
-
-  return String(value);
-}
 
 /**
  * Parse pipe-separated excerpt strings like: {'text': '...', 'source': '...'} | {'text': '...'}

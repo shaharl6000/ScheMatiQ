@@ -894,9 +894,9 @@ export const unitsAPI = {
   /**
    * Get suggestions for units that could be merged based on name similarity.
    */
-  getSuggestions: async (sessionId: string, threshold: number = 0.8): Promise<UnitSuggestionsResponse> => {
+  getSuggestions: async (sessionId: string, threshold: number = 0.8, autoMerge: boolean = false): Promise<UnitSuggestionsResponse> => {
     const response = await api.get(`/units/suggestions/${sessionId}`, {
-      params: { threshold }
+      params: { threshold, auto_merge: autoMerge }
     });
     const data = response.data;
     return {
@@ -907,6 +907,11 @@ export const unitsAPI = {
         reason: s.reason,
       })),
       threshold: data.threshold,
+      autoMerged: (data.auto_merged || []).map((a: any) => ({
+        mergedUnits: a.merged_units,
+        targetUnit: a.target_unit,
+        rowsAffected: a.rows_affected,
+      })),
     };
   },
 };

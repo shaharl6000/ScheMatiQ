@@ -16,6 +16,7 @@ from app.models.qbsd import QBSDConfig, QBSDStatus, CostEstimate, CostEstimateRe
 from app.services.qbsd_runner import QBSDRunner
 from app.services.data_editor import DataEditor
 from app.services import websocket_manager, session_manager
+from app.utils.csv_helpers import format_excerpt_for_csv
 
 from qbsd.core.cost_estimator import estimate_from_config
 
@@ -682,7 +683,7 @@ async def export_qbsd_data(
                     if 'excerpts' in value and value['excerpts']:
                         excerpt_col = f"{col_name}_excerpt"
                         if isinstance(value['excerpts'], list):
-                            csv_row[excerpt_col] = ' | '.join(str(ex) for ex in value['excerpts'])
+                            csv_row[excerpt_col] = ' | '.join(format_excerpt_for_csv(ex) for ex in value['excerpts'])
                         else:
                             csv_row[excerpt_col] = str(value['excerpts'])
                 else:
@@ -759,7 +760,8 @@ async def export_complete_qbsd_data(
                         "rationale": col.rationale or "",
                         "data_type": col.data_type,
                         "source_document": col.source_document,
-                        "discovery_iteration": col.discovery_iteration
+                        "discovery_iteration": col.discovery_iteration,
+                        "allowed_values": col.allowed_values,
                     }
                     for col in session.columns
                     if col.name and not col.name.lower().endswith('_excerpt')
@@ -777,7 +779,10 @@ async def export_complete_qbsd_data(
                 {
                     "row_name": row.row_name,
                     "papers": row.papers,
-                    "data": row.data
+                    "data": row.data,
+                    "_unit_name": row.unit_name,
+                    "_source_document": row.source_document,
+                    "_parent_document": row.parent_document,
                 }
                 for row in data.rows
             ]
@@ -894,7 +899,7 @@ async def export_complete_qbsd_data(
                                     if 'excerpts' in value and value['excerpts']:
                                         excerpt_col = f"{col_name}_excerpt"
                                         if isinstance(value['excerpts'], list):
-                                            csv_row[excerpt_col] = ' | '.join(str(ex) for ex in value['excerpts'])
+                                            csv_row[excerpt_col] = ' | '.join(format_excerpt_for_csv(ex) for ex in value['excerpts'])
                                         else:
                                             csv_row[excerpt_col] = str(value['excerpts'])
                                 else:
@@ -1035,7 +1040,7 @@ async def export_qbsd_rich_csv(
                     if 'excerpts' in value and value['excerpts']:
                         excerpt_col = f"{col_name}_excerpt"
                         if isinstance(value['excerpts'], list):
-                            csv_row[excerpt_col] = ' | '.join(str(ex) for ex in value['excerpts'])
+                            csv_row[excerpt_col] = ' | '.join(format_excerpt_for_csv(ex) for ex in value['excerpts'])
                         else:
                             csv_row[excerpt_col] = str(value['excerpts'])
                 else:

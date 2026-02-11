@@ -383,13 +383,16 @@ class FileParser:
         if math.isnan(completeness) or math.isinf(completeness) or not (0 <= completeness <= 100):
             completeness = 0.0
             
-        # Check if CSV has _excerpts columns that should be merged
-        has_excerpt_columns = any(col.endswith('_excerpts') for col in df.columns)
+        # Check if CSV has _excerpts or _excerpt columns that should be merged
+        has_excerpt_columns = any(
+            col.endswith('_excerpts') or col.endswith('_excerpt')
+            for col in df.columns
+        )
         source_filename = file_path.name if has_excerpt_columns else None
 
-        # Filter out _excerpts columns from the schema (they'll be merged with parent columns)
+        # Filter out excerpt columns from the schema (they'll be merged with parent columns)
         if has_excerpt_columns:
-            columns = [col for col in columns if not col.name.endswith('_excerpts')]
+            columns = [col for col in columns if not (col.name.endswith('_excerpts') or col.name.endswith('_excerpt'))]
 
         # Convert schema_evolution dict to SchemaEvolution model if present (backward compatible)
         schema_evolution = None
@@ -446,6 +449,9 @@ class FileParser:
                 source_doc_value = self._extract_and_pop_field(
                     merged_data, ['_source_document', 'source_document', 'Source Document']
                 )
+
+                # Remove document_directory (local path, not useful in exports)
+                merged_data.pop('document_directory', None)
 
                 # Extract papers field from data if present
                 papers_col_names = ['Papers', 'papers', 'Paper', 'paper', 'Documents', 'documents']
@@ -564,6 +570,9 @@ class FileParser:
                                     "definition": col_def.get("definition", ""),
                                     "rationale": col_def.get("rationale", ""),
                                     "allowed_values": col_def.get("allowed_values"),
+                                    "data_type": col_def.get("data_type"),
+                                    "source_document": col_def.get("source_document"),
+                                    "discovery_iteration": col_def.get("discovery_iteration"),
                                 }
                         logger.debug("Extracted QBSD export metadata: query=%s, %d column definitions",
                                      data["query"][:50] if data["query"] else "", len(schema_metadata_from_export))
@@ -618,12 +627,14 @@ class FileParser:
 
                 col_info = ColumnInfo(
                     name=key,
-                    data_type="object",
+                    data_type=meta.get("data_type") or "object",
                     non_null_count=non_null,
                     unique_count=len(values_set),
                     definition=meta.get("definition", ""),
                     rationale=meta.get("rationale", ""),
-                    allowed_values=meta.get("allowed_values")
+                    allowed_values=meta.get("allowed_values"),
+                    source_document=meta.get("source_document"),
+                    discovery_iteration=meta.get("discovery_iteration"),
                 )
                 columns.append(col_info)
         elif '_row_name' in sample_row and '_papers' in sample_row:
@@ -719,12 +730,14 @@ class FileParser:
                         unit_name=row_data.get('_unit_name')  # Preserve actual unit_name from extraction
                     )
                 elif 'data' in row_data and isinstance(row_data.get('data'), dict):
-                    # Already in DataRow format - preserve unit_name if present
+                    # Already in DataRow format - preserve unit metadata if present
                     data_row = DataRow(
                         row_name=row_data.get('row_name'),
                         papers=row_data.get('papers', []),
                         data=row_data['data'],
-                        unit_name=row_data.get('unit_name') or row_data.get('_unit_name')
+                        unit_name=row_data.get('unit_name') or row_data.get('_unit_name'),
+                        source_document=row_data.get('source_document') or row_data.get('_source_document'),
+                        parent_document=row_data.get('parent_document') or row_data.get('_parent_document'),
                     )
                 else:
                     # Regular format - extract papers field if present
@@ -816,9 +829,8 @@ class FileParser:
         merged = {}
         processed_excerpt_keys = set()
 
-        # First pass: identify all excerpt columns
-        excerpt_suffix = '_excerpts'
-        excerpt_columns = {k for k in data_dict.keys() if k.endswith(excerpt_suffix)}
+        # First pass: identify all excerpt columns (both _excerpts and _excerpt suffixes)
+        excerpt_columns = {k for k in data_dict.keys() if k.endswith('_excerpts') or k.endswith('_excerpt')}
 
         for key, value in data_dict.items():
             # Skip excerpt columns - they'll be merged with parent
@@ -826,8 +838,10 @@ class FileParser:
                 processed_excerpt_keys.add(key)
                 continue
 
-            # Check if this column has a corresponding _excerpts column
-            excerpt_key = f"{key}{excerpt_suffix}"
+            # Check if this column has a corresponding excerpt column (try both suffixes)
+            excerpt_key = f"{key}_excerpts"
+            if excerpt_key not in data_dict:
+                excerpt_key = f"{key}_excerpt"
             if excerpt_key in data_dict:
                 # Merge into QBSD format
                 excerpt_value = data_dict[excerpt_key]
@@ -852,12 +866,22 @@ class FileParser:
                                                 "text": str(parsed_item),
                                                 "source": source_filename or "Unknown"
                                             })
-                                    except (ValueError, SyntaxError):
-                                        # Couldn't parse, treat as plain text
-                                        excerpts.append({
-                                            "text": part,
-                                            "source": source_filename or "Unknown"
-                                        })
+                                    except (ValueError, SyntaxError) as parse_err:
+                                        logger.debug("ast.literal_eval failed for excerpt part: %s — %s", part[:80], parse_err)
+                                        # Try regex extraction for cases where ast.literal_eval fails
+                                        # (e.g., text contains apostrophes like "it's")
+                                        text_match = re.search(r"'text'\s*:\s*'(.*?)'(?:\s*,\s*'source'|\s*})", part, re.DOTALL)
+                                        source_match = re.search(r"'source'\s*:\s*'(.*?)'", part)
+                                        if text_match:
+                                            excerpts.append({
+                                                "text": text_match.group(1),
+                                                "source": source_match.group(1) if source_match else (source_filename or "Unknown")
+                                            })
+                                        else:
+                                            excerpts.append({
+                                                "text": part,
+                                                "source": source_filename or "Unknown"
+                                            })
                         # Also check for [source] text format from our CSV export
                         elif excerpt_value.startswith("[") and "] " in excerpt_value:
                             # Format: "[source1] text1 | [source2] text2"

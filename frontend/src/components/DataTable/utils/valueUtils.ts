@@ -60,3 +60,86 @@ export function isEmpty(value: unknown): boolean {
 export function isComplete(value: unknown): boolean {
   return !isEmpty(value);
 }
+
+/**
+ * Parse Python-style dict/list strings to JSON objects.
+ * Handles single quotes, None, True/False, and apostrophes within text content.
+ */
+export function parsePythonString(val: string): unknown {
+  const trimmed = val.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return val;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Try targeted parsing for {'text': '...', 'source': '...'} patterns
+    // This handles apostrophes within text content correctly
+    try {
+      const textMatch = trimmed.match(/\{\s*'text'\s*:\s*'([\s\S]*?)'\s*(?:,\s*'source'\s*:\s*'([\s\S]*?)'\s*)?\}/);
+      if (textMatch) {
+        const result: Record<string, string> = { text: textMatch[1] };
+        if (textMatch[2]) result.source = textMatch[2];
+        return result;
+      }
+    } catch { /* fall through */ }
+
+    try {
+      const jsonified = trimmed
+        .replace(/'/g, '"')
+        .replace(/None/g, 'null')
+        .replace(/True/g, 'true')
+        .replace(/False/g, 'false');
+      return JSON.parse(jsonified);
+    } catch {
+      return val;
+    }
+  }
+}
+
+/**
+ * Extract display string from various QBSD value formats.
+ * Handles: answer/excerpts, value/excerpt, text (ExcerptWithSource), arrays, etc.
+ */
+export function extractDisplayValue(value: unknown): string {
+  if (value === null || value === undefined) return '';
+
+  // Parse string values that look like JSON/Python objects
+  if (typeof value === 'string') {
+    const parsed = parsePythonString(value);
+    // If parsing changed the value, recursively extract from parsed result
+    if (parsed !== value && typeof parsed === 'object') {
+      return extractDisplayValue(parsed);
+    }
+    return value;
+  }
+
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+
+  if (Array.isArray(value)) {
+    // If array of objects, extract from first item
+    if (value.length > 0 && typeof value[0] === 'object') {
+      return extractDisplayValue(value[0]);
+    }
+    return value.map(v => extractDisplayValue(v)).join(', ');
+  }
+
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>;
+    // QBSD format with answer/excerpts
+    if ('answer' in obj) {
+      return extractDisplayValue(obj.answer);
+    }
+    // Value/excerpt format (streaming cells)
+    if ('value' in obj) {
+      return extractDisplayValue(obj.value);
+    }
+    // ExcerptWithSource format
+    if ('text' in obj) {
+      return extractDisplayValue(obj.text);
+    }
+    // Last resort: stringify
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+}

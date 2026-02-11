@@ -421,6 +421,17 @@ const Visualize = () => {
     }
   );
 
+  // Show guide dialog when loading an existing completed session.
+  // Use requestAnimationFrame to defer the state update — ensures the dialog
+  // has mounted with autoOpen=false before we transition it to true,
+  // since the dialog relies on detecting a false→true transition.
+  useEffect(() => {
+    if (mode === 'load' && session?.status === 'completed' && !hasShownGuideRef.current) {
+      hasShownGuideRef.current = true;
+      requestAnimationFrame(() => setVisualizeGuideAutoOpen(true));
+    }
+  }, [mode, session?.status]);
+
   // Fallback check for observation units in table data
   // This allows showing the "By Unit" toggle even when the API doesn't detect unit names
   // Check for _unit_name metadata field OR columns with "unit"/"observation" in the name
