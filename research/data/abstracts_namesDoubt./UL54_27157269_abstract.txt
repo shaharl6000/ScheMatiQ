@@ -1,4 +1,0 @@
-Abstract
-Duck Enteritis virus (DEV) UL54 is a homolog of herpes simplex virus-1 (HSV-1) trafficking protein ICP27, which plays an essential role in infection. In this study, DEV UL54 shuttling between the nucleus and cytoplasm was verified with a heterokaryon assay. One predicted nuclear export sequence (NES) (339-348 aa) was shown to be functional and chromosomal region maintenance 1 (CRM1)-dependent; however, the insensitivity of UL54 to Leptomycin B (LMB) and NES mutation suggests that other mechanisms are responsible for the observed nuclear export. Next, three non-classical nuclear localization sequences (NLSs), referred to as NLS1 (105-122 aa), NLS2 (169-192 aa) and NLS3 (257-274 aa), were identified. Furthermore, a recombinant DEV with the UL54 NLSs deleted (DEV- UL54 mNLSs) was constructed and showed that UL54 NLSs moderately affected DEV growth.
-Keywords:
-DEV; Nuclear export signal; Nuclear localization signal; Shuttling; UL54.

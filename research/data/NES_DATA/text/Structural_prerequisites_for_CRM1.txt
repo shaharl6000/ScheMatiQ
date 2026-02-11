@@ -1,8 +1,0 @@
-In addition to the ever-expanding NES patterns resulting in many false positives when used in NES predic-tion, the limited information about direct CRM1 binding of the annotated NES regions is detrimental to develop accurate predictors using available data sets. Therefore, predicting NES motifs using only protein sequence infor -
-mation seems to have limitations, and the combination with structure-based predictions could be a new strategy 
-to distinguish NES motifs and false positives.
-In this study, using validated cargo protein sequences in NESdb and validNES, we provide a comprehensive 
-look-up table which contains the location of the NES consensus patterns with the disorder propensity plots, 
-conserved domain information, and the predicted secondary structure. This information could be useful for determining the most plausible NES region in the context of the whole protein sequence and for suggesting possibilities for some non-binders of the annotated NES regions. In addition, for the first time, we adopted the structure-based prediction of the NES sequences bound to the CRM1’s NES binding groove, using multiple crys-tal structures of CRM1-NES peptide as templates. For several experimentally validated NES peptides and false positive ones, we calculated the relative binding energy of the sequence segments at the CRM1’s binding pocket, 
-and the prediction reliability of these binding energies was validated by the experimental binding affinities. 
-Combining sequence-based and structure-based predictions, we suggest the novel and more straight-forward approach to identify NES sequences that bind directly to CRM1.

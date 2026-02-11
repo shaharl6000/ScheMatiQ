@@ -5,7 +5,6 @@ __pycache__/
 *.so
 .Python
 build/
-!frontend/build/
 develop-eggs/
 dist/
 downloads/
@@ -99,7 +98,7 @@ QBSD/visualization/backend/qbsd_work/
 
 # New structure ignores
 # Frontend
-# frontend/build/  # Commented out - we commit build for Railway deployment
+frontend/build/
 frontend/node_modules/
 
 # Backend
@@ -112,10 +111,7 @@ backend/qbsd_work/
 backend/venv/
 
 # Research data (large files)
-research/data/abstracts/
-research/data/full_text/
-research/data/manually/
-research/data/arxivDIGESTables/
+research/data/
 research/results/
 
 # qbsd-lib
@@ -123,7 +119,10 @@ qbsd-lib/.eggs/
 qbsd-lib/*.egg-info/
 qbsd-lib/build/
 qbsd-lib/dist/
-/research/data/full_text_namesDoubt/
 
 # Railway deployment
 .railway-config
+*.bak
+
+# AI tooling config
+.claude/agents/
