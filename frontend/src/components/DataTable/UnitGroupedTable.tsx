@@ -3,7 +3,7 @@
  * Provides collapsible unit groups with merge functionality.
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb, FileText } from 'lucide-react';
 import { useQuery } from 'react-query';
 
@@ -39,6 +39,7 @@ import { formatColumnName } from '../../utils/formatting';
 import { parsePythonString, extractDisplayValue } from './utils';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
 import { Eye } from 'lucide-react';
+import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
 
 interface UnitGroupedTableProps {
   /** Session ID */
@@ -65,6 +66,17 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   const { merge, loading: mergeLoading, error: mergeError, clearError: clearMergeError } = useMergeUnits(sessionId);
   const { suggestions, loading: suggestionsLoading, autoMerged, fetchSuggestions } = useUnitSuggestions(sessionId);
   const { toast } = useToast();
+
+  // Column resize hook
+  const {
+    columnWidths,
+    getColumnWidth,
+    handleResizeStart,
+  } = useColumnResize({ sessionId });
+  const hasCustomWidths = Object.keys(columnWidths).length > 0;
+
+  // Refs for header cells (for resize start width measurement)
+  const headerRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
 
   // Memoize units array to prevent unnecessary re-renders
   const units = useMemo(() => unitListResponse?.units || [], [unitListResponse?.units]);
@@ -455,28 +467,59 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
         {/* Table */}
         <div className="overflow-auto max-h-[600px] border rounded-md">
-          <table className="w-full border-collapse">
+          <table
+            className="w-full border-collapse"
+            style={hasCustomWidths ? { tableLayout: 'fixed' } : undefined}
+          >
             <thead className="sticky top-0 z-10 bg-background border-b">
               <tr>
                 {/* Source Document column - always first when present */}
                 {hasSourceDocument && (
-                  <th className="px-4 py-3 text-left font-bold text-base min-w-[180px] bg-background border-r">
+                  <th
+                    ref={(el) => { headerRefs.current['_source_document'] = el; }}
+                    className={cn(
+                      "px-4 py-3 text-left font-bold text-base bg-background border-r relative",
+                      !getColumnWidth('_source_document') && "min-w-[180px]"
+                    )}
+                    style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                  >
                     <div className="flex items-center gap-1.5">
                       <FileText className="h-4 w-4 text-muted-foreground" />
                       Source Document
                     </div>
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        const th = headerRefs.current['_source_document'];
+                        if (th) handleResizeStart(e, '_source_document', th.offsetWidth);
+                      }}
+                    />
                   </th>
                 )}
                 {visibleColumns.map(column => (
                   <th
                     key={column}
-                    className="px-4 py-3 text-left font-bold text-base min-w-[120px] bg-background"
+                    ref={(el) => { headerRefs.current[column] = el; }}
+                    className={cn(
+                      "px-4 py-3 text-left font-bold text-base bg-background relative",
+                      !getColumnWidth(column) && "min-w-[120px]"
+                    )}
+                    style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
                   >
                     {column.startsWith('_') ? (
                       <Badge variant="outline">{formatColumnName(column)}</Badge>
                     ) : (
                       formatColumnName(column)
                     )}
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        const th = headerRefs.current[column];
+                        if (th) handleResizeStart(e, column, th.offsetWidth);
+                      }}
+                    />
                   </th>
                 ))}
               </tr>
@@ -510,7 +553,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                         >
                           {/* Source Document cell - always first when present */}
                           {hasSourceDocument && (
-                            <td className="px-4 py-3 text-sm border-r bg-muted/20">
+                            <td
+                              className="px-4 py-3 text-sm border-r bg-muted/20"
+                              style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                            >
                               <div className="flex items-center gap-1.5">
                                 <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                                 <Tooltip>
@@ -538,6 +584,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                               <td
                                 key={column}
                                 className="px-4 py-3 text-sm"
+                                style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
                               >
                                 {formatCellValue(cellValue, column, row, excerptMapping, handleViewContent)}
                               </td>

@@ -66,6 +66,7 @@ import { useTableSort } from './hooks/useTableSort';
 import { useTableFilter } from './hooks/useTableFilter';
 import { useColumnVisibility } from './hooks/useColumnVisibility';
 import { useColumnStats } from './hooks/useColumnStats';
+import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
 import { buildColumnMetadata, isEmpty, parsePythonString } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import FilterBar from './FilterBar';
@@ -136,6 +137,8 @@ interface SortableHeaderCellProps {
   hasFilter?: boolean;
   onSort?: (column: string, multiSort: boolean) => void;
   onFilter?: (column: string) => void;
+  columnWidth?: number;
+  onResizeStart?: (e: React.MouseEvent, column: string, currentWidth: number) => void;
 }
 
 const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
@@ -146,7 +149,10 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
   hasFilter,
   onSort,
   onFilter,
+  columnWidth,
+  onResizeStart,
 }) => {
+  const thRef = useRef<HTMLTableCellElement>(null);
   const {
     attributes,
     listeners,
@@ -156,12 +162,18 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
     isDragging,
   } = useSortable({ id: column });
 
+  const setRefs = useCallback((node: HTMLTableCellElement | null) => {
+    setNodeRef(node);
+    (thRef as React.MutableRefObject<HTMLTableCellElement | null>).current = node;
+  }, [setNodeRef]);
+
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
     cursor: 'grab',
     position: 'relative' as const,
+    ...(columnWidth ? { width: columnWidth, minWidth: MIN_COLUMN_WIDTH } : {}),
   };
 
   const handleHeaderClick = (e: React.MouseEvent) => {
@@ -178,12 +190,20 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
     }
   };
 
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onResizeStart && thRef.current) {
+      onResizeStart(e, column, thRef.current.offsetWidth);
+    }
+  };
+
   return (
     <th
-      ref={setNodeRef}
+      ref={setRefs}
       style={style}
       className={cn(
-        "px-4 py-3 text-left font-bold text-base min-w-[120px] sm:min-w-[150px] bg-background",
+        "px-4 py-3 text-left font-bold text-base bg-background",
+        !columnWidth && "min-w-[120px] sm:min-w-[150px]",
         isDragging && "bg-muted",
         sortDirection && "bg-primary/5"
       )}
@@ -194,7 +214,7 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
           <GripVertical className="h-4 w-4 text-muted-foreground opacity-50 hover:opacity-100" />
         </div>
         <div
-          className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1"
+          className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1 overflow-hidden"
           onClick={handleHeaderClick}
         >
           {children}
@@ -223,6 +243,11 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
           <Filter className="h-3 w-3" />
         </Button>
       </div>
+      {/* Resize handle */}
+      <div
+        className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+        onMouseDown={handleResizeMouseDown}
+      />
     </th>
   );
 };
@@ -275,8 +300,9 @@ const DataTable: React.FC<DataTableProps> = ({
   // Bulk delete dialog state
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
 
-  // Ref for table container
+  // Refs for table container and frozen column header
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const frozenThRef = useRef<HTMLTableCellElement>(null);
 
   // Sort, filter, and visibility hooks
   const {
@@ -296,6 +322,14 @@ const DataTable: React.FC<DataTableProps> = ({
     hasFilterForColumn,
     activeFilterCount,
   } = useTableFilter({ sessionId });
+
+  // Column resize hook
+  const {
+    columnWidths,
+    getColumnWidth,
+    handleResizeStart,
+  } = useColumnResize({ sessionId });
+  const hasCustomWidths = Object.keys(columnWidths).length > 0;
 
   // Sensors for drag and drop
   const sensors = useSensors(
@@ -1162,7 +1196,7 @@ const DataTable: React.FC<DataTableProps> = ({
               )}
             </h3>
             <p className="text-xs text-muted-foreground">
-              Click headers to sort • Shift+click for multi-sort • Drag to reorder
+              Click headers to sort • Shift+click for multi-sort • Drag to reorder • Drag column edges to resize
             </p>
           </div>
 
@@ -1319,7 +1353,13 @@ const DataTable: React.FC<DataTableProps> = ({
             ref={tableContainerRef}
             className="overflow-auto max-h-[600px] border rounded-md overscroll-x-contain"
           >
-            <table className="w-full border-collapse" style={{ minWidth: `${Math.max(600, columns.length * 150)}px` }}>
+            <table
+              className="w-full border-collapse"
+              style={{
+                minWidth: `${Math.max(600, columns.reduce((sum, col) => sum + (getColumnWidth(col) || 150), 0))}px`,
+                ...(hasCustomWidths ? { tableLayout: 'fixed' } : {}),
+              }}
+            >
               <thead className="sticky top-0 z-10 bg-background border-b">
                 <tr>
                   {/* Checkbox column header - only show if not readonly */}
@@ -1342,15 +1382,18 @@ const DataTable: React.FC<DataTableProps> = ({
                   {/* Frozen first column with sort/filter support */}
                   {frozenColumn && (
                     <th
+                      ref={frozenThRef}
                       className={cn(
-                        "px-4 py-3 text-left font-bold text-base min-w-[150px] max-w-[250px] sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)]",
+                        "px-4 py-3 text-left font-bold text-base sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
+                        !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
                         readonly ? "left-0" : "left-[50px]",
                         getSortDirection(frozenColumn) && "bg-primary/5"
                       )}
+                      style={getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : undefined}
                     >
                       <div className="flex items-center gap-1">
                         <div
-                          className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1"
+                          className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1 overflow-hidden"
                           onClick={(e) => toggleSort(frozenColumn, e.shiftKey)}
                         >
                           {frozenColumn.startsWith('_') ? (
@@ -1383,6 +1426,16 @@ const DataTable: React.FC<DataTableProps> = ({
                           <Filter className="h-3 w-3" />
                         </Button>
                       </div>
+                      {/* Resize handle */}
+                      <div
+                        className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          if (frozenThRef.current) {
+                            handleResizeStart(e, frozenColumn, frozenThRef.current.offsetWidth);
+                          }
+                        }}
+                      />
                     </th>
                   )}
 
@@ -1400,6 +1453,8 @@ const DataTable: React.FC<DataTableProps> = ({
                         hasFilter={hasFilterForColumn(column)}
                         onSort={toggleSort}
                         onFilter={handleOpenFilterDialog}
+                        columnWidth={getColumnWidth(column)}
+                        onResizeStart={handleResizeStart}
                       >
                         {column.startsWith('_') ? (
                           <Badge variant="outline">{formatColumnName(column)}</Badge>
@@ -1483,7 +1538,8 @@ const DataTable: React.FC<DataTableProps> = ({
                         hasObservationUnits ? (
                           <td
                             className={cn(
-                              "px-4 py-3 min-w-[150px] max-w-[250px]",
+                              "px-4 py-3",
+                              !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
                               "sticky border-r",
                               readonly ? "left-0" : "left-[50px]",
                               rowIsSelected ? "bg-blue-50 dark:bg-blue-950" :
@@ -1495,6 +1551,7 @@ const DataTable: React.FC<DataTableProps> = ({
                             style={{
                               verticalAlign: shouldRenderDocNameCell(rowIndex) ? 'top' : 'middle',
                               zIndex: 5,
+                              ...(getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : {}),
                             }}
                           >
                             {shouldRenderDocNameCell(rowIndex) ? (
@@ -1512,11 +1569,15 @@ const DataTable: React.FC<DataTableProps> = ({
                           </td>
                         ) : (
                           // Regular frozen column (no grouping)
-                          <td className={cn(
-                            "px-4 py-3 min-w-[150px] max-w-[250px] sticky border-r",
-                            readonly ? "left-0" : "left-[50px]",
-                            rowIsSelected ? "bg-blue-50 dark:bg-blue-950" : "bg-background"
-                          )}>
+                          <td
+                            className={cn(
+                              "px-4 py-3 sticky border-r",
+                              !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
+                              readonly ? "left-0" : "left-[50px]",
+                              rowIsSelected ? "bg-blue-50 dark:bg-blue-950" : "bg-background"
+                            )}
+                            style={getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                          >
                             {!frozenColumn.startsWith('_') && row.row_name ? (
                               <EditableCell
                                 value={getFrozenCellValue()}
@@ -1556,13 +1617,17 @@ const DataTable: React.FC<DataTableProps> = ({
                             <td
                               key={column}
                               className={cn(
-                                "px-4 py-3 min-w-[120px] sm:min-w-[150px]",
+                                "px-4 py-3",
+                                !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]",
                                 isOddGroup ? "bg-muted/30" : "bg-background",
                                 isGroupBoundary && "border-t-4 border-t-foreground/40",
                                 // Visual connector for grouped rows
                                 !shouldRenderDocNameCell(rowIndex) && "border-l-4 border-l-primary/20"
                               )}
-                              style={{ verticalAlign: shouldRenderDocNameCell(rowIndex) ? 'top' : 'middle' }}
+                              style={{
+                                verticalAlign: shouldRenderDocNameCell(rowIndex) ? 'top' : 'middle',
+                                ...(getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : {}),
+                              }}
                             >
                               {shouldRenderDocNameCell(rowIndex) ? (
                                 // First row of group: show full doc name and observation count
@@ -1584,7 +1649,11 @@ const DataTable: React.FC<DataTableProps> = ({
                         const isEditable = !column.startsWith('_') && !!row.row_name;
 
                         return (
-                          <td key={column} className="px-4 py-3 min-w-[120px] sm:min-w-[150px]">
+                          <td
+                            key={column}
+                            className={cn("px-4 py-3", !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]")}
+                            style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                          >
                             {isEditable ? (
                               <EditableCell
                                 value={cellValue}
