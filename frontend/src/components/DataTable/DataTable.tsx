@@ -66,7 +66,7 @@ import { useTableSort } from './hooks/useTableSort';
 import { useTableFilter } from './hooks/useTableFilter';
 import { useColumnVisibility } from './hooks/useColumnVisibility';
 import { useColumnStats } from './hooks/useColumnStats';
-import { buildColumnMetadata, isEmpty } from './utils';
+import { buildColumnMetadata, isEmpty, parsePythonString } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
@@ -864,27 +864,6 @@ const DataTable: React.FC<DataTableProps> = ({
     return null;
   };
 
-  // Helper to parse Python-style dict/list strings to JSON
-  const parsePythonString = (val: string): any => {
-    const trimmed = val.trim();
-    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return val;
-
-    try {
-      return JSON.parse(trimmed);
-    } catch {
-      try {
-        const jsonified = trimmed
-          .replace(/'/g, '"')
-          .replace(/None/g, 'null')
-          .replace(/True/g, 'true')
-          .replace(/False/g, 'false');
-        return JSON.parse(jsonified);
-      } catch {
-        return val;
-      }
-    }
-  };
-
   // Parse pipe-separated excerpt strings like: {'text': '...', 'source': '...'} | {'text': '...'}
   const parseExcerpts = (excerpts: any[]): any[] => {
     const result: any[] = [];
@@ -970,6 +949,14 @@ const DataTable: React.FC<DataTableProps> = ({
       };
     }
 
+    // ExcerptWithSource format: {text: '...', source: '...'}
+    if ('text' in val) {
+      return {
+        answer: val.text,
+        excerpts: val.source ? [{ text: String(val.text), source: String(val.source) }] : []
+      };
+    }
+
     return val;
   };
 
@@ -1012,7 +999,7 @@ const DataTable: React.FC<DataTableProps> = ({
     }
 
     // Try to parse string values that look like JSON/Python objects
-    let processedValue = typeof value === 'string' ? parsePythonString(value) : value;
+    let processedValue: CellValue = typeof value === 'string' ? parsePythonString(value) as CellValue : value;
 
     // Check if parsing resulted in an empty value (e.g., parsed "[]" to [])
     if (isEmpty(processedValue)) {

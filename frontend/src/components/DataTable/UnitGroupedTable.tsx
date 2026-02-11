@@ -36,6 +36,7 @@ import { DataRow, CellValue, ModalContent, QBSDAnswerWithExcerpts } from '../../
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { formatColumnName } from '../../utils/formatting';
+import { parsePythonString, extractDisplayValue } from './utils';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
 import { Eye } from 'lucide-react';
 
@@ -628,78 +629,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     </Card>
   );
 };
-
-/**
- * Parse Python-style dict/list strings to JSON objects.
- * Handles single quotes, None, True/False, etc.
- */
-function parsePythonString(val: string): unknown {
-  const trimmed = val.trim();
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return val;
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    try {
-      const jsonified = trimmed
-        .replace(/'/g, '"')
-        .replace(/None/g, 'null')
-        .replace(/True/g, 'true')
-        .replace(/False/g, 'false');
-      return JSON.parse(jsonified);
-    } catch {
-      return val;
-    }
-  }
-}
-
-/**
- * Extract display string from various QBSD value formats.
- * Handles: answer/excerpts, value/excerpt, text (ExcerptWithSource), arrays, etc.
- */
-function extractDisplayValue(value: unknown): string {
-  if (value === null || value === undefined) return '';
-
-  // Parse string values that look like JSON/Python objects
-  if (typeof value === 'string') {
-    const parsed = parsePythonString(value);
-    // If parsing changed the value, recursively extract from parsed result
-    if (parsed !== value && typeof parsed === 'object') {
-      return extractDisplayValue(parsed);
-    }
-    return value;
-  }
-
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-
-  if (Array.isArray(value)) {
-    // If array of objects, extract from first item
-    if (value.length > 0 && typeof value[0] === 'object') {
-      return extractDisplayValue(value[0]);
-    }
-    return value.map(v => extractDisplayValue(v)).join(', ');
-  }
-
-  if (typeof value === 'object') {
-    const obj = value as Record<string, unknown>;
-    // QBSD format with answer/excerpts
-    if ('answer' in obj) {
-      return extractDisplayValue(obj.answer);
-    }
-    // Value/excerpt format (streaming cells)
-    if ('value' in obj) {
-      return extractDisplayValue(obj.value);
-    }
-    // ExcerptWithSource format
-    if ('text' in obj) {
-      return extractDisplayValue(obj.text);
-    }
-    // Last resort: stringify
-    return JSON.stringify(value);
-  }
-
-  return String(value);
-}
 
 /**
  * Parse pipe-separated excerpt strings like: {'text': '...', 'source': '...'} | {'text': '...'}
