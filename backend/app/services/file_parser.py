@@ -21,14 +21,38 @@ from app.models.upload import (
 from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SchemaEvolution, SchemaSnapshot
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
 
+_COLUMN_DISPLAY_NAMES = {
+    '_row_name': 'Doc Name',
+    'row_name': 'Doc Name',
+    '_unit_name': 'Observation Unit',
+    '_source_document': 'Source Document',
+}
+
+
+def format_column_header(name: str) -> str:
+    """Convert internal column name to display header (mirrors frontend formatColumnName).
+
+    Examples:
+        'confidence_assessment_methods' -> 'Confidence Assessment Methods'
+        '_row_name' -> 'Doc Name'
+        '_unit_name' -> 'Observation Unit'
+    """
+    if name in _COLUMN_DISPLAY_NAMES:
+        return _COLUMN_DISPLAY_NAMES[name]
+    clean = name.lstrip('_')
+    return ' '.join(word.capitalize() for word in clean.split('_'))
+
+
 class FileParser:
     """Handles file parsing and data processing."""
 
     # Metadata columns that should not be included as schema columns for LLM extraction
+    # Includes both internal names and their display-header equivalents (for reimported CSVs)
     METADATA_COLUMNS = {
         'papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata',
         '_unit_name', 'unit_name', '_source_document', 'source_document',
-        '_parent_document', '_observation_unit', '_unit_confidence'
+        '_parent_document', '_observation_unit', '_unit_confidence',
+        'doc name', 'observation unit', 'source document',
     }
 
     @staticmethod
@@ -441,10 +465,10 @@ class FileParser:
                 # Extract metadata fields from data using helper
                 # Note: _row_name is the export format, row_name is the legacy format
                 row_name_value = self._extract_and_pop_field(
-                    merged_data, ['_row_name', 'row_name', 'Row Name', 'Row_Name', 'RowName']
+                    merged_data, ['_row_name', 'row_name', 'Row Name', 'Row_Name', 'RowName', 'Doc Name']
                 )
                 unit_name_value = self._extract_and_pop_field(
-                    merged_data, ['_unit_name', 'unit_name', 'Unit Name']
+                    merged_data, ['_unit_name', 'unit_name', 'Unit Name', 'Observation Unit']
                 )
                 source_doc_value = self._extract_and_pop_field(
                     merged_data, ['_source_document', 'source_document', 'Source Document']

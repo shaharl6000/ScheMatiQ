@@ -17,6 +17,7 @@ from app.services.qbsd_runner import QBSDRunner
 from app.services.data_editor import DataEditor
 from app.services import websocket_manager, session_manager
 from app.utils.csv_helpers import format_excerpt_for_csv
+from app.services.file_parser import format_column_header
 
 from qbsd.core.cost_estimator import estimate_from_config
 
@@ -522,177 +523,68 @@ async def export_qbsd_data(
         # Schema-only mode: no rows is valid, we'll export just the schema
         is_schema_only = not data.rows
         
-        # Prepare CSV data with metadata
+        # Build the set of schema column names (what the user sees in the UI)
+        schema_col_names = {col.name for col in session.columns if col.name}
+
         output = io.StringIO()
-        
-        # Add schema metadata as CSV comments
-        output.write("# QBSD Export with Schema Metadata\n")
-        user_time = datetime.utcnow() - timedelta(minutes=tz_offset)
-        output.write(f"# Generated: {user_time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        output.write(f"# Session ID: {session_id}\n")
-        output.write(f"# Query: {session.schema_query or 'N/A'}\n")
-        # Include observation_unit if available
-        if session.observation_unit:
-            obs_unit_json = json.dumps(session.observation_unit.model_dump())
-            output.write(f"# Observation Unit: {obs_unit_json}\n")
 
-        # Load and include LLM configuration if available
-        session_dir = Path("./data") / session_id
-        qbsd_config_file = session_dir / "qbsd_config.json"
-        
-        if qbsd_config_file.exists():
-            try:
-                with open(qbsd_config_file) as f:
-                    qbsd_config = json.load(f)
-                    if "schema_creation_backend" in qbsd_config:
-                        backend = qbsd_config["schema_creation_backend"]
-                        output.write(f"# Schema Creation: {backend.get('provider', 'unknown')} {backend.get('model', 'unknown')}\n")
-                    if "value_extraction_backend" in qbsd_config:
-                        backend = qbsd_config["value_extraction_backend"]
-                        output.write(f"# Value Extraction: {backend.get('provider', 'unknown')} {backend.get('model', 'unknown')}\n")
-                    elif "backend" in qbsd_config:  # Legacy support
-                        backend = qbsd_config["backend"]
-                        output.write(f"# AI Model: {backend.get('provider', 'unknown')} {backend.get('model', 'unknown')}\n")
-            except Exception as e:
-                output.write(f"# LLM Config: Error loading ({e})\n")
-        
-        output.write("#\n")
-        output.write("# Column Definitions:\n")
-        
-        # Add column metadata for each schema column
-        for col in session.columns:
-            if col.name and not col.name.lower().endswith('_excerpt'):
-                output.write(f"# {col.name}: {col.definition or 'No definition available'}\n")
-                if col.rationale:
-                    output.write(f"#   Rationale: {col.rationale}\n")
-                if col.allowed_values:
-                    output.write(f"#   Allowed Values: {', '.join(col.allowed_values)}\n")
-
-        # Add special column explanations
-        output.write("# row_name: Identifier for this data row\n")
-        output.write("# papers: Source documents used for extraction\n")
-        output.write("# {column}_excerpt: Supporting evidence from documents for {column}\n")
-        output.write("#\n")
-
-        # Add schema evolution summary if available
-        if session.statistics and session.statistics.schema_evolution:
-            evolution = session.statistics.schema_evolution
-            output.write("# Schema Evolution:\n")
-            for snapshot in evolution.snapshots:
-                # Include document names if available
-                docs_str = ", ".join(snapshot.documents_processed[:3]) if snapshot.documents_processed else ""
-                if len(snapshot.documents_processed) > 3:
-                    docs_str += f"... (+{len(snapshot.documents_processed) - 3} more)"
-
-                if snapshot.new_columns:
-                    cols_str = ", ".join(snapshot.new_columns[:5])
-                    if len(snapshot.new_columns) > 5:
-                        cols_str += f"... (+{len(snapshot.new_columns) - 5} more)"
-                    if docs_str:
-                        output.write(f"# Iteration {snapshot.iteration}: +{len(snapshot.new_columns)} columns [{cols_str}] from [{docs_str}] (total: {snapshot.total_columns})\n")
-                    else:
-                        output.write(f"# Iteration {snapshot.iteration}: +{len(snapshot.new_columns)} columns [{cols_str}] (total: {snapshot.total_columns})\n")
-                else:
-                    # Write iterations with no new columns too (for accurate iteration count)
-                    if docs_str:
-                        output.write(f"# Iteration {snapshot.iteration}: +0 columns from [{docs_str}] (total: {snapshot.total_columns})\n")
-                    else:
-                        output.write(f"# Iteration {snapshot.iteration}: +0 columns (total: {snapshot.total_columns})\n")
-            output.write(f"# Total: {len(evolution.column_sources)} columns from {len(evolution.snapshots)} iterations\n")
-            # Write column sources mapping
-            if evolution.column_sources:
-                output.write("# Column Sources:\n")
-                for col_name, source in evolution.column_sources.items():
-                    output.write(f"#   {col_name}: {source}\n")
-            output.write("#\n")
-
-        # Write document processing metadata if present
-        if session.statistics:
-            if session.statistics.total_documents:
-                output.write(f"# Total Documents: {session.statistics.total_documents}\n")
-            if session.statistics.skipped_documents:
-                skipped_docs = session.statistics.skipped_documents
-                output.write(f"# Skipped Documents: {json.dumps(skipped_docs)}\n")
-            if session.statistics.total_documents or session.statistics.skipped_documents:
-                output.write("#\n")
-        
-        # Determine all column names including excerpt columns
-        all_columns = set()
         if is_schema_only:
-            # Schema-only mode: use column names from schema
-            output.write("# NOTE: Schema-only export (no value extraction performed)\n")
-            output.write("#\n")
-            all_columns.add('row_name')
-            all_columns.add('papers')
+            # Schema-only: just write column headers, no data
+            column_names = ['row_name']
             for col in session.columns:
                 if col.name:
-                    all_columns.add(col.name)
+                    column_names.append(col.name)
         else:
-            for row in data.rows:
-                if row.row_name:
-                    all_columns.add('row_name')
-                if row.papers:
-                    all_columns.add('papers')
-                # Include observation unit fields if present
-                if row.unit_name:
-                    all_columns.add('_unit_name')
-                if row.source_document:
-                    all_columns.add('_source_document')
-                for col_name in row.data.keys():
-                    all_columns.add(col_name)
-                    # Add excerpt column for QBSD data
-                    if isinstance(row.data[col_name], dict) and 'excerpts' in row.data[col_name]:
-                        all_columns.add(f"{col_name}_excerpt")
-        
-        # Determine column order - use user-specified order if provided
-        if column_order:
-            # Parse user-specified column order
-            requested_order = [col.strip() for col in column_order.split(',')]
-            # Filter to only include columns that exist, preserving requested order
-            column_names = [col for col in requested_order if col in all_columns]
-            # Add any remaining columns not in the requested order
-            remaining_columns = sorted([col for col in all_columns if col not in column_names])
-            column_names.extend(remaining_columns)
-        else:
-            # Default: sorted alphabetically
-            column_names = sorted(list(all_columns))
+            # Detect which row-ID fields are present
+            has_row_name = any(row.row_name for row in data.rows)
+            has_unit_name = any(row.unit_name for row in data.rows)
+            has_source_document = any(row.source_document for row in data.rows)
 
-        writer = csv.DictWriter(output, fieldnames=column_names)
-        writer.writeheader()
-        
-        # Write data rows
+            # Build column order: row ID fields first, then schema columns
+            if column_order:
+                requested_order = [col.strip() for col in column_order.split(',')]
+                column_names = [col for col in requested_order if col in schema_col_names]
+                remaining = [col for col in schema_col_names if col not in column_names]
+                column_names.extend(sorted(remaining))
+            else:
+                column_names = []
+                for col in session.columns:
+                    if col.name:
+                        column_names.append(col.name)
+
+            # Prepend row-ID columns
+            id_cols = []
+            if has_row_name:
+                id_cols.append('row_name')
+            if has_unit_name:
+                id_cols.append('_unit_name')
+            if has_source_document:
+                id_cols.append('_source_document')
+            column_names = id_cols + column_names
+
+        # Write CSV with display headers (Title Case, matching UI)
+        display_headers = {c: format_column_header(c) for c in column_names}
+        writer = csv.DictWriter(output, fieldnames=column_names, extrasaction='ignore')
+        writer.writerow(display_headers)
+
+        # Write data rows — only schema columns + row IDs, answers only (no excerpts)
         for row in data.rows:
             csv_row = {}
-
-            # Add standard columns
             if row.row_name:
                 csv_row['row_name'] = row.row_name
-            if row.papers:
-                csv_row['papers'] = '; '.join(row.papers) if isinstance(row.papers, list) else str(row.papers)
-            # Add observation unit fields
             if row.unit_name:
                 csv_row['_unit_name'] = row.unit_name
             if row.source_document:
                 csv_row['_source_document'] = row.source_document
-
-            # Process data columns
             for col_name, value in row.data.items():
+                if col_name not in schema_col_names:
+                    continue
                 if isinstance(value, dict) and 'answer' in value:
-                    # QBSD format: extract answer and excerpts
                     csv_row[col_name] = value['answer']
-                    if 'excerpts' in value and value['excerpts']:
-                        excerpt_col = f"{col_name}_excerpt"
-                        if isinstance(value['excerpts'], list):
-                            csv_row[excerpt_col] = ' | '.join(format_excerpt_for_csv(ex) for ex in value['excerpts'])
-                        else:
-                            csv_row[excerpt_col] = str(value['excerpts'])
+                elif isinstance(value, (list, dict)):
+                    csv_row[col_name] = str(value)
                 else:
-                    # Regular data
-                    if isinstance(value, (list, dict)):
-                        csv_row[col_name] = str(value)  # Convert complex types to string
-                    else:
-                        csv_row[col_name] = value
-            
+                    csv_row[col_name] = value
             writer.writerow(csv_row)
         
         # Prepare response
