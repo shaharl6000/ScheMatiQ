@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
-import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info, Plus, AlertCircle, Minus } from 'lucide-react';
+import { Search, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info, Plus, AlertCircle, Minus } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -994,7 +994,7 @@ const DataTable: React.FC<DataTableProps> = ({
     return val;
   };
 
-  // Unified clickable cell renderer with consistent Eye icon styling
+  // Unified clickable cell renderer
   const renderClickableCell = (
     displayText: string,
     onClick: () => void,
@@ -1003,20 +1003,17 @@ const DataTable: React.FC<DataTableProps> = ({
   ): React.ReactNode => {
     return (
       <div
-        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 group"
+        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
         onClick={onClick}
         title={tooltip}
       >
         <div
           className={cn(
-            "relative text-base leading-relaxed line-clamp-3 break-words pr-6",
+            "text-xs leading-relaxed line-clamp-3 break-words",
             isItalic && "italic text-muted-foreground"
           )}
         >
           {displayText}
-          <span className="absolute right-0 top-0 flex items-center h-6 bg-gradient-to-l from-white dark:from-gray-900 from-60% to-transparent pl-2">
-            <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
-          </span>
         </div>
       </div>
     );
@@ -1054,7 +1051,7 @@ const DataTable: React.FC<DataTableProps> = ({
       if (processedValue.length > 3) {
         return (
           <div
-            className="flex items-center gap-1 cursor-pointer group"
+            className="flex items-center gap-1 cursor-pointer"
             onClick={() => handleViewContent(columnName, processedValue)}
             title={`View all ${processedValue.length} items`}
           >
@@ -1062,7 +1059,6 @@ const DataTable: React.FC<DataTableProps> = ({
               <Badge key={index} variant="secondary">{String(item)}</Badge>
             ))}
             <span className="text-xs text-muted-foreground">+{processedValue.length - 2} more</span>
-            <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800 ml-1" />
           </div>
         );
       }
@@ -1104,21 +1100,26 @@ const DataTable: React.FC<DataTableProps> = ({
         }
 
         return (
-          <span className="text-base leading-relaxed line-clamp-3">
-            {answerStr}
-          </span>
+          <div
+            className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+            onClick={() => handleViewContent(columnName, { answer, excerpts })}
+            title="Click to view content"
+          >
+            <span className="text-xs leading-relaxed line-clamp-3">
+              {answerStr}
+            </span>
+          </div>
         );
       }
 
-      // Generic object - show Eye icon to view details
+      // Generic object - clickable to view details
       return (
         <div
-          className="cursor-pointer group inline-flex items-center gap-1"
+          className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 inline-flex items-center gap-1"
           onClick={() => handleViewContent(columnName, processedValue)}
           title="View object details"
         >
-          <span className="text-sm text-muted-foreground">[Object]</span>
-          <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
+          <span className="text-xs text-muted-foreground">[Object]</span>
         </div>
       );
     }
@@ -1159,11 +1160,17 @@ const DataTable: React.FC<DataTableProps> = ({
       return renderClickableCell(previewText, handleClick, tooltip, isExplicitExcerpt);
     }
 
-    // Short text - no expansion needed
+    // Short text - still clickable
     return (
-      <span className="text-base leading-relaxed line-clamp-3">
-        {stringValue}
-      </span>
+      <div
+        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+        onClick={() => handleViewContent(columnName, value)}
+        title="Click to view content"
+      >
+        <span className="text-xs leading-relaxed line-clamp-3">
+          {stringValue}
+        </span>
+      </div>
     );
   };
 

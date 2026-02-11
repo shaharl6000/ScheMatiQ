@@ -38,7 +38,6 @@ import { useToast } from '@/components/ui/use-toast';
 import { formatColumnName } from '../../utils/formatting';
 import { parsePythonString, extractDisplayValue } from './utils';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
-import { Eye } from 'lucide-react';
 import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
 
 interface UnitGroupedTableProps {
@@ -179,17 +178,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     }
   }, [merge, clearMergeSelections, refreshUnits, refetchData, onDataChange]);
 
-  // Handle backend auto-merge results — refresh table and show toast
+  // Handle backend auto-merge results — refresh table silently
   useEffect(() => {
     if (autoMerged.length > 0) {
-      const totalMerged = autoMerged.reduce((sum, g) => sum + g.mergedUnits.length, 0);
       refreshUnits();
       refetchData();
       onDataChange?.();
-      toast({
-        title: 'Auto-merged identical units',
-        description: `Merged ${totalMerged} units into ${autoMerged.length} ${autoMerged.length === 1 ? 'group' : 'groups'}`,
-      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoMerged]);
@@ -804,7 +798,7 @@ function normalizeToQBSD(val: unknown): unknown {
 /**
  * Cell value formatter for the grouped table.
  * Handles QBSD answer/excerpts, value/excerpt, and text formats.
- * Renders clickable cells with Eye icon for content with excerpts.
+ * Renders clickable cells for content with excerpts.
  */
 function formatCellValue(
   value: CellValue,
@@ -872,24 +866,27 @@ function formatCellValue(
         const modalExcerpts = excerpts.length > 0 ? excerpts : (hasExcerptColumn ? getExcerptsFromColumn() : []);
         return (
           <div
-            className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 group"
+            className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
             onClick={() => onViewContent(columnName, { answer, excerpts: modalExcerpts })}
             title={tooltip}
           >
-            <div className="relative text-sm leading-relaxed line-clamp-3 break-words pr-6">
+            <div className="text-xs leading-relaxed line-clamp-3 break-words">
               {answerStr.length > 100 ? `${answerStr.slice(0, 100)}...` : answerStr}
-              <span className="absolute right-0 top-0 flex items-center h-6 bg-gradient-to-l from-white dark:from-gray-900 from-60% to-transparent pl-2">
-                <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
-              </span>
             </div>
           </div>
         );
       }
 
       return (
-        <span className="text-sm leading-relaxed line-clamp-3">
-          {answerStr}
-        </span>
+        <div
+          className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+          onClick={() => onViewContent(columnName, { answer, excerpts: [] })}
+          title="Click to view content"
+        >
+          <span className="text-xs leading-relaxed line-clamp-3">
+            {answerStr}
+          </span>
+        </div>
       );
     }
   }
@@ -901,24 +898,29 @@ function formatCellValue(
 
     return (
       <div
-        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 group"
+        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
         onClick={() => onViewContent(columnName, {
           answer: displayStr,
           excerpts: modalExcerpts
         })}
         title={tooltip}
       >
-        <div className="relative text-sm leading-relaxed line-clamp-3 break-words pr-6">
+        <div className="text-xs leading-relaxed line-clamp-3 break-words">
           {displayStr.length > 100 ? `${displayStr.slice(0, 100)}...` : displayStr}
-          <span className="absolute right-0 top-0 flex items-center h-6 bg-gradient-to-l from-white dark:from-gray-900 from-60% to-transparent pl-2">
-            <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
-          </span>
         </div>
       </div>
     );
   }
 
-  return <span className="text-sm leading-relaxed">{displayStr}</span>;
+  return (
+    <div
+      className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+      onClick={() => onViewContent(columnName, displayStr)}
+      title="Click to view content"
+    >
+      <span className="text-xs leading-relaxed">{displayStr}</span>
+    </div>
+  );
 }
 
 /**

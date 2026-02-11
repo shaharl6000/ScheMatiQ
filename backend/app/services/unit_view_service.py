@@ -68,30 +68,34 @@ class UnitViewService:
     def _load_all_rows(self, session_id: str) -> List[Dict]:
         """Load all data rows from all session data files.
 
-        Deduplicates rows by row_name to prevent duplicates when data exists
-        in multiple locations (e.g., both qbsd_work/ and data/ directories).
+        Deduplicates rows by row_name only across files (not within a single file)
+        to prevent duplicates when data exists in multiple locations
+        (e.g., both qbsd_work/ and data/ directories). Within a single file,
+        multiple rows can legitimately share the same row_name.
         """
         data_files = self._get_all_data_files(session_id)
         if not data_files:
             return []
 
         rows = []
-        seen_row_names = set()
+        seen_row_names: set = set()
         for data_file in data_files:
+            file_row_names: set = set()
             try:
                 with open(data_file, 'r', encoding='utf-8') as f:
                     for line in f:
                         if line.strip():
                             row = json.loads(line)
-                            # Deduplicate by row_name
+                            # Only skip if this row_name was in a PREVIOUS file
                             row_name = row.get('_row_name') or row.get('row_name')
                             if row_name and row_name in seen_row_names:
                                 continue
                             if row_name:
-                                seen_row_names.add(row_name)
+                                file_row_names.add(row_name)
                             rows.append(row)
             except Exception as e:
                 logger.warning(f"Error reading {data_file}: {e}")
+            seen_row_names.update(file_row_names)
         return rows
 
     def _save_all_rows(self, session_id: str, rows: List[Dict]) -> None:

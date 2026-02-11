@@ -244,14 +244,14 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 shrink-0"
+                className="h-6 w-6 shrink-0"
                 onClick={handleCopy}
                 aria-label="Copy content to clipboard"
               >
                 {copied ? (
-                  <Check className="h-4 w-4 text-green-500" />
+                  <Check className="h-3 w-3 text-green-500" />
                 ) : (
-                  <Copy className="h-4 w-4" />
+                  <Copy className="h-3 w-3" />
                 )}
               </Button>
             </TooltipTrigger>
