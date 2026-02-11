@@ -20,7 +20,7 @@ from app.models.upload import (
     FileValidationResult, ColumnMappingRequest, DataPreviewRequest,
     SchemaValidationResult, DualFileUploadResult, CompatibilityCheck
 )
-from app.services.file_parser import FileParser
+from app.services.file_parser import FileParser, format_column_header
 from app.services.session_manager import SessionManager
 from app.services import session_manager, concurrency_limiter
 from app.storage import get_storage
@@ -552,9 +552,10 @@ async def export_upload_data(
                 return value['answer']
             return value
 
-        # Read JSONL format and flatten DataRow objects
-        # First pass: collect all column names and check for row-level metadata fields
-        all_columns = set()
+        # Build the set of schema column names (what the user sees in the UI)
+        schema_col_names = {col.name for col in session.columns if col.name}
+
+        # Read JSONL and flatten to plain values, keeping only UI-visible columns
         raw_rows = []
         has_row_name = False
         has_unit_name = False
@@ -566,145 +567,69 @@ async def export_upload_data(
                     row_data = json.loads(line)
                     raw_rows.append(row_data)
                     if 'data' in row_data:
-                        all_columns.update(row_data['data'].keys())
-                        # Check for row-level metadata fields (these are NOT in 'data' dict)
                         if row_data.get('row_name'):
                             has_row_name = True
                         if row_data.get('_unit_name'):
                             has_unit_name = True
                         if row_data.get('_source_document'):
                             has_source_document = True
-                    else:
-                        all_columns.update(row_data.keys())
 
-        # Second pass: flatten rows with consistent columns, including row-level metadata
         rows = []
         for row_data in raw_rows:
+            flat_row = {}
             if 'data' in row_data:
-                # Flatten each cell value (convert QBSD format to plain values)
-                flat_row = {}
                 for key, value in row_data['data'].items():
-                    flat_row[key] = flatten_cell_value(value)
-                # Always include row-level metadata fields if ANY row has them
-                # These are critical for round-tripping data through export/import
+                    if key in schema_col_names:
+                        flat_row[key] = flatten_cell_value(value)
                 if has_row_name:
                     flat_row['_row_name'] = row_data.get('row_name', '')
                 if has_unit_name:
                     flat_row['_unit_name'] = row_data.get('_unit_name', '')
                 if has_source_document:
                     flat_row['_source_document'] = row_data.get('_source_document', '')
-                rows.append(flat_row)
             else:
-                # Flatten values for non-DataRow format too
-                flat_row = {}
                 for key, value in row_data.items():
                     flat_row[key] = flatten_cell_value(value)
-                rows.append(flat_row)
+            rows.append(flat_row)
 
-        # Ensure all rows have the same columns (fill missing with empty string)
+        # Fill missing columns with empty string
         if rows:
-            final_columns = set()
+            all_keys = set()
             for row in rows:
-                final_columns.update(row.keys())
+                all_keys.update(row.keys())
             for row in rows:
-                for col in final_columns:
+                for col in all_keys:
                     if col not in row:
                         row[col] = ''
-        
+
         if not rows:
             raise HTTPException(status_code=404, detail="No data to export")
-        
-        # Prepare CSV with metadata
+
+        # Build column order: row ID fields first, then schema columns
         output = io.StringIO()
-        
-        # Add schema metadata as CSV comments
-        output.write("# Upload Data Export with Schema Metadata\n")
-        output.write(f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        output.write(f"# Session ID: {session_id}\n")
-        output.write(f"# Source: {session.metadata.source}\n")
-        
-        # Include schema query if available
-        if session.schema_query:
-            output.write(f"# Query: {session.schema_query}\n")
+        available_columns = set(rows[0].keys())
 
-        # Include observation_unit if available
-        if session.observation_unit:
-            obs_unit_json = json.dumps(session.observation_unit.model_dump())
-            output.write(f"# Observation Unit: {obs_unit_json}\n")
+        if column_order:
+            requested_order = [col.strip() for col in column_order.split(',')]
+            column_names = [col for col in requested_order if col in available_columns]
+            remaining = [col for col in available_columns if col not in column_names]
+            column_names.extend(remaining)
+        else:
+            column_names = []
+            for meta_col in ['_row_name', '_unit_name', '_source_document']:
+                if meta_col in available_columns:
+                    column_names.append(meta_col)
+            for col in session.columns:
+                if col.name in available_columns and col.name not in column_names:
+                    column_names.append(col.name)
 
-        # Load preserved LLM configuration from parsed schema if available
-        session_dir = Path("./data") / session_id
-        parsed_schema_file = session_dir / "parsed_schema.json"
-        
-        if parsed_schema_file.exists():
-            try:
-                with open(parsed_schema_file) as f:
-                    parsed_schema = json.load(f)
-                    if "llm_configuration" in parsed_schema:
-                        llm_config = parsed_schema["llm_configuration"]
-                        if llm_config.get("schema_creation_backend"):
-                            backend = llm_config["schema_creation_backend"]
-                            output.write(f"# Schema Creation: {backend.get('provider', 'unknown')} {backend.get('model', 'unknown')}\n")
-                        if llm_config.get("value_extraction_backend"):
-                            backend = llm_config["value_extraction_backend"]
-                            output.write(f"# Value Extraction: {backend.get('provider', 'unknown')} {backend.get('model', 'unknown')}\n")
-            except Exception as e:
-                output.write(f"# LLM Config: Error loading ({e})\n")
-        
-        output.write("#\n")
-        output.write("# Column Definitions:\n")
-        
-        # Add column metadata for each schema column
-        for col in session.columns:
-            if col.name:
-                output.write(f"# {col.name}: {col.definition or 'No definition available'}\n")
-                if col.rationale:
-                    output.write(f"#   Rationale: {col.rationale}\n")
-                if col.allowed_values:
-                    output.write(f"#   Allowed Values: {', '.join(col.allowed_values)}\n")
+        # Write CSV with display headers (Title Case, matching UI)
+        display_headers = {c: format_column_header(c) for c in column_names}
+        writer = csv.DictWriter(output, fieldnames=column_names, extrasaction='ignore')
+        writer.writerow(display_headers)
 
-        output.write("#\n")
-        
-        # Get column names - establish consistent order with metadata columns first
-        if rows:
-            available_columns = set(rows[0].keys())
-
-            if column_order:
-                # Parse user-specified column order
-                requested_order = [col.strip() for col in column_order.split(',')]
-                # Filter to only include columns that exist, preserving requested order
-                column_names = [col for col in requested_order if col in available_columns]
-                # Add any remaining columns not in the requested order
-                remaining_columns = [col for col in available_columns if col not in column_names]
-                column_names.extend(remaining_columns)
-            else:
-                # Build ordered column list:
-                # 1. Metadata columns first (in priority order)
-                # 2. Schema columns (preserve schema order from session.columns)
-                # 3. Any remaining columns
-                column_names = []
-
-                # Priority metadata columns first
-                priority_cols = ['_row_name', '_unit_name', '_source_document']
-                for priority_col in priority_cols:
-                    if priority_col in available_columns:
-                        column_names.append(priority_col)
-
-                # Schema columns next (preserve schema order)
-                for col in session.columns:
-                    if col.name in available_columns and col.name not in column_names:
-                        column_names.append(col.name)
-
-                # Any remaining columns
-                for col in available_columns:
-                    if col not in column_names:
-                        column_names.append(col)
-
-            writer = csv.DictWriter(output, fieldnames=column_names)
-            writer.writeheader()
-
-            for row in rows:
-                writer.writerow(row)
+        for row in rows:
+            writer.writerow(row)
         
         # Prepare response
         output.seek(0)

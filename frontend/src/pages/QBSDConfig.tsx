@@ -331,18 +331,20 @@ const QBSDConfigPage = () => {
 
     // Check Schema LLM
     if (
-      restoredConfig.schema_creation_backend.provider !== DEFAULT_CONFIG.schema_creation_backend.provider ||
+      restoredConfig.schema_creation_backend &&
+      (restoredConfig.schema_creation_backend.provider !== DEFAULT_CONFIG.schema_creation_backend.provider ||
       restoredConfig.schema_creation_backend.model !== DEFAULT_CONFIG.schema_creation_backend.model ||
-      restoredConfig.schema_creation_backend.temperature !== DEFAULT_CONFIG.schema_creation_backend.temperature
+      restoredConfig.schema_creation_backend.temperature !== DEFAULT_CONFIG.schema_creation_backend.temperature)
     ) {
       newOpenAccordions.push('schema-llm');
     }
 
     // Check Value LLM
     if (
-      restoredConfig.value_extraction_backend.provider !== DEFAULT_CONFIG.value_extraction_backend.provider ||
+      restoredConfig.value_extraction_backend &&
+      (restoredConfig.value_extraction_backend.provider !== DEFAULT_CONFIG.value_extraction_backend.provider ||
       restoredConfig.value_extraction_backend.model !== DEFAULT_CONFIG.value_extraction_backend.model ||
-      restoredConfig.value_extraction_backend.temperature !== DEFAULT_CONFIG.value_extraction_backend.temperature
+      restoredConfig.value_extraction_backend.temperature !== DEFAULT_CONFIG.value_extraction_backend.temperature)
     ) {
       newOpenAccordions.push('value-llm');
     }

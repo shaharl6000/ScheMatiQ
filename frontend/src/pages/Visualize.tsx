@@ -720,7 +720,7 @@ const Visualize = () => {
         : `/qbsd/export/${sessionId}`;
 
       const tzOffset = new Date().getTimezoneOffset();
-      let queryStr = `?tz_offset=${tzOffset}&include_metadata=false`;
+      let queryStr = `?tz_offset=${tzOffset}`;
 
       if (columnOrder.length > 0) {
         const orderParam = encodeURIComponent(columnOrder.join(','));
