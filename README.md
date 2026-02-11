@@ -8,6 +8,8 @@
 
 QueryDiscovery takes a natural-language query and a collection of documents, automatically discovers the optimal table schema to answer it, then extracts values from each document into a structured table. No predefined schema needed — the system figures out what columns matter.
 
+**Try it live:** [querydiscovery-production.up.railway.app](https://querydiscovery-production.up.railway.app/)
+
 ---
 
 ## Architecture
@@ -152,20 +154,7 @@ Both services deploy on **Railway** using **Dockerfile-based** builds:
 
 ---
 
-## Troubleshooting
-
-**Frontend peer dependency warnings** — Always use `npm install --legacy-peer-deps`.
-
-**Backend import errors** — Run from the `backend/` directory and ensure `qbsd-lib` is installed (`pip install -e ../qbsd-lib`).
-
----
-
 ## License
 
 MIT License — see [LICENSE](LICENSE).
 
-## Acknowledgments
-
-- Built on research from arxivDIGESTables
-- Uses sentence-transformers for embedding-based retrieval
-- UI components from shadcn/ui
