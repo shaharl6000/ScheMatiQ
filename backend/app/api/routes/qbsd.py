@@ -759,7 +759,8 @@ async def export_complete_qbsd_data(
                         "rationale": col.rationale or "",
                         "data_type": col.data_type,
                         "source_document": col.source_document,
-                        "discovery_iteration": col.discovery_iteration
+                        "discovery_iteration": col.discovery_iteration,
+                        "allowed_values": col.allowed_values,
                     }
                     for col in session.columns
                     if col.name and not col.name.lower().endswith('_excerpt')
@@ -777,7 +778,10 @@ async def export_complete_qbsd_data(
                 {
                     "row_name": row.row_name,
                     "papers": row.papers,
-                    "data": row.data
+                    "data": row.data,
+                    "_unit_name": row.unit_name,
+                    "_source_document": row.source_document,
+                    "_parent_document": row.parent_document,
                 }
                 for row in data.rows
             ]
