@@ -268,6 +268,11 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     );
   }, [columns]);
 
+  // All table columns including source document (used for computing total table width)
+  const allTableColumns = useMemo(() => {
+    return hasSourceDocument ? ['_source_document', ...visibleColumns] : visibleColumns;
+  }, [hasSourceDocument, visibleColumns]);
+
   // Create mapping of main columns to their corresponding excerpt columns
   const excerptMapping = useMemo(() => {
     const mapping: Record<string, string> = {};
@@ -469,7 +474,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         <div className="overflow-auto max-h-[600px] border rounded-md">
           <table
             className="w-full border-collapse"
-            style={hasCustomWidths ? { tableLayout: 'fixed' } : undefined}
+            style={{
+              ...(hasCustomWidths ? { tableLayout: 'fixed' as const } : {}),
+              minWidth: hasCustomWidths
+                ? `${allTableColumns.reduce((sum, col) => sum + (getColumnWidth(col) || 150), 0)}px`
+                : undefined,
+            }}
           >
             <thead className="sticky top-0 z-10 bg-background border-b">
               <tr>
