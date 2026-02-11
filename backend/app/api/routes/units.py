@@ -66,7 +66,7 @@ async def get_unit_data(
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        rows, total_count, filtered_count = unit_view_service.get_unit_grouped_data(
+        rows, total_unit_count, total_row_count = unit_view_service.get_unit_grouped_data(
             session_id=session_id,
             unit_filter=unit,
             page=page,
@@ -106,12 +106,13 @@ async def get_unit_data(
                 )
             data_rows.append(data_row)
 
-        has_more = (page + 1) * page_size < filtered_count
+        # Pagination is unit-based: total_count = number of units
+        has_more = (page + 1) * page_size < total_unit_count
 
         return PaginatedData(
             rows=data_rows,
-            total_count=total_count,
-            filtered_count=filtered_count if unit else None,
+            total_count=total_unit_count,
+            filtered_count=1 if unit else None,
             page=page,
             page_size=page_size,
             has_more=has_more

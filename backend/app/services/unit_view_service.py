@@ -212,35 +212,49 @@ class UnitViewService:
         page_size: int = 50
     ) -> Tuple[List[Dict], int, int]:
         """
-        Get data grouped by observation unit with optional filtering.
+        Get data grouped by observation unit with pagination applied per unit.
+
+        Pagination is applied to units (not individual rows), so expanding any
+        unit on the current page will always show all of its rows.
 
         Args:
             session_id: The session ID
             unit_filter: Optional unit name to filter by
             page: Page number (0-indexed)
-            page_size: Number of rows per page
+            page_size: Number of units per page
 
         Returns:
-            Tuple of (rows, total_count, filtered_count)
+            Tuple of (rows, total_unit_count, total_row_count)
         """
         rows = self._load_all_rows(session_id)
-        total_count = len(rows)
+        total_row_count = len(rows)
 
         # Filter by unit if specified
         if unit_filter:
             rows = [r for r in rows if self._get_unit_name(r) == unit_filter]
 
-        filtered_count = len(rows)
+        # Group rows by unit name
+        unit_groups: Dict[str, List[Dict]] = defaultdict(list)
+        for row in rows:
+            unit_name = self._get_unit_name(row) or ''
+            unit_groups[unit_name].append(row)
 
-        # Sort by unit name for consistent grouping
-        rows = sorted(rows, key=lambda r: ((self._get_unit_name(r) or '').lower(), r.get('row_name', '')))
+        # Sort unit names alphabetically
+        sorted_unit_names = sorted(unit_groups.keys(), key=str.lower)
+        total_unit_count = len(sorted_unit_names)
 
-        # Apply pagination
+        # Paginate by units
         start_idx = page * page_size
         end_idx = start_idx + page_size
-        paginated_rows = rows[start_idx:end_idx]
+        paginated_unit_names = sorted_unit_names[start_idx:end_idx]
 
-        return paginated_rows, total_count, filtered_count
+        # Collect all rows for the paginated units, sorted within each unit
+        paginated_rows = []
+        for unit_name in paginated_unit_names:
+            unit_rows = sorted(unit_groups[unit_name], key=lambda r: r.get('row_name', ''))
+            paginated_rows.extend(unit_rows)
+
+        return paginated_rows, total_unit_count, total_row_count
 
     def merge_units(self, session_id: str, request: MergeUnitsRequest) -> MergeUnitsResponse:
         """

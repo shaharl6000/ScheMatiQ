@@ -537,7 +537,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             <tbody>
               {/* Render units with their rows - only show units that have loaded data */}
               {units
-                .filter(unit => !selectedUnit || unit.name === selectedUnit)
+                .filter(unit => (!selectedUnit || unit.name === selectedUnit) && groupedRows.has(unit.name))
                 .map(unit => {
                   const isExpanded = expandedUnits.has(unit.name);
                   const isSelectedForMerge = selectedForMerge.has(unit.name);
@@ -625,7 +625,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         {unitData && (
           <div className="flex items-center justify-between mt-4">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Rows per page:</span>
+              <span className="text-sm text-muted-foreground">Units per page:</span>
               <Select value={String(pageSize)} onValueChange={handleChangeRowsPerPage}>
                 <SelectTrigger className="w-20">
                   <SelectValue />
@@ -640,7 +640,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
-                {unitData.total_count > 0 ? page * pageSize + 1 : 0}-{Math.min((page + 1) * pageSize, unitData.total_count)} of {unitData.total_count}
+                {unitData.total_count > 0 ? `${page * pageSize + 1}-${Math.min((page + 1) * pageSize, unitData.total_count)} of ${unitData.total_count} units` : '0 units'}
               </span>
               <Button
                 variant="outline"
