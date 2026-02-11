@@ -866,12 +866,22 @@ class FileParser:
                                                 "text": str(parsed_item),
                                                 "source": source_filename or "Unknown"
                                             })
-                                    except (ValueError, SyntaxError):
-                                        # Couldn't parse, treat as plain text
-                                        excerpts.append({
-                                            "text": part,
-                                            "source": source_filename or "Unknown"
-                                        })
+                                    except (ValueError, SyntaxError) as parse_err:
+                                        logger.debug("ast.literal_eval failed for excerpt part: %s — %s", part[:80], parse_err)
+                                        # Try regex extraction for cases where ast.literal_eval fails
+                                        # (e.g., text contains apostrophes like "it's")
+                                        text_match = re.search(r"'text'\s*:\s*'(.*?)'(?:\s*,\s*'source'|\s*})", part, re.DOTALL)
+                                        source_match = re.search(r"'source'\s*:\s*'(.*?)'", part)
+                                        if text_match:
+                                            excerpts.append({
+                                                "text": text_match.group(1),
+                                                "source": source_match.group(1) if source_match else (source_filename or "Unknown")
+                                            })
+                                        else:
+                                            excerpts.append({
+                                                "text": part,
+                                                "source": source_filename or "Unknown"
+                                            })
                         # Also check for [source] text format from our CSV export
                         elif excerpt_value.startswith("[") and "] " in excerpt_value:
                             # Format: "[source1] text1 | [source2] text2"

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from app.core.config import DATA_COLLECTION_ENABLED, DEVELOPER_MODE, MAX_DOCUMENTS
+from app.utils.csv_helpers import format_excerpt_for_csv
 
 logger = logging.getLogger(__name__)
 
@@ -332,7 +333,7 @@ class DataCollectionService:
                     if "excerpts" in value and value["excerpts"]:
                         excerpts = value["excerpts"]
                         if isinstance(excerpts, list):
-                            csv_row[f"{col_name}_excerpt"] = " | ".join(str(ex) for ex in excerpts)
+                            csv_row[f"{col_name}_excerpt"] = " | ".join(format_excerpt_for_csv(ex) for ex in excerpts)
                         else:
                             csv_row[f"{col_name}_excerpt"] = str(excerpts)
                 elif isinstance(value, (list, dict)):
