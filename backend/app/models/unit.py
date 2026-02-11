@@ -46,7 +46,15 @@ class UnitSimilarity(BaseModel):
     reason: str = Field(..., description="Explanation for why these units are similar")
 
 
+class AutoMergeResult(BaseModel):
+    """Result of an individual auto-merge group."""
+    merged_units: List[str]
+    target_unit: str
+    rows_affected: int = 0
+
+
 class UnitSuggestionsResponse(BaseModel):
     """Response containing merge suggestions."""
     suggestions: List[UnitSimilarity]
     threshold: float = Field(..., description="Minimum similarity threshold used")
+    auto_merged: List[AutoMergeResult] = Field(default_factory=list)

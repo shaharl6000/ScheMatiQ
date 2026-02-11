@@ -14,6 +14,7 @@ from app.models.unit import (
     MergeUnitsResponse,
     UnitSimilarity,
     UnitSuggestionsResponse,
+    AutoMergeResult,
 )
 from app.models.session import DataRow
 from app.core.config import DEFAULT_DATA_DIR
@@ -184,7 +185,7 @@ class UnitViewService:
 
         # Convert to list of UnitSummary objects
         units = []
-        for name, data in sorted(unit_data.items()):
+        for name, data in sorted(unit_data.items(), key=lambda x: x[0].lower()):
             units.append(UnitSummary(
                 name=name,
                 row_count=data['row_count'],
@@ -232,7 +233,7 @@ class UnitViewService:
         filtered_count = len(rows)
 
         # Sort by unit name for consistent grouping
-        rows = sorted(rows, key=lambda r: (self._get_unit_name(r) or '', r.get('row_name', '')))
+        rows = sorted(rows, key=lambda r: ((self._get_unit_name(r) or '').lower(), r.get('row_name', '')))
 
         # Apply pagination
         start_idx = page * page_size
@@ -312,23 +313,18 @@ class UnitViewService:
             rows_affected=rows_affected
         )
 
-    def suggest_similar_units(
+    def _select_best_name(self, names: List[str]) -> str:
+        """Pick the best name from a group: prefer non-all-caps, then longest."""
+        non_caps = [n for n in names if n != n.upper() or n == n.lower()]
+        candidates = non_caps if non_caps else names
+        return max(candidates, key=len)
+
+    def _calculate_suggestions(
         self,
         session_id: str,
-        threshold: float = 0.8
-    ) -> UnitSuggestionsResponse:
-        """
-        Find similar observation units that might be candidates for merging.
-
-        Uses SequenceMatcher for string similarity comparison.
-
-        Args:
-            session_id: The session ID
-            threshold: Minimum similarity score (0-1) to suggest merge
-
-        Returns:
-            UnitSuggestionsResponse with merge suggestions
-        """
+        threshold: float
+    ) -> List[UnitSimilarity]:
+        """Calculate pairwise similarity suggestions for all units."""
         summary = self.get_units_summary(session_id)
         unit_names = [u.name for u in summary.units]
 
@@ -337,21 +333,17 @@ class UnitViewService:
 
         for i, name1 in enumerate(unit_names):
             for name2 in unit_names[i + 1:]:
-                # Skip if already processed this pair
                 pair_key = tuple(sorted([name1.lower(), name2.lower()]))
                 if pair_key in processed_pairs:
                     continue
                 processed_pairs.add(pair_key)
 
-                # Calculate similarity
                 similarity = self._calculate_similarity(name1, name2)
 
                 if similarity >= threshold:
-                    # Generate suggested name and reason
                     suggested_name, reason = self._generate_merge_suggestion(
                         name1, name2, similarity
                     )
-
                     suggestions.append(UnitSimilarity(
                         units=[name1, name2],
                         similarity=round(similarity, 3),
@@ -359,17 +351,106 @@ class UnitViewService:
                         reason=reason
                     ))
 
-        # Sort by similarity (highest first)
         suggestions.sort(key=lambda s: s.similarity, reverse=True)
+        return suggestions
+
+    def _auto_merge_exact_matches(
+        self,
+        session_id: str,
+        suggestions: List[UnitSimilarity]
+    ) -> List[AutoMergeResult]:
+        """Auto-merge all 100% similarity matches using union-find grouping."""
+        perfect_matches = [s for s in suggestions if s.similarity >= 1.0]
+        if not perfect_matches:
+            return []
+
+        # Union-find to group connected units
+        parent: Dict[str, str] = {}
+
+        def find(x: str) -> str:
+            if x not in parent:
+                parent[x] = x
+            if parent[x] != x:
+                parent[x] = find(parent[x])
+            return parent[x]
+
+        def union(a: str, b: str) -> None:
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        for match in perfect_matches:
+            for i in range(1, len(match.units)):
+                union(match.units[0], match.units[i])
+
+        # Build groups
+        groups: Dict[str, List[str]] = {}
+        for name in parent:
+            root = find(name)
+            if root not in groups:
+                groups[root] = []
+            groups[root].append(name)
+
+        # Merge each group
+        results = []
+        for group in groups.values():
+            if len(group) < 2:
+                continue
+            target_name = self._select_best_name(group)
+            merge_result = self.merge_units(
+                session_id,
+                MergeUnitsRequest(
+                    source_units=group,
+                    target_unit=target_name,
+                    strategy='rename',
+                ),
+            )
+            results.append(AutoMergeResult(
+                merged_units=group,
+                target_unit=target_name,
+                rows_affected=merge_result.rows_affected,
+            ))
+            logger.info(
+                f"Session {session_id}: Auto-merged {group} into '{target_name}'"
+            )
+
+        return results
+
+    def suggest_similar_units(
+        self,
+        session_id: str,
+        threshold: float = 0.8,
+        auto_merge: bool = False
+    ) -> UnitSuggestionsResponse:
+        """
+        Find similar observation units that might be candidates for merging.
+
+        Args:
+            session_id: The session ID
+            threshold: Minimum similarity score (0-1) to suggest merge
+            auto_merge: If True, auto-merge 100% similarity matches first
+
+        Returns:
+            UnitSuggestionsResponse with merge suggestions (and auto_merged results)
+        """
+        suggestions = self._calculate_suggestions(session_id, threshold)
+        auto_merged: List[AutoMergeResult] = []
+
+        if auto_merge:
+            auto_merged = self._auto_merge_exact_matches(session_id, suggestions)
+            if auto_merged:
+                # Re-calculate after merges changed the data
+                suggestions = self._calculate_suggestions(session_id, threshold)
 
         logger.debug(
             f"Session {session_id}: Found {len(suggestions)} similar unit pairs "
-            f"(threshold={threshold})"
+            f"(threshold={threshold}, auto_merged={len(auto_merged)} groups)"
         )
 
         return UnitSuggestionsResponse(
             suggestions=suggestions,
-            threshold=threshold
+            threshold=threshold,
+            auto_merged=auto_merged,
         )
 
     def _calculate_similarity(self, name1: str, name2: str) -> float:

@@ -184,6 +184,10 @@ async def get_merge_suggestions(
         ge=0.0,
         le=1.0,
         description="Minimum similarity threshold (0-1)"
+    ),
+    auto_merge: bool = Query(
+        False,
+        description="Auto-merge 100% similarity matches before returning suggestions"
     )
 ):
     """
@@ -196,12 +200,14 @@ async def get_merge_suggestions(
         session_id: The session ID
         threshold: Minimum similarity score (0-1) to include in suggestions.
                    Default is 0.8 (80% similar).
+        auto_merge: If True, automatically merge units with 100% similarity
+                    before returning remaining suggestions.
     """
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
     try:
-        return unit_view_service.suggest_similar_units(session_id, threshold)
+        return unit_view_service.suggest_similar_units(session_id, threshold, auto_merge)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting suggestions: {str(e)}")

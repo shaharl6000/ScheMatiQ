@@ -3,7 +3,7 @@
  * Provides collapsible unit groups with merge functionality.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb, FileText } from 'lucide-react';
 import { useQuery } from 'react-query';
 
@@ -34,6 +34,7 @@ import UnitGroupRow from './UnitGroupRow';
 import ContentModal from '../ContentModal/ContentModal';
 import { DataRow, CellValue, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { cn } from '@/lib/utils';
+import { useToast } from '@/components/ui/use-toast';
 import { formatColumnName } from '../../utils/formatting';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
 import { Eye } from 'lucide-react';
@@ -61,7 +62,8 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   // Unit data hooks
   const { units: unitListResponse, loading: unitsLoading, error: unitsError, refresh: refreshUnits } = useUnits(sessionId);
   const { merge, loading: mergeLoading, error: mergeError, clearError: clearMergeError } = useMergeUnits(sessionId);
-  const { suggestions, loading: suggestionsLoading, fetchSuggestions } = useUnitSuggestions(sessionId);
+  const { suggestions, loading: suggestionsLoading, autoMerged, fetchSuggestions } = useUnitSuggestions(sessionId);
+  const { toast } = useToast();
 
   // Memoize units array to prevent unnecessary re-renders
   const units = useMemo(() => unitListResponse?.units || [], [unitListResponse?.units]);
@@ -155,13 +157,28 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
       await merge(request);
       setMergeDialogOpen(false);
       clearMergeSelections();
-      refreshUnits();
-      refetchData();
+      await refreshUnits();
+      await refetchData();
       onDataChange?.();
     } catch (err) {
       // Error is handled by the hook
     }
   }, [merge, clearMergeSelections, refreshUnits, refetchData, onDataChange]);
+
+  // Handle backend auto-merge results — refresh table and show toast
+  useEffect(() => {
+    if (autoMerged.length > 0) {
+      const totalMerged = autoMerged.reduce((sum, g) => sum + g.mergedUnits.length, 0);
+      refreshUnits();
+      refetchData();
+      onDataChange?.();
+      toast({
+        title: 'Auto-merged identical units',
+        description: `Merged ${totalMerged} units into ${autoMerged.length} ${autoMerged.length === 1 ? 'group' : 'groups'}`,
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoMerged]);
 
   // Handle suggestion merge
   const handleSuggestionMerge = useCallback(async (suggestion: any) => {
@@ -171,9 +188,9 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         target_unit: suggestion.suggestedName,
         strategy: 'rename',
       });
-      refreshUnits();
-      refetchData();
-      fetchSuggestions();
+      await refreshUnits();
+      await refetchData();
+      await fetchSuggestions();
       onDataChange?.();
     } catch (err) {
       // Error is handled by the hook
@@ -182,7 +199,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
   // Dismiss suggestion
   const handleDismissSuggestion = useCallback((suggestion: any) => {
-    const key = suggestion.units.sort().join('|');
+    const key = [...suggestion.units].sort().join('|');
     setDismissedSuggestions(prev => new Set(prev).add(key));
   }, []);
 
@@ -204,7 +221,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   const visibleSuggestions = useMemo(() => {
     if (!suggestions?.suggestions) return [];
     return suggestions.suggestions.filter(s => {
-      const key = s.units.sort().join('|');
+      const key = [...s.units].sort().join('|');
       return !dismissedSuggestions.has(key);
     });
   }, [suggestions, dismissedSuggestions]);
@@ -261,7 +278,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     return mapping;
   }, [unitData?.rows]);
 
-  if (unitsLoading) {
+  if (unitsLoading && !unitListResponse) {
     return (
       <Card className="p-8">
         <div className="flex items-center justify-center gap-2 text-muted-foreground">
@@ -384,12 +401,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                 <Button
                   variant={showSuggestions ? 'secondary' : 'outline'}
                   size="sm"
-                  onClick={() => {
-                    if (!showSuggestions && !suggestions) {
-                      fetchSuggestions();
-                    }
-                    setShowSuggestions(!showSuggestions);
-                  }}
+                  onClick={() => setShowSuggestions(!showSuggestions)}
                   className="gap-1"
                 >
                   <Lightbulb className="h-4 w-4" />
@@ -472,7 +484,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               {/* Render units with their rows - only show units that have loaded data */}
               {units
                 .filter(unit => !selectedUnit || unit.name === selectedUnit)
-                .filter(unit => groupedRows.has(unit.name))
                 .map(unit => {
                   const isExpanded = expandedUnits.has(unit.name);
                   const isSelectedForMerge = selectedForMerge.has(unit.name);
