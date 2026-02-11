@@ -110,8 +110,9 @@ backend/sessions/
 backend/qbsd_work/
 backend/venv/
 
-# Research data (large files)
+# Research data and experiments
 research/data/
+research/experiments/
 research/results/
 
 # qbsd-lib
