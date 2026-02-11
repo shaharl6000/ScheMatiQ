@@ -121,8 +121,9 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     setPage(0);
   }, []);
 
-  // Total pages calculation
-  const totalPages = unitData ? Math.ceil(unitData.total_count / pageSize) : 0;
+  // Total pages calculation — use filtered_count when a unit filter is active
+  const displayedRowCount = unitData?.filtered_count ?? unitData?.total_count ?? 0;
+  const totalPages = Math.ceil(displayedRowCount / pageSize);
 
   // Toggle unit expansion
   const toggleExpansion = useCallback((unitName: string) => {
@@ -640,7 +641,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
-                {unitData.total_count > 0 ? `${page * pageSize + 1}-${Math.min((page + 1) * pageSize, unitData.total_count)} of ${unitData.total_count} units` : '0 units'}
+                {displayedRowCount > 0 ? `${page * pageSize + 1}-${Math.min((page + 1) * pageSize, displayedRowCount)} of ${displayedRowCount} units` : '0 units'}
               </span>
               <Button
                 variant="outline"
