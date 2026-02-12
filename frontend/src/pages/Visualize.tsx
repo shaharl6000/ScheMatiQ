@@ -10,6 +10,7 @@ import {
   FileText,
   Copy,
   HelpCircle,
+  Search,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -1016,71 +1017,79 @@ const Visualize = () => {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between border-b pb-4">
-        <div className="flex items-center gap-4">
+      <div className="space-y-3 border-b pb-4">
+        <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={handleBackNavigation}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
-          <div className="group flex items-center gap-2 mt-1">
-            <h1 className="text-base font-medium text-foreground">
-              {session?.schema_query}
-            </h1>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={() => {
-                navigator.clipboard.writeText(session?.schema_query || '');
-                toast({ title: "Query copied to clipboard" });
-              }}
-            >
-              <Copy className="h-3 w-3" />
-            </Button>
+
+          <div className="flex items-center gap-2">
+            {getStatusBadge()}
+            {(isCompleted || isQBSDStopped) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setVisualizeGuideForceOpen(true)}
+                aria-label="Show results guide"
+                className="text-muted-foreground"
+              >
+                <HelpCircle className="h-5 w-5" />
+              </Button>
+            )}
+            {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Download className="h-4 w-4 mr-2" />
+                    Export{isQBSDStopped ? ' Partial' : ''}
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72">
+                  <DropdownMenuItem onClick={handleDownloadTable}>
+                    <Download className="h-4 w-4 mr-2 shrink-0" />
+                    <div>
+                      <div>Download Table (.csv)</div>
+                      <div className="text-xs text-muted-foreground">Clean data for Excel — no metadata</div>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleSaveProject}>
+                    <Save className="h-4 w-4 mr-2 shrink-0" />
+                    <div>
+                      <div>Save Project (.qbsd.json)</div>
+                      <div className="text-xs text-muted-foreground">Full project with schema and history — for reloading</div>
+                    </div>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {getStatusBadge()}
-          {(isCompleted || isQBSDStopped) && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setVisualizeGuideForceOpen(true)}
-              aria-label="Show results guide"
-              className="text-muted-foreground"
-            >
-              <HelpCircle className="h-5 w-5" />
-            </Button>
-          )}
-          {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Download className="h-4 w-4 mr-2" />
-                  Export{isQBSDStopped ? ' Partial' : ''}
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuItem onClick={handleDownloadTable}>
-                  <Download className="h-4 w-4 mr-2 shrink-0" />
-                  <div>
-                    <div>Download Table (.csv)</div>
-                    <div className="text-xs text-muted-foreground">Clean data for Excel — no metadata</div>
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleSaveProject}>
-                  <Save className="h-4 w-4 mr-2 shrink-0" />
-                  <div>
-                    <div>Save Project (.qbsd.json)</div>
-                    <div className="text-xs text-muted-foreground">Full project with schema and history — for reloading</div>
-                  </div>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
+        {/* Research Question card */}
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="py-2.5 px-4">
+            <div className="group flex items-start gap-3">
+              <Search className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-blue-600 font-medium mb-0.5">Research Question</p>
+                <p className="text-base font-medium text-blue-900">{session?.schema_query}</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-blue-600 hover:text-blue-800 hover:bg-blue-100 shrink-0"
+                onClick={() => {
+                  navigator.clipboard.writeText(session?.schema_query || '');
+                  toast({ title: "Query copied to clipboard" });
+                }}
+              >
+                <Copy className="h-3 w-3" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Tabs */}

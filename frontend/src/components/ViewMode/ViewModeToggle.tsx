@@ -48,7 +48,7 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
         disabled={disabled}
       >
         <Table2 className="h-4 w-4 mr-1.5" />
-        Standard
+        By Document
       </Button>
       <Button
         variant="ghost"

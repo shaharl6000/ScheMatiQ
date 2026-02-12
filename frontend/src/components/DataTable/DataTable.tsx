@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
-import { Search, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info, AlertCircle, Minus } from 'lucide-react';
+import { Search, GripVertical, ArrowUp, ArrowDown, Loader2, Square, Info, AlertCircle, Minus } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -132,9 +132,7 @@ interface SortableHeaderCellProps {
   children: React.ReactNode;
   sortDirection?: 'asc' | 'desc' | null;
   sortPriority?: number | null;
-  hasFilter?: boolean;
   onSort?: (column: string, multiSort: boolean) => void;
-  onFilter?: (column: string) => void;
   columnWidth?: number;
   onResizeStart?: (e: React.MouseEvent, column: string, currentWidth: number) => void;
 }
@@ -144,9 +142,7 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
   children,
   sortDirection,
   sortPriority,
-  hasFilter,
   onSort,
-  onFilter,
   columnWidth,
   onResizeStart,
 }) => {
@@ -181,13 +177,6 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
     }
   };
 
-  const handleFilterClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onFilter) {
-      onFilter(column);
-    }
-  };
-
   const handleResizeMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (onResizeStart && thRef.current) {
@@ -200,7 +189,7 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
       ref={setRefs}
       style={style}
       className={cn(
-        "px-4 py-3 text-left font-bold text-base bg-background",
+        "px-4 py-3 text-left font-semibold text-sm bg-background",
         !columnWidth && "min-w-[120px] sm:min-w-[150px]",
         isDragging && "bg-muted",
         sortDirection && "bg-primary/5"
@@ -229,17 +218,6 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
             </div>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "h-6 w-6 shrink-0",
-            hasFilter && "text-primary bg-primary/10"
-          )}
-          onClick={handleFilterClick}
-        >
-          <Filter className="h-3 w-3" />
-        </Button>
       </div>
       {/* Resize handle */}
       <div
@@ -317,7 +295,6 @@ const DataTable: React.FC<DataTableProps> = ({
     removeFilter,
     clearFilters,
     setFilterState,
-    hasFilterForColumn,
     activeFilterCount,
   } = useTableFilter({ sessionId });
 
@@ -1376,7 +1353,7 @@ const DataTable: React.FC<DataTableProps> = ({
                     <th
                       ref={frozenThRef}
                       className={cn(
-                        "px-4 py-3 text-left font-bold text-base sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
+                        "px-4 py-3 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
                         !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
                         readonly ? "left-0" : "left-[50px]",
                         getSortDirection(frozenColumn) && "bg-primary/5"
@@ -1406,17 +1383,6 @@ const DataTable: React.FC<DataTableProps> = ({
                             </div>
                           )}
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "h-6 w-6 shrink-0",
-                            hasFilterForColumn(frozenColumn) && "text-primary bg-primary/10"
-                          )}
-                          onClick={() => handleOpenFilterDialog(frozenColumn)}
-                        >
-                          <Filter className="h-3 w-3" />
-                        </Button>
                       </div>
                       {/* Resize handle */}
                       <div
@@ -1442,9 +1408,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         column={column}
                         sortDirection={getSortDirection(column)}
                         sortPriority={getSortPriority(column)}
-                        hasFilter={hasFilterForColumn(column)}
                         onSort={toggleSort}
-                        onFilter={handleOpenFilterDialog}
                         columnWidth={getColumnWidth(column)}
                         onResizeStart={handleResizeStart}
                       >
@@ -1459,7 +1423,7 @@ const DataTable: React.FC<DataTableProps> = ({
 
                   {/* Actions column header - only show if not readonly */}
                   {!readonly && (
-                    <th className="px-2 py-3 text-left font-bold text-base min-w-[60px] sticky right-0 bg-background border-l">
+                    <th className="px-2 py-3 text-left font-semibold text-sm min-w-[60px] sticky right-0 bg-background border-l">
                       <span className="sr-only">Actions</span>
                     </th>
                   )}
