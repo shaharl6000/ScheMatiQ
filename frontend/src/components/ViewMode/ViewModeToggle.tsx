@@ -40,21 +40,6 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
         size="sm"
         className={cn(
           'relative h-8 rounded-md px-3 text-sm font-medium transition-colors',
-          viewMode === 'standard'
-            ? 'bg-background text-foreground shadow-sm'
-            : 'text-muted-foreground hover:text-foreground'
-        )}
-        onClick={() => !disabled && onViewModeChange('standard')}
-        disabled={disabled}
-      >
-        <Table2 className="h-4 w-4 mr-1.5" />
-        Standard
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className={cn(
-          'relative h-8 rounded-md px-3 text-sm font-medium transition-colors',
           viewMode === 'by_unit'
             ? 'bg-background text-foreground shadow-sm'
             : 'text-muted-foreground hover:text-foreground',
@@ -65,11 +50,21 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
       >
         <Layers className="h-4 w-4 mr-1.5" />
         By Unit
-        {unitCount !== undefined && unitCount > 0 && (
-          <span className="ml-1.5 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-medium rounded-full bg-primary/10 text-primary">
-            {unitCount}
-          </span>
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className={cn(
+          'relative h-8 rounded-md px-3 text-sm font-medium transition-colors',
+          viewMode === 'standard'
+            ? 'bg-background text-foreground shadow-sm'
+            : 'text-muted-foreground hover:text-foreground'
         )}
+        onClick={() => !disabled && onViewModeChange('standard')}
+        disabled={disabled}
+      >
+        <Table2 className="h-4 w-4 mr-1.5" />
+        By Document
       </Button>
     </div>
   );

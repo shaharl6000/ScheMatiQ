@@ -881,6 +881,7 @@ class PaperProcessor:
         mode: str = "all",
         retrieval_k: int = 8,
         on_unit_extracted: Optional[Callable[[str, Dict[str, Any]], None]] = None,
+        known_units: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Extract values from a paper, potentially producing multiple rows
@@ -894,6 +895,9 @@ class PaperProcessor:
             mode: Extraction mode ("all" or "one_by_one")
             retrieval_k: Number of passages to retrieve
             on_unit_extracted: Callback called when each unit is extracted
+            known_units: Optional list of unit names to use instead of LLM discovery.
+                When provided, skips the identify_observation_units LLM call and uses
+                these names directly with the full paper text as relevant passages.
 
         Returns:
             List of row dicts, each containing:
@@ -912,9 +916,17 @@ class PaperProcessor:
         if not observation_unit:
             raise ValueError("observation_unit required in schema for value extraction")
 
-        # Identify observation units in the document
-        print(f"🔍 Identifying observation units ({observation_unit.name}) in {paper_title}...")
-        units = self.identify_observation_units(paper_title, paper_text, observation_unit, schema)
+        if known_units is not None:
+            # Skip LLM discovery — use provided unit names directly
+            units = [
+                {"unit_name": name, "relevant_passages": [paper_text], "confidence": "known"}
+                for name in known_units
+            ]
+            print(f"📋 Using {len(units)} known units for {paper_title}: {known_units}")
+        else:
+            # Identify observation units in the document via LLM
+            print(f"🔍 Identifying observation units ({observation_unit.name}) in {paper_title}...")
+            units = self.identify_observation_units(paper_title, paper_text, observation_unit, schema)
 
         if not units:
             print(f"  ⚠️ No units found, skipping document")

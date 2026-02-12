@@ -15,6 +15,7 @@ import {
 import { ModelSelector } from '@/components/ModelSelector';
 import InitialSchemaEditor from '@/components/InitialSchemaEditor/InitialSchemaEditor';
 import { WelcomeDialog } from '@/components/WelcomeDialog/WelcomeDialog';
+import { ConsentDialog, getSavedConsent } from '@/components/ConsentDialog/ConsentDialog';
 import { InfoTooltip } from '@/components/InfoTooltip/InfoTooltip';
 
 import { Button } from '@/components/ui/button';
@@ -117,6 +118,10 @@ const QBSDConfigPage = () => {
   // Welcome dialog state
   const [welcomeDialogOpen, setWelcomeDialogOpen] = useState(false);
 
+  // Consent dialog state
+  const [consentDialogOpen, setConsentDialogOpen] = useState(false);
+  const [dataCollectionEnabled, setDataCollectionEnabled] = useState(false);
+
   // Cost estimate state
   const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
   const [costEstimateLoading, setCostEstimateLoading] = useState(false);
@@ -159,12 +164,15 @@ const QBSDConfigPage = () => {
       const providers = await getConfiguredProviders();
 
       // Fetch config to check if LLM config is allowed
-      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true, server_has_llm_key: false }));
+      const cfg = await configAPI.getConfig().catch(() => ({
+        allow_llm_config: true,
+        server_has_api_keys: false,
+      }));
 
       // In release mode, only Gemini is needed (LLM config is locked)
       if (!cfg.allow_llm_config) {
-        // Release mode: need Gemini key from user OR server
-        if (!providers.includes('gemini') && !cfg.server_has_llm_key) {
+        // Release mode: allow access if user has Gemini key OR server has keys
+        if (!providers.includes('gemini') && !cfg.server_has_api_keys) {
           navigate('/');
           return;
         }
@@ -258,6 +266,7 @@ const QBSDConfigPage = () => {
         setMaxDocuments(cfg.max_documents);
         setDeveloperMode(cfg.developer_mode);
         setAllowLlmConfig(cfg.allow_llm_config);
+        setDataCollectionEnabled(cfg.data_collection_enabled ?? false);
       })
       .catch(() => console.log('Using default document limit'));
   }, []);
@@ -526,7 +535,7 @@ const QBSDConfigPage = () => {
     developerMode,
   ]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (optOutDataCollection = false) => {
     setLoading(true);
     setError(null);
 
@@ -576,6 +585,8 @@ const QBSDConfigPage = () => {
         initial_schema_path: !initialSchemaData ? initialSchemaPath : undefined,
         // Add initial observation unit
         initial_observation_unit: initialObservationUnit,
+        // Privacy opt-out
+        opt_out_data_collection: optOutDataCollection,
       };
 
       // Step 1: Create session
@@ -599,13 +610,48 @@ const QBSDConfigPage = () => {
         }
       }
 
-      // Step 3: Navigate to visualization
-      navigate(`/visualize/${sessionId}?mode=qbsd`);
+      // Step 3: Start QBSD execution
+      let navState: { autoStarted?: boolean; serverBusy?: boolean; capacityMessage?: string } = {};
+      try {
+        await qbsdAPI.run(sessionId);
+        navState = { autoStarted: true };
+      } catch (runErr: any) {
+        const status = runErr?.response?.status;
+        const detail = runErr?.response?.data?.detail;
+        if (status === 503) {
+          navState = { serverBusy: true, capacityMessage: detail || 'The server is currently busy processing other requests. Please try again in a few minutes.' };
+        }
+        // For other errors, navigate without special state — QBSDMonitor shows "Ready to Start" as fallback
+      }
+
+      // Step 4: Navigate to visualization
+      navigate(`/visualize/${sessionId}?mode=qbsd`, { state: navState });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to configure QBSD');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Consent-aware start: show dialog in release mode if not previously accepted
+  const handleStartClick = () => {
+    if (!dataCollectionEnabled || developerMode) {
+      // No data collection or developer mode — skip consent
+      handleSubmit(false);
+      return;
+    }
+    const { consentGiven, savedOptOut } = getSavedConsent();
+    if (consentGiven) {
+      // Previously accepted — use saved preference
+      handleSubmit(savedOptOut);
+      return;
+    }
+    // Show consent dialog
+    setConsentDialogOpen(true);
+  };
+
+  const handleConsentConfirm = (optOut: boolean) => {
+    handleSubmit(optOut);
   };
 
   const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path.filter(Boolean) : [config.docs_path].filter(Boolean);
@@ -621,6 +667,11 @@ const QBSDConfigPage = () => {
       <WelcomeDialog
         forceOpen={welcomeDialogOpen}
         onOpenChange={setWelcomeDialogOpen}
+      />
+      <ConsentDialog
+        open={consentDialogOpen}
+        onOpenChange={setConsentDialogOpen}
+        onConfirm={handleConsentConfirm}
       />
 
       <div className="flex items-center justify-between mb-2">
@@ -710,15 +761,6 @@ const QBSDConfigPage = () => {
                 Documents {!hasQuery && <span className="text-destructive">*</span>}
               </Label>
 
-              {/* Document limit notice - visible upfront before any selection */}
-              {!limitBypassEnabled && (
-                <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
-                  <FileText className="h-4 w-4 text-blue-600" />
-                  <AlertDescription className="text-sm text-blue-700 dark:text-blue-400">
-                    <strong>Document limit:</strong> Analysis is limited to {maxDocuments} documents to ensure fast results and reasonable costs. If you provide more, a representative sample will be used.
-                  </AlertDescription>
-                </Alert>
-              )}
 
               <Tabs value={documentSource} onValueChange={(v) => setDocumentSource(v as 'upload' | 'cloud')}>
                 <TabsList className="grid w-full grid-cols-2">
@@ -799,14 +841,12 @@ const QBSDConfigPage = () => {
                         </CollapsibleContent>
                       </Collapsible>
 
-                      {/* Document limit warning - only show when approaching or exceeding limit */}
-                      {!limitBypassEnabled && uploadedFiles.length >= Math.floor(maxDocuments * 0.75) && (
+                      {/* Document limit warning - only show when exceeding limit */}
+                      {!limitBypassEnabled && isOverLimit && (
                         <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
                           <AlertTriangle className="h-4 w-4 text-amber-600" />
                           <AlertDescription className="text-amber-700 dark:text-amber-400">
-                            {isOverLimit
-                              ? `You've selected ${uploadedFiles.length} documents. We'll analyze a representative sample of ${maxDocuments} documents.`
-                              : `${uploadedFiles.length} of ${maxDocuments} documents selected.`}
+                            You've selected {uploadedFiles.length} documents, but analysis is limited to {maxDocuments} to ensure fast results and reasonable costs. A representative sample will be used.
                           </AlertDescription>
                         </Alert>
                       )}
@@ -867,14 +907,12 @@ const QBSDConfigPage = () => {
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  {/* Cloud dataset document limit warning - only show when approaching or exceeding limit */}
-                  {!limitBypassEnabled && cloudFileCount >= Math.floor(maxDocuments * 0.75) && (
+                  {/* Cloud dataset document limit warning - only show when exceeding limit */}
+                  {!limitBypassEnabled && isCloudOverLimit && (
                     <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
                       <AlertTriangle className="h-4 w-4 text-amber-600" />
                       <AlertDescription className="text-amber-700 dark:text-amber-400">
-                        {isCloudOverLimit
-                          ? `Your selection contains ${cloudFileCount} documents. We'll analyze a representative sample of ${maxDocuments} documents.`
-                          : `${cloudFileCount} of ${maxDocuments} documents in selected datasets.`}
+                        Your selection contains {cloudFileCount} documents, but analysis is limited to {maxDocuments} to ensure fast results and reasonable costs. A representative sample will be used.
                       </AlertDescription>
                     </Alert>
                   )}
@@ -1493,7 +1531,7 @@ const QBSDConfigPage = () => {
 
             <Button
               size="lg"
-              onClick={handleSubmit}
+              onClick={handleStartClick}
               disabled={!isFormValid || loading || providersLoading || datasetsLoading}
             >
               {(loading || isUploading) ? (

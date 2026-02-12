@@ -103,8 +103,9 @@ export const configAPI = {
     max_documents: number;
     developer_mode: boolean;
     allow_llm_config: boolean;
-    server_has_llm_key: boolean;
+    data_collection_enabled: boolean;
     release_config: Record<string, any>;
+    server_has_api_keys: boolean;
   }> => {
     const response = await api.get('/config');
     return response.data;

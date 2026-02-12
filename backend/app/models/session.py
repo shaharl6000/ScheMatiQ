@@ -151,6 +151,8 @@ class VisualizationSession(BaseModel):
     modification_history: List[ModificationAction] = Field(default_factory=list)  # Schema modification log
     # Observation unit tracking
     observation_unit: Optional[ObservationUnitInfo] = None  # What constitutes a single row
+    # Privacy / data collection
+    opt_out_data_collection: bool = False  # User opted out of research data archival
 
 class DataRow(BaseModel):
     """A single row of data."""

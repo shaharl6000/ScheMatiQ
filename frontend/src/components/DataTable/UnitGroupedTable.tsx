@@ -1,16 +1,26 @@
 /**
- * Table component that displays data grouped by observation units.
- * Provides collapsible unit groups with merge functionality.
+ * Table component that displays data by observation units in a flat layout.
+ * Uses a frozen left column for unit names, similar to DataTable's frozen column pattern.
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb, FileText } from 'lucide-react';
+import { Merge, Loader2, Lightbulb, FileText, AlertCircle, Search, ArrowUp, ArrowDown, Square } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Tooltip,
   TooltipContent,
@@ -24,21 +34,31 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-import { unitsAPI } from '../../services/api';
+import { unitsAPI, observationUnitAPI } from '../../services/api';
 import { useUnits, useMergeUnits, useUnitSuggestions } from '../../hooks/useUnits';
-import { MergeUnitsRequest } from '../../types/unit';
+import { MergeUnitsRequest, UnitSummary } from '../../types/unit';
 import { UnitFilter } from '../ViewMode/UnitFilter';
 import { UnitMergeDialog } from '../ViewMode/UnitMergeDialog';
 import { UnitSimilarityCard } from '../Units/UnitSimilarityCard';
-import UnitGroupRow from './UnitGroupRow';
+import { UnitMergePickerDialog } from './UnitMergePickerDialog';
+import BulkActionToolbar from './BulkActionToolbar';
+import { useRowSelection } from './hooks/useRowSelection';
 import ContentModal from '../ContentModal/ContentModal';
 import { DataRow, CellValue, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { formatColumnName } from '../../utils/formatting';
-import { parsePythonString, extractDisplayValue } from './utils';
+import { buildColumnMetadata, applyFilters, applySort, parsePythonString, extractDisplayValue } from './utils';
+import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
+import { useTableSort } from './hooks/useTableSort';
+import { useTableFilter } from './hooks/useTableFilter';
+import { useColumnVisibility } from './hooks/useColumnVisibility';
+import { useColumnStats } from './hooks/useColumnStats';
+import FilterBar from './FilterBar';
+import FilterDialog from './FilterDialog';
+import TableOptionsMenu from './TableOptionsMenu';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
-import { Eye } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
 
 interface UnitGroupedTableProps {
@@ -52,6 +72,20 @@ interface UnitGroupedTableProps {
   columnInfo?: { name: string; allowed_values?: string[] }[];
   /** Callback when data changes */
   onDataChange?: () => void;
+  /** Columns currently being re-extracted */
+  processingColumns?: Set<string>;
+  /** Current document/unit extraction progress */
+  currentDocumentProgress?: { documentName: string; documentIndex: number; totalDocuments: number } | null;
+  /** Callback to stop re-extraction */
+  onStopReextraction?: () => void;
+  /** Whether re-extraction is being stopped */
+  isStoppingReextraction?: boolean;
+  /** Whether new documents are being processed */
+  isProcessingDocuments?: boolean;
+  /** Callback to stop document processing */
+  onStopProcessing?: () => void;
+  /** Whether document processing is being stopped */
+  isStoppingProcessing?: boolean;
 }
 
 export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
@@ -60,6 +94,13 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   columns,
   columnInfo,
   onDataChange,
+  processingColumns,
+  currentDocumentProgress,
+  onStopReextraction,
+  isStoppingReextraction,
+  isProcessingDocuments,
+  onStopProcessing,
+  isStoppingProcessing,
 }) => {
   // Unit data hooks
   const { units: unitListResponse, loading: unitsLoading, error: unitsError, refresh: refreshUnits } = useUnits(sessionId);
@@ -75,19 +116,43 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   } = useColumnResize({ sessionId });
   const hasCustomWidths = Object.keys(columnWidths).length > 0;
 
+  // Sort, filter, and visibility hooks (use unit_ prefix to avoid collisions with DataTable)
+  const {
+    sortState,
+    toggleSort,
+    setSortState,
+    getSortDirection,
+    getSortPriority,
+  } = useTableSort({ sessionId, persistKey: `unit_sort_${sessionId}` });
+
+  const {
+    filterState,
+    addFilter,
+    removeFilter,
+    clearFilters,
+    setFilterState,
+  } = useTableFilter({ sessionId, persistKey: `unit_filter_${sessionId}` });
+
   // Refs for header cells (for resize start width measurement)
   const headerRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
+  const frozenThRef = useRef<HTMLTableCellElement | null>(null);
 
   // Memoize units array to prevent unnecessary re-renders
   const units = useMemo(() => unitListResponse?.units || [], [unitListResponse?.units]);
 
   // Local state
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
-  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
-  const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set());
+  const [mergePickerOpen, setMergePickerOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [unitsToMerge, setUnitsToMerge] = useState<UnitSummary[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
+
+  // Search and filter UI state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [fullnessThreshold, setFullnessThreshold] = useState(0);
+  const [filterDialogOpen, setFilterDialogOpen] = useState(false);
+  const [filterDialogColumn, setFilterDialogColumn] = useState<string | undefined>();
 
   // Pagination state for unit data
   const [page, setPage] = useState(0);
@@ -96,6 +161,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   // Modal state for viewing cell content with excerpts
   const [modalOpen, setModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState<ModalContent>({ title: '', content: null });
+
+  // Row selection state
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
 
   // Fetch unit-grouped data
   const { data: unitData, isLoading: dataLoading, refetch: refetchData } = useQuery(
@@ -121,74 +192,30 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     setPage(0);
   }, []);
 
-  // Total pages calculation
-  const totalPages = unitData ? Math.ceil(unitData.total_count / pageSize) : 0;
-
-  // Toggle unit expansion
-  const toggleExpansion = useCallback((unitName: string) => {
-    setExpandedUnits(prev => {
-      const next = new Set(prev);
-      if (next.has(unitName)) {
-        next.delete(unitName);
-      } else {
-        next.add(unitName);
-      }
-      return next;
-    });
-  }, []);
-
-  // Toggle merge selection
-  const toggleMergeSelection = useCallback((unitName: string) => {
-    setSelectedForMerge(prev => {
-      const next = new Set(prev);
-      if (next.has(unitName)) {
-        next.delete(unitName);
-      } else {
-        next.add(unitName);
-      }
-      return next;
-    });
-  }, []);
-
-  // Clear merge selections
-  const clearMergeSelections = useCallback(() => {
-    setSelectedForMerge(new Set());
-  }, []);
-
-  // Expand/collapse all
-  const expandAll = useCallback(() => {
-    setExpandedUnits(new Set(units.map(u => u.name)));
-  }, [units]);
-
-  const collapseAll = useCallback(() => {
-    setExpandedUnits(new Set());
-  }, []);
+  // Total pages calculation — use filtered_count when a unit filter is active
+  const displayedRowCount = unitData?.filtered_count ?? unitData?.total_count ?? 0;
+  const totalPages = Math.ceil(displayedRowCount / pageSize);
 
   // Handle merge
   const handleMerge = useCallback(async (request: MergeUnitsRequest) => {
     try {
       await merge(request);
       setMergeDialogOpen(false);
-      clearMergeSelections();
+      setUnitsToMerge([]);
       await refreshUnits();
       await refetchData();
       onDataChange?.();
     } catch (err) {
       // Error is handled by the hook
     }
-  }, [merge, clearMergeSelections, refreshUnits, refetchData, onDataChange]);
+  }, [merge, refreshUnits, refetchData, onDataChange]);
 
-  // Handle backend auto-merge results — refresh table and show toast
+  // Handle backend auto-merge results — refresh table silently
   useEffect(() => {
     if (autoMerged.length > 0) {
-      const totalMerged = autoMerged.reduce((sum, g) => sum + g.mergedUnits.length, 0);
       refreshUnits();
       refetchData();
       onDataChange?.();
-      toast({
-        title: 'Auto-merged identical units',
-        description: `Merged ${totalMerged} units into ${autoMerged.length} ${autoMerged.length === 1 ? 'group' : 'groups'}`,
-      });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoMerged]);
@@ -225,11 +252,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     setModalOpen(true);
   }, []);
 
-  // Get selected units for merge dialog
-  const selectedUnitsForMerge = useMemo(() => {
-    return units.filter(u => selectedForMerge.has(u.name));
-  }, [units, selectedForMerge]);
-
   // Filter suggestions by dismissed
   const visibleSuggestions = useMemo(() => {
     if (!suggestions?.suggestions) return [];
@@ -239,38 +261,137 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     });
   }, [suggestions, dismissedSuggestions]);
 
-  // Group data rows by unit
-  const groupedRows = useMemo(() => {
-    if (!unitData?.rows) return new Map<string, DataRow[]>();
+  // Apply client-side search, filters, and sorting
+  const processedRows = useMemo(() => {
+    if (!unitData?.rows) return [];
 
-    const groups = new Map<string, DataRow[]>();
-    unitData.rows.forEach(row => {
-      const unitName = row._unit_name || 'Unknown';
-      if (!groups.has(unitName)) {
-        groups.set(unitName, []);
-      }
-      groups.get(unitName)!.push(row);
-    });
+    let rows = unitData.rows;
 
-    return groups;
-  }, [unitData?.rows]);
+    // Apply search filter across all column values
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      rows = rows.filter(row => {
+        // Check unit name
+        if (row._unit_name?.toLowerCase().includes(term)) return true;
+        if (row.row_name?.toLowerCase().includes(term)) return true;
+        if (row._source_document?.toLowerCase().includes(term)) return true;
+        // Check all data columns
+        return Object.values(row.data).some(val => {
+          if (val === null || val === undefined) return false;
+          const str = typeof val === 'string' ? val : JSON.stringify(val);
+          return str.toLowerCase().includes(term);
+        });
+      });
+    }
+
+    // Apply column filters
+    rows = applyFilters(rows, filterState);
+
+    // Apply sorting
+    rows = applySort(rows, sortState);
+
+    return rows;
+  }, [unitData?.rows, searchTerm, filterState, sortState]);
+
+  // Row selection - compute pageRowIds from filtered/sorted rows
+  const pageRowIds = useMemo(() => {
+    return processedRows.map(row => row._unit_name || row.row_name || '').filter(Boolean);
+  }, [processedRows]);
+
+  const {
+    isAllPageSelected,
+    isIndeterminate,
+    selectedRows,
+    toggleRow,
+    toggleAllPage,
+    clearSelection,
+    isSelected,
+    selectedCount,
+  } = useRowSelection(pageRowIds);
+
+  // Bulk delete handler
+  const handleBulkDelete = useCallback(async () => {
+    setIsBulkDeleting(true);
+    setBulkDeleteError(null);
+
+    try {
+      const unitNames = Array.from(selectedRows);
+      await observationUnitAPI.removeBulk(sessionId, unitNames);
+      setShowDeleteDialog(false);
+      clearSelection();
+      await refetchData();
+      await refreshUnits();
+      onDataChange?.();
+      toast({
+        title: 'Rows deleted',
+        description: `${unitNames.length} row${unitNames.length !== 1 ? 's' : ''} removed from the table.`,
+      });
+    } catch (err: any) {
+      setBulkDeleteError(err.response?.data?.detail || err.message || 'Failed to delete rows');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  }, [selectedRows, sessionId, clearSelection, refetchData, refreshUnits, onDataChange, toast]);
+
+  // Clear selection on page/filter/search changes
+  useEffect(() => {
+    clearSelection();
+  }, [page, pageSize, selectedUnit, searchTerm, filterState.rules, sortState.columns, clearSelection]);
 
   // Check if any row has _source_document
   const hasSourceDocument = useMemo(() => {
     return unitData?.rows?.some(row => row._source_document != null) ?? false;
   }, [unitData?.rows]);
 
-  // Determine which columns to show (filter out internal columns, but keep _unit_name)
-  // Note: _source_document is rendered as a dedicated first column, not part of this array
-  const visibleColumns = useMemo(() => {
-    return columns.filter(col =>
-      !col.startsWith('_') || col === '_unit_name'
-    );
+  // All toggleable columns (exclude _unit_name frozen column and _source_document which is always visible)
+  const allColumns = useMemo(() => {
+    return columns.filter(col => !col.startsWith('_'));
   }, [columns]);
 
-  // All table columns including source document (used for computing total table width)
+  // Column visibility hook
+  const {
+    visibility,
+    toggleColumn,
+    showAllColumns,
+    hideAllColumns,
+    isVisible,
+  } = useColumnVisibility({ sessionId, columns: allColumns, persistKey: `unit_visibility_${sessionId}` });
+
+  // Column statistics hook for fullness calculations
+  const { getColumnsAboveThreshold } = useColumnStats(unitData?.rows || [], allColumns);
+
+  // Apply visibility and fullness threshold to get displayed columns
+  const visibleColumns = useMemo(() => {
+    const columnsAboveThreshold = fullnessThreshold > 0
+      ? getColumnsAboveThreshold(fullnessThreshold)
+      : allColumns;
+    return allColumns.filter(col =>
+      isVisible(col) && columnsAboveThreshold.includes(col)
+    );
+  }, [allColumns, isVisible, fullnessThreshold, getColumnsAboveThreshold]);
+
+  // Count columns hidden specifically due to fullness threshold
+  const hiddenByFullnessCount = useMemo(() => {
+    if (fullnessThreshold === 0) return 0;
+    const columnsAboveThreshold = getColumnsAboveThreshold(fullnessThreshold);
+    return allColumns.filter(col =>
+      isVisible(col) && !columnsAboveThreshold.includes(col)
+    ).length;
+  }, [allColumns, isVisible, fullnessThreshold, getColumnsAboveThreshold]);
+
+  // Build column metadata for filter dialog
+  const columnMetadata = useMemo((): ColumnMetadata[] => {
+    return allColumns.map(col => {
+      const info = columnInfo?.find(c => c.name === col);
+      return buildColumnMetadata(unitData?.rows || [], col, info?.allowed_values);
+    });
+  }, [allColumns, unitData?.rows, columnInfo]);
+
+  // All table columns including frozen and dedicated columns (used for computing total table width)
   const allTableColumns = useMemo(() => {
-    return hasSourceDocument ? ['_source_document', ...visibleColumns] : visibleColumns;
+    const cols = ['_unit_name'];
+    if (hasSourceDocument) cols.push('_source_document');
+    return [...cols, ...visibleColumns];
   }, [hasSourceDocument, visibleColumns]);
 
   // Create mapping of main columns to their corresponding excerpt columns
@@ -295,6 +416,26 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
     return mapping;
   }, [unitData?.rows]);
+
+  // Filter dialog handlers
+  const handleOpenFilterDialog = useCallback((column?: string) => {
+    setFilterDialogColumn(column);
+    setFilterDialogOpen(true);
+  }, []);
+
+  const handleApplyFilter = useCallback((
+    column: string,
+    operator: FilterOperator,
+    value: FilterValue,
+    caseSensitive?: boolean
+  ) => {
+    addFilter({ column, operator, value, caseSensitive });
+  }, [addFilter]);
+
+  const handleLoadPreset = useCallback((filters: FilterRule[], sort: SortColumn[]) => {
+    setFilterState({ rules: filters });
+    setSortState({ columns: sort });
+  }, [setFilterState, setSortState]);
 
   if (unitsLoading && !unitListResponse) {
     return (
@@ -335,29 +476,63 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           <div>
             <h3 className="font-semibold text-lg flex items-center gap-2">
               Observation Units
-              <Badge variant="secondary">
-                {unitListResponse?.totalUnits} units
-              </Badge>
-              <Badge variant="outline">
-                {unitListResponse?.totalRows} rows
-              </Badge>
+              <span className="text-muted-foreground font-normal">
+                ({unitListResponse?.totalRows} rows)
+              </span>
             </h3>
-            <p className="text-xs text-muted-foreground">
-              Click unit headers to expand/collapse • Select units with checkboxes to merge
-            </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refreshUnits()}
-              disabled={unitsLoading}
-            >
-              <RefreshCw className={cn("h-4 w-4", unitsLoading && "animate-spin")} />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="relative w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search data..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-9"
+                    aria-label="Search all columns"
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Search across unit names and all column values</TooltipContent>
+            </Tooltip>
+
+            <TableOptionsMenu
+              onAddFilter={() => handleOpenFilterDialog()}
+              onAddRow={() => {}}
+              readonly={true}
+              sessionId={sessionId}
+              currentFilters={filterState.rules}
+              currentSort={sortState.columns}
+              onLoadPreset={handleLoadPreset}
+              fullnessThreshold={fullnessThreshold}
+              onFullnessChange={setFullnessThreshold}
+              visibleColumnsCount={visibleColumns.length}
+              totalColumnsCount={allColumns.length}
+              hiddenByFullnessCount={hiddenByFullnessCount}
+              columns={allColumns}
+              visibility={visibility}
+              onToggleColumn={toggleColumn}
+              onShowAll={showAllColumns}
+              onHideAll={hideAllColumns}
+            />
+
           </div>
         </div>
+
+        {/* Filter toolbar — only render when filters are active */}
+        {filterState.rules.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b">
+            <FilterBar
+              filters={filterState.rules}
+              onRemoveFilter={removeFilter}
+              onClearAll={clearFilters}
+              onAddFilter={() => handleOpenFilterDialog()}
+            />
+          </div>
+        )}
 
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b">
@@ -369,49 +544,19 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             loading={dataLoading}
           />
 
-          {/* Expand/Collapse all */}
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={expandAll}
-              title="Expand all"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={collapseAll}
-              title="Collapse all"
-            >
-              <ChevronUp className="h-4 w-4" />
-            </Button>
-          </div>
-
-          {/* Merge actions */}
+          {/* Merge & suggestions */}
           <div className="flex items-center gap-2 ml-auto">
-            {selectedForMerge.size >= 2 && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => setMergeDialogOpen(true)}
-                className="gap-1"
-              >
-                <Merge className="h-4 w-4" />
-                Merge {selectedForMerge.size} Units
-              </Button>
-            )}
-
-            {selectedForMerge.size > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearMergeSelections}
-              >
-                Clear Selection
-              </Button>
-            )}
+            {/* Merge Units button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMergePickerOpen(true)}
+              className="gap-1"
+              disabled={units.length < 2}
+            >
+              <Merge className="h-4 w-4" />
+              Merge Units
+            </Button>
 
             {/* Suggestions button */}
             <Tooltip>
@@ -470,6 +615,59 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           </div>
         )}
 
+        {/* Re-extraction / Document Processing Progress Bar */}
+        {((processingColumns && processingColumns.size > 0) || isProcessingDocuments) && (
+          <div className="mb-4 p-4 bg-muted/30 border rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="font-medium">
+                  {processingColumns && processingColumns.size > 0
+                    ? `Re-extracting ${processingColumns.size} column${processingColumns.size !== 1 ? 's' : ''}`
+                    : 'Extracting data from new documents'}
+                </span>
+                {currentDocumentProgress && (
+                  <span className="text-sm text-muted-foreground">
+                    — Observation Unit {currentDocumentProgress.documentIndex} of {currentDocumentProgress.totalDocuments}
+                  </span>
+                )}
+              </div>
+              {(processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing) && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing}
+                  disabled={processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing}
+                  className="gap-1"
+                >
+                  {(processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing) ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Stopping...
+                    </>
+                  ) : (
+                    <>
+                      <Square className="h-4 w-4" />
+                      Stop
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+            {currentDocumentProgress && currentDocumentProgress.totalDocuments > 0 && (
+              <div className="space-y-1">
+                <Progress
+                  value={(currentDocumentProgress.documentIndex / currentDocumentProgress.totalDocuments) * 100}
+                  className="h-2"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Processing: {currentDocumentProgress.documentName}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Table */}
         <div className="overflow-auto max-h-[600px] border rounded-md">
           <table
@@ -483,19 +681,91 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           >
             <thead className="sticky top-0 z-10 bg-background border-b">
               <tr>
-                {/* Source Document column - always first when present */}
+                {/* Checkbox column header */}
+                <th className="w-[40px] min-w-[40px] px-2 py-3 text-center bg-background">
+                  {selectedCount > 0 && (
+                    <Checkbox
+                      checked={isAllPageSelected ? true : isIndeterminate ? 'indeterminate' : false}
+                      onCheckedChange={() => toggleAllPage(pageRowIds)}
+                      aria-label="Select all rows on page"
+                    />
+                  )}
+                </th>
+
+                {/* Frozen _unit_name column */}
+                <th
+                  ref={frozenThRef}
+                  className={cn(
+                    "px-4 py-3 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
+                    !getColumnWidth('_unit_name') && "min-w-[150px] max-w-[250px]",
+                    "left-0",
+                    getSortDirection('_unit_name') && "bg-primary/5"
+                  )}
+                  style={getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                >
+                  <div className="flex items-center gap-1">
+                    <div
+                      className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1 overflow-hidden"
+                      onClick={(e) => toggleSort('_unit_name', e.shiftKey)}
+                    >
+                      <Badge variant="outline">{formatColumnName('_unit_name')}</Badge>
+                      {getSortDirection('_unit_name') && (
+                        <div className="flex items-center">
+                          {getSortDirection('_unit_name') === 'asc' ? (
+                            <ArrowUp className="h-4 w-4 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4 text-primary" />
+                          )}
+                          {getSortPriority('_unit_name') && getSortPriority('_unit_name')! > 1 && (
+                            <span className="text-xs text-primary ml-0.5">{getSortPriority('_unit_name')}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* Resize handle */}
+                  <div
+                    className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      if (frozenThRef.current) {
+                        handleResizeStart(e, '_unit_name', frozenThRef.current.offsetWidth);
+                      }
+                    }}
+                  />
+                </th>
+
+                {/* Source Document column - always visible when present */}
                 {hasSourceDocument && (
                   <th
                     ref={(el) => { headerRefs.current['_source_document'] = el; }}
                     className={cn(
-                      "px-4 py-3 text-left font-bold text-base bg-background border-r relative",
-                      !getColumnWidth('_source_document') && "min-w-[180px]"
+                      "px-4 py-3 text-left font-semibold text-sm bg-background border-r relative",
+                      !getColumnWidth('_source_document') && "min-w-[180px]",
+                      getSortDirection('_source_document') && "bg-primary/5"
                     )}
                     style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
                   >
-                    <div className="flex items-center gap-1.5">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      Source Document
+                    <div
+                      className="flex items-center gap-1 cursor-pointer hover:text-primary"
+                      onClick={(e) => toggleSort('_source_document', e.shiftKey)}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        Source Document
+                      </div>
+                      {getSortDirection('_source_document') && (
+                        <div className="flex items-center">
+                          {getSortDirection('_source_document') === 'asc' ? (
+                            <ArrowUp className="h-4 w-4 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4 text-primary" />
+                          )}
+                          {getSortPriority('_source_document') && getSortPriority('_source_document')! > 1 && (
+                            <span className="text-xs text-primary ml-0.5">{getSortPriority('_source_document')}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div
                       className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
@@ -507,21 +777,37 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     />
                   </th>
                 )}
+
+                {/* Scrollable data columns */}
                 {visibleColumns.map(column => (
                   <th
                     key={column}
                     ref={(el) => { headerRefs.current[column] = el; }}
                     className={cn(
-                      "px-4 py-3 text-left font-bold text-base bg-background relative",
-                      !getColumnWidth(column) && "min-w-[120px]"
+                      "px-4 py-3 text-left font-semibold text-sm bg-background relative",
+                      !getColumnWidth(column) && "min-w-[120px]",
+                      getSortDirection(column) && "bg-primary/5"
                     )}
                     style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
                   >
-                    {column.startsWith('_') ? (
-                      <Badge variant="outline">{formatColumnName(column)}</Badge>
-                    ) : (
-                      formatColumnName(column)
-                    )}
+                    <div
+                      className="flex items-center gap-1 cursor-pointer hover:text-primary"
+                      onClick={(e) => toggleSort(column, e.shiftKey)}
+                    >
+                      {formatColumnName(column)}
+                      {getSortDirection(column) && (
+                        <div className="flex items-center">
+                          {getSortDirection(column) === 'asc' ? (
+                            <ArrowUp className="h-4 w-4 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4 text-primary" />
+                          )}
+                          {getSortPriority(column) && getSortPriority(column)! > 1 && (
+                            <span className="text-xs text-primary ml-0.5">{getSortPriority(column)}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <div
                       className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
                       onMouseDown={(e) => {
@@ -535,88 +821,99 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               </tr>
             </thead>
             <tbody>
-              {/* Render units with their rows - only show units that have loaded data */}
-              {units
-                .filter(unit => !selectedUnit || unit.name === selectedUnit)
-                .map(unit => {
-                  const isExpanded = expandedUnits.has(unit.name);
-                  const isSelectedForMerge = selectedForMerge.has(unit.name);
-                  const unitRows = groupedRows.get(unit.name) || [];
+              {/* Flat row rendering */}
+              {processedRows.map((row, rowIndex) => {
+                const rowId = row._unit_name || row.row_name || '';
+                const rowSelected = isSelected(rowId);
+                const showCheckbox = hoveredRowId === rowId || selectedCount > 0;
 
-                  return (
-                    <React.Fragment key={unit.name}>
-                      {/* Unit group header */}
-                      <UnitGroupRow
-                        unit={unit}
-                        isExpanded={isExpanded}
-                        onToggleExpand={() => toggleExpansion(unit.name)}
-                        isSelectedForMerge={isSelectedForMerge}
-                        onToggleMergeSelection={() => toggleMergeSelection(unit.name)}
-                        columnCount={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
-                      />
+                return (
+                  <tr
+                    key={rowIndex}
+                    className={cn(
+                      "border-b hover:bg-muted/30 transition-colors",
+                      rowSelected && "bg-blue-50 dark:bg-blue-950/50"
+                    )}
+                    onMouseEnter={() => setHoveredRowId(rowId)}
+                    onMouseLeave={() => setHoveredRowId(null)}
+                  >
+                    {/* Checkbox cell */}
+                    <td className="w-[40px] min-w-[40px] px-2 py-3 text-center">
+                      <div className={cn(
+                        "transition-opacity duration-100",
+                        showCheckbox ? "opacity-100" : "opacity-0"
+                      )}>
+                        <Checkbox
+                          checked={rowSelected}
+                          onCheckedChange={() => toggleRow(rowId)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Select row ${rowId}`}
+                        />
+                      </div>
+                    </td>
 
-                      {/* Unit rows (when expanded) */}
-                      {isExpanded && unitRows.map((row, rowIndex) => (
-                        <tr
-                          key={`${unit.name}-${rowIndex}`}
-                          className="border-b hover:bg-muted/30 transition-colors"
-                        >
-                          {/* Source Document cell - always first when present */}
-                          {hasSourceDocument && (
-                            <td
-                              className="px-4 py-3 text-sm border-r bg-muted/20"
-                              style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="truncate max-w-[160px] font-medium text-foreground/80 cursor-help">
-                                      {formatSourceDocument(row._source_document)}
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-[400px]">
-                                    <p className="break-all">{row._source_document || 'Unknown'}</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </div>
-                            </td>
-                          )}
-                          {visibleColumns.map(column => {
-                            let cellValue: CellValue;
-                            if (column === '_unit_name') {
-                              cellValue = row._unit_name;
-                            } else {
-                              cellValue = row.data[column];
-                            }
-
-                            return (
-                              <td
-                                key={column}
-                                className="px-4 py-3 text-sm"
-                                style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
-                              >
-                                {formatCellValue(cellValue, column, row, excerptMapping, handleViewContent)}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-
-                      {/* Show message if no data rows for expanded unit */}
-                      {isExpanded && unitRows.length === 0 && (
-                        <tr>
-                          <td
-                            colSpan={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
-                            className="px-4 py-8 text-center text-muted-foreground"
-                          >
-                            No rows loaded for this unit. Data may still be loading.
-                          </td>
-                        </tr>
+                    {/* Frozen _unit_name cell */}
+                    <td
+                      className={cn(
+                        "px-4 py-3 sticky border-r",
+                        !getColumnWidth('_unit_name') && "min-w-[150px] max-w-[250px]",
+                        "left-0",
+                        "bg-background"
                       )}
-                    </React.Fragment>
-                  );
-                })}
+                      style={{
+                        zIndex: 5,
+                        ...(getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : {}),
+                      }}
+                    >
+                      <span className="text-sm font-medium">{row._unit_name || 'Unknown'}</span>
+                    </td>
+
+                    {/* Source Document cell - always visible when present */}
+                    {hasSourceDocument && (
+                      <td
+                        className="px-4 py-3 text-sm border-r bg-muted/20"
+                        style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="truncate max-w-[160px] font-medium text-foreground/80 cursor-help">
+                                {formatSourceDocument(row._source_document)}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-[400px]">
+                              <p className="break-all">{row._source_document || 'Unknown'}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </td>
+                    )}
+
+                    {/* Scrollable data columns */}
+                    {visibleColumns.map(column => (
+                      <td
+                        key={column}
+                        className="px-4 py-3 text-sm"
+                        style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                      >
+                        {formatCellValue(row.data[column], column, row, excerptMapping, handleViewContent)}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+              {/* No results message when all rows are filtered out */}
+              {processedRows.length === 0 && unitData?.rows && unitData.rows.length > 0 && (
+                <tr>
+                  <td
+                    colSpan={visibleColumns.length + (hasSourceDocument ? 3 : 2)}
+                    className="px-4 py-12 text-center text-muted-foreground"
+                  >
+                    No rows match the current filters or search.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -640,7 +937,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
-                {unitData.total_count > 0 ? page * pageSize + 1 : 0}-{Math.min((page + 1) * pageSize, unitData.total_count)} of {unitData.total_count}
+                {displayedRowCount > 0 ? `${page * pageSize + 1}-${Math.min((page + 1) * pageSize, displayedRowCount)} of ${displayedRowCount} rows` : '0 rows'}
               </span>
               <Button
                 variant="outline"
@@ -663,14 +960,27 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         )}
       </div>
 
-      {/* Merge Dialog */}
+      {/* Merge Unit Picker Dialog */}
+      <UnitMergePickerDialog
+        open={mergePickerOpen}
+        onClose={() => setMergePickerOpen(false)}
+        units={units}
+        onContinue={(selectedUnits) => {
+          setMergePickerOpen(false);
+          setUnitsToMerge(selectedUnits);
+          setMergeDialogOpen(true);
+        }}
+      />
+
+      {/* Merge Naming Dialog */}
       <UnitMergeDialog
         open={mergeDialogOpen}
         onClose={() => {
           setMergeDialogOpen(false);
+          setUnitsToMerge([]);
           clearMergeError();
         }}
-        selectedUnits={selectedUnitsForMerge}
+        selectedUnits={unitsToMerge}
         onMerge={handleMerge}
         loading={mergeLoading}
         error={mergeError}
@@ -683,6 +993,68 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         title={modalContent.title}
         content={modalContent.content}
       />
+
+      {/* Filter Dialog */}
+      <FilterDialog
+        open={filterDialogOpen}
+        onClose={() => setFilterDialogOpen(false)}
+        onApply={handleApplyFilter}
+        columns={columnMetadata}
+        selectedColumn={filterDialogColumn}
+      />
+
+      {/* Floating action bar for bulk selection */}
+      <BulkActionToolbar
+        selectedCount={selectedCount}
+        onDelete={() => {
+          setBulkDeleteError(null);
+          setShowDeleteDialog(true);
+        }}
+        onClearSelection={clearSelection}
+      />
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedCount} Row{selectedCount !== 1 ? 's' : ''}</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {selectedCount} selected row{selectedCount !== 1 ? 's' : ''}? This will permanently remove {selectedCount !== 1 ? 'them' : 'it'} and all associated data.
+            </DialogDescription>
+          </DialogHeader>
+
+          {bulkDeleteError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{bulkDeleteError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={isBulkDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+            >
+              {isBulkDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };
@@ -801,9 +1173,9 @@ function normalizeToQBSD(val: unknown): unknown {
 }
 
 /**
- * Cell value formatter for the grouped table.
+ * Cell value formatter for the unit table.
  * Handles QBSD answer/excerpts, value/excerpt, and text formats.
- * Renders clickable cells with Eye icon for content with excerpts.
+ * Renders clickable cells for content with excerpts.
  */
 function formatCellValue(
   value: CellValue,
@@ -871,24 +1243,27 @@ function formatCellValue(
         const modalExcerpts = excerpts.length > 0 ? excerpts : (hasExcerptColumn ? getExcerptsFromColumn() : []);
         return (
           <div
-            className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 group"
+            className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
             onClick={() => onViewContent(columnName, { answer, excerpts: modalExcerpts })}
             title={tooltip}
           >
-            <div className="relative text-sm leading-relaxed line-clamp-3 break-words pr-6">
+            <div className="text-xs leading-relaxed line-clamp-3 break-words">
               {answerStr.length > 100 ? `${answerStr.slice(0, 100)}...` : answerStr}
-              <span className="absolute right-0 top-0 flex items-center h-6 bg-gradient-to-l from-white dark:from-gray-900 from-60% to-transparent pl-2">
-                <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
-              </span>
             </div>
           </div>
         );
       }
 
       return (
-        <span className="text-sm leading-relaxed line-clamp-3">
-          {answerStr}
-        </span>
+        <div
+          className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+          onClick={() => onViewContent(columnName, { answer, excerpts: [] })}
+          title="Click to view content"
+        >
+          <span className="text-xs leading-relaxed line-clamp-3">
+            {answerStr}
+          </span>
+        </div>
       );
     }
   }
@@ -900,24 +1275,29 @@ function formatCellValue(
 
     return (
       <div
-        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 group"
+        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
         onClick={() => onViewContent(columnName, {
           answer: displayStr,
           excerpts: modalExcerpts
         })}
         title={tooltip}
       >
-        <div className="relative text-sm leading-relaxed line-clamp-3 break-words pr-6">
+        <div className="text-xs leading-relaxed line-clamp-3 break-words">
           {displayStr.length > 100 ? `${displayStr.slice(0, 100)}...` : displayStr}
-          <span className="absolute right-0 top-0 flex items-center h-6 bg-gradient-to-l from-white dark:from-gray-900 from-60% to-transparent pl-2">
-            <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
-          </span>
         </div>
       </div>
     );
   }
 
-  return <span className="text-sm leading-relaxed">{displayStr}</span>;
+  return (
+    <div
+      className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+      onClick={() => onViewContent(columnName, displayStr)}
+      title="Click to view content"
+    >
+      <span className="text-xs leading-relaxed">{displayStr}</span>
+    </div>
+  );
 }
 
 /**

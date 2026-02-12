@@ -32,6 +32,8 @@ import { WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData
 
 interface QBSDMonitorProps {
   sessionId: string;
+  autoStarted?: boolean;
+  initialCapacityMessage?: string;
 }
 
 interface LogEntry {
@@ -44,17 +46,21 @@ interface LogEntry {
 // Processing state that changes IMMEDIATELY on user action
 type ProcessingState = 'idle' | 'starting' | 'schema' | 'extraction' | 'completed' | 'error' | 'stopped';
 
-const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
+const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = false, initialCapacityMessage = '' }) => {
   const queryClient = useQueryClient();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting');
   const [logsOpen, setLogsOpen] = useState(false);
 
   // Main processing state - changes IMMEDIATELY on Start click
-  const [processingState, setProcessingState] = useState<ProcessingState>('idle');
-  const [currentStepMessage, setCurrentStepMessage] = useState<string>('');
+  const [processingState, setProcessingState] = useState<ProcessingState>(
+    initialCapacityMessage ? 'idle' : autoStarted ? 'starting' : 'idle'
+  );
+  const [currentStepMessage, setCurrentStepMessage] = useState<string>(
+    autoStarted && !initialCapacityMessage ? 'Initializing...' : ''
+  );
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [capacityMessage, setCapacityMessage] = useState<string>('');
+  const [capacityMessage, setCapacityMessage] = useState<string>(initialCapacityMessage);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
 
   // Phase tracking state
@@ -524,46 +530,52 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
         })()}
 
         {/* Phase 2: Value Extraction */}
-        <Card className={`transition-all ${processingState === 'extraction' ? 'border-primary border-2 shadow-md' : ''}`}>
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center justify-between mb-3">
-              <span className="font-medium flex items-center gap-2">
-                {extractionProgress.isComplete ? (
-                  <CheckCircle2 className="h-5 w-5 text-green-500" />
-                ) : processingState === 'extraction' ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
-                ) : (
-                  <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
-                )}
-                Phase 2: Extraction
-              </span>
-              <Badge variant={extractionProgress.isComplete ? 'success' : processingState === 'extraction' ? 'default' : 'secondary'}>
-                {extractionProgress.isComplete
-                  ? 'Complete'
-                  : processingState === 'extraction'
-                    ? 'In Progress'
-                    : 'Pending'}
-              </Badge>
-            </div>
-            <Progress
-              value={extractionProgress.isComplete
-                ? 100
-                : extractionProgress.totalDocs > 0
-                  ? (extractionProgress.processedDocs / extractionProgress.totalDocs) * 100
-                  : processingState === 'extraction' ? 10 : 0}
-              className={`h-2 ${processingState === 'extraction' && !extractionProgress.isComplete ? 'animate-pulse' : ''}`}
-            />
-            <p className="text-xs text-muted-foreground mt-2">
-              {extractionProgress.isComplete
-                ? `${extractionProgress.totalDocs} documents processed`
-                : processingState === 'extraction' && extractionProgress.totalDocs > 0
-                  ? `${extractionProgress.processedDocs}/${extractionProgress.totalDocs} documents`
-                  : processingState === 'extraction'
-                    ? 'Starting extraction...'
-                    : 'Waiting for schema'}
-            </p>
-          </CardContent>
-        </Card>
+        {/* Extraction is complete if explicitly marked OR if overall process completed */}
+        {(() => {
+          const extractionIsComplete = extractionProgress.isComplete || processingState === 'completed';
+          return (
+            <Card className={`transition-all ${processingState === 'extraction' ? 'border-primary border-2 shadow-md' : ''}`}>
+              <CardContent className="pt-4 pb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-medium flex items-center gap-2">
+                    {extractionIsComplete ? (
+                      <CheckCircle2 className="h-5 w-5 text-green-500" />
+                    ) : processingState === 'extraction' ? (
+                      <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                    ) : (
+                      <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
+                    )}
+                    Phase 2: Extraction
+                  </span>
+                  <Badge variant={extractionIsComplete ? 'success' : processingState === 'extraction' ? 'default' : 'secondary'}>
+                    {extractionIsComplete
+                      ? 'Complete'
+                      : processingState === 'extraction'
+                        ? 'In Progress'
+                        : 'Pending'}
+                  </Badge>
+                </div>
+                <Progress
+                  value={extractionIsComplete
+                    ? 100
+                    : extractionProgress.totalDocs > 0
+                      ? (extractionProgress.processedDocs / extractionProgress.totalDocs) * 100
+                      : processingState === 'extraction' ? 10 : 0}
+                  className={`h-2 ${processingState === 'extraction' && !extractionIsComplete ? 'animate-pulse' : ''}`}
+                />
+                <p className="text-xs text-muted-foreground mt-2">
+                  {extractionIsComplete
+                    ? `${extractionProgress.totalDocs} documents processed`
+                    : processingState === 'extraction' && extractionProgress.totalDocs > 0
+                      ? `${extractionProgress.processedDocs}/${extractionProgress.totalDocs} documents`
+                      : processingState === 'extraction'
+                        ? 'Starting extraction...'
+                        : 'Waiting for schema'}
+                </p>
+              </CardContent>
+            </Card>
+          );
+        })()}
       </div>
 
       {/* Error Display */}

@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
-import { Search, Eye, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info, Plus, AlertCircle, Minus } from 'lucide-react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { Search, GripVertical, ArrowUp, ArrowDown, Loader2, Square, AlertCircle } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -37,8 +37,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { Checkbox } from '@/components/ui/checkbox';
-
 import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { sessionAPI, qbsdAPI, observationUnitAPI } from '../../services/api';
 import EditableCell from './EditableCell';
@@ -71,13 +69,10 @@ import { buildColumnMetadata, isEmpty, parsePythonString } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
-import FilterPresets from './FilterPresets';
-import ColumnVisibilityDropdown from './ColumnVisibilityDropdown';
-import FullnessFilter from './FullnessFilter';
-import RowActions from './RowActions';
+import TableOptionsMenu from './TableOptionsMenu';
 import BulkActionToolbar from './BulkActionToolbar';
-import BulkDeleteDialog from './BulkDeleteDialog';
 import { useRowSelection } from './hooks/useRowSelection';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -134,9 +129,7 @@ interface SortableHeaderCellProps {
   children: React.ReactNode;
   sortDirection?: 'asc' | 'desc' | null;
   sortPriority?: number | null;
-  hasFilter?: boolean;
   onSort?: (column: string, multiSort: boolean) => void;
-  onFilter?: (column: string) => void;
   columnWidth?: number;
   onResizeStart?: (e: React.MouseEvent, column: string, currentWidth: number) => void;
 }
@@ -146,9 +139,7 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
   children,
   sortDirection,
   sortPriority,
-  hasFilter,
   onSort,
-  onFilter,
   columnWidth,
   onResizeStart,
 }) => {
@@ -183,13 +174,6 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
     }
   };
 
-  const handleFilterClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onFilter) {
-      onFilter(column);
-    }
-  };
-
   const handleResizeMouseDown = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (onResizeStart && thRef.current) {
@@ -202,7 +186,7 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
       ref={setRefs}
       style={style}
       className={cn(
-        "px-4 py-3 text-left font-bold text-base bg-background",
+        "px-4 py-3 text-left font-semibold text-sm bg-background",
         !columnWidth && "min-w-[120px] sm:min-w-[150px]",
         isDragging && "bg-muted",
         sortDirection && "bg-primary/5"
@@ -231,17 +215,6 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
             </div>
           )}
         </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn(
-            "h-6 w-6 shrink-0",
-            hasFilter && "text-primary bg-primary/10"
-          )}
-          onClick={handleFilterClick}
-        >
-          <Filter className="h-3 w-3" />
-        </Button>
       </div>
       {/* Resize handle */}
       <div
@@ -297,12 +270,15 @@ const DataTable: React.FC<DataTableProps> = ({
   const [isAddingRow, setIsAddingRow] = useState(false);
   const [addRowError, setAddRowError] = useState<string | null>(null);
 
-  // Bulk delete dialog state
-  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
-
   // Refs for table container and frozen column header
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const frozenThRef = useRef<HTMLTableCellElement>(null);
+
+  // Row selection state
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
 
   // Sort, filter, and visibility hooks
   const {
@@ -319,8 +295,6 @@ const DataTable: React.FC<DataTableProps> = ({
     removeFilter,
     clearFilters,
     setFilterState,
-    hasFilterForColumn,
-    activeFilterCount,
   } = useTableFilter({ sessionId });
 
   // Column resize hook
@@ -381,17 +355,6 @@ const DataTable: React.FC<DataTableProps> = ({
     await qbsdAPI.updateCell(sessionId, rowName, column, value);
     refetchData();
   }, [sessionId, refetchData]);
-
-  // Row delete handler
-  const handleRowDelete = useCallback(async (rowName: string) => {
-    await observationUnitAPI.remove(sessionId, rowName);
-    refetchData();
-    onDataChange?.();
-    toast({
-      title: 'Row deleted',
-      description: `"${rowName}" has been removed from the table.`,
-    });
-  }, [sessionId, refetchData, onDataChange, toast]);
 
   // Row add handler
   const handleAddRow = useCallback(async () => {
@@ -561,6 +524,51 @@ const DataTable: React.FC<DataTableProps> = ({
     return data.rows;
   }, [data.rows, hasObservationUnits, normalizeDocName]);
 
+  // Row selection
+  const pageRowIds = useMemo(() =>
+    processedRows.map(row => row._unit_name || row.row_name || '').filter(Boolean),
+    [processedRows]
+  );
+
+  const {
+    selectedRows,
+    isAllPageSelected,
+    isIndeterminate,
+    toggleRow,
+    toggleAllPage,
+    clearSelection,
+    isSelected,
+    selectedCount,
+  } = useRowSelection(pageRowIds);
+
+  // Bulk delete handler
+  const handleBulkDelete = useCallback(async () => {
+    setIsBulkDeleting(true);
+    setBulkDeleteError(null);
+
+    try {
+      const unitNames = Array.from(selectedRows);
+      await observationUnitAPI.removeBulk(sessionId, unitNames);
+      setShowDeleteDialog(false);
+      clearSelection();
+      refetchData();
+      onDataChange?.();
+      toast({
+        title: 'Rows deleted',
+        description: `${unitNames.length} row${unitNames.length !== 1 ? 's' : ''} removed from the table.`,
+      });
+    } catch (err: any) {
+      setBulkDeleteError(err.response?.data?.detail || err.message || 'Failed to delete rows');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  }, [selectedRows, sessionId, clearSelection, refetchData, onDataChange, toast]);
+
+  // Clear selection on page/filter/search changes
+  useEffect(() => {
+    clearSelection();
+  }, [page, pageSize, searchTerm, filterState.rules, sortState.columns, clearSelection]);
+
   // Helper: check if doc_name cell should render (first row of a group)
   // When observation units are present, group by _source_document (the actual document name)
   const shouldRenderDocNameCell = useCallback((rowIndex: number): boolean => {
@@ -609,46 +617,6 @@ const DataTable: React.FC<DataTableProps> = ({
     }
     return 0;
   }, [hasObservationUnits, documentGroups]);
-
-  // Get row identifiers for the current page (used for selection)
-  const pageRowIds = useMemo(() => {
-    return processedRows.map(row => row._unit_name || row.row_name || '').filter(Boolean);
-  }, [processedRows]);
-
-  // Row selection hook
-  const {
-    selectedRows,
-    isAllPageSelected,
-    isIndeterminate,
-    toggleRow,
-    toggleAllPage,
-    clearSelection,
-    isSelected,
-    selectedCount,
-  } = useRowSelection(pageRowIds);
-
-  // Bulk delete handler
-  const handleBulkDelete = useCallback(async () => {
-    const unitNames = Array.from(selectedRows);
-    const result = await observationUnitAPI.removeBulk(sessionId, unitNames);
-
-    clearSelection();
-    refetchData();
-    onDataChange?.();
-
-    if (result.failed.length === 0) {
-      toast({
-        title: 'Rows deleted',
-        description: `Successfully deleted ${result.deleted_count} row${result.deleted_count !== 1 ? 's' : ''}.`,
-      });
-    } else {
-      toast({
-        title: 'Partial deletion',
-        description: result.message,
-        variant: 'destructive',
-      });
-    }
-  }, [sessionId, selectedRows, clearSelection, refetchData, onDataChange, toast]);
 
   // Get all column names with proper ordering
   const defaultColumns = useMemo(() => {
@@ -994,7 +962,7 @@ const DataTable: React.FC<DataTableProps> = ({
     return val;
   };
 
-  // Unified clickable cell renderer with consistent Eye icon styling
+  // Unified clickable cell renderer
   const renderClickableCell = (
     displayText: string,
     onClick: () => void,
@@ -1003,20 +971,17 @@ const DataTable: React.FC<DataTableProps> = ({
   ): React.ReactNode => {
     return (
       <div
-        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 group"
+        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
         onClick={onClick}
         title={tooltip}
       >
         <div
           className={cn(
-            "relative text-base leading-relaxed line-clamp-3 break-words pr-6",
+            "text-xs leading-relaxed line-clamp-3 break-words",
             isItalic && "italic text-muted-foreground"
           )}
         >
           {displayText}
-          <span className="absolute right-0 top-0 flex items-center h-6 bg-gradient-to-l from-white dark:from-gray-900 from-60% to-transparent pl-2">
-            <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
-          </span>
         </div>
       </div>
     );
@@ -1054,7 +1019,7 @@ const DataTable: React.FC<DataTableProps> = ({
       if (processedValue.length > 3) {
         return (
           <div
-            className="flex items-center gap-1 cursor-pointer group"
+            className="flex items-center gap-1 cursor-pointer"
             onClick={() => handleViewContent(columnName, processedValue)}
             title={`View all ${processedValue.length} items`}
           >
@@ -1062,7 +1027,6 @@ const DataTable: React.FC<DataTableProps> = ({
               <Badge key={index} variant="secondary">{String(item)}</Badge>
             ))}
             <span className="text-xs text-muted-foreground">+{processedValue.length - 2} more</span>
-            <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800 ml-1" />
           </div>
         );
       }
@@ -1104,21 +1068,26 @@ const DataTable: React.FC<DataTableProps> = ({
         }
 
         return (
-          <span className="text-base leading-relaxed line-clamp-3">
-            {answerStr}
-          </span>
+          <div
+            className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+            onClick={() => handleViewContent(columnName, { answer, excerpts })}
+            title="Click to view content"
+          >
+            <span className="text-xs leading-relaxed line-clamp-3">
+              {answerStr}
+            </span>
+          </div>
         );
       }
 
-      // Generic object - show Eye icon to view details
+      // Generic object - clickable to view details
       return (
         <div
-          className="cursor-pointer group inline-flex items-center gap-1"
+          className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 inline-flex items-center gap-1"
           onClick={() => handleViewContent(columnName, processedValue)}
           title="View object details"
         >
-          <span className="text-sm text-muted-foreground">[Object]</span>
-          <Eye className="h-4 w-4 text-blue-600 group-hover:text-blue-800" />
+          <span className="text-xs text-muted-foreground">[Object]</span>
         </div>
       );
     }
@@ -1159,11 +1128,17 @@ const DataTable: React.FC<DataTableProps> = ({
       return renderClickableCell(previewText, handleClick, tooltip, isExplicitExcerpt);
     }
 
-    // Short text - no expansion needed
+    // Short text - still clickable
     return (
-      <span className="text-base leading-relaxed line-clamp-3">
-        {stringValue}
-      </span>
+      <div
+        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+        onClick={() => handleViewContent(columnName, value)}
+        title="Click to view content"
+      >
+        <span className="text-xs leading-relaxed line-clamp-3">
+          {stringValue}
+        </span>
+      </div>
     );
   };
 
@@ -1191,104 +1166,63 @@ const DataTable: React.FC<DataTableProps> = ({
                   ({totalRowCount.toLocaleString()} rows)
                 </span>
               )}
-              {sessionType === 'qbsd' && (
-                <Badge variant="info">Auto-refreshing</Badge>
-              )}
             </h3>
-            <p className="text-xs text-muted-foreground">
-              Click headers to sort • Shift+click for multi-sort • Drag to reorder • Drag column edges to resize
-            </p>
           </div>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search data..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
-                  aria-label="Search all columns"
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>Search across row names and all column values</TooltipContent>
-          </Tooltip>
-        </div>
-
-        {/* Filter toolbar */}
-        <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b">
-          <FilterBar
-            filters={filterState.rules}
-            onRemoveFilter={removeFilter}
-            onClearAll={clearFilters}
-            onAddFilter={() => handleOpenFilterDialog()}
-          />
-
-          {/* Observation units indicator */}
-          {hasObservationUnits && (
+          <div className="flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge variant="outline" className="gap-1 cursor-help">
-                  <Info className="h-3 w-3" />
-                  Grouped by Document
-                </Badge>
+                <div className="relative w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search data..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-9"
+                    aria-label="Search all columns"
+                  />
+                </div>
               </TooltipTrigger>
-              <TooltipContent>
-                Multiple observations per document. Rows are grouped by their source document.
-              </TooltipContent>
+              <TooltipContent>Search across row names and all column values</TooltipContent>
             </Tooltip>
-          )}
 
-          <div className="flex items-center gap-2 ml-auto">
-            <FilterPresets
+            <TableOptionsMenu
+              onAddFilter={() => handleOpenFilterDialog()}
+              onAddRow={() => {
+                setNewRowName('');
+                setNewRowDocument('');
+                setAddRowError(null);
+                setShowAddRowDialog(true);
+              }}
+              readonly={readonly}
               sessionId={sessionId}
               currentFilters={filterState.rules}
               currentSort={sortState.columns}
               onLoadPreset={handleLoadPreset}
-            />
-            <FullnessFilter
-              threshold={fullnessThreshold}
-              onThresholdChange={setFullnessThreshold}
+              fullnessThreshold={fullnessThreshold}
+              onFullnessChange={setFullnessThreshold}
               visibleColumnsCount={columns.length}
               totalColumnsCount={allColumns.length}
               hiddenByFullnessCount={hiddenByFullnessCount}
-            />
-            <ColumnVisibilityDropdown
               columns={allColumns}
               visibility={visibility}
               onToggleColumn={toggleColumn}
               onShowAll={showAllColumns}
               onHideAll={hideAllColumns}
             />
-            {!readonly && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setNewRowName('');
-                  setNewRowDocument('');
-                  setAddRowError(null);
-                  setShowAddRowDialog(true);
-                }}
-                className="gap-1"
-              >
-                <Plus className="h-4 w-4" />
-                Add Row
-              </Button>
-            )}
           </div>
         </div>
 
-        {/* Bulk Action Toolbar */}
-        {!readonly && selectedCount > 0 && (
-          <BulkActionToolbar
-            selectedCount={selectedCount}
-            onDelete={() => setShowBulkDeleteDialog(true)}
-            onClearSelection={clearSelection}
-            className="mb-4"
-          />
+        {/* Filter toolbar — only render when filters are active */}
+        {filterState.rules.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b">
+            <FilterBar
+              filters={filterState.rules}
+              onRemoveFilter={removeFilter}
+              onClearAll={clearFilters}
+              onAddFilter={() => handleOpenFilterDialog()}
+            />
+          </div>
         )}
 
         {/* Re-extraction / Document Processing Progress Bar */}
@@ -1364,17 +1298,13 @@ const DataTable: React.FC<DataTableProps> = ({
                 <tr>
                   {/* Checkbox column header - only show if not readonly */}
                   {!readonly && (
-                    <th className="px-3 py-3 w-[50px] min-w-[50px] sticky left-0 bg-background z-20">
-                      <Checkbox
-                        checked={isAllPageSelected}
-                        onCheckedChange={() => toggleAllPage(pageRowIds)}
-                        aria-label="Select all rows on this page"
-                        className="data-[state=checked]:bg-primary"
-                      />
-                      {isIndeterminate && !isAllPageSelected && (
-                        <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <Minus className="h-3 w-3 text-primary" />
-                        </span>
+                    <th className="w-[40px] min-w-[40px] px-2 py-3 text-center sticky top-0 bg-background z-20">
+                      {selectedCount > 0 && (
+                        <Checkbox
+                          checked={isAllPageSelected ? true : isIndeterminate ? 'indeterminate' : false}
+                          onCheckedChange={() => toggleAllPage(pageRowIds)}
+                          aria-label="Select all rows on page"
+                        />
                       )}
                     </th>
                   )}
@@ -1384,9 +1314,9 @@ const DataTable: React.FC<DataTableProps> = ({
                     <th
                       ref={frozenThRef}
                       className={cn(
-                        "px-4 py-3 text-left font-bold text-base sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
+                        "px-4 py-3 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
                         !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
-                        readonly ? "left-0" : "left-[50px]",
+                        "left-0",
                         getSortDirection(frozenColumn) && "bg-primary/5"
                       )}
                       style={getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : undefined}
@@ -1414,17 +1344,6 @@ const DataTable: React.FC<DataTableProps> = ({
                             </div>
                           )}
                         </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "h-6 w-6 shrink-0",
-                            hasFilterForColumn(frozenColumn) && "text-primary bg-primary/10"
-                          )}
-                          onClick={() => handleOpenFilterDialog(frozenColumn)}
-                        >
-                          <Filter className="h-3 w-3" />
-                        </Button>
                       </div>
                       {/* Resize handle */}
                       <div
@@ -1450,9 +1369,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         column={column}
                         sortDirection={getSortDirection(column)}
                         sortPriority={getSortPriority(column)}
-                        hasFilter={hasFilterForColumn(column)}
                         onSort={toggleSort}
-                        onFilter={handleOpenFilterDialog}
                         columnWidth={getColumnWidth(column)}
                         onResizeStart={handleResizeStart}
                       >
@@ -1465,12 +1382,6 @@ const DataTable: React.FC<DataTableProps> = ({
                     ))}
                   </SortableContext>
 
-                  {/* Actions column header - only show if not readonly */}
-                  {!readonly && (
-                    <th className="px-2 py-3 text-left font-bold text-base min-w-[60px] sticky right-0 bg-background border-l">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  )}
                 </tr>
               </thead>
               <tbody>
@@ -1490,17 +1401,17 @@ const DataTable: React.FC<DataTableProps> = ({
                     }
                   };
 
+                  const rowId = row._unit_name || row.row_name || '';
                   const actualRowIndex = page * pageSize + rowIndex + 1;
                   const isNewlyAdded = newlyAddedRows?.has(actualRowIndex) || false;
                   const isStreaming = row.row_name ? streamingCells?.has(row.row_name) : false;
+                  const rowSelected = isSelected(rowId);
+                  const showCheckbox = hoveredRowId === rowId || selectedCount > 0;
                   // Add thicker border between doc groups when observation units present
                   const isFirstRowOfGroup = hasObservationUnits && shouldRenderDocNameCell(rowIndex);
                   const isGroupBoundary = isFirstRowOfGroup && rowIndex > 0;
                   const groupIndex = getGroupIndex(rowIndex);
                   const isOddGroup = groupIndex % 2 === 1;
-
-                  const rowId = row._unit_name || row.row_name || '';
-                  const rowIsSelected = isSelected(rowId);
 
                   return (
                     <tr
@@ -1509,27 +1420,28 @@ const DataTable: React.FC<DataTableProps> = ({
                         "border-b hover:bg-muted/50 transition-colors",
                         isNewlyAdded && "bg-green-100 dark:bg-green-950 animate-pulse",
                         isStreaming && "bg-blue-50 dark:bg-blue-950",
+                        rowSelected && !isNewlyAdded && !isStreaming && "bg-blue-50 dark:bg-blue-950/50",
                         isGroupBoundary && "border-t-4 border-t-foreground/40",
                         // Alternating group backgrounds when observation units present
-                        hasObservationUnits && isOddGroup && !isNewlyAdded && !isStreaming && "bg-muted/30",
-                        // Selected row highlight
-                        rowIsSelected && "bg-blue-50 dark:bg-blue-950"
+                        hasObservationUnits && isOddGroup && !isNewlyAdded && !isStreaming && !rowSelected && "bg-muted/30"
                       )}
+                      onMouseEnter={() => setHoveredRowId(rowId)}
+                      onMouseLeave={() => setHoveredRowId(null)}
                     >
-                      {/* Checkbox cell - only show if not readonly */}
+                      {/* Checkbox column cell - only show if not readonly */}
                       {!readonly && (
-                        <td
-                          className={cn(
-                            "px-3 py-3 w-[50px] min-w-[50px] sticky left-0 z-10",
-                            rowIsSelected ? "bg-blue-50 dark:bg-blue-950" :
-                              (isOddGroup && hasObservationUnits ? "bg-muted/30" : "bg-background")
-                          )}
-                        >
-                          <Checkbox
-                            checked={rowIsSelected}
-                            onCheckedChange={() => toggleRow(rowId)}
-                            aria-label={`Select row ${rowId}`}
-                          />
+                        <td className="w-[40px] min-w-[40px] px-2 py-3 text-center">
+                          <div className={cn(
+                            "transition-opacity duration-100",
+                            showCheckbox ? "opacity-100" : "opacity-0"
+                          )}>
+                            <Checkbox
+                              checked={rowSelected}
+                              onCheckedChange={() => toggleRow(rowId)}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label={`Select row ${rowId}`}
+                            />
+                          </div>
                         </td>
                       )}
 
@@ -1541,9 +1453,8 @@ const DataTable: React.FC<DataTableProps> = ({
                               "px-4 py-3",
                               !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
                               "sticky border-r",
-                              readonly ? "left-0" : "left-[50px]",
-                              rowIsSelected ? "bg-blue-50 dark:bg-blue-950" :
-                                (isOddGroup ? "bg-muted/30" : "bg-background"),
+                              "left-0",
+                              isOddGroup ? "bg-muted/30" : "bg-background",
                               isGroupBoundary && "border-t-4 border-t-foreground/40",
                               // Visual connector for grouped rows
                               !shouldRenderDocNameCell(rowIndex) && "border-l-4 border-l-primary/20"
@@ -1573,8 +1484,8 @@ const DataTable: React.FC<DataTableProps> = ({
                             className={cn(
                               "px-4 py-3 sticky border-r",
                               !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
-                              readonly ? "left-0" : "left-[50px]",
-                              rowIsSelected ? "bg-blue-50 dark:bg-blue-950" : "bg-background"
+                              "left-0",
+                              "bg-background"
                             )}
                             style={getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : undefined}
                           >
@@ -1670,19 +1581,6 @@ const DataTable: React.FC<DataTableProps> = ({
                         );
                       })}
 
-                      {/* Actions column cell - only show if not readonly */}
-                      {!readonly && (
-                        <td className={cn(
-                          "px-2 py-3 min-w-[60px] sticky right-0 border-l",
-                          isOddGroup && hasObservationUnits ? "bg-muted/30" : "bg-background"
-                        )}>
-                          <RowActions
-                            rowName={row._unit_name || row.row_name || ''}
-                            onDelete={handleRowDelete}
-                            disabled={readonly}
-                          />
-                        </td>
-                      )}
                     </tr>
                   );
                 })}
@@ -1818,13 +1716,61 @@ const DataTable: React.FC<DataTableProps> = ({
         </DialogContent>
       </Dialog>
 
-      {/* Bulk Delete Dialog */}
-      <BulkDeleteDialog
-        open={showBulkDeleteDialog}
-        onOpenChange={setShowBulkDeleteDialog}
-        selectedRows={Array.from(selectedRows)}
-        onConfirm={handleBulkDelete}
-      />
+      {/* Floating action bar for bulk selection */}
+      {!readonly && (
+        <BulkActionToolbar
+          selectedCount={selectedCount}
+          onDelete={() => {
+            setBulkDeleteError(null);
+            setShowDeleteDialog(true);
+          }}
+          onClearSelection={clearSelection}
+        />
+      )}
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedCount} Row{selectedCount !== 1 ? 's' : ''}</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {selectedCount} selected row{selectedCount !== 1 ? 's' : ''}? This will permanently remove {selectedCount !== 1 ? 'them' : 'it'} and all associated data.
+            </DialogDescription>
+          </DialogHeader>
+
+          {bulkDeleteError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{bulkDeleteError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={isBulkDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+            >
+              {isBulkDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </Card>
   );
 };

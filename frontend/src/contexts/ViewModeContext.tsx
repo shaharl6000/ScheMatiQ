@@ -43,7 +43,7 @@ interface ViewModeProviderProps {
 }
 
 export const ViewModeProvider: React.FC<ViewModeProviderProps> = ({ children }) => {
-  const [viewMode, setViewMode] = useState<ViewMode>('standard');
+  const [viewMode, setViewMode] = useState<ViewMode>('by_unit');
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [selectedUnitsForMerge, setSelectedUnitsForMerge] = useState<string[]>([]);
   const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());

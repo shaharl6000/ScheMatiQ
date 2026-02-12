@@ -97,7 +97,9 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [extractionProvider, setExtractionProvider] = useState<LLMProviderKey>('gemini');
   const [extractionModel, setExtractionModel] = useState('gemini-2.5-flash-lite');
   const [allowLlmConfig, setAllowLlmConfig] = useState(false);
-  const [serverHasKey, setServerHasKey] = useState(false);
+
+  // Server API key state
+  const [serverHasApiKeys, setServerHasApiKeys] = useState(false);
 
   // Document limit state
   const [maxDocuments, setMaxDocuments] = useState(DEFAULT_MAX_DOCUMENTS);
@@ -154,14 +156,14 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       // Check if LLM config is allowed (release mode vs developer mode)
       const cfg = await configAPI.getConfig().catch(() => ({
         allow_llm_config: true,
-        server_has_llm_key: false,
         max_documents: DEFAULT_MAX_DOCUMENTS,
-        developer_mode: false
+        developer_mode: false,
+        server_has_api_keys: false,
       }));
       setAllowLlmConfig(cfg.allow_llm_config);
-      setServerHasKey(cfg.server_has_llm_key ?? false);
       setMaxDocuments(cfg.max_documents ?? DEFAULT_MAX_DOCUMENTS);
       setDeveloperMode(cfg.developer_mode ?? false);
+      setServerHasApiKeys(cfg.server_has_api_keys ?? false);
 
       const providers = await getConfiguredProviders();
       const available = getAvailableProviders(providers);
@@ -236,6 +238,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setDocumentAvailability(null);
       setCheckingAvailability(false);
       setLimitBypassEnabled(false);
+      setServerHasApiKeys(false);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -293,7 +296,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   };
 
   const handleStartDiscovery = async () => {
-    if (!apiKey && !serverHasKey) {
+    if (!apiKey && !serverHasApiKeys) {
       onError('API key is required');
       return;
     }
@@ -329,7 +332,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         llm_config: {
           provider: llmProvider,
           model: llmModel,
-          ...(apiKey ? { api_key: apiKey } : {}),
+          api_key: apiKey || undefined,
           max_output_tokens: 8192,
           temperature: 0,
           context_window_size: 1000000
@@ -822,7 +825,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
 
       <DialogFooter>
         <Button variant="outline" onClick={() => setStep('documents')}>Back</Button>
-        <Button onClick={handleStartDiscovery} disabled={!apiKey || loading}>
+        <Button onClick={handleStartDiscovery} disabled={(!apiKey && !serverHasApiKeys) || loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
           Start Discovery
         </Button>

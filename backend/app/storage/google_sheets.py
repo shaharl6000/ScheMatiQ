@@ -21,7 +21,7 @@ from app.core.config import (
 logger = logging.getLogger(__name__)
 
 # Column headers for the summary sheet (must match append_row order)
-# A-L: session data + feedback in a single row
+# A-N: session data + feedback in a single row
 HEADER_ROW = [
     "Timestamp",
     "Session ID",
@@ -35,6 +35,8 @@ HEADER_ROW = [
     "Drive File ID",
     "Rating",
     "Comment",
+    "LLM Calls",  # Total LLM API calls made during this session
+    "Data Saved",  # Yes/No — whether session data was archived to Drive
 ]
 
 # LLM usage tracking lives in a separate spreadsheet (GOOGLE_SHEETS_LLM_USAGE_ID)
@@ -132,7 +134,7 @@ class GoogleSheetsLogger:
             body = {"values": [values]}
             self._service.spreadsheets().values().append(
                 spreadsheetId=GOOGLE_SHEETS_SPREADSHEET_ID,
-                range="Sheet1!A:L",
+                range="Sheet1!A:N",
                 valueInputOption="USER_ENTERED",
                 insertDataOption="INSERT_ROWS",
                 body=body,
@@ -154,6 +156,8 @@ class GoogleSheetsLogger:
         observation_unit: str,
         trigger_source: str,
         drive_file_id: Optional[str],
+        llm_calls: int = 0,
+        data_saved: bool = True,
     ) -> bool:
         """Log a session summary row with default Rating=N/A."""
         return self.append_row([
@@ -169,6 +173,8 @@ class GoogleSheetsLogger:
             drive_file_id or "",
             "N/A",  # Rating — updated later if user submits feedback
             "",     # Comment
+            llm_calls,
+            "Yes" if data_saved else "No",
         ])
 
     def _ensure_llm_usage_headers(self) -> bool:
@@ -302,13 +308,13 @@ class GoogleSheetsLogger:
                 # Fallback: session row not yet written, append a minimal row
                 self._service.spreadsheets().values().append(
                     spreadsheetId=GOOGLE_SHEETS_SPREADSHEET_ID,
-                    range="Sheet1!A:L",
+                    range="Sheet1!A:N",
                     valueInputOption="USER_ENTERED",
                     insertDataOption="INSERT_ROWS",
                     body={"values": [[
                         datetime.now(timezone.utc).isoformat(),
                         session_id, "", "", "", "", "", "", "feedback_only", "",
-                        rating, comment or "",
+                        rating, comment or "", "", "",
                     ]]},
                 ).execute()
                 logger.debug("[data-collection] Appended feedback-only row for session %s", session_id[:8])

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { RefreshCw, AlertTriangle, FileText, Loader2, Check, Info, Square, Brain } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 
@@ -91,58 +91,58 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
   const [isStopping, setIsStopping] = useState(false);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Check document availability
-  const checkDocumentAvailability = useCallback(async () => {
-    if (!sessionId) return;
+  // Ref for onError to decouple callback identity from effect dependencies
+  const onErrorRef = useRef(onError);
+  useEffect(() => { onErrorRef.current = onError; });
 
-    setCheckingAvailability(true);
-    try {
-      const availability = await schemaAPI.precheckDocuments(sessionId, {
-        operation_type: 'reextraction',
-      });
-      setDocumentAvailability(availability);
-    } catch (error: any) {
-      console.error('Failed to check document availability:', error);
-      // Don't show error to user - the paper discovery already shows similar info
-    } finally {
-      setCheckingAvailability(false);
-    }
-  }, [sessionId]);
-
-  // Load schema change status and paper discovery when dialog opens
-  const loadStatus = useCallback(async () => {
-    // Don't reload if dialog is closed, no session, or extraction is in progress
-    if (!open || !sessionId || isExtracting) return;
-
-    setLoadingStatus(true);
-    try {
-      const [changes, papers] = await Promise.all([
-        schemaAPI.getSchemaChangeStatus(sessionId),
-        schemaAPI.discoverPapers(sessionId)
-      ]);
-
-      setSchemaChanges(changes);
-      setPaperStatus(papers);
-
-      // Pre-select all changed/new columns
-      const allChanged = new Set([
-        ...changes.changed_columns,
-        ...changes.new_columns
-      ]);
-      setSelectedColumns(allChanged);
-
-      // Also check document availability for the pre-check section
-      checkDocumentAvailability();
-    } catch (error: any) {
-      onError(error.response?.data?.detail || 'Failed to load schema status');
-    } finally {
-      setLoadingStatus(false);
-    }
-  }, [open, sessionId, onError, isExtracting, checkDocumentAvailability]);
-
+  // Load schema change status, paper discovery, and document availability when dialog opens
   useEffect(() => {
+    if (!open || !sessionId) return;
+
+    let cancelled = false;
+
+    const loadStatus = async () => {
+      setLoadingStatus(true);
+      try {
+        const [changes, papers] = await Promise.all([
+          schemaAPI.getSchemaChangeStatus(sessionId),
+          schemaAPI.discoverPapers(sessionId),
+        ]);
+        if (cancelled) return;
+
+        setSchemaChanges(changes);
+        setPaperStatus(papers);
+
+        const allChanged = new Set([
+          ...changes.changed_columns,
+          ...changes.new_columns,
+        ]);
+        setSelectedColumns(allChanged);
+
+        // Check document availability
+        setCheckingAvailability(true);
+        try {
+          const availability = await schemaAPI.precheckDocuments(sessionId, {
+            operation_type: 'reextraction',
+          });
+          if (!cancelled) setDocumentAvailability(availability);
+        } catch (error) {
+          console.error('Failed to check document availability:', error);
+        } finally {
+          if (!cancelled) setCheckingAvailability(false);
+        }
+      } catch (error: any) {
+        if (!cancelled) {
+          onErrorRef.current(error.response?.data?.detail || 'Failed to load schema status');
+        }
+      } finally {
+        if (!cancelled) setLoadingStatus(false);
+      }
+    };
+
     loadStatus();
-  }, [loadStatus]);
+    return () => { cancelled = true; };
+  }, [open, sessionId]);
 
   // Load configured providers and config when dialog opens
   useEffect(() => {
@@ -384,7 +384,20 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
               sessionId={sessionId}
               availability={documentAvailability}
               loading={checkingAvailability}
-              onRefresh={checkDocumentAvailability}
+              onRefresh={async () => {
+                if (!sessionId) return;
+                setCheckingAvailability(true);
+                try {
+                  const availability = await schemaAPI.precheckDocuments(sessionId, {
+                    operation_type: 'reextraction',
+                  });
+                  setDocumentAvailability(availability);
+                } catch (error) {
+                  console.error('Failed to check document availability:', error);
+                } finally {
+                  setCheckingAvailability(false);
+                }
+              }}
             />
 
             <Separator />

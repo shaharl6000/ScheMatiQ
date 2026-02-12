@@ -844,7 +844,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "operation_id": operation_id,
             "columns": columns,
             "estimated_papers": len(paper_discovery["available_papers"]),
-            "rows_to_process": paper_discovery["total_rows"],
+            "rows_to_process": len(paper_discovery["available_papers"]),
             "missing_papers": paper_discovery["missing_papers"]
         }
 
@@ -1043,6 +1043,48 @@ class ReextractionService(WebSocketBroadcasterMixin):
             if docs_directories:
                 logger.debug(f"Starting build_table_jsonl extraction...")
 
+                # Build known_units from existing data (paper_stem -> [unit_names])
+                # This skips the expensive LLM unit discovery for rows that already exist
+                known_units: Dict[str, List[str]] = {}
+                reextract_data_files = []
+                qbsd_extracted = Path("./qbsd_work") / operation.session_id / "extracted_data.jsonl"
+                if qbsd_extracted.exists():
+                    reextract_data_files.append(qbsd_extracted)
+                if not reextract_data_files:
+                    qbsd_data = Path("./qbsd_work") / operation.session_id / "data.jsonl"
+                    if qbsd_data.exists():
+                        reextract_data_files.append(qbsd_data)
+                load_data = Path("./data") / operation.session_id / "data.jsonl"
+                if load_data.exists() and load_data.resolve() not in [f.resolve() for f in reextract_data_files]:
+                    reextract_data_files.append(load_data)
+
+                for df in reextract_data_files:
+                    try:
+                        with open(df, 'r') as f:
+                            for line in f:
+                                if line.strip():
+                                    try:
+                                        row = json.loads(line)
+                                        row_name = row.get('_row_name') or row.get('row_name')
+                                        papers = row.get('_papers') or row.get('papers') or []
+                                        if isinstance(papers, str):
+                                            papers = [papers]
+                                        for paper in papers:
+                                            paper_stem = Path(paper).stem
+                                            if paper_stem not in known_units:
+                                                known_units[paper_stem] = []
+                                            if row_name and row_name not in known_units[paper_stem]:
+                                                known_units[paper_stem].append(row_name)
+                                    except json.JSONDecodeError:
+                                        continue
+                    except Exception as e:
+                        logger.warning(f"Error reading data file {df} for known_units: {e}")
+
+                if known_units:
+                    logger.info(f"Built known_units for {len(known_units)} papers: {known_units}")
+                else:
+                    logger.debug(f"No known_units found from existing data")
+
                 # Create should_stop callback that checks for stop requests
                 def should_stop():
                     return self.is_stop_requested(operation_id)
@@ -1059,7 +1101,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         retrieval_k=10,
                         max_workers=1,
                         on_value_extracted=on_value_extracted,
-                        should_stop=should_stop  # Allow graceful stop
+                        should_stop=should_stop,  # Allow graceful stop
+                        known_units=known_units if known_units else None,
                     )
 
                 await asyncio.get_event_loop().run_in_executor(qbsd_thread_pool, run_extraction)
@@ -1128,25 +1171,26 @@ class ReextractionService(WebSocketBroadcasterMixin):
         columns: List[str],
         extraction_file: Path
     ):
-        """Merge re-extracted values with existing data."""
+        """Merge re-extracted values with existing data across ALL data files."""
         if not extraction_file.exists():
             return
 
-        # Find the correct data file
-        # QBSD sessions: data in ./qbsd_work/{session_id}/extracted_data.jsonl
-        # Load sessions: data in ./data/{session_id}/data.jsonl
-        qbsd_data_file = Path("./qbsd_work") / session_id / "extracted_data.jsonl"
+        # Find ALL data files (same pattern as unit_view_service._get_all_data_files)
+        qbsd_extracted_file = Path("./qbsd_work") / session_id / "extracted_data.jsonl"
+        qbsd_data_file = Path("./qbsd_work") / session_id / "data.jsonl"
         load_data_file = Path("./data") / session_id / "data.jsonl"
 
-        if qbsd_data_file.exists():
-            data_file = qbsd_data_file
-        elif load_data_file.exists():
-            data_file = load_data_file
-        else:
-            logger.warning(f"No data file found for merge in session {session_id}")
-            return
+        data_files = []
+        if qbsd_extracted_file.exists():
+            data_files.append(qbsd_extracted_file)
+        if not data_files and qbsd_data_file.exists():
+            data_files.append(qbsd_data_file)
+        if load_data_file.exists() and load_data_file.resolve() not in [f.resolve() for f in data_files]:
+            data_files.append(load_data_file)
 
-        session_dir = data_file.parent
+        if not data_files:
+            logger.warning(f"No data files found for merge in session {session_id}")
+            return
 
         # Read extracted values indexed by row_name
         extracted_by_row: Dict[str, Dict[str, Any]] = {}
@@ -1165,80 +1209,77 @@ class ReextractionService(WebSocketBroadcasterMixin):
         logger.debug(f"Extracted row names from extraction file: {list(extracted_by_row.keys())}")
 
         # Build a mapping from paper name stem to extracted data for fallback matching
-        # This handles cases where existing data uses row_1, row_2, etc. but extraction uses paper names
         extracted_by_paper_stem: Dict[str, Dict[str, Any]] = {}
         for row_name, row_data in extracted_by_row.items():
-            # The row_name from extraction is typically the paper stem (e.g., "CCTalpha")
             extracted_by_paper_stem[row_name.lower()] = row_data
             logger.debug(f"Paper stem mapping: '{row_name.lower()}' -> extracted data")
 
-        # Backup existing data
-        backup_file = session_dir / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
+        # Process each data file
         import shutil
-        shutil.copy2(data_file, backup_file)
+        total_rows_updated = 0
+        all_updated_rows = []  # Collect all rows for stats update
 
-        # Read and update existing rows
-        updated_rows = []
-        rows_updated = 0
-        with open(data_file, 'r') as f:
-            for line in f:
-                if not line.strip():
-                    continue
+        for data_file in data_files:
+            # Backup existing data
+            backup_file = data_file.parent / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
+            shutil.copy2(data_file, backup_file)
 
-                row = json.loads(line)
-                row_name = row.get('row_name') or row.get('_row_name')
-                papers = row.get('papers') or []  # Handle None value
+            # Read and update existing rows
+            updated_rows = []
+            rows_updated = 0
+            with open(data_file, 'r') as f:
+                for line in f:
+                    if not line.strip():
+                        continue
 
-                # Try direct row name match first
-                extracted = None
-                match_type = None
+                    row = json.loads(line)
+                    row_name = row.get('row_name') or row.get('_row_name')
+                    papers = row.get('papers') or []
 
-                if row_name and row_name in extracted_by_row:
-                    extracted = extracted_by_row[row_name]
-                    match_type = "direct"
-                else:
-                    # Fallback: try to match by paper name stem
-                    # Papers are like "CCTalpha_22621903_full.txt", extract stem "CCTalpha"
-                    for paper in papers:
-                        # Extract paper stem (before first underscore or file extension)
-                        paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                        if paper_stem in extracted_by_paper_stem:
-                            extracted = extracted_by_paper_stem[paper_stem]
-                            match_type = f"paper_stem:{paper_stem}"
-                            break
+                    # Try direct row name match first
+                    extracted = None
 
-                if extracted:
-                    rows_updated += 1
+                    if row_name and row_name in extracted_by_row:
+                        extracted = extracted_by_row[row_name]
+                    else:
+                        # Fallback: try to match by paper name stem
+                        for paper in papers:
+                            paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
+                            if paper_stem in extracted_by_paper_stem:
+                                extracted = extracted_by_paper_stem[paper_stem]
+                                break
 
-                    # Update only the re-extracted columns
-                    for col_name in columns:
-                        if col_name in extracted:
-                            # Handle nested 'data' structure or flat structure
-                            if 'data' in row:
-                                row['data'][col_name] = extracted[col_name]
-                            else:
-                                row[col_name] = extracted[col_name]
-                else:
-                    logger.debug(f"No extracted match for row '{row_name}' (papers: {papers[:3]})")
+                    if extracted:
+                        rows_updated += 1
+                        for col_name in columns:
+                            if col_name in extracted:
+                                if 'data' in row:
+                                    row['data'][col_name] = extracted[col_name]
+                                else:
+                                    row[col_name] = extracted[col_name]
+                    else:
+                        logger.debug(f"No extracted match for row '{row_name}' in {data_file.name} (papers: {papers[:3]})")
 
-                updated_rows.append(row)
+                    updated_rows.append(row)
 
-        # Write updated data
-        with open(data_file, 'w') as f:
-            for row in updated_rows:
-                f.write(json.dumps(row) + '\n')
+            # Write updated data
+            with open(data_file, 'w') as f:
+                for row in updated_rows:
+                    f.write(json.dumps(row) + '\n')
 
-        logger.debug(f"Merged re-extracted data for {len(columns)} columns, {rows_updated} rows updated")
+            total_rows_updated += rows_updated
+            all_updated_rows.extend(updated_rows)
+            logger.debug(f"Merged re-extracted data in {data_file}: {rows_updated} rows updated")
+
+        logger.debug(f"Merged re-extracted data for {len(columns)} columns across {len(data_files)} files, {total_rows_updated} rows updated total")
 
         # Update session statistics to reflect new data
         session = self.session_manager.get_session(session_id)
         if session and session.statistics:
-            # Recalculate column stats for re-extracted columns
             for col_stat in session.statistics.column_stats:
                 if col_stat.name in columns:
-                    # Count non-null values for this column (handle both nested and flat formats)
                     non_null_count = sum(
-                        1 for row in updated_rows
+                        1 for row in all_updated_rows
                         if (row.get('data', {}).get(col_stat.name) is not None
                             or row.get(col_stat.name) is not None)
                     )
@@ -1246,7 +1287,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     col_stat.non_null_count = non_null_count
                     logger.debug(f"Updated stats for column '{col_stat.name}': non_null_count {old_count} -> {non_null_count}")
 
-            # Update session
             self.session_manager.update_session(session)
             logger.debug(f"Updated session statistics for {len(columns)} columns")
 

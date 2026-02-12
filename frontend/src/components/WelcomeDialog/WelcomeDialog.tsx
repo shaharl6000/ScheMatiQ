@@ -102,7 +102,7 @@ export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
         </div>
 
         <p className="text-sm text-muted-foreground">
-          Look for the <span className="inline-flex items-center text-muted-foreground">(i)</span> icons to learn more about any option.
+          Look for the <span className="inline-flex items-center text-muted-foreground">(?)</span> icons to learn more about any option.
         </p>
 
         <DialogFooter className="flex-col sm:flex-row items-start sm:items-center gap-3 sm:justify-between">

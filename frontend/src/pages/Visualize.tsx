@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
   Download,
@@ -10,6 +10,7 @@ import {
   FileText,
   Copy,
   HelpCircle,
+  Search,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -57,17 +58,35 @@ const Visualize = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const mode = searchParams.get('mode') as 'load' | 'qbsd' || 'load';
   const [activeTab, setActiveTab] = useState(mode === 'qbsd' ? 'monitor' : 'data');
 
+  // Read auto-start state from navigation (set by QBSDConfig after calling run)
+  const [autoStartState] = useState(() => {
+    const state = location.state as {
+      autoStarted?: boolean;
+      serverBusy?: boolean;
+      capacityMessage?: string;
+    } | null;
+    // Clear navigation state to prevent re-use on page refresh
+    if (state?.autoStarted || state?.serverBusy) {
+      window.history.replaceState({}, document.title);
+    }
+    return {
+      autoStarted: state?.autoStarted || false,
+      initialCapacityMessage: state?.serverBusy ? (state.capacityMessage || 'The server is currently busy processing other requests. Please try again in a few minutes.') : '',
+    };
+  });
+
   // View mode context for unit view toggle
   const { viewMode, setViewMode } = useViewMode();
 
   // Fetch observation units for the session (to determine if unit view is available)
-  const { units: unitListResponse } = useUnits(sessionId);
+  const { units: unitListResponse, refresh: refreshUnits } = useUnits(sessionId);
 
   // Enhanced upload document management state
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
@@ -204,6 +223,7 @@ const Visualize = () => {
               setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
               queryClient.invalidateQueries(['data', sessionId]);
               queryClient.invalidateQueries(['session', sessionId]);
+              queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
               setTimeout(() => {
                 setNewlyAddedRows(prev => {
                   const newSet = new Set(Array.from(prev));
@@ -224,6 +244,8 @@ const Visualize = () => {
               // Use broader query filter to match all data queries (including DataTable's paginated queries)
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               setTimeout(() => {
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                   wsRef.current.close(1000, 'Processing completed');
@@ -268,6 +290,8 @@ const Visualize = () => {
               setIsStoppingReextraction(false); // Clear stopping state
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
+              queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
             case 'reextraction_stopped':
               console.log('Re-extraction stopped:', message.data);
@@ -279,6 +303,8 @@ const Visualize = () => {
               // Force immediate data refetch to show partial results
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
 
             case 'stopped':
@@ -287,6 +313,8 @@ const Visualize = () => {
               setForceWebSocketConnect(false);
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
 
             // Continue Discovery events
@@ -300,6 +328,8 @@ const Visualize = () => {
               console.log('Continue discovery completed:', message.data);
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
             case 'continue_discovery_stopped':
               console.log('Continue discovery stopped:', message.data);
@@ -329,6 +359,8 @@ const Visualize = () => {
               setStreamingCells(new Map());    // Clear streaming cells
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
+              queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
           }
         } catch (err) {
@@ -503,6 +535,7 @@ const Visualize = () => {
                 setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
                 queryClient.invalidateQueries(['data', sessionId]);
                 queryClient.invalidateQueries(['session', sessionId]);
+                queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
                 setTimeout(() => {
                   setNewlyAddedRows(prev => {
                     const newSet = new Set(Array.from(prev));
@@ -523,6 +556,8 @@ const Visualize = () => {
                 // Use broader query filter to match all data queries (including DataTable's paginated queries)
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 setTimeout(() => {
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     wsRef.current.close(1000, 'Processing completed');
@@ -568,6 +603,8 @@ const Visualize = () => {
                 // Force immediate data refetch (not just invalidate)
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 // Notify feedback widget to reset (new table deserves fresh feedback)
                 window.dispatchEvent(new Event('reextraction_completed'));
                 // Delay WebSocket close to allow refetch to complete
@@ -586,6 +623,8 @@ const Visualize = () => {
                 // Force immediate data refetch to show partial results
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 break;
 
               case 'stopped':
@@ -594,6 +633,8 @@ const Visualize = () => {
                 setForceWebSocketConnect(false);
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 break;
 
               // Continue Discovery events
@@ -607,6 +648,8 @@ const Visualize = () => {
                 console.log('Continue discovery completed:', message.data);
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 break;
               case 'continue_discovery_stopped':
                 console.log('Continue discovery stopped:', message.data);
@@ -637,6 +680,8 @@ const Visualize = () => {
                 setForceWebSocketConnect(false); // Allow WebSocket to close
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
+                queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 break;
             }
           } catch (err) {
@@ -704,6 +749,8 @@ const Visualize = () => {
       if (eventSessionId === sessionId) {
         queryClient.invalidateQueries(['session', sessionId, mode]);
         queryClient.invalidateQueries(['data', sessionId, mode]);
+        queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+        refreshUnits();
       }
     };
 
@@ -750,11 +797,11 @@ const Visualize = () => {
 
   const handleDocumentProcessing = async () => {
     // Check if LLM config is allowed (developer mode)
-    const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true, server_has_llm_key: false }));
+    const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true, server_has_api_keys: false }));
     if (!cfg.allow_llm_config) {
       // Release mode: use default Gemini config, prefer user key, fallback to server key
       const geminiKey = await getApiKeyForProvider('gemini');
-      if (!geminiKey && !cfg.server_has_llm_key) {
+      if (!geminiKey && !cfg.server_has_api_keys) {
         setDocumentUploadError('No Gemini API key configured. Please add your API key on the home page.');
         return;
       }
@@ -877,6 +924,8 @@ const Visualize = () => {
         // Refresh session data to get updated status
         queryClient.invalidateQueries(['session', sessionId]);
         queryClient.invalidateQueries(['data', sessionId]);
+        queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+        refreshUnits();
       }
     } catch (err: any) {
       console.error('Failed to stop processing:', err);
@@ -1016,71 +1065,79 @@ const Visualize = () => {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between border-b pb-4">
-        <div className="flex items-center gap-4">
+      <div className="space-y-3 border-b pb-4">
+        <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={handleBackNavigation}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
-          <div className="group flex items-center gap-2 mt-1">
-            <h1 className="text-base font-medium text-foreground">
-              {session?.schema_query}
-            </h1>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
-              onClick={() => {
-                navigator.clipboard.writeText(session?.schema_query || '');
-                toast({ title: "Query copied to clipboard" });
-              }}
-            >
-              <Copy className="h-3 w-3" />
-            </Button>
+
+          <div className="flex items-center gap-2">
+            {getStatusBadge()}
+            {(isCompleted || isQBSDStopped) && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setVisualizeGuideForceOpen(true)}
+                aria-label="Show results guide"
+                className="text-muted-foreground"
+              >
+                <HelpCircle className="h-5 w-5" />
+              </Button>
+            )}
+            {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Download className="h-4 w-4 mr-2" />
+                    Export{isQBSDStopped ? ' Partial' : ''}
+                    <ChevronDown className="h-3 w-3 ml-1" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-72">
+                  <DropdownMenuItem onClick={handleDownloadTable}>
+                    <Download className="h-4 w-4 mr-2 shrink-0" />
+                    <div>
+                      <div>Download Table (.csv)</div>
+                      <div className="text-xs text-muted-foreground">Clean data for Excel — no metadata</div>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleSaveProject}>
+                    <Save className="h-4 w-4 mr-2 shrink-0" />
+                    <div>
+                      <div>Save Project (.qbsd.json)</div>
+                      <div className="text-xs text-muted-foreground">Full project with schema and history — for reloading</div>
+                    </div>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {getStatusBadge()}
-          {(isCompleted || isQBSDStopped) && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setVisualizeGuideForceOpen(true)}
-              aria-label="Show results guide"
-              className="text-muted-foreground"
-            >
-              <HelpCircle className="h-5 w-5" />
-            </Button>
-          )}
-          {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Download className="h-4 w-4 mr-2" />
-                  Export{isQBSDStopped ? ' Partial' : ''}
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuItem onClick={handleDownloadTable}>
-                  <Download className="h-4 w-4 mr-2 shrink-0" />
-                  <div>
-                    <div>Download Table (.csv)</div>
-                    <div className="text-xs text-muted-foreground">Clean data for Excel — no metadata</div>
-                  </div>
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={handleSaveProject}>
-                  <Save className="h-4 w-4 mr-2 shrink-0" />
-                  <div>
-                    <div>Save Project (.qbsd.json)</div>
-                    <div className="text-xs text-muted-foreground">Full project with schema and history — for reloading</div>
-                  </div>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </div>
+        {/* Research Question card */}
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="py-2.5 px-4">
+            <div className="group flex items-start gap-3">
+              <Search className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs text-blue-600 font-medium mb-0.5">Research Question</p>
+                <p className="text-base font-medium text-blue-900">{session?.schema_query}</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-blue-600 hover:text-blue-800 hover:bg-blue-100 shrink-0"
+                onClick={() => {
+                  navigator.clipboard.writeText(session?.schema_query || '');
+                  toast({ title: "Query copied to clipboard" });
+                }}
+              >
+                <Copy className="h-3 w-3" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Tabs */}
@@ -1138,7 +1195,16 @@ const Visualize = () => {
                   onDataChange={() => {
                     queryClient.invalidateQueries(['session', sessionId, mode]);
                     queryClient.invalidateQueries(['data', sessionId, mode]);
+                    queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+                    refreshUnits();
                   }}
+                  processingColumns={processingColumns}
+                  currentDocumentProgress={currentDocumentProgress}
+                  onStopReextraction={handleStopReextraction}
+                  isStoppingReextraction={isStoppingReextraction}
+                  isProcessingDocuments={isEnhancedUploadProcessing}
+                  onStopProcessing={handleStopProcessing}
+                  isStoppingProcessing={isStoppingProcessing}
                 />
               ) : (
                 <DataTable
@@ -1315,6 +1381,8 @@ const Visualize = () => {
                 // Use refetch for immediate update instead of invalidate
                 queryClient.refetchQueries({ queryKey: ['session', sessionId, mode] });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId, mode] });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
               }}
               onReextractionStarted={handleReextractionStarted}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}
@@ -1350,7 +1418,11 @@ const Visualize = () => {
         {/* QBSD Monitor Tab */}
         {mode === 'qbsd' && (
           <TabsContent value="monitor" className="mt-4">
-            <QBSDMonitor sessionId={sessionId} />
+            <QBSDMonitor
+              sessionId={sessionId}
+              autoStarted={autoStartState.autoStarted}
+              initialCapacityMessage={autoStartState.initialCapacityMessage}
+            />
           </TabsContent>
         )}
 

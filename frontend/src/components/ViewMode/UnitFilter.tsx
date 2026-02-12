@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { Filter, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -46,7 +46,6 @@ export const UnitFilter: React.FC<UnitFilterProps> = ({
 
   return (
     <div className="flex items-center gap-2">
-      <Filter className="h-4 w-4 text-muted-foreground" />
       <Select
         value={selectedUnit ?? '__all__'}
         onValueChange={handleValueChange}
@@ -57,12 +56,7 @@ export const UnitFilter: React.FC<UnitFilterProps> = ({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__all__">
-            <div className="flex items-center justify-between w-full">
-              <span>All Units</span>
-              <Badge variant="secondary" className="ml-2">
-                {units.reduce((sum, u) => sum + u.rowCount, 0)} rows
-              </Badge>
-            </div>
+            All Units
           </SelectItem>
           {units.map((unit) => (
             <SelectItem key={unit.name} value={unit.name}>

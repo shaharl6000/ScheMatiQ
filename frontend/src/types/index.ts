@@ -205,6 +205,7 @@ export interface QBSDConfig {
   document_randomization_seed: number;
   skip_value_extraction?: boolean;  // Schema discovery only mode
   previous_session_id?: string;  // Session ID to copy uploaded files from
+  opt_out_data_collection?: boolean;  // User opted out of research data archival
 }
 
 export interface QBSDStatus {

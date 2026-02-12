@@ -15,7 +15,8 @@ from app.models.session import VisualizationSession, SessionType, SessionMetadat
 from app.models.qbsd import QBSDConfig, QBSDStatus, CostEstimate, CostEstimateRequest, PhaseEstimate, DocumentStats
 from app.services.qbsd_runner import QBSDRunner
 from app.services.data_editor import DataEditor
-from app.services import websocket_manager, session_manager
+from app.services import websocket_manager, session_manager, concurrency_limiter, data_collection_service
+from app.core.exceptions import CapacityExceededError
 from app.utils.csv_helpers import format_excerpt_for_csv
 from app.services.file_parser import format_column_header
 
@@ -23,7 +24,8 @@ from qbsd.core.cost_estimator import estimate_from_config
 
 router = APIRouter()
 # Create shared QBSD runner instance with shared managers
-qbsd_runner = QBSDRunner(websocket_manager=websocket_manager, session_manager=session_manager)
+qbsd_runner = QBSDRunner(websocket_manager=websocket_manager, session_manager=session_manager,
+                         data_collection_service=data_collection_service)
 # Create data editor instance
 data_editor = DataEditor()
 
@@ -123,7 +125,8 @@ async def configure_qbsd(config: QBSDConfig):
             id=session_id,
             type=SessionType.QBSD,
             metadata=metadata,
-            schema_query=config.query
+            schema_query=config.query,
+            opt_out_data_collection=config.opt_out_data_collection,
         )
         
         # Store session and config
@@ -279,14 +282,20 @@ async def run_qbsd(session_id: str, background_tasks: BackgroundTasks):
                     detail="The system has reached its processing capacity and is unable to start new sessions at this time. Please try again later or contact us for assistance."
                 )
 
-        # Start QBSD in background
+        # Reserve concurrency slot before starting background task
+        await concurrency_limiter.acquire(session_id, "qbsd")
+
+        # Start QBSD in background (its finally block releases the slot)
         background_tasks.add_task(qbsd_runner.run_qbsd, session_id)
-        
+
         return {"message": "QBSD execution started", "session_id": session_id}
 
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
+        await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/status/{session_id}", response_model=QBSDStatus)

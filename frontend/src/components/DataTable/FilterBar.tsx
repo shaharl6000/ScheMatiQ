@@ -55,19 +55,7 @@ const FilterBar: React.FC<FilterBarProps> = ({
   };
 
   if (filters.length === 0) {
-    return (
-      <div className={cn("flex items-center gap-2", className)}>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onAddFilter}
-          className="gap-1"
-        >
-          <Plus className="h-4 w-4" />
-          Add Filter
-        </Button>
-      </div>
-    );
+    return null;
   }
 
   return (

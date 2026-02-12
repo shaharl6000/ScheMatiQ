@@ -25,7 +25,7 @@ interface UseColumnVisibilityReturn {
 const STORAGE_KEY_PREFIX = 'dataTable_visibility_';
 
 // Columns that should be hidden by default
-const DEFAULT_HIDDEN_COLUMNS = ['_papers'];
+const DEFAULT_HIDDEN_COLUMNS = ['_papers', '_source_document'];
 
 export function useColumnVisibility({
   sessionId,

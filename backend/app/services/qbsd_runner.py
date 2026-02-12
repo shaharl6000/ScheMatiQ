@@ -1997,17 +1997,27 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         needs_processing = bool(filters or sort or search)
 
         if needs_processing:
-            # Load all rows from all data files
+            # Load all rows from all data files (deduplicated by _row_name across files only)
             all_rows = []
+            seen_row_names: set = set()
             for data_file in data_files:
+                file_row_names: set = set()
                 with open(data_file, 'r', encoding='utf-8') as f:
                     for line in f:
                         if line.strip():
                             try:
                                 row_data = json.loads(line.strip())
+                                # Only skip if this row_name was in a PREVIOUS file
+                                row_name = row_data.get('_row_name') or row_data.get('row_name')
+                                if row_name and row_name in seen_row_names:
+                                    continue
+                                if row_name:
+                                    file_row_names.add(row_name)
                                 all_rows.append(normalize_row(row_data))
                             except (json.JSONDecodeError, TypeError):
                                 pass
+                # After processing each file, add its row names for cross-file dedup
+                seen_row_names.update(file_row_names)
 
             total_count = len(all_rows)
 
@@ -2047,35 +2057,62 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             )
         else:
             # Efficient pagination (no filtering/sorting)
-            # Count total rows across all files
+            # First pass: count valid rows (dedup only across files, not within)
             total_count = 0
+            seen_row_names: set = set()
             for data_file in data_files:
+                file_row_names: set = set()
                 with open(data_file, 'r', encoding='utf-8') as f:
-                    total_count += sum(1 for _ in f)
+                    for line in f:
+                        if not line.strip():
+                            continue
+                        try:
+                            row_data = json.loads(line.strip())
+                            row_name = row_data.get('_row_name') or row_data.get('row_name')
+                            if row_name and row_name in seen_row_names:
+                                continue
+                            if row_name:
+                                file_row_names.add(row_name)
+                            total_count += 1
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                seen_row_names.update(file_row_names)
 
             rows = []
             start_line = page * page_size
             end_line = start_line + page_size
             global_line = 0
+            seen_row_names_page: set = set()
 
-            # Read from all files, handling pagination across files
+            # Second pass: read paginated rows (dedup only across files, not within)
             for data_file in data_files:
                 if global_line >= end_line:
                     break  # Already have enough rows
 
+                file_row_names: set = set()
                 with open(data_file, 'r', encoding='utf-8') as f:
                     for line in f:
+                        if not line.strip():
+                            continue
+                        try:
+                            row_data = json.loads(line.strip())
+                        except (json.JSONDecodeError, TypeError):
+                            continue
+                        # Only skip if this row_name was in a PREVIOUS file
+                        row_name = row_data.get('_row_name') or row_data.get('row_name')
+                        if row_name and row_name in seen_row_names_page:
+                            continue
+                        if row_name:
+                            file_row_names.add(row_name)
+
                         if global_line >= end_line:
                             break
                         if global_line >= start_line:
-                            try:
-                                row_data = json.loads(line.strip())
-                                normalized = normalize_row(row_data)
-                                data_row = DataRow(**normalized)
-                                rows.append(data_row)
-                            except (json.JSONDecodeError, TypeError) as e:
-                                logger.warning("Could not parse row %d: %s", global_line, e)
+                            normalized = normalize_row(row_data)
+                            data_row = DataRow(**normalized)
+                            rows.append(data_row)
                         global_line += 1
+                seen_row_names_page.update(file_row_names)
 
             return PaginatedData(
                 rows=rows,

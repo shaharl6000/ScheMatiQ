@@ -4,7 +4,7 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Any, Optional, Dict
+from typing import Callable, Any, Optional, Dict, List
 
 from qbsd.core import utils
 from .core.table_builder import TableBuilder
@@ -31,6 +31,7 @@ def build_table_jsonl(
     on_value_extracted: Optional[OnValueExtractedCallback] = None,
     should_stop: Optional[ShouldStopCallback] = None,
     on_warning: Optional[OnWarningCallback] = None,
+    known_units: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, Any]:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
@@ -71,6 +72,7 @@ def build_table_jsonl(
         mode=mode,
         retrieval_k=retrieval_k,
         max_workers=max_workers,
+        known_units=known_units,
     )
     # Return extraction results including suggested values and skipped documents
     return {
