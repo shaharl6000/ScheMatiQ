@@ -1,6 +1,6 @@
 /**
- * Table component that displays data grouped by observation units.
- * Provides collapsible unit groups with merge functionality.
+ * Table component that displays data by observation units in a flat layout.
+ * Uses a frozen left column for unit names, similar to DataTable's frozen column pattern.
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
@@ -113,13 +113,13 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
   // Refs for header cells (for resize start width measurement)
   const headerRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
+  const frozenThRef = useRef<HTMLTableCellElement | null>(null);
 
   // Memoize units array to prevent unnecessary re-renders
   const units = useMemo(() => unitListResponse?.units || [], [unitListResponse?.units]);
 
   // Local state
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
-  const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
   const [mergePickerOpen, setMergePickerOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [unitsToMerge, setUnitsToMerge] = useState<UnitSummary[]>([]);
@@ -173,28 +173,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   // Total pages calculation — use filtered_count when a unit filter is active
   const displayedRowCount = unitData?.filtered_count ?? unitData?.total_count ?? 0;
   const totalPages = Math.ceil(displayedRowCount / pageSize);
-
-  // Toggle unit expansion
-  const toggleExpansion = useCallback((unitName: string) => {
-    setExpandedUnits(prev => {
-      const next = new Set(prev);
-      if (next.has(unitName)) {
-        next.delete(unitName);
-      } else {
-        next.add(unitName);
-      }
-      return next;
-    });
-  }, []);
-
-  // Expand/collapse all
-  const expandAll = useCallback(() => {
-    setExpandedUnits(new Set(units.map(u => u.name)));
-  }, [units]);
-
-  const collapseAll = useCallback(() => {
-    setExpandedUnits(new Set());
-  }, []);
 
   // Handle merge
   const handleMerge = useCallback(async (request: MergeUnitsRequest) => {
@@ -261,7 +239,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     });
   }, [suggestions, dismissedSuggestions]);
 
-  // Apply client-side search, filters, and sorting, then group by unit
+  // Apply client-side search, filters, and sorting
   const processedRows = useMemo(() => {
     if (!unitData?.rows) return [];
 
@@ -292,19 +270,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
     return rows;
   }, [unitData?.rows, searchTerm, filterState, sortState]);
-
-  const groupedRows = useMemo(() => {
-    const groups = new Map<string, DataRow[]>();
-    processedRows.forEach(row => {
-      const unitName = row._unit_name || 'Unknown';
-      if (!groups.has(unitName)) {
-        groups.set(unitName, []);
-      }
-      groups.get(unitName)!.push(row);
-    });
-
-    return groups;
-  }, [processedRows]);
 
   // Row selection - compute pageRowIds from filtered/sorted rows
   const pageRowIds = useMemo(() => {
@@ -356,12 +321,16 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     return unitData?.rows?.some(row => row._source_document != null) ?? false;
   }, [unitData?.rows]);
 
-  // All columns available (filter out internal columns except _unit_name)
+  // All scrollable columns (exclude _unit_name since it's the frozen column, include _source_document when present)
   const allColumns = useMemo(() => {
-    return columns.filter(col =>
-      !col.startsWith('_') || col === '_unit_name'
+    const cols = columns.filter(col =>
+      !col.startsWith('_')
     );
-  }, [columns]);
+    if (hasSourceDocument) {
+      return ['_source_document', ...cols];
+    }
+    return cols;
+  }, [columns, hasSourceDocument]);
 
   // Column visibility hook
   const {
@@ -402,10 +371,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     });
   }, [allColumns, unitData?.rows, columnInfo]);
 
-  // All table columns including source document (used for computing total table width)
+  // All table columns including frozen column (used for computing total table width)
   const allTableColumns = useMemo(() => {
-    return hasSourceDocument ? ['_source_document', ...visibleColumns] : visibleColumns;
-  }, [hasSourceDocument, visibleColumns]);
+    return ['_unit_name', ...visibleColumns];
+  }, [visibleColumns]);
 
   // Create mapping of main columns to their corresponding excerpt columns
   const excerptMapping = useMemo(() => {
@@ -497,7 +466,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               </Badge>
             </h3>
             <p className="text-xs text-muted-foreground">
-              Click unit headers to expand/collapse
+              Grouped by observation unit
             </p>
           </div>
 
@@ -570,26 +539,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             onUnitChange={setSelectedUnit}
             loading={dataLoading}
           />
-
-          {/* Expand/Collapse all */}
-          <div className="flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={expandAll}
-              title="Expand all"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={collapseAll}
-              title="Collapse all"
-            >
-              <ChevronUp className="h-4 w-4" />
-            </Button>
-          </div>
 
           {/* Merge & suggestions */}
           <div className="flex items-center gap-2 ml-auto">
@@ -686,30 +635,50 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                   )}
                 </th>
 
-                {/* Source Document column - always first when present */}
-                {hasSourceDocument && (
-                  <th
-                    ref={(el) => { headerRefs.current['_source_document'] = el; }}
-                    className={cn(
-                      "px-4 py-3 text-left font-bold text-base bg-background border-r relative",
-                      !getColumnWidth('_source_document') && "min-w-[180px]"
-                    )}
-                    style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      Source Document
-                    </div>
+                {/* Frozen _unit_name column */}
+                <th
+                  ref={frozenThRef}
+                  className={cn(
+                    "px-4 py-3 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
+                    !getColumnWidth('_unit_name') && "min-w-[150px] max-w-[250px]",
+                    "left-0",
+                    getSortDirection('_unit_name') && "bg-primary/5"
+                  )}
+                  style={getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                >
+                  <div className="flex items-center gap-1">
                     <div
-                      className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                        const th = headerRefs.current['_source_document'];
-                        if (th) handleResizeStart(e, '_source_document', th.offsetWidth);
-                      }}
-                    />
-                  </th>
-                )}
+                      className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1 overflow-hidden"
+                      onClick={(e) => toggleSort('_unit_name', e.shiftKey)}
+                    >
+                      <Badge variant="outline">{formatColumnName('_unit_name')}</Badge>
+                      {getSortDirection('_unit_name') && (
+                        <div className="flex items-center">
+                          {getSortDirection('_unit_name') === 'asc' ? (
+                            <ArrowUp className="h-4 w-4 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4 text-primary" />
+                          )}
+                          {getSortPriority('_unit_name') && getSortPriority('_unit_name')! > 1 && (
+                            <span className="text-xs text-primary ml-0.5">{getSortPriority('_unit_name')}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* Resize handle */}
+                  <div
+                    className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      if (frozenThRef.current) {
+                        handleResizeStart(e, '_unit_name', frozenThRef.current.offsetWidth);
+                      }
+                    }}
+                  />
+                </th>
+
+                {/* Scrollable columns */}
                 {visibleColumns.map(column => (
                   <th
                     key={column}
@@ -725,7 +694,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       className="flex items-center gap-1 cursor-pointer hover:text-primary"
                       onClick={(e) => toggleSort(column, e.shiftKey)}
                     >
-                      {column.startsWith('_') ? (
+                      {column === '_source_document' ? (
+                        <div className="flex items-center gap-1.5">
+                          <FileText className="h-4 w-4 text-muted-foreground" />
+                          Source Document
+                        </div>
+                      ) : column.startsWith('_') ? (
                         <Badge variant="outline">{formatColumnName(column)}</Badge>
                       ) : (
                         formatColumnName(column)
@@ -756,116 +730,105 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               </tr>
             </thead>
             <tbody>
-              {/* Render units with their rows - only show units that have loaded data */}
-              {units
-                .filter(unit => (!selectedUnit || unit.name === selectedUnit) && groupedRows.has(unit.name))
-                .map(unit => {
-                  const isExpanded = expandedUnits.has(unit.name);
-                  const unitRows = groupedRows.get(unit.name) || [];
+              {/* Flat row rendering */}
+              {processedRows.map((row, rowIndex) => {
+                const rowId = row._unit_name || row.row_name || '';
+                const rowSelected = isSelected(rowId);
+                const showCheckbox = hoveredRowId === rowId || selectedCount > 0;
 
-                  return (
-                    <React.Fragment key={unit.name}>
-                      {/* Unit group header */}
-                      <UnitGroupRow
-                        unit={unit}
-                        isExpanded={isExpanded}
-                        onToggleExpand={() => toggleExpansion(unit.name)}
-                        columnCount={visibleColumns.length + (hasSourceDocument ? 1 : 0) + 1}
-                      />
+                return (
+                  <tr
+                    key={rowIndex}
+                    className={cn(
+                      "border-b hover:bg-muted/30 transition-colors",
+                      rowSelected && "bg-blue-50 dark:bg-blue-950/50"
+                    )}
+                    onMouseEnter={() => setHoveredRowId(rowId)}
+                    onMouseLeave={() => setHoveredRowId(null)}
+                  >
+                    {/* Checkbox cell */}
+                    <td className="w-[40px] min-w-[40px] px-2 py-3 text-center">
+                      <div className={cn(
+                        "transition-opacity duration-100",
+                        showCheckbox ? "opacity-100" : "opacity-0"
+                      )}>
+                        <Checkbox
+                          checked={rowSelected}
+                          onCheckedChange={() => toggleRow(rowId)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Select row ${rowId}`}
+                        />
+                      </div>
+                    </td>
 
-                      {/* Unit rows (when expanded) */}
-                      {isExpanded && unitRows.map((row, rowIndex) => {
-                        const rowId = row._unit_name || row.row_name || '';
-                        const rowSelected = isSelected(rowId);
-                        const showCheckbox = hoveredRowId === rowId || selectedCount > 0;
+                    {/* Frozen _unit_name cell */}
+                    <td
+                      className={cn(
+                        "px-4 py-3 sticky border-r",
+                        !getColumnWidth('_unit_name') && "min-w-[150px] max-w-[250px]",
+                        "left-0",
+                        "bg-background"
+                      )}
+                      style={{
+                        zIndex: 5,
+                        ...(getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : {}),
+                      }}
+                    >
+                      <span className="text-sm font-medium">{row._unit_name || 'Unknown'}</span>
+                    </td>
 
+                    {/* Scrollable data columns */}
+                    {visibleColumns.map(column => {
+                      let cellValue: CellValue;
+                      if (column === '_source_document') {
+                        cellValue = row._source_document;
+                      } else {
+                        cellValue = row.data[column];
+                      }
+
+                      // Special rendering for _source_document
+                      if (column === '_source_document') {
                         return (
-                        <tr
-                          key={`${unit.name}-${rowIndex}`}
-                          className={cn(
-                            "border-b hover:bg-muted/30 transition-colors",
-                            rowSelected && "bg-blue-50 dark:bg-blue-950/50"
-                          )}
-                          onMouseEnter={() => setHoveredRowId(rowId)}
-                          onMouseLeave={() => setHoveredRowId(null)}
-                        >
-                          {/* Checkbox cell */}
-                          <td className="w-[40px] min-w-[40px] px-2 py-3 text-center">
-                            <div className={cn(
-                              "transition-opacity duration-100",
-                              showCheckbox ? "opacity-100" : "opacity-0"
-                            )}>
-                              <Checkbox
-                                checked={rowSelected}
-                                onCheckedChange={() => toggleRow(rowId)}
-                                onClick={(e) => e.stopPropagation()}
-                                aria-label={`Select row ${rowId}`}
-                              />
+                          <td
+                            key={column}
+                            className="px-4 py-3 text-sm"
+                            style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                          >
+                            <div className="flex items-center gap-1.5">
+                              <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="truncate max-w-[160px] font-medium text-foreground/80 cursor-help">
+                                    {formatSourceDocument(row._source_document)}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-[400px]">
+                                  <p className="break-all">{row._source_document || 'Unknown'}</p>
+                                </TooltipContent>
+                              </Tooltip>
                             </div>
                           </td>
-
-                          {/* Source Document cell - always first when present */}
-                          {hasSourceDocument && (
-                            <td
-                              className="px-4 py-3 text-sm border-r bg-muted/20"
-                              style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
-                            >
-                              <div className="flex items-center gap-1.5">
-                                <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="truncate max-w-[160px] font-medium text-foreground/80 cursor-help">
-                                      {formatSourceDocument(row._source_document)}
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent side="right" className="max-w-[400px]">
-                                    <p className="break-all">{row._source_document || 'Unknown'}</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </div>
-                            </td>
-                          )}
-                          {visibleColumns.map(column => {
-                            let cellValue: CellValue;
-                            if (column === '_unit_name') {
-                              cellValue = row._unit_name;
-                            } else {
-                              cellValue = row.data[column];
-                            }
-
-                            return (
-                              <td
-                                key={column}
-                                className="px-4 py-3 text-sm"
-                                style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
-                              >
-                                {formatCellValue(cellValue, column, row, excerptMapping, handleViewContent)}
-                              </td>
-                            );
-                          })}
-                        </tr>
                         );
-                      })}
+                      }
 
-                      {/* Show message if no data rows for expanded unit */}
-                      {isExpanded && unitRows.length === 0 && (
-                        <tr>
-                          <td
-                            colSpan={visibleColumns.length + (hasSourceDocument ? 1 : 0) + 1}
-                            className="px-4 py-8 text-center text-muted-foreground"
-                          >
-                            No rows loaded for this unit. Data may still be loading.
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
+                      return (
+                        <td
+                          key={column}
+                          className="px-4 py-3 text-sm"
+                          style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                        >
+                          {formatCellValue(cellValue, column, row, excerptMapping, handleViewContent)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
               {/* No results message when all rows are filtered out */}
               {processedRows.length === 0 && unitData?.rows && unitData.rows.length > 0 && (
                 <tr>
                   <td
-                    colSpan={visibleColumns.length + (hasSourceDocument ? 1 : 0) + 1}
+                    colSpan={visibleColumns.length + 2}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
                     No rows match the current filters or search.
@@ -880,7 +843,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         {unitData && (
           <div className="flex items-center justify-between mt-4">
             <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Units per page:</span>
+              <span className="text-sm text-muted-foreground">Rows per page:</span>
               <Select value={String(pageSize)} onValueChange={handleChangeRowsPerPage}>
                 <SelectTrigger className="w-20">
                   <SelectValue />
@@ -895,7 +858,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">
-                {displayedRowCount > 0 ? `${page * pageSize + 1}-${Math.min((page + 1) * pageSize, displayedRowCount)} of ${displayedRowCount} units` : '0 units'}
+                {displayedRowCount > 0 ? `${page * pageSize + 1}-${Math.min((page + 1) * pageSize, displayedRowCount)} of ${displayedRowCount} rows` : '0 rows'}
               </span>
               <Button
                 variant="outline"
@@ -1131,7 +1094,7 @@ function normalizeToQBSD(val: unknown): unknown {
 }
 
 /**
- * Cell value formatter for the grouped table.
+ * Cell value formatter for the unit table.
  * Handles QBSD answer/excerpts, value/excerpt, and text formats.
  * Renders clickable cells for content with excerpts.
  */
