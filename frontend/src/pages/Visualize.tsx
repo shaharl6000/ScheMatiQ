@@ -1002,7 +1002,7 @@ const Visualize = () => {
     );
   }
 
-  if (sessionLoading) {
+  if (sessionLoading && !autoStartState.autoStarted) {
     return (
       <div className="flex justify-center items-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -1038,6 +1038,9 @@ const Visualize = () => {
 
   const getStatusBadge = () => {
     const status = session?.status;
+    if (!status && autoStartState.autoStarted) {
+      return <Badge variant="warning">Processing</Badge>;
+    }
     const variants: Record<string, 'default' | 'success' | 'warning' | 'destructive' | 'info'> = {
       completed: 'success',
       stopped: 'warning',
@@ -1122,19 +1125,25 @@ const Visualize = () => {
               <Search className="h-4 w-4 text-blue-600 mt-0.5 shrink-0" />
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-blue-600 font-medium mb-0.5">Research Question</p>
-                <p className="text-base font-medium text-blue-900">{session?.schema_query}</p>
+                {session?.schema_query ? (
+                  <p className="text-base font-medium text-blue-900">{session.schema_query}</p>
+                ) : (
+                  <div className="h-6 w-3/4 bg-blue-200/50 rounded animate-pulse" />
+                )}
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-blue-600 hover:text-blue-800 hover:bg-blue-100 shrink-0"
-                onClick={() => {
-                  navigator.clipboard.writeText(session?.schema_query || '');
-                  toast({ title: "Query copied to clipboard" });
-                }}
-              >
-                <Copy className="h-3 w-3" />
-              </Button>
+              {session?.schema_query && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-blue-600 hover:text-blue-800 hover:bg-blue-100 shrink-0"
+                  onClick={() => {
+                    navigator.clipboard.writeText(session?.schema_query || '');
+                    toast({ title: "Query copied to clipboard" });
+                  }}
+                >
+                  <Copy className="h-3 w-3" />
+                </Button>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1143,13 +1152,13 @@ const Visualize = () => {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
-          <TabsTrigger value="data" disabled={!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded'}>
+          <TabsTrigger value="data" disabled={sessionLoading || (!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded')}>
             Data
           </TabsTrigger>
-          <TabsTrigger value="schema" disabled={!isSchemaReady || (!session?.columns?.length && !isSessionRefetching)}>
+          <TabsTrigger value="schema" disabled={sessionLoading || !isSchemaReady || (!session?.columns?.length && !isSessionRefetching)}>
             Schema
           </TabsTrigger>
-          <TabsTrigger value="stats" disabled={!isCompleted && !isQBSDStopped}>
+          <TabsTrigger value="stats" disabled={sessionLoading || (!isCompleted && !isQBSDStopped)}>
             Statistics
           </TabsTrigger>
           {mode === 'qbsd' && (
