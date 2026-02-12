@@ -4,12 +4,13 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb, FileText, AlertCircle } from 'lucide-react';
+import { Merge, RefreshCw, Loader2, Lightbulb, FileText, AlertCircle, Search, ArrowUp, ArrowDown } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -39,7 +40,6 @@ import { MergeUnitsRequest, UnitSummary } from '../../types/unit';
 import { UnitFilter } from '../ViewMode/UnitFilter';
 import { UnitMergeDialog } from '../ViewMode/UnitMergeDialog';
 import { UnitSimilarityCard } from '../Units/UnitSimilarityCard';
-import UnitGroupRow from './UnitGroupRow';
 import { UnitMergePickerDialog } from './UnitMergePickerDialog';
 import BulkActionToolbar from './BulkActionToolbar';
 import { useRowSelection } from './hooks/useRowSelection';
@@ -48,7 +48,15 @@ import { DataRow, CellValue, ModalContent, QBSDAnswerWithExcerpts } from '../../
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { formatColumnName } from '../../utils/formatting';
-import { parsePythonString, extractDisplayValue } from './utils';
+import { buildColumnMetadata, applyFilters, applySort, parsePythonString, extractDisplayValue } from './utils';
+import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
+import { useTableSort } from './hooks/useTableSort';
+import { useTableFilter } from './hooks/useTableFilter';
+import { useColumnVisibility } from './hooks/useColumnVisibility';
+import { useColumnStats } from './hooks/useColumnStats';
+import FilterBar from './FilterBar';
+import FilterDialog from './FilterDialog';
+import TableOptionsMenu from './TableOptionsMenu';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
 import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
 
@@ -86,6 +94,23 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   } = useColumnResize({ sessionId });
   const hasCustomWidths = Object.keys(columnWidths).length > 0;
 
+  // Sort, filter, and visibility hooks (use unit_ prefix to avoid collisions with DataTable)
+  const {
+    sortState,
+    toggleSort,
+    setSortState,
+    getSortDirection,
+    getSortPriority,
+  } = useTableSort({ sessionId, persistKey: `unit_sort_${sessionId}` });
+
+  const {
+    filterState,
+    addFilter,
+    removeFilter,
+    clearFilters,
+    setFilterState,
+  } = useTableFilter({ sessionId, persistKey: `unit_filter_${sessionId}` });
+
   // Refs for header cells (for resize start width measurement)
   const headerRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
 
@@ -100,6 +125,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   const [unitsToMerge, setUnitsToMerge] = useState<UnitSummary[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
+
+  // Search and filter UI state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [fullnessThreshold, setFullnessThreshold] = useState(0);
+  const [filterDialogOpen, setFilterDialogOpen] = useState(false);
+  const [filterDialogColumn, setFilterDialogColumn] = useState<string | undefined>();
 
   // Pagination state for unit data
   const [page, setPage] = useState(0);
@@ -230,12 +261,41 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     });
   }, [suggestions, dismissedSuggestions]);
 
-  // Group data rows by unit
-  const groupedRows = useMemo(() => {
-    if (!unitData?.rows) return new Map<string, DataRow[]>();
+  // Apply client-side search, filters, and sorting, then group by unit
+  const processedRows = useMemo(() => {
+    if (!unitData?.rows) return [];
 
+    let rows = unitData.rows;
+
+    // Apply search filter across all column values
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      rows = rows.filter(row => {
+        // Check unit name
+        if (row._unit_name?.toLowerCase().includes(term)) return true;
+        if (row.row_name?.toLowerCase().includes(term)) return true;
+        if (row._source_document?.toLowerCase().includes(term)) return true;
+        // Check all data columns
+        return Object.values(row.data).some(val => {
+          if (val === null || val === undefined) return false;
+          const str = typeof val === 'string' ? val : JSON.stringify(val);
+          return str.toLowerCase().includes(term);
+        });
+      });
+    }
+
+    // Apply column filters
+    rows = applyFilters(rows, filterState);
+
+    // Apply sorting
+    rows = applySort(rows, sortState);
+
+    return rows;
+  }, [unitData?.rows, searchTerm, filterState, sortState]);
+
+  const groupedRows = useMemo(() => {
     const groups = new Map<string, DataRow[]>();
-    unitData.rows.forEach(row => {
+    processedRows.forEach(row => {
       const unitName = row._unit_name || 'Unknown';
       if (!groups.has(unitName)) {
         groups.set(unitName, []);
@@ -244,13 +304,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     });
 
     return groups;
-  }, [unitData?.rows]);
+  }, [processedRows]);
 
-  // Row selection - compute pageRowIds from all visible rows
+  // Row selection - compute pageRowIds from filtered/sorted rows
   const pageRowIds = useMemo(() => {
-    if (!unitData?.rows) return [];
-    return unitData.rows.map(row => row._unit_name || row.row_name || '').filter(Boolean);
-  }, [unitData?.rows]);
+    return processedRows.map(row => row._unit_name || row.row_name || '').filter(Boolean);
+  }, [processedRows]);
 
   const {
     isAllPageSelected,
@@ -287,23 +346,61 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     }
   }, [selectedRows, sessionId, clearSelection, refetchData, refreshUnits, onDataChange, toast]);
 
-  // Clear selection on page/filter changes
+  // Clear selection on page/filter/search changes
   useEffect(() => {
     clearSelection();
-  }, [page, pageSize, selectedUnit, clearSelection]);
+  }, [page, pageSize, selectedUnit, searchTerm, filterState.rules, sortState.columns, clearSelection]);
 
   // Check if any row has _source_document
   const hasSourceDocument = useMemo(() => {
     return unitData?.rows?.some(row => row._source_document != null) ?? false;
   }, [unitData?.rows]);
 
-  // Determine which columns to show (filter out internal columns, but keep _unit_name)
-  // Note: _source_document is rendered as a dedicated first column, not part of this array
-  const visibleColumns = useMemo(() => {
+  // All columns available (filter out internal columns except _unit_name)
+  const allColumns = useMemo(() => {
     return columns.filter(col =>
       !col.startsWith('_') || col === '_unit_name'
     );
   }, [columns]);
+
+  // Column visibility hook
+  const {
+    visibility,
+    toggleColumn,
+    showAllColumns,
+    hideAllColumns,
+    isVisible,
+  } = useColumnVisibility({ sessionId, columns: allColumns, persistKey: `unit_visibility_${sessionId}` });
+
+  // Column statistics hook for fullness calculations
+  const { getColumnsAboveThreshold } = useColumnStats(unitData?.rows || [], allColumns);
+
+  // Apply visibility and fullness threshold to get displayed columns
+  const visibleColumns = useMemo(() => {
+    const columnsAboveThreshold = fullnessThreshold > 0
+      ? getColumnsAboveThreshold(fullnessThreshold)
+      : allColumns;
+    return allColumns.filter(col =>
+      isVisible(col) && columnsAboveThreshold.includes(col)
+    );
+  }, [allColumns, isVisible, fullnessThreshold, getColumnsAboveThreshold]);
+
+  // Count columns hidden specifically due to fullness threshold
+  const hiddenByFullnessCount = useMemo(() => {
+    if (fullnessThreshold === 0) return 0;
+    const columnsAboveThreshold = getColumnsAboveThreshold(fullnessThreshold);
+    return allColumns.filter(col =>
+      isVisible(col) && !columnsAboveThreshold.includes(col)
+    ).length;
+  }, [allColumns, isVisible, fullnessThreshold, getColumnsAboveThreshold]);
+
+  // Build column metadata for filter dialog
+  const columnMetadata = useMemo((): ColumnMetadata[] => {
+    return allColumns.map(col => {
+      const info = columnInfo?.find(c => c.name === col);
+      return buildColumnMetadata(unitData?.rows || [], col, info?.allowed_values);
+    });
+  }, [allColumns, unitData?.rows, columnInfo]);
 
   // All table columns including source document (used for computing total table width)
   const allTableColumns = useMemo(() => {
@@ -332,6 +429,26 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
     return mapping;
   }, [unitData?.rows]);
+
+  // Filter dialog handlers
+  const handleOpenFilterDialog = useCallback((column?: string) => {
+    setFilterDialogColumn(column);
+    setFilterDialogOpen(true);
+  }, []);
+
+  const handleApplyFilter = useCallback((
+    column: string,
+    operator: FilterOperator,
+    value: FilterValue,
+    caseSensitive?: boolean
+  ) => {
+    addFilter({ column, operator, value, caseSensitive });
+  }, [addFilter]);
+
+  const handleLoadPreset = useCallback((filters: FilterRule[], sort: SortColumn[]) => {
+    setFilterState({ rules: filters });
+    setSortState({ columns: sort });
+  }, [setFilterState, setSortState]);
 
   if (unitsLoading && !unitListResponse) {
     return (
@@ -385,6 +502,42 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="relative w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search data..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-9"
+                    aria-label="Search all columns"
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>Search across unit names and all column values</TooltipContent>
+            </Tooltip>
+
+            <TableOptionsMenu
+              onAddFilter={() => handleOpenFilterDialog()}
+              onAddRow={() => {}}
+              readonly={true}
+              sessionId={sessionId}
+              currentFilters={filterState.rules}
+              currentSort={sortState.columns}
+              onLoadPreset={handleLoadPreset}
+              fullnessThreshold={fullnessThreshold}
+              onFullnessChange={setFullnessThreshold}
+              visibleColumnsCount={visibleColumns.length}
+              totalColumnsCount={allColumns.length}
+              hiddenByFullnessCount={hiddenByFullnessCount}
+              columns={allColumns}
+              visibility={visibility}
+              onToggleColumn={toggleColumn}
+              onShowAll={showAllColumns}
+              onHideAll={hideAllColumns}
+            />
+
             <Button
               variant="outline"
               size="sm"
@@ -395,6 +548,18 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             </Button>
           </div>
         </div>
+
+        {/* Filter toolbar — only render when filters are active */}
+        {filterState.rules.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b">
+            <FilterBar
+              filters={filterState.rules}
+              onRemoveFilter={removeFilter}
+              onClearAll={clearFilters}
+              onAddFilter={() => handleOpenFilterDialog()}
+            />
+          </div>
+        )}
 
         {/* Toolbar */}
         <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b">
@@ -551,15 +716,33 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     ref={(el) => { headerRefs.current[column] = el; }}
                     className={cn(
                       "px-4 py-3 text-left font-bold text-base bg-background relative",
-                      !getColumnWidth(column) && "min-w-[120px]"
+                      !getColumnWidth(column) && "min-w-[120px]",
+                      getSortDirection(column) && "bg-primary/5"
                     )}
                     style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
                   >
-                    {column.startsWith('_') ? (
-                      <Badge variant="outline">{formatColumnName(column)}</Badge>
-                    ) : (
-                      formatColumnName(column)
-                    )}
+                    <div
+                      className="flex items-center gap-1 cursor-pointer hover:text-primary"
+                      onClick={(e) => toggleSort(column, e.shiftKey)}
+                    >
+                      {column.startsWith('_') ? (
+                        <Badge variant="outline">{formatColumnName(column)}</Badge>
+                      ) : (
+                        formatColumnName(column)
+                      )}
+                      {getSortDirection(column) && (
+                        <div className="flex items-center">
+                          {getSortDirection(column) === 'asc' ? (
+                            <ArrowUp className="h-4 w-4 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4 text-primary" />
+                          )}
+                          {getSortPriority(column) && getSortPriority(column)! > 1 && (
+                            <span className="text-xs text-primary ml-0.5">{getSortPriority(column)}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <div
                       className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
                       onMouseDown={(e) => {
@@ -678,6 +861,17 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     </React.Fragment>
                   );
                 })}
+              {/* No results message when all rows are filtered out */}
+              {processedRows.length === 0 && unitData?.rows && unitData.rows.length > 0 && (
+                <tr>
+                  <td
+                    colSpan={visibleColumns.length + (hasSourceDocument ? 1 : 0) + 1}
+                    className="px-4 py-12 text-center text-muted-foreground"
+                  >
+                    No rows match the current filters or search.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -756,6 +950,15 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         onClose={() => setModalOpen(false)}
         title={modalContent.title}
         content={modalContent.content}
+      />
+
+      {/* Filter Dialog */}
+      <FilterDialog
+        open={filterDialogOpen}
+        onClose={() => setFilterDialogOpen(false)}
+        onApply={handleApplyFilter}
+        columns={columnMetadata}
+        selectedColumn={filterDialogColumn}
       />
 
       {/* Floating action bar for bulk selection */}

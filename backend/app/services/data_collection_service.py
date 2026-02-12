@@ -49,6 +49,16 @@ class DataCollectionService:
             session = self._session_manager.get_session(session_id)
             if session and session.opt_out_data_collection:
                 logger.info("[data-collection] Skipping archive for session %s: user opted out", session_id[:8])
+                # Still log to spreadsheet for tracking, but mark as not saved
+                if self._sheets_logger:
+                    try:
+                        task = asyncio.create_task(
+                            self._log_opt_out_to_sheet(session, session_id, trigger_source)
+                        )
+                        self._active_tasks.add(task)
+                        task.add_done_callback(self._active_tasks.discard)
+                    except Exception as e:
+                        logger.error("[data-collection] Failed to spawn opt-out log task: %s", e)
                 return
         except Exception:
             pass  # If session lookup fails, proceed with archive attempt
@@ -58,6 +68,20 @@ class DataCollectionService:
             task.add_done_callback(self._active_tasks.discard)
         except Exception as e:
             logger.error("[data-collection] Failed to spawn archive task: %s", e)
+
+    async def _log_opt_out_to_sheet(self, session, session_id: str, trigger_source: str) -> None:
+        """Log an opt-out session to the spreadsheet (no Drive upload)."""
+        try:
+            from app.services import qbsd_thread_pool
+            import functools
+
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                qbsd_thread_pool,
+                functools.partial(self._log_session_to_sheet, session, session_id, trigger_source, data_saved=False),
+            )
+        except Exception as e:
+            logger.error("[data-collection] Opt-out sheet log failed for %s: %s", session_id[:8], e)
 
     async def _archive_in_background(self, session_id: str, trigger_source: str) -> None:
         """Run the blocking build+upload on the shared thread pool."""
@@ -115,26 +139,11 @@ class DataCollectionService:
         # Upload to Drive
         file_id = self._uploader.upload_file(filename, zip_bytes)
 
-        # Log to Google Sheet (session summary — Sheet1)
+        # Log to Google Sheet
+        self._log_session_to_sheet(session, session_id, trigger_source, data_saved=True, drive_file_id=file_id)
+
+        # Log LLM usage to separate "LLM Usage" tab
         if self._sheets_logger:
-            stats = session.statistics
-            obs_unit = ""
-            if session.observation_unit:
-                obs_unit = session.observation_unit.name or ""
-
-            self._sheets_logger.log_session(
-                session_id=session_id,
-                query=query,
-                doc_count=stats.total_documents if stats else 0,
-                column_count=stats.total_columns if stats else len(session.columns),
-                row_count=stats.total_rows if stats else 0,
-                completeness=stats.completeness if stats else 0.0,
-                observation_unit=obs_unit,
-                trigger_source=trigger_source,
-                drive_file_id=file_id,
-            )
-
-            # Log LLM usage to separate "LLM Usage" tab
             try:
                 llm_stats_file = Path("./qbsd_work") / session_id / "llm_call_stats.json"
                 if llm_stats_file.exists():
@@ -146,6 +155,43 @@ class DataCollectionService:
                     )
             except Exception as e:
                 logger.debug("[data-collection] Could not log LLM usage: %s", e)
+
+    def _log_session_to_sheet(
+        self, session, session_id: str, trigger_source: str,
+        data_saved: bool = True, drive_file_id: Optional[str] = None,
+    ) -> None:
+        """Log a session summary row to Google Sheets."""
+        if not self._sheets_logger:
+            return
+
+        stats = session.statistics
+        obs_unit = ""
+        if session.observation_unit:
+            obs_unit = session.observation_unit.name or ""
+
+        # Read LLM call count from session stats file
+        llm_calls = 0
+        try:
+            llm_stats_file = Path("./qbsd_work") / session_id / "llm_call_stats.json"
+            if llm_stats_file.exists():
+                llm_stats = json.loads(llm_stats_file.read_text(encoding="utf-8"))
+                llm_calls = llm_stats.get("total_calls", 0)
+        except Exception as e:
+            logger.debug("[data-collection] Could not read LLM call stats: %s", e)
+
+        self._sheets_logger.log_session(
+            session_id=session_id,
+            query=session.schema_query or "",
+            doc_count=stats.total_documents if stats else 0,
+            column_count=stats.total_columns if stats else len(session.columns),
+            row_count=stats.total_rows if stats else 0,
+            completeness=stats.completeness if stats else 0.0,
+            observation_unit=obs_unit,
+            trigger_source=trigger_source,
+            drive_file_id=drive_file_id,
+            llm_calls=llm_calls,
+            data_saved=data_saved,
+        )
 
     # ── Helpers ─────────────────────────────────────────────────────
 
