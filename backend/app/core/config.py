@@ -131,13 +131,10 @@ DATA_COLLECTION_ENABLED = (
 LLM_CALL_GLOBAL_LIMIT = int(os.environ.get("LLM_CALL_GLOBAL_LIMIT", "20"))
 
 # ── Quota Alert Email ────────────────────────────────────────────
-# Send an email notification when the LLM quota is exceeded.
-# All four variables must be set to enable email alerts.
+# Send an email when the LLM quota is exceeded.
+# Uses the same Google OAuth credentials as Google Sheets (no extra passwords).
+# Set ALERT_EMAIL_TO to enable; leave empty to disable.
 ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO", "")          # recipient(s), comma-separated
-ALERT_EMAIL_FROM = os.environ.get("ALERT_EMAIL_FROM", "")      # sender address
-SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")            # Gmail: use App Password
 
 # ── Concurrency Configuration ────────────────────────────────────
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "5"))

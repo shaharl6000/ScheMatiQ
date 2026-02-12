@@ -1,11 +1,16 @@
 """Lightweight email alerts for quota and system events.
 
-Sends via SMTP (e.g. Gmail with App Password).  Disabled when env vars
-are not configured — never raises, only logs.
+Sends via Gmail API using the same Google OAuth credentials already
+configured for Google Sheets (GOOGLE_OAUTH_CREDENTIALS_JSON).
+No extra passwords or SMTP config needed.
+
+Disabled when credentials or ALERT_EMAIL_TO are not set — never raises.
 """
 
+import base64
+import json
 import logging
-import smtplib
+import re
 import threading
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
@@ -13,40 +18,84 @@ from email.mime.multipart import MIMEMultipart
 
 from app.core.config import (
     ALERT_EMAIL_TO,
-    ALERT_EMAIL_FROM,
-    SMTP_HOST,
-    SMTP_PORT,
-    SMTP_PASSWORD,
+    GOOGLE_OAUTH_CREDENTIALS_JSON,
+    GOOGLE_SERVICE_ACCOUNT_JSON,
+    GOOGLE_SERVICE_ACCOUNT_FILE,
     LLM_CALL_GLOBAL_LIMIT,
 )
 
 logger = logging.getLogger(__name__)
-
-_EMAIL_ENABLED = bool(ALERT_EMAIL_TO and ALERT_EMAIL_FROM and SMTP_PASSWORD)
 
 # Track whether we already sent the quota alert (avoid spamming)
 _quota_alert_sent = False
 _lock = threading.Lock()
 
 
+def _build_gmail_service():
+    """Build Gmail API service from existing Google OAuth credentials."""
+    try:
+        from googleapiclient.discovery import build
+
+        SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+
+        # Option 1: OAuth2 user credentials (same as Google Sheets)
+        if GOOGLE_OAUTH_CREDENTIALS_JSON:
+            from google.oauth2.credentials import Credentials
+            cleaned = re.sub(r"[\n\r\t]+\s*", "", GOOGLE_OAUTH_CREDENTIALS_JSON)
+            creds_data = json.loads(cleaned)
+            credentials = Credentials(
+                token=creds_data.get("token"),
+                refresh_token=creds_data["refresh_token"],
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=creds_data["client_id"],
+                client_secret=creds_data["client_secret"],
+                scopes=SCOPES,
+            )
+            return build("gmail", "v1", credentials=credentials)
+
+        # Option 2: Service account (needs domain-wide delegation for Gmail)
+        if GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE:
+            from google.oauth2 import service_account
+            if GOOGLE_SERVICE_ACCOUNT_JSON:
+                cleaned = re.sub(r"[\n\r\t]+\s*", "", GOOGLE_SERVICE_ACCOUNT_JSON)
+                info = json.loads(cleaned)
+                credentials = service_account.Credentials.from_service_account_info(
+                    info, scopes=SCOPES
+                )
+            else:
+                credentials = service_account.Credentials.from_service_account_file(
+                    GOOGLE_SERVICE_ACCOUNT_FILE, scopes=SCOPES
+                )
+            return build("gmail", "v1", credentials=credentials)
+
+    except Exception as e:
+        logger.debug("[email-alert] Could not build Gmail service: %s", e)
+    return None
+
+
 def _send_email(subject: str, html_body: str) -> None:
-    """Send an email in a background thread. Never raises."""
-    if not _EMAIL_ENABLED:
-        logger.debug("[email-alert] Email not configured — skipping")
+    """Send an email via Gmail API in a background thread. Never raises."""
+    if not ALERT_EMAIL_TO:
+        logger.debug("[email-alert] ALERT_EMAIL_TO not set — skipping")
         return
 
     def _send():
         try:
+            service = _build_gmail_service()
+            if not service:
+                logger.debug("[email-alert] Gmail service not available — skipping")
+                return
+
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"] = ALERT_EMAIL_FROM
             msg["To"] = ALERT_EMAIL_TO
             msg.attach(MIMEText(html_body, "html"))
 
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-                server.starttls()
-                server.login(ALERT_EMAIL_FROM, SMTP_PASSWORD)
-                server.sendmail(ALERT_EMAIL_FROM, ALERT_EMAIL_TO.split(","), msg.as_string())
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            service.users().messages().send(
+                userId="me",
+                body={"raw": raw},
+            ).execute()
 
             logger.info("[email-alert] Sent: %s → %s", subject, ALERT_EMAIL_TO)
         except Exception as e:
@@ -93,4 +142,3 @@ def send_quota_exceeded_alert(total_used: int) -> None:
     </div>
     """
     _send_email(subject, html_body)
-
