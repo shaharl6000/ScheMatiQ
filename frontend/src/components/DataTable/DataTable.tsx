@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef } from 'react';
-import { Search, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info, Plus, AlertCircle, Minus } from 'lucide-react';
+import { Search, GripVertical, ArrowUp, ArrowDown, Filter, Loader2, Square, Info, AlertCircle, Minus } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -71,9 +71,7 @@ import { buildColumnMetadata, isEmpty, parsePythonString } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
-import FilterPresets from './FilterPresets';
-import ColumnVisibilityDropdown from './ColumnVisibilityDropdown';
-import FullnessFilter from './FullnessFilter';
+import TableOptionsMenu from './TableOptionsMenu';
 import RowActions from './RowActions';
 import BulkActionToolbar from './BulkActionToolbar';
 import BulkDeleteDialog from './BulkDeleteDialog';
@@ -1202,91 +1200,78 @@ const DataTable: React.FC<DataTableProps> = ({
                 <Badge variant="info">Auto-refreshing</Badge>
               )}
             </h3>
-            <p className="text-xs text-muted-foreground">
-              Click headers to sort • Shift+click for multi-sort • Drag to reorder • Drag column edges to resize
-            </p>
           </div>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <div className="relative w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search data..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9"
-                  aria-label="Search all columns"
-                />
-              </div>
-            </TooltipTrigger>
-            <TooltipContent>Search across row names and all column values</TooltipContent>
-          </Tooltip>
-        </div>
-
-        {/* Filter toolbar */}
-        <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b">
-          <FilterBar
-            filters={filterState.rules}
-            onRemoveFilter={removeFilter}
-            onClearAll={clearFilters}
-            onAddFilter={() => handleOpenFilterDialog()}
-          />
-
-          {/* Observation units indicator */}
-          {hasObservationUnits && (
+          <div className="flex items-center gap-2">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Badge variant="outline" className="gap-1 cursor-help">
-                  <Info className="h-3 w-3" />
-                  Grouped by Document
-                </Badge>
+                <div className="relative w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search data..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-9"
+                    aria-label="Search all columns"
+                  />
+                </div>
               </TooltipTrigger>
-              <TooltipContent>
-                Multiple observations per document. Rows are grouped by their source document.
-              </TooltipContent>
+              <TooltipContent>Search across row names and all column values</TooltipContent>
             </Tooltip>
-          )}
 
-          <div className="flex items-center gap-2 ml-auto">
-            <FilterPresets
+            <TableOptionsMenu
+              onAddFilter={() => handleOpenFilterDialog()}
+              onAddRow={() => {
+                setNewRowName('');
+                setNewRowDocument('');
+                setAddRowError(null);
+                setShowAddRowDialog(true);
+              }}
+              readonly={readonly}
               sessionId={sessionId}
               currentFilters={filterState.rules}
               currentSort={sortState.columns}
               onLoadPreset={handleLoadPreset}
-            />
-            <FullnessFilter
-              threshold={fullnessThreshold}
-              onThresholdChange={setFullnessThreshold}
+              fullnessThreshold={fullnessThreshold}
+              onFullnessChange={setFullnessThreshold}
               visibleColumnsCount={columns.length}
               totalColumnsCount={allColumns.length}
               hiddenByFullnessCount={hiddenByFullnessCount}
-            />
-            <ColumnVisibilityDropdown
               columns={allColumns}
               visibility={visibility}
               onToggleColumn={toggleColumn}
               onShowAll={showAllColumns}
               onHideAll={hideAllColumns}
             />
-            {!readonly && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setNewRowName('');
-                  setNewRowDocument('');
-                  setAddRowError(null);
-                  setShowAddRowDialog(true);
-                }}
-                className="gap-1"
-              >
-                <Plus className="h-4 w-4" />
-                Add Row
-              </Button>
-            )}
           </div>
         </div>
+
+        {/* Filter toolbar — only render when filters are active or observation units present */}
+        {(filterState.rules.length > 0 || hasObservationUnits) && (
+          <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b">
+            <FilterBar
+              filters={filterState.rules}
+              onRemoveFilter={removeFilter}
+              onClearAll={clearFilters}
+              onAddFilter={() => handleOpenFilterDialog()}
+            />
+
+            {/* Observation units indicator */}
+            {hasObservationUnits && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="outline" className="gap-1 cursor-help">
+                    <Info className="h-3 w-3" />
+                    Grouped by Document
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  Multiple observations per document. Rows are grouped by their source document.
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        )}
 
         {/* Bulk Action Toolbar */}
         {!readonly && selectedCount > 0 && (
