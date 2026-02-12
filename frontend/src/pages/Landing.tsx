@@ -20,23 +20,39 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { ApiKeySection } from '@/components/ApiKeySection';
 import { getConfiguredProviders, LLMProvider } from '@/utils/apiKeyStorage';
+import { configAPI } from '@/services/api';
 
 const Landing = () => {
   const navigate = useNavigate();
   const [configuredProviders, setConfiguredProviders] = useState<LLMProvider[]>([]);
   const [isCheckingKeys, setIsCheckingKeys] = useState(true);
+  const [serverHasKey, setServerHasKey] = useState(false);
+  const [allowLlmConfig, setAllowLlmConfig] = useState(true);
 
   useEffect(() => {
-    const checkKeys = async () => {
+    const init = async () => {
       setIsCheckingKeys(true);
+
+      // Check if the server already has an LLM key configured
+      try {
+        const cfg = await configAPI.getConfig();
+        setServerHasKey(cfg.server_has_llm_key ?? false);
+        setAllowLlmConfig(cfg.allow_llm_config ?? true);
+      } catch {
+        // Defaults: no server key, allow config
+      }
+
       const providers = await getConfiguredProviders();
       setConfiguredProviders(providers);
       setIsCheckingKeys(false);
     };
-    checkKeys();
+    init();
   }, []);
 
-  const hasApiKeys = configuredProviders.length > 0;
+  // Users can proceed if the server has a key OR if they configured their own
+  const hasApiKeys = serverHasKey || configuredProviders.length > 0;
+  // Only show the API key input section if the server doesn't have a key
+  const showApiKeySection = !serverHasKey || allowLlmConfig;
 
   const loadFeatures = [
     'CSV & JSON support',
@@ -60,8 +76,10 @@ const Landing = () => {
         </p>
       </div>
 
-      {/* API Key Configuration Section */}
-      <ApiKeySection onConfigurationChange={setConfiguredProviders} />
+      {/* API Key Configuration Section — hidden when server provides the key */}
+      {showApiKeySection && (
+        <ApiKeySection onConfigurationChange={setConfiguredProviders} />
+      )}
 
       {/* Main Cards */}
       <div className="grid md:grid-cols-2 gap-6 mb-12">

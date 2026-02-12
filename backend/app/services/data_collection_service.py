@@ -107,22 +107,12 @@ class DataCollectionService:
         # Upload to Drive
         file_id = self._uploader.upload_file(filename, zip_bytes)
 
-        # Log to Google Sheet
+        # Log to Google Sheet (session summary — Sheet1)
         if self._sheets_logger:
             stats = session.statistics
             obs_unit = ""
             if session.observation_unit:
                 obs_unit = session.observation_unit.name or ""
-
-            # Read LLM call count from session stats file
-            llm_calls = 0
-            try:
-                llm_stats_file = Path("./qbsd_work") / session_id / "llm_call_stats.json"
-                if llm_stats_file.exists():
-                    llm_stats = json.loads(llm_stats_file.read_text(encoding="utf-8"))
-                    llm_calls = llm_stats.get("total_calls", 0)
-            except Exception as e:
-                logger.debug("[data-collection] Could not read LLM call stats: %s", e)
 
             self._sheets_logger.log_session(
                 session_id=session_id,
@@ -134,8 +124,20 @@ class DataCollectionService:
                 observation_unit=obs_unit,
                 trigger_source=trigger_source,
                 drive_file_id=file_id,
-                llm_calls=llm_calls,
             )
+
+            # Log LLM usage to separate "LLM Usage" tab
+            try:
+                llm_stats_file = Path("./qbsd_work") / session_id / "llm_call_stats.json"
+                if llm_stats_file.exists():
+                    llm_stats = json.loads(llm_stats_file.read_text(encoding="utf-8"))
+                    self._sheets_logger.log_llm_usage(
+                        session_id=session_id,
+                        llm_calls=llm_stats.get("total_calls", 0),
+                        per_stage=llm_stats.get("per_stage"),
+                    )
+            except Exception as e:
+                logger.debug("[data-collection] Could not log LLM usage: %s", e)
 
     # ── Helpers ─────────────────────────────────────────────────────
 

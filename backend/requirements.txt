@@ -35,3 +35,4 @@ supabase>=2.0.0
 # Google Drive/Sheets (optional, for research data collection)
 google-api-python-client>=2.100.0
 google-auth>=2.25.0
+python-dotenv
