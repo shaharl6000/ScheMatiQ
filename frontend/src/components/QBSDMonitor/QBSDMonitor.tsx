@@ -280,7 +280,12 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
       const status = error?.response?.status;
       const detail = error?.response?.data?.detail;
 
-      if (status === 503) {
+      if (status === 429) {
+        // Quota exceeded — show orange banner
+        setProcessingState('idle');
+        setQuotaExceeded(true);
+        addLog('warning', 'API usage limit reached');
+      } else if (status === 503) {
         // Server busy — show friendly amber banner, not error state
         setProcessingState('idle');
         setCapacityMessage(detail || 'The server is currently busy processing other requests. Please try again in a few minutes.');
