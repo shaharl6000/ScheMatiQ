@@ -167,6 +167,23 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         except Exception as e:
             logger.debug("Could not sync usage from Google Sheets: %s", e)
 
+    def _log_llm_usage_to_sheets(self, session_id: str, counts: dict) -> None:
+        """Write this session's LLM usage to Google Sheets.
+
+        Called directly from the runner so it works independently of
+        DataCollectionService (which may be disabled in developer mode).
+        Fails silently if Sheets is not configured.
+        """
+        try:
+            from app.storage.google_sheets import GoogleSheetsLogger
+            sheets = GoogleSheetsLogger.get_instance()
+            if sheets is None:
+                return
+            total = sum(counts.values())
+            sheets.log_llm_usage(session_id, total, counts)
+        except Exception as e:
+            logger.debug("Could not log LLM usage to Google Sheets: %s", e)
+
     def is_stop_requested(self, session_id: str) -> bool:
         """Check if stop has been requested for a session."""
         with self._state_lock:
@@ -988,6 +1005,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             # Skip if the session opted out of quota tracking
             if config.count_toward_quota:
                 self._global_usage.record_session(session_id, llm_tracker.get_counts())
+                # Also persist to Google Sheets (survives redeploys)
+                self._log_llm_usage_to_sheets(session_id, llm_tracker.get_counts())
             else:
                 logger.info("Session %s opted out of quota tracking (count_toward_quota=False)", session_id)
 
