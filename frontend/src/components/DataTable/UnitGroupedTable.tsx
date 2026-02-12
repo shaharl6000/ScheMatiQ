@@ -26,11 +26,12 @@ import {
 
 import { unitsAPI } from '../../services/api';
 import { useUnits, useMergeUnits, useUnitSuggestions } from '../../hooks/useUnits';
-import { MergeUnitsRequest } from '../../types/unit';
+import { MergeUnitsRequest, UnitSummary } from '../../types/unit';
 import { UnitFilter } from '../ViewMode/UnitFilter';
 import { UnitMergeDialog } from '../ViewMode/UnitMergeDialog';
 import { UnitSimilarityCard } from '../Units/UnitSimilarityCard';
 import UnitGroupRow from './UnitGroupRow';
+import { UnitMergePickerDialog } from './UnitMergePickerDialog';
 import ContentModal from '../ContentModal/ContentModal';
 import { DataRow, CellValue, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { cn } from '@/lib/utils';
@@ -83,8 +84,9 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   // Local state
   const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
   const [expandedUnits, setExpandedUnits] = useState<Set<string>>(new Set());
-  const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set());
+  const [mergePickerOpen, setMergePickerOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
+  const [unitsToMerge, setUnitsToMerge] = useState<UnitSummary[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
 
@@ -137,24 +139,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     });
   }, []);
 
-  // Toggle merge selection
-  const toggleMergeSelection = useCallback((unitName: string) => {
-    setSelectedForMerge(prev => {
-      const next = new Set(prev);
-      if (next.has(unitName)) {
-        next.delete(unitName);
-      } else {
-        next.add(unitName);
-      }
-      return next;
-    });
-  }, []);
-
-  // Clear merge selections
-  const clearMergeSelections = useCallback(() => {
-    setSelectedForMerge(new Set());
-  }, []);
-
   // Expand/collapse all
   const expandAll = useCallback(() => {
     setExpandedUnits(new Set(units.map(u => u.name)));
@@ -169,14 +153,14 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     try {
       await merge(request);
       setMergeDialogOpen(false);
-      clearMergeSelections();
+      setUnitsToMerge([]);
       await refreshUnits();
       await refetchData();
       onDataChange?.();
     } catch (err) {
       // Error is handled by the hook
     }
-  }, [merge, clearMergeSelections, refreshUnits, refetchData, onDataChange]);
+  }, [merge, refreshUnits, refetchData, onDataChange]);
 
   // Handle backend auto-merge results — refresh table silently
   useEffect(() => {
@@ -219,11 +203,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     });
     setModalOpen(true);
   }, []);
-
-  // Get selected units for merge dialog
-  const selectedUnitsForMerge = useMemo(() => {
-    return units.filter(u => selectedForMerge.has(u.name));
-  }, [units, selectedForMerge]);
 
   // Filter suggestions by dismissed
   const visibleSuggestions = useMemo(() => {
@@ -338,7 +317,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               </Badge>
             </h3>
             <p className="text-xs text-muted-foreground">
-              Click unit headers to expand/collapse • Select units with checkboxes to merge
+              Click unit headers to expand/collapse
             </p>
           </div>
 
@@ -384,29 +363,19 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             </Button>
           </div>
 
-          {/* Merge actions */}
+          {/* Merge & suggestions */}
           <div className="flex items-center gap-2 ml-auto">
-            {selectedForMerge.size >= 2 && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => setMergeDialogOpen(true)}
-                className="gap-1"
-              >
-                <Merge className="h-4 w-4" />
-                Merge {selectedForMerge.size} Units
-              </Button>
-            )}
-
-            {selectedForMerge.size > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={clearMergeSelections}
-              >
-                Clear Selection
-              </Button>
-            )}
+            {/* Merge Units button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMergePickerOpen(true)}
+              className="gap-1"
+              disabled={units.length < 2}
+            >
+              <Merge className="h-4 w-4" />
+              Merge Units
+            </Button>
 
             {/* Suggestions button */}
             <Tooltip>
@@ -535,7 +504,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                 .filter(unit => (!selectedUnit || unit.name === selectedUnit) && groupedRows.has(unit.name))
                 .map(unit => {
                   const isExpanded = expandedUnits.has(unit.name);
-                  const isSelectedForMerge = selectedForMerge.has(unit.name);
                   const unitRows = groupedRows.get(unit.name) || [];
 
                   return (
@@ -545,8 +513,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                         unit={unit}
                         isExpanded={isExpanded}
                         onToggleExpand={() => toggleExpansion(unit.name)}
-                        isSelectedForMerge={isSelectedForMerge}
-                        onToggleMergeSelection={() => toggleMergeSelection(unit.name)}
                         columnCount={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
                       />
 
@@ -658,14 +624,27 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         )}
       </div>
 
-      {/* Merge Dialog */}
+      {/* Merge Unit Picker Dialog */}
+      <UnitMergePickerDialog
+        open={mergePickerOpen}
+        onClose={() => setMergePickerOpen(false)}
+        units={units}
+        onContinue={(selectedUnits) => {
+          setMergePickerOpen(false);
+          setUnitsToMerge(selectedUnits);
+          setMergeDialogOpen(true);
+        }}
+      />
+
+      {/* Merge Naming Dialog */}
       <UnitMergeDialog
         open={mergeDialogOpen}
         onClose={() => {
           setMergeDialogOpen(false);
+          setUnitsToMerge([]);
           clearMergeError();
         }}
-        selectedUnits={selectedUnitsForMerge}
+        selectedUnits={unitsToMerge}
         onMerge={handleMerge}
         loading={mergeLoading}
         error={mergeError}
