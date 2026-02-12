@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { Search, GripVertical, ArrowUp, ArrowDown, Loader2, Square, AlertCircle } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
@@ -70,7 +70,9 @@ import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } f
 import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
 import TableOptionsMenu from './TableOptionsMenu';
-import RowActions from './RowActions';
+import BulkActionToolbar from './BulkActionToolbar';
+import { useRowSelection } from './hooks/useRowSelection';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -272,6 +274,12 @@ const DataTable: React.FC<DataTableProps> = ({
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const frozenThRef = useRef<HTMLTableCellElement>(null);
 
+  // Row selection state
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
+
   // Sort, filter, and visibility hooks
   const {
     sortState,
@@ -347,17 +355,6 @@ const DataTable: React.FC<DataTableProps> = ({
     await qbsdAPI.updateCell(sessionId, rowName, column, value);
     refetchData();
   }, [sessionId, refetchData]);
-
-  // Row delete handler
-  const handleRowDelete = useCallback(async (rowName: string) => {
-    await observationUnitAPI.remove(sessionId, rowName);
-    refetchData();
-    onDataChange?.();
-    toast({
-      title: 'Row deleted',
-      description: `"${rowName}" has been removed from the table.`,
-    });
-  }, [sessionId, refetchData, onDataChange, toast]);
 
   // Row add handler
   const handleAddRow = useCallback(async () => {
@@ -526,6 +523,51 @@ const DataTable: React.FC<DataTableProps> = ({
     }
     return data.rows;
   }, [data.rows, hasObservationUnits, normalizeDocName]);
+
+  // Row selection
+  const pageRowIds = useMemo(() =>
+    processedRows.map(row => row._unit_name || row.row_name || '').filter(Boolean),
+    [processedRows]
+  );
+
+  const {
+    selectedRows,
+    isAllPageSelected,
+    isIndeterminate,
+    toggleRow,
+    toggleAllPage,
+    clearSelection,
+    isSelected,
+    selectedCount,
+  } = useRowSelection(pageRowIds);
+
+  // Bulk delete handler
+  const handleBulkDelete = useCallback(async () => {
+    setIsBulkDeleting(true);
+    setBulkDeleteError(null);
+
+    try {
+      const unitNames = Array.from(selectedRows);
+      await observationUnitAPI.removeBulk(sessionId, unitNames);
+      setShowDeleteDialog(false);
+      clearSelection();
+      refetchData();
+      onDataChange?.();
+      toast({
+        title: 'Rows deleted',
+        description: `${unitNames.length} row${unitNames.length !== 1 ? 's' : ''} removed from the table.`,
+      });
+    } catch (err: any) {
+      setBulkDeleteError(err.response?.data?.detail || err.message || 'Failed to delete rows');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  }, [selectedRows, sessionId, clearSelection, refetchData, onDataChange, toast]);
+
+  // Clear selection on page/filter/search changes
+  useEffect(() => {
+    clearSelection();
+  }, [page, pageSize, searchTerm, filterState.rules, sortState.columns, clearSelection]);
 
   // Helper: check if doc_name cell should render (first row of a group)
   // When observation units are present, group by _source_document (the actual document name)
@@ -1257,6 +1299,19 @@ const DataTable: React.FC<DataTableProps> = ({
             >
               <thead className="sticky top-0 z-10 bg-background border-b">
                 <tr>
+                  {/* Checkbox column header - only show if not readonly */}
+                  {!readonly && (
+                    <th className="w-[40px] min-w-[40px] px-2 py-3 text-center sticky top-0 bg-background z-20">
+                      {selectedCount > 0 && (
+                        <Checkbox
+                          checked={isAllPageSelected ? true : isIndeterminate ? 'indeterminate' : false}
+                          onCheckedChange={() => toggleAllPage(pageRowIds)}
+                          aria-label="Select all rows on page"
+                        />
+                      )}
+                    </th>
+                  )}
+
                   {/* Frozen first column with sort/filter support */}
                   {frozenColumn && (
                     <th
@@ -1330,12 +1385,6 @@ const DataTable: React.FC<DataTableProps> = ({
                     ))}
                   </SortableContext>
 
-                  {/* Actions column header - only show if not readonly */}
-                  {!readonly && (
-                    <th className="px-2 py-3 text-left font-semibold text-sm min-w-[60px] sticky right-0 bg-background border-l">
-                      <span className="sr-only">Actions</span>
-                    </th>
-                  )}
                 </tr>
               </thead>
               <tbody>
@@ -1355,9 +1404,12 @@ const DataTable: React.FC<DataTableProps> = ({
                     }
                   };
 
+                  const rowId = row._unit_name || row.row_name || '';
                   const actualRowIndex = page * pageSize + rowIndex + 1;
                   const isNewlyAdded = newlyAddedRows?.has(actualRowIndex) || false;
                   const isStreaming = row.row_name ? streamingCells?.has(row.row_name) : false;
+                  const rowSelected = isSelected(rowId);
+                  const showCheckbox = hoveredRowId === rowId || selectedCount > 0;
                   // Add thicker border between doc groups when observation units present
                   const isFirstRowOfGroup = hasObservationUnits && shouldRenderDocNameCell(rowIndex);
                   const isGroupBoundary = isFirstRowOfGroup && rowIndex > 0;
@@ -1371,11 +1423,31 @@ const DataTable: React.FC<DataTableProps> = ({
                         "border-b hover:bg-muted/50 transition-colors",
                         isNewlyAdded && "bg-green-100 dark:bg-green-950 animate-pulse",
                         isStreaming && "bg-blue-50 dark:bg-blue-950",
+                        rowSelected && !isNewlyAdded && !isStreaming && "bg-blue-50 dark:bg-blue-950/50",
                         isGroupBoundary && "border-t-4 border-t-foreground/40",
                         // Alternating group backgrounds when observation units present
-                        hasObservationUnits && isOddGroup && !isNewlyAdded && !isStreaming && "bg-muted/30"
+                        hasObservationUnits && isOddGroup && !isNewlyAdded && !isStreaming && !rowSelected && "bg-muted/30"
                       )}
+                      onMouseEnter={() => setHoveredRowId(rowId)}
+                      onMouseLeave={() => setHoveredRowId(null)}
                     >
+                      {/* Checkbox column cell - only show if not readonly */}
+                      {!readonly && (
+                        <td className="w-[40px] min-w-[40px] px-2 py-3 text-center">
+                          <div className={cn(
+                            "transition-opacity duration-100",
+                            showCheckbox ? "opacity-100" : "opacity-0"
+                          )}>
+                            <Checkbox
+                              checked={rowSelected}
+                              onCheckedChange={() => toggleRow(rowId)}
+                              onClick={(e) => e.stopPropagation()}
+                              aria-label={`Select row ${rowId}`}
+                            />
+                          </div>
+                        </td>
+                      )}
+
                       {/* Frozen first column - visual grouping without rowSpan */}
                       {frozenColumn && (
                         hasObservationUnits ? (
@@ -1512,19 +1584,6 @@ const DataTable: React.FC<DataTableProps> = ({
                         );
                       })}
 
-                      {/* Actions column cell - only show if not readonly */}
-                      {!readonly && (
-                        <td className={cn(
-                          "px-2 py-3 min-w-[60px] sticky right-0 border-l",
-                          isOddGroup && hasObservationUnits ? "bg-muted/30" : "bg-background"
-                        )}>
-                          <RowActions
-                            rowName={row._unit_name || row.row_name || ''}
-                            onDelete={handleRowDelete}
-                            disabled={readonly}
-                          />
-                        </td>
-                      )}
                     </tr>
                   );
                 })}
@@ -1654,6 +1713,61 @@ const DataTable: React.FC<DataTableProps> = ({
                 </>
               ) : (
                 'Add Row'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Floating action bar for bulk selection */}
+      {!readonly && (
+        <BulkActionToolbar
+          selectedCount={selectedCount}
+          onDelete={() => {
+            setBulkDeleteError(null);
+            setShowDeleteDialog(true);
+          }}
+          onClearSelection={clearSelection}
+        />
+      )}
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedCount} Row{selectedCount !== 1 ? 's' : ''}</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {selectedCount} selected row{selectedCount !== 1 ? 's' : ''}? This will permanently remove {selectedCount !== 1 ? 'them' : 'it'} and all associated data.
+            </DialogDescription>
+          </DialogHeader>
+
+          {bulkDeleteError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{bulkDeleteError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={isBulkDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+            >
+              {isBulkDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
               )}
             </Button>
           </DialogFooter>

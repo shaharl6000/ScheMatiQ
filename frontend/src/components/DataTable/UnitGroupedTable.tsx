@@ -4,13 +4,22 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb, FileText } from 'lucide-react';
+import { Merge, RefreshCw, ChevronDown, ChevronUp, Loader2, Lightbulb, FileText, AlertCircle } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   Tooltip,
   TooltipContent,
@@ -24,7 +33,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-import { unitsAPI } from '../../services/api';
+import { unitsAPI, observationUnitAPI } from '../../services/api';
 import { useUnits, useMergeUnits, useUnitSuggestions } from '../../hooks/useUnits';
 import { MergeUnitsRequest, UnitSummary } from '../../types/unit';
 import { UnitFilter } from '../ViewMode/UnitFilter';
@@ -32,6 +41,8 @@ import { UnitMergeDialog } from '../ViewMode/UnitMergeDialog';
 import { UnitSimilarityCard } from '../Units/UnitSimilarityCard';
 import UnitGroupRow from './UnitGroupRow';
 import { UnitMergePickerDialog } from './UnitMergePickerDialog';
+import BulkActionToolbar from './BulkActionToolbar';
+import { useRowSelection } from './hooks/useRowSelection';
 import ContentModal from '../ContentModal/ContentModal';
 import { DataRow, CellValue, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { cn } from '@/lib/utils';
@@ -97,6 +108,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   // Modal state for viewing cell content with excerpts
   const [modalOpen, setModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState<ModalContent>({ title: '', content: null });
+
+  // Row selection state
+  const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
 
   // Fetch unit-grouped data
   const { data: unitData, isLoading: dataLoading, refetch: refetchData } = useQuery(
@@ -228,6 +245,52 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
     return groups;
   }, [unitData?.rows]);
+
+  // Row selection - compute pageRowIds from all visible rows
+  const pageRowIds = useMemo(() => {
+    if (!unitData?.rows) return [];
+    return unitData.rows.map(row => row._unit_name || row.row_name || '').filter(Boolean);
+  }, [unitData?.rows]);
+
+  const {
+    isAllPageSelected,
+    isIndeterminate,
+    selectedRows,
+    toggleRow,
+    toggleAllPage,
+    clearSelection,
+    isSelected,
+    selectedCount,
+  } = useRowSelection(pageRowIds);
+
+  // Bulk delete handler
+  const handleBulkDelete = useCallback(async () => {
+    setIsBulkDeleting(true);
+    setBulkDeleteError(null);
+
+    try {
+      const unitNames = Array.from(selectedRows);
+      await observationUnitAPI.removeBulk(sessionId, unitNames);
+      setShowDeleteDialog(false);
+      clearSelection();
+      await refetchData();
+      await refreshUnits();
+      onDataChange?.();
+      toast({
+        title: 'Rows deleted',
+        description: `${unitNames.length} row${unitNames.length !== 1 ? 's' : ''} removed from the table.`,
+      });
+    } catch (err: any) {
+      setBulkDeleteError(err.response?.data?.detail || err.message || 'Failed to delete rows');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  }, [selectedRows, sessionId, clearSelection, refetchData, refreshUnits, onDataChange, toast]);
+
+  // Clear selection on page/filter changes
+  useEffect(() => {
+    clearSelection();
+  }, [page, pageSize, selectedUnit, clearSelection]);
 
   // Check if any row has _source_document
   const hasSourceDocument = useMemo(() => {
@@ -447,6 +510,17 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           >
             <thead className="sticky top-0 z-10 bg-background border-b">
               <tr>
+                {/* Checkbox column header */}
+                <th className="w-[40px] min-w-[40px] px-2 py-3 text-center bg-background">
+                  {selectedCount > 0 && (
+                    <Checkbox
+                      checked={isAllPageSelected ? true : isIndeterminate ? 'indeterminate' : false}
+                      onCheckedChange={() => toggleAllPage(pageRowIds)}
+                      aria-label="Select all rows on page"
+                    />
+                  )}
+                </th>
+
                 {/* Source Document column - always first when present */}
                 {hasSourceDocument && (
                   <th
@@ -513,15 +587,40 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                         unit={unit}
                         isExpanded={isExpanded}
                         onToggleExpand={() => toggleExpansion(unit.name)}
-                        columnCount={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
+                        columnCount={visibleColumns.length + (hasSourceDocument ? 1 : 0) + 1}
                       />
 
                       {/* Unit rows (when expanded) */}
-                      {isExpanded && unitRows.map((row, rowIndex) => (
+                      {isExpanded && unitRows.map((row, rowIndex) => {
+                        const rowId = row._unit_name || row.row_name || '';
+                        const rowSelected = isSelected(rowId);
+                        const showCheckbox = hoveredRowId === rowId || selectedCount > 0;
+
+                        return (
                         <tr
                           key={`${unit.name}-${rowIndex}`}
-                          className="border-b hover:bg-muted/30 transition-colors"
+                          className={cn(
+                            "border-b hover:bg-muted/30 transition-colors",
+                            rowSelected && "bg-blue-50 dark:bg-blue-950/50"
+                          )}
+                          onMouseEnter={() => setHoveredRowId(rowId)}
+                          onMouseLeave={() => setHoveredRowId(null)}
                         >
+                          {/* Checkbox cell */}
+                          <td className="w-[40px] min-w-[40px] px-2 py-3 text-center">
+                            <div className={cn(
+                              "transition-opacity duration-100",
+                              showCheckbox ? "opacity-100" : "opacity-0"
+                            )}>
+                              <Checkbox
+                                checked={rowSelected}
+                                onCheckedChange={() => toggleRow(rowId)}
+                                onClick={(e) => e.stopPropagation()}
+                                aria-label={`Select row ${rowId}`}
+                              />
+                            </div>
+                          </td>
+
                           {/* Source Document cell - always first when present */}
                           {hasSourceDocument && (
                             <td
@@ -562,13 +661,14 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                             );
                           })}
                         </tr>
-                      ))}
+                        );
+                      })}
 
                       {/* Show message if no data rows for expanded unit */}
                       {isExpanded && unitRows.length === 0 && (
                         <tr>
                           <td
-                            colSpan={visibleColumns.length + (hasSourceDocument ? 1 : 0)}
+                            colSpan={visibleColumns.length + (hasSourceDocument ? 1 : 0) + 1}
                             className="px-4 py-8 text-center text-muted-foreground"
                           >
                             No rows loaded for this unit. Data may still be loading.
@@ -657,6 +757,59 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         title={modalContent.title}
         content={modalContent.content}
       />
+
+      {/* Floating action bar for bulk selection */}
+      <BulkActionToolbar
+        selectedCount={selectedCount}
+        onDelete={() => {
+          setBulkDeleteError(null);
+          setShowDeleteDialog(true);
+        }}
+        onClearSelection={clearSelection}
+      />
+
+      {/* Bulk Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete {selectedCount} Row{selectedCount !== 1 ? 's' : ''}</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete {selectedCount} selected row{selectedCount !== 1 ? 's' : ''}? This will permanently remove {selectedCount !== 1 ? 'them' : 'it'} and all associated data.
+            </DialogDescription>
+          </DialogHeader>
+
+          {bulkDeleteError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>{bulkDeleteError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={isBulkDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+            >
+              {isBulkDeleting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 };
