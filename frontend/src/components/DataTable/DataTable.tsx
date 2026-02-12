@@ -1166,9 +1166,6 @@ const DataTable: React.FC<DataTableProps> = ({
                   ({totalRowCount.toLocaleString()} rows)
                 </span>
               )}
-              {sessionType === 'qbsd' && (
-                <Badge variant="info">Auto-refreshing</Badge>
-              )}
             </h3>
           </div>
 

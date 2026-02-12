@@ -173,7 +173,6 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
   // Active state indicator
   const visibleCount = columns.filter(col => visibility[col] !== false).length;
   const hiddenCount = columns.length - visibleCount;
-  const hasActiveSettings = fullnessThreshold > 0 || hiddenCount > 0;
 
   return (
     <>
@@ -181,9 +180,6 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="icon" className="relative h-9 w-9">
             <MoreVertical className="h-4 w-4" />
-            {hasActiveSettings && (
-              <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-primary" />
-            )}
             <span className="sr-only">Table options</span>
           </Button>
         </DropdownMenuTrigger>

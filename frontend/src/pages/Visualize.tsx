@@ -86,7 +86,7 @@ const Visualize = () => {
   const { viewMode, setViewMode } = useViewMode();
 
   // Fetch observation units for the session (to determine if unit view is available)
-  const { units: unitListResponse } = useUnits(sessionId);
+  const { units: unitListResponse, refresh: refreshUnits } = useUnits(sessionId);
 
   // Enhanced upload document management state
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
@@ -223,6 +223,7 @@ const Visualize = () => {
               setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
               queryClient.invalidateQueries(['data', sessionId]);
               queryClient.invalidateQueries(['session', sessionId]);
+              queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
               setTimeout(() => {
                 setNewlyAddedRows(prev => {
                   const newSet = new Set(Array.from(prev));
@@ -243,6 +244,8 @@ const Visualize = () => {
               // Use broader query filter to match all data queries (including DataTable's paginated queries)
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               setTimeout(() => {
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                   wsRef.current.close(1000, 'Processing completed');
@@ -287,6 +290,8 @@ const Visualize = () => {
               setIsStoppingReextraction(false); // Clear stopping state
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
+              queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
             case 'reextraction_stopped':
               console.log('Re-extraction stopped:', message.data);
@@ -298,6 +303,8 @@ const Visualize = () => {
               // Force immediate data refetch to show partial results
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
 
             case 'stopped':
@@ -306,6 +313,8 @@ const Visualize = () => {
               setForceWebSocketConnect(false);
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
 
             // Continue Discovery events
@@ -319,6 +328,8 @@ const Visualize = () => {
               console.log('Continue discovery completed:', message.data);
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
             case 'continue_discovery_stopped':
               console.log('Continue discovery stopped:', message.data);
@@ -348,6 +359,8 @@ const Visualize = () => {
               setStreamingCells(new Map());    // Clear streaming cells
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
+              queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              refreshUnits();
               break;
           }
         } catch (err) {
@@ -522,6 +535,7 @@ const Visualize = () => {
                 setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
                 queryClient.invalidateQueries(['data', sessionId]);
                 queryClient.invalidateQueries(['session', sessionId]);
+                queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
                 setTimeout(() => {
                   setNewlyAddedRows(prev => {
                     const newSet = new Set(Array.from(prev));
@@ -542,6 +556,8 @@ const Visualize = () => {
                 // Use broader query filter to match all data queries (including DataTable's paginated queries)
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 setTimeout(() => {
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
                     wsRef.current.close(1000, 'Processing completed');
@@ -587,6 +603,8 @@ const Visualize = () => {
                 // Force immediate data refetch (not just invalidate)
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 // Notify feedback widget to reset (new table deserves fresh feedback)
                 window.dispatchEvent(new Event('reextraction_completed'));
                 // Delay WebSocket close to allow refetch to complete
@@ -605,6 +623,8 @@ const Visualize = () => {
                 // Force immediate data refetch to show partial results
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 break;
 
               case 'stopped':
@@ -613,6 +633,8 @@ const Visualize = () => {
                 setForceWebSocketConnect(false);
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 break;
 
               // Continue Discovery events
@@ -626,6 +648,8 @@ const Visualize = () => {
                 console.log('Continue discovery completed:', message.data);
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 break;
               case 'continue_discovery_stopped':
                 console.log('Continue discovery stopped:', message.data);
@@ -656,6 +680,8 @@ const Visualize = () => {
                 setForceWebSocketConnect(false); // Allow WebSocket to close
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
+                queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
                 break;
             }
           } catch (err) {
@@ -723,6 +749,8 @@ const Visualize = () => {
       if (eventSessionId === sessionId) {
         queryClient.invalidateQueries(['session', sessionId, mode]);
         queryClient.invalidateQueries(['data', sessionId, mode]);
+        queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+        refreshUnits();
       }
     };
 
@@ -896,6 +924,8 @@ const Visualize = () => {
         // Refresh session data to get updated status
         queryClient.invalidateQueries(['session', sessionId]);
         queryClient.invalidateQueries(['data', sessionId]);
+        queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+        refreshUnits();
       }
     } catch (err: any) {
       console.error('Failed to stop processing:', err);
@@ -1165,6 +1195,8 @@ const Visualize = () => {
                   onDataChange={() => {
                     queryClient.invalidateQueries(['session', sessionId, mode]);
                     queryClient.invalidateQueries(['data', sessionId, mode]);
+                    queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+                    refreshUnits();
                   }}
                 />
               ) : (
@@ -1342,6 +1374,8 @@ const Visualize = () => {
                 // Use refetch for immediate update instead of invalidate
                 queryClient.refetchQueries({ queryKey: ['session', sessionId, mode] });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId, mode] });
+                queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                refreshUnits();
               }}
               onReextractionStarted={handleReextractionStarted}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}
