@@ -1,15 +1,19 @@
 """QBSD API endpoints."""
 
+import logging
 import uuid
 import asyncio
 import csv
 import io
 import json
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse, StreamingResponse
+
+logger = logging.getLogger(__name__)
 
 from app.models.session import VisualizationSession, SessionType, SessionMetadata, FilterSortRequest
 from app.models.qbsd import QBSDConfig, QBSDStatus, CostEstimate, CostEstimateRequest, PhaseEstimate, DocumentStats
@@ -29,6 +33,43 @@ data_editor = DataEditor()
 
 # Project root for path resolution (backend/app/api/routes -> project root = 5 levels up)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
+
+
+def _send_quota_notification(exc, session_id: str) -> None:
+    """Send a notification when LLM quota is exceeded. Fire-and-forget."""
+    from app.core.config import QUOTA_NOTIFICATION_WEBHOOK, QUOTA_NOTIFICATION_EMAIL
+
+    if not QUOTA_NOTIFICATION_WEBHOOK:
+        logger.info("Quota exceeded (no webhook configured) — used=%d, limit=%d, session=%s",
+                     exc.used, exc.limit, session_id[:8])
+        return
+
+    def _send():
+        try:
+            import urllib.request
+            payload = json.dumps({
+                "text": (
+                    f"*LLM Quota Exceeded*\n"
+                    f"The system has reached its API call limit.\n"
+                    f"• Used: {exc.used:,} / {exc.limit:,} calls\n"
+                    f"• Blocked session: `{session_id}`\n"
+                    f"• Time: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}\n"
+                    f"{'• Contact: ' + QUOTA_NOTIFICATION_EMAIL if QUOTA_NOTIFICATION_EMAIL else ''}"
+                ),
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                QUOTA_NOTIFICATION_WEBHOOK,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=10)
+            logger.info("Quota notification sent successfully")
+        except Exception as e:
+            logger.warning("Failed to send quota notification: %s", e)
+
+    # Send in background thread to not block the response
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def _resolve_docs_path(path: str, session_id: Optional[str] = None) -> Optional[Path]:
@@ -267,13 +308,15 @@ async def run_qbsd(session_id: str, background_tasks: BackgroundTasks):
 
         # Pre-check global LLM quota before starting background task.
         # This gives the user an immediate HTTP error instead of a delayed WebSocket error.
-        from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
+        from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE, QUOTA_NOTIFICATION_WEBHOOK
         from qbsd.core.llm_call_tracker import QuotaExceededError
         if not DEVELOPER_MODE and LLM_CALL_GLOBAL_LIMIT > 0:
             try:
                 qbsd_runner._sync_usage_from_sheets()
                 qbsd_runner._global_usage.check_quota(LLM_CALL_GLOBAL_LIMIT)
-            except QuotaExceededError:
+            except QuotaExceededError as exc:
+                # Send notification (fire-and-forget)
+                _send_quota_notification(exc, session_id)
                 raise HTTPException(
                     status_code=429,
                     detail="The system has reached its processing capacity and is unable to start new sessions at this time. Please try again later or contact us for assistance."

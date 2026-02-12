@@ -130,6 +130,13 @@ DATA_COLLECTION_ENABLED = (
 # Set to 0 to allow unlimited calls (no quota enforced).
 LLM_CALL_GLOBAL_LIMIT = int(os.environ.get("LLM_CALL_GLOBAL_LIMIT", "20"))
 
+# Webhook URL for quota-exceeded notifications (Slack, Discord, email service, etc.)
+# If set, sends a POST request when a session is blocked due to quota.
+# Leave empty to disable notifications.
+QUOTA_NOTIFICATION_WEBHOOK = os.environ.get("QUOTA_NOTIFICATION_WEBHOOK", "")
+# Email address shown in the notification (so you know who to contact)
+QUOTA_NOTIFICATION_EMAIL = os.environ.get("QUOTA_NOTIFICATION_EMAIL", "")
+
 # ── Concurrency Configuration ────────────────────────────────────
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "5"))
 QBSD_THREAD_POOL_SIZE = int(os.environ.get("QBSD_THREAD_POOL_SIZE", "6"))
