@@ -26,7 +26,7 @@ const Landing = () => {
   const navigate = useNavigate();
   const [configuredProviders, setConfiguredProviders] = useState<LLMProvider[]>([]);
   const [isCheckingKeys, setIsCheckingKeys] = useState(true);
-  const [serverHasApiKeys, setServerHasApiKeys] = useState(false);
+  const [serverHasApiKeys, setServerHasApiKeys] = useState(true);
   const [developerMode, setDeveloperMode] = useState(false);
 
   useEffect(() => {
