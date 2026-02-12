@@ -389,23 +389,18 @@ async def update_cell(session_id: str, row_name: str, column: str, value: str):
 
 @router.post("/stop/{session_id}")
 async def stop_qbsd(session_id: str):
-    """Stop QBSD execution gracefully.
-
-    Returns information about what partial results were saved.
-    """
+    """Request QBSD execution to stop. Returns immediately."""
     try:
-        result = await qbsd_runner.stop_execution(session_id)
-
-        if not result["stopped"]:
+        result = await qbsd_runner.request_stop(session_id)
+        if not result["accepted"]:
             raise HTTPException(status_code=404, detail=result["message"])
 
-        return {
-            "status": "stopped",
-            "message": result["message"],
-            "schema_saved": result["schema_saved"],
-            "data_rows_saved": result["data_rows_saved"]
-        }
+        # Background safety net: force-cancels task if it doesn't stop within 60s
+        asyncio.create_task(qbsd_runner.stop_execution(session_id))
 
+        return {"status": "stopping", "message": result["message"]}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -241,7 +241,10 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
     setIsStopping(true);
     try {
       await schemaAPI.continueDiscovery.stop(sessionId, operationId);
-      addLog('warning', 'Stop request sent...');
+      // API returned — stop flag is set. Transition immediately.
+      setStatus('stopped');
+      setIsStopping(false);
+      addLog('warning', 'Stop requested — processing will stop at the next checkpoint.');
     } catch (err: any) {
       addLog('error', 'Failed to stop operation');
       setIsStopping(false);

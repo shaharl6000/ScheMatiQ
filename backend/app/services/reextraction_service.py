@@ -99,6 +99,20 @@ class ReextractionService(WebSocketBroadcasterMixin):
         with self._state_lock:
             self.stop_flags.pop(operation_id, None)
 
+    async def request_stop(self, operation_id: str) -> Dict[str, Any]:
+        """Set the stop flag and return immediately."""
+        with self._state_lock:
+            operation = self.active_operations.get(operation_id)
+        if not operation:
+            return {"accepted": False, "message": f"Operation {operation_id} not found"}
+        if operation.status in ["completed", "failed", "stopped"]:
+            return {"accepted": False, "message": f"Operation already {operation.status}"}
+
+        with self._state_lock:
+            self.stop_flags[operation_id] = True
+        logger.info("Stop requested for reextraction operation %s", operation_id)
+        return {"accepted": True, "message": "Stop signal sent"}
+
     async def stop_operation(self, operation_id: str) -> Dict[str, Any]:
         """
         Stop a running re-extraction operation.
@@ -154,22 +168,23 @@ class ReextractionService(WebSocketBroadcasterMixin):
         except Exception as e:
             logger.warning(f"Warning: Could not merge partial results: {e}")
 
-        # Update operation status
-        operation.status = "stopped"
-        operation.completed_at = datetime.now()
+        # Only update if not already terminal (task may have completed naturally)
+        if operation.status not in ("completed", "failed", "stopped"):
+            operation.status = "stopped"
+            operation.completed_at = datetime.now()
 
-        # Broadcast stopped event
-        await self.broadcast_event(
-            operation.session_id,
-            "reextraction_stopped",
-            {
-                "operation_id": operation_id,
-                "columns": operation.columns,
-                "processed_documents": operation.processed_documents,
-                "total_documents": operation.total_documents,
-                "message": "Re-extraction stopped by user"
-            }
-        )
+            # Broadcast stopped event
+            await self.broadcast_event(
+                operation.session_id,
+                "reextraction_stopped",
+                {
+                    "operation_id": operation_id,
+                    "columns": operation.columns,
+                    "processed_documents": operation.processed_documents,
+                    "total_documents": operation.total_documents,
+                    "message": "Re-extraction stopped by user"
+                }
+            )
 
         # Clean up
         self.clear_stop_flag(operation_id)

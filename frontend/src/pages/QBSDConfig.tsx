@@ -46,7 +46,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
@@ -90,8 +90,15 @@ const QBSDConfigPage = () => {
   // Previous session file names (restored from navigation state)
   const [previousUploadedFiles, setPreviousUploadedFiles] = useState<string[]>([]);
 
-  // Accordion state
-  const [openAccordions, setOpenAccordions] = useState<string[]>([]);
+  // Accordion state (single Advanced Settings accordion)
+  const [advancedOpen, setAdvancedOpen] = useState<string>('');
+
+  // LLM editing states (dev mode smart defaults display)
+  const [editingSchemaLlm, setEditingSchemaLlm] = useState(false);
+  const [editingValueLlm, setEditingValueLlm] = useState(false);
+
+  // Cost estimate expand state
+  const [costExpanded, setCostExpanded] = useState(false);
 
   // Configured providers state
   const [configuredProviders, setConfiguredProviders] = useState<LLMProvider[]>([]);
@@ -134,8 +141,6 @@ const QBSDConfigPage = () => {
   const [allowLlmConfig, setAllowLlmConfig] = useState(false);
 
   // File upload hook for document uploads
-  // Note: limit enforcement is handled by form validation + UI warnings, not in the callback,
-  // to avoid stale closure issues with useDropzone.
   const { getRootProps, getInputProps, isDragActive, dragError } = useFileUpload({
     allowMultiple: true,
     acceptedTypes: {
@@ -182,7 +187,6 @@ const QBSDConfigPage = () => {
       }
 
       // Developer mode: full provider selection
-      // Filter to only providers that have models defined
       const availableProviders = getAvailableProviders(providers);
       setConfiguredProviders(availableProviders as LLMProvider[]);
 
@@ -241,11 +245,9 @@ const QBSDConfigPage = () => {
         const data = await cloudAPI.getDatasets();
         const datasetsArray = Array.isArray(data) ? data : [];
         setDatasets(datasetsArray);
-        // If current selection is empty and datasets are available, select the first one
         if (datasetsArray.length > 0) {
           setConfig(prev => {
             const currentPaths = Array.isArray(prev.docs_path) ? prev.docs_path : [prev.docs_path];
-            // Only keep paths that exist in the fetched datasets (don't auto-select any)
             const validPaths = currentPaths.filter((path): path is string => path != null && datasetsArray.some(d => d.name === path));
             return { ...prev, docs_path: validPaths };
           });
@@ -298,7 +300,7 @@ const QBSDConfigPage = () => {
       previous_session_id: state.previousSessionId,
     }));
 
-    // Restore document source tab
+    // Restore document source
     if (restoredConfig.upload_pending || (state.uploadedFileNames && state.uploadedFileNames.length > 0)) {
       setDocumentSource('upload');
       setPreviousUploadedFiles(state.uploadedFileNames || []);
@@ -322,48 +324,25 @@ const QBSDConfigPage = () => {
       }
     }
 
-    // Note: Initial Schema (initialSchemaData/initialSchemaPath) cannot be restored here
-    // because InitialSchemaEditor manages its own internal state and resets on mount.
-
-    // Determine which accordions to open based on restored config
-    const newOpenAccordions: string[] = [];
-
-    // Check Advanced Config
-    if (
+    // Open advanced settings if any non-default values were restored
+    const hasAdvancedChanges =
       restoredConfig.max_keys_schema !== DEFAULT_MAX_KEYS_SCHEMA ||
       restoredConfig.documents_batch_size !== DEFAULT_DOCUMENTS_BATCH_SIZE ||
       restoredConfig.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED ||
-      restoredConfig.initial_observation_unit
-    ) {
-      newOpenAccordions.push('advanced-config');
-    }
+      restoredConfig.initial_observation_unit ||
+      (restoredConfig.schema_creation_backend &&
+        (restoredConfig.schema_creation_backend.provider !== DEFAULT_CONFIG.schema_creation_backend.provider ||
+        restoredConfig.schema_creation_backend.model !== DEFAULT_CONFIG.schema_creation_backend.model ||
+        restoredConfig.schema_creation_backend.temperature !== DEFAULT_CONFIG.schema_creation_backend.temperature)) ||
+      (restoredConfig.value_extraction_backend &&
+        (restoredConfig.value_extraction_backend.provider !== DEFAULT_CONFIG.value_extraction_backend.provider ||
+        restoredConfig.value_extraction_backend.model !== DEFAULT_CONFIG.value_extraction_backend.model ||
+        restoredConfig.value_extraction_backend.temperature !== DEFAULT_CONFIG.value_extraction_backend.temperature)) ||
+      restoredConfig.retriever;
 
-    // Check Schema LLM
-    if (
-      restoredConfig.schema_creation_backend &&
-      (restoredConfig.schema_creation_backend.provider !== DEFAULT_CONFIG.schema_creation_backend.provider ||
-      restoredConfig.schema_creation_backend.model !== DEFAULT_CONFIG.schema_creation_backend.model ||
-      restoredConfig.schema_creation_backend.temperature !== DEFAULT_CONFIG.schema_creation_backend.temperature)
-    ) {
-      newOpenAccordions.push('schema-llm');
+    if (hasAdvancedChanges) {
+      setAdvancedOpen('advanced-settings');
     }
-
-    // Check Value LLM
-    if (
-      restoredConfig.value_extraction_backend &&
-      (restoredConfig.value_extraction_backend.provider !== DEFAULT_CONFIG.value_extraction_backend.provider ||
-      restoredConfig.value_extraction_backend.model !== DEFAULT_CONFIG.value_extraction_backend.model ||
-      restoredConfig.value_extraction_backend.temperature !== DEFAULT_CONFIG.value_extraction_backend.temperature)
-    ) {
-      newOpenAccordions.push('value-llm');
-    }
-
-    // Check Retriever
-    if (restoredConfig.retriever) {
-      newOpenAccordions.push('retriever');
-    }
-
-    setOpenAccordions(newOpenAccordions);
 
     // Clear navigation state to prevent re-restoration on refresh
     window.history.replaceState({}, document.title);
@@ -380,7 +359,10 @@ const QBSDConfigPage = () => {
     setObservationUnitName('');
     setObservationUnitDefinition('');
     setCostEstimate(null);
-    setOpenAccordions([]);
+    setAdvancedOpen('');
+    setEditingSchemaLlm(false);
+    setEditingValueLlm(false);
+    setCostExpanded(false);
     setError(null);
     window.history.replaceState({}, document.title);
   };
@@ -412,7 +394,6 @@ const QBSDConfigPage = () => {
     setConfig(prev => {
       const updates: Partial<LLMConfig> = { [field]: value };
 
-      // When provider changes, auto-select default model for new provider
       if (field === 'provider') {
         updates.model = getDefaultModelForProvider(value as LLMProviderKey);
       }
@@ -431,7 +412,6 @@ const QBSDConfigPage = () => {
     setConfig(prev => {
       const updates: Partial<LLMConfig> = { [field]: value };
 
-      // When provider changes, auto-select default model for new provider
       if (field === 'provider') {
         updates.model = getDefaultModelForProvider(value as LLMProviderKey);
       }
@@ -466,21 +446,14 @@ const QBSDConfigPage = () => {
 
   // Debounced cost estimate fetching (developer mode only)
   useEffect(() => {
-    // Cost estimation is hidden in release mode
-    if (!developerMode) {
-      return;
-    }
+    if (!developerMode) return;
 
-    // Don't fetch if essential config is missing
-    if (!config.schema_creation_backend.provider || !config.schema_creation_backend.model) {
-      return;
-    }
+    if (!config.schema_creation_backend.provider || !config.schema_creation_backend.model) return;
 
-    // Only fetch if we have documents selected (cloud) or uploaded files
-    const hasCloudDocs = documentSource === 'cloud' && config.docs_path && 
+    const hasCloudDocs = documentSource === 'cloud' && config.docs_path &&
       (Array.isArray(config.docs_path) ? config.docs_path.length > 0 : !!config.docs_path);
     const hasUploadedDocs = documentSource === 'upload' && uploadedFiles.length > 0;
-    
+
     if (!hasCloudDocs && !hasUploadedDocs) {
       setCostEstimate(null);
       return;
@@ -489,11 +462,8 @@ const QBSDConfigPage = () => {
     const fetchCostEstimate = async () => {
       setCostEstimateLoading(true);
       setCostEstimateError(null);
-      
+
       try {
-        // If using uploaded files, send file metadata (name, size) for estimation
-        // Backend will estimate tokens from file size (~4 bytes per token)
-        // Cap at document limit to match what backend will actually process
         let uploadedFileInfo: Array<{ name: string; size: number }> | undefined;
         if (documentSource === 'upload' && uploadedFiles.length > 0) {
           const filesToEstimate = uploadedFiles.slice(0, effectiveMaxDocs);
@@ -502,12 +472,11 @@ const QBSDConfigPage = () => {
             size: file.size
           }));
         }
-        
+
         const estimate = await qbsdAPI.estimateCostPreview(config, uploadedFileInfo);
         setCostEstimate(estimate);
       } catch (err: any) {
         console.error('Failed to fetch cost estimate:', err);
-        // Don't show error for 501 (not available) - just hide the estimate
         if (err.response?.status !== 501) {
           setCostEstimateError(err.response?.data?.detail || 'Failed to estimate cost');
         }
@@ -517,7 +486,6 @@ const QBSDConfigPage = () => {
       }
     };
 
-    // Debounce the fetch by 500ms
     const timeoutId = setTimeout(fetchCostEstimate, 500);
     return () => clearTimeout(timeoutId);
   }, [
@@ -540,7 +508,6 @@ const QBSDConfigPage = () => {
     setError(null);
 
     try {
-      // Get API keys from storage
       const schemaApiKey = await getApiKeyForProvider(
         config.schema_creation_backend.provider as LLMProvider
       );
@@ -548,7 +515,6 @@ const QBSDConfigPage = () => {
         config.value_extraction_backend.provider as LLMProvider
       );
 
-      // Build observation unit config based on mode
       let initialObservationUnit: InitialObservationUnit | undefined;
       if (observationUnitMode === 'name_only' && observationUnitName.trim()) {
         initialObservationUnit = { name: observationUnitName.trim() };
@@ -559,16 +525,12 @@ const QBSDConfigPage = () => {
         };
       }
 
-      // Build config with API keys and initial schema
       const hasNewUploads = uploadedFiles.length > 0;
       const hasRestoredFiles = previousUploadedFiles.length > 0;
       const configWithKeys: QBSDConfig = {
         ...config,
-        // If using upload mode, set docs_path to null (documents will be added after session creation)
         docs_path: documentSource === 'upload' ? null : config.docs_path,
-        // Tell backend that documents will be uploaded or reused
         upload_pending: documentSource === 'upload' && (hasNewUploads || hasRestoredFiles),
-        // If reusing files from a previous session, pass the session ID so backend copies them
         previous_session_id: (documentSource === 'upload' && hasRestoredFiles && !hasNewUploads)
           ? config.previous_session_id
           : undefined,
@@ -580,12 +542,9 @@ const QBSDConfigPage = () => {
           ...config.value_extraction_backend,
           api_key: valueApiKey || undefined,
         },
-        // Add initial schema (inline data takes priority over file path)
         initial_schema: initialSchemaData,
         initial_schema_path: !initialSchemaData ? initialSchemaPath : undefined,
-        // Add initial observation unit
         initial_observation_unit: initialObservationUnit,
-        // Privacy opt-out
         opt_out_data_collection: optOutDataCollection,
       };
 
@@ -602,7 +561,6 @@ const QBSDConfigPage = () => {
             console.warn('Upload warnings:', uploadResult.warnings);
           }
         } catch (uploadErr: any) {
-          // Session exists but upload failed - still navigate but warn user
           console.error('File upload failed:', uploadErr);
           setError('Session created but some files failed to upload. You can add documents later.');
         } finally {
@@ -621,7 +579,6 @@ const QBSDConfigPage = () => {
         if (status === 503) {
           navState = { serverBusy: true, capacityMessage: detail || 'The server is currently busy processing other requests. Please try again in a few minutes.' };
         }
-        // For other errors, navigate without special state — QBSDMonitor shows "Ready to Start" as fallback
       }
 
       // Step 4: Navigate to visualization
@@ -636,17 +593,14 @@ const QBSDConfigPage = () => {
   // Consent-aware start: show dialog in release mode if not previously accepted
   const handleStartClick = () => {
     if (!dataCollectionEnabled || developerMode) {
-      // No data collection or developer mode — skip consent
       handleSubmit(false);
       return;
     }
     const { consentGiven, savedOptOut } = getSavedConsent();
     if (consentGiven) {
-      // Previously accepted — use saved preference
       handleSubmit(savedOptOut);
       return;
     }
-    // Show consent dialog
     setConsentDialogOpen(true);
   };
 
@@ -659,8 +613,50 @@ const QBSDConfigPage = () => {
   const hasCloudDocuments = documentSource === 'cloud' && selectedPaths.length > 0;
   const hasUploadedFiles = documentSource === 'upload' && (uploadedFiles.length > 0 || previousUploadedFiles.length > 0);
   const hasDocuments = hasCloudDocuments || hasUploadedFiles;
-  // Valid if at least one of query or documents is provided
   const isFormValid = hasQuery || hasDocuments;
+
+  // Track whether form has been modified from defaults
+  const isDirty = useMemo(() => {
+    if (config.query !== '') return true;
+    if (config.max_keys_schema !== DEFAULT_MAX_KEYS_SCHEMA) return true;
+    if (config.documents_batch_size !== DEFAULT_DOCUMENTS_BATCH_SIZE) return true;
+    if (config.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED) return true;
+    if (config.skip_value_extraction) return true;
+    if (config.schema_creation_backend.provider !== DEFAULT_CONFIG.schema_creation_backend.provider ||
+        config.schema_creation_backend.model !== DEFAULT_CONFIG.schema_creation_backend.model ||
+        config.schema_creation_backend.temperature !== DEFAULT_CONFIG.schema_creation_backend.temperature) return true;
+    if (config.value_extraction_backend.provider !== DEFAULT_CONFIG.value_extraction_backend.provider ||
+        config.value_extraction_backend.model !== DEFAULT_CONFIG.value_extraction_backend.model ||
+        config.value_extraction_backend.temperature !== DEFAULT_CONFIG.value_extraction_backend.temperature) return true;
+    if (config.retriever) return true;
+    if (uploadedFiles.length > 0) return true;
+    if (previousUploadedFiles.length > 0) return true;
+    if (selectedPaths.length > 0) return true;
+    if (observationUnitMode !== 'auto') return true;
+    if (initialSchemaPath || initialSchemaData) return true;
+    if (limitBypassEnabled) return true;
+    return false;
+  }, [config, uploadedFiles.length, previousUploadedFiles.length, selectedPaths.length, observationUnitMode, initialSchemaPath, initialSchemaData, limitBypassEnabled]);
+
+  // Summary badge text for advanced settings accordion
+  const advancedConfigSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (initialSchemaData) parts.push(`${initialSchemaData.length} col${initialSchemaData.length !== 1 ? 's' : ''}`);
+    else if (initialSchemaPath) parts.push('Schema file');
+    if (observationUnitMode !== 'auto') parts.push('Custom unit');
+    if (config.max_keys_schema !== DEFAULT_MAX_KEYS_SCHEMA ||
+        config.documents_batch_size !== DEFAULT_DOCUMENTS_BATCH_SIZE ||
+        config.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED) {
+      parts.push('Custom params');
+    }
+    if (allowLlmConfig && (
+      config.schema_creation_backend.provider !== DEFAULT_CONFIG.schema_creation_backend.provider ||
+      config.schema_creation_backend.model !== DEFAULT_CONFIG.schema_creation_backend.model
+    )) parts.push('Custom LLM');
+    if (config.retriever) parts.push('Custom retriever');
+    if (limitBypassEnabled) parts.push('Bypass enabled');
+    return parts;
+  }, [initialSchemaData, initialSchemaPath, observationUnitMode, config.max_keys_schema, config.documents_batch_size, config.document_randomization_seed, config.schema_creation_backend.provider, config.schema_creation_backend.model, config.retriever, allowLlmConfig, limitBypassEnabled]);
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -689,13 +685,15 @@ const QBSDConfigPage = () => {
             <HelpCircle className="h-5 w-5" />
           </Button>
         </div>
+        {isDirty && (
           <Button variant="ghost" onClick={handleReset} className="text-muted-foreground">
             <RotateCcw className="mr-2 h-4 w-4" />
             Reset
           </Button>
+        )}
       </div>
       <p className="text-muted-foreground mb-6">
-        Set up your Query-Based Schema Discovery parameters to run AI-powered data extraction.
+        Configure your query and documents to start extracting structured data.
       </p>
 
       <Card>
@@ -705,117 +703,122 @@ const QBSDConfigPage = () => {
             Basic Configuration
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Mode Info */}
+        <CardContent className="space-y-4">
+          {/* Flexible Input Banner */}
           <Alert>
             <AlertDescription>
-              <strong>Flexible Input:</strong> Provide a query, documents, or both.
-              {!hasQuery && !hasDocuments && (
-                <span className="text-destructive ml-1">At least one is required.</span>
-              )}
-              {hasQuery && hasDocuments && ' Using standard mode (query + documents).'}
-              {hasQuery && !hasDocuments && ' Using query-only mode — schema will be planned based on your query.'}
-              {!hasQuery && hasDocuments && ' Using document-only mode — schema will be discovered from document content.'}
+              Provide a query, documents, or both to get started.
             </AlertDescription>
           </Alert>
 
           {/* Research Query */}
           <div className="space-y-2">
-            <Label htmlFor="query" className="inline-flex items-center gap-1.5">
-              Research Query {!hasDocuments && <span className="text-destructive">*</span>}
-              <InfoTooltip text="The question you want to answer using your documents. Be specific — this guides what information we extract." />
-            </Label>
-            <div className="relative">
-              {config.query === '' && (
-                <div className="absolute inset-0 pointer-events-none p-[9px] text-muted-foreground/40 text-sm leading-[1.43] whitespace-pre-wrap">
-                  Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?
-                </div>
-              )}
-              <Textarea
-                id="query"
-                rows={3}
-                value={config.query}
-                onChange={(e) => handleConfigChange('query', e.target.value)}
-                placeholder=""
-                className="resize-none bg-transparent"
-                aria-required={!hasDocuments}
-                aria-describedby="query-hint"
-                onKeyDown={(e) => {
-                  if (e.key === 'Tab' && config.query === '') {
-                    e.preventDefault();
-                    handleConfigChange('query', 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?');
-                  }
-                }}
-              />
-            </div>
-            <p id="query-hint" className="text-sm text-muted-foreground">
-              {hasDocuments && !hasQuery
-                ? 'Optional — leave empty to discover schema from document content'
-                : 'The research question that will guide schema discovery'}
-            </p>
+            <Label htmlFor="query">Research Query</Label>
+            <Textarea
+              id="query"
+              rows={3}
+              value={config.query}
+              onChange={(e) => handleConfigChange('query', e.target.value)}
+              placeholder="e.g., Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?"
+              className="resize-none"
+              onKeyDown={(e) => {
+                if (e.key === 'Tab' && config.query === '') {
+                  e.preventDefault();
+                  handleConfigChange('query', 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?');
+                }
+              }}
+            />
           </div>
 
           {/* Document Source */}
-          <div className="space-y-2">
-              <Label>
-                Documents {!hasQuery && <span className="text-destructive">*</span>}
-              </Label>
+          <div className="space-y-3">
+            <Label>Documents</Label>
+            <RadioGroup
+              value={documentSource}
+              onValueChange={(v) => setDocumentSource(v as 'upload' | 'cloud')}
+              className="flex items-center gap-4"
+            >
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="upload" id="doc-upload" />
+                <Label htmlFor="doc-upload" className="cursor-pointer font-normal">Upload files</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="cloud" id="doc-cloud" />
+                <Label htmlFor="doc-cloud" className="cursor-pointer font-normal">Cloud datasets</Label>
+              </div>
+            </RadioGroup>
 
+            {/* Upload Files */}
+            {documentSource === 'upload' && (
+              <div className="space-y-2">
+                <div
+                  {...getRootProps()}
+                  className={`
+                    border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors
+                    ${isDragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-primary/50'}
+                  `}
+                >
+                  <input {...getInputProps()} />
+                  <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">
+                    {isDragActive ? 'Drop files here...' : 'Drag and drop files here, or click to browse'}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Supports: .txt, .md, .pdf, .doc, .docx, .rtf (max 10MB each)
+                  </p>
+                </div>
 
-              <Tabs value={documentSource} onValueChange={(v) => setDocumentSource(v as 'upload' | 'cloud')}>
-                <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="upload" className="flex items-center gap-2">
-                    <Upload className="h-4 w-4" />
-                    Upload Files
-                  </TabsTrigger>
-                  <TabsTrigger value="cloud" className="flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Cloud Datasets
-                  </TabsTrigger>
-                </TabsList>
+                {dragError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{dragError}</AlertDescription>
+                  </Alert>
+                )}
 
-                {/* Upload Files Tab */}
-                <TabsContent value="upload" className="mt-3">
-                  <div
-                    {...getRootProps()}
-                    className={`
-                      border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors
-                      ${isDragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-primary/50'}
-                    `}
-                  >
-                    <input {...getInputProps()} />
-                    <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                    <p className="text-sm text-muted-foreground">
-                      {isDragActive ? 'Drop files here...' : 'Drag and drop files here, or click to browse'}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Supports: .txt, .md, .pdf, .doc, .docx, .rtf (max 10MB each)
-                    </p>
+                {/* Restored files from previous session */}
+                {previousUploadedFiles.length > 0 && uploadedFiles.length === 0 && (
+                  <div className="text-sm text-muted-foreground">
+                    {previousUploadedFiles.length} file{previousUploadedFiles.length > 1 ? 's' : ''} from previous session
                   </div>
+                )}
 
-                  {dragError && (
-                    <Alert variant="destructive" className="mt-3">
-                      <AlertDescription>{dragError}</AlertDescription>
-                    </Alert>
-                  )}
-
-                  {/* Restored files from previous session */}
-                  {previousUploadedFiles.length > 0 && uploadedFiles.length === 0 && (
-                    <div className="mt-3 text-sm text-muted-foreground">
-                      {previousUploadedFiles.length} file{previousUploadedFiles.length > 1 ? 's' : ''} from previous session
+                {uploadedFiles.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-sm text-muted-foreground">
+                      {uploadedFiles.length} file{uploadedFiles.length > 1 ? 's' : ''} ({formatFileSize(totalUploadSize)})
                     </div>
-                  )}
 
-                  {uploadedFiles.length > 0 && (
-                    <div className="mt-3 space-y-2">
+                    {uploadedFiles.length <= 5 ? (
+                      <div className="space-y-1">
+                        {uploadedFiles.map((file, index) => (
+                          <div
+                            key={`${file.name}-${index}`}
+                            className="flex items-center justify-between p-2 bg-muted/50 rounded-md"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <span className="text-sm truncate">{file.name}</span>
+                              <span className="text-xs text-muted-foreground flex-shrink-0">
+                                ({formatFileSize(file.size)})
+                              </span>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeUploadedFile(file)}
+                              className="h-7 w-7 p-0 flex-shrink-0"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
                       <Collapsible>
-                        <CollapsibleTrigger className="group flex items-center gap-2 w-full text-sm text-muted-foreground hover:text-foreground transition-colors">
+                        <CollapsibleTrigger className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
                           <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                          <span>
-                            Total: {uploadedFiles.length} file{uploadedFiles.length > 1 ? 's' : ''} ({formatFileSize(totalUploadSize)})
-                          </span>
+                          <span>Show all files</span>
                         </CollapsibleTrigger>
-                        <CollapsibleContent className="space-y-2 mt-2">
+                        <CollapsibleContent className="space-y-1 mt-2">
                           {uploadedFiles.map((file, index) => (
                             <div
                               key={`${file.name}-${index}`}
@@ -840,135 +843,122 @@ const QBSDConfigPage = () => {
                           ))}
                         </CollapsibleContent>
                       </Collapsible>
+                    )}
 
-                      {/* Document limit warning - only show when exceeding limit */}
-                      {!limitBypassEnabled && isOverLimit && (
-                        <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
-                          <AlertTriangle className="h-4 w-4 text-amber-600" />
-                          <AlertDescription className="text-amber-700 dark:text-amber-400">
-                            You've selected {uploadedFiles.length} documents, but analysis is limited to {maxDocuments} to ensure fast results and reasonable costs. A representative sample will be used.
-                          </AlertDescription>
-                        </Alert>
-                      )}
-                    </div>
-                  )}
-                </TabsContent>
+                    {/* Document limit warning */}
+                    {!limitBypassEnabled && isOverLimit && (
+                      <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                        <AlertTriangle className="h-4 w-4 text-amber-600" />
+                        <AlertDescription className="text-amber-700 dark:text-amber-400">
+                          You've selected {uploadedFiles.length} documents, but analysis is limited to {maxDocuments} to ensure fast results and reasonable costs. A representative sample will be used.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
-                {/* Cloud Datasets Tab */}
-                <TabsContent value="cloud" className="mt-3 space-y-3">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="outline"
-                        className="w-full justify-between"
-                        disabled={datasetsLoading}
-                      >
-                        {datasetsLoading ? (
-                          <>
-                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                            Loading datasets...
-                          </>
-                        ) : selectedPaths.length === 0 ? (
-                          'Select datasets...'
-                        ) : (
-                          `${selectedPaths.length} dataset${selectedPaths.length > 1 ? 's' : ''} selected`
-                        )}
-                        <ChevronDown className="ml-2 h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent className="w-full min-w-[300px] max-h-[300px] overflow-y-auto">
-                      <DropdownMenuLabel>Select Datasets</DropdownMenuLabel>
-                      {datasets.length === 0 ? (
-                        <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                          No datasets available
-                        </div>
+            {/* Cloud Datasets */}
+            {documentSource === 'cloud' && (
+              <div className="space-y-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-between"
+                      disabled={datasetsLoading}
+                    >
+                      {datasetsLoading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading datasets...
+                        </>
+                      ) : selectedPaths.length === 0 ? (
+                        'Select datasets...'
                       ) : (
-                        datasets.map((dataset) => (
-                          <DropdownMenuCheckboxItem
-                            key={dataset.name}
-                            checked={selectedPaths.includes(dataset.name)}
-                            onSelect={(e) => e.preventDefault()}
-                            onCheckedChange={(checked) => {
-                              const newPaths = checked
-                                ? [...selectedPaths, dataset.name]
-                                : selectedPaths.filter(p => p !== dataset.name);
-                              handleConfigChange('docs_path', newPaths);
-                            }}
-                          >
-                            <span className="flex items-center justify-between w-full">
-                              <span>{dataset.name}</span>
-                              <Badge variant="secondary" className="ml-2 text-xs">
-                                {dataset.file_count} files
-                              </Badge>
-                            </span>
-                          </DropdownMenuCheckboxItem>
-                        ))
+                        `${selectedPaths.length} dataset${selectedPaths.length > 1 ? 's' : ''} selected`
                       )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                      <ChevronDown className="ml-2 h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-full min-w-[300px] max-h-[300px] overflow-y-auto">
+                    <DropdownMenuLabel>Select Datasets</DropdownMenuLabel>
+                    {datasets.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No datasets available
+                      </div>
+                    ) : (
+                      datasets.map((dataset) => (
+                        <DropdownMenuCheckboxItem
+                          key={dataset.name}
+                          checked={selectedPaths.includes(dataset.name)}
+                          onSelect={(e) => e.preventDefault()}
+                          onCheckedChange={(checked) => {
+                            const newPaths = checked
+                              ? [...selectedPaths, dataset.name]
+                              : selectedPaths.filter(p => p !== dataset.name);
+                            handleConfigChange('docs_path', newPaths);
+                          }}
+                        >
+                          <span className="flex items-center justify-between w-full">
+                            <span>{dataset.name}</span>
+                            <Badge variant="secondary" className="ml-2 text-xs">
+                              {dataset.file_count} files
+                            </Badge>
+                          </span>
+                        </DropdownMenuCheckboxItem>
+                      ))
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
 
-                  {/* Cloud dataset document limit warning - only show when exceeding limit */}
-                  {!limitBypassEnabled && isCloudOverLimit && (
-                    <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
-                      <AlertTriangle className="h-4 w-4 text-amber-600" />
-                      <AlertDescription className="text-amber-700 dark:text-amber-400">
-                        Your selection contains {cloudFileCount} documents, but analysis is limited to {maxDocuments} to ensure fast results and reasonable costs. A representative sample will be used.
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                </TabsContent>
-              </Tabs>
-              <p className="text-sm text-muted-foreground">
-                {hasQuery && !hasDocuments
-                  ? 'Optional — leave empty to plan schema based on query alone'
-                  : documentSource === 'upload'
-                    ? 'Upload documents from your computer'
-                    : 'Select one or more document datasets'}
-              </p>
+                {/* Cloud dataset document limit warning */}
+                {!limitBypassEnabled && isCloudOverLimit && (
+                  <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <AlertDescription className="text-amber-700 dark:text-amber-400">
+                      Your selection contains {cloudFileCount} documents, but analysis is limited to {maxDocuments} to ensure fast results and reasonable costs. A representative sample will be used.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Schema Only Mode Toggle */}
-          <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/30">
-            <div className="space-y-0.5">
-              <Label htmlFor="schema-only" className="text-base font-medium inline-flex items-center gap-1.5">
-                Schema Only Mode
-                <InfoTooltip text="Preview the table structure without extracting values. Useful for checking if the columns match your needs before running the full extraction." />
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                Skip value extraction — faster and lower cost. Only discover the schema structure.
-              </p>
-            </div>
-            <Switch
+          {/* Schema Only Mode Checkbox */}
+          <div className="flex items-center gap-2">
+            <Checkbox
               id="schema-only"
               checked={config.skip_value_extraction || false}
               onCheckedChange={(checked) => handleConfigChange('skip_value_extraction', checked)}
             />
+            <Label htmlFor="schema-only" className="text-sm cursor-pointer inline-flex items-center gap-1.5">
+              Schema only mode
+              <InfoTooltip text="Skip value extraction — discover only the table structure. Faster and lower cost." />
+            </Label>
           </div>
 
-          {/* Configuration Accordions */}
-          <Accordion 
-            type="multiple" 
-            className="mt-6"
-            value={openAccordions}
-            onValueChange={setOpenAccordions}
+          {/* Advanced Settings - Single Accordion */}
+          <Accordion
+            type="single"
+            collapsible
+            value={advancedOpen}
+            onValueChange={setAdvancedOpen}
           >
-            {/* Advanced Configuration */}
-            <AccordionItem value="advanced-config">
+            <AccordionItem value="advanced-settings">
               <AccordionTrigger className="hover:no-underline">
                 <div className="flex items-center gap-2">
                   <Settings className="h-4 w-4" />
-                  <span className="font-semibold">Advanced Configuration</span>
-                  {(initialSchemaPath || initialSchemaData || observationUnitMode !== 'auto') && (
+                  <span className="font-semibold">Advanced Settings</span>
+                  {advancedConfigSummary.length > 0 && (
                     <Badge variant="secondary" className="ml-2">
-                      {[
-                        initialSchemaData ? `${initialSchemaData.length} columns` : initialSchemaPath ? 'Schema from file' : null,
-                        observationUnitMode !== 'auto' ? 'Custom unit' : null,
-                      ].filter(Boolean).join(', ') || 'Configured'}
+                      {advancedConfigSummary.join(', ')}
                     </Badge>
                   )}
                 </div>
               </AccordionTrigger>
-              <AccordionContent className="space-y-6">
+              <AccordionContent className="space-y-4 pt-2">
                 {/* Schema Parameters */}
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Schema Parameters</Label>
@@ -1013,15 +1003,14 @@ const QBSDConfigPage = () => {
                   </div>
                 </div>
 
+                <hr />
+
                 {/* Observation Unit */}
-                <div className="space-y-3 pt-4 border-t">
+                <div className="space-y-3">
                   <Label className="text-sm font-medium inline-flex items-center gap-1.5">
                     Observation Unit
                     <InfoTooltip text="What each row in your table represents (e.g., 'a research paper' or 'a patient'). Usually auto-detected, but you can customize it if needed." />
                   </Label>
-                  <p className="text-sm text-muted-foreground">
-                    Define what constitutes a single row in your output table.
-                  </p>
                   <RadioGroup
                     value={observationUnitMode}
                     onValueChange={(value) => setObservationUnitMode(value as 'auto' | 'name_only' | 'full')}
@@ -1085,8 +1074,10 @@ const QBSDConfigPage = () => {
                   </RadioGroup>
                 </div>
 
+                <hr />
+
                 {/* Initial Schema */}
-                <div className="space-y-3 pt-4 border-t">
+                <div className="space-y-3">
                   <Label className="text-sm font-medium inline-flex items-center gap-1.5">
                     Initial Schema
                     <InfoTooltip text="Provide column names upfront to guide the extraction. Optional — the tool discovers columns automatically if you leave this blank." />
@@ -1097,241 +1088,264 @@ const QBSDConfigPage = () => {
                   <InitialSchemaEditor onSchemaChange={handleInitialSchemaChange} />
                 </div>
 
+                {/* Developer Mode: LLM Configuration */}
+                {allowLlmConfig && (
+                  <>
+                    <hr />
+
+                    {/* Schema Creation LLM */}
+                    <div className="space-y-3">
+                      {editingSchemaLlm ? (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm font-medium">Schema Creation LLM</Label>
+                            <Button variant="ghost" size="sm" onClick={() => setEditingSchemaLlm(false)}>
+                              Done
+                            </Button>
+                          </div>
+                          <div className="grid md:grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <Label>Provider</Label>
+                              <Select
+                                value={config.schema_creation_backend.provider}
+                                onValueChange={(value) => handleSchemaBackendChange('provider', value)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {configuredProviders.map((provider) => (
+                                    <SelectItem key={provider} value={provider}>
+                                      {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="md:col-span-2 space-y-2">
+                              <Label>Model</Label>
+                              <ModelSelector
+                                provider={config.schema_creation_backend.provider as LLMProviderKey}
+                                value={config.schema_creation_backend.model}
+                                onChange={(modelId) => handleSchemaBackendChange('model', modelId)}
+                                showDetails={true}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Temperature</Label>
+                              <Input
+                                type="number"
+                                value={config.schema_creation_backend.temperature}
+                                onChange={(e) => handleSchemaBackendChange('temperature', parseFloat(e.target.value))}
+                                min={0}
+                                max={2}
+                                step={0.1}
+                              />
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm">
+                            <span className="font-medium">Schema LLM:</span>{' '}
+                            <span className="text-muted-foreground">
+                              {LLM_PROVIDER_NAMES[config.schema_creation_backend.provider as LLMProviderKey]} / {config.schema_creation_backend.model}
+                              {config.schema_creation_backend.temperature !== 0 && ` (temp: ${config.schema_creation_backend.temperature})`}
+                            </span>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => setEditingSchemaLlm(true)}>
+                            Edit
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+
+                    <hr />
+
+                    {/* Value Extraction LLM */}
+                    <div className="space-y-3">
+                      {editingValueLlm ? (
+                        <>
+                          <div className="flex items-center justify-between">
+                            <Label className="text-sm font-medium">Value Extraction LLM</Label>
+                            <Button variant="ghost" size="sm" onClick={() => setEditingValueLlm(false)}>
+                              Done
+                            </Button>
+                          </div>
+                          <div className="grid md:grid-cols-3 gap-4">
+                            <div className="space-y-2">
+                              <Label>Provider</Label>
+                              <Select
+                                value={config.value_extraction_backend.provider}
+                                onValueChange={(value) => handleValueBackendChange('provider', value)}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {configuredProviders.map((provider) => (
+                                    <SelectItem key={provider} value={provider}>
+                                      {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="md:col-span-2 space-y-2">
+                              <Label>Model</Label>
+                              <ModelSelector
+                                provider={config.value_extraction_backend.provider as LLMProviderKey}
+                                value={config.value_extraction_backend.model}
+                                onChange={(modelId) => handleValueBackendChange('model', modelId)}
+                                showDetails={true}
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Temperature</Label>
+                              <Input
+                                type="number"
+                                value={config.value_extraction_backend.temperature}
+                                onChange={(e) => handleValueBackendChange('temperature', parseFloat(e.target.value))}
+                                min={0}
+                                max={2}
+                                step={0.1}
+                              />
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm">
+                            <span className="font-medium">Value LLM:</span>{' '}
+                            <span className="text-muted-foreground">
+                              {LLM_PROVIDER_NAMES[config.value_extraction_backend.provider as LLMProviderKey]} / {config.value_extraction_backend.model}
+                              {config.value_extraction_backend.temperature !== 0 && ` (temp: ${config.value_extraction_backend.temperature})`}
+                            </span>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => setEditingValueLlm(true)}>
+                            Edit
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* Developer Mode: Retriever Settings */}
+                {developerMode && (
+                  <>
+                    <hr />
+                    <div className="space-y-3">
+                      <Label className="text-sm font-medium">Retriever Settings</Label>
+                      <div className="grid md:grid-cols-3 gap-4">
+                        <div className="md:col-span-2 space-y-2">
+                          <Label>Model Name</Label>
+                          <Input
+                            value={config.retriever?.model_name || ''}
+                            onChange={(e) => handleRetrieverChange('model_name', e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Passage Characters</Label>
+                          <Input
+                            type="number"
+                            value={config.retriever?.passage_chars || 512}
+                            onChange={(e) => handleRetrieverChange('passage_chars', parseInt(e.target.value))}
+                            min={128}
+                            max={2048}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Overlap</Label>
+                          <Input
+                            type="number"
+                            value={config.retriever?.overlap || 64}
+                            onChange={(e) => handleRetrieverChange('overlap', parseInt(e.target.value))}
+                            min={0}
+                            max={256}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Retrieval K</Label>
+                          <Input
+                            type="number"
+                            value={config.retriever?.k || 15}
+                            onChange={(e) => handleRetrieverChange('k', parseInt(e.target.value))}
+                            min={1}
+                            max={50}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Dynamic K Threshold</Label>
+                          <Input
+                            type="number"
+                            value={config.retriever?.dynamic_k_threshold || 0.65}
+                            onChange={(e) => handleRetrieverChange('dynamic_k_threshold', parseFloat(e.target.value))}
+                            min={0}
+                            max={1}
+                            step={0.05}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
                 {/* Developer Mode: Bypass Document Limit */}
                 {developerMode && (
-                  <div className="flex items-center justify-between p-4 border rounded-lg bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800 mt-4">
-                    <div>
-                      <Label className="text-base font-medium">Developer Mode: Bypass Document Limit</Label>
-                      <p className="text-sm text-muted-foreground">
-                        Disable the {maxDocuments}-document limit for testing.
-                      </p>
+                  <>
+                    <hr />
+                    <div className="flex items-center justify-between p-3 border rounded-lg bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800">
+                      <div>
+                        <Label className="text-sm font-medium">Bypass Document Limit</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Disable the {maxDocuments}-document limit for testing.
+                        </p>
+                      </div>
+                      <Switch checked={limitBypassEnabled} onCheckedChange={setLimitBypassEnabled} />
                     </div>
-                    <Switch checked={limitBypassEnabled} onCheckedChange={setLimitBypassEnabled} />
-                  </div>
+                  </>
                 )}
               </AccordionContent>
             </AccordionItem>
-
-            {/* Schema Creation LLM - only visible in developer mode */}
-            {allowLlmConfig && (
-              <AccordionItem value="schema-llm">
-                <AccordionTrigger className="hover:no-underline">
-                  <div className="flex items-center gap-2">
-                    <Settings className="h-4 w-4" />
-                    <span className="font-semibold">Schema Creation LLM</span>
-                    <Badge className="ml-2">{config.schema_creation_backend.provider.toUpperCase()}</Badge>
-                    <Badge variant="outline">{config.schema_creation_backend.model}</Badge>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    LLM used for discovering schema structure and column definitions. Token limits are auto-detected from model specifications.
-                  </p>
-                  <div className="grid md:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label>Provider</Label>
-                      <Select
-                        value={config.schema_creation_backend.provider}
-                        onValueChange={(value) => handleSchemaBackendChange('provider', value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {configuredProviders.map((provider) => (
-                            <SelectItem key={provider} value={provider}>
-                              {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="md:col-span-2 space-y-2">
-                      <Label>Model</Label>
-                      <ModelSelector
-                        provider={config.schema_creation_backend.provider as LLMProviderKey}
-                        value={config.schema_creation_backend.model}
-                        onChange={(modelId) => handleSchemaBackendChange('model', modelId)}
-                        showDetails={true}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Temperature</Label>
-                      <Input
-                        type="number"
-                        value={config.schema_creation_backend.temperature}
-                        onChange={(e) => handleSchemaBackendChange('temperature', parseFloat(e.target.value))}
-                        min={0}
-                        max={2}
-                        step={0.1}
-                      />
-                    </div>
-                  </div>
-                </AccordionContent>
-              </AccordionItem>
-            )}
-
-            {/* Value Extraction LLM - only visible in developer mode */}
-            {allowLlmConfig && (
-              <AccordionItem value="value-llm">
-                <AccordionTrigger className="hover:no-underline">
-                  <div className="flex items-center gap-2">
-                    <Settings className="h-4 w-4" />
-                    <span className="font-semibold">Value Extraction LLM</span>
-                    <Badge variant="secondary" className="ml-2">{config.value_extraction_backend.provider.toUpperCase()}</Badge>
-                    <Badge variant="outline">{config.value_extraction_backend.model}</Badge>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    LLM used for extracting actual data values from documents. Token limits are auto-detected from model specifications.
-                  </p>
-                  <div className="grid md:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label>Provider</Label>
-                      <Select
-                        value={config.value_extraction_backend.provider}
-                        onValueChange={(value) => handleValueBackendChange('provider', value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {configuredProviders.map((provider) => (
-                            <SelectItem key={provider} value={provider}>
-                              {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="md:col-span-2 space-y-2">
-                      <Label>Model</Label>
-                      <ModelSelector
-                        provider={config.value_extraction_backend.provider as LLMProviderKey}
-                        value={config.value_extraction_backend.model}
-                        onChange={(modelId) => handleValueBackendChange('model', modelId)}
-                        showDetails={true}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>Temperature</Label>
-                      <Input
-                        type="number"
-                        value={config.value_extraction_backend.temperature}
-                        onChange={(e) => handleValueBackendChange('temperature', parseFloat(e.target.value))}
-                        min={0}
-                        max={2}
-                        step={0.1}
-                      />
-                    </div>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-            )}
-
-            {/* Retriever Settings - developer mode only */}
-            {developerMode && (
-            <AccordionItem value="retriever">
-              <AccordionTrigger className="hover:no-underline">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold">Retriever Settings</span>
-                  <Badge variant="secondary" className="ml-2">{config.retriever?.model_name || 'Default'}</Badge>
-                </div>
-              </AccordionTrigger>
-              <AccordionContent>
-                <div className="grid md:grid-cols-3 gap-4">
-                  <div className="md:col-span-2 space-y-2">
-                    <Label>Model Name</Label>
-                    <Input
-                      value={config.retriever?.model_name || ''}
-                      onChange={(e) => handleRetrieverChange('model_name', e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Passage Characters</Label>
-                    <Input
-                      type="number"
-                      value={config.retriever?.passage_chars || 512}
-                      onChange={(e) => handleRetrieverChange('passage_chars', parseInt(e.target.value))}
-                      min={128}
-                      max={2048}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Overlap</Label>
-                    <Input
-                      type="number"
-                      value={config.retriever?.overlap || 64}
-                      onChange={(e) => handleRetrieverChange('overlap', parseInt(e.target.value))}
-                      min={0}
-                      max={256}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Retrieval K</Label>
-                    <Input
-                      type="number"
-                      value={config.retriever?.k || 15}
-                      onChange={(e) => handleRetrieverChange('k', parseInt(e.target.value))}
-                      min={1}
-                      max={50}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Dynamic K Threshold</Label>
-                    <Input
-                      type="number"
-                      value={config.retriever?.dynamic_k_threshold || 0.65}
-                      onChange={(e) => handleRetrieverChange('dynamic_k_threshold', parseFloat(e.target.value))}
-                      min={0}
-                      max={1}
-                      step={0.05}
-                    />
-                  </div>
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-            )}
           </Accordion>
 
-          {/* Cost Estimate - Developer mode only */}
-          {developerMode && <Card className="border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <DollarSign className="h-5 w-5 text-emerald-600" />
-                Estimated Cost
-                <InfoTooltip text="Estimated API credits this extraction will consume. Actual cost may vary based on document complexity." />
-                {costEstimateLoading && (
-                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground ml-2" />
+          {/* Cost Estimate - Developer mode only, collapsed by default */}
+          {developerMode && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between p-3 border rounded-lg">
+                <div className="flex items-center gap-2">
+                  <DollarSign className="h-4 w-4 text-emerald-600" />
+                  <span className="text-sm font-medium">
+                    {costEstimateLoading ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Estimating cost...
+                      </span>
+                    ) : costEstimate ? (
+                      `Estimated cost: $${costEstimate.total_cost_usd.toFixed(4)}`
+                    ) : (
+                      'Upload docs to see cost estimate'
+                    )}
+                  </span>
+                </div>
+                {costEstimate && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCostExpanded(!costExpanded)}
+                  >
+                    {costExpanded ? 'Hide breakdown' : 'View breakdown'}
+                  </Button>
                 )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {costEstimateLoading ? (
-                <div className="text-sm text-muted-foreground">Calculating estimate...</div>
-              ) : costEstimate ? (
-                <div className="space-y-4">
-                  {/* Total Cost Display */}
-                  <div className="flex items-center justify-between p-3 bg-white dark:bg-gray-900 rounded-lg border">
-                    <span className="font-medium">Total Estimated Cost</span>
-                    <span className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">
-                      ${costEstimate.total_cost_usd.toFixed(4)}
-                    </span>
-                  </div>
+              </div>
 
+              {costExpanded && costEstimate && (
+                <div className="p-4 border rounded-lg space-y-4 bg-muted/20">
                   {/* Phase Breakdown */}
                   <div className="grid md:grid-cols-2 gap-3">
                     {/* Schema Discovery */}
-                    <div className="p-3 bg-white dark:bg-gray-900 rounded-lg border">
+                    <div className="p-3 bg-background rounded-lg border">
                       <div className="text-sm font-medium text-muted-foreground mb-2">Schema Discovery</div>
                       <div className="space-y-1 text-sm">
                         <div className="flex justify-between">
@@ -1354,7 +1368,7 @@ const QBSDConfigPage = () => {
                     </div>
 
                     {/* Value Extraction */}
-                    <div className={`p-3 bg-white dark:bg-gray-900 rounded-lg border ${config.skip_value_extraction ? 'opacity-50' : ''}`}>
+                    <div className={`p-3 bg-background rounded-lg border ${config.skip_value_extraction ? 'opacity-50' : ''}`}>
                       <div className="text-sm font-medium text-muted-foreground mb-2">
                         Value Extraction
                         {config.skip_value_extraction && <Badge variant="secondary" className="ml-2 text-xs">Skipped</Badge>}
@@ -1409,7 +1423,6 @@ const QBSDConfigPage = () => {
                     </div>
                   )}
 
-                  {/* Disclaimer */}
                   <p className="text-xs text-muted-foreground italic">
                     * This is an estimate based on current configuration. Actual costs may vary depending on LLM responses and document complexity.
                   </p>
@@ -1426,63 +1439,7 @@ const QBSDConfigPage = () => {
                       <div className="font-mono text-[11px] bg-background p-2 rounded border">
                         Cost = (Input Tokens × Input Price) + (Output Tokens × Output Price)
                       </div>
-                      
-                      <div className="font-medium text-foreground pt-2">Schema Discovery (iterative)</div>
-                      <p className="text-muted-foreground">Processes documents in batches, building schema incrementally:</p>
-                      <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                        <li><span className="text-foreground">API Calls</span> = ⌈documents ÷ batch_size⌉ + 1 (for observation unit discovery)</li>
-                        <li><span className="text-foreground">Input per batch</span> = system_prompt + query + current_schema + passages_from_batch</li>
-                        <li className="ml-6 text-[11px]">passages = k × ~250 tokens × batch_size (k = {config.retriever?.k || 15} passages per doc)</li>
-                        <li><span className="text-foreground">Output</span> = ~300 tokens avg (JSON with new/updated columns)</li>
-                        <li className="ml-6 text-[11px] pt-1 border-t">Model: <span className="font-mono">{config.schema_creation_backend.model || 'default'}</span></li>
-                      </ul>
 
-                      <div className="font-medium text-foreground pt-2">Value Extraction (per document)</div>
-                      <p className="text-muted-foreground">Processes each document individually:</p>
-                      <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                        <li><span className="text-foreground">API Calls</span> = documents × (1 ID + n extractions)</li>
-                        <li className="ml-6 text-[11px]">where n = observation units per doc (varies by your data)</li>
-                        <li><span className="text-foreground">Input per doc</span> = system_prompt + column_definitions + passages_from_this_doc</li>
-                        <li className="ml-6 text-[11px]">passages = k × ~250 tokens (k = {config.retriever?.k || 15})</li>
-                        <li><span className="text-foreground">Output</span> = ~40 tokens × columns × 0.7 fill rate</li>
-                        <li className="ml-6 text-[11px] pt-1 border-t">Model: <span className="font-mono">{config.value_extraction_backend.model || 'default'}</span></li>
-                      </ul>
-
-                      <div className="text-muted-foreground pt-2 border-t mt-2">
-                        <div>Schema pricing: <span className="font-mono">{config.schema_creation_backend.provider}/{config.schema_creation_backend.model || 'default'}</span></div>
-                        <div>Extraction pricing: <span className="font-mono">{config.value_extraction_backend.provider}/{config.value_extraction_backend.model || 'default'}</span></div>
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {/* No documents selected message */}
-                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg border border-dashed">
-                    <FileText className="h-5 w-5 text-muted-foreground" />
-                    <div className="flex-1">
-                      <p className="text-sm font-medium">No documents selected</p>
-                      <p className="text-xs text-muted-foreground">
-                        {documentSource === 'cloud' 
-                          ? 'Select a dataset or upload files to see cost estimate'
-                          : 'Upload files to see cost estimate'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* How we calculate - Always available */}
-                  <Collapsible>
-                    <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                      <HelpCircle className="h-3.5 w-3.5" />
-                      <span>How is this calculated?</span>
-                      <ChevronDown className="h-3 w-3" />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="mt-3 p-3 bg-muted/50 rounded-md text-xs space-y-2">
-                      <div className="font-medium text-foreground">Cost Formula</div>
-                      <div className="font-mono text-[11px] bg-background p-2 rounded border">
-                        Cost = (Input Tokens × Input Price) + (Output Tokens × Output Price)
-                      </div>
-                      
                       <div className="font-medium text-foreground pt-2">Schema Discovery (iterative)</div>
                       <p className="text-muted-foreground">Processes documents in batches, building schema incrementally:</p>
                       <ul className="list-disc list-inside space-y-1 text-muted-foreground">
@@ -1512,14 +1469,11 @@ const QBSDConfigPage = () => {
                   </Collapsible>
                 </div>
               )}
-            </CardContent>
-          </Card>}
 
-          {developerMode && costEstimateError && (
-            <Alert variant="destructive">
-              <AlertTriangle className="h-4 w-4" />
-              <AlertDescription>{costEstimateError}</AlertDescription>
-            </Alert>
+              {costEstimateError && (
+                <p className="text-sm text-destructive">{costEstimateError}</p>
+              )}
+            </div>
           )}
 
           {/* Actions */}
@@ -1529,18 +1483,25 @@ const QBSDConfigPage = () => {
               Back to Home
             </Button>
 
-            <Button
-              size="lg"
-              onClick={handleStartClick}
-              disabled={!isFormValid || loading || providersLoading || datasetsLoading}
-            >
-              {(loading || isUploading) ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="mr-2 h-4 w-4" />
+            <div className="flex items-center gap-3">
+              {!isFormValid && (
+                <p className="text-sm text-muted-foreground">
+                  Add a query or documents to continue
+                </p>
               )}
-              {isUploading ? 'Uploading files...' : loading ? 'Starting QBSD...' : 'Start QBSD'}
-            </Button>
+              <Button
+                size="lg"
+                onClick={handleStartClick}
+                disabled={!isFormValid || loading || providersLoading || datasetsLoading}
+              >
+                {(loading || isUploading) ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="mr-2 h-4 w-4" />
+                )}
+                {isUploading ? 'Uploading files...' : loading ? 'Starting QBSD...' : 'Start QBSD'}
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>

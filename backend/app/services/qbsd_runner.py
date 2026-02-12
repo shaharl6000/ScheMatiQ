@@ -194,6 +194,20 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         with self._state_lock:
             self.stop_flags.pop(session_id, None)
 
+    async def request_stop(self, session_id: str) -> Dict[str, Any]:
+        """Set the stop flag for a session and return immediately.
+
+        The running task detects the flag at its next checkpoint,
+        handles cleanup, updates session status, and broadcasts 'stopped'.
+        """
+        with self._state_lock:
+            if session_id not in self.running_sessions:
+                return {"accepted": False, "message": "No running session found"}
+            self.stop_flags[session_id] = True
+
+        logger.info("Stop requested for session %s", session_id)
+        return {"accepted": True, "message": "Stop signal sent"}
+
     def _create_value_extracted_callback(self, session_id: str, loop: asyncio.AbstractEventLoop):
         """Create a callback that streams extracted cell values via WebSocket.
 
@@ -594,6 +608,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             # Clean up
             with self._state_lock:
                 self.running_sessions.pop(session_id, None)
+            self.clear_stop_flag(session_id)
             # Release concurrency slot (safe even if not acquired)
             await concurrency_limiter.release(session_id)
 
@@ -2184,26 +2199,20 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 with open(data_file, 'r') as f:
                     result["data_rows_saved"] = sum(1 for _ in f)
 
-            # Update session status to STOPPED (not ERROR)
-            logger.debug("stop_execution: Updating session status to STOPPED")
+            # Only update status + broadcast if the task didn't already handle it
             session = self.session_manager.get_session(session_id)
-            if session:
-                logger.debug("stop_execution: Current status = %s, updating to STOPPED", session.status)
+            if session and session.status not in (SessionStatus.STOPPED, SessionStatus.COMPLETED):
+                logger.debug("stop_execution: Task didn't handle stop — force-updating to STOPPED")
                 session.status = SessionStatus.STOPPED
-                session.error_message = None  # Clear any error - this was intentional stop
+                session.error_message = None
                 self.session_manager.update_session(session)
-                logger.debug("stop_execution: Session updated, new status = %s", session.status)
+                await self.broadcast_stopped(session_id, {
+                    "schema_saved": result["schema_saved"],
+                    "data_rows_saved": result["data_rows_saved"],
+                    "message": "Processing force-stopped"
+                })
             else:
-                logger.warning("stop_execution: WARNING - session is None!")
-
-            # Broadcast stopped message
-            logger.debug("stop_execution: Broadcasting stopped message")
-            await self.broadcast_stopped(session_id, {
-                "schema_saved": result["schema_saved"],
-                "data_rows_saved": result["data_rows_saved"],
-                "message": "Processing stopped by user"
-            })
-            logger.debug("stop_execution: Broadcast complete")
+                logger.debug("stop_execution: Task already handled stop (status=%s)", session.status if session else "None")
 
             result["stopped"] = True
             result["message"] = "Processing stopped successfully"
