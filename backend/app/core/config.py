@@ -130,12 +130,14 @@ DATA_COLLECTION_ENABLED = (
 # Set to 0 to allow unlimited calls (no quota enforced).
 LLM_CALL_GLOBAL_LIMIT = int(os.environ.get("LLM_CALL_GLOBAL_LIMIT", "20"))
 
-# Webhook URL for quota-exceeded notifications (Slack, Discord, email service, etc.)
-# If set, sends a POST request when a session is blocked due to quota.
-# Leave empty to disable notifications.
-QUOTA_NOTIFICATION_WEBHOOK = os.environ.get("QUOTA_NOTIFICATION_WEBHOOK", "")
-# Email address shown in the notification (so you know who to contact)
-QUOTA_NOTIFICATION_EMAIL = os.environ.get("QUOTA_NOTIFICATION_EMAIL", "")
+# ── Quota Alert Email ────────────────────────────────────────────
+# Send an email notification when the LLM quota is exceeded.
+# All four variables must be set to enable email alerts.
+ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO", "")          # recipient(s), comma-separated
+ALERT_EMAIL_FROM = os.environ.get("ALERT_EMAIL_FROM", "")      # sender address
+SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")            # Gmail: use App Password
 
 # ── Concurrency Configuration ────────────────────────────────────
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "5"))
