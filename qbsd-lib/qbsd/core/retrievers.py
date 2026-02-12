@@ -485,6 +485,7 @@ class EmbeddingRetriever(Retriever):
 ##############################################################################
 
 from qbsd.core.llm_backends import LLMInterface   # assumes the base class lives there
+from qbsd.core.llm_call_tracker import LLMCallTracker
 
 
 LLM_RANK_INSTRUCTION = """
@@ -553,6 +554,7 @@ class PromptingRetriever(Retriever):
 
     # ---- Public API ----------------------------------------------------- #
     def query(self, docs: Sequence[str], question: str, k: int | None = None) -> List[str]:
+        LLMCallTracker.get_instance().set_stage("retrieval")
         # 1. chunk
         passages: List[str] = []
         for d in docs:

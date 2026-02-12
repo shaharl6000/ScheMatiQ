@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator
 from qbsd.core.schema import Schema, Column, ObservationUnit
 from qbsd.core.llm_backends import LLMInterface
+from qbsd.core.llm_call_tracker import LLMCallTracker
 from qbsd.core import utils
 
 from .llm_cache import LLMCache
@@ -356,6 +357,7 @@ class PaperProcessor:
         Note: Document preprocessing is handled by the retriever when configured,
         avoiding redundant preprocessing overhead.
         """
+        LLMCallTracker.get_instance().set_stage("value_extraction")
         if mode == "one":
             mode = "one_by_one"
 
@@ -903,6 +905,7 @@ class PaperProcessor:
         Note: Document preprocessing is handled by the retriever when configured,
         avoiding redundant preprocessing overhead.
         """
+        LLMCallTracker.get_instance().set_stage("value_extraction")
         observation_unit = schema.observation_unit
 
         # Observation unit is required

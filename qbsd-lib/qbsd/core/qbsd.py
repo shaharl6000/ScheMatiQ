@@ -28,6 +28,7 @@ import time
 import random
 from pathlib import Path
 from qbsd.core.schema import Schema, Column, SchemaEvolution, ObservationUnit
+from qbsd.core.llm_call_tracker import LLMCallTracker
 from qbsd.core.prompts import (
     get_prompts, get_observation_unit_prompts, SchemaMode, DRAFT_SCHEMA_TMPL,
     SYSTEM_PROMPT_OBSERVATION_UNIT, USER_PROMPT_TMPL_OBSERVATION_UNIT,
@@ -315,6 +316,7 @@ def _discover_observation_unit(
     trimmed = utils.fit_prompt(messages, truncate=True, context_window_size=context_window_size)
 
     try:
+        LLMCallTracker.get_instance().set_stage("observation_unit_discovery")
         llm_response = llm.generate(trimmed)
         observation_unit = _parse_observation_unit_from_llm(llm_response)
 
@@ -435,6 +437,7 @@ def generate_schema(
     """
     messages, mode = build_messages(query, passages, current_schema, observation_unit)
     trimmed = utils.fit_prompt(messages, truncate=True, context_window_size=context_window_size)
+    LLMCallTracker.get_instance().set_stage("schema_discovery")
     llm_response = llm.generate(trimmed)
 
     # For query-only mode, document_helpful doesn't apply

@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
 
-from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, LLM_CALL_GLOBAL_LIMIT
 from app.core.logging_utils import set_session_context
 from app.services import qbsd_thread_pool, concurrency_limiter
 
@@ -26,6 +26,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 from qbsd.core import qbsd as QBSD
 from qbsd.core.schema import Schema, Column, ObservationUnit
 from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
+from qbsd.core.llm_call_tracker import LLMCallTracker, GlobalLLMUsageTracker, QuotaExceededError
 from qbsd.core.retrievers import EmbeddingRetriever
 from qbsd.value_extraction.main import build_table_jsonl
 from qbsd import discover_observation_unit, ObservationUnitDiscoveryError
@@ -145,6 +146,26 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         self._data_collection_service = data_collection_service
         self.stop_flags: Dict[str, bool] = {}  # Track stop requests per session
         self._state_lock = threading.Lock()
+        self._global_usage = GlobalLLMUsageTracker(self.work_dir / "global_llm_usage.json")
+
+    def _sync_usage_from_sheets(self) -> None:
+        """Sync the local global usage file from Google Sheets.
+
+        After a redeploy the local file is empty, but Google Sheets retains
+        the full history.  This reads the cumulative LLM call total from
+        the Sheet and updates the local tracker if it is behind.
+        Fails silently if Sheets is not configured.
+        """
+        try:
+            from app.storage.google_sheets import GoogleSheetsLogger
+            sheets = GoogleSheetsLogger.get_instance()
+            if sheets is None:
+                return
+            external_total = sheets.read_total_llm_calls()
+            if external_total > 0:
+                self._global_usage.sync_from_external(external_total)
+        except Exception as e:
+            logger.debug("Could not sync usage from Google Sheets: %s", e)
 
     def is_stop_requested(self, session_id: str) -> bool:
         """Check if stop has been requested for a session."""
@@ -496,6 +517,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
     async def run_qbsd(self, session_id: str):
         """Run QBSD discovery process."""
         set_session_context(session_id)
+        config = None  # Loaded inside try; referenced in except for quota info
         try:
             # Update session status
             session = self.session_manager.get_session(session_id)
@@ -533,7 +555,23 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             session.error_message = str(e)
             self.session_manager.update_session(session)
 
-            await self.broadcast_error(session_id, str(e))
+            # Check if this is a quota exceeded error — broadcast distinct message
+            is_quota_error = "quota exceeded" in str(e).lower()
+            if is_quota_error:
+                usage = self._global_usage.get_usage()
+                total_used = usage.get("total_calls", 0)
+                effective_limit = LLM_CALL_GLOBAL_LIMIT if not DEVELOPER_MODE else ((config.llm_call_limit or 0) if config else 0)
+                await self.websocket_manager.broadcast_progress(session_id, {
+                    "type": "quota_exceeded",
+                    "message": "The system has reached its API usage limit and cannot start new processing sessions.",
+                    "data": {
+                        "total_used": total_used,
+                        "limit": effective_limit,
+                    },
+                    "timestamp": datetime.now().isoformat(),
+                })
+            else:
+                await self.broadcast_error(session_id, str(e))
 
         finally:
             # Clean up
@@ -577,6 +615,28 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             )
         
         try:
+            # Reset LLM call tracker for this session
+            llm_tracker = LLMCallTracker.get_instance()
+            llm_tracker.reset()
+
+            # Check global LLM usage quota before starting.
+            # In release mode: always enforced using LLM_CALL_GLOBAL_LIMIT.
+            # In developer mode: only enforced if config.llm_call_limit is set
+            #   (lets developers choose their own threshold).
+            if DEVELOPER_MODE:
+                effective_limit = config.llm_call_limit or 0  # 0 = no limit
+            else:
+                effective_limit = LLM_CALL_GLOBAL_LIMIT  # from env var
+
+            if effective_limit > 0:
+                # Sync local usage counter from Google Sheets (survives redeploys)
+                self._sync_usage_from_sheets()
+                try:
+                    self._global_usage.check_quota(effective_limit)
+                except QuotaExceededError as exc:
+                    logger.warning("Session %s blocked by global LLM quota: %s", session_id, exc)
+                    raise RuntimeError(str(exc)) from exc
+
             # Step 1: Initializing
             logger.debug("Starting QBSD execution for session %s", session_id)
             await update_progress("Initializing", 0.0)
@@ -749,6 +809,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     pass  # Expected when cancelling
             logger.debug("Schema discovery completed with %d columns", len(discovered_schema.columns))
             logger.debug("Schema evolution: %d snapshots tracked", len(schema_evolution.snapshots))
+            logger.info("LLM call stats after schema discovery: %s", llm_tracker.get_summary())
             
             # Save discovered schema with frontend-compatible format
             schema_file = session_dir / "discovered_schema.json"
@@ -878,6 +939,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                         pass  # Expected when cancelling
 
                 await update_progress("Extracting values", 1.0)
+                logger.info("LLM call stats after value extraction: %s", llm_tracker.get_summary())
 
             # Check if stop was requested during value extraction - skip finalization
             if self.is_stop_requested(session_id):
@@ -914,6 +976,21 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 session_id, discovered_schema, schema_evolution, skipped_documents
             )
 
+            # Save LLM call tracking stats to session directory
+            llm_call_summary = llm_tracker.get_summary()
+            llm_call_summary["log"] = llm_tracker.get_log()
+            llm_stats_file = session_dir / "llm_call_stats.json"
+            with open(llm_stats_file, 'w') as f:
+                json.dump(llm_call_summary, f, indent=2)
+            logger.info("LLM call stats saved to %s: %s", llm_stats_file, llm_tracker.get_counts())
+
+            # Update global cumulative LLM usage (persisted across sessions)
+            # Skip if the session opted out of quota tracking
+            if config.count_toward_quota:
+                self._global_usage.record_session(session_id, llm_tracker.get_counts())
+            else:
+                logger.info("Session %s opted out of quota tracking (count_toward_quota=False)", session_id)
+
             # Update session as completed with statistics
             session = self.session_manager.get_session(session_id)
             session.statistics = statistics
@@ -932,11 +1009,15 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 if schema_only
                 else "QBSD execution completed successfully"
             )
-            await self.broadcast_completion(session_id, completion_message, {
+            completion_details = {
                 "total_documents": total_docs,
                 "schema_columns": len(discovered_schema.columns),
-                "schema_only": schema_only
-            })
+                "schema_only": schema_only,
+            }
+            # Only expose LLM call stats to developers, not end users
+            if DEVELOPER_MODE:
+                completion_details["llm_call_stats"] = llm_tracker.get_counts()
+            await self.broadcast_completion(session_id, completion_message, completion_details)
 
             # Archive session data for research (fire-and-forget)
             if self._data_collection_service:

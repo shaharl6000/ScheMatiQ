@@ -10,6 +10,7 @@ __version__ = "0.1.0"
 
 from qbsd.core.schema import Column, Schema, SchemaSnapshot, SchemaEvolution, ObservationUnit
 from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
+from qbsd.core.llm_call_tracker import LLMCallTracker, GlobalLLMUsageTracker, QuotaExceededError
 from qbsd.core.retrievers import EmbeddingRetriever
 from qbsd.core.prompts import SchemaMode
 from qbsd.core.model_specs import ModelSpec, get_model_spec, MODEL_SPECS, GLOBAL_FALLBACK
@@ -33,6 +34,9 @@ __all__ = [
     "TogetherLLM",
     "OpenAILLM",
     "GeminiLLM",
+    "LLMCallTracker",
+    "GlobalLLMUsageTracker",
+    "QuotaExceededError",
     "EmbeddingRetriever",
     "DocumentPreprocessor",
     "PreprocessorConfig",

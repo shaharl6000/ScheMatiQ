@@ -31,6 +31,7 @@ from qbsd.core.schema import Schema, Column
 from qbsd.core.llm_backends import GeminiLLM
 from qbsd.core.retrievers import EmbeddingRetriever
 from qbsd.core import utils as qbsd_utils
+from qbsd.core.llm_call_tracker import LLMCallTracker
 
 QBSD_AVAILABLE = True
 
@@ -855,6 +856,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             return
 
         set_session_context(operation.session_id)
+        LLMCallTracker.get_instance().set_stage("reextraction")
         logger.debug(f"_run_reextraction started for operation {operation_id}")
 
         try:
