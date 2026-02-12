@@ -330,7 +330,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
 
   const isProcessing = processingState === 'starting' || processingState === 'schema' || processingState === 'extraction';
 
-  if (isLoading) {
+  if (isLoading && !autoStarted) {
     return (
       <div className="flex justify-center items-center min-h-[400px]">
         <div className="flex flex-col items-center gap-4">
