@@ -131,11 +131,13 @@ async def get_public_config():
     """Return public configuration for frontend."""
     from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, ALLOW_LLM_CONFIG
     from app.services import concurrency_limiter
+    import os
     return {
         "max_documents": MAX_DOCUMENTS,
         "developer_mode": DEVELOPER_MODE,
         "release_config": RELEASE_CONFIG,
         "allow_llm_config": ALLOW_LLM_CONFIG,
+        "server_has_llm_key": bool(os.environ.get("GEMINI_API_KEY")),
         "max_concurrent_sessions": MAX_CONCURRENT_SESSIONS,
         "active_sessions": await concurrency_limiter.get_active_count(),
     }

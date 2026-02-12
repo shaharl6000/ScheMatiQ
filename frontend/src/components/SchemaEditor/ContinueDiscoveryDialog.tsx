@@ -97,6 +97,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [extractionProvider, setExtractionProvider] = useState<LLMProviderKey>('gemini');
   const [extractionModel, setExtractionModel] = useState('gemini-2.5-flash-lite');
   const [allowLlmConfig, setAllowLlmConfig] = useState(false);
+  const [serverHasKey, setServerHasKey] = useState(false);
 
   // Document limit state
   const [maxDocuments, setMaxDocuments] = useState(DEFAULT_MAX_DOCUMENTS);
@@ -153,10 +154,12 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       // Check if LLM config is allowed (release mode vs developer mode)
       const cfg = await configAPI.getConfig().catch(() => ({
         allow_llm_config: true,
+        server_has_llm_key: false,
         max_documents: DEFAULT_MAX_DOCUMENTS,
         developer_mode: false
       }));
       setAllowLlmConfig(cfg.allow_llm_config);
+      setServerHasKey(cfg.server_has_llm_key ?? false);
       setMaxDocuments(cfg.max_documents ?? DEFAULT_MAX_DOCUMENTS);
       setDeveloperMode(cfg.developer_mode ?? false);
 
@@ -290,7 +293,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   };
 
   const handleStartDiscovery = async () => {
-    if (!apiKey) {
+    if (!apiKey && !serverHasKey) {
       onError('API key is required');
       return;
     }
@@ -326,7 +329,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         llm_config: {
           provider: llmProvider,
           model: llmModel,
-          api_key: apiKey,
+          ...(apiKey ? { api_key: apiKey } : {}),
           max_output_tokens: 8192,
           temperature: 0,
           context_window_size: 1000000
