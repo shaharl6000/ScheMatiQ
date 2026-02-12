@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Merge, Loader2, Lightbulb, FileText, AlertCircle, Search, ArrowUp, ArrowDown } from 'lucide-react';
+import { Merge, Loader2, Lightbulb, FileText, AlertCircle, Search, ArrowUp, ArrowDown, Square } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
@@ -58,6 +58,7 @@ import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
 import TableOptionsMenu from './TableOptionsMenu';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
+import { Progress } from '@/components/ui/progress';
 import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
 
 interface UnitGroupedTableProps {
@@ -71,6 +72,20 @@ interface UnitGroupedTableProps {
   columnInfo?: { name: string; allowed_values?: string[] }[];
   /** Callback when data changes */
   onDataChange?: () => void;
+  /** Columns currently being re-extracted */
+  processingColumns?: Set<string>;
+  /** Current document/unit extraction progress */
+  currentDocumentProgress?: { documentName: string; documentIndex: number; totalDocuments: number } | null;
+  /** Callback to stop re-extraction */
+  onStopReextraction?: () => void;
+  /** Whether re-extraction is being stopped */
+  isStoppingReextraction?: boolean;
+  /** Whether new documents are being processed */
+  isProcessingDocuments?: boolean;
+  /** Callback to stop document processing */
+  onStopProcessing?: () => void;
+  /** Whether document processing is being stopped */
+  isStoppingProcessing?: boolean;
 }
 
 export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
@@ -79,6 +94,13 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   columns,
   columnInfo,
   onDataChange,
+  processingColumns,
+  currentDocumentProgress,
+  onStopReextraction,
+  isStoppingReextraction,
+  isProcessingDocuments,
+  onStopProcessing,
+  isStoppingProcessing,
 }) => {
   // Unit data hooks
   const { units: unitListResponse, loading: unitsLoading, error: unitsError, refresh: refreshUnits } = useUnits(sessionId);
@@ -593,6 +615,59 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           </div>
         )}
 
+        {/* Re-extraction / Document Processing Progress Bar */}
+        {((processingColumns && processingColumns.size > 0) || isProcessingDocuments) && (
+          <div className="mb-4 p-4 bg-muted/30 border rounded-lg">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                <span className="font-medium">
+                  {processingColumns && processingColumns.size > 0
+                    ? `Re-extracting ${processingColumns.size} column${processingColumns.size !== 1 ? 's' : ''}`
+                    : 'Extracting data from new documents'}
+                </span>
+                {currentDocumentProgress && (
+                  <span className="text-sm text-muted-foreground">
+                    — Observation Unit {currentDocumentProgress.documentIndex} of {currentDocumentProgress.totalDocuments}
+                  </span>
+                )}
+              </div>
+              {(processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing) && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing}
+                  disabled={processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing}
+                  className="gap-1"
+                >
+                  {(processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing) ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Stopping...
+                    </>
+                  ) : (
+                    <>
+                      <Square className="h-4 w-4" />
+                      Stop
+                    </>
+                  )}
+                </Button>
+              )}
+            </div>
+            {currentDocumentProgress && currentDocumentProgress.totalDocuments > 0 && (
+              <div className="space-y-1">
+                <Progress
+                  value={(currentDocumentProgress.documentIndex / currentDocumentProgress.totalDocuments) * 100}
+                  className="h-2"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Processing: {currentDocumentProgress.documentName}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Table */}
         <div className="overflow-auto max-h-[600px] border rounded-md">
           <table
@@ -665,7 +740,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                   <th
                     ref={(el) => { headerRefs.current['_source_document'] = el; }}
                     className={cn(
-                      "px-4 py-3 text-left font-bold text-base bg-background border-r relative",
+                      "px-4 py-3 text-left font-semibold text-sm bg-background border-r relative",
                       !getColumnWidth('_source_document') && "min-w-[180px]",
                       getSortDirection('_source_document') && "bg-primary/5"
                     )}
@@ -709,7 +784,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     key={column}
                     ref={(el) => { headerRefs.current[column] = el; }}
                     className={cn(
-                      "px-4 py-3 text-left font-bold text-base bg-background relative",
+                      "px-4 py-3 text-left font-semibold text-sm bg-background relative",
                       !getColumnWidth(column) && "min-w-[120px]",
                       getSortDirection(column) && "bg-primary/5"
                     )}

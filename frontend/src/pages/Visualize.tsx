@@ -1198,6 +1198,13 @@ const Visualize = () => {
                     queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
                     refreshUnits();
                   }}
+                  processingColumns={processingColumns}
+                  currentDocumentProgress={currentDocumentProgress}
+                  onStopReextraction={handleStopReextraction}
+                  isStoppingReextraction={isStoppingReextraction}
+                  isProcessingDocuments={isEnhancedUploadProcessing}
+                  onStopProcessing={handleStopProcessing}
+                  isStoppingProcessing={isStoppingProcessing}
                 />
               ) : (
                 <DataTable
