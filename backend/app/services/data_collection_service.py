@@ -44,6 +44,14 @@ class DataCollectionService:
         """Fire-and-forget entry point. Never raises."""
         if not self.is_enabled:
             return
+        # Check per-session opt-out
+        try:
+            session = self._session_manager.get_session(session_id)
+            if session and session.opt_out_data_collection:
+                logger.info("[data-collection] Skipping archive for session %s: user opted out", session_id[:8])
+                return
+        except Exception:
+            pass  # If session lookup fails, proceed with archive attempt
         try:
             task = asyncio.create_task(self._archive_in_background(session_id, trigger_source))
             self._active_tasks.add(task)

@@ -133,7 +133,7 @@ async def health_check():
 @app.get("/api/config", tags=["root"], summary="Public Configuration", description="Returns public configuration for frontend")
 async def get_public_config():
     """Return public configuration for frontend."""
-    from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, ALLOW_LLM_CONFIG
+    from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, ALLOW_LLM_CONFIG, DATA_COLLECTION_ENABLED
     from app.services import concurrency_limiter
     import os
     return {
@@ -141,6 +141,7 @@ async def get_public_config():
         "developer_mode": DEVELOPER_MODE,
         "release_config": RELEASE_CONFIG,
         "allow_llm_config": ALLOW_LLM_CONFIG,
+        "data_collection_enabled": DATA_COLLECTION_ENABLED,
         "server_has_llm_key": bool(os.environ.get("GEMINI_API_KEY")),
         "max_concurrent_sessions": MAX_CONCURRENT_SESSIONS,
         "active_sessions": await concurrency_limiter.get_active_count(),

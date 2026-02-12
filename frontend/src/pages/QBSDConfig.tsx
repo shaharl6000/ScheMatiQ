@@ -15,6 +15,7 @@ import {
 import { ModelSelector } from '@/components/ModelSelector';
 import InitialSchemaEditor from '@/components/InitialSchemaEditor/InitialSchemaEditor';
 import { WelcomeDialog } from '@/components/WelcomeDialog/WelcomeDialog';
+import { ConsentDialog, getSavedConsent } from '@/components/ConsentDialog/ConsentDialog';
 import { InfoTooltip } from '@/components/InfoTooltip/InfoTooltip';
 
 import { Button } from '@/components/ui/button';
@@ -116,6 +117,10 @@ const QBSDConfigPage = () => {
 
   // Welcome dialog state
   const [welcomeDialogOpen, setWelcomeDialogOpen] = useState(false);
+
+  // Consent dialog state
+  const [consentDialogOpen, setConsentDialogOpen] = useState(false);
+  const [dataCollectionEnabled, setDataCollectionEnabled] = useState(false);
 
   // Cost estimate state
   const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
@@ -258,6 +263,7 @@ const QBSDConfigPage = () => {
         setMaxDocuments(cfg.max_documents);
         setDeveloperMode(cfg.developer_mode);
         setAllowLlmConfig(cfg.allow_llm_config);
+        setDataCollectionEnabled(cfg.data_collection_enabled ?? false);
       })
       .catch(() => console.log('Using default document limit'));
   }, []);
@@ -526,7 +532,7 @@ const QBSDConfigPage = () => {
     developerMode,
   ]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (optOutDataCollection = false) => {
     setLoading(true);
     setError(null);
 
@@ -576,6 +582,8 @@ const QBSDConfigPage = () => {
         initial_schema_path: !initialSchemaData ? initialSchemaPath : undefined,
         // Add initial observation unit
         initial_observation_unit: initialObservationUnit,
+        // Privacy opt-out
+        opt_out_data_collection: optOutDataCollection,
       };
 
       // Step 1: Create session
@@ -608,6 +616,27 @@ const QBSDConfigPage = () => {
     }
   };
 
+  // Consent-aware start: show dialog in release mode if not previously accepted
+  const handleStartClick = () => {
+    if (!dataCollectionEnabled || developerMode) {
+      // No data collection or developer mode — skip consent
+      handleSubmit(false);
+      return;
+    }
+    const { consentGiven, savedOptOut } = getSavedConsent();
+    if (consentGiven) {
+      // Previously accepted — use saved preference
+      handleSubmit(savedOptOut);
+      return;
+    }
+    // Show consent dialog
+    setConsentDialogOpen(true);
+  };
+
+  const handleConsentConfirm = (optOut: boolean) => {
+    handleSubmit(optOut);
+  };
+
   const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path.filter(Boolean) : [config.docs_path].filter(Boolean);
   const hasQuery = config.query.trim() !== '';
   const hasCloudDocuments = documentSource === 'cloud' && selectedPaths.length > 0;
@@ -621,6 +650,11 @@ const QBSDConfigPage = () => {
       <WelcomeDialog
         forceOpen={welcomeDialogOpen}
         onOpenChange={setWelcomeDialogOpen}
+      />
+      <ConsentDialog
+        open={consentDialogOpen}
+        onOpenChange={setConsentDialogOpen}
+        onConfirm={handleConsentConfirm}
       />
 
       <div className="flex items-center justify-between mb-2">
@@ -1493,7 +1527,7 @@ const QBSDConfigPage = () => {
 
             <Button
               size="lg"
-              onClick={handleSubmit}
+              onClick={handleStartClick}
               disabled={!isFormValid || loading || providersLoading || datasetsLoading}
             >
               {(loading || isUploading) ? (

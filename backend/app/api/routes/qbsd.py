@@ -123,7 +123,8 @@ async def configure_qbsd(config: QBSDConfig):
             id=session_id,
             type=SessionType.QBSD,
             metadata=metadata,
-            schema_query=config.query
+            schema_query=config.query,
+            opt_out_data_collection=config.opt_out_data_collection,
         )
         
         # Store session and config

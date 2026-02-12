@@ -68,6 +68,7 @@ class QBSDConfig(BaseModel):
     previous_session_id: Optional[str] = None  # Session ID to copy uploaded files from
     count_toward_quota: bool = True  # If False, this session's LLM calls won't count toward the global quota
     llm_call_limit: Optional[int] = None  # Developer-only: override the global quota limit for this session
+    opt_out_data_collection: bool = False  # User opted out of research data archival
 
 class QBSDStatus(BaseModel):
     """Status of QBSD execution."""
