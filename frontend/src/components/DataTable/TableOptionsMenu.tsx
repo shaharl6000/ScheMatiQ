@@ -11,6 +11,7 @@ import {
   Eye,
   EyeOff,
   Filter,
+  Merge,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,8 +21,11 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -49,6 +53,7 @@ import {
 import { cn } from '@/lib/utils';
 import { ColumnVisibilityState, FilterPreset, FilterRule, SortColumn, generatePresetId } from './types/filters';
 import { formatColumnName } from '../../utils/formatting';
+import { UnitSummary } from '../../types/unit';
 
 interface TableOptionsMenuProps {
   // Add Filter
@@ -73,6 +78,16 @@ interface TableOptionsMenuProps {
   onToggleColumn: (columnName: string) => void;
   onShowAll: () => void;
   onHideAll: () => void;
+  // Unit-specific (optional, only rendered in By Unit view)
+  unitList?: UnitSummary[];
+  selectedUnit?: string | null;
+  onUnitChange?: (unit: string | null) => void;
+  unitDataLoading?: boolean;
+  onMergeUnits?: () => void;
+  mergeDisabled?: boolean;
+  onToggleSuggestions?: () => void;
+  showSuggestions?: boolean;
+  suggestionsCount?: number;
 }
 
 const FULLNESS_PRESETS = [0, 25, 50, 75, 100];
@@ -96,6 +111,15 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
   onToggleColumn,
   onShowAll,
   onHideAll,
+  unitList,
+  selectedUnit,
+  onUnitChange,
+  unitDataLoading,
+  onMergeUnits,
+  mergeDisabled,
+  onToggleSuggestions,
+  showSuggestions,
+  suggestionsCount,
 }) => {
   // Preset state
   const [presets, setPresets] = useState<FilterPreset[]>([]);
@@ -266,6 +290,68 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
               )}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
+
+          {/* Unit-specific items (only in By Unit view) */}
+          {unitList && (
+            <>
+              <DropdownMenuSeparator />
+
+              {/* Filter by Unit submenu */}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={unitDataLoading}>
+                  <Filter className="h-4 w-4 mr-2" />
+                  Filter by Unit
+                  {selectedUnit && (
+                    <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-xs max-w-[100px] truncate">
+                      {selectedUnit}
+                    </Badge>
+                  )}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-64">
+                  <ScrollArea className="max-h-[300px]">
+                    <DropdownMenuRadioGroup
+                      value={selectedUnit || '__all__'}
+                      onValueChange={(val) => onUnitChange?.(val === '__all__' ? null : val)}
+                    >
+                      <DropdownMenuRadioItem value="__all__">
+                        All Units
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuSeparator />
+                      {unitList.map((unit) => (
+                        <DropdownMenuRadioItem key={unit.name} value={unit.name}>
+                          <span className="truncate flex-1">{unit.name}</span>
+                          <Badge variant="outline" className="ml-auto h-5 px-1.5 text-xs shrink-0">
+                            {unit.rowCount}
+                          </Badge>
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </ScrollArea>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
+              {/* Merge Units */}
+              <DropdownMenuItem onClick={onMergeUnits} disabled={mergeDisabled}>
+                <Merge className="h-4 w-4 mr-2" />
+                Merge Units
+              </DropdownMenuItem>
+
+              {/* Suggestions toggle */}
+              <DropdownMenuCheckboxItem
+                checked={showSuggestions}
+                onCheckedChange={() => onToggleSuggestions?.()}
+              >
+                Merge Suggestions
+                {(suggestionsCount ?? 0) > 0 && (
+                  <Badge variant="destructive" className="ml-auto h-5 px-1.5 text-xs">
+                    {suggestionsCount}
+                  </Badge>
+                )}
+              </DropdownMenuCheckboxItem>
+            </>
+          )}
+
+          <DropdownMenuSeparator />
 
           {/* Column Fullness submenu */}
           <DropdownMenuSub>

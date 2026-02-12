@@ -297,8 +297,6 @@ export const qbsdAPI = {
   stop: async (sessionId: string): Promise<{
     status: string;
     message: string;
-    schema_saved: boolean;
-    data_rows_saved: number;
   }> => {
     const response = await api.post(`/qbsd/stop/${sessionId}`);
     return response.data;

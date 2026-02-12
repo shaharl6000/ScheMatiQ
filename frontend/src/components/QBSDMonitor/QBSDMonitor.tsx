@@ -306,17 +306,17 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
   };
 
   const handleStop = async () => {
-    setIsStopping(true);  // Show immediate feedback
+    setIsStopping(true);
     try {
       await qbsdAPI.stop(sessionId);
-      // Don't set to idle - wait for WebSocket 'stopped' message
-      // which will set proper state with partial results info
-      addLog('warning', 'Stop requested - waiting for graceful shutdown...');
+      // API returned — stop flag is set. Transition immediately.
+      setProcessingState('stopped');
+      setIsStopping(false);
+      addLog('warning', 'Stop requested — processing will stop at the next checkpoint.');
     } catch (error: any) {
       addLog('error', `Failed to stop QBSD: ${error.message}`);
-      setIsStopping(false);  // Reset on error
+      setIsStopping(false);
     }
-    // Note: isStopping stays true until 'stopped' WebSocket arrives
   };
 
   const getLogIcon = (level: LogEntry['level']) => {
@@ -466,16 +466,24 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
                 <Square className="h-8 w-8 text-yellow-600" />
               </div>
               <p className="text-xl font-semibold text-yellow-600 mb-1">Processing Stopped</p>
-              <p className="text-muted-foreground mb-2 text-center max-w-md">
-                {stoppedInfo?.schemaSaved
-                  ? `Schema discovered. ${stoppedInfo.dataRowsSaved > 0
-                      ? `${stoppedInfo.dataRowsSaved} data rows extracted.`
-                      : 'No data extracted yet.'}`
-                  : 'Stopped before schema discovery completed.'}
-              </p>
-              {(stoppedInfo?.schemaSaved || (stoppedInfo?.dataRowsSaved ?? 0) > 0) && (
-                <p className="text-sm text-muted-foreground">
-                  You can view and export partial results in the Data and Schema tabs.
+              {stoppedInfo ? (
+                <>
+                  <p className="text-muted-foreground mb-2 text-center max-w-md">
+                    {stoppedInfo.schemaSaved
+                      ? `Schema discovered. ${stoppedInfo.dataRowsSaved > 0
+                          ? `${stoppedInfo.dataRowsSaved} data rows extracted.`
+                          : 'No data extracted yet.'}`
+                      : 'Stopped before schema discovery completed.'}
+                  </p>
+                  {(stoppedInfo.schemaSaved || stoppedInfo.dataRowsSaved > 0) && (
+                    <p className="text-sm text-muted-foreground">
+                      You can view and export partial results in the Data and Schema tabs.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-muted-foreground mb-2 text-center max-w-md">
+                  Wrapping up current operation...
                 </p>
               )}
             </>

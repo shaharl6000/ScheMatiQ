@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Merge, Loader2, Lightbulb, FileText, AlertCircle, Search, ArrowUp, ArrowDown, Square } from 'lucide-react';
+import { Loader2, Lightbulb, FileText, AlertCircle, Search, ArrowUp, ArrowDown, Square } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
@@ -37,7 +37,6 @@ import {
 import { unitsAPI, observationUnitAPI } from '../../services/api';
 import { useUnits, useMergeUnits, useUnitSuggestions } from '../../hooks/useUnits';
 import { MergeUnitsRequest, UnitSummary } from '../../types/unit';
-import { UnitFilter } from '../ViewMode/UnitFilter';
 import { UnitMergeDialog } from '../ViewMode/UnitMergeDialog';
 import { UnitSimilarityCard } from '../Units/UnitSimilarityCard';
 import { UnitMergePickerDialog } from './UnitMergePickerDialog';
@@ -517,6 +516,15 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               onToggleColumn={toggleColumn}
               onShowAll={showAllColumns}
               onHideAll={hideAllColumns}
+              unitList={units}
+              selectedUnit={selectedUnit}
+              onUnitChange={setSelectedUnit}
+              unitDataLoading={dataLoading}
+              onMergeUnits={() => setMergePickerOpen(true)}
+              mergeDisabled={units.length < 2}
+              onToggleSuggestions={() => setShowSuggestions(prev => !prev)}
+              showSuggestions={showSuggestions}
+              suggestionsCount={visibleSuggestions.length}
             />
 
           </div>
@@ -533,55 +541,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             />
           </div>
         )}
-
-        {/* Toolbar */}
-        <div className="flex flex-wrap items-center gap-2 mb-4 pb-4 border-b">
-          {/* Unit filter */}
-          <UnitFilter
-            units={units}
-            selectedUnit={selectedUnit}
-            onUnitChange={setSelectedUnit}
-            loading={dataLoading}
-          />
-
-          {/* Merge & suggestions */}
-          <div className="flex items-center gap-2 ml-auto">
-            {/* Merge Units button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setMergePickerOpen(true)}
-              className="gap-1"
-              disabled={units.length < 2}
-            >
-              <Merge className="h-4 w-4" />
-              Merge Units
-            </Button>
-
-            {/* Suggestions button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={showSuggestions ? 'secondary' : 'outline'}
-                  size="sm"
-                  onClick={() => setShowSuggestions(!showSuggestions)}
-                  className="gap-1"
-                >
-                  <Lightbulb className="h-4 w-4" />
-                  Suggestions
-                  {visibleSuggestions.length > 0 && (
-                    <Badge variant="destructive" className="ml-1 h-5 px-1.5">
-                      {visibleSuggestions.length}
-                    </Badge>
-                  )}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                Find similar units that could be merged
-              </TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
 
         {/* Merge suggestions panel */}
         {showSuggestions && (
