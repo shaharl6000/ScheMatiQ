@@ -919,18 +919,12 @@ const Visualize = () => {
     setIsStoppingProcessing(true);
 
     try {
-      const result = await loadAPI.stopProcessing(sessionId);
-      if (result.stopped) {
-        // Refresh session data to get updated status
-        queryClient.invalidateQueries(['session', sessionId]);
-        queryClient.invalidateQueries(['data', sessionId]);
-        queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
-        refreshUnits();
-      }
+      await loadAPI.stopProcessing(sessionId);
+      // Transition immediately — background task handles status update + WebSocket
+      setIsStoppingProcessing(false);
     } catch (err: any) {
       console.error('Failed to stop processing:', err);
       setDocumentUploadError(err.response?.data?.detail || err.message || 'Failed to stop processing');
-    } finally {
       setIsStoppingProcessing(false);
     }
   };
@@ -955,7 +949,8 @@ const Visualize = () => {
     try {
       const { schemaAPI } = await import('../services/api');
       await schemaAPI.stopReextraction(sessionId, activeReextractionId);
-      // The WebSocket will handle the cleanup when it receives reextraction_stopped
+      // Transition immediately — background task handles cleanup + WebSocket
+      setIsStoppingReextraction(false);
     } catch (err: any) {
       console.error('Failed to stop re-extraction:', err);
       setIsStoppingReextraction(false);
@@ -1235,8 +1230,8 @@ const Visualize = () => {
               )}
 
               {/* Document Upload Section (collapsible) */}
-              {((mode === 'load' && ['documents_uploaded', 'processing_documents', 'completed'].includes(session?.status || '')) ||
-                (mode === 'qbsd' && ['completed', 'documents_uploaded', 'processing_documents'].includes(session?.status || ''))) &&
+              {((mode === 'load' && ['documents_uploaded', 'processing_documents', 'completed', 'stopped'].includes(session?.status || '')) ||
+                (mode === 'qbsd' && ['completed', 'documents_uploaded', 'processing_documents', 'stopped'].includes(session?.status || ''))) &&
                 !sessionLoading && !dataLoading && dataResponse && (
                   <Card className="mt-6">
                     <CardHeader

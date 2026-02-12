@@ -743,6 +743,15 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 self.running_sessions[session_id] = False
                 return True
             return False
+
+    def request_stop(self, session_id: str) -> Dict[str, Any]:
+        """Set the stop flag and return immediately."""
+        with self._state_lock:
+            if session_id not in self.running_sessions:
+                return {"accepted": False, "message": "No running session found"}
+            self.running_sessions[session_id] = False
+        logger.info("Stop requested for upload processing session %s", session_id)
+        return {"accepted": True, "message": "Stop signal sent"}
     
     def _build_schema_from_session(self, session) -> Dict[str, Any]:
         """Build schema dict from session.columns (includes user edits from SCHEMA tab).

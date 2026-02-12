@@ -1009,22 +1009,16 @@ async def get_reextraction_status(session_id: str, operation_id: str):
 
 @router.post("/stop-reextraction/{session_id}/{operation_id}")
 async def stop_reextraction(session_id: str, operation_id: str):
-    """Stop a running re-extraction operation.
-
-    Returns information about partial results saved.
-    """
+    """Request reextraction to stop. Returns immediately."""
     try:
-        result = await reextraction_service.stop_operation(operation_id)
-
-        if not result["stopped"]:
+        result = await reextraction_service.request_stop(operation_id)
+        if not result["accepted"]:
             raise HTTPException(status_code=400, detail=result["message"])
 
-        return {
-            "status": "stopped",
-            "message": result["message"],
-            "processed_documents": result.get("processed_documents", 0),
-            "total_documents": result.get("total_documents", 0)
-        }
+        # Background safety net: wait for task, merge partial results, broadcast
+        asyncio.create_task(reextraction_service.stop_operation(operation_id))
+
+        return {"status": "stopping", "message": result["message"]}
 
     except HTTPException:
         raise
@@ -1305,18 +1299,16 @@ async def confirm_new_columns(
 
 @router.post("/continue-discovery/stop/{session_id}/{operation_id}")
 async def stop_continue_discovery(session_id: str, operation_id: str):
-    """Stop a running continue discovery or extraction operation."""
+    """Request continue discovery to stop. Returns immediately."""
     try:
-        result = await continue_discovery_service.stop_operation(operation_id)
-
-        if not result["stopped"]:
+        result = await continue_discovery_service.request_stop(operation_id)
+        if not result["accepted"]:
             raise HTTPException(status_code=400, detail=result["message"])
 
-        return {
-            "status": "stopped",
-            "phase": result.get("phase", "unknown"),
-            "message": result["message"]
-        }
+        # Background safety net: wait for task, update status, broadcast
+        asyncio.create_task(continue_discovery_service.stop_operation(operation_id))
+
+        return {"status": "stopping", "message": result["message"]}
 
     except HTTPException:
         raise

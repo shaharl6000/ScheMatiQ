@@ -1,5 +1,6 @@
 """Upload API endpoints."""
 
+import asyncio
 import logging
 import uuid
 import json
@@ -22,7 +23,8 @@ from app.models.upload import (
 )
 from app.services.file_parser import FileParser, format_column_header
 from app.services.session_manager import SessionManager
-from app.services import session_manager, concurrency_limiter
+from app.services import session_manager, websocket_manager, concurrency_limiter
+from app.services.upload_document_processor import UploadDocumentProcessor
 from app.storage import get_storage
 from app.core.exceptions import CapacityExceededError
 from app.core.logging_utils import set_session_context
@@ -30,6 +32,12 @@ from app.core.logging_utils import set_session_context
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# Module-level singleton (same pattern as qbsd_runner, reextraction_service, etc.)
+upload_processor = UploadDocumentProcessor(
+    websocket_manager=websocket_manager,
+    session_manager=session_manager
+)
 
 
 # ==================
@@ -1204,15 +1212,6 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
         schema_count = len(session.metadata.extracted_schema['schema']) if session.metadata.extracted_schema else 0
         logger.debug(f"Session ready for processing - {len(session.metadata.uploaded_documents)} documents, {schema_count} schema columns")
         
-        # Create UploadDocumentProcessor and start processing in background
-        from app.services.upload_document_processor import UploadDocumentProcessor
-        from app.services import websocket_manager
-        
-        processor = UploadDocumentProcessor(
-            websocket_manager=websocket_manager,
-            session_manager=session_manager
-        )
-        
         # Update session status
         session.status = SessionStatus.PROCESSING_DOCUMENTS
         session.metadata.last_modified = datetime.now()
@@ -1242,7 +1241,7 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
         await concurrency_limiter.acquire(session_id, "upload_extraction")
 
         # Start processing in background
-        background_tasks.add_task(processor.process_documents, session_id)
+        background_tasks.add_task(upload_processor.process_documents, session_id)
 
         logger.debug(f"Document processing started in background for session: {session_id}")
 
@@ -1269,19 +1268,12 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
 
 @router.post("/stop-processing/{session_id}", response_model=dict)
 async def stop_document_processing(session_id: str):
-    """Stop document processing gracefully.
-
-    Returns information about what partial results were saved.
-    """
+    """Request document processing to stop. Returns immediately."""
     try:
-        from app.services.upload_document_processor import UploadDocumentProcessor
-        from app.services import websocket_manager
-
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        # Check if session is actually processing
         if session.status != SessionStatus.PROCESSING_DOCUMENTS:
             return {
                 "status": "not_processing",
@@ -1289,59 +1281,53 @@ async def stop_document_processing(session_id: str):
                 "stopped": False
             }
 
-        # Create processor and call stop
-        processor = UploadDocumentProcessor(
-            websocket_manager=websocket_manager,
-            session_manager=session_manager
-        )
+        result = upload_processor.request_stop(session_id)
+        if not result["accepted"]:
+            raise HTTPException(status_code=404, detail=result["message"])
 
-        stopped = processor.stop_processing(session_id)
+        # Background: wait for processing to actually stop, then update status
+        asyncio.create_task(_finalize_upload_stop(session_id))
 
-        if stopped:
-            # Update session status
-            session.status = SessionStatus.STOPPED
-            session.metadata.last_modified = datetime.now()
-            session_manager.update_session(session)
+        return {"status": "stopping", "message": result["message"], "stopped": True}
 
-            # Get current progress info
-            processed = session.metadata.processed_documents or 0
-            total = len(session.metadata.uploaded_documents) if session.metadata.uploaded_documents else 0
-            rows_added = session.metadata.additional_rows_added or 0
-
-            # Broadcast stopped message via WebSocket
-            await websocket_manager.broadcast_message(
-                session_id,
-                {
-                    "type": "stopped",
-                    "data": {
-                        "message": "Document processing stopped by user",
-                        "processed_documents": processed,
-                        "total_documents": total,
-                        "data_rows_saved": rows_added
-                    }
-                }
-            )
-
-            return {
-                "status": "stopped",
-                "message": f"Processing stopped. {processed}/{total} documents processed, {rows_added} rows extracted.",
-                "stopped": True,
-                "processed_documents": processed,
-                "total_documents": total,
-                "data_rows_saved": rows_added
-            }
-        else:
-            return {
-                "status": "not_found",
-                "message": "No active processing found for this session",
-                "stopped": False
-            }
-
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Exception in stop_document_processing: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _finalize_upload_stop(session_id: str):
+    """Background task: wait for upload processing to finish, update session status, broadcast."""
+    # Wait up to 30s for the task to notice the stop flag
+    for _ in range(60):
+        await asyncio.sleep(0.5)
+        with upload_processor._state_lock:
+            still_running = session_id in upload_processor.running_sessions
+        if not still_running:
+            break
+
+    session = session_manager.get_session(session_id)
+    if session and session.status not in (SessionStatus.STOPPED, SessionStatus.COMPLETED):
+        session.status = SessionStatus.STOPPED
+        session.metadata.last_modified = datetime.now()
+        session_manager.update_session(session)
+
+        processed = session.metadata.processed_documents or 0
+        total = len(session.metadata.uploaded_documents) if session.metadata.uploaded_documents else 0
+        rows_added = session.metadata.additional_rows_added or 0
+
+        await websocket_manager.broadcast_to_session(session_id, {
+            "type": "stopped",
+            "data": {
+                "message": "Document processing stopped by user",
+                "processed_documents": processed,
+                "total_documents": total,
+                "data_rows_saved": rows_added
+            }
+        })
 
 
 @router.get("/processing-status/{session_id}", response_model=dict)
