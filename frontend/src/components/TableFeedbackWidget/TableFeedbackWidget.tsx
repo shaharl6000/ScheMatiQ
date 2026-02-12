@@ -241,6 +241,12 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
                   rows={3}
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit();
+                    }
+                  }}
                   placeholder={
                     rating === 'positive'
                       ? 'What did you find useful? (optional)'
