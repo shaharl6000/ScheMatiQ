@@ -536,14 +536,6 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
             )}
           </div>
 
-          {mode === 'add' && (
-            <Alert variant="info">
-              <AlertDescription>
-                <strong>Note:</strong> Adding a new column will trigger document processing to extract values for this column from all documents in the dataset. This process may take some time depending on the number of documents.
-              </AlertDescription>
-            </Alert>
-          )}
-
           {mode === 'edit' && formData.new_name !== formData.name && formData.new_name.trim() && (
             <Alert variant="warning">
               <AlertDescription>

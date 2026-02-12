@@ -844,7 +844,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "operation_id": operation_id,
             "columns": columns,
             "estimated_papers": len(paper_discovery["available_papers"]),
-            "rows_to_process": paper_discovery["total_rows"],
+            "rows_to_process": len(paper_discovery["available_papers"]),
             "missing_papers": paper_discovery["missing_papers"]
         }
 
@@ -1043,6 +1043,48 @@ class ReextractionService(WebSocketBroadcasterMixin):
             if docs_directories:
                 logger.debug(f"Starting build_table_jsonl extraction...")
 
+                # Build known_units from existing data (paper_stem -> [unit_names])
+                # This skips the expensive LLM unit discovery for rows that already exist
+                known_units: Dict[str, List[str]] = {}
+                reextract_data_files = []
+                qbsd_extracted = Path("./qbsd_work") / operation.session_id / "extracted_data.jsonl"
+                if qbsd_extracted.exists():
+                    reextract_data_files.append(qbsd_extracted)
+                if not reextract_data_files:
+                    qbsd_data = Path("./qbsd_work") / operation.session_id / "data.jsonl"
+                    if qbsd_data.exists():
+                        reextract_data_files.append(qbsd_data)
+                load_data = Path("./data") / operation.session_id / "data.jsonl"
+                if load_data.exists() and load_data.resolve() not in [f.resolve() for f in reextract_data_files]:
+                    reextract_data_files.append(load_data)
+
+                for df in reextract_data_files:
+                    try:
+                        with open(df, 'r') as f:
+                            for line in f:
+                                if line.strip():
+                                    try:
+                                        row = json.loads(line)
+                                        row_name = row.get('_row_name') or row.get('row_name')
+                                        papers = row.get('_papers') or row.get('papers') or []
+                                        if isinstance(papers, str):
+                                            papers = [papers]
+                                        for paper in papers:
+                                            paper_stem = Path(paper).stem
+                                            if paper_stem not in known_units:
+                                                known_units[paper_stem] = []
+                                            if row_name and row_name not in known_units[paper_stem]:
+                                                known_units[paper_stem].append(row_name)
+                                    except json.JSONDecodeError:
+                                        continue
+                    except Exception as e:
+                        logger.warning(f"Error reading data file {df} for known_units: {e}")
+
+                if known_units:
+                    logger.info(f"Built known_units for {len(known_units)} papers: {known_units}")
+                else:
+                    logger.debug(f"No known_units found from existing data")
+
                 # Create should_stop callback that checks for stop requests
                 def should_stop():
                     return self.is_stop_requested(operation_id)
@@ -1059,7 +1101,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         retrieval_k=10,
                         max_workers=1,
                         on_value_extracted=on_value_extracted,
-                        should_stop=should_stop  # Allow graceful stop
+                        should_stop=should_stop,  # Allow graceful stop
+                        known_units=known_units if known_units else None,
                     )
 
                 await asyncio.get_event_loop().run_in_executor(qbsd_thread_pool, run_extraction)

@@ -761,15 +761,6 @@ const QBSDConfigPage = () => {
                 Documents {!hasQuery && <span className="text-destructive">*</span>}
               </Label>
 
-              {/* Document limit notice - visible upfront before any selection */}
-              {!limitBypassEnabled && (
-                <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
-                  <FileText className="h-4 w-4 text-blue-600" />
-                  <AlertDescription className="text-sm text-blue-700 dark:text-blue-400">
-                    <strong>Document limit:</strong> Analysis is limited to {maxDocuments} documents to ensure fast results and reasonable costs. If you provide more, a representative sample will be used.
-                  </AlertDescription>
-                </Alert>
-              )}
 
               <Tabs value={documentSource} onValueChange={(v) => setDocumentSource(v as 'upload' | 'cloud')}>
                 <TabsList className="grid w-full grid-cols-2">
@@ -850,14 +841,12 @@ const QBSDConfigPage = () => {
                         </CollapsibleContent>
                       </Collapsible>
 
-                      {/* Document limit warning - only show when approaching or exceeding limit */}
-                      {!limitBypassEnabled && uploadedFiles.length >= Math.floor(maxDocuments * 0.75) && (
+                      {/* Document limit warning - only show when exceeding limit */}
+                      {!limitBypassEnabled && isOverLimit && (
                         <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
                           <AlertTriangle className="h-4 w-4 text-amber-600" />
                           <AlertDescription className="text-amber-700 dark:text-amber-400">
-                            {isOverLimit
-                              ? `You've selected ${uploadedFiles.length} documents. We'll analyze a representative sample of ${maxDocuments} documents.`
-                              : `${uploadedFiles.length} of ${maxDocuments} documents selected.`}
+                            You've selected {uploadedFiles.length} documents, but analysis is limited to {maxDocuments} to ensure fast results and reasonable costs. A representative sample will be used.
                           </AlertDescription>
                         </Alert>
                       )}
@@ -918,14 +907,12 @@ const QBSDConfigPage = () => {
                     </DropdownMenuContent>
                   </DropdownMenu>
 
-                  {/* Cloud dataset document limit warning - only show when approaching or exceeding limit */}
-                  {!limitBypassEnabled && cloudFileCount >= Math.floor(maxDocuments * 0.75) && (
+                  {/* Cloud dataset document limit warning - only show when exceeding limit */}
+                  {!limitBypassEnabled && isCloudOverLimit && (
                     <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
                       <AlertTriangle className="h-4 w-4 text-amber-600" />
                       <AlertDescription className="text-amber-700 dark:text-amber-400">
-                        {isCloudOverLimit
-                          ? `Your selection contains ${cloudFileCount} documents. We'll analyze a representative sample of ${maxDocuments} documents.`
-                          : `${cloudFileCount} of ${maxDocuments} documents in selected datasets.`}
+                        Your selection contains {cloudFileCount} documents, but analysis is limited to {maxDocuments} to ensure fast results and reasonable costs. A representative sample will be used.
                       </AlertDescription>
                     </Alert>
                   )}

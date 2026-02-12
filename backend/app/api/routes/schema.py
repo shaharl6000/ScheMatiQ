@@ -255,10 +255,8 @@ async def delete_column(session_id: str, column_name: str):
 async def add_column(
     session_id: str,
     add_request: ColumnAddRequest,
-    background_tasks: BackgroundTasks
 ):
-    """Add a new column to the schema and extract values from documents."""
-    slot_acquired = False
+    """Add a new column to the schema. Values are extracted later via re-extraction."""
     try:
         set_session_context(session_id)
         session = session_manager.get_session(session_id)
@@ -334,35 +332,17 @@ async def add_column(
             has_api_key = 'api_key' in add_request.llm_config and add_request.llm_config['api_key']
             logger.debug(f"Saved user LLM config for add-column: {config_for_log}, api_key={'present' if has_api_key else 'MISSING'}")
 
-        # Reserve a concurrency slot for value extraction
-        await concurrency_limiter.acquire(session_id, "add_column_extraction")
-        slot_acquired = True
-
-        # Schedule value extraction for new column
-        background_tasks.add_task(
-            schema_manager.extract_values_for_new_column,
-            session_id,
-            new_column,
-            add_request.documents_path
-        )
-
         return {
             "status": "success",
             "message": f"Column '{add_request.name}' added successfully",
             "column": new_column.model_dump(),
-            "columns": [col.model_dump() for col in session.columns],  # Return all updated columns
-            "extracting_values": True
+            "columns": [col.model_dump() for col in session.columns],
+            "extracting_values": False
         }
 
-    except CapacityExceededError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
-        if slot_acquired:
-            await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/merge-columns/{session_id}")
