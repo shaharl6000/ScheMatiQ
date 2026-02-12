@@ -50,11 +50,6 @@ export const ViewModeToggle: React.FC<ViewModeToggleProps> = ({
       >
         <Layers className="h-4 w-4 mr-1.5" />
         By Unit
-        {unitCount !== undefined && unitCount > 0 && (
-          <span className="ml-1.5 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-medium rounded-full bg-primary/10 text-primary">
-            {unitCount}
-          </span>
-        )}
       </Button>
       <Button
         variant="ghost"

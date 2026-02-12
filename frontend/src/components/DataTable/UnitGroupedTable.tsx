@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Merge, RefreshCw, Loader2, Lightbulb, FileText, AlertCircle, Search, ArrowUp, ArrowDown } from 'lucide-react';
+import { Merge, Loader2, Lightbulb, FileText, AlertCircle, Search, ArrowUp, ArrowDown } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
@@ -321,16 +321,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     return unitData?.rows?.some(row => row._source_document != null) ?? false;
   }, [unitData?.rows]);
 
-  // All scrollable columns (exclude _unit_name since it's the frozen column, include _source_document when present)
+  // All toggleable columns (exclude _unit_name frozen column and _source_document which is always visible)
   const allColumns = useMemo(() => {
-    const cols = columns.filter(col =>
-      !col.startsWith('_')
-    );
-    if (hasSourceDocument) {
-      return ['_source_document', ...cols];
-    }
-    return cols;
-  }, [columns, hasSourceDocument]);
+    return columns.filter(col => !col.startsWith('_'));
+  }, [columns]);
 
   // Column visibility hook
   const {
@@ -371,10 +365,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     });
   }, [allColumns, unitData?.rows, columnInfo]);
 
-  // All table columns including frozen column (used for computing total table width)
+  // All table columns including frozen and dedicated columns (used for computing total table width)
   const allTableColumns = useMemo(() => {
-    return ['_unit_name', ...visibleColumns];
-  }, [visibleColumns]);
+    const cols = ['_unit_name'];
+    if (hasSourceDocument) cols.push('_source_document');
+    return [...cols, ...visibleColumns];
+  }, [hasSourceDocument, visibleColumns]);
 
   // Create mapping of main columns to their corresponding excerpt columns
   const excerptMapping = useMemo(() => {
@@ -458,16 +454,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           <div>
             <h3 className="font-semibold text-lg flex items-center gap-2">
               Observation Units
-              <Badge variant="secondary">
-                {unitListResponse?.totalUnits} units
-              </Badge>
-              <Badge variant="outline">
-                {unitListResponse?.totalRows} rows
-              </Badge>
+              <span className="text-muted-foreground font-normal">
+                ({unitListResponse?.totalRows} rows)
+              </span>
             </h3>
-            <p className="text-xs text-muted-foreground">
-              Grouped by observation unit
-            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -507,14 +497,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               onHideAll={hideAllColumns}
             />
 
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => refreshUnits()}
-              disabled={unitsLoading}
-            >
-              <RefreshCw className={cn("h-4 w-4", unitsLoading && "animate-spin")} />
-            </Button>
           </div>
         </div>
 
@@ -678,7 +660,50 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                   />
                 </th>
 
-                {/* Scrollable columns */}
+                {/* Source Document column - always visible when present */}
+                {hasSourceDocument && (
+                  <th
+                    ref={(el) => { headerRefs.current['_source_document'] = el; }}
+                    className={cn(
+                      "px-4 py-3 text-left font-bold text-base bg-background border-r relative",
+                      !getColumnWidth('_source_document') && "min-w-[180px]",
+                      getSortDirection('_source_document') && "bg-primary/5"
+                    )}
+                    style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                  >
+                    <div
+                      className="flex items-center gap-1 cursor-pointer hover:text-primary"
+                      onClick={(e) => toggleSort('_source_document', e.shiftKey)}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        Source Document
+                      </div>
+                      {getSortDirection('_source_document') && (
+                        <div className="flex items-center">
+                          {getSortDirection('_source_document') === 'asc' ? (
+                            <ArrowUp className="h-4 w-4 text-primary" />
+                          ) : (
+                            <ArrowDown className="h-4 w-4 text-primary" />
+                          )}
+                          {getSortPriority('_source_document') && getSortPriority('_source_document')! > 1 && (
+                            <span className="text-xs text-primary ml-0.5">{getSortPriority('_source_document')}</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        const th = headerRefs.current['_source_document'];
+                        if (th) handleResizeStart(e, '_source_document', th.offsetWidth);
+                      }}
+                    />
+                  </th>
+                )}
+
+                {/* Scrollable data columns */}
                 {visibleColumns.map(column => (
                   <th
                     key={column}
@@ -694,16 +719,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       className="flex items-center gap-1 cursor-pointer hover:text-primary"
                       onClick={(e) => toggleSort(column, e.shiftKey)}
                     >
-                      {column === '_source_document' ? (
-                        <div className="flex items-center gap-1.5">
-                          <FileText className="h-4 w-4 text-muted-foreground" />
-                          Source Document
-                        </div>
-                      ) : column.startsWith('_') ? (
-                        <Badge variant="outline">{formatColumnName(column)}</Badge>
-                      ) : (
-                        formatColumnName(column)
-                      )}
+                      {formatColumnName(column)}
                       {getSortDirection(column) && (
                         <div className="flex items-center">
                           {getSortDirection(column) === 'asc' ? (
@@ -777,50 +793,38 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       <span className="text-sm font-medium">{row._unit_name || 'Unknown'}</span>
                     </td>
 
+                    {/* Source Document cell - always visible when present */}
+                    {hasSourceDocument && (
+                      <td
+                        className="px-4 py-3 text-sm border-r bg-muted/20"
+                        style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="truncate max-w-[160px] font-medium text-foreground/80 cursor-help">
+                                {formatSourceDocument(row._source_document)}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="right" className="max-w-[400px]">
+                              <p className="break-all">{row._source_document || 'Unknown'}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </div>
+                      </td>
+                    )}
+
                     {/* Scrollable data columns */}
-                    {visibleColumns.map(column => {
-                      let cellValue: CellValue;
-                      if (column === '_source_document') {
-                        cellValue = row._source_document;
-                      } else {
-                        cellValue = row.data[column];
-                      }
-
-                      // Special rendering for _source_document
-                      if (column === '_source_document') {
-                        return (
-                          <td
-                            key={column}
-                            className="px-4 py-3 text-sm"
-                            style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
-                          >
-                            <div className="flex items-center gap-1.5">
-                              <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="truncate max-w-[160px] font-medium text-foreground/80 cursor-help">
-                                    {formatSourceDocument(row._source_document)}
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent side="right" className="max-w-[400px]">
-                                  <p className="break-all">{row._source_document || 'Unknown'}</p>
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </td>
-                        );
-                      }
-
-                      return (
-                        <td
-                          key={column}
-                          className="px-4 py-3 text-sm"
-                          style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
-                        >
-                          {formatCellValue(cellValue, column, row, excerptMapping, handleViewContent)}
-                        </td>
-                      );
-                    })}
+                    {visibleColumns.map(column => (
+                      <td
+                        key={column}
+                        className="px-4 py-3 text-sm"
+                        style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                      >
+                        {formatCellValue(row.data[column], column, row, excerptMapping, handleViewContent)}
+                      </td>
+                    ))}
                   </tr>
                 );
               })}
@@ -828,7 +832,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               {processedRows.length === 0 && unitData?.rows && unitData.rows.length > 0 && (
                 <tr>
                   <td
-                    colSpan={visibleColumns.length + 2}
+                    colSpan={visibleColumns.length + (hasSourceDocument ? 3 : 2)}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
                     No rows match the current filters or search.
