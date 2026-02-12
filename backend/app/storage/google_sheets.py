@@ -14,13 +14,14 @@ from app.core.config import (
     GOOGLE_SERVICE_ACCOUNT_JSON,
     GOOGLE_SERVICE_ACCOUNT_FILE,
     GOOGLE_SHEETS_SPREADSHEET_ID,
+    GOOGLE_SHEETS_LLM_USAGE_ID,
     GOOGLE_OAUTH_CREDENTIALS_JSON,
 )
 
 logger = logging.getLogger(__name__)
 
 # Column headers for the summary sheet (must match append_row order)
-# A-M: session data + feedback in a single row
+# A-L: session data + feedback in a single row
 HEADER_ROW = [
     "Timestamp",
     "Session ID",
@@ -34,8 +35,10 @@ HEADER_ROW = [
     "Drive File ID",
     "Rating",
     "Comment",
-    "LLM Calls",  # Total LLM API calls made during this session
 ]
+
+# LLM usage tracking lives in a separate spreadsheet (GOOGLE_SHEETS_LLM_USAGE_ID)
+LLM_USAGE_HEADER = ["Timestamp", "Session ID", "LLM Calls", "Per Stage"]
 
 
 class GoogleSheetsLogger:
@@ -129,7 +132,7 @@ class GoogleSheetsLogger:
             body = {"values": [values]}
             self._service.spreadsheets().values().append(
                 spreadsheetId=GOOGLE_SHEETS_SPREADSHEET_ID,
-                range="Sheet1!A:M",
+                range="Sheet1!A:L",
                 valueInputOption="USER_ENTERED",
                 insertDataOption="INSERT_ROWS",
                 body=body,
@@ -151,7 +154,6 @@ class GoogleSheetsLogger:
         observation_unit: str,
         trigger_source: str,
         drive_file_id: Optional[str],
-        llm_calls: int = 0,
     ) -> bool:
         """Log a session summary row with default Rating=N/A."""
         return self.append_row([
@@ -167,22 +169,78 @@ class GoogleSheetsLogger:
             drive_file_id or "",
             "N/A",  # Rating — updated later if user submits feedback
             "",     # Comment
-            llm_calls,
         ])
 
-    def read_total_llm_calls(self) -> int:
-        """Read the sum of all LLM calls from column M of the Google Sheet.
+    def _ensure_llm_usage_headers(self) -> bool:
+        """Write headers to the LLM usage spreadsheet if row 1 is empty."""
+        if not GOOGLE_SHEETS_LLM_USAGE_ID:
+            return False
+        try:
+            result = self._service.spreadsheets().values().get(
+                spreadsheetId=GOOGLE_SHEETS_LLM_USAGE_ID,
+                range="Sheet1!A1:D1",
+            ).execute()
+            if not result.get("values"):
+                self._service.spreadsheets().values().update(
+                    spreadsheetId=GOOGLE_SHEETS_LLM_USAGE_ID,
+                    range="Sheet1!A1:D1",
+                    valueInputOption="USER_ENTERED",
+                    body={"values": [LLM_USAGE_HEADER]},
+                ).execute()
+                logger.info("[llm-usage] Wrote headers to LLM usage spreadsheet")
+            return True
+        except Exception as e:
+            logger.error("[llm-usage] Failed to ensure headers: %s", e)
+            return False
 
-        Returns 0 if the sheet is empty, inaccessible, or Sheets logging
-        is not configured.
+    def log_llm_usage(self, session_id: str, llm_calls: int, per_stage: Optional[Dict] = None) -> bool:
+        """Append a row to the separate LLM usage spreadsheet.
+
+        Args:
+            session_id: Session that generated the calls.
+            llm_calls: Total LLM API calls in this session.
+            per_stage: Optional per-stage breakdown dict.
+
+        Returns True on success.
         """
-        if not self._enabled or not self._service:
+        if not self._enabled or not self._service or not GOOGLE_SHEETS_LLM_USAGE_ID:
+            return False
+
+        self._ensure_llm_usage_headers()
+
+        try:
+            stage_str = json.dumps(per_stage) if per_stage else ""
+            body = {"values": [[
+                datetime.now(timezone.utc).isoformat(),
+                session_id,
+                llm_calls,
+                stage_str,
+            ]]}
+            self._service.spreadsheets().values().append(
+                spreadsheetId=GOOGLE_SHEETS_LLM_USAGE_ID,
+                range="Sheet1!A:D",
+                valueInputOption="USER_ENTERED",
+                insertDataOption="INSERT_ROWS",
+                body=body,
+            ).execute()
+            logger.debug("[llm-usage] Logged %d LLM calls for session %s", llm_calls, session_id[:8])
+            return True
+        except Exception as e:
+            logger.error("[llm-usage] Failed to log LLM usage: %s", e)
+            return False
+
+    def read_total_llm_calls(self) -> int:
+        """Read the sum of all LLM calls from the LLM usage spreadsheet (column C).
+
+        Returns 0 if the spreadsheet is empty or not configured.
+        """
+        if not self._enabled or not self._service or not GOOGLE_SHEETS_LLM_USAGE_ID:
             return 0
 
         try:
             result = self._service.spreadsheets().values().get(
-                spreadsheetId=GOOGLE_SHEETS_SPREADSHEET_ID,
-                range="Sheet1!M:M",
+                spreadsheetId=GOOGLE_SHEETS_LLM_USAGE_ID,
+                range="Sheet1!C:C",
             ).execute()
             values = result.get("values", [])
             total = 0
@@ -192,10 +250,10 @@ class GoogleSheetsLogger:
                         total += int(row[0])
                     except (ValueError, TypeError):
                         pass
-            logger.debug("[data-collection] Read total LLM calls from Sheet: %d", total)
+            logger.debug("[llm-usage] Read total LLM calls: %d", total)
             return total
         except Exception as e:
-            logger.error("[data-collection] Failed to read LLM calls from Sheet: %s", e)
+            logger.debug("[llm-usage] Could not read LLM usage spreadsheet: %s", e)
             return 0
 
     def log_feedback(

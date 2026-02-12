@@ -5,6 +5,10 @@ import os
 import sys
 from pathlib import Path
 
+# Load .env file for local development (gitignored, no effect in production)
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 # Configure logging to show in container logs
 # Set LOG_LEVEL=DEBUG to see detailed schema column tracking
 # Format includes [session_id] for Railway log filtering per session

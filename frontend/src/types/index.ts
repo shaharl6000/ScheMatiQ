@@ -416,7 +416,7 @@ export interface AddColumnRequest {
   llm_config?: {
     provider: string;
     model: string;
-    api_key: string;
+    api_key?: string;
     max_output_tokens?: number;
     temperature?: number;
   };
@@ -593,7 +593,7 @@ export interface ReextractionRequest {
   llm_config?: {
     provider: string;
     model: string;
-    api_key: string;
+    api_key?: string;
     max_output_tokens?: number;
     temperature?: number;
   };
@@ -668,7 +668,7 @@ export interface ContinueDiscoveryRequest {
   llm_config: {
     provider: string;
     model: string;
-    api_key: string;
+    api_key?: string;
     max_output_tokens?: number;
     temperature?: number;
     context_window_size?: number;
@@ -727,7 +727,7 @@ export interface ConfirmColumnsRequest {
   llm_config?: {
     provider: string;
     model: string;
-    api_key: string;
+    api_key?: string;
     max_output_tokens?: number;
     temperature?: number;
   };
