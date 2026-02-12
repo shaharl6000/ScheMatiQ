@@ -264,12 +264,28 @@ async def run_qbsd(session_id: str, background_tasks: BackgroundTasks):
         session = session_manager.get_session(session_id)
         if not session or session.type != SessionType.QBSD:
             raise HTTPException(status_code=404, detail="QBSD session not found")
-        
+
+        # Pre-check global LLM quota before starting background task.
+        # This gives the user an immediate HTTP error instead of a delayed WebSocket error.
+        from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
+        from qbsd.core.llm_call_tracker import QuotaExceededError
+        if not DEVELOPER_MODE and LLM_CALL_GLOBAL_LIMIT > 0:
+            try:
+                qbsd_runner._sync_usage_from_sheets()
+                qbsd_runner._global_usage.check_quota(LLM_CALL_GLOBAL_LIMIT)
+            except QuotaExceededError:
+                raise HTTPException(
+                    status_code=429,
+                    detail="The system has reached its processing capacity and is unable to start new sessions at this time. Please try again later or contact us for assistance."
+                )
+
         # Start QBSD in background
         background_tasks.add_task(qbsd_runner.run_qbsd, session_id)
         
         return {"message": "QBSD execution started", "session_id": session_id}
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
