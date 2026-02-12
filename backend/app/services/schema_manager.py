@@ -398,20 +398,20 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     "schema_warning"
                 )
 
-            # Create comprehensive schema context including existing columns
+            # Create schema for value extraction — must use "schema" key (list of columns)
+            # so that Schema.from_dict() can parse it correctly
             session_dir = Path("./data") / session_id
+            column_entry = {
+                "column": column.name,
+                "definition": column.definition or f"New data field: {column.name}",
+                "explanation": column.rationale or f"Additional information for {column.name}",
+            }
+            if column.allowed_values:
+                column_entry["allowed_values"] = column.allowed_values
+
             comprehensive_schema = {
                 "query": session.schema_query or "Extract structured information",
-                "context": f"Adding new column to existing schema: {session.metadata.source}",
-                "extraction_instructions": self._generate_extraction_instructions(session),
-                "target_column": {
-                    "column": column.name,
-                    "definition": column.definition or f"New data field: {column.name}",
-                    "explanation": column.rationale or f"Additional information for {column.name}",
-                    "data_type": column.data_type or "text",
-                    "is_new": True
-                },
-                "existing_schema_context": []
+                "schema": [column_entry],
             }
 
             # Add observation_unit (required by value extraction)
@@ -422,17 +422,6 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 }
                 if session.observation_unit.example_names:
                     comprehensive_schema["observation_unit"]["example_names"] = session.observation_unit.example_names
-
-            # Add existing column context to help with coherent extraction
-            for existing_col in session.columns:
-                if (existing_col.name != column.name and
-                    existing_col.name and
-                    not existing_col.name.lower().endswith('_excerpt')):
-                    comprehensive_schema["existing_schema_context"].append({
-                        "column": existing_col.name,
-                        "definition": existing_col.definition or "",
-                        "explanation": existing_col.rationale or ""
-                    })
 
             schema_file = session_dir / f"new_column_enhanced_schema_{column.name}.json"
             with open(schema_file, 'w') as f:
@@ -446,12 +435,49 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 max_words=768      # More text for understanding
             )
 
-            # Determine documents directory
-            docs_dir = Path(documents_path) if documents_path else session_dir / "documents"
+            # Determine documents directories — check all possible locations
+            # (same pattern as reextraction_service._run_reextraction)
+            if documents_path:
+                docs_directories = [Path(documents_path)]
+            else:
+                qbsd_dir = Path("./qbsd_work") / session_id
+                candidate_dirs = [
+                    session_dir / "documents",
+                    session_dir / "pending_documents",
+                ]
+                # Check qbsd_work datasets directories
+                qbsd_datasets_dir = qbsd_dir / "datasets"
+                if qbsd_datasets_dir.exists():
+                    for dataset_subdir in qbsd_datasets_dir.iterdir():
+                        if dataset_subdir.is_dir():
+                            candidate_dirs.append(dataset_subdir)
+                # Check qbsd_work capped_documents
+                capped_dir = qbsd_dir / "capped_documents"
+                if capped_dir.exists():
+                    candidate_dirs.append(capped_dir)
+                # Check original docs_path from QBSD config
+                qbsd_config_file = qbsd_dir / "qbsd_config.json"
+                if qbsd_config_file.exists():
+                    try:
+                        with open(qbsd_config_file) as f:
+                            qbsd_cfg = json.load(f)
+                        config_docs_path = qbsd_cfg.get("docs_path", [])
+                        if isinstance(config_docs_path, str):
+                            config_docs_path = [config_docs_path]
+                        for dp in config_docs_path:
+                            if dp:
+                                dp_path = Path(dp)
+                                if dp_path.is_dir() and dp_path not in candidate_dirs:
+                                    candidate_dirs.append(dp_path)
+                    except Exception:
+                        pass
+                docs_directories = [d for d in candidate_dirs if d.exists()]
 
-            if not docs_dir.exists():
-                await self.broadcast_error(session_id, f"Documents directory not found: {docs_dir}")
+            if not docs_directories:
+                await self.broadcast_error(session_id, "No document directories found for extraction")
                 return
+
+            logger.info(f"extract_values_for_new_column docs_directories={[str(d) for d in docs_directories]}")
 
             # Extract values with enhanced schema awareness
             output_file = session_dir / f"new_column_enhanced_values_{column.name}.jsonl"
@@ -465,12 +491,12 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 functools.partial(
                     build_table_jsonl,
                     schema_path=schema_file,
-                    docs_directories=[docs_dir],
+                    docs_directories=docs_directories,
                     output_path=output_file,
                     llm=llm,
                     retriever=retriever,
                     resume=False,
-                    mode="one_by_one",  # More focused extraction for new columns
+                    mode="one_by_one",
                     retrieval_k=10,
                     max_workers=1,
                     should_stop=should_stop,
@@ -622,55 +648,85 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 f.write(json.dumps(row) + '\n')
     
     async def _add_new_column_data(self, session_id: str, column_name: str, extraction_file: Path):
-        """Add data for a new column to existing records."""
+        """Add data for a new column to existing records across ALL data files."""
         if not extraction_file.exists():
             return
 
-        # Read extracted values
-        extracted_data = {}
+        # Read extracted values indexed by row_name
+        extracted_by_row: Dict[str, Any] = {}
+        extracted_by_paper_stem: Dict[str, Any] = {}
         with open(extraction_file, 'r') as f:
-            for line_num, line in enumerate(f):
+            for line in f:
                 if line.strip():
                     row_data = json.loads(line)
-                    if column_name in row_data:
-                        extracted_data[line_num] = row_data[column_name]
+                    row_name = row_data.get('_row_name') or row_data.get('row_name')
+                    value = row_data.get(column_name)
+                    if row_name and value is not None:
+                        extracted_by_row[row_name] = value
+                        extracted_by_paper_stem[row_name.lower()] = value
 
-        # Update main data file
-        data_file = find_session_data_file(session_id)
+        # Find ALL data files (same pattern as unit_view_service._get_all_data_files)
+        data_files = []
+        qbsd_extracted = Path("./qbsd_work") / session_id / "extracted_data.jsonl"
+        if qbsd_extracted.exists():
+            data_files.append(qbsd_extracted)
+        if not data_files:
+            qbsd_data = Path("./qbsd_work") / session_id / "data.jsonl"
+            if qbsd_data.exists():
+                data_files.append(qbsd_data)
+        load_data = Path("./data") / session_id / "data.jsonl"
+        if load_data.exists() and load_data.resolve() not in [f.resolve() for f in data_files]:
+            data_files.append(load_data)
 
-        if not data_file:
+        if not data_files:
             # Create new data file in default location
             session_dir = Path("./data") / session_id
             session_dir.mkdir(parents=True, exist_ok=True)
             data_file = session_dir / "data.jsonl"
             with open(data_file, 'w') as f:
-                for line_num, value in extracted_data.items():
+                for idx, (row_name, value) in enumerate(extracted_by_row.items()):
                     row_data = {
-                        "row_name": f"Row_{line_num + 1}",
+                        "row_name": row_name,
                         "data": {column_name: value},
                         "papers": []
                     }
                     f.write(json.dumps(row_data) + '\n')
-        else:
-            # Add to existing data
+            return
+
+        # Update each data file
+        for data_file in data_files:
             updated_rows = []
             with open(data_file, 'r') as f:
-                for line_num, line in enumerate(f):
+                for line in f:
                     if line.strip():
                         row_data = json.loads(line)
-                        
-                        # Add new column value
-                        if line_num in extracted_data:
+                        row_name = row_data.get('row_name') or row_data.get('_row_name')
+                        papers = row_data.get('papers') or []
+
+                        # Try direct row name match
+                        value = None
+                        if row_name and row_name in extracted_by_row:
+                            value = extracted_by_row[row_name]
+                        else:
+                            # Fallback: match by paper name stem
+                            for paper in papers:
+                                paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
+                                if paper_stem in extracted_by_paper_stem:
+                                    value = extracted_by_paper_stem[paper_stem]
+                                    break
+
+                        if value is not None:
                             if 'data' not in row_data:
                                 row_data['data'] = {}
-                            row_data['data'][column_name] = extracted_data[line_num]
-                        
+                            row_data['data'][column_name] = value
+
                         updated_rows.append(row_data)
-            
-            # Write back updated data
+
             with open(data_file, 'w') as f:
                 for row in updated_rows:
                     f.write(json.dumps(row) + '\n')
+
+        logger.debug(f"Added new column '{column_name}' data across {len(data_files)} data files")
     
     async def reprocess_documents(self, session_id: str, columns: List[str], incremental: bool = True, force: bool = False):
         """Reprocess documents for multiple columns using comprehensive schema context."""
@@ -819,21 +875,19 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     "schema_warning"
                 )
             
-            # Create enhanced schema for targeted extraction
+            # Create schema for targeted extraction — must use "schema" key (list)
+            # so that Schema.from_dict() can parse it correctly
+            column_entry = {
+                "column": column.name,
+                "definition": column.definition or f"Data field: {column.name}",
+                "explanation": column.rationale or f"Information related to {column.name}",
+            }
+            if column.allowed_values:
+                column_entry["allowed_values"] = column.allowed_values
+
             enhanced_schema = {
                 "query": comprehensive_schema["query"],
-                "context": comprehensive_schema["context"],
-                "extraction_instructions": comprehensive_schema["extraction_instructions"],
-                "target_column": {
-                    "column": column.name,
-                    "definition": column.definition or f"Data field: {column.name}",
-                    "explanation": column.rationale or f"Information related to {column.name}",
-                    "data_type": column.data_type or "text"
-                },
-                "schema_context": [
-                    col for col in comprehensive_schema["schema"]
-                    if col["processing_status"] == "reference"
-                ][:5]  # Limit to top 5 for context
+                "schema": [column_entry],
             }
 
             # Add observation_unit (required by value extraction)

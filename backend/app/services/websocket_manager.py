@@ -9,6 +9,19 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+
+def _json_serial(obj):
+    """JSON serializer for objects not serializable by default json code."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
+
+async def _send_json_safe(websocket: WebSocket, message: dict):
+    """Send JSON message with datetime-safe serialization."""
+    await websocket.send_text(json.dumps(message, default=_json_serial))
+
+
 class WebSocketManager:
     """Manages WebSocket connections for real-time updates."""
 
@@ -72,7 +85,7 @@ class WebSocketManager:
         dead_connections = []
         for websocket in snapshot:
             try:
-                await websocket.send_json(message)
+                await _send_json_safe(websocket, message)
             except Exception:
                 dead_connections.append(websocket)
 
@@ -99,7 +112,7 @@ class WebSocketManager:
         dead_connections = []
         for websocket in snapshot:
             try:
-                await websocket.send_json(message)
+                await _send_json_safe(websocket, message)
             except Exception:
                 dead_connections.append(websocket)
 
@@ -137,7 +150,7 @@ class WebSocketManager:
         dead_connections = []
         for websocket in snapshot:
             try:
-                await websocket.send_json(message)
+                await _send_json_safe(websocket, message)
             except Exception:
                 dead_connections.append(websocket)
 
@@ -193,7 +206,7 @@ class WebSocketManager:
         dead_connections = []
         for websocket in snapshot:
             try:
-                await websocket.send_json(message)
+                await _send_json_safe(websocket, message)
             except Exception as e:
                 logger.warning(f"Failed to send message to websocket: {e}")
                 dead_connections.append(websocket)
@@ -230,7 +243,7 @@ class WebSocketManager:
         dead_connections = []
         for websocket in snapshot:
             try:
-                await websocket.send_json(message)
+                await _send_json_safe(websocket, message)
             except Exception:
                 dead_connections.append(websocket)
 
