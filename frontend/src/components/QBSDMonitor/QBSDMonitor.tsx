@@ -32,6 +32,8 @@ import { WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData
 
 interface QBSDMonitorProps {
   sessionId: string;
+  autoStarted?: boolean;
+  initialCapacityMessage?: string;
 }
 
 interface LogEntry {
@@ -44,17 +46,21 @@ interface LogEntry {
 // Processing state that changes IMMEDIATELY on user action
 type ProcessingState = 'idle' | 'starting' | 'schema' | 'extraction' | 'completed' | 'error' | 'stopped';
 
-const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId }) => {
+const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = false, initialCapacityMessage = '' }) => {
   const queryClient = useQueryClient();
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting');
   const [logsOpen, setLogsOpen] = useState(false);
 
   // Main processing state - changes IMMEDIATELY on Start click
-  const [processingState, setProcessingState] = useState<ProcessingState>('idle');
-  const [currentStepMessage, setCurrentStepMessage] = useState<string>('');
+  const [processingState, setProcessingState] = useState<ProcessingState>(
+    initialCapacityMessage ? 'idle' : autoStarted ? 'starting' : 'idle'
+  );
+  const [currentStepMessage, setCurrentStepMessage] = useState<string>(
+    autoStarted && !initialCapacityMessage ? 'Initializing...' : ''
+  );
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [capacityMessage, setCapacityMessage] = useState<string>('');
+  const [capacityMessage, setCapacityMessage] = useState<string>(initialCapacityMessage);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
 
   // Phase tracking state

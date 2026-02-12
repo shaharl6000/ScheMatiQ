@@ -607,8 +607,22 @@ const QBSDConfigPage = () => {
         }
       }
 
-      // Step 3: Navigate to visualization
-      navigate(`/visualize/${sessionId}?mode=qbsd`);
+      // Step 3: Start QBSD execution
+      let navState: { autoStarted?: boolean; serverBusy?: boolean; capacityMessage?: string } = {};
+      try {
+        await qbsdAPI.run(sessionId);
+        navState = { autoStarted: true };
+      } catch (runErr: any) {
+        const status = runErr?.response?.status;
+        const detail = runErr?.response?.data?.detail;
+        if (status === 503) {
+          navState = { serverBusy: true, capacityMessage: detail || 'The server is currently busy processing other requests. Please try again in a few minutes.' };
+        }
+        // For other errors, navigate without special state — QBSDMonitor shows "Ready to Start" as fallback
+      }
+
+      // Step 4: Navigate to visualization
+      navigate(`/visualize/${sessionId}?mode=qbsd`, { state: navState });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to configure QBSD');
     } finally {

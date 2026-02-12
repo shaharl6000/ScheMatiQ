@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import {
   ArrowLeft,
   Download,
@@ -58,11 +58,29 @@ const Visualize = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const mode = searchParams.get('mode') as 'load' | 'qbsd' || 'load';
   const [activeTab, setActiveTab] = useState(mode === 'qbsd' ? 'monitor' : 'data');
+
+  // Read auto-start state from navigation (set by QBSDConfig after calling run)
+  const [autoStartState] = useState(() => {
+    const state = location.state as {
+      autoStarted?: boolean;
+      serverBusy?: boolean;
+      capacityMessage?: string;
+    } | null;
+    // Clear navigation state to prevent re-use on page refresh
+    if (state?.autoStarted || state?.serverBusy) {
+      window.history.replaceState({}, document.title);
+    }
+    return {
+      autoStarted: state?.autoStarted || false,
+      initialCapacityMessage: state?.serverBusy ? (state.capacityMessage || 'The server is currently busy processing other requests. Please try again in a few minutes.') : '',
+    };
+  });
 
   // View mode context for unit view toggle
   const { viewMode, setViewMode } = useViewMode();
@@ -1359,7 +1377,11 @@ const Visualize = () => {
         {/* QBSD Monitor Tab */}
         {mode === 'qbsd' && (
           <TabsContent value="monitor" className="mt-4">
-            <QBSDMonitor sessionId={sessionId} />
+            <QBSDMonitor
+              sessionId={sessionId}
+              autoStarted={autoStartState.autoStarted}
+              initialCapacityMessage={autoStartState.initialCapacityMessage}
+            />
           </TabsContent>
         )}
 
