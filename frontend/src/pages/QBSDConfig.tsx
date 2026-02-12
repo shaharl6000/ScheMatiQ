@@ -164,12 +164,15 @@ const QBSDConfigPage = () => {
       const providers = await getConfiguredProviders();
 
       // Fetch config to check if LLM config is allowed
-      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true, server_has_llm_key: false }));
+      const cfg = await configAPI.getConfig().catch(() => ({
+        allow_llm_config: true,
+        server_has_api_keys: false,
+      }));
 
       // In release mode, only Gemini is needed (LLM config is locked)
       if (!cfg.allow_llm_config) {
-        // Release mode: need Gemini key from user OR server
-        if (!providers.includes('gemini') && !cfg.server_has_llm_key) {
+        // Release mode: allow access if user has Gemini key OR server has keys
+        if (!providers.includes('gemini') && !cfg.server_has_api_keys) {
           navigate('/');
           return;
         }

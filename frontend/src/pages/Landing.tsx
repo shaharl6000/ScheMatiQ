@@ -26,33 +26,26 @@ const Landing = () => {
   const navigate = useNavigate();
   const [configuredProviders, setConfiguredProviders] = useState<LLMProvider[]>([]);
   const [isCheckingKeys, setIsCheckingKeys] = useState(true);
-  const [serverHasKey, setServerHasKey] = useState(false);
-  const [allowLlmConfig, setAllowLlmConfig] = useState(true);
+  const [serverHasApiKeys, setServerHasApiKeys] = useState(false);
+  const [developerMode, setDeveloperMode] = useState(false);
 
   useEffect(() => {
     const init = async () => {
       setIsCheckingKeys(true);
-
-      // Check if the server already has an LLM key configured
-      try {
-        const cfg = await configAPI.getConfig();
-        setServerHasKey(cfg.server_has_llm_key ?? false);
-        setAllowLlmConfig(cfg.allow_llm_config ?? true);
-      } catch {
-        // Defaults: no server key, allow config
-      }
-
-      const providers = await getConfiguredProviders();
+      const [providers, cfg] = await Promise.all([
+        getConfiguredProviders(),
+        configAPI.getConfig().catch(() => ({ server_has_api_keys: false, developer_mode: false })),
+      ]);
       setConfiguredProviders(providers);
+      setServerHasApiKeys(cfg.server_has_api_keys);
+      setDeveloperMode(cfg.developer_mode);
       setIsCheckingKeys(false);
     };
     init();
   }, []);
 
-  // Users can proceed if the server has a key OR if they configured their own
-  const hasApiKeys = serverHasKey || configuredProviders.length > 0;
-  // Only show the API key input section if the server doesn't have a key
-  const showApiKeySection = !serverHasKey || allowLlmConfig;
+  const hasApiKeys = configuredProviders.length > 0 || serverHasApiKeys;
+  const showApiKeySection = developerMode || !serverHasApiKeys;
 
   const loadFeatures = [
     'CSV & JSON support',
@@ -76,10 +69,8 @@ const Landing = () => {
         </p>
       </div>
 
-      {/* API Key Configuration Section — hidden when server provides the key */}
-      {showApiKeySection && (
-        <ApiKeySection onConfigurationChange={setConfiguredProviders} />
-      )}
+      {/* API Key Configuration Section */}
+      {showApiKeySection && <ApiKeySection onConfigurationChange={setConfiguredProviders} />}
 
       {/* Main Cards */}
       <div className="grid md:grid-cols-2 gap-6 mb-12">

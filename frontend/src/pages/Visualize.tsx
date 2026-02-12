@@ -769,11 +769,11 @@ const Visualize = () => {
 
   const handleDocumentProcessing = async () => {
     // Check if LLM config is allowed (developer mode)
-    const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true, server_has_llm_key: false }));
+    const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true, server_has_api_keys: false }));
     if (!cfg.allow_llm_config) {
       // Release mode: use default Gemini config, prefer user key, fallback to server key
       const geminiKey = await getApiKeyForProvider('gemini');
-      if (!geminiKey && !cfg.server_has_llm_key) {
+      if (!geminiKey && !cfg.server_has_api_keys) {
         setDocumentUploadError('No Gemini API key configured. Please add your API key on the home page.');
         return;
       }
