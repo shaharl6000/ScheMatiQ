@@ -118,39 +118,42 @@ const Load = () => {
       </h1>
 
       {/* Explanation */}
-      <p className="text-muted-foreground mb-2">
-        Load an existing QBSD data file to visualize and edit your research data.
-        The system will extract the schema from your data, allowing you to explore
-        and add documents for AI-powered information extraction.
-      </p>
-
-      <p className="text-sm text-muted-foreground mb-6">
-        Supported formats: QBSD Project (.qbsd.json), CSV, JSON, JSONL (up to 100MB)
+      <p className="text-muted-foreground mb-6">
+        Load a data file to visualize, edit, and extend with AI extraction.
       </p>
 
       {/* Template Selection */}
-      {templates.length > 0 && (
-        <Card className="p-4 mb-4 bg-muted/30">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Database className="h-5 w-5 text-primary" />
-              <div>
-                <h3 className="font-medium">Load from Examples</h3>
-                <p className="text-sm text-muted-foreground">
-                  Choose from pre-loaded example tables
-                </p>
-              </div>
+      <Card className="p-4 mb-4 bg-muted/30">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Database className="h-5 w-5 text-primary" />
+            <div>
+              <h3 className="font-medium">Load from Examples</h3>
+              <p className="text-sm text-muted-foreground">
+                Choose from pre-loaded example tables
+              </p>
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" disabled={loading || loadingTemplates}>
-                  <FileSpreadsheet className="mr-2 h-4 w-4" />
-                  Select Example
-                  <ChevronDown className="ml-2 h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto">
-                {templates.map((template) => (
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" disabled={loading || loadingTemplates}>
+                <FileSpreadsheet className="mr-2 h-4 w-4" />
+                Select Example
+                <ChevronDown className="ml-2 h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto">
+              {loadingTemplates ? (
+                <DropdownMenuItem disabled className="flex items-center gap-2 py-2">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Loading examples...</span>
+                </DropdownMenuItem>
+              ) : templates.length === 0 ? (
+                <DropdownMenuItem disabled className="py-2">
+                  No examples available
+                </DropdownMenuItem>
+              ) : (
+                templates.map((template) => (
                   <DropdownMenuItem
                     key={template.name}
                     onClick={() => handleTemplateLoad(template.name)}
@@ -163,26 +166,24 @@ const Load = () => {
                       {template.column_count !== undefined && ` • ${template.column_count} cols`}
                     </span>
                   </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </Card>
-      )}
+                ))
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </Card>
 
       {/* Divider */}
-      {templates.length > 0 && (
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <span className="w-full border-t" />
-          </div>
-          <div className="relative flex justify-center text-xs uppercase">
-            <span className="bg-background px-2 text-muted-foreground">
-              Or upload your own file
-            </span>
-          </div>
+      <div className="relative my-6">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t" />
         </div>
-      )}
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-background px-2 text-muted-foreground">
+            Or upload your own file
+          </span>
+        </div>
+      </div>
 
       {/* Load Dropzone */}
       <Card
