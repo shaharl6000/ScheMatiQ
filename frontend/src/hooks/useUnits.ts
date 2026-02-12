@@ -3,6 +3,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useQuery, useQueryClient } from 'react-query';
 import { unitsAPI } from '../services/api';
 import {
   UnitListResponse,
@@ -25,42 +26,34 @@ interface UseUnitsResult {
 
 /**
  * Hook to fetch and manage observation units for a session.
+ * Uses React Query for shared caching — multiple components calling useUnits
+ * with the same sessionId will share cached data (no redundant fetches or flicker).
  */
 export function useUnits(sessionId: string | undefined): UseUnitsResult {
-  const [units, setUnits] = useState<UnitListResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  const fetchUnits = useCallback(async () => {
-    if (!sessionId) {
-      setUnits(null);
-      return;
+  const { data: units, isLoading: loading, error: queryError } = useQuery(
+    ['units', sessionId],
+    () => unitsAPI.list(sessionId!),
+    {
+      enabled: !!sessionId,
+      keepPreviousData: true,
     }
+  );
 
-    setLoading(true);
-    setError(null);
+  const error = queryError instanceof Error ? queryError.message : queryError ? String(queryError) : null;
 
-    try {
-      const response = await unitsAPI.list(sessionId);
-      setUnits(response);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to fetch units';
-      setError(message);
-      console.error('Error fetching units:', err);
-    } finally {
-      setLoading(false);
+  const refresh = useCallback(async () => {
+    if (sessionId) {
+      await queryClient.invalidateQueries(['units', sessionId]);
     }
-  }, [sessionId]);
-
-  useEffect(() => {
-    fetchUnits();
-  }, [fetchUnits]);
+  }, [sessionId, queryClient]);
 
   return {
-    units,
+    units: units ?? null,
     loading,
     error,
-    refresh: fetchUnits,
+    refresh,
   };
 }
 
