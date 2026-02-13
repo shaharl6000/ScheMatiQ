@@ -660,7 +660,7 @@ export interface ContinueDiscoveryDocuments {
   original_count: number;
   local_count?: number;
   cloud_count?: number;
-  cloud_datasets: string[];
+  cloud_datasets: { name: string; file_count: number }[];
   original_cloud_dataset?: string;
   can_use_original: boolean;
   query: string;

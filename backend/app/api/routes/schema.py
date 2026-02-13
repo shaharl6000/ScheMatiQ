@@ -1092,10 +1092,14 @@ async def upload_missing_papers(
 
 # ==================== Continue Schema Discovery Endpoints ====================
 
+class CloudDatasetInfo(BaseModel):
+    name: str
+    file_count: int
+
 class ContinueDiscoveryDocumentsResponse(BaseModel):
     original_documents: List[str]
     original_count: int
-    cloud_datasets: List[str]
+    cloud_datasets: List[CloudDatasetInfo]
     original_cloud_dataset: Optional[str]
     can_use_original: bool
     query: str

@@ -555,19 +555,34 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                 {!documentInfo?.cloud_datasets.length ? (
                   <p className="text-sm text-muted-foreground mt-1">No datasets available</p>
                 ) : documentSource === 'cloud' ? (
-                  <Select value={selectedCloudDataset} onValueChange={setSelectedCloudDataset}>
-                    <SelectTrigger className="mt-2">
-                      <SelectValue placeholder="Select a dataset" />
-                    </SelectTrigger>
-                    <SelectContent container={dialogContentRef.current}>
-                      {documentInfo.cloud_datasets.map((dataset) => (
-                        <SelectItem key={dataset} value={dataset}>
-                          {dataset}
-                          {dataset === documentInfo.original_cloud_dataset && ' (original)'}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <>
+                    <Select value={selectedCloudDataset} onValueChange={setSelectedCloudDataset}>
+                      <SelectTrigger className="mt-2">
+                        <SelectValue placeholder="Select a dataset" />
+                      </SelectTrigger>
+                      <SelectContent container={dialogContentRef.current}>
+                        {documentInfo.cloud_datasets.map((dataset) => (
+                          <SelectItem key={dataset.name} value={dataset.name}>
+                            <span className="flex items-center justify-between w-full">
+                              <span>{dataset.name}{dataset.name === documentInfo.original_cloud_dataset && ' (original)'}</span>
+                              <Badge variant="secondary" className="ml-2 text-xs">{dataset.file_count} files</Badge>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedCloudDataset && (() => {
+                      const ds = documentInfo.cloud_datasets.find(d => d.name === selectedCloudDataset);
+                      if (!ds) return null;
+                      return !limitBypassEnabled && ds.file_count > maxDocuments ? (
+                        <p className="text-sm text-amber-600 mt-1">
+                          Dataset has {ds.file_count} documents — a sample of {maxDocuments} will be used
+                        </p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground mt-1">{ds.file_count} documents</p>
+                      );
+                    })()}
+                  </>
                 ) : null}
               </div>
             </div>
