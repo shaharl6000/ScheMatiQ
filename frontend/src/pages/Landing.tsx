@@ -82,7 +82,7 @@ const Landing = () => {
               disabled={!hasApiKeys}
             >
               <Sparkles className="mr-2 h-4 w-4" />
-              {hasApiKeys ? 'Create New Project' : 'Configure API Keys First'}
+              {hasApiKeys ? 'START' : 'Configure API Keys First'}
             </Button>
           </CardFooter>
         </Card>
@@ -107,7 +107,7 @@ const Landing = () => {
               onClick={() => navigate('/load')}
             >
               <Upload className="mr-2 h-4 w-4" />
-              Open
+              LOAD
             </Button>
           </CardFooter>
         </Card>

@@ -56,7 +56,7 @@ import { useColumnStats } from './hooks/useColumnStats';
 import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
 import TableOptionsMenu from './TableOptionsMenu';
-import { AVAILABLE_PAGE_SIZES } from '../../constants';
+import { AVAILABLE_PAGE_SIZES, SHORT_TEXT_THRESHOLD } from '../../constants';
 import { Progress } from '@/components/ui/progress';
 import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
 
@@ -797,7 +797,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     onMouseLeave={() => setHoveredRowId(null)}
                   >
                     {/* Checkbox cell */}
-                    <td className="w-[40px] min-w-[40px] px-2 py-3 text-center">
+                    <td className="w-[40px] min-w-[40px] px-2 py-3 text-center" style={{ verticalAlign: 'top' }}>
                       <div className={cn(
                         "transition-opacity duration-100",
                         showCheckbox ? "opacity-100" : "opacity-0"
@@ -821,6 +821,8 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       )}
                       style={{
                         zIndex: 5,
+                        verticalAlign: 'top',
+                        minHeight: '84px',
                         ...(getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : {}),
                       }}
                     >
@@ -853,10 +855,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     {visibleColumns.map(column => (
                       <td
                         key={column}
-                        className="px-4 py-3 text-sm"
+                        className="text-sm relative p-0"
                         style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
                       >
-                        {formatCellValue(row.data[column], column, row, excerptMapping, handleViewContent)}
+                        <div className="absolute inset-0 overflow-hidden px-4 py-3">
+                          {formatCellValue(row.data[column], column, row, excerptMapping, handleViewContent)}
+                        </div>
                       </td>
                     ))}
                   </tr>
@@ -1207,7 +1211,7 @@ function formatCellValue(
             title={tooltip}
           >
             <div className="text-xs leading-relaxed break-words">
-              {answerStr.length > 300 ? `${answerStr.slice(0, 300)}...` : answerStr}
+              {answerStr.length > SHORT_TEXT_THRESHOLD ? `${answerStr.slice(0, SHORT_TEXT_THRESHOLD)}...` : answerStr}
             </div>
           </div>
         );
@@ -1242,7 +1246,7 @@ function formatCellValue(
         title={tooltip}
       >
         <div className="text-xs leading-relaxed break-words">
-          {displayStr.length > 300 ? `${displayStr.slice(0, 300)}...` : displayStr}
+          {displayStr.length > SHORT_TEXT_THRESHOLD ? `${displayStr.slice(0, SHORT_TEXT_THRESHOLD)}...` : displayStr}
         </div>
       </div>
     );

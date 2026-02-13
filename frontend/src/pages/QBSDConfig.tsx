@@ -947,7 +947,7 @@ const QBSDConfigPage = () => {
               ) : (
                 <Sparkles className="mr-2 h-4 w-4" />
               )}
-              {isUploading ? 'Uploading files...' : loading ? 'Starting...' : 'Start'}
+              {isUploading ? 'Uploading files...' : loading ? 'Starting...' : 'Get Your Table'}
             </Button>
             {!isFormValid && (
               <p className="text-sm text-muted-foreground">
