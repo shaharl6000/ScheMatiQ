@@ -130,6 +130,12 @@ DATA_COLLECTION_ENABLED = (
 # Set to 0 to allow unlimited calls (no quota enforced).
 LLM_CALL_GLOBAL_LIMIT = int(os.environ.get("LLM_CALL_GLOBAL_LIMIT", "20"))
 
+# ── Quota Alert Email ────────────────────────────────────────────
+# Send an email when the LLM quota is exceeded.
+# Uses the same Google OAuth credentials as Google Sheets (no extra passwords).
+# Set ALERT_EMAIL_TO to enable; leave empty to disable.
+ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO", "")          # recipient(s), comma-separated
+
 # ── Concurrency Configuration ────────────────────────────────────
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "5"))
 QBSD_THREAD_POOL_SIZE = int(os.environ.get("QBSD_THREAD_POOL_SIZE", "6"))

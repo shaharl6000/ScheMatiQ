@@ -276,7 +276,11 @@ async def run_qbsd(session_id: str, background_tasks: BackgroundTasks):
             try:
                 qbsd_runner._sync_usage_from_sheets()
                 qbsd_runner._global_usage.check_quota(LLM_CALL_GLOBAL_LIMIT)
-            except QuotaExceededError:
+            except QuotaExceededError as exc:
+                # Send email alert (once per process lifetime)
+                from app.core.email_alerts import send_quota_exceeded_alert
+                send_quota_exceeded_alert(total_used=exc.used)
+
                 raise HTTPException(
                     status_code=429,
                     detail="The system has reached its processing capacity and is unable to start new sessions at this time. Please try again later or contact us for assistance."
