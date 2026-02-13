@@ -580,6 +580,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             await task
 
         except Exception as e:
+            logger.error("QBSD run failed for session %s: %s", session_id, e)
             # Update session with error
             session = self.session_manager.get_session(session_id)
             session.status = SessionStatus.ERROR
@@ -891,7 +892,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                     data_type="object",
                     source_document=col.source_document,
                     discovery_iteration=col.discovery_iteration,
-                    allowed_values=col.allowed_values,
+                    allowed_values=[v for v in col.allowed_values if v is not None] if col.allowed_values else None,
                     auto_expand_threshold=getattr(col, 'auto_expand_threshold', 2)
                 )
                 schema_columns.append(col_info)
@@ -1058,12 +1059,13 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 await self._data_collection_service.trigger_archive(session_id, "qbsd_completion")
 
         except Exception as e:
+            logger.error("QBSD execution failed: %s", e, exc_info=True)
             # Update session with error
             session = self.session_manager.get_session(session_id)
             session.status = SessionStatus.ERROR
             session.error_message = str(e)
             self.session_manager.update_session(session)
-            
+
             await self.broadcast_error(session_id, str(e))
             raise
     

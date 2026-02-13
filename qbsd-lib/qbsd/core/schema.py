@@ -207,6 +207,7 @@ class Schema:
                 if cand.allowed_values:
                     existing_av = combined[key].allowed_values or []
                     merged_av = list(dict.fromkeys(existing_av + cand.allowed_values))  # Preserve order, dedupe
+                    merged_av = [v for v in merged_av if v is not None]  # Filter nulls from LLM output
                     combined[key].allowed_values = merged_av if merged_av else None
                 # Keep existing auto_expand_threshold unless candidate has it and existing doesn't
                 if cand.auto_expand_threshold is not None and combined[key].auto_expand_threshold is None:

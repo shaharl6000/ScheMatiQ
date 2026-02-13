@@ -150,7 +150,7 @@ def _parse_schema_from_llm(raw_text: str,
                         name=_clean_column_name(c["name"]),
                         definition=c.get("definition", ""),
                         rationale=c.get("rationale", ""),
-                        allowed_values=c.get("allowed_values") if c.get("allowed_values") else None
+                        allowed_values=[v for v in c.get("allowed_values") if v is not None] or None if c.get("allowed_values") else None
                     )
                     for c in columns_data
                 ]
@@ -163,7 +163,7 @@ def _parse_schema_from_llm(raw_text: str,
                     name=_clean_column_name(c["name"]),
                     definition=c.get("definition", ""),
                     rationale=c.get("rationale", ""),
-                    allowed_values=c.get("allowed_values") if c.get("allowed_values") else None
+                    allowed_values=[v for v in c.get("allowed_values") if v is not None] or None if c.get("allowed_values") else None
                 )
                 for c in payload
             ]
