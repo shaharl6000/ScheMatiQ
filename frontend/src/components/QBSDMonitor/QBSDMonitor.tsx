@@ -58,7 +58,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
     if (initialCapacityMessage) return 'idle';
     if (cachedStatus) {
       if (cachedStatus.schema_completed && cachedStatus.status === 'processing') return 'extraction';
-      if (cachedStatus.status === 'processing') return 'starting';
+      if (cachedStatus.status === 'processing') return 'schema';
       if (cachedStatus.status === 'completed') return 'completed';
       if (cachedStatus.status === 'stopped') return 'stopped';
       if (cachedStatus.status === 'error') return 'error';
@@ -66,7 +66,9 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
     return autoStarted ? 'starting' : 'idle';
   });
   const [currentStepMessage, setCurrentStepMessage] = useState<string>(() => {
-    if (cachedStatus?.schema_completed && cachedStatus.status === 'processing') return 'Extracting values';
+    if (cachedStatus?.status === 'processing') {
+      return cachedStatus.schema_completed ? 'Extracting values' : 'Discovering schema...';
+    }
     if (autoStarted && !initialCapacityMessage) return 'Initializing...';
     return '';
   });
