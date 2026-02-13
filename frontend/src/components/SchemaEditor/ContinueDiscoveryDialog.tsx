@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Loader2, Check, Info, AlertTriangle, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings, Brain, FileText } from 'lucide-react';
+import { Plus, Loader2, Check, Info, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings, Brain } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
@@ -76,6 +76,9 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   onExtractionStarted,
   onDiscoveryStarted,
 }) => {
+  // Ref for dialog content — used as portal container for Select dropdowns
+  const dialogContentRef = useRef<HTMLDivElement>(null);
+
   // Step state
   const [step, setStep] = useState<DialogStep>('documents');
   const [loading, setLoading] = useState(false);
@@ -530,9 +533,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           Continue Schema Discovery
         </DialogTitle>
         <DialogDescription>
-          Run schema discovery again to find additional columns.
-          Current schema has {currentColumns.length} columns.
-          {query && <span className="block mt-1 text-xs">Query: "{query}"</span>}
+          Run schema discovery again to find additional columns. Current schema has {currentColumns.length} columns.
         </DialogDescription>
       </DialogHeader>
 
@@ -541,20 +542,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="space-y-4 py-4">
-          <Label className="text-sm font-medium">Select Document Source</Label>
-
-          {/* Document limit notice - visible upfront before any selection */}
-          {!limitBypassEnabled && (
-            <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
-              <FileText className="h-4 w-4 text-blue-600" />
-              <AlertDescription className="text-sm text-blue-700 dark:text-blue-400">
-                <strong>Document limit:</strong> Analysis is limited to {maxDocuments} documents.
-                If you provide more, a representative sample will be used.
-              </AlertDescription>
-            </Alert>
-          )}
-
+        <div className="space-y-3 py-4">
           <RadioGroup value={documentSource} onValueChange={(v) => setDocumentSource(v as any)}>
             {/* Cloud Storage */}
             <div className="flex items-start space-x-3 p-3 border rounded-lg">
@@ -562,19 +550,16 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
               <div className="flex-1">
                 <Label htmlFor="cloud" className="flex items-center gap-2 cursor-pointer">
                   <Cloud className="h-4 w-4" />
-                  Use Cloud Storage
+                  Cloud Storage
                 </Label>
-                <p className="text-sm text-muted-foreground mt-1">
-                  {documentInfo?.cloud_datasets.length
-                    ? `${documentInfo.cloud_datasets.length} datasets available`
-                    : 'No cloud datasets available'}
-                </p>
-                {documentSource === 'cloud' && documentInfo?.cloud_datasets.length ? (
+                {!documentInfo?.cloud_datasets.length ? (
+                  <p className="text-sm text-muted-foreground mt-1">No datasets available</p>
+                ) : documentSource === 'cloud' ? (
                   <Select value={selectedCloudDataset} onValueChange={setSelectedCloudDataset}>
                     <SelectTrigger className="mt-2">
                       <SelectValue placeholder="Select a dataset" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent container={dialogContentRef.current}>
                       {documentInfo.cloud_datasets.map((dataset) => (
                         <SelectItem key={dataset} value={dataset}>
                           {dataset}
@@ -593,13 +578,10 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
               <div className="flex-1">
                 <Label htmlFor="upload" className="flex items-center gap-2 cursor-pointer">
                   <Upload className="h-4 w-4" />
-                  Upload New Documents
+                  Upload Documents
                 </Label>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Upload documents for schema discovery
-                </p>
                 {documentSource === 'upload' && (
-                  <div className="mt-3">
+                  <div className="mt-2">
                     <input
                       type="file"
                       multiple
@@ -613,18 +595,10 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                     {uploadedFiles.length > 0 && (
                       <p className="text-sm text-muted-foreground mt-2">
                         {uploadedFiles.length} file{uploadedFiles.length !== 1 ? 's' : ''} selected
+                        {!limitBypassEnabled && uploadedFiles.length > maxDocuments && (
+                          <span className="text-amber-600"> — a sample of {maxDocuments} will be used</span>
+                        )}
                       </p>
-                    )}
-                    {/* Document limit warning - only show when approaching or exceeding limit */}
-                    {!limitBypassEnabled && uploadedFiles.length >= Math.floor(maxDocuments * 0.75) && (
-                      <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20 mt-2">
-                        <AlertTriangle className="h-4 w-4 text-amber-600" />
-                        <AlertDescription className="text-amber-700 dark:text-amber-400">
-                          {uploadedFiles.length > maxDocuments
-                            ? `You've selected ${uploadedFiles.length} documents. We'll analyze a representative sample of ${maxDocuments} documents.`
-                            : `${uploadedFiles.length} of ${maxDocuments} documents selected.`}
-                        </AlertDescription>
-                      </Alert>
                     )}
                   </div>
                 )}
@@ -644,12 +618,9 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
 
           {/* Developer Mode: Bypass Document Limit */}
           {developerMode && (
-            <div className="flex items-center justify-between p-4 border rounded-lg bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800">
+            <div className="flex items-center justify-between p-3 border rounded-lg bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800">
               <div>
-                <Label className="text-base font-medium">Developer Mode: Bypass Document Limit</Label>
-                <p className="text-sm text-muted-foreground">
-                  Disable the {maxDocuments}-document limit for testing.
-                </p>
+                <Label className="text-sm font-medium">Bypass {maxDocuments}-doc limit</Label>
               </div>
               <Switch checked={limitBypassEnabled} onCheckedChange={setLimitBypassEnabled} />
             </div>
@@ -664,7 +635,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
             if (allowLlmConfig) {
               setStep('llm_config');
             } else {
-              // Release mode: skip LLM config, use defaults and start discovery directly
               handleStartDiscovery();
             }
           }}
@@ -692,7 +662,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent container={dialogContentRef.current}>
               <SelectItem value="gemini">Google Gemini</SelectItem>
               <SelectItem value="openai">OpenAI</SelectItem>
               <SelectItem value="together">Together AI</SelectItem>
@@ -706,7 +676,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent container={dialogContentRef.current}>
               {llmProvider === 'gemini' && (
                 <>
                   <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
@@ -1024,7 +994,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                     <SelectTrigger className="h-8">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent container={dialogContentRef.current}>
                       {configuredProviders.map((provider) => (
                         <SelectItem key={provider} value={provider}>
                           {LLM_PROVIDER_NAMES[provider]}
@@ -1043,7 +1013,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                     <SelectTrigger className="h-8">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent container={dialogContentRef.current}>
                       {getModelsForProvider(extractionProvider).map((model) => (
                         <SelectItem key={model.id} value={model.id}>
                           {model.label}
@@ -1136,7 +1106,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
+      <DialogContent ref={dialogContentRef} className="max-w-2xl max-h-[85vh] flex flex-col">
         {renderStep()}
       </DialogContent>
     </Dialog>

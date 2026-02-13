@@ -37,6 +37,25 @@ export function isEmpty(value: unknown): boolean {
     }
   }
 
+  // Handle QBSD answer objects — check the inner answer value
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'answer' in value
+  ) {
+    return isEmpty((value as { answer: unknown }).answer);
+  }
+
+  // Handle streaming value objects — check the inner value
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'value' in value &&
+    !('answer' in value)
+  ) {
+    return isEmpty((value as { value: unknown }).value);
+  }
+
   // Handle empty arrays
   if (Array.isArray(value) && value.length === 0) return true;
 

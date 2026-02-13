@@ -579,28 +579,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         # 7. Get list of all available cloud datasets
         cloud_datasets = []
         try:
-            # For Supabase, list top-level folders in datasets bucket
-            if hasattr(storage, 'client'):
-                items = storage.client.storage.from_("datasets").list()
-                for item in items:
-                    if not item.get('id'):  # Folders don't have 'id'
-                        cloud_datasets.append(item.get('name'))
-                logger.debug(f"Found {len(cloud_datasets)} cloud datasets via Supabase client")
-            else:
-                # Local storage fallback
-                files = await storage.list_files('datasets', '')
-                seen_folders = set()
-                for f in files:
-                    if isinstance(f, dict):
-                        name = f.get('name', '')
-                        if f.get('is_folder'):
-                            cloud_datasets.append(name)
-                        elif '/' in name:
-                            seen_folders.add(name.split('/')[0])
-                    elif isinstance(f, str) and '/' in f:
-                        seen_folders.add(f.split('/')[0])
-                cloud_datasets.extend(list(seen_folders))
-                logger.debug(f"Found {len(cloud_datasets)} cloud datasets via list_files")
+            dataset_infos = await storage.list_datasets()
+            cloud_datasets = [d.name for d in dataset_infos]
+            logger.debug(f"Found {len(cloud_datasets)} cloud datasets via storage.list_datasets()")
         except Exception as e:
             logger.debug(f"Could not list cloud datasets: {e}")
 

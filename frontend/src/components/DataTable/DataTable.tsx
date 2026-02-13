@@ -1248,12 +1248,15 @@ const DataTable: React.FC<DataTableProps> = ({
       <div className="p-4">
         {/* Header row with row count and search */}
         <div className="flex justify-between items-center mb-4">
-          <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="text-sm font-normal">
-              {isFiltered
-                ? `${displayedRowCount.toLocaleString()} of ${totalRowCount.toLocaleString()} rows`
-                : `${totalRowCount.toLocaleString()} rows`}
-            </Badge>
+          <div>
+            <h3 className="font-semibold text-lg flex items-center gap-2">
+              Documents
+              <span className="text-muted-foreground font-normal">
+                ({isFiltered
+                  ? `${displayedRowCount.toLocaleString()} of ${totalRowCount.toLocaleString()} rows`
+                  : `${totalRowCount.toLocaleString()} rows`})
+              </span>
+            </h3>
           </div>
 
           <div className="flex items-center gap-2">
