@@ -5,7 +5,6 @@ import {
   Trash2,
   MoreVertical,
   GitMerge,
-  Save,
   ShieldCheck,
   RefreshCw,
   AlertTriangle,
@@ -24,6 +23,8 @@ import {
   Download,
   Upload,
   Layers,
+  HelpCircle,
+  Columns3,
 } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -34,8 +35,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Switch } from '@/components/ui/switch';
-import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -50,6 +49,10 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from '@/components/ui/dropdown-menu';
 import {
   Tooltip,
@@ -86,6 +89,11 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import {
+  Collapsible,
+  CollapsibleTrigger,
+  CollapsibleContent,
+} from '@/components/ui/collapsible';
 
 interface SchemaViewerProps {
   columns: ColumnInfo[];
@@ -1066,7 +1074,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               )}
             </div>
 
-            {/* Toolbar: Search, Sort, View Toggle */}
             <div className="flex items-center gap-2">
               {/* Search */}
               <div className="relative">
@@ -1088,98 +1095,17 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   </Button>
                 )}
               </div>
-
-              {/* Sort */}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="h-8 gap-1">
-                    <ArrowUpDown className="h-3.5 w-3.5" />
-                    Sort
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => setSortBy('name')}>
-                    {sortBy === 'name' && <Check className="h-4 w-4 mr-2" />}
-                    {sortBy !== 'name' && <span className="w-4 mr-2" />}
-                    Name
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortBy('type')}>
-                    {sortBy === 'type' && <Check className="h-4 w-4 mr-2" />}
-                    {sortBy !== 'type' && <span className="w-4 mr-2" />}
-                    Data Type
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortBy('completeness')}>
-                    {sortBy === 'completeness' && <Check className="h-4 w-4 mr-2" />}
-                    {sortBy !== 'completeness' && <span className="w-4 mr-2" />}
-                    Completeness
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setSortBy('modified')}>
-                    {sortBy === 'modified' && <Check className="h-4 w-4 mr-2" />}
-                    {sortBy !== 'modified' && <span className="w-4 mr-2" />}
-                    Modified First
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}>
-                    {sortOrder === 'asc' ? '↑ Ascending' : '↓ Descending'}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              {/* View Toggle */}
-              <div className="flex items-center border rounded-lg p-0.5 bg-muted/50">
-                <Button
-                  variant={viewMode === 'compact' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => setViewMode('compact')}
-                >
-                  <LayoutGrid className="h-3.5 w-3.5 mr-1" />
-                  Compact
-                </Button>
-                <Button
-                  variant={viewMode === 'detailed' ? 'default' : 'ghost'}
-                  size="sm"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => setViewMode('detailed')}
-                >
-                  <LayoutList className="h-3.5 w-3.5 mr-1" />
-                  Detailed
-                </Button>
-              </div>
-
-              {/* Clustering Toggle */}
-              <div className="flex items-center gap-2 px-2 py-1 border rounded-lg bg-muted/50">
-                <Switch
-                  id="clustering-toggle"
-                  checked={clusteringEnabled}
-                  onCheckedChange={setClusteringEnabled}
-                  className="scale-75"
-                />
-                <Label
-                  htmlFor="clustering-toggle"
-                  className="text-xs font-medium cursor-pointer flex items-center gap-1"
-                >
-                  <Layers className="h-3.5 w-3.5" />
-                  Show Clusters
-                </Label>
-              </div>
-            </div>
-          </div>
-
-          {/* Action buttons row */}
-          <div className="flex justify-between items-center mb-4">
-            <div className="flex items-center gap-2">
               {/* Search results count */}
               {searchQuery && (
                 <span className="text-sm text-muted-foreground">
-                  Showing {sortedColumns.length} of {displayColumns.length}
+                  {sortedColumns.length} of {displayColumns.length}
                 </span>
               )}
             </div>
 
             {!readonly && (
               <div className="flex items-center gap-2">
-                {/* Selection Controls */}
+                {/* Selection Controls - only show when columns are selected */}
                 {selectedColumns.length > 0 && (
                   <div className="flex gap-2 mr-2">
                     <Button variant="ghost" size="sm" onClick={handleClearSelection}>
@@ -1197,14 +1123,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   </div>
                 )}
 
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={selectedColumns.length === 0 ? handleSelectAll : handleClearSelection}
-                >
-                  {selectedColumns.length === 0 ? 'Select All' : 'Clear All'}
-                </Button>
-
                 <Button variant="outline" size="sm" onClick={handleAddColumn}>
                   <Plus className="h-4 w-4 mr-1" />
                   Add Column
@@ -1218,20 +1136,87 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     onClick={() => setReextractionDialogOpen(true)}
                   >
                     <RefreshCw className="h-4 w-4 mr-1" />
-                    Re-extract ({(schemaChanges.changed_columns?.length || 0) + (schemaChanges.new_columns?.length || 0)})
+                    Re-extract Data ({(schemaChanges.changed_columns?.length || 0) + (schemaChanges.new_columns?.length || 0)})
                   </Button>
                 )}
 
+                {/* Overflow menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" disabled={loading}>
                       <MoreVertical className="h-4 w-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuItem onClick={() => setContinueDiscoveryDialogOpen(true)} disabled={loading}>
                       <Plus className="h-4 w-4 mr-2" />
-                      Continue Schema Discovery
+                      Continue Discovery
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={selectedColumns.length === 0 ? handleSelectAll : handleClearSelection}
+                    >
+                      <Columns3 className="h-4 w-4 mr-2" />
+                      {selectedColumns.length === 0 ? 'Select All Columns' : 'Clear Selection'}
+                    </DropdownMenuItem>
+                    {selectedColumns.length >= 2 && (
+                      <DropdownMenuItem onClick={handleMergeColumns}>
+                        <GitMerge className="h-4 w-4 mr-2" />
+                        Merge Selected ({selectedColumns.length})
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    {/* View options */}
+                    <DropdownMenuItem onClick={() => setViewMode(viewMode === 'compact' ? 'detailed' : 'compact')}>
+                      {viewMode === 'compact' ? <LayoutList className="h-4 w-4 mr-2" /> : <LayoutGrid className="h-4 w-4 mr-2" />}
+                      {viewMode === 'compact' ? 'Detailed View' : 'Compact View'}
+                    </DropdownMenuItem>
+                    <DropdownMenuCheckboxItem
+                      checked={clusteringEnabled}
+                      onCheckedChange={setClusteringEnabled}
+                    >
+                      Show Clusters
+                    </DropdownMenuCheckboxItem>
+                    {/* Sort submenu */}
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <ArrowUpDown className="h-4 w-4 mr-2" />
+                        Sort Columns
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent>
+                        <DropdownMenuItem onClick={() => setSortBy('name')}>
+                          {sortBy === 'name' && <Check className="h-4 w-4 mr-2" />}
+                          {sortBy !== 'name' && <span className="w-4 mr-2" />}
+                          Name
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setSortBy('type')}>
+                          {sortBy === 'type' && <Check className="h-4 w-4 mr-2" />}
+                          {sortBy !== 'type' && <span className="w-4 mr-2" />}
+                          Data Type
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setSortBy('completeness')}>
+                          {sortBy === 'completeness' && <Check className="h-4 w-4 mr-2" />}
+                          {sortBy !== 'completeness' && <span className="w-4 mr-2" />}
+                          Completeness
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setSortBy('modified')}>
+                          {sortBy === 'modified' && <Check className="h-4 w-4 mr-2" />}
+                          {sortBy !== 'modified' && <span className="w-4 mr-2" />}
+                          Modified First
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}>
+                          {sortOrder === 'asc' ? '↑ Ascending' : '↓ Descending'}
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleExportSchemaWithClusters}>
+                      <Download className="h-4 w-4 mr-2" />
+                      Export Schema
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                      <Upload className="h-4 w-4 mr-2" />
+                      Import Schema
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={handleResetClusters}>
@@ -1251,6 +1236,32 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               </div>
             )}
           </div>
+
+          {/* What should I do next? help card */}
+          {!readonly && sortedColumns.length > 0 && (
+            <Collapsible defaultOpen={false}>
+              <CollapsibleTrigger className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-3">
+                <HelpCircle className="h-4 w-4" />
+                <span>What should I do next?</span>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mb-4">
+                <div className="grid gap-3 sm:grid-cols-3 text-sm">
+                  <div className="p-3 rounded-lg border bg-muted/30">
+                    <p className="font-medium mb-1">Continue Discovery</p>
+                    <p className="text-muted-foreground text-xs">Process more documents to find new columns you may have missed.</p>
+                  </div>
+                  <div className="p-3 rounded-lg border bg-muted/30">
+                    <p className="font-medium mb-1">Re-extract Data</p>
+                    <p className="text-muted-foreground text-xs">After editing column definitions, re-run extraction to get better results.</p>
+                  </div>
+                  <div className="p-3 rounded-lg border bg-muted/30">
+                    <p className="font-medium mb-1">Add New Documents</p>
+                    <p className="text-muted-foreground text-xs">Upload new files and extract data using your existing schema.</p>
+                  </div>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
 
           {/* Column Grid with Sidebar for Detailed View */}
           <div className={cn(
@@ -1497,7 +1508,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                 key={column.name}
                                 id={`column-${column.name}`}
                                 className={cn(
-                                  "relative",
+                                  "relative group",
                                   selectedColumns.includes(column.name) && "ring-2 ring-primary",
                                   isModified && "border-amber-400 dark:border-amber-600 border-2",
                                   isNew && "border-green-400 dark:border-green-600 border-2",
@@ -1536,7 +1547,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                       )}
                                     </div>
                                     {!readonly && (
-                                      <div className="flex gap-1">
+                                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <Tooltip>
                                           <TooltipTrigger asChild>
                                             <Button
@@ -1752,7 +1763,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                 key={column.name}
                 id={`column-${column.name}`}
                 className={cn(
-                  "relative",
+                  "relative group",
                   selectedColumns.includes(column.name) && "ring-2 ring-primary",
                   isModified && "border-amber-400 dark:border-amber-600 border-2",
                   isNew && "border-green-400 dark:border-green-600 border-2",
@@ -1819,7 +1830,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     </div>
 
                     {!readonly && (
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -2082,7 +2093,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               Reprocess All Documents
             </DialogTitle>
             <DialogDescription>
-              This will re-extract values for all columns from all documents.
+              This will re-extract data for all columns from all documents.
               This operation may take a significant amount of time depending on the number of documents.
               Existing extracted values will be replaced.
             </DialogDescription>

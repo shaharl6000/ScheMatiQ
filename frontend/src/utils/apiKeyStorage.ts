@@ -145,7 +145,7 @@ export async function migrateGeminiKeys(): Promise<void> {
 
     if (keyToMigrate) {
       await encryptAndStore('gemini', keyToMigrate);
-      console.log('Migrated Gemini API key to new storage format');
+      // Migrated Gemini API key to new storage format
     }
 
     // Clean up old storage

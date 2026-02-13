@@ -357,7 +357,7 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <BarChart3 className="h-4 w-4 mr-2" />
-              Column Fullness
+              Completeness
               {fullnessThreshold > 0 && (
                 <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-xs">
                   {fullnessThreshold}%
@@ -367,10 +367,10 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
             <DropdownMenuSubContent className="w-72">
               <div className="p-3 space-y-2" onSelect={(e: any) => e.preventDefault()}>
                 <Label htmlFor="fullness-slider-menu" className="text-sm font-medium">
-                  Minimum Column Fullness
+                  Minimum Completeness
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Show only columns with at least {fullnessThreshold}% non-empty values
+                  Hide columns with fewer than {fullnessThreshold}% non-empty values
                 </p>
               </div>
 
@@ -440,7 +440,7 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
                 </div>
                 {hiddenByFullnessCount > 0 && (
                   <p className="text-xs text-orange-600 dark:text-orange-400">
-                    {hiddenByFullnessCount} column{hiddenByFullnessCount !== 1 ? 's' : ''} hidden due to low fullness
+                    {hiddenByFullnessCount} column{hiddenByFullnessCount !== 1 ? 's' : ''} hidden (below {fullnessThreshold}% completeness)
                   </p>
                 )}
               </div>

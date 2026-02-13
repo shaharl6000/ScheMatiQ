@@ -109,9 +109,10 @@ class DataCollectionService:
         # Gather components
         query = session.schema_query or ""
         schema_json = self._build_schema_json(session)
-        metadata_json = self._build_metadata(session, trigger_source)
         data_bytes = self._read_data_file(session_id)
-        documents = self._gather_documents(session_id)
+        table_doc_stems = self._get_table_document_names(session_id)
+        documents = self._gather_documents(session_id, table_doc_stems=table_doc_stems)
+        metadata_json = self._build_metadata(session, trigger_source, archived_doc_count=len(documents))
         config_json = self._read_and_sanitize_config(session_id)
         export_csv = self._build_export_csv(session, session_id, config_json)
 
@@ -228,7 +229,7 @@ class DataCollectionService:
 
         return result
 
-    def _build_metadata(self, session, trigger_source: str) -> Dict[str, Any]:
+    def _build_metadata(self, session, trigger_source: str, archived_doc_count: int = 0) -> Dict[str, Any]:
         """Build metadata.json content."""
         stats = session.statistics
         return {
@@ -246,6 +247,8 @@ class DataCollectionService:
                 "total_columns": stats.total_columns if stats else len(session.columns),
                 "total_documents": stats.total_documents if stats else 0,
                 "completeness": stats.completeness if stats else 0.0,
+                "archived_documents": archived_doc_count,
+                "total_uploaded_documents": stats.total_documents if stats else 0,
             },
         }
 
@@ -261,11 +264,46 @@ class DataCollectionService:
                 logger.warning("[data-collection] Could not read data file: %s", e)
         return None
 
-    def _gather_documents(self, session_id: str):
+    def _get_table_document_names(self, session_id: str) -> Optional[Set[str]]:
+        """Read extracted_data.jsonl and collect document name stems referenced in the table.
+
+        Returns a set of filename stems (no extensions), or None if the JSONL
+        doesn't exist (meaning we should fall back to archiving all documents).
+        """
+        from app.services import find_session_data_file
+
+        data_path = find_session_data_file(session_id)
+        if not data_path or not data_path.exists():
+            return None
+
+        stems: Set[str] = set()
+        try:
+            for line in data_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line.strip())
+                # _papers is a list of document names
+                for paper in row.get("_papers", []):
+                    if paper:
+                        stems.add(Path(paper).stem)
+                # _source_document is a single document name
+                source = row.get("_source_document")
+                if source:
+                    stems.add(Path(source).stem)
+        except Exception as e:
+            logger.warning("[data-collection] Could not parse JSONL for document filtering: %s", e)
+            return None
+
+        return stems if stems else None
+
+    def _gather_documents(self, session_id: str, table_doc_stems: Optional[Set[str]] = None):
         """Collect uploaded documents as (name, bytes) pairs.
 
         PDFs are converted to text to reduce archive size.
         Limited to MAX_DOCUMENTS files.
+
+        If *table_doc_stems* is provided, only documents whose stem matches
+        are included. When ``None`` (no JSONL exists), all documents are archived.
         """
         from app.services.pdf_utils import extract_text_from_pdf
 
@@ -289,7 +327,9 @@ class DataCollectionService:
             for f in sorted(docs_dir.iterdir()):
                 if len(results) >= MAX_DOCUMENTS:
                     break
-                if f.is_file() and not f.name.startswith(".") and f.name not in seen_names:
+                if f.is_file() and not f.name.startswith(".") and f.name not in seen_names and (
+                    table_doc_stems is None or f.stem in table_doc_stems
+                ):
                     try:
                         if f.suffix.lower() == ".pdf":
                             text = extract_text_from_pdf(f)

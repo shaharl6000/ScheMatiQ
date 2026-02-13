@@ -1,11 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
-import { Upload, ArrowLeft, Loader2, FileSpreadsheet, ChevronDown, Database } from 'lucide-react';
+import { Upload, ArrowLeft, Loader2, ChevronDown, Database } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Card } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,7 +39,7 @@ const Load = () => {
         // Ensure data is an array before setting
         setTemplates(Array.isArray(data) ? data : []);
       } catch (err) {
-        console.log('No templates available:', err);
+        // Templates not available — expected when none configured
         setTemplates([]);
       } finally {
         setLoadingTemplates(false);
@@ -111,46 +110,53 @@ const Load = () => {
   });
 
   return (
-    <div className="max-w-3xl mx-auto">
-      {/* Header */}
-      <h1 className="text-3xl font-bold tracking-tight mb-2">
-        Load Existing QBSD
-      </h1>
+    <div className="max-w-4xl mx-auto">
+      {/* Top nav bar — matches QBSDConfig */}
+      <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back to Home">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+        </div>
+      </div>
 
-      {/* Explanation */}
-      <p className="text-muted-foreground mb-6">
-        Load a data file to visualize, edit, and extend with AI extraction.
-      </p>
+      <div className="max-w-3xl mx-auto">
+        {/* Header */}
+        <h1 className="text-3xl font-bold tracking-tight mb-1">
+          Load Data
+        </h1>
+        <p className="text-muted-foreground mb-8">
+          Upload a file or try an example to get started.
+        </p>
 
-      {/* Template Selection */}
-      <Card className="p-4 mb-4 bg-muted/30">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Database className="h-5 w-5 text-primary" />
-            <div>
-              <h3 className="font-medium">Load from Examples</h3>
-              <p className="text-sm text-muted-foreground">
-                Choose from pre-loaded example tables
-              </p>
-            </div>
+        {/* Load from Examples */}
+        <div className="flex items-center justify-between rounded-lg border border-border/50 bg-muted/30 px-4 py-3 mb-6">
+          <div className="flex items-center gap-3">
+            <Database className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">
+              Try a pre-loaded example
+            </span>
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" disabled={loading || loadingTemplates}>
-                <FileSpreadsheet className="mr-2 h-4 w-4" />
-                Select Example
-                <ChevronDown className="ml-2 h-4 w-4" />
+              <Button variant="outline" size="sm" disabled={loading || loadingTemplates}>
+                {loadingTemplates ? (
+                  <>
+                    <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  <>
+                    Select Example
+                    <ChevronDown className="ml-2 h-3.5 w-3.5" />
+                  </>
+                )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64 max-h-80 overflow-y-auto">
-              {loadingTemplates ? (
-                <DropdownMenuItem disabled className="flex items-center gap-2 py-2">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Loading examples...</span>
-                </DropdownMenuItem>
-              ) : templates.length === 0 ? (
-                <DropdownMenuItem disabled className="py-2">
-                  No examples available
+              {templates.length === 0 ? (
+                <DropdownMenuItem disabled className="py-2 whitespace-normal text-sm">
+                  No examples available yet
                 </DropdownMenuItem>
               ) : (
                 templates.map((template) => (
@@ -171,80 +177,53 @@ const Load = () => {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </Card>
 
-      {/* Divider */}
-      <div className="relative my-6">
-        <div className="absolute inset-0 flex items-center">
-          <span className="w-full border-t" />
-        </div>
-        <div className="relative flex justify-center text-xs uppercase">
-          <span className="bg-background px-2 text-muted-foreground">
-            Or upload your own file
-          </span>
-        </div>
-      </div>
-
-      {/* Load Dropzone */}
-      <Card
-        {...getRootProps()}
-        className={cn(
-          "border-2 border-dashed p-12 text-center cursor-pointer transition-all",
-          isDragActive
-            ? "border-primary bg-primary/5"
-            : "border-muted-foreground/25 hover:border-primary hover:bg-muted/50",
-          loading && "opacity-50 cursor-not-allowed"
-        )}
-      >
-        <input {...getInputProps()} />
-        <Upload className={cn(
-          "mx-auto h-12 w-12 mb-4",
-          isDragActive ? "text-primary" : "text-muted-foreground"
-        )} />
-
-        {loading ? (
-          <div className="space-y-2">
-            <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
-            <h3 className="text-lg font-semibold">
-              Processing file...
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              Please wait while we validate and parse your data
-            </p>
-          </div>
-        ) : isDragActive ? (
-          <h3 className="text-lg font-semibold text-primary">
-            Drop the file here...
-          </h3>
-        ) : (
-          <>
-            <h3 className="text-lg font-semibold mb-1">
-              Drop your data file here or click to browse
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              CSV, JSON, or JSONL files
-            </p>
-          </>
-        )}
-      </Card>
-
-      {/* Error Display */}
-      {error && (
-        <Alert variant="destructive" className="mt-6">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* Back Button */}
-      <div className="mt-6">
-        <Button
-          variant="outline"
-          onClick={() => navigate('/')}
-          disabled={loading}
+        {/* Dropzone */}
+        <div
+          {...getRootProps()}
+          className={cn(
+            "border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all",
+            isDragActive
+              ? "border-primary bg-primary/5"
+              : "border-muted-foreground/25 hover:border-primary hover:bg-muted/50",
+            loading && "opacity-50 cursor-not-allowed"
+          )}
         >
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Home
-        </Button>
+          <input {...getInputProps()} />
+          <Upload className={cn(
+            "mx-auto h-8 w-8 mb-2",
+            isDragActive ? "text-primary" : "text-muted-foreground"
+          )} />
+
+          {loading ? (
+            <div className="space-y-2">
+              <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground">
+                Processing file...
+              </p>
+            </div>
+          ) : isDragActive ? (
+            <p className="text-sm text-primary">
+              Drop the file here...
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground mb-1">
+                Drop your data file here or click to browse
+              </p>
+              <p className="text-xs text-muted-foreground">
+                CSV, JSON, JSONL, or .qbsd.json
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Error Display */}
+        {error && (
+          <Alert variant="destructive" className="mt-6">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
       </div>
     </div>
   );

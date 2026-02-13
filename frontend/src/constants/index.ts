@@ -71,7 +71,7 @@ export const MAX_CELL_TEXT_LENGTH = 200;
 export const MAX_CELL_LINES = 5; // maximum number of lines in a cell
 export const LONG_TEXT_THRESHOLD = 300; // characters
 export const MEDIUM_TEXT_THRESHOLD = 150; // characters
-export const SHORT_TEXT_THRESHOLD = 100; // characters
+export const SHORT_TEXT_THRESHOLD = 300; // characters
 export const MAX_PREVIEW_ROWS = 10;
 export const MAX_SEARCH_RESULTS = 100;
 

@@ -217,6 +217,9 @@ export interface QBSDStatus {
   total_steps: number;
   error_message?: string;
   estimated_time_remaining?: number;
+  // Phase tracking (for UI recovery on remount)
+  schema_completed?: boolean;
+  columns_discovered?: number;
 }
 
 // WebSocket data payload types
@@ -657,7 +660,7 @@ export interface ContinueDiscoveryDocuments {
   original_count: number;
   local_count?: number;
   cloud_count?: number;
-  cloud_datasets: string[];
+  cloud_datasets: { name: string; file_count: number }[];
   original_cloud_dataset?: string;
   can_use_original: boolean;
   query: string;

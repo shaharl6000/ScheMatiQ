@@ -1301,33 +1301,36 @@ async def stop_document_processing(session_id: str):
 
 async def _finalize_upload_stop(session_id: str):
     """Background task: wait for upload processing to finish, update session status, broadcast."""
-    # Wait up to 30s for the task to notice the stop flag
-    for _ in range(60):
-        await asyncio.sleep(0.5)
-        with upload_processor._state_lock:
-            still_running = session_id in upload_processor.running_sessions
-        if not still_running:
-            break
+    try:
+        # Wait up to 30s for the task to notice the stop flag
+        for _ in range(60):
+            await asyncio.sleep(0.5)
+            with upload_processor._state_lock:
+                still_running = session_id in upload_processor.running_sessions
+            if not still_running:
+                break
 
-    session = session_manager.get_session(session_id)
-    if session and session.status not in (SessionStatus.STOPPED, SessionStatus.COMPLETED):
-        session.status = SessionStatus.STOPPED
-        session.metadata.last_modified = datetime.now()
-        session_manager.update_session(session)
+        session = session_manager.get_session(session_id)
+        if session and session.status not in (SessionStatus.STOPPED, SessionStatus.COMPLETED):
+            session.status = SessionStatus.STOPPED
+            session.metadata.last_modified = datetime.now()
+            session_manager.update_session(session)
 
-        processed = session.metadata.processed_documents or 0
-        total = len(session.metadata.uploaded_documents) if session.metadata.uploaded_documents else 0
-        rows_added = session.metadata.additional_rows_added or 0
+            processed = session.metadata.processed_documents or 0
+            total = len(session.metadata.uploaded_documents) if session.metadata.uploaded_documents else 0
+            rows_added = session.metadata.additional_rows_added or 0
 
-        await websocket_manager.broadcast_to_session(session_id, {
-            "type": "stopped",
-            "data": {
-                "message": "Document processing stopped by user",
-                "processed_documents": processed,
-                "total_documents": total,
-                "data_rows_saved": rows_added
-            }
-        })
+            await websocket_manager.broadcast_to_session(session_id, {
+                "type": "stopped",
+                "data": {
+                    "message": "Document processing stopped by user",
+                    "processed_documents": processed,
+                    "total_documents": total,
+                    "data_rows_saved": rows_added
+                }
+            })
+    except Exception:
+        logger.error("Background _finalize_upload_stop failed for session %s", session_id, exc_info=True)
 
 
 @router.get("/processing-status/{session_id}", response_model=dict)

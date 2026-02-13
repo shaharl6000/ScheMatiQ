@@ -127,8 +127,8 @@ class WebSocketManager:
             "message": error_message,
             "timestamp": datetime.now().isoformat()
         }
-        
-        await self.broadcast_progress(session_id, error_data)
+
+        await self.broadcast_to_session(session_id, error_data)
         await self.broadcast_log(session_id, error_data)
     
     async def broadcast_completion(self, session_id: str, result_data: Dict[str, Any]):
@@ -141,7 +141,7 @@ class WebSocketManager:
             snapshot = list(ws_set)
 
         message = {
-            "type": "completion",
+            "type": "completed",
             "timestamp": datetime.now().isoformat(),
             "data": result_data
         }
@@ -217,13 +217,13 @@ class WebSocketManager:
     
     async def broadcast_schema_completed(self, session_id: str, schema_data: Dict[str, Any]):
         """Broadcast schema discovery completion."""
-        schema_completion_data = {
+        message = {
             "type": "schema_completed",
             "timestamp": datetime.now().isoformat(),
-            "schema": schema_data
+            "data": schema_data
         }
-        
-        await self.broadcast_progress(session_id, schema_completion_data)
+
+        await self.broadcast_to_session(session_id, message)
     
     async def broadcast_row_completed(self, session_id: str, row_data: Dict[str, Any]):
         """Broadcast individual row completion during value extraction."""

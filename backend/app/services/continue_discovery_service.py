@@ -118,6 +118,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         with self._state_lock:
             self.stop_flags.pop(operation_id, None)
 
+    def _cleanup_operation(self, operation_id: str) -> None:
+        """Remove operation from tracking dicts to prevent memory leaks."""
+        with self._state_lock:
+            self.active_operations.pop(operation_id, None)
+            self._tasks.pop(operation_id, None)
+
     def _get_data_dir(self) -> Path:
         """Get the data directory path - uses module location for reliability."""
         # In Docker: /app/backend/app/services/ -> data is at /app/backend/data
@@ -239,23 +245,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         actual_column_count = len(non_excerpt_columns)
         logger.debug(f"Non-excerpt columns for statistics: {actual_column_count} (total with excerpts: {len(unique_columns)})")
 
-        session_dir = self._get_data_dir() / session_id
-        data_file = session_dir / "data.jsonl"
+        from app.services.data_utils import collect_all_data_rows, normalize_row_data
 
-        if not data_file.exists():
-            logger.debug(f"Cannot recompute statistics - no data.jsonl found")
-            return
-
-        # Read all rows from data file
-        data_rows = []
-        try:
-            with open(data_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        data_rows.append(json.loads(line))
-        except Exception as e:
-            logger.error(f"Error reading data for statistics: {e}")
-            return
+        data_rows = collect_all_data_rows(session_id)
 
         if not data_rows:
             logger.debug(f"No data rows found for statistics computation")
@@ -338,8 +330,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             unique_values = set()
 
             for row in data_rows:
-                # Handle both DataRow format (with 'data' key) and direct format
-                row_data = row.get('data', row)
+                row_data = normalize_row_data(row)
 
                 if col.name in row_data:
                     value = row_data[col.name]
@@ -573,28 +564,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         # 7. Get list of all available cloud datasets
         cloud_datasets = []
         try:
-            # For Supabase, list top-level folders in datasets bucket
-            if hasattr(storage, 'client'):
-                items = storage.client.storage.from_("datasets").list()
-                for item in items:
-                    if not item.get('id'):  # Folders don't have 'id'
-                        cloud_datasets.append(item.get('name'))
-                logger.debug(f"Found {len(cloud_datasets)} cloud datasets via Supabase client")
-            else:
-                # Local storage fallback
-                files = await storage.list_files('datasets', '')
-                seen_folders = set()
-                for f in files:
-                    if isinstance(f, dict):
-                        name = f.get('name', '')
-                        if f.get('is_folder'):
-                            cloud_datasets.append(name)
-                        elif '/' in name:
-                            seen_folders.add(name.split('/')[0])
-                    elif isinstance(f, str) and '/' in f:
-                        seen_folders.add(f.split('/')[0])
-                cloud_datasets.extend(list(seen_folders))
-                logger.debug(f"Found {len(cloud_datasets)} cloud datasets via list_files")
+            dataset_infos = await storage.list_datasets()
+            cloud_datasets = [{"name": d.name, "file_count": d.file_count} for d in dataset_infos]
+            logger.debug(f"Found {len(cloud_datasets)} cloud datasets via storage.list_datasets()")
         except Exception as e:
             logger.debug(f"Could not list cloud datasets: {e}")
 
@@ -1246,6 +1218,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             )
         finally:
             await concurrency_limiter.release(operation.session_id)
+            self._cleanup_operation(operation_id)
 
     # ==================== Incremental Extraction ====================
 
@@ -1615,6 +1588,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             )
         finally:
             await concurrency_limiter.release(operation.session_id)
+            self._cleanup_operation(operation_id)
 
     async def _merge_incremental_data(
         self,
@@ -1751,51 +1725,43 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         """Stop a running operation."""
         with self._state_lock:
             operation = self.active_operations.get(operation_id)
-        if not operation:
-            return {"stopped": False, "message": f"Operation {operation_id} not found"}
-
-        if operation.status in ["completed", "failed", "stopped"]:
-            return {"stopped": False, "message": f"Operation already {operation.status}"}
-
-        # Set stop flag
-        with self._state_lock:
+            if not operation:
+                return {"stopped": False, "message": f"Operation {operation_id} not found"}
+            if operation.status in ["completed", "failed", "stopped"]:
+                return {"stopped": False, "message": f"Operation already {operation.status}"}
             self.stop_flags[operation_id] = True
+
         logger.info(f"Stop requested for operation {operation_id}")
 
-        # Cancel task if running - wait for it to finish gracefully
+        # Cancel task if running
         with self._state_lock:
             task = self._tasks.get(operation_id)
         if task and not task.done():
             task.cancel()
             try:
-                # Wait for task to handle cancellation (without shield - we WANT it to cancel)
                 await asyncio.wait_for(task, timeout=10.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
+                logger.warning(f"Continue discovery task {operation_id} did not stop within 10s")
 
-        # Only update if not already terminal (task may have completed naturally)
-        if operation.status not in ("completed", "failed", "stopped"):
-            operation.status = "stopped"
-            operation.completed_at = datetime.now()
+        # Re-check — task may have completed naturally
+        if operation.status in ("completed", "failed", "stopped"):
+            logger.info(f"Operation {operation_id} reached {operation.status} naturally")
+            self.clear_stop_flag(operation_id)
+            self._cleanup_operation(operation_id)
+            return {"stopped": False, "message": f"Operation already {operation.status}"}
 
-            await self.broadcast_event(
-                operation.session_id,
-                "continue_discovery_stopped",
-                {
-                    "operation_id": operation_id,
-                    "phase": operation.phase,
-                    "message": "Operation stopped by user"
-                }
-            )
+        operation.status = "stopped"
+        operation.completed_at = datetime.now()
 
-        # Clear stop flag AFTER task is done (so it can check the flag during graceful shutdown)
+        await self.broadcast_event(
+            operation.session_id,
+            "continue_discovery_stopped",
+            {"operation_id": operation_id, "phase": operation.phase, "message": "Operation stopped by user"}
+        )
+
         self.clear_stop_flag(operation_id)
-
-        return {
-            "stopped": True,
-            "phase": operation.phase,
-            "message": "Operation stopped"
-        }
+        self._cleanup_operation(operation_id)
+        return {"stopped": True, "phase": operation.phase, "message": "Operation stopped"}
 
     def get_operation_status(self, operation_id: str) -> Optional[Dict[str, Any]]:
         """Get status of an operation."""

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { debug } from '@/utils/debug';
 import {
   Play,
   Square,
@@ -122,7 +123,7 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
             }));
             setNewColumns(columns);
             addLog('success', 'Extraction completed successfully!');
-            console.log('ContinueDiscoveryMonitor: onComplete called with columns:', columns);
+            debug.log('ContinueDiscoveryMonitor: onComplete called with columns:', columns);
             onComplete(columns);
           } else if (statusData.phase === 'discovery') {
             // Transform new columns and call onComplete even for discovery phase
@@ -138,7 +139,7 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
             setNewColumns(columns);
             setCurrentMessage(`Discovery complete! Found ${statusData.new_columns.length} new columns.`);
             addLog('success', `Discovered ${statusData.new_columns.length} new columns`);
-            console.log('ContinueDiscoveryMonitor: onComplete called with columns (discovery):', columns);
+            debug.log('ContinueDiscoveryMonitor: onComplete called with columns (discovery):', columns);
             onComplete(columns);
           }
           if (pollIntervalRef.current) {

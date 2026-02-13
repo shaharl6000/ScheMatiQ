@@ -1,5 +1,6 @@
 import { WebSocketMessage } from '../types';
 import { getBackendBaseUrl } from './api';
+import { debug } from '@/utils/debug';
 
 type MessageHandler = (message: WebSocketMessage) => void;
 
@@ -33,7 +34,7 @@ class WebSocketService {
     this.socket = new WebSocket(wsUrl);
 
     this.socket.onopen = () => {
-      console.log('WebSocket connected');
+      debug.log('WebSocket connected');
       this.reconnectAttempts = 0;
 
       // Notify handlers that connection is established
@@ -61,7 +62,7 @@ class WebSocketService {
     };
 
     this.socket.onclose = (event) => {
-      console.log('WebSocket disconnected:', event.code, event.reason);
+      debug.log('WebSocket disconnected:', event.code, event.reason);
       this.socket = null;
 
       // Notify handlers that connection is lost
@@ -94,7 +95,7 @@ class WebSocketService {
     this.reconnectAttempts++;
     const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
 
-    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    debug.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
     // Notify handlers about reconnection attempt
     this.messageHandlers.forEach(handler =>

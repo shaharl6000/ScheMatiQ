@@ -790,14 +790,14 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                   <tr
                     key={rowIndex}
                     className={cn(
-                      "border-b hover:bg-muted/30 transition-colors",
+                      "border-b hover:bg-muted/50 transition-colors",
                       rowSelected && "bg-blue-50 dark:bg-blue-950/50"
                     )}
                     onMouseEnter={() => setHoveredRowId(rowId)}
                     onMouseLeave={() => setHoveredRowId(null)}
                   >
                     {/* Checkbox cell */}
-                    <td className="w-[40px] min-w-[40px] px-2 py-3 text-center">
+                    <td className="w-[40px] min-w-[40px] px-2 py-3 text-center" style={{ verticalAlign: 'top' }}>
                       <div className={cn(
                         "transition-opacity duration-100",
                         showCheckbox ? "opacity-100" : "opacity-0"
@@ -821,6 +821,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       )}
                       style={{
                         zIndex: 5,
+                        verticalAlign: 'top',
                         ...(getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : {}),
                       }}
                     >
@@ -853,8 +854,11 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     {visibleColumns.map(column => (
                       <td
                         key={column}
-                        className="px-4 py-3 text-sm"
-                        style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                        className={cn("px-4 py-3", !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]")}
+                        style={{
+                          verticalAlign: 'top',
+                          ...(getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : {}),
+                        }}
                       >
                         {formatCellValue(row.data[column], column, row, excerptMapping, handleViewContent)}
                       </td>
@@ -1131,6 +1135,17 @@ function normalizeToQBSD(val: unknown): unknown {
   return val;
 }
 
+/** Maximum visible lines in data cells before CSS truncation */
+const DATA_CELL_MAX_LINES = 8;
+
+/** CSS line-clamp style for multi-line text truncation */
+const lineClampStyle: React.CSSProperties = {
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical' as const,
+  WebkitLineClamp: DATA_CELL_MAX_LINES,
+  overflow: 'hidden',
+};
+
 /**
  * Cell value formatter for the unit table.
  * Handles QBSD answer/excerpts, value/excerpt, and text formats.
@@ -1206,8 +1221,8 @@ function formatCellValue(
             onClick={() => onViewContent(columnName, { answer, excerpts: modalExcerpts })}
             title={tooltip}
           >
-            <div className="text-xs leading-relaxed line-clamp-3 break-words">
-              {answerStr.length > 100 ? `${answerStr.slice(0, 100)}...` : answerStr}
+            <div className="text-xs leading-relaxed break-words" style={lineClampStyle}>
+              {answerStr}
             </div>
           </div>
         );
@@ -1219,9 +1234,9 @@ function formatCellValue(
           onClick={() => onViewContent(columnName, { answer, excerpts: [] })}
           title="Click to view content"
         >
-          <span className="text-xs leading-relaxed line-clamp-3">
+          <div className="text-xs leading-relaxed" style={lineClampStyle}>
             {answerStr}
-          </span>
+          </div>
         </div>
       );
     }
@@ -1241,8 +1256,8 @@ function formatCellValue(
         })}
         title={tooltip}
       >
-        <div className="text-xs leading-relaxed line-clamp-3 break-words">
-          {displayStr.length > 100 ? `${displayStr.slice(0, 100)}...` : displayStr}
+        <div className="text-xs leading-relaxed break-words" style={lineClampStyle}>
+          {displayStr}
         </div>
       </div>
     );
@@ -1254,7 +1269,7 @@ function formatCellValue(
       onClick={() => onViewContent(columnName, displayStr)}
       title="Click to view content"
     >
-      <span className="text-xs leading-relaxed">{displayStr}</span>
+      <div className="text-xs leading-relaxed" style={lineClampStyle}>{displayStr}</div>
     </div>
   );
 }

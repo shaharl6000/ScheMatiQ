@@ -103,7 +103,7 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
           setSelectedDataset(data[0].dataset);
         }
       } catch (err) {
-        console.log('No cloud datasets available:', err);
+        // Cloud datasets not available — expected when none configured
       } finally {
         setCloudLoading(false);
       }

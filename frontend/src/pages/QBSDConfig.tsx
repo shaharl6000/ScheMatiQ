@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, Upload, Trash2, FileText, DollarSign, AlertTriangle, TrendingUp, HelpCircle, RotateCcw } from 'lucide-react';
+import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, Upload, Trash2, FileText, DollarSign, AlertTriangle, HelpCircle, RotateCcw } from 'lucide-react';
 import {
   getConfiguredProviders,
   getApiKeyForProvider,
@@ -13,7 +13,7 @@ import {
   LLMProviderKey,
 } from '@/constants/llmModels';
 import { ModelSelector } from '@/components/ModelSelector';
-import InitialSchemaEditor from '@/components/InitialSchemaEditor/InitialSchemaEditor';
+
 import { WelcomeDialog } from '@/components/WelcomeDialog/WelcomeDialog';
 import { ConsentDialog, getSavedConsent } from '@/components/ConsentDialog/ConsentDialog';
 import { InfoTooltip } from '@/components/InfoTooltip/InfoTooltip';
@@ -30,25 +30,25 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from '@/components/ui/accordion';
-import {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet';
 
 import { qbsdAPI, cloudAPI, loadAPI, configAPI } from '../services/api';
 import { useFileUpload } from '../hooks/useFileUpload';
@@ -90,8 +90,8 @@ const QBSDConfigPage = () => {
   // Previous session file names (restored from navigation state)
   const [previousUploadedFiles, setPreviousUploadedFiles] = useState<string[]>([]);
 
-  // Accordion state (single Advanced Settings accordion)
-  const [advancedOpen, setAdvancedOpen] = useState<string>('');
+  // Settings sheet state
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // LLM editing states (dev mode smart defaults display)
   const [editingSchemaLlm, setEditingSchemaLlm] = useState(false);
@@ -270,7 +270,7 @@ const QBSDConfigPage = () => {
         setAllowLlmConfig(cfg.allow_llm_config);
         setDataCollectionEnabled(cfg.data_collection_enabled ?? false);
       })
-      .catch(() => console.log('Using default document limit'));
+      .catch(() => {});
   }, []);
 
   // Restore state when navigating back from Visualization screen
@@ -341,7 +341,7 @@ const QBSDConfigPage = () => {
       restoredConfig.retriever;
 
     if (hasAdvancedChanges) {
-      setAdvancedOpen('advanced-settings');
+      setSettingsOpen(true);
     }
 
     // Clear navigation state to prevent re-restoration on refresh
@@ -359,7 +359,7 @@ const QBSDConfigPage = () => {
     setObservationUnitName('');
     setObservationUnitDefinition('');
     setCostEstimate(null);
-    setAdvancedOpen('');
+    setSettingsOpen(false);
     setEditingSchemaLlm(false);
     setEditingValueLlm(false);
     setCostExpanded(false);
@@ -436,13 +436,7 @@ const QBSDConfigPage = () => {
     }));
   };
 
-  const handleInitialSchemaChange = useCallback((
-    schemaPath: string | undefined,
-    schemaData: InitialSchemaColumn[] | undefined
-  ) => {
-    setInitialSchemaPath(schemaPath);
-    setInitialSchemaData(schemaData);
-  }, []);
+  // InitialSchema state kept for navigation-state restoration; UI hidden for simplicity
 
   // Debounced cost estimate fetching (developer mode only)
   useEffect(() => {
@@ -670,11 +664,11 @@ const QBSDConfigPage = () => {
         onConfirm={handleConsentConfirm}
       />
 
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-2">
-          <h1 className="text-3xl font-bold tracking-tight">
-            Configure QBSD
-          </h1>
+          <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back to Home">
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -685,54 +679,67 @@ const QBSDConfigPage = () => {
             <HelpCircle className="h-5 w-5" />
           </Button>
         </div>
-        {isDirty && (
-          <Button variant="ghost" onClick={handleReset} className="text-muted-foreground">
-            <RotateCcw className="mr-2 h-4 w-4" />
-            Reset
+        <div className="flex items-center gap-2">
+          {isDirty && (
+            <Button variant="ghost" onClick={handleReset} className="text-muted-foreground">
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Reset
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Advanced settings"
+            className="text-muted-foreground relative"
+          >
+            <Settings className="h-5 w-5" />
+            {advancedConfigSummary.length > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] text-primary-foreground font-medium">
+                {advancedConfigSummary.length}
+              </span>
+            )}
           </Button>
-        )}
+        </div>
       </div>
-      <p className="text-muted-foreground mb-6">
-        Configure your query and documents to start extracting structured data.
-      </p>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            Basic Configuration
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Flexible Input Banner */}
-          <Alert>
-            <AlertDescription>
-              Provide a query, documents, or both to get started.
-            </AlertDescription>
-          </Alert>
+      <div className="max-w-3xl mx-auto">
+        <div className="space-y-8">
+          {/* Step 1: Ask a Question */}
+          <section className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 flex items-center justify-center text-sm font-semibold">
+                1
+              </div>
+              <h2 className="text-xl font-semibold">Ask a Question</h2>
+            </div>
+            <div className="ml-10">
+              <Textarea
+                id="query"
+                rows={3}
+                value={config.query}
+                onChange={(e) => handleConfigChange('query', e.target.value)}
+                placeholder='e.g. "Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?"'
+                className="resize-none"
+                onKeyDown={(e) => {
+                  if (e.key === 'Tab' && config.query === '') {
+                    e.preventDefault();
+                    handleConfigChange('query', 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?');
+                  }
+                }}
+              />
+            </div>
+          </section>
 
-          {/* Research Query */}
-          <div className="space-y-2">
-            <Label htmlFor="query">Research Query</Label>
-            <Textarea
-              id="query"
-              rows={3}
-              value={config.query}
-              onChange={(e) => handleConfigChange('query', e.target.value)}
-              placeholder="e.g., Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?"
-              className="resize-none"
-              onKeyDown={(e) => {
-                if (e.key === 'Tab' && config.query === '') {
-                  e.preventDefault();
-                  handleConfigChange('query', 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?');
-                }
-              }}
-            />
-          </div>
-
-          {/* Document Source */}
-          <div className="space-y-3">
-            <Label>Documents</Label>
+          {/* Step 2: Upload Documents */}
+          <section className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="flex-shrink-0 w-7 h-7 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 flex items-center justify-center text-sm font-semibold">
+                2
+              </div>
+              <h2 className="text-xl font-semibold">Upload Documents</h2>
+            </div>
+            <div className="ml-10 space-y-3">
             <RadioGroup
               value={documentSource}
               onValueChange={(v) => setDocumentSource(v as 'upload' | 'cloud')}
@@ -924,49 +931,67 @@ const QBSDConfigPage = () => {
                 )}
               </div>
             )}
-          </div>
+            </div>
+          </section>
 
-          {/* Schema Only Mode Checkbox */}
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="schema-only"
-              checked={config.skip_value_extraction || false}
-              onCheckedChange={(checked) => handleConfigChange('skip_value_extraction', checked)}
-            />
-            <Label htmlFor="schema-only" className="text-sm cursor-pointer inline-flex items-center gap-1.5">
-              Schema only mode
-              <InfoTooltip text="Skip value extraction — discover only the table structure. Faster and lower cost." />
-            </Label>
+          {/* Start Button */}
+          <div className="pt-4 border-t flex flex-col items-center gap-2">
+            <Button
+              size="lg"
+              className="w-full max-w-xs"
+              onClick={handleStartClick}
+              disabled={!isFormValid || loading || providersLoading || datasetsLoading}
+            >
+              {(loading || isUploading) ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-4 w-4" />
+              )}
+              {isUploading ? 'Uploading files...' : loading ? 'Starting...' : 'Get Your Table'}
+            </Button>
+            {!isFormValid && (
+              <p className="text-sm text-muted-foreground">
+                Add a query or documents to continue
+              </p>
+            )}
+            {developerMode && costEstimate && !costEstimateLoading && (
+              <span className="text-sm text-muted-foreground">
+                Estimated: ~${costEstimate.total_cost_usd.toFixed(4)}
+              </span>
+            )}
           </div>
+        </div>
+      </div>
 
-          {/* Advanced Settings - Single Accordion */}
-          <Accordion
-            type="single"
-            collapsible
-            value={advancedOpen}
-            onValueChange={setAdvancedOpen}
-          >
-            <AccordionItem value="advanced-settings">
-              <AccordionTrigger className="hover:no-underline">
+      {/* Settings Sheet */}
+      <Sheet open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <SheetContent className="overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Advanced Settings</SheetTitle>
+            <SheetDescription>Fine-tune how the schema is discovered and data is extracted.</SheetDescription>
+          </SheetHeader>
+          <div className="space-y-4">
+                {/* Schema Only Mode Checkbox */}
                 <div className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  <span className="font-semibold">Advanced Settings</span>
-                  {advancedConfigSummary.length > 0 && (
-                    <Badge variant="secondary" className="ml-2">
-                      {advancedConfigSummary.join(', ')}
-                    </Badge>
-                  )}
+                  <Checkbox
+                    id="schema-only"
+                    checked={config.skip_value_extraction || false}
+                    onCheckedChange={(checked) => handleConfigChange('skip_value_extraction', checked)}
+                  />
+                  <Label htmlFor="schema-only" className="text-sm cursor-pointer inline-flex items-center gap-1.5">
+                    Discover columns only (skip data extraction)
+                    <InfoTooltip text="Discover only the table schema without extracting data values. Faster and lower cost." />
+                  </Label>
                 </div>
-              </AccordionTrigger>
-              <AccordionContent className="space-y-4 pt-2">
+
                 {/* Schema Parameters */}
                 <div className="space-y-3">
                   <Label className="text-sm font-medium">Schema Parameters</Label>
-                  <div className="grid md:grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="max_keys" className="text-sm text-muted-foreground inline-flex items-center gap-1.5">
-                        Max Schema Keys
-                        <InfoTooltip text="Maximum number of columns in your table. Higher numbers capture more detail but increase processing time and cost." />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label htmlFor="max_keys" className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                        Max Columns
+                        <InfoTooltip text="Maximum number of columns in your table." />
                       </Label>
                       <Input
                         id="max_keys"
@@ -977,10 +1002,10 @@ const QBSDConfigPage = () => {
                         max={500}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="batch_size" className="text-sm text-muted-foreground inline-flex items-center gap-1.5">
-                        Document Batch Size
-                        <InfoTooltip text="How many documents to process before refining the schema. The default works well for most cases." />
+                    <div className="space-y-1">
+                      <Label htmlFor="batch_size" className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                        Batch Size
+                        <InfoTooltip text="Documents per schema refinement batch." />
                       </Label>
                       <Input
                         id="batch_size"
@@ -991,15 +1016,17 @@ const QBSDConfigPage = () => {
                         max={20}
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="seed" className="text-sm text-muted-foreground">Randomization Seed</Label>
-                      <Input
-                        id="seed"
-                        type="number"
-                        value={config.document_randomization_seed}
-                        onChange={(e) => handleConfigChange('document_randomization_seed', parseInt(e.target.value))}
-                      />
-                    </div>
+                    {developerMode && (
+                      <div className="space-y-1">
+                        <Label htmlFor="seed" className="text-xs text-muted-foreground">Seed</Label>
+                        <Input
+                          id="seed"
+                          type="number"
+                          value={config.document_randomization_seed}
+                          onChange={(e) => handleConfigChange('document_randomization_seed', parseInt(e.target.value))}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1012,15 +1039,23 @@ const QBSDConfigPage = () => {
                     <InfoTooltip text="What each row in your table represents (e.g., 'a research paper' or 'a patient'). Usually auto-detected, but you can customize it if needed." />
                   </Label>
                   <RadioGroup
-                    value={observationUnitMode}
-                    onValueChange={(value) => setObservationUnitMode(value as 'auto' | 'name_only' | 'full')}
+                    value={observationUnitMode === 'auto' ? 'auto' : 'specify'}
+                    onValueChange={(value) => {
+                      if (value === 'auto') {
+                        setObservationUnitMode('auto');
+                        setObservationUnitName('');
+                        setObservationUnitDefinition('');
+                      } else {
+                        setObservationUnitMode('name_only');
+                      }
+                    }}
                     className="space-y-3"
                   >
                     <div className="flex items-start space-x-3">
                       <RadioGroupItem value="auto" id="obs-auto" className="mt-1" />
                       <div className="space-y-1">
                         <Label htmlFor="obs-auto" className="font-medium cursor-pointer">
-                          Auto-discover (default)
+                          Auto-detect (recommended)
                         </Label>
                         <p className="text-sm text-muted-foreground">
                           The system will automatically determine the observation unit from your query and documents.
@@ -1028,64 +1063,44 @@ const QBSDConfigPage = () => {
                       </div>
                     </div>
                     <div className="flex items-start space-x-3">
-                      <RadioGroupItem value="name_only" id="obs-name" className="mt-1" />
+                      <RadioGroupItem value="specify" id="obs-specify" className="mt-1" />
                       <div className="space-y-1 flex-1">
-                        <Label htmlFor="obs-name" className="font-medium cursor-pointer">
-                          Specify name only
+                        <Label htmlFor="obs-specify" className="font-medium cursor-pointer">
+                          I'll specify
                         </Label>
                         <p className="text-sm text-muted-foreground">
-                          Provide the unit name; the system will discover the definition automatically.
+                          Provide a unit name; optionally add a definition for full control.
                         </p>
-                        {observationUnitMode === 'name_only' && (
-                          <Input
-                            placeholder="e.g., Research Paper, Model-Benchmark Evaluation"
-                            value={observationUnitName}
-                            onChange={(e) => setObservationUnitName(e.target.value)}
-                            className="mt-2"
-                          />
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <RadioGroupItem value="full" id="obs-full" className="mt-1" />
-                      <div className="space-y-1 flex-1">
-                        <Label htmlFor="obs-full" className="font-medium cursor-pointer">
-                          Specify name and definition
-                        </Label>
-                        <p className="text-sm text-muted-foreground">
-                          Provide both the unit name and definition for full control.
-                        </p>
-                        {observationUnitMode === 'full' && (
+                        {observationUnitMode !== 'auto' && (
                           <div className="space-y-2 mt-2">
                             <Input
-                              placeholder="Unit name (e.g., Research Paper)"
+                              placeholder="e.g., Research Paper, Model-Benchmark Evaluation"
                               value={observationUnitName}
                               onChange={(e) => setObservationUnitName(e.target.value)}
                             />
-                            <Input
-                              placeholder="Unit definition (e.g., Each row represents a single research paper)"
-                              value={observationUnitDefinition}
-                              onChange={(e) => setObservationUnitDefinition(e.target.value)}
-                            />
+                            <Collapsible>
+                              <CollapsibleTrigger className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                                <ChevronDown className="h-3.5 w-3.5" />
+                                <span>Add definition</span>
+                              </CollapsibleTrigger>
+                              <CollapsibleContent className="mt-2">
+                                <Input
+                                  placeholder="e.g., Each row represents a single research paper"
+                                  value={observationUnitDefinition}
+                                  onChange={(e) => {
+                                    setObservationUnitDefinition(e.target.value);
+                                    if (e.target.value.trim()) {
+                                      setObservationUnitMode('full');
+                                    }
+                                  }}
+                                />
+                              </CollapsibleContent>
+                            </Collapsible>
                           </div>
                         )}
                       </div>
                     </div>
                   </RadioGroup>
-                </div>
-
-                <hr />
-
-                {/* Initial Schema */}
-                <div className="space-y-3">
-                  <Label className="text-sm font-medium inline-flex items-center gap-1.5">
-                    Initial Schema
-                    <InfoTooltip text="Provide column names upfront to guide the extraction. Optional — the tool discovers columns automatically if you leave this blank." />
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    Optionally provide an initial schema to guide the discovery process. The LLM will start with these columns and expand as needed.
-                  </p>
-                  <InitialSchemaEditor onSchemaChange={handleInitialSchemaChange} />
                 </div>
 
                 {/* Developer Mode: LLM Configuration */}
@@ -1103,9 +1118,9 @@ const QBSDConfigPage = () => {
                               Done
                             </Button>
                           </div>
-                          <div className="grid md:grid-cols-3 gap-4">
-                            <div className="space-y-2">
-                              <Label>Provider</Label>
+                          <div className="space-y-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Provider</Label>
                               <Select
                                 value={config.schema_creation_backend.provider}
                                 onValueChange={(value) => handleSchemaBackendChange('provider', value)}
@@ -1122,8 +1137,8 @@ const QBSDConfigPage = () => {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="md:col-span-2 space-y-2">
-                              <Label>Model</Label>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Model</Label>
                               <ModelSelector
                                 provider={config.schema_creation_backend.provider as LLMProviderKey}
                                 value={config.schema_creation_backend.model}
@@ -1131,8 +1146,8 @@ const QBSDConfigPage = () => {
                                 showDetails={true}
                               />
                             </div>
-                            <div className="space-y-2">
-                              <Label>Temperature</Label>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Temperature</Label>
                               <Input
                                 type="number"
                                 value={config.schema_creation_backend.temperature}
@@ -1172,9 +1187,9 @@ const QBSDConfigPage = () => {
                               Done
                             </Button>
                           </div>
-                          <div className="grid md:grid-cols-3 gap-4">
-                            <div className="space-y-2">
-                              <Label>Provider</Label>
+                          <div className="space-y-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Provider</Label>
                               <Select
                                 value={config.value_extraction_backend.provider}
                                 onValueChange={(value) => handleValueBackendChange('provider', value)}
@@ -1191,8 +1206,8 @@ const QBSDConfigPage = () => {
                                 </SelectContent>
                               </Select>
                             </div>
-                            <div className="md:col-span-2 space-y-2">
-                              <Label>Model</Label>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Model</Label>
                               <ModelSelector
                                 provider={config.value_extraction_backend.provider as LLMProviderKey}
                                 value={config.value_extraction_backend.model}
@@ -1200,8 +1215,8 @@ const QBSDConfigPage = () => {
                                 showDetails={true}
                               />
                             </div>
-                            <div className="space-y-2">
-                              <Label>Temperature</Label>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Temperature</Label>
                               <Input
                                 type="number"
                                 value={config.value_extraction_backend.temperature}
@@ -1235,56 +1250,58 @@ const QBSDConfigPage = () => {
                 {developerMode && (
                   <>
                     <hr />
-                    <div className="space-y-3">
-                      <Label className="text-sm font-medium">Retriever Settings</Label>
-                      <div className="grid md:grid-cols-3 gap-4">
-                        <div className="md:col-span-2 space-y-2">
-                          <Label>Model Name</Label>
+                    <div className="space-y-2">
+                      <Label className="text-sm font-medium">Retriever</Label>
+                      <div className="space-y-2">
+                        <div className="space-y-1">
+                          <Label className="text-xs">Model Name</Label>
                           <Input
                             value={config.retriever?.model_name || ''}
                             onChange={(e) => handleRetrieverChange('model_name', e.target.value)}
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label>Passage Characters</Label>
-                          <Input
-                            type="number"
-                            value={config.retriever?.passage_chars || 512}
-                            onChange={(e) => handleRetrieverChange('passage_chars', parseInt(e.target.value))}
-                            min={128}
-                            max={2048}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Overlap</Label>
-                          <Input
-                            type="number"
-                            value={config.retriever?.overlap || 64}
-                            onChange={(e) => handleRetrieverChange('overlap', parseInt(e.target.value))}
-                            min={0}
-                            max={256}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Retrieval K</Label>
-                          <Input
-                            type="number"
-                            value={config.retriever?.k || 15}
-                            onChange={(e) => handleRetrieverChange('k', parseInt(e.target.value))}
-                            min={1}
-                            max={50}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Dynamic K Threshold</Label>
-                          <Input
-                            type="number"
-                            value={config.retriever?.dynamic_k_threshold || 0.65}
-                            onChange={(e) => handleRetrieverChange('dynamic_k_threshold', parseFloat(e.target.value))}
-                            min={0}
-                            max={1}
-                            step={0.05}
-                          />
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <Label className="text-xs">Passage Chars</Label>
+                            <Input
+                              type="number"
+                              value={config.retriever?.passage_chars || 512}
+                              onChange={(e) => handleRetrieverChange('passage_chars', parseInt(e.target.value))}
+                              min={128}
+                              max={2048}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Overlap</Label>
+                            <Input
+                              type="number"
+                              value={config.retriever?.overlap || 64}
+                              onChange={(e) => handleRetrieverChange('overlap', parseInt(e.target.value))}
+                              min={0}
+                              max={256}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">K</Label>
+                            <Input
+                              type="number"
+                              value={config.retriever?.k || 15}
+                              onChange={(e) => handleRetrieverChange('k', parseInt(e.target.value))}
+                              min={1}
+                              max={50}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs">Dynamic K</Label>
+                            <Input
+                              type="number"
+                              value={config.retriever?.dynamic_k_threshold || 0.65}
+                              onChange={(e) => handleRetrieverChange('dynamic_k_threshold', parseFloat(e.target.value))}
+                              min={0}
+                              max={1}
+                              step={0.05}
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1306,205 +1323,113 @@ const QBSDConfigPage = () => {
                     </div>
                   </>
                 )}
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
+          </div>
 
-          {/* Cost Estimate - Developer mode only, collapsed by default */}
-          {developerMode && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between p-3 border rounded-lg">
-                <div className="flex items-center gap-2">
-                  <DollarSign className="h-4 w-4 text-emerald-600" />
-                  <span className="text-sm font-medium">
-                    {costEstimateLoading ? (
-                      <span className="inline-flex items-center gap-1.5">
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                        Estimating cost...
-                      </span>
-                    ) : costEstimate ? (
-                      `Estimated cost: $${costEstimate.total_cost_usd.toFixed(4)}`
-                    ) : (
-                      'Upload docs to see cost estimate'
-                    )}
-                  </span>
-                </div>
-                {costEstimate && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setCostExpanded(!costExpanded)}
-                  >
-                    {costExpanded ? 'Hide breakdown' : 'View breakdown'}
-                  </Button>
-                )}
-              </div>
-
-              {costExpanded && costEstimate && (
-                <div className="p-4 border rounded-lg space-y-4 bg-muted/20">
-                  {/* Phase Breakdown */}
-                  <div className="grid md:grid-cols-2 gap-3">
-                    {/* Schema Discovery */}
-                    <div className="p-3 bg-background rounded-lg border">
-                      <div className="text-sm font-medium text-muted-foreground mb-2">Schema Discovery</div>
-                      <div className="space-y-1 text-sm">
-                        <div className="flex justify-between">
-                          <span>API Calls:</span>
-                          <span className="font-mono">{costEstimate.schema_discovery.api_calls}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Input Tokens:</span>
-                          <span className="font-mono">{costEstimate.schema_discovery.input_tokens.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Output Tokens:</span>
-                          <span className="font-mono">{costEstimate.schema_discovery.output_tokens.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between pt-1 border-t">
-                          <span className="font-medium">Cost:</span>
-                          <span className="font-mono font-medium">${costEstimate.schema_discovery.cost_usd.toFixed(4)}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Value Extraction */}
-                    <div className={`p-3 bg-background rounded-lg border ${config.skip_value_extraction ? 'opacity-50' : ''}`}>
-                      <div className="text-sm font-medium text-muted-foreground mb-2">
-                        Value Extraction
-                        {config.skip_value_extraction && <Badge variant="secondary" className="ml-2 text-xs">Skipped</Badge>}
-                      </div>
-                      <div className="space-y-1 text-sm">
-                        <div className="flex justify-between">
-                          <span>API Calls:</span>
-                          <span className="font-mono">{costEstimate.value_extraction.api_calls}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Input Tokens:</span>
-                          <span className="font-mono">{costEstimate.value_extraction.input_tokens.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Output Tokens:</span>
-                          <span className="font-mono">{costEstimate.value_extraction.output_tokens.toLocaleString()}</span>
-                        </div>
-                        <div className="flex justify-between pt-1 border-t">
-                          <span className="font-medium">Cost:</span>
-                          <span className="font-mono font-medium">${costEstimate.value_extraction.cost_usd.toFixed(4)}</span>
-                        </div>
-                      </div>
-                    </div>
+              {/* Cost Estimate - Developer mode only */}
+              {developerMode && (
+                <div className="mt-6 pt-4 border-t space-y-2">
+                  <div className="flex items-center gap-2">
+                    <DollarSign className="h-4 w-4 text-emerald-600" />
+                    <span className="text-sm font-medium">
+                      {costEstimateLoading ? (
+                        <span className="inline-flex items-center gap-1.5">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Estimating...
+                        </span>
+                      ) : costEstimate ? (
+                        `~$${costEstimate.total_cost_usd.toFixed(4)}`
+                      ) : (
+                        'Add docs for estimate'
+                      )}
+                    </span>
                   </div>
 
-                  {/* Document Stats */}
-                  {costEstimate.document_stats.num_documents > 0 && (
-                    <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <FileText className="h-3 w-3" />
-                        <span>{costEstimate.document_stats.num_documents} documents</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <TrendingUp className="h-3 w-3" />
-                        <span>~{costEstimate.document_stats.avg_tokens_per_document.toLocaleString()} tokens/doc avg</span>
-                      </div>
-                      <div>
-                        <span>Total: {costEstimate.document_stats.total_tokens.toLocaleString()} tokens</span>
-                      </div>
-                    </div>
+                  {costEstimate && (
+                    <Collapsible>
+                      <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                        <ChevronDown className="h-3 w-3" />
+                        <span>View breakdown</span>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="mt-2 space-y-3">
+                        {/* Schema Discovery */}
+                        <div className="p-2 bg-muted/30 rounded border text-xs">
+                          <div className="font-medium text-muted-foreground mb-1">Schema Discovery</div>
+                          <div className="space-y-0.5">
+                            <div className="flex justify-between">
+                              <span>API Calls:</span>
+                              <span className="font-mono">{costEstimate.schema_discovery.api_calls}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Input:</span>
+                              <span className="font-mono">{costEstimate.schema_discovery.input_tokens.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Output:</span>
+                              <span className="font-mono">{costEstimate.schema_discovery.output_tokens.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between pt-0.5 border-t font-medium">
+                              <span>Cost:</span>
+                              <span className="font-mono">${costEstimate.schema_discovery.cost_usd.toFixed(4)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Value Extraction */}
+                        <div className={`p-2 bg-muted/30 rounded border text-xs ${config.skip_value_extraction ? 'opacity-50' : ''}`}>
+                          <div className="font-medium text-muted-foreground mb-1">
+                            Value Extraction
+                            {config.skip_value_extraction && <Badge variant="secondary" className="ml-1 text-[10px]">Skipped</Badge>}
+                          </div>
+                          <div className="space-y-0.5">
+                            <div className="flex justify-between">
+                              <span>API Calls:</span>
+                              <span className="font-mono">{costEstimate.value_extraction.api_calls}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Input:</span>
+                              <span className="font-mono">{costEstimate.value_extraction.input_tokens.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span>Output:</span>
+                              <span className="font-mono">{costEstimate.value_extraction.output_tokens.toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between pt-0.5 border-t font-medium">
+                              <span>Cost:</span>
+                              <span className="font-mono">${costEstimate.value_extraction.cost_usd.toFixed(4)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Document Stats */}
+                        {costEstimate.document_stats.num_documents > 0 && (
+                          <div className="text-[11px] text-muted-foreground space-y-0.5">
+                            <div>{costEstimate.document_stats.num_documents} docs, ~{costEstimate.document_stats.avg_tokens_per_document.toLocaleString()} tok/doc</div>
+                          </div>
+                        )}
+
+                        {/* Warnings */}
+                        {costEstimate.warnings.length > 0 && (
+                          <div className="space-y-1">
+                            {costEstimate.warnings.map((warning, idx) => (
+                              <p key={idx} className="text-[11px] text-amber-600">{warning}</p>
+                            ))}
+                          </div>
+                        )}
+
+                        <p className="text-[11px] text-muted-foreground italic">
+                          * Estimate may vary with actual usage.
+                        </p>
+                      </CollapsibleContent>
+                    </Collapsible>
                   )}
 
-                  {/* Warnings */}
-                  {costEstimate.warnings.length > 0 && (
-                    <div className="space-y-2">
-                      {costEstimate.warnings.map((warning, idx) => (
-                        <Alert key={idx} variant="default" className="py-2">
-                          <AlertTriangle className="h-4 w-4" />
-                          <AlertDescription className="text-sm">{warning}</AlertDescription>
-                        </Alert>
-                      ))}
-                    </div>
+                  {costEstimateError && (
+                    <p className="text-xs text-destructive">{costEstimateError}</p>
                   )}
-
-                  <p className="text-xs text-muted-foreground italic">
-                    * This is an estimate based on current configuration. Actual costs may vary depending on LLM responses and document complexity.
-                  </p>
-
-                  {/* How we calculate - Expandable */}
-                  <Collapsible>
-                    <CollapsibleTrigger className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                      <HelpCircle className="h-3.5 w-3.5" />
-                      <span>How is this calculated?</span>
-                      <ChevronDown className="h-3 w-3" />
-                    </CollapsibleTrigger>
-                    <CollapsibleContent className="mt-3 p-3 bg-muted/50 rounded-md text-xs space-y-2">
-                      <div className="font-medium text-foreground">Cost Formula</div>
-                      <div className="font-mono text-[11px] bg-background p-2 rounded border">
-                        Cost = (Input Tokens × Input Price) + (Output Tokens × Output Price)
-                      </div>
-
-                      <div className="font-medium text-foreground pt-2">Schema Discovery (iterative)</div>
-                      <p className="text-muted-foreground">Processes documents in batches, building schema incrementally:</p>
-                      <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                        <li><span className="text-foreground">API Calls</span> = ⌈documents ÷ batch_size⌉ + 1 (for observation unit discovery)</li>
-                        <li><span className="text-foreground">Input per batch</span> = system_prompt + query + current_schema + passages_from_batch</li>
-                        <li className="ml-6 text-[11px]">passages = k × ~250 tokens × batch_size (k = {config.retriever?.k || 15} passages per doc)</li>
-                        <li><span className="text-foreground">Output</span> = ~300 tokens avg (JSON with new/updated columns)</li>
-                        <li className="ml-6 text-[11px] pt-1 border-t">Model: <span className="font-mono">{config.schema_creation_backend.model || 'default'}</span></li>
-                      </ul>
-
-                      <div className="font-medium text-foreground pt-2">Value Extraction (per document)</div>
-                      <p className="text-muted-foreground">Processes each document individually:</p>
-                      <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                        <li><span className="text-foreground">API Calls</span> = documents × (1 ID + n extractions)</li>
-                        <li className="ml-6 text-[11px]">where n = observation units per doc (varies by your data)</li>
-                        <li><span className="text-foreground">Input per doc</span> = system_prompt + column_definitions + passages_from_this_doc</li>
-                        <li className="ml-6 text-[11px]">passages = k × ~250 tokens (k = {config.retriever?.k || 15})</li>
-                        <li><span className="text-foreground">Output</span> = ~40 tokens × columns × 0.7 fill rate</li>
-                        <li className="ml-6 text-[11px] pt-1 border-t">Model: <span className="font-mono">{config.value_extraction_backend.model || 'default'}</span></li>
-                      </ul>
-
-                      <div className="text-muted-foreground pt-2 border-t mt-2">
-                        <div>Schema pricing: <span className="font-mono">{config.schema_creation_backend.provider}/{config.schema_creation_backend.model || 'default'}</span></div>
-                        <div>Extraction pricing: <span className="font-mono">{config.value_extraction_backend.provider}/{config.value_extraction_backend.model || 'default'}</span></div>
-                      </div>
-                    </CollapsibleContent>
-                  </Collapsible>
                 </div>
               )}
-
-              {costEstimateError && (
-                <p className="text-sm text-destructive">{costEstimateError}</p>
-              )}
-            </div>
-          )}
-
-          {/* Actions */}
-          <div className="flex justify-between items-center pt-4 border-t">
-            <Button variant="outline" onClick={() => navigate('/')}>
-              <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Home
-            </Button>
-
-            <div className="flex items-center gap-3">
-              {!isFormValid && (
-                <p className="text-sm text-muted-foreground">
-                  Add a query or documents to continue
-                </p>
-              )}
-              <Button
-                size="lg"
-                onClick={handleStartClick}
-                disabled={!isFormValid || loading || providersLoading || datasetsLoading}
-              >
-                {(loading || isUploading) ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-2 h-4 w-4" />
-                )}
-                {isUploading ? 'Uploading files...' : loading ? 'Starting QBSD...' : 'Start QBSD'}
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+        </SheetContent>
+      </Sheet>
 
       {error && (
         <Alert variant="destructive" className="mt-6">

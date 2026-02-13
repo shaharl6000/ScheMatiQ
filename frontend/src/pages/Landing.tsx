@@ -3,8 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   Sparkles,
   Upload,
-  Eye,
-  Gauge,
+  FileUp,
+  Table,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -68,7 +68,7 @@ const Landing = () => {
               <div className="p-2 rounded-lg bg-primary/10">
                 <Sparkles className="h-6 w-6 text-primary" />
               </div>
-              New Project
+              Start a New Project
             </CardTitle>
             <CardDescription>
               Ask your research question and upload documents. The system discovers what to extract and builds your dataset.
@@ -82,7 +82,7 @@ const Landing = () => {
               disabled={!hasApiKeys}
             >
               <Sparkles className="mr-2 h-4 w-4" />
-              {hasApiKeys ? 'Start' : 'Configure API Keys First'}
+              {hasApiKeys ? 'START' : 'Configure API Keys First'}
             </Button>
           </CardFooter>
         </Card>
@@ -94,7 +94,7 @@ const Landing = () => {
               <div className="p-2 rounded-lg bg-secondary">
                 <Upload className="h-6 w-6 text-muted-foreground" />
               </div>
-              Load Existing Project
+              Load an Existing Project
             </CardTitle>
             <CardDescription>
               Open a previously generated dataset to explore, refine, or export.
@@ -107,11 +107,24 @@ const Landing = () => {
               onClick={() => navigate('/load')}
             >
               <Upload className="mr-2 h-4 w-4" />
-              Open
+              LOAD
             </Button>
           </CardFooter>
         </Card>
       </div>
+
+      {/* Exploration path for visitors without API keys */}
+      {!hasApiKeys && (
+        <p className="text-center mt-4 text-sm text-muted-foreground">
+          No API key?{' '}
+          <button
+            onClick={() => navigate('/load')}
+            className="text-primary hover:underline font-medium"
+          >
+            Explore an example dataset first
+          </button>
+        </p>
+      )}
 
       {/* How It Works */}
       <div className="text-center mt-12">
@@ -119,7 +132,7 @@ const Landing = () => {
         <div className="grid sm:grid-cols-3 gap-8">
           <div className="flex flex-col items-center">
             <div className="p-4 rounded-full bg-primary/10 mb-4">
-              <Eye className="h-8 w-8 text-primary" />
+              <FileUp className="h-8 w-8 text-primary" />
             </div>
             <h3 className="font-semibold mb-2">Input</h3>
             <p className="text-sm text-muted-foreground">
@@ -137,7 +150,7 @@ const Landing = () => {
           </div>
           <div className="flex flex-col items-center">
             <div className="p-4 rounded-full bg-primary/10 mb-4">
-              <Gauge className="h-8 w-8 text-primary" />
+              <Table className="h-8 w-8 text-primary" />
             </div>
             <h3 className="font-semibold mb-2">Structured Output</h3>
             <p className="text-sm text-muted-foreground">

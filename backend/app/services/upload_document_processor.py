@@ -1123,26 +1123,12 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         Returns:
             DataStatistics object or None if no data available
         """
-        session_dir = Path("./data") / session_id
-        data_file = session_dir / "data.jsonl"
+        from app.services.data_utils import collect_all_data_rows, normalize_row_data
 
-        if not data_file.exists():
-            logger.warning(f"Statistics: No data.jsonl found for session {session_id}")
-            return None
-
-        # Read all rows from the data file
-        data_rows = []
-        try:
-            with open(data_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        data_rows.append(json.loads(line))
-        except Exception as e:
-            logger.warning(f"Statistics: Error reading data: {e}")
-            return None
+        data_rows = collect_all_data_rows(session_id)
 
         if not data_rows:
-            logger.warning("Statistics: No data rows found in data.jsonl")
+            logger.warning(f"Statistics: No data found for session {session_id}")
             return None
 
         if not session.columns:
@@ -1183,8 +1169,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             unique_values = set()
 
             for row in data_rows:
-                # Handle both DataRow format (with 'data' key) and direct format
-                row_data = row.get('data', row)
+                row_data = normalize_row_data(row)
 
                 if col.name in row_data:
                     value = row_data[col.name]
@@ -1202,7 +1187,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 name=col.name,
                 definition=col.definition,
                 rationale=col.rationale,
-                data_type="object",  # Upload data is typically complex objects
+                data_type="object",
                 non_null_count=non_null_count,
                 unique_count=unique_count,
                 source_document=col.source_document,
