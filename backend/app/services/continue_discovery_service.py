@@ -245,9 +245,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         actual_column_count = len(non_excerpt_columns)
         logger.debug(f"Non-excerpt columns for statistics: {actual_column_count} (total with excerpts: {len(unique_columns)})")
 
-        from app.services.data_utils import collect_all_data_rows
+        from app.services.data_utils import collect_all_data_rows, normalize_row_data
 
-        data_rows = collect_all_data_rows(session_id, self._get_qbsd_work_dir(), self._get_data_dir())
+        data_rows = collect_all_data_rows(session_id)
 
         if not data_rows:
             logger.debug(f"No data rows found for statistics computation")
@@ -330,8 +330,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             unique_values = set()
 
             for row in data_rows:
-                # Handle both DataRow format (with 'data' key) and direct format
-                row_data = row.get('data', row)
+                row_data = normalize_row_data(row)
 
                 if col.name in row_data:
                     value = row_data[col.name]
@@ -566,7 +565,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         cloud_datasets = []
         try:
             dataset_infos = await storage.list_datasets()
-            cloud_datasets = [d.name for d in dataset_infos]
+            cloud_datasets = [{"name": d.name, "file_count": d.file_count} for d in dataset_infos]
             logger.debug(f"Found {len(cloud_datasets)} cloud datasets via storage.list_datasets()")
         except Exception as e:
             logger.debug(f"Could not list cloud datasets: {e}")

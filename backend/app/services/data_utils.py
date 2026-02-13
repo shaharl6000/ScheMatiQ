@@ -7,8 +7,37 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
+# Resolve directory paths relative to the module location for reliability
+# across Docker/Railway and local dev environments.
+_MODULE_DIR = Path(__file__).parent        # app/services/
+_APP_DIR = _MODULE_DIR.parent              # app/
+_BACKEND_DIR = _APP_DIR.parent             # backend/
 
-def collect_all_data_rows(session_id: str, work_dir: Path, data_dir: Path) -> List[dict]:
+
+def get_qbsd_work_dir() -> Path:
+    """Get the qbsd_work directory path, resolved from module location."""
+    return _BACKEND_DIR / "qbsd_work"
+
+
+def get_data_dir() -> Path:
+    """Get the data directory path, resolved from module location.
+
+    Checks both Docker/Railway location (backend/data) and local dev
+    location (backend/app/data), preferring whichever has content.
+    """
+    docker_data_dir = _BACKEND_DIR / "data"
+    local_data_dir = _APP_DIR / "data"
+
+    if docker_data_dir.exists() and any(docker_data_dir.iterdir()):
+        return docker_data_dir
+    elif local_data_dir.exists() and any(local_data_dir.iterdir()):
+        return local_data_dir
+    else:
+        docker_data_dir.mkdir(exist_ok=True)
+        return docker_data_dir
+
+
+def collect_all_data_rows(session_id: str, work_dir: Path = None, data_dir: Path = None) -> List[dict]:
     """Read and deduplicate data rows from all possible file locations.
 
     Data can exist in multiple locations:
@@ -28,6 +57,11 @@ def collect_all_data_rows(session_id: str, work_dir: Path, data_dir: Path) -> Li
     Returns:
         Combined, deduplicated list of raw row dicts
     """
+    if work_dir is None:
+        work_dir = get_qbsd_work_dir()
+    if data_dir is None:
+        data_dir = get_data_dir()
+
     data_files = []
 
     # 1. Check qbsd_work for extracted_data.jsonl

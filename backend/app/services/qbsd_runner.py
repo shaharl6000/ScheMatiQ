@@ -1758,7 +1758,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         """
         from app.services.data_utils import collect_all_data_rows, normalize_row_data
 
-        data_rows = collect_all_data_rows(session_id, self.work_dir, Path("./data"))
+        data_rows = collect_all_data_rows(session_id, work_dir=self.work_dir)
 
         if not data_rows:
             logger.warning("Statistics: No data found for session %s (schema-only mode)", session_id)

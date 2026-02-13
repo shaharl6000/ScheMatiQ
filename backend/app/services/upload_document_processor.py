@@ -1125,7 +1125,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         """
         from app.services.data_utils import collect_all_data_rows, normalize_row_data
 
-        data_rows = collect_all_data_rows(session_id, Path("./qbsd_work"), Path("./data"))
+        data_rows = collect_all_data_rows(session_id)
 
         if not data_rows:
             logger.warning(f"Statistics: No data found for session {session_id}")
@@ -1169,8 +1169,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             unique_values = set()
 
             for row in data_rows:
-                # Handle both DataRow format (with 'data' key) and direct format
-                row_data = row.get('data', row)
+                row_data = normalize_row_data(row)
 
                 if col.name in row_data:
                     value = row_data[col.name]
@@ -1188,7 +1187,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 name=col.name,
                 definition=col.definition,
                 rationale=col.rationale,
-                data_type="object",  # Upload data is typically complex objects
+                data_type="object",
                 non_null_count=non_null_count,
                 unique_count=unique_count,
                 source_document=col.source_document,
