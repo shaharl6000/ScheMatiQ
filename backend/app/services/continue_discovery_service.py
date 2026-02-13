@@ -245,23 +245,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         actual_column_count = len(non_excerpt_columns)
         logger.debug(f"Non-excerpt columns for statistics: {actual_column_count} (total with excerpts: {len(unique_columns)})")
 
-        session_dir = self._get_data_dir() / session_id
-        data_file = session_dir / "data.jsonl"
+        from app.services.data_utils import collect_all_data_rows
 
-        if not data_file.exists():
-            logger.debug(f"Cannot recompute statistics - no data.jsonl found")
-            return
-
-        # Read all rows from data file
-        data_rows = []
-        try:
-            with open(data_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        data_rows.append(json.loads(line))
-        except Exception as e:
-            logger.error(f"Error reading data for statistics: {e}")
-            return
+        data_rows = collect_all_data_rows(session_id, self._get_qbsd_work_dir(), self._get_data_dir())
 
         if not data_rows:
             logger.debug(f"No data rows found for statistics computation")

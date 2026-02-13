@@ -1756,11 +1756,12 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         Returns:
             DataStatistics object or None if no data available
         """
-        session_dir = self.work_dir / session_id
-        data_file = session_dir / "extracted_data.jsonl"
+        from app.services.data_utils import collect_all_data_rows, normalize_row_data
 
-        if not data_file.exists():
-            logger.warning("Statistics: No extracted_data.jsonl found for session %s (schema-only mode)", session_id)
+        data_rows = collect_all_data_rows(session_id, self.work_dir, Path("./data"))
+
+        if not data_rows:
+            logger.warning("Statistics: No data found for session %s (schema-only mode)", session_id)
             # Schema-only mode: return statistics based on schema without data
             columns = []
             for col in schema.columns:
@@ -1787,30 +1788,15 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 skipped_documents=skipped_documents or []
             )
 
-        # Read all rows from the extracted data
-        data_rows = []
-        try:
-            with open(data_file, 'r') as f:
-                for line in f:
-                    if line.strip():
-                        data_rows.append(json.loads(line))
-        except Exception as e:
-            logger.warning("Statistics: Error reading extracted data: %s", e)
-            return None
-
-        if not data_rows:
-            logger.warning("Statistics: No data rows found in extracted_data.jsonl")
-            return None
-
-        # Count unique documents from _papers field
+        # Count unique documents from papers field (handle both formats)
         unique_documents = set()
         for row in data_rows:
-            papers = row.get('_papers', [])
+            papers = row.get('papers', row.get('_papers', []))
             if isinstance(papers, list):
                 unique_documents.update(papers)
             elif isinstance(papers, str) and papers:
                 unique_documents.add(papers)
-        total_documents = len(unique_documents)
+        total_documents = len(unique_documents) if unique_documents else len(data_rows)
 
         # Build column stats from schema + data
         columns = []
@@ -1828,19 +1814,22 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 # For non-dict values, check if it's not None or "None" string
                 return value != "None" and value != "" and value != "[]"
 
-            non_null_count = sum(
-                1 for row in data_rows
-                if col.name in row and is_valid_value(row[col.name])
-            )
-
-            # Count unique values (serialize to JSON for comparison)
+            non_null_count = 0
             unique_values = set()
+
             for row in data_rows:
-                if col.name in row:
+                # Handle both DataRow format (with 'data' key) and direct format
+                row_data = normalize_row_data(row)
+
+                if col.name in row_data:
+                    value = row_data[col.name]
+                    if is_valid_value(value):
+                        non_null_count += 1
+                    # Count unique values (serialize to JSON for comparison)
                     try:
-                        unique_values.add(json.dumps(row[col.name], sort_keys=True))
+                        unique_values.add(json.dumps(value, sort_keys=True))
                     except (TypeError, ValueError):
-                        unique_values.add(str(row[col.name]))
+                        unique_values.add(str(value))
             unique_count = len(unique_values)
 
             # Include source document info from evolution if available
