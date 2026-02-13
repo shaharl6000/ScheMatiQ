@@ -7,9 +7,6 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
   LineChart,
   Line,
 } from 'recharts';
@@ -122,13 +119,6 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
     return acc;
   }, {} as Record<string, number>);
 
-  const pieData = Object.entries(dataTypeDistribution).map(([type, count]) => ({
-    name: type,
-    value: count,
-  }));
-
-  const colors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
-
   return (
     <div className="space-y-6">
       {/* Overview Cards */}
@@ -171,80 +161,39 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
         </Card>
       </div>
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Column Completeness Chart */}
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Column Completeness</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[350px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={completenessData}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis
-                    dataKey="name"
-                    angle={-45}
-                    textAnchor="end"
-                    height={80}
-                    tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
-                  />
-                  <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
-                  <Tooltip
-                    formatter={(value: number) => [`${value.toFixed(1)}%`, 'Completeness']}
-                    labelFormatter={(label) => `Column: ${label}`}
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--background))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                    }}
-                  />
-                  <Bar dataKey="completeness" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Data Type Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Data Type Distribution</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[350px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) =>
-                      `${name}: ${(percent * 100).toFixed(0)}%`
-                    }
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="value"
-                  >
-                    {pieData.map((_, index) => (
-                      <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--background))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px',
-                    }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Column Completeness Chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Column Completeness</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[350px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={completenessData}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis
+                  dataKey="name"
+                  angle={-45}
+                  textAnchor="end"
+                  height={80}
+                  tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }}
+                />
+                <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
+                <Tooltip
+                  formatter={(value: number) => [`${value.toFixed(1)}%`, 'Completeness']}
+                  labelFormatter={(label) => `Column: ${label}`}
+                  contentStyle={{
+                    backgroundColor: 'hsl(var(--background))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px',
+                  }}
+                />
+                <Bar dataKey="completeness" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Column Details Table */}
       <Card>
@@ -409,27 +358,13 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
                     </div>
                   </div>
                 </div>
-                {/* Timeline */}
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {modificationHistory.map((modification, index) => (
-                    <div
-                      key={index}
-                      className="flex items-start gap-3 p-2 rounded-md bg-white dark:bg-amber-900 border border-amber-200 dark:border-amber-700"
-                    >
-                      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-800 border border-amber-300 dark:border-amber-600 flex-shrink-0">
-                        {getActionIcon(modification.action_type)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-amber-900 dark:text-amber-100">
-                          {formatActionDetails(modification)}
-                        </div>
-                        <div className="text-xs text-amber-600 dark:text-amber-400">
-                          {formatDate(modification.timestamp)}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                {/* Timeline — show last 3 by default */}
+                <ModificationTimeline
+                  modifications={modificationHistory}
+                  getActionIcon={getActionIcon}
+                  formatActionDetails={formatActionDetails}
+                  formatDate={formatDate}
+                />
               </div>
             ) : (
               <div className="text-center py-6 text-amber-700 dark:text-amber-300">
@@ -803,6 +738,67 @@ const DocumentProcessingSection: React.FC<DocumentProcessingSectionProps> = ({
         </div>
       </CardContent>
     </Card>
+  );
+};
+
+// Modification Timeline — shows last 3 entries by default, with "Show all" link
+interface ModificationTimelineProps {
+  modifications: ModificationAction[];
+  getActionIcon: (actionType: string) => React.ReactNode;
+  formatActionDetails: (action: ModificationAction) => string;
+  formatDate: (dateString?: string) => string;
+}
+
+const ModificationTimeline: React.FC<ModificationTimelineProps> = ({
+  modifications,
+  getActionIcon,
+  formatActionDetails,
+  formatDate,
+}) => {
+  const [showAll, setShowAll] = React.useState(false);
+  const COLLAPSED_COUNT = 3;
+  const hasMore = modifications.length > COLLAPSED_COUNT;
+  const displayedModifications = showAll ? modifications : modifications.slice(-COLLAPSED_COUNT);
+
+  return (
+    <div className="space-y-2">
+      {hasMore && !showAll && (
+        <button
+          onClick={() => setShowAll(true)}
+          className="text-xs text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 font-medium transition-colors"
+        >
+          Show all {modifications.length} modifications
+        </button>
+      )}
+      <div className="space-y-2 max-h-64 overflow-y-auto">
+        {displayedModifications.map((modification, index) => (
+          <div
+            key={index}
+            className="flex items-start gap-3 p-2 rounded-md bg-white dark:bg-amber-900 border border-amber-200 dark:border-amber-700"
+          >
+            <div className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-800 border border-amber-300 dark:border-amber-600 flex-shrink-0">
+              {getActionIcon(modification.action_type)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                {formatActionDetails(modification)}
+              </div>
+              <div className="text-xs text-amber-600 dark:text-amber-400">
+                {formatDate(modification.timestamp)}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {hasMore && showAll && (
+        <button
+          onClick={() => setShowAll(false)}
+          className="text-xs text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 font-medium transition-colors"
+        >
+          Show recent only
+        </button>
+      )}
+    </div>
   );
 };
 

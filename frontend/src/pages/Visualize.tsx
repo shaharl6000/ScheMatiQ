@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
+import { debug } from '@/utils/debug';
 import {
   ArrowLeft,
   Download,
@@ -11,6 +12,7 @@ import {
   Copy,
   HelpCircle,
   Search,
+  Upload,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -26,6 +28,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
 
 import { loadAPI, qbsdAPI, cloudAPI, configAPI, downloadBlob } from '../services/api';
 import { getApiKeyForProvider, LLMProvider } from '../utils/apiKeyStorage';
@@ -48,7 +57,6 @@ import QBSDMonitor from '../components/QBSDMonitor/QBSDMonitor';
 import UploadProcessingMonitor from '../components/UploadProcessingMonitor/UploadProcessingMonitor';
 import DocumentUpload from '../components/DocumentUpload/DocumentUpload';
 import LLMSelector from '../components/LLMSelector';
-import { ViewModeToggle } from '../components/ViewMode';
 import { useViewMode } from '../contexts/ViewModeContext';
 import { useUnits } from '../hooks/useUnits';
 import TableFeedbackWidget from '../components/TableFeedbackWidget/TableFeedbackWidget';
@@ -133,8 +141,8 @@ const Visualize = () => {
   // Column order state
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
 
-  // Add More Documents collapsed state
-  const [addDocsExpanded, setAddDocsExpanded] = useState(false);
+  // Add More Documents dialog state
+  const [addDocsDialogOpen, setAddDocsDialogOpen] = useState(false);
 
   // WebSocket state
   const [forceWebSocketConnect, setForceWebSocketConnect] = useState(false);
@@ -232,8 +240,8 @@ const Visualize = () => {
                 });
               }, NEW_ROW_HIGHLIGHT_DURATION);
               break;
-            case 'completion':
-              console.log('✅ WebSocket completion received, refetching data...');
+            case 'completed':
+              debug.log('✅ WebSocket completion received, refetching data...');
               setStreamingCells(new Map());
               setCurrentDocumentProgress(null);
               setForceWebSocketConnect(false);
@@ -282,7 +290,7 @@ const Visualize = () => {
               }
               break;
             case 'reextraction_completed':
-              console.log('Re-extraction completed:', message.data);
+              debug.log('Re-extraction completed:', message.data);
               setProcessingColumns(new Set()); // Clear processing state
               setCurrentDocumentProgress(null); // Clear document progress
               setStreamingCells(new Map());    // Clear streaming cells
@@ -294,7 +302,7 @@ const Visualize = () => {
               refreshUnits();
               break;
             case 'reextraction_stopped':
-              console.log('Re-extraction stopped:', message.data);
+              debug.log('Re-extraction stopped:', message.data);
               setProcessingColumns(new Set()); // Clear processing state
               setActiveReextractionId(null);   // Clear operation ID
               setIsStoppingReextraction(false); // Clear stopping state
@@ -308,7 +316,7 @@ const Visualize = () => {
               break;
 
             case 'stopped':
-              console.log('QBSD stopped:', message.data);
+              debug.log('QBSD stopped:', message.data);
               setStreamingCells(new Map());
               setForceWebSocketConnect(false);
               setIsStoppingProcessing(false);
@@ -320,23 +328,23 @@ const Visualize = () => {
 
             // Continue Discovery events
             case 'continue_discovery_started':
-              console.log('Continue discovery started:', message.data);
+              debug.log('Continue discovery started:', message.data);
               break;
             case 'continue_discovery_progress':
-              console.log('Continue discovery progress:', message.data);
+              debug.log('Continue discovery progress:', message.data);
               break;
             case 'continue_discovery_completed':
-              console.log('Continue discovery completed:', message.data);
+              debug.log('Continue discovery completed:', message.data);
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
               refreshUnits();
               break;
             case 'continue_discovery_stopped':
-              console.log('Continue discovery stopped:', message.data);
+              debug.log('Continue discovery stopped:', message.data);
               break;
             case 'continue_discovery_failed':
-              console.log('Continue discovery failed:', message.data);
+              debug.log('Continue discovery failed:', message.data);
               break;
             case 'incremental_extraction_started':
               // Initialize processing columns when incremental extraction starts
@@ -354,7 +362,7 @@ const Visualize = () => {
               }
               break;
             case 'incremental_extraction_completed':
-              console.log('Incremental extraction completed:', message.data);
+              debug.log('Incremental extraction completed:', message.data);
               setProcessingColumns(new Set()); // Clear processing state
               setCurrentDocumentProgress(null); // Clear document progress
               setStreamingCells(new Map());    // Clear streaming cells
@@ -495,17 +503,17 @@ const Visualize = () => {
     const connectWebSocket = () => {
       // Don't create duplicate connections
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        console.log('WebSocket already connected, skipping');
+        debug.log('WebSocket already connected, skipping');
         return;
       }
 
       try {
-        console.log('Creating WebSocket connection for session:', sessionId);
+        debug.log('Creating WebSocket connection for session:', sessionId);
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
-          console.log('WebSocket connected for session:', sessionId);
+          debug.log('WebSocket connected for session:', sessionId);
           reconnectAttempts = 0;
         };
 
@@ -545,8 +553,8 @@ const Visualize = () => {
                   });
                 }, NEW_ROW_HIGHLIGHT_DURATION);
                 break;
-              case 'completion':
-                console.log('✅ WebSocket completion received, refetching data...');
+              case 'completed':
+                debug.log('✅ WebSocket completion received, refetching data...');
                 setStreamingCells(new Map());
                 setCurrentDocumentProgress(null);
                 setForceWebSocketConnect(false);
@@ -595,7 +603,7 @@ const Visualize = () => {
                 }
                 break;
               case 'reextraction_completed':
-                console.log('Re-extraction completed:', message.data);
+                debug.log('Re-extraction completed:', message.data);
                 setProcessingColumns(new Set()); // Clear processing state
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
@@ -614,7 +622,7 @@ const Visualize = () => {
                 }, 3000);
                 break;
               case 'reextraction_stopped':
-                console.log('Re-extraction stopped:', message.data);
+                debug.log('Re-extraction stopped:', message.data);
                 setProcessingColumns(new Set()); // Clear processing state
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
@@ -629,7 +637,7 @@ const Visualize = () => {
                 break;
 
               case 'stopped':
-                console.log('QBSD stopped:', message.data);
+                debug.log('QBSD stopped:', message.data);
                 setStreamingCells(new Map());
                 setForceWebSocketConnect(false);
                 setIsStoppingProcessing(false);
@@ -641,23 +649,23 @@ const Visualize = () => {
 
               // Continue Discovery events
               case 'continue_discovery_started':
-                console.log('Continue discovery started:', message.data);
+                debug.log('Continue discovery started:', message.data);
                 break;
               case 'continue_discovery_progress':
-                console.log('Continue discovery progress:', message.data);
+                debug.log('Continue discovery progress:', message.data);
                 break;
               case 'continue_discovery_completed':
-                console.log('Continue discovery completed:', message.data);
+                debug.log('Continue discovery completed:', message.data);
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
                 refreshUnits();
                 break;
               case 'continue_discovery_stopped':
-                console.log('Continue discovery stopped:', message.data);
+                debug.log('Continue discovery stopped:', message.data);
                 break;
               case 'continue_discovery_failed':
-                console.log('Continue discovery failed:', message.data);
+                debug.log('Continue discovery failed:', message.data);
                 break;
               case 'incremental_extraction_started':
                 // Initialize processing columns when incremental extraction starts
@@ -675,7 +683,7 @@ const Visualize = () => {
                 }
                 break;
               case 'incremental_extraction_completed':
-                console.log('Incremental extraction completed:', message.data);
+                debug.log('Incremental extraction completed:', message.data);
                 setProcessingColumns(new Set()); // Clear processing state
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
@@ -692,7 +700,7 @@ const Visualize = () => {
         };
 
         ws.onclose = (event) => {
-          console.log('WebSocket closed:', event.code, event.reason);
+          debug.log('WebSocket closed:', event.code, event.reason);
           wsRef.current = null;
           // Only reconnect if not a clean close and we still need the connection
           if (event.code !== 1000 && reconnectAttempts < WS_RECONNECT_ATTEMPTS) {
@@ -737,7 +745,7 @@ const Visualize = () => {
         !(mode === 'qbsd' && session?.status === 'processing')) {
       // No longer need WebSocket, close it
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        console.log('Closing WebSocket - no longer needed');
+        debug.log('Closing WebSocket - no longer needed');
         wsRef.current.close(1000, 'No longer needed');
         wsRef.current = null;
       }
@@ -1021,7 +1029,7 @@ const Visualize = () => {
   const isEnhancedUploadProcessing = session?.status === 'processing_documents';
 
   // Debug logging for Data tab disable condition
-  console.log('Data tab state:', {
+  debug.log('Data tab state:', {
     sessionStatus: session?.status,
     mode,
     isCompleted,
@@ -1067,7 +1075,7 @@ const Visualize = () => {
         <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={handleBackNavigation}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
+            {mode === 'qbsd' ? 'Back to Configuration' : 'Back to Home'}
           </Button>
 
           <div className="flex items-center gap-2">
@@ -1083,12 +1091,20 @@ const Visualize = () => {
                 <HelpCircle className="h-5 w-5" />
               </Button>
             )}
+            {((mode === 'load' && ['documents_uploaded', 'processing_documents', 'completed', 'stopped'].includes(session?.status || '')) ||
+              (mode === 'qbsd' && ['completed', 'documents_uploaded', 'processing_documents', 'stopped'].includes(session?.status || ''))) &&
+              !sessionLoading && (
+              <Button variant="outline" size="sm" onClick={() => setAddDocsDialogOpen(true)}>
+                <Upload className="h-4 w-4 mr-2" />
+                Add Documents
+              </Button>
+            )}
             {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
                     <Download className="h-4 w-4 mr-2" />
-                    Export{isQBSDStopped ? ' Partial' : ''}
+                    Export{isQBSDStopped ? ' Current Results' : ''}
                     <ChevronDown className="h-3 w-3 ml-1" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -1147,13 +1163,25 @@ const Visualize = () => {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList>
-          <TabsTrigger value="data" disabled={sessionLoading || (!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded')}>
+          <TabsTrigger
+            value="data"
+            disabled={sessionLoading || (!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded')}
+            title={(!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded') ? 'Data will appear once processing starts' : undefined}
+          >
             Data
           </TabsTrigger>
-          <TabsTrigger value="schema" disabled={sessionLoading || !isSchemaReady || (!session?.columns?.length && !isSessionRefetching)}>
+          <TabsTrigger
+            value="schema"
+            disabled={sessionLoading || !isSchemaReady || (!session?.columns?.length && !isSessionRefetching)}
+            title={(!isSchemaReady || (!session?.columns?.length && !isSessionRefetching)) ? 'Schema will appear once processing starts' : undefined}
+          >
             Schema
           </TabsTrigger>
-          <TabsTrigger value="stats" disabled={sessionLoading || (!isCompleted && !isQBSDStopped)}>
+          <TabsTrigger
+            value="stats"
+            disabled={sessionLoading || (!isCompleted && !isQBSDStopped)}
+            title={(!isCompleted && !isQBSDStopped) ? 'Statistics will appear once processing completes' : undefined}
+          >
             Statistics
           </TabsTrigger>
           {mode === 'qbsd' && (
@@ -1176,19 +1204,6 @@ const Visualize = () => {
         <TabsContent value="data" className="mt-4">
           {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || isQBSDStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
             <div className="relative" data-table-container>
-              {/* View Mode Toggle - show if observation units exist (from API) OR if table has unit-related columns */}
-              {((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) && (
-                <div className="mb-4 flex items-center gap-4">
-                  <ViewModeToggle
-                    viewMode={viewMode}
-                    onViewModeChange={setViewMode}
-                    disabled={(!unitListResponse || unitListResponse.totalUnits === 0) && !hasUnitColumn}
-                    disabledTooltip="No observation units found in this session"
-                    unitCount={unitListResponse?.totalUnits || (hasUnitColumn ? undefined : 0)}
-                  />
-                </div>
-              )}
-
               {/* Render either standard DataTable or UnitGroupedTable based on view mode */}
               {viewMode === 'by_unit' && ((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) ? (
                 <UnitGroupedTable
@@ -1232,141 +1247,12 @@ const Visualize = () => {
                     refreshUnits();
                   }}
                   columnInfo={session?.columns?.map(col => ({ name: col.name, allowed_values: col.allowed_values ?? undefined }))}
+                  viewMode={viewMode}
+                  onViewModeChange={setViewMode}
+                  hasUnits={((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) || false}
+                  unitCount={unitListResponse?.totalUnits}
                 />
               )}
-
-              {/* Document Upload Section (collapsible) */}
-              {((mode === 'load' && ['documents_uploaded', 'processing_documents', 'completed', 'stopped'].includes(session?.status || '')) ||
-                (mode === 'qbsd' && ['completed', 'documents_uploaded', 'processing_documents', 'stopped'].includes(session?.status || ''))) &&
-                !sessionLoading && !dataLoading && dataResponse && (
-                  <Card className="mt-6">
-                    <CardHeader
-                      className="cursor-pointer select-none"
-                      onClick={() => setAddDocsExpanded(!addDocsExpanded)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <CardTitle className="text-base">
-                          {mode === 'qbsd'
-                            ? 'Add More Documents'
-                            : session?.status === 'documents_uploaded'
-                              ? 'Process Your Documents'
-                              : 'Add More Documents'}
-                        </CardTitle>
-                        <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${addDocsExpanded ? 'rotate-180' : ''}`} />
-                      </div>
-                    </CardHeader>
-                    {addDocsExpanded && (
-                      <CardContent className="space-y-4">
-                        <p className="text-sm text-muted-foreground">
-                          {mode === 'qbsd'
-                            ? 'Upload additional documents to extract more data using your discovered schema.'
-                            : session?.status === 'documents_uploaded'
-                              ? 'You have uploaded documents that are ready to be processed.'
-                              : 'Upload additional documents to extract more data using your existing schema.'}
-                        </p>
-
-                        {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
-                          <div className="space-y-2">
-                            <p className="text-sm font-medium">Uploaded documents ({session.metadata.uploaded_documents.length}):</p>
-                            <div className="flex flex-wrap gap-2">
-                              {session.metadata.uploaded_documents.map((doc, index) => (
-                                <div
-                                  key={`${doc}-${index}`}
-                                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full text-sm"
-                                >
-                                  <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                                  <span className="text-blue-700 dark:text-blue-300 max-w-[200px] truncate" title={doc}>
-                                    {doc}
-                                  </span>
-                                  {session.status !== 'processing_documents' && (
-                                    <button
-                                      onClick={() => handleRemoveDocument(doc)}
-                                      disabled={removingDocument === doc}
-                                      className="ml-1 p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full transition-colors disabled:opacity-50"
-                                      title={`Remove ${doc}`}
-                                    >
-                                      {removingDocument === doc ? (
-                                        <Loader2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
-                                      ) : (
-                                        <X className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 hover:text-red-600 dark:hover:text-red-400" />
-                                      )}
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {documentUploadError && (
-                          <Alert variant="destructive">
-                            <AlertDescription>{documentUploadError}</AlertDescription>
-                          </Alert>
-                        )}
-
-                        <DocumentUpload
-                          onFilesChange={setUploadedDocuments}
-                          uploadedFiles={uploadedDocuments}
-                          loading={documentUploadLoading}
-                          onUpload={handleDocumentUpload}
-                          canUpload={true}
-                          uploadResult={documentUploadResult}
-                          sessionId={sessionId}
-                          maxDocuments={maxDocuments}
-                          existingDocumentCount={session?.metadata?.uploaded_documents?.length || 0}
-                          onCloudDocumentsAdd={async (dataset, files) => {
-                            const result = await cloudAPI.addCloudDocuments(sessionId!, dataset, files);
-                            if (result.added_files?.length > 0) {
-                              queryClient.invalidateQueries(['session', sessionId]);
-                              setDocumentUploadResult({
-                                status: 'success',
-                                message: `Added ${result.added_files.length} cloud documents`,
-                                uploaded_files: result.added_files,
-                                warnings: result.errors || []
-                              });
-                            }
-                            if (result.errors?.length) {
-                              throw new Error(result.errors.join(', '));
-                            }
-                          }}
-                        />
-
-                        {((session?.metadata?.uploaded_documents?.length || 0) > 0 || documentUploadResult?.uploaded_files?.length > 0) && (
-                          <div className="pt-4 border-t">
-                            {session?.status === 'processing_documents' && (
-                              <div className="flex items-center gap-2 mb-4">
-                                <Loader2 className="h-5 w-5 animate-spin" />
-                                <span>Processing in progress...</span>
-                              </div>
-                            )}
-
-                            {session?.status === 'completed' && (session?.metadata?.additional_rows_added ?? 0) > 0 && (
-                              <Alert variant="success" className="mb-4">
-                                <AlertDescription>
-                                  Processing completed! Added {session.metadata.additional_rows_added} new rows.
-                                </AlertDescription>
-                              </Alert>
-                            )}
-
-                            {session?.status !== 'completed' && (
-                              <Button
-                                onClick={handleDocumentProcessing}
-                                disabled={session?.status?.includes('processing') || documentUploadLoading}
-                              >
-                                {documentUploadLoading ? (
-                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                ) : null}
-                                {documentUploadLoading ? 'Starting...' :
-                                  session?.status?.includes('processing') ? 'Processing...' :
-                                    'Process Documents'}
-                              </Button>
-                            )}
-                          </div>
-                        )}
-                      </CardContent>
-                    )}
-                  </Card>
-                )}
             </div>
           ) : (
             <Alert variant="info">
@@ -1473,6 +1359,129 @@ const Visualize = () => {
           tableColumnCount={session?.columns?.length || 0}
         />
       )}
+
+      {/* Add Documents Dialog */}
+      <Dialog open={addDocsDialogOpen} onOpenChange={setAddDocsDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {mode === 'qbsd'
+                ? 'Add More Documents'
+                : session?.status === 'documents_uploaded'
+                  ? 'Process Your Documents'
+                  : 'Add More Documents'}
+            </DialogTitle>
+            <DialogDescription>
+              {mode === 'qbsd'
+                ? 'Upload additional documents to extract more data using your discovered schema.'
+                : session?.status === 'documents_uploaded'
+                  ? 'You have uploaded documents that are ready to be processed.'
+                  : 'Upload additional documents to extract more data using your existing schema.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Uploaded documents ({session.metadata.uploaded_documents.length}):</p>
+                <div className="flex flex-wrap gap-2">
+                  {session.metadata.uploaded_documents.map((doc, index) => (
+                    <div
+                      key={`${doc}-${index}`}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full text-sm"
+                    >
+                      <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                      <span className="text-blue-700 dark:text-blue-300 max-w-[200px] truncate" title={doc}>
+                        {doc}
+                      </span>
+                      {session.status !== 'processing_documents' && (
+                        <button
+                          onClick={() => handleRemoveDocument(doc)}
+                          disabled={removingDocument === doc}
+                          className="ml-1 p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full transition-colors disabled:opacity-50"
+                          title={`Remove ${doc}`}
+                        >
+                          {removingDocument === doc ? (
+                            <Loader2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
+                          ) : (
+                            <X className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 hover:text-red-600 dark:hover:text-red-400" />
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {documentUploadError && (
+              <Alert variant="destructive">
+                <AlertDescription>{documentUploadError}</AlertDescription>
+              </Alert>
+            )}
+
+            <DocumentUpload
+              onFilesChange={setUploadedDocuments}
+              uploadedFiles={uploadedDocuments}
+              loading={documentUploadLoading}
+              onUpload={handleDocumentUpload}
+              canUpload={true}
+              uploadResult={documentUploadResult}
+              sessionId={sessionId}
+              maxDocuments={maxDocuments}
+              existingDocumentCount={session?.metadata?.uploaded_documents?.length || 0}
+              onCloudDocumentsAdd={async (dataset, files) => {
+                const result = await cloudAPI.addCloudDocuments(sessionId!, dataset, files);
+                if (result.added_files?.length > 0) {
+                  queryClient.invalidateQueries(['session', sessionId]);
+                  setDocumentUploadResult({
+                    status: 'success',
+                    message: `Added ${result.added_files.length} cloud documents`,
+                    uploaded_files: result.added_files,
+                    warnings: result.errors || []
+                  });
+                }
+                if (result.errors?.length) {
+                  throw new Error(result.errors.join(', '));
+                }
+              }}
+            />
+
+            {((session?.metadata?.uploaded_documents?.length || 0) > 0 || documentUploadResult?.uploaded_files?.length > 0) && (
+              <div className="pt-4 border-t">
+                {session?.status === 'processing_documents' && (
+                  <div className="flex items-center gap-2 mb-4">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Processing in progress...</span>
+                  </div>
+                )}
+
+                {session?.status === 'completed' && (session?.metadata?.additional_rows_added ?? 0) > 0 && (
+                  <Alert variant="success" className="mb-4">
+                    <AlertDescription>
+                      Processing completed! Added {session.metadata.additional_rows_added} new rows.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {session?.status !== 'completed' && (
+                  <Button
+                    onClick={handleDocumentProcessing}
+                    disabled={session?.status?.includes('processing') || documentUploadLoading}
+                  >
+                    {documentUploadLoading ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : null}
+                    {documentUploadLoading ? 'Starting...' :
+                      session?.status?.includes('processing') ? 'Processing...' :
+                        'Process Documents'}
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* LLM Selection Dialog */}
       <LLMSelector

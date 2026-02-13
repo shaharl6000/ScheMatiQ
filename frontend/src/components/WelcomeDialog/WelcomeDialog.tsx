@@ -9,8 +9,6 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
-const STORAGE_KEY = 'qbsd-welcome-dismissed';
-
 interface WelcomeDialogProps {
   forceOpen?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -37,18 +35,9 @@ const steps = [
 
 export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
   const [open, setOpen] = useState(false);
-  const [dontShowAgain, setDontShowAgain] = useState(false);
   const prevForceOpenRef = useRef(forceOpen);
 
-  // Auto-show on first visit (localStorage check)
-  useEffect(() => {
-    const dismissed = localStorage.getItem(STORAGE_KEY);
-    if (!dismissed) {
-      setOpen(true);
-    }
-  }, []);
-
-  // Handle forceOpen from parent (help button) — detect false→true transition
+  // Only opened via the help button (forceOpen prop)
   useEffect(() => {
     if (forceOpen && !prevForceOpenRef.current) {
       setOpen(true);
@@ -57,9 +46,6 @@ export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
   }, [forceOpen]);
 
   const handleClose = () => {
-    if (dontShowAgain) {
-      localStorage.setItem(STORAGE_KEY, 'true');
-    }
     setOpen(false);
     onOpenChange?.(false);
   };
@@ -105,16 +91,7 @@ export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
           Look for the <span className="inline-flex items-center text-muted-foreground">(?)</span> icons to learn more about any option.
         </p>
 
-        <DialogFooter className="flex-col sm:flex-row items-start sm:items-center gap-3 sm:justify-between">
-          <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={dontShowAgain}
-              onChange={(e) => setDontShowAgain(e.target.checked)}
-              className="rounded border-gray-300"
-            />
-            Don't show this again
-          </label>
+        <DialogFooter>
           <Button onClick={handleClose}>
             Got it, let's start
           </Button>

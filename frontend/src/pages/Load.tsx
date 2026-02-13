@@ -40,7 +40,7 @@ const Load = () => {
         // Ensure data is an array before setting
         setTemplates(Array.isArray(data) ? data : []);
       } catch (err) {
-        console.log('No templates available:', err);
+        // Templates not available — expected when none configured
         setTemplates([]);
       } finally {
         setLoadingTemplates(false);
@@ -149,8 +149,8 @@ const Load = () => {
                   <span>Loading examples...</span>
                 </DropdownMenuItem>
               ) : templates.length === 0 ? (
-                <DropdownMenuItem disabled className="py-2">
-                  No examples available
+                <DropdownMenuItem disabled className="py-2 whitespace-normal">
+                  Example datasets are being prepared. Upload your own file to get started.
                 </DropdownMenuItem>
               ) : (
                 templates.map((template) => (
@@ -222,7 +222,7 @@ const Load = () => {
               Drop your data file here or click to browse
             </h3>
             <p className="text-sm text-muted-foreground">
-              CSV, JSON, or JSONL files
+              CSV, JSON, JSONL, or saved project files (.qbsd.json)
             </p>
           </>
         )}

@@ -592,7 +592,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 usage = self._global_usage.get_usage()
                 total_used = usage.get("total_calls", 0)
                 effective_limit = LLM_CALL_GLOBAL_LIMIT if not DEVELOPER_MODE else ((config.llm_call_limit or 0) if config else 0)
-                await self.websocket_manager.broadcast_progress(session_id, {
+                await self.websocket_manager.broadcast_to_session(session_id, {
                     "type": "quota_exceeded",
                     "message": "The system has reached its API usage limit and cannot start new processing sessions.",
                     "data": {

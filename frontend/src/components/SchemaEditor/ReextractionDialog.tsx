@@ -329,11 +329,11 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <RefreshCw className="h-5 w-5" />
-            Re-extract Column Values
+            Re-extract Column Data
           </DialogTitle>
           <DialogDescription>
-            Select columns to re-extract values from source documents.
-            This will replace existing values for the selected columns.
+            Select columns to re-extract data from source documents.
+            This will replace existing data for the selected columns.
           </DialogDescription>
         </DialogHeader>
 

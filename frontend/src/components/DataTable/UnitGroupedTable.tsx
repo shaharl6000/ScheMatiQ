@@ -1206,8 +1206,8 @@ function formatCellValue(
             onClick={() => onViewContent(columnName, { answer, excerpts: modalExcerpts })}
             title={tooltip}
           >
-            <div className="text-xs leading-relaxed line-clamp-3 break-words">
-              {answerStr.length > 100 ? `${answerStr.slice(0, 100)}...` : answerStr}
+            <div className="text-xs leading-relaxed break-words">
+              {answerStr.length > 300 ? `${answerStr.slice(0, 300)}...` : answerStr}
             </div>
           </div>
         );
@@ -1219,7 +1219,7 @@ function formatCellValue(
           onClick={() => onViewContent(columnName, { answer, excerpts: [] })}
           title="Click to view content"
         >
-          <span className="text-xs leading-relaxed line-clamp-3">
+          <span className="text-xs leading-relaxed">
             {answerStr}
           </span>
         </div>
@@ -1241,8 +1241,8 @@ function formatCellValue(
         })}
         title={tooltip}
       >
-        <div className="text-xs leading-relaxed line-clamp-3 break-words">
-          {displayStr.length > 100 ? `${displayStr.slice(0, 100)}...` : displayStr}
+        <div className="text-xs leading-relaxed break-words">
+          {displayStr.length > 300 ? `${displayStr.slice(0, 300)}...` : displayStr}
         </div>
       </div>
     );

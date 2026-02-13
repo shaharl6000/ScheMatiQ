@@ -121,6 +121,14 @@ interface DataTableProps {
   readonly?: boolean;
   /** Callback when data changes (e.g., row added/deleted) */
   onDataChange?: () => void;
+  /** Current view mode (standard or by_unit) */
+  viewMode?: 'standard' | 'by_unit';
+  /** Callback to change view mode */
+  onViewModeChange?: (mode: 'standard' | 'by_unit') => void;
+  /** Whether observation units exist for this session */
+  hasUnits?: boolean;
+  /** Number of observation units */
+  unitCount?: number;
 }
 
 // Sortable Header Cell Component
@@ -252,6 +260,10 @@ const DataTable: React.FC<DataTableProps> = ({
   isStoppingProcessing,
   readonly = false,
   onDataChange,
+  viewMode,
+  onViewModeChange,
+  hasUnits,
+  unitCount,
 }) => {
   const { toast } = useToast();
   const [page, setPage] = useState(0);
@@ -273,6 +285,15 @@ const DataTable: React.FC<DataTableProps> = ({
   // Refs for table container and frozen column header
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const frozenThRef = useRef<HTMLTableCellElement>(null);
+
+  // "N new rows" floating indicator state
+  const prevRowCountRef = useRef<number>(0);
+  const [newRowsBanner, setNewRowsBanner] = useState(0);
+
+  const scrollToBottom = () => {
+    tableContainerRef.current?.scrollTo({ top: tableContainerRef.current.scrollHeight, behavior: 'smooth' });
+    setNewRowsBanner(0);
+  };
 
   // Row selection state
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
@@ -494,6 +515,23 @@ const DataTable: React.FC<DataTableProps> = ({
       total_count: fetchedOrInitialData.total_count + newStreamingRows
     };
   }, [fetchedOrInitialData, streamingCells]);
+
+  // Track new rows added during streaming — show banner when user is scrolled away
+  useEffect(() => {
+    const currentCount = data.rows.length;
+    const prevCount = prevRowCountRef.current;
+    if (prevCount > 0 && currentCount > prevCount) {
+      const container = tableContainerRef.current;
+      if (container) {
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        const isNearBottom = scrollHeight - scrollTop - clientHeight < 80;
+        if (!isNearBottom) {
+          setNewRowsBanner(prev => prev + (currentCount - prevCount));
+        }
+      }
+    }
+    prevRowCountRef.current = currentCount;
+  }, [data.rows.length]);
 
   // Check if observation units are present (enables cell merging for doc_name)
   // Moved BEFORE processedRows so it can be used as a dependency
@@ -977,7 +1015,7 @@ const DataTable: React.FC<DataTableProps> = ({
       >
         <div
           className={cn(
-            "text-xs leading-relaxed line-clamp-3 break-words",
+            "text-xs leading-relaxed break-words",
             isItalic && "italic text-muted-foreground"
           )}
         >
@@ -1073,7 +1111,7 @@ const DataTable: React.FC<DataTableProps> = ({
             onClick={() => handleViewContent(columnName, { answer, excerpts })}
             title="Click to view content"
           >
-            <span className="text-xs leading-relaxed line-clamp-3">
+            <span className="text-xs leading-relaxed">
               {answerStr}
             </span>
           </div>
@@ -1135,7 +1173,7 @@ const DataTable: React.FC<DataTableProps> = ({
         onClick={() => handleViewContent(columnName, value)}
         title="Click to view content"
       >
-        <span className="text-xs leading-relaxed line-clamp-3">
+        <span className="text-xs leading-relaxed">
           {stringValue}
         </span>
       </div>
@@ -1150,23 +1188,75 @@ const DataTable: React.FC<DataTableProps> = ({
   const totalPages = Math.ceil(displayedRowCount / pageSize);
 
   return (
-    <Card>
-      <div className="p-4">
-        {/* Header row with title and search */}
-        <div className="flex justify-between items-center mb-4">
-          <div>
-            <h3 className="font-semibold text-lg flex items-center gap-2">
-              Data Table
-              {isFiltered ? (
-                <span className="text-muted-foreground font-normal">
-                  ({displayedRowCount.toLocaleString()} of {totalRowCount.toLocaleString()} rows)
-                </span>
-              ) : (
-                <span className="text-muted-foreground font-normal">
-                  ({totalRowCount.toLocaleString()} rows)
+    <>
+      {/* Screen reader announcement for dynamic row updates */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {displayedRowCount} row{displayedRowCount !== 1 ? 's' : ''}{isFiltered ? ` shown of ${totalRowCount}` : ''}
+      </div>
+
+      {/* Re-extraction / Document Processing Progress Bar */}
+      {((processingColumns && processingColumns.size > 0) || isProcessingDocuments) && (
+        <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              <span className="font-medium">
+                {processingColumns && processingColumns.size > 0
+                  ? `Re-extracting ${processingColumns.size} column${processingColumns.size !== 1 ? 's' : ''}`
+                  : 'Extracting data from new documents'}
+              </span>
+              {currentDocumentProgress && (
+                <span className="text-sm text-muted-foreground">
+                  — {hasObservationUnits ? 'Observation Unit' : 'Document'} {currentDocumentProgress.documentIndex} of {currentDocumentProgress.totalDocuments}
                 </span>
               )}
-            </h3>
+            </div>
+            {(processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing) && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing}
+                disabled={processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing}
+                className="gap-1"
+              >
+                {(processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing) ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Stopping...
+                  </>
+                ) : (
+                  <>
+                    <Square className="h-4 w-4" />
+                    Stop
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+          {currentDocumentProgress && currentDocumentProgress.totalDocuments > 0 && (
+            <div className="space-y-1">
+              <Progress
+                value={(currentDocumentProgress.documentIndex / currentDocumentProgress.totalDocuments) * 100}
+                className="h-2"
+              />
+              <p className="text-xs text-muted-foreground">
+                Processing: {currentDocumentProgress.documentName}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <Card>
+      <div className="p-4">
+        {/* Header row with row count and search */}
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="text-sm font-normal">
+              {isFiltered
+                ? `${displayedRowCount.toLocaleString()} of ${totalRowCount.toLocaleString()} rows`
+                : `${totalRowCount.toLocaleString()} rows`}
+            </Badge>
           </div>
 
           <div className="flex items-center gap-2">
@@ -1175,7 +1265,7 @@ const DataTable: React.FC<DataTableProps> = ({
                 <div className="relative w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search data..."
+                    placeholder="Search all cells..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-9"
@@ -1225,56 +1315,20 @@ const DataTable: React.FC<DataTableProps> = ({
           </div>
         )}
 
-        {/* Re-extraction / Document Processing Progress Bar */}
-        {((processingColumns && processingColumns.size > 0) || isProcessingDocuments) && (
-          <div className="mb-4 p-4 bg-muted/30 border rounded-lg">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="font-medium">
-                  {processingColumns && processingColumns.size > 0
-                    ? `Re-extracting ${processingColumns.size} column${processingColumns.size !== 1 ? 's' : ''}`
-                    : 'Extracting data from new documents'}
-                </span>
-                {currentDocumentProgress && (
-                  <span className="text-sm text-muted-foreground">
-                    — {hasObservationUnits ? 'Observation Unit' : 'Document'} {currentDocumentProgress.documentIndex} of {currentDocumentProgress.totalDocuments}
-                  </span>
-                )}
-              </div>
-              {(processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing) && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing}
-                  disabled={processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing}
-                  className="gap-1"
-                >
-                  {(processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing) ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Stopping...
-                    </>
-                  ) : (
-                    <>
-                      <Square className="h-4 w-4" />
-                      Stop
-                    </>
-                  )}
-                </Button>
-              )}
-            </div>
-            {currentDocumentProgress && currentDocumentProgress.totalDocuments > 0 && (
-              <div className="space-y-1">
-                <Progress
-                  value={(currentDocumentProgress.documentIndex / currentDocumentProgress.totalDocuments) * 100}
-                  className="h-2"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Processing: {currentDocumentProgress.documentName}
-                </p>
-              </div>
-            )}
+        {/* Completeness filter banner */}
+        {hiddenByFullnessCount > 0 && (
+          <div className="flex items-center justify-between mb-4 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md text-sm">
+            <span className="text-amber-800 dark:text-amber-200">
+              {hiddenByFullnessCount} column{hiddenByFullnessCount !== 1 ? 's' : ''} hidden (below {fullnessThreshold}% completeness)
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-amber-700 dark:text-amber-300 hover:text-amber-900 h-7"
+              onClick={() => setFullnessThreshold(0)}
+            >
+              Show all
+            </Button>
           </div>
         )}
 
@@ -1428,20 +1482,26 @@ const DataTable: React.FC<DataTableProps> = ({
                       onMouseEnter={() => setHoveredRowId(rowId)}
                       onMouseLeave={() => setHoveredRowId(null)}
                     >
-                      {/* Checkbox column cell - only show if not readonly */}
+                      {/* Row status indicator + Checkbox column */}
                       {!readonly && (
                         <td className="w-[40px] min-w-[40px] px-2 py-3 text-center">
-                          <div className={cn(
-                            "transition-opacity duration-100",
-                            showCheckbox ? "opacity-100" : "opacity-0"
-                          )}>
-                            <Checkbox
-                              checked={rowSelected}
-                              onCheckedChange={() => toggleRow(rowId)}
-                              onClick={(e) => e.stopPropagation()}
-                              aria-label={`Select row ${rowId}`}
-                            />
-                          </div>
+                          {isNewlyAdded ? (
+                            <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-200">NEW</Badge>
+                          ) : isStreaming ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-blue-600 dark:text-blue-400 mx-auto motion-reduce:animate-none" />
+                          ) : (
+                            <div className={cn(
+                              "transition-opacity duration-100",
+                              showCheckbox ? "opacity-100" : "opacity-0"
+                            )}>
+                              <Checkbox
+                                checked={rowSelected}
+                                onCheckedChange={() => toggleRow(rowId)}
+                                onClick={(e) => e.stopPropagation()}
+                                aria-label={`Select row ${rowId}`}
+                              />
+                            </div>
+                          )}
                         </td>
                       )}
 
@@ -1487,7 +1547,7 @@ const DataTable: React.FC<DataTableProps> = ({
                               "left-0",
                               "bg-background"
                             )}
-                            style={getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                            style={{ verticalAlign: 'top', ...(getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : {}) }}
                           >
                             {!frozenColumn.startsWith('_') && row.row_name ? (
                               <EditableCell
@@ -1563,7 +1623,7 @@ const DataTable: React.FC<DataTableProps> = ({
                           <td
                             key={column}
                             className={cn("px-4 py-3", !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]")}
-                            style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                            style={{ verticalAlign: 'top', ...(getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : {}) }}
                           >
                             {isEditable ? (
                               <EditableCell
@@ -1588,6 +1648,16 @@ const DataTable: React.FC<DataTableProps> = ({
             </table>
           </div>
         </DndContext>
+
+        {/* New rows indicator */}
+        {newRowsBanner > 0 && (
+          <button
+            onClick={scrollToBottom}
+            className="w-full mt-1 py-1.5 text-sm text-center text-primary bg-primary/10 hover:bg-primary/20 rounded-md transition-colors"
+          >
+            {newRowsBanner} new row{newRowsBanner !== 1 ? 's' : ''} added — click to scroll down
+          </button>
+        )}
 
         {/* Pagination */}
         <div className="flex items-center justify-between mt-4">
@@ -1772,6 +1842,7 @@ const DataTable: React.FC<DataTableProps> = ({
       </Dialog>
 
     </Card>
+    </>
   );
 };
 
