@@ -118,6 +118,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         with self._state_lock:
             self.stop_flags.pop(operation_id, None)
 
+    def _cleanup_operation(self, operation_id: str) -> None:
+        """Remove operation from tracking dicts to prevent memory leaks."""
+        with self._state_lock:
+            self.active_operations.pop(operation_id, None)
+            self._tasks.pop(operation_id, None)
+
     def _get_data_dir(self) -> Path:
         """Get the data directory path - uses module location for reliability."""
         # In Docker: /app/backend/app/services/ -> data is at /app/backend/data
@@ -1246,6 +1252,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             )
         finally:
             await concurrency_limiter.release(operation.session_id)
+            self._cleanup_operation(operation_id)
 
     # ==================== Incremental Extraction ====================
 
@@ -1615,6 +1622,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             )
         finally:
             await concurrency_limiter.release(operation.session_id)
+            self._cleanup_operation(operation_id)
 
     async def _merge_incremental_data(
         self,
@@ -1751,51 +1759,43 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         """Stop a running operation."""
         with self._state_lock:
             operation = self.active_operations.get(operation_id)
-        if not operation:
-            return {"stopped": False, "message": f"Operation {operation_id} not found"}
-
-        if operation.status in ["completed", "failed", "stopped"]:
-            return {"stopped": False, "message": f"Operation already {operation.status}"}
-
-        # Set stop flag
-        with self._state_lock:
+            if not operation:
+                return {"stopped": False, "message": f"Operation {operation_id} not found"}
+            if operation.status in ["completed", "failed", "stopped"]:
+                return {"stopped": False, "message": f"Operation already {operation.status}"}
             self.stop_flags[operation_id] = True
+
         logger.info(f"Stop requested for operation {operation_id}")
 
-        # Cancel task if running - wait for it to finish gracefully
+        # Cancel task if running
         with self._state_lock:
             task = self._tasks.get(operation_id)
         if task and not task.done():
             task.cancel()
             try:
-                # Wait for task to handle cancellation (without shield - we WANT it to cancel)
                 await asyncio.wait_for(task, timeout=10.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
+                logger.warning(f"Continue discovery task {operation_id} did not stop within 10s")
 
-        # Only update if not already terminal (task may have completed naturally)
-        if operation.status not in ("completed", "failed", "stopped"):
-            operation.status = "stopped"
-            operation.completed_at = datetime.now()
+        # Re-check — task may have completed naturally
+        if operation.status in ("completed", "failed", "stopped"):
+            logger.info(f"Operation {operation_id} reached {operation.status} naturally")
+            self.clear_stop_flag(operation_id)
+            self._cleanup_operation(operation_id)
+            return {"stopped": False, "message": f"Operation already {operation.status}"}
 
-            await self.broadcast_event(
-                operation.session_id,
-                "continue_discovery_stopped",
-                {
-                    "operation_id": operation_id,
-                    "phase": operation.phase,
-                    "message": "Operation stopped by user"
-                }
-            )
+        operation.status = "stopped"
+        operation.completed_at = datetime.now()
 
-        # Clear stop flag AFTER task is done (so it can check the flag during graceful shutdown)
+        await self.broadcast_event(
+            operation.session_id,
+            "continue_discovery_stopped",
+            {"operation_id": operation_id, "phase": operation.phase, "message": "Operation stopped by user"}
+        )
+
         self.clear_stop_flag(operation_id)
-
-        return {
-            "stopped": True,
-            "phase": operation.phase,
-            "message": "Operation stopped"
-        }
+        self._cleanup_operation(operation_id)
+        return {"stopped": True, "phase": operation.phase, "message": "Operation stopped"}
 
     def get_operation_status(self, operation_id: str) -> Optional[Dict[str, Any]]:
         """Get status of an operation."""

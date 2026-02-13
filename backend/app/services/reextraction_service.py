@@ -99,6 +99,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
         with self._state_lock:
             self.stop_flags.pop(operation_id, None)
 
+    def _cleanup_operation(self, operation_id: str) -> None:
+        """Remove operation from tracking dicts to prevent memory leaks."""
+        with self._state_lock:
+            self.active_operations.pop(operation_id, None)
+            self._extraction_tasks.pop(operation_id, None)
+
     async def request_stop(self, operation_id: str) -> Dict[str, Any]:
         """Set the stop flag and return immediately."""
         with self._state_lock:
@@ -122,21 +128,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
         """
         with self._state_lock:
             operation = self.active_operations.get(operation_id)
-        if not operation:
-            return {
-                "stopped": False,
-                "message": f"Operation {operation_id} not found"
-            }
-
-        if operation.status in ["completed", "failed", "stopped"]:
-            return {
-                "stopped": False,
-                "message": f"Operation already {operation.status}"
-            }
-
-        # Set stop flag
-        with self._state_lock:
+            if not operation:
+                return {"stopped": False, "message": f"Operation {operation_id} not found"}
+            if operation.status in ["completed", "failed", "stopped"]:
+                return {"stopped": False, "message": f"Operation already {operation.status}"}
+            # Set stop flag (only if not already set by request_stop)
             self.stop_flags[operation_id] = True
+
         logger.info(f"Stop requested for re-extraction operation {operation_id}")
 
         # Cancel the extraction task if it exists
@@ -147,9 +145,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
+                logger.warning(f"Reextraction task {operation_id} did not stop within 5s")
 
-        # Merge any partial results that were written before stop
+        # Re-check terminal status AFTER waiting — task may have completed naturally
+        if operation.status in ("completed", "failed", "stopped"):
+            logger.info(f"Operation {operation_id} reached {operation.status} naturally, skipping merge")
+            self.clear_stop_flag(operation_id)
+            self._cleanup_operation(operation_id)
+            return {"stopped": False, "message": f"Operation already {operation.status}"}
+
+        # Merge partial results (safe — task is done and didn't complete naturally)
         try:
             session_dir = Path("./data") / operation.session_id
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
@@ -160,35 +165,30 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     operation.columns,
                     output_file
                 )
-                # Clean up temp files
                 output_file.unlink(missing_ok=True)
                 schema_file = session_dir / f"reextract_schema_{operation_id}.json"
                 schema_file.unlink(missing_ok=True)
-                logger.info(f"Partial results merged and temp files cleaned up")
         except Exception as e:
-            logger.warning(f"Warning: Could not merge partial results: {e}")
+            logger.warning(f"Could not merge partial results: {e}")
 
-        # Only update if not already terminal (task may have completed naturally)
-        if operation.status not in ("completed", "failed", "stopped"):
-            operation.status = "stopped"
-            operation.completed_at = datetime.now()
+        # Update status
+        operation.status = "stopped"
+        operation.completed_at = datetime.now()
 
-            # Broadcast stopped event
-            await self.broadcast_event(
-                operation.session_id,
-                "reextraction_stopped",
-                {
-                    "operation_id": operation_id,
-                    "columns": operation.columns,
-                    "processed_documents": operation.processed_documents,
-                    "total_documents": operation.total_documents,
-                    "message": "Re-extraction stopped by user"
-                }
-            )
+        await self.broadcast_event(
+            operation.session_id,
+            "reextraction_stopped",
+            {
+                "operation_id": operation_id,
+                "columns": operation.columns,
+                "processed_documents": operation.processed_documents,
+                "total_documents": operation.total_documents,
+                "message": "Re-extraction stopped by user"
+            }
+        )
 
-        # Clean up
         self.clear_stop_flag(operation_id)
-
+        self._cleanup_operation(operation_id)
         return {
             "stopped": True,
             "message": "Re-extraction stopped",
@@ -1179,6 +1179,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             raise
         finally:
             await concurrency_limiter.release(operation.session_id)
+            self._cleanup_operation(operation_id)
 
     async def _merge_reextracted_data(
         self,

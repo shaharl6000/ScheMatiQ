@@ -1016,7 +1016,13 @@ async def stop_reextraction(session_id: str, operation_id: str):
             raise HTTPException(status_code=400, detail=result["message"])
 
         # Background safety net: wait for task, merge partial results, broadcast
-        asyncio.create_task(reextraction_service.stop_operation(operation_id))
+        async def _safe_stop_reextraction():
+            try:
+                await reextraction_service.stop_operation(operation_id)
+            except Exception:
+                logger.error("Background stop_operation failed for reextraction %s", operation_id, exc_info=True)
+
+        asyncio.create_task(_safe_stop_reextraction())
 
         return {"status": "stopping", "message": result["message"]}
 
@@ -1306,7 +1312,13 @@ async def stop_continue_discovery(session_id: str, operation_id: str):
             raise HTTPException(status_code=400, detail=result["message"])
 
         # Background safety net: wait for task, update status, broadcast
-        asyncio.create_task(continue_discovery_service.stop_operation(operation_id))
+        async def _safe_stop_continue_discovery():
+            try:
+                await continue_discovery_service.stop_operation(operation_id)
+            except Exception:
+                logger.error("Background stop_operation failed for continue discovery %s", operation_id, exc_info=True)
+
+        asyncio.create_task(_safe_stop_continue_discovery())
 
         return {"status": "stopping", "message": result["message"]}
 

@@ -311,6 +311,7 @@ const Visualize = () => {
               console.log('QBSD stopped:', message.data);
               setStreamingCells(new Map());
               setForceWebSocketConnect(false);
+              setIsStoppingProcessing(false);
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
@@ -631,6 +632,7 @@ const Visualize = () => {
                 console.log('QBSD stopped:', message.data);
                 setStreamingCells(new Map());
                 setForceWebSocketConnect(false);
+                setIsStoppingProcessing(false);
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
@@ -920,8 +922,7 @@ const Visualize = () => {
 
     try {
       await loadAPI.stopProcessing(sessionId);
-      // Transition immediately — background task handles status update + WebSocket
-      setIsStoppingProcessing(false);
+      // Don't clear spinner — WebSocket 'stopped' handler will do it
     } catch (err: any) {
       console.error('Failed to stop processing:', err);
       setDocumentUploadError(err.response?.data?.detail || err.message || 'Failed to stop processing');
@@ -949,8 +950,7 @@ const Visualize = () => {
     try {
       const { schemaAPI } = await import('../services/api');
       await schemaAPI.stopReextraction(sessionId, activeReextractionId);
-      // Transition immediately — background task handles cleanup + WebSocket
-      setIsStoppingReextraction(false);
+      // Don't clear spinner — WebSocket 'reextraction_stopped' handler will do it
     } catch (err: any) {
       console.error('Failed to stop re-extraction:', err);
       setIsStoppingReextraction(false);
@@ -1225,6 +1225,12 @@ const Visualize = () => {
                   isProcessingDocuments={isEnhancedUploadProcessing}
                   onStopProcessing={handleStopProcessing}
                   isStoppingProcessing={isStoppingProcessing}
+                  onDataChange={() => {
+                    queryClient.invalidateQueries(['session', sessionId, mode]);
+                    queryClient.invalidateQueries(['data', sessionId, mode]);
+                    queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+                    refreshUnits();
+                  }}
                   columnInfo={session?.columns?.map(col => ({ name: col.name, allowed_values: col.allowed_values ?? undefined }))}
                 />
               )}
