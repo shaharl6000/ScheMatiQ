@@ -27,8 +27,14 @@ def _is_rate_limit_error(error_str: str) -> bool:
     return "429" in error_str and ("rate limit" in error_str.lower() or "rate_limit" in error_str.lower())
 
 def _is_server_overloaded_error(error_str: str) -> bool:
-    """Check if error is a server overloaded error (503)."""
-    return "503" in error_str and ("overloaded" in error_str.lower() or "not ready" in error_str.lower())
+    """Check if error is a server overloaded/unavailable error (503)."""
+    if "503" not in error_str:
+        return False
+    error_lower = error_str.lower()
+    return any(indicator in error_lower for indicator in [
+        "overloaded", "not ready", "high demand", "unavailable",
+        "try again later", "service unavailable",
+    ])
 
 
 def _is_invalid_api_key_error(error_str: str) -> bool:
