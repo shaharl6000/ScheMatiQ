@@ -80,6 +80,9 @@ class QBSDStatus(BaseModel):
     total_steps: int = 0
     error_message: Optional[str] = None
     estimated_time_remaining: Optional[int] = None  # seconds
+    # Phase tracking (for UI recovery on remount)
+    schema_completed: bool = False
+    columns_discovered: int = 0
 
 class QBSDProgress(BaseModel):
     """Detailed progress information."""

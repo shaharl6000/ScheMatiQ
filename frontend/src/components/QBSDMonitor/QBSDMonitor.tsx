@@ -28,7 +28,7 @@ import {
 
 import { qbsdAPI } from '../../services/api';
 import { webSocketService } from '../../services/websocket';
-import { WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData, LogData, StoppedData } from '../../types';
+import { QBSDStatus, WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData, LogData, StoppedData } from '../../types';
 
 interface QBSDMonitorProps {
   sessionId: string;
@@ -48,28 +48,39 @@ type ProcessingState = 'idle' | 'starting' | 'schema' | 'extraction' | 'complete
 
 const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = false, initialCapacityMessage = '' }) => {
   const queryClient = useQueryClient();
+  const cachedStatus = queryClient.getQueryData<QBSDStatus>(['qbsd-status', sessionId]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting');
   const [logsOpen, setLogsOpen] = useState(false);
 
   // Main processing state - changes IMMEDIATELY on Start click
-  const [processingState, setProcessingState] = useState<ProcessingState>(
-    initialCapacityMessage ? 'idle' : autoStarted ? 'starting' : 'idle'
-  );
-  const [currentStepMessage, setCurrentStepMessage] = useState<string>(
-    autoStarted && !initialCapacityMessage ? 'Initializing...' : ''
-  );
+  const [processingState, setProcessingState] = useState<ProcessingState>(() => {
+    if (initialCapacityMessage) return 'idle';
+    if (cachedStatus) {
+      if (cachedStatus.schema_completed && cachedStatus.status === 'processing') return 'extraction';
+      if (cachedStatus.status === 'processing') return 'starting';
+      if (cachedStatus.status === 'completed') return 'completed';
+      if (cachedStatus.status === 'stopped') return 'stopped';
+      if (cachedStatus.status === 'error') return 'error';
+    }
+    return autoStarted ? 'starting' : 'idle';
+  });
+  const [currentStepMessage, setCurrentStepMessage] = useState<string>(() => {
+    if (cachedStatus?.schema_completed && cachedStatus.status === 'processing') return 'Extracting values';
+    if (autoStarted && !initialCapacityMessage) return 'Initializing...';
+    return '';
+  });
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [capacityMessage, setCapacityMessage] = useState<string>(initialCapacityMessage);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
 
   // Phase tracking state
-  const [schemaProgress, setSchemaProgress] = useState({
+  const [schemaProgress, setSchemaProgress] = useState(() => ({
     iteration: 0,
     maxIterations: 5,
-    columnsDiscovered: 0,
-    isComplete: false
-  });
+    columnsDiscovered: cachedStatus?.columns_discovered || 0,
+    isComplete: cachedStatus?.schema_completed || false,
+  }));
   const [extractionProgress, setExtractionProgress] = useState({
     processedDocs: 0,
     totalDocs: 0,
@@ -98,7 +109,7 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
     }
   );
 
-  // Sync processingState with backend status (for page refreshes)
+  // Sync processingState with backend status (for page refreshes and tab switch remounts)
   useEffect(() => {
     if (status?.status === 'processing' && processingState === 'idle') {
       setProcessingState('starting');
@@ -110,7 +121,20 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
       setProcessingState('error');
       setErrorMessage(status.error_message || 'An error occurred');
     }
-  }, [status?.status]);
+
+    // Recover phase state from polling (handles tab switch remount)
+    if (status?.schema_completed && !schemaProgress.isComplete) {
+      setSchemaProgress(prev => ({
+        ...prev,
+        isComplete: true,
+        columnsDiscovered: status.columns_discovered || prev.columnsDiscovered,
+      }));
+      // If currently processing, we must be in extraction phase
+      if (status.status === 'processing') {
+        setProcessingState('extraction');
+      }
+    }
+  }, [status?.status, status?.schema_completed, status?.columns_discovered]);
 
   // WebSocket connection status is now updated via message handlers below
   // (removed redundant 1-second polling interval)

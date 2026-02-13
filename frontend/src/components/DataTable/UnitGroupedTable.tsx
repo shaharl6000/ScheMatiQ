@@ -56,7 +56,7 @@ import { useColumnStats } from './hooks/useColumnStats';
 import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
 import TableOptionsMenu from './TableOptionsMenu';
-import { AVAILABLE_PAGE_SIZES, SHORT_TEXT_THRESHOLD } from '../../constants';
+import { AVAILABLE_PAGE_SIZES } from '../../constants';
 import { Progress } from '@/components/ui/progress';
 import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
 
@@ -790,7 +790,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                   <tr
                     key={rowIndex}
                     className={cn(
-                      "border-b hover:bg-muted/30 transition-colors",
+                      "border-b hover:bg-muted/50 transition-colors",
                       rowSelected && "bg-blue-50 dark:bg-blue-950/50"
                     )}
                     onMouseEnter={() => setHoveredRowId(rowId)}
@@ -822,7 +822,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       style={{
                         zIndex: 5,
                         verticalAlign: 'top',
-                        minHeight: '84px',
                         ...(getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : {}),
                       }}
                     >
@@ -855,12 +854,13 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     {visibleColumns.map(column => (
                       <td
                         key={column}
-                        className="text-sm relative p-0"
-                        style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                        className={cn("px-4 py-3", !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]")}
+                        style={{
+                          verticalAlign: 'top',
+                          ...(getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : {}),
+                        }}
                       >
-                        <div className="absolute inset-0 overflow-hidden px-4 py-3">
-                          {formatCellValue(row.data[column], column, row, excerptMapping, handleViewContent)}
-                        </div>
+                        {formatCellValue(row.data[column], column, row, excerptMapping, handleViewContent)}
                       </td>
                     ))}
                   </tr>
@@ -1135,6 +1135,17 @@ function normalizeToQBSD(val: unknown): unknown {
   return val;
 }
 
+/** Maximum visible lines in data cells before CSS truncation */
+const DATA_CELL_MAX_LINES = 8;
+
+/** CSS line-clamp style for multi-line text truncation */
+const lineClampStyle: React.CSSProperties = {
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical' as const,
+  WebkitLineClamp: DATA_CELL_MAX_LINES,
+  overflow: 'hidden',
+};
+
 /**
  * Cell value formatter for the unit table.
  * Handles QBSD answer/excerpts, value/excerpt, and text formats.
@@ -1210,8 +1221,8 @@ function formatCellValue(
             onClick={() => onViewContent(columnName, { answer, excerpts: modalExcerpts })}
             title={tooltip}
           >
-            <div className="text-xs leading-relaxed break-words">
-              {answerStr.length > SHORT_TEXT_THRESHOLD ? `${answerStr.slice(0, SHORT_TEXT_THRESHOLD)}...` : answerStr}
+            <div className="text-xs leading-relaxed break-words" style={lineClampStyle}>
+              {answerStr}
             </div>
           </div>
         );
@@ -1223,9 +1234,9 @@ function formatCellValue(
           onClick={() => onViewContent(columnName, { answer, excerpts: [] })}
           title="Click to view content"
         >
-          <span className="text-xs leading-relaxed">
+          <div className="text-xs leading-relaxed" style={lineClampStyle}>
             {answerStr}
-          </span>
+          </div>
         </div>
       );
     }
@@ -1245,8 +1256,8 @@ function formatCellValue(
         })}
         title={tooltip}
       >
-        <div className="text-xs leading-relaxed break-words">
-          {displayStr.length > SHORT_TEXT_THRESHOLD ? `${displayStr.slice(0, SHORT_TEXT_THRESHOLD)}...` : displayStr}
+        <div className="text-xs leading-relaxed break-words" style={lineClampStyle}>
+          {displayStr}
         </div>
       </div>
     );
@@ -1258,7 +1269,7 @@ function formatCellValue(
       onClick={() => onViewContent(columnName, displayStr)}
       title="Click to view content"
     >
-      <span className="text-xs leading-relaxed">{displayStr}</span>
+      <div className="text-xs leading-relaxed" style={lineClampStyle}>{displayStr}</div>
     </div>
   );
 }

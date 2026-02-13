@@ -217,6 +217,9 @@ export interface QBSDStatus {
   total_steps: number;
   error_message?: string;
   estimated_time_remaining?: number;
+  // Phase tracking (for UI recovery on remount)
+  schema_completed?: boolean;
+  columns_discovered?: number;
 }
 
 // WebSocket data payload types

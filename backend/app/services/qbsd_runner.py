@@ -1892,15 +1892,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         """Get current status of QBSD execution."""
         with self._state_lock:
             is_running = session_id in self.running_sessions
+
+        # Always load session for phase info
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            raise ValueError("Session not found")
+
+        schema_completed = session.metadata.schema_discovery_completed
+        columns_discovered = len(session.columns) if session.columns else 0
+
         if is_running:
             status = "processing"
             progress = 0.5  # Mock progress
         else:
-            # Check session status
-            session = self.session_manager.get_session(session_id)
-            if not session:
-                raise ValueError("Session not found")
-            
             if session.status == SessionStatus.COMPLETED:
                 status = "completed"
                 progress = 1.0
@@ -1919,14 +1923,16 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             else:
                 status = "idle"
                 progress = 0.0
-        
+
         return QBSDStatus(
             session_id=session_id,
             status=status,
             progress=progress,
             current_step="Running" if status == "processing" else status.title(),
             steps_completed=3 if status == "processing" else (7 if status == "completed" else 0),
-            total_steps=7
+            total_steps=7,
+            schema_completed=schema_completed,
+            columns_discovered=columns_discovered,
         )
     
     async def get_schema(self, session_id: str) -> Dict[str, Any]:

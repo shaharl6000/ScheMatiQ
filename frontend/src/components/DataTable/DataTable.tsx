@@ -43,19 +43,12 @@ import EditableCell from './EditableCell';
 import {
   formatColumnName,
   isExcerptContent,
-  isVeryLongText,
-  hasMultipleLines,
-  getPreviewText
 } from '../../utils/formatting';
 import ContentModal from '../ContentModal/ContentModal';
 import ExtractingCell from './ExtractingCell';
 import {
   QBSD_REFRESH_INTERVAL,
   AVAILABLE_PAGE_SIZES,
-  LONG_TEXT_THRESHOLD,
-  MEDIUM_TEXT_THRESHOLD,
-  SHORT_TEXT_THRESHOLD,
-  MAX_CELL_LINES,
 } from '../../constants/index';
 import { webSocketService } from '../../services/websocket';
 
@@ -1000,6 +993,15 @@ const DataTable: React.FC<DataTableProps> = ({
     return val;
   };
 
+  // CSS line-clamp for multi-line text truncation (matches UnitGroupedTable)
+  const DATA_CELL_MAX_LINES = 8;
+  const lineClampStyle: React.CSSProperties = {
+    display: '-webkit-box',
+    WebkitBoxOrient: 'vertical' as const,
+    WebkitLineClamp: DATA_CELL_MAX_LINES,
+    overflow: 'hidden',
+  };
+
   // Unified clickable cell renderer
   const renderClickableCell = (
     displayText: string,
@@ -1018,6 +1020,7 @@ const DataTable: React.FC<DataTableProps> = ({
             "text-xs leading-relaxed break-words",
             isItalic && "italic text-muted-foreground"
           )}
+          style={lineClampStyle}
         >
           {displayText}
         </div>
@@ -1111,9 +1114,9 @@ const DataTable: React.FC<DataTableProps> = ({
             onClick={() => handleViewContent(columnName, { answer, excerpts })}
             title="Click to view content"
           >
-            <span className="text-xs leading-relaxed">
+            <div className="text-xs leading-relaxed" style={lineClampStyle}>
               {answerStr}
-            </span>
+            </div>
           </div>
         );
       }
@@ -1134,17 +1137,11 @@ const DataTable: React.FC<DataTableProps> = ({
     const stringValue = String(processedValue);
     const hasExcerpts = rowData && excerptMapping[columnName] && rowData.data[excerptMapping[columnName]];
     const isExplicitExcerpt = isExcerptContent(columnName, stringValue);
-    const isVeryLongContent = isVeryLongText(stringValue, LONG_TEXT_THRESHOLD);
-    const hasManyLines = hasMultipleLines(stringValue, MAX_CELL_LINES);
 
-    const needsExpansion = hasExcerpts || isExplicitExcerpt || isVeryLongContent ||
-                          (hasManyLines && stringValue.length > MEDIUM_TEXT_THRESHOLD) ||
-                          stringValue.length > 40;
+    const needsExpansion = hasExcerpts || isExplicitExcerpt || stringValue.length > 40;
 
     if (needsExpansion) {
-      const previewText = isExplicitExcerpt
-        ? getPreviewText(stringValue, 50)
-        : getPreviewText(stringValue, SHORT_TEXT_THRESHOLD);
+      const previewText = stringValue;
 
       const tooltip = hasExcerpts ? "View content with supporting excerpts" :
                       isExplicitExcerpt ? "View excerpt details" : "View full content";
@@ -1173,9 +1170,9 @@ const DataTable: React.FC<DataTableProps> = ({
         onClick={() => handleViewContent(columnName, value)}
         title="Click to view content"
       >
-        <span className="text-xs leading-relaxed">
+        <div className="text-xs leading-relaxed" style={lineClampStyle}>
           {stringValue}
-        </span>
+        </div>
       </div>
     );
   };
