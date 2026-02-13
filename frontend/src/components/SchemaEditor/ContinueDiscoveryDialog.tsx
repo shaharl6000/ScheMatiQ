@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Loader2, Check, Info, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings, Brain } from 'lucide-react';
+import { Plus, Loader2, Check, Info, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings, Brain, AlertTriangle } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
@@ -575,9 +575,12 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                       const ds = documentInfo.cloud_datasets.find(d => d.name === selectedCloudDataset);
                       if (!ds) return null;
                       return !limitBypassEnabled && ds.file_count > maxDocuments ? (
-                        <p className="text-sm text-amber-600 mt-1">
-                          Dataset has {ds.file_count} documents — a sample of {maxDocuments} will be used
-                        </p>
+                        <Alert className="mt-2 border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                          <AlertTriangle className="h-4 w-4 text-amber-600" />
+                          <AlertDescription className="text-amber-700 dark:text-amber-400">
+                            Dataset has {ds.file_count} documents, but analysis is limited to {maxDocuments}. A sample will be used.
+                          </AlertDescription>
+                        </Alert>
                       ) : (
                         <p className="text-sm text-muted-foreground mt-1">{ds.file_count} documents</p>
                       );
