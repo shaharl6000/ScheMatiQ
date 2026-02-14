@@ -1255,22 +1255,6 @@ const DataTable: React.FC<DataTableProps> = ({
           </div>
         )}
 
-        {/* Completeness filter banner */}
-        {hiddenByFullnessCount > 0 && (
-          <div className="flex items-center justify-between mb-4 px-3 py-2 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md text-sm">
-            <span className="text-amber-800 dark:text-amber-200">
-              {hiddenByFullnessCount} column{hiddenByFullnessCount !== 1 ? 's' : ''} hidden (below {fullnessThreshold}% completeness)
-            </span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-amber-700 dark:text-amber-300 hover:text-amber-900 h-7"
-              onClick={() => setFullnessThreshold(0)}
-            >
-              Show all
-            </Button>
-          </div>
-        )}
 
         <DndContext
           sensors={sensors}
