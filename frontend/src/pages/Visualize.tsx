@@ -28,7 +28,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { loadAPI, qbsdAPI, cloudAPI, configAPI, downloadBlob } from '../services/api';
+import { loadAPI, qbsdAPI, cloudAPI, configAPI, downloadBlob, unitsAPI } from '../services/api';
 import { getApiKeyForProvider, LLMProvider } from '../utils/apiKeyStorage';
 import { VisualizationSession, CellValue, CellExtractedData } from '../types';
 import {
@@ -88,6 +88,16 @@ const Visualize = () => {
 
   // Fetch observation units for the session (to determine if unit view is available)
   const { units: unitListResponse, refresh: refreshUnits } = useUnits(sessionId);
+
+  // Fetch document list for document filtering in standard view
+  const { data: documentListResponse } = useQuery(
+    ['documentList', sessionId],
+    () => unitsAPI.getDocuments(sessionId!),
+    { enabled: !!sessionId }
+  );
+
+  // Document filter state
+  const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
 
   // Enhanced upload document management state
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
@@ -317,6 +327,12 @@ const Visualize = () => {
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
               refreshUnits();
+              break;
+
+            // Live partial schema during discovery
+            case 'schema_progress':
+              debug.log('Schema progress:', message.data);
+              queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               break;
 
             // Continue Discovery events
@@ -638,6 +654,12 @@ const Visualize = () => {
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
                 refreshUnits();
+                break;
+
+              // Live partial schema during discovery
+              case 'schema_progress':
+                debug.log('Schema progress:', message.data);
+                queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 break;
 
               // Continue Discovery events
@@ -1221,6 +1243,7 @@ const Visualize = () => {
                   isProcessingDocuments={isEnhancedUploadProcessing}
                   onStopProcessing={handleStopProcessing}
                   isStoppingProcessing={isStoppingProcessing}
+                  columnOrder={columnOrder}
                 />
               ) : (
                 <DataTable
@@ -1248,6 +1271,10 @@ const Visualize = () => {
                   onViewModeChange={setViewMode}
                   hasUnits={((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) || false}
                   unitCount={unitListResponse?.totalUnits}
+                  documentList={documentListResponse?.documents}
+                  selectedDocuments={selectedDocuments}
+                  onDocumentChange={setSelectedDocuments}
+                  documentDataLoading={!documentListResponse}
                 />
               )}
 

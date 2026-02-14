@@ -44,6 +44,34 @@ async def list_units(session_id: str):
 
 
 @router.get(
+    "/documents/{session_id}",
+    summary="List source documents",
+    description="Get a list of unique source documents with row counts"
+)
+async def list_source_documents(session_id: str):
+    """
+    List all unique source documents in a session.
+
+    Returns a list of documents with their row counts, useful for
+    filtering data by source document.
+    """
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        documents = unit_view_service.get_source_documents(session_id)
+        total_rows = sum(d["row_count"] for d in documents)
+        return {
+            "documents": documents,
+            "total_documents": len(documents),
+            "total_rows": total_rows,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
+
+
+@router.get(
     "/data/{session_id}",
     response_model=PaginatedData,
     summary="Get data by unit",
@@ -51,24 +79,27 @@ async def list_units(session_id: str):
 )
 async def get_unit_data(
     session_id: str,
-    unit: Optional[str] = Query(None, description="Filter by unit name"),
+    units: Optional[str] = Query(None, description="Comma-separated unit names to filter by"),
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
     page_size: int = Query(50, ge=1, le=500, description="Items per page")
 ):
     """
-    Get paginated data optionally filtered by observation unit.
+    Get paginated data optionally filtered by observation unit(s).
 
-    When a unit filter is provided, only rows belonging to that unit are returned.
+    When a units filter is provided, only rows belonging to those units are returned.
     Rows are sorted by unit name for consistent grouping.
     """
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Parse comma-separated unit names
+    unit_filter = [u.strip() for u in units.split(',') if u.strip()] if units else None
+
     try:
         rows, total_unit_count, total_row_count = unit_view_service.get_unit_grouped_data(
             session_id=session_id,
-            unit_filter=unit,
+            unit_filter=unit_filter,
             page=page,
             page_size=page_size
         )
@@ -112,7 +143,7 @@ async def get_unit_data(
         return PaginatedData(
             rows=data_rows,
             total_count=total_unit_count,
-            filtered_count=1 if unit else None,
+            filtered_count=len(unit_filter) if unit_filter else None,
             page=page,
             page_size=page_size,
             has_more=has_more

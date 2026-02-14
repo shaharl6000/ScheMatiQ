@@ -1441,6 +1441,17 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 json.dump(partial_schema_data, f, indent=2)
             logger.debug("Saved partial schema with %d columns", len(current_schema.columns))
 
+            # Notify frontend about partial schema availability
+            await self.websocket_manager.broadcast_to_session(session_id, {
+                "type": "schema_progress",
+                "timestamp": datetime.now().isoformat(),
+                "data": {
+                    "columns_discovered": len(current_schema.columns),
+                    "iteration": iteration + 1,
+                    "max_iterations": len(batches),
+                }
+            })
+
             # Small delay to allow other tasks
             await asyncio.sleep(0.1)
 
@@ -1957,7 +1968,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         page_size: int = 50,
         filters: Optional[List[Dict]] = None,
         sort: Optional[List[Dict]] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        document_filter: Optional[List[str]] = None
     ) -> PaginatedData:
         """Get extracted data from all possible locations with optional filtering and sorting.
 
@@ -2006,7 +2018,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             return row_data
 
         # Check if we need to filter/sort (requires loading all rows)
-        needs_processing = bool(filters or sort or search)
+        needs_processing = bool(filters or sort or search or document_filter)
 
         if needs_processing:
             # Load all rows from all data files (deduplicated by _row_name across files only)
@@ -2030,6 +2042,14 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                                 pass
                 # After processing each file, add its row names for cross-file dedup
                 seen_row_names.update(file_row_names)
+
+            # Apply document filter before counting total
+            if document_filter:
+                doc_set = set(document_filter)
+                all_rows = [
+                    r for r in all_rows
+                    if (r.get('source_document') or r.get('_source_document') or '') in doc_set
+                ]
 
             total_count = len(all_rows)
 

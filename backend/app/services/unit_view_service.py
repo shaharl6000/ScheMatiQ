@@ -208,10 +208,33 @@ class UnitViewService:
             total_rows=total_rows
         )
 
+    def get_source_documents(self, session_id: str) -> List[Dict]:
+        """
+        Get a list of unique source documents with row counts.
+
+        Args:
+            session_id: The session ID to analyze
+
+        Returns:
+            List of dicts with 'name' and 'row_count', sorted alphabetically
+        """
+        rows = self._load_all_rows(session_id)
+
+        doc_counts: Dict[str, int] = defaultdict(int)
+        for row in rows:
+            doc = self._get_source_document(row)
+            if doc:
+                doc_counts[doc] += 1
+
+        return sorted(
+            [{"name": name, "row_count": count} for name, count in doc_counts.items()],
+            key=lambda d: d["name"].lower()
+        )
+
     def get_unit_grouped_data(
         self,
         session_id: str,
-        unit_filter: Optional[str] = None,
+        unit_filter: Optional[List[str]] = None,
         page: int = 0,
         page_size: int = 50
     ) -> Tuple[List[Dict], int, int]:
@@ -223,7 +246,7 @@ class UnitViewService:
 
         Args:
             session_id: The session ID
-            unit_filter: Optional unit name to filter by
+            unit_filter: Optional list of unit names to filter by
             page: Page number (0-indexed)
             page_size: Number of units per page
 
@@ -233,9 +256,10 @@ class UnitViewService:
         rows = self._load_all_rows(session_id)
         total_row_count = len(rows)
 
-        # Filter by unit if specified
+        # Filter by units if specified
         if unit_filter:
-            rows = [r for r in rows if self._get_unit_name(r) == unit_filter]
+            unit_filter_set = set(unit_filter)
+            rows = [r for r in rows if self._get_unit_name(r) in unit_filter_set]
 
         # Group rows by unit name
         unit_groups: Dict[str, List[Dict]] = defaultdict(list)

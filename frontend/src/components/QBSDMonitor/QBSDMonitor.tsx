@@ -189,6 +189,12 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
         setProcessingState('idle');
         setQuotaExceeded(true);
         addLog('warning', message.message || 'API usage limit reached', message.data);
+      } else if (message.type === 'schema_progress') {
+        const data = message.data as unknown as Record<string, number>;
+        setSchemaProgress(prev => ({
+          ...prev,
+          columnsDiscovered: data.columns_discovered || prev.columnsDiscovered,
+        }));
       } else if (message.type === 'completed') {
         addLog('success', 'QBSD execution completed successfully!', message.data);
         setProcessingState('completed');

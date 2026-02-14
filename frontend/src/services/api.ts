@@ -37,6 +37,7 @@ import {
   UnitSuggestionsResponse,
   MergeUnitsRequest,
   MergeUnitsResponse,
+  DocumentListResponse,
 } from '../types/unit';
 import { FilterRule, SortColumn } from '../components/DataTable/types/filters';
 
@@ -147,16 +148,19 @@ export const loadAPI = {
     pageSize = 50,
     filters?: FilterRule[],
     sort?: SortColumn[],
-    search?: string
+    search?: string,
+    documents?: string[]
   ): Promise<PaginatedData> => {
     // Use POST for filter/sort support
+    const params: Record<string, any> = { page, page_size: pageSize };
+    if (documents && documents.length > 0) {
+      params.documents = documents.join(',');
+    }
     const response = await api.post(`/load/data/${sessionId}`, {
       filters: filters && filters.length > 0 ? filters : null,
       sort: sort && sort.length > 0 ? sort : null,
       search: search || null
-    }, {
-      params: { page, page_size: pageSize }
-    });
+    }, { params });
     return response.data;
   },
 
@@ -281,16 +285,19 @@ export const qbsdAPI = {
     pageSize = 50,
     filters?: FilterRule[],
     sort?: SortColumn[],
-    search?: string
+    search?: string,
+    documents?: string[]
   ): Promise<PaginatedData> => {
     // Use POST for filter/sort support
+    const params: Record<string, any> = { page, page_size: pageSize };
+    if (documents && documents.length > 0) {
+      params.documents = documents.join(',');
+    }
     const response = await api.post(`/qbsd/data/${sessionId}`, {
       filters: filters && filters.length > 0 ? filters : null,
       sort: sort && sort.length > 0 ? sort : null,
       search: search || null
-    }, {
-      params: { page, page_size: pageSize }
-    });
+    }, { params });
     return response.data;
   },
 
@@ -402,12 +409,13 @@ export const sessionAPI = {
     pageSize = 50,
     filters?: FilterRule[],
     sort?: SortColumn[],
-    search?: string
+    search?: string,
+    documents?: string[]
   ): Promise<PaginatedData> => {
     if (type === 'load') {
-      return loadAPI.getData(sessionId, page, pageSize, filters, sort, search);
+      return loadAPI.getData(sessionId, page, pageSize, filters, sort, search, documents);
     } else {
-      return qbsdAPI.getData(sessionId, page, pageSize, filters, sort, search);
+      return qbsdAPI.getData(sessionId, page, pageSize, filters, sort, search, documents);
     }
   },
 };
@@ -852,23 +860,39 @@ export const unitsAPI = {
   },
 
   /**
-   * Get paginated data optionally filtered by observation unit.
+   * Get paginated data optionally filtered by observation unit(s).
    */
   getData: async (
     sessionId: string,
     options?: {
-      unit?: string;
+      units?: string[];
       page?: number;
       pageSize?: number;
     }
   ): Promise<PaginatedData> => {
     const params = new URLSearchParams();
-    if (options?.unit) params.append('unit', options.unit);
+    if (options?.units && options.units.length > 0) params.append('units', options.units.join(','));
     if (options?.page !== undefined) params.append('page', options.page.toString());
     if (options?.pageSize !== undefined) params.append('page_size', options.pageSize.toString());
 
     const response = await api.get(`/units/data/${sessionId}?${params.toString()}`);
     return response.data;
+  },
+
+  /**
+   * Get list of source documents with row counts.
+   */
+  getDocuments: async (sessionId: string): Promise<DocumentListResponse> => {
+    const response = await api.get(`/units/documents/${sessionId}`);
+    const data = response.data;
+    return {
+      documents: data.documents.map((d: any) => ({
+        name: d.name,
+        rowCount: d.row_count,
+      })),
+      totalDocuments: data.total_documents,
+      totalRows: data.total_rows,
+    };
   },
 
   /**
