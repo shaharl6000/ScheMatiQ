@@ -5,6 +5,8 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.models.unit import (
     UnitListResponse,
+    DocumentListResponse,
+    DocumentSummary,
     MergeUnitsRequest,
     MergeUnitsResponse,
     UnitSuggestionsResponse,
@@ -45,6 +47,7 @@ async def list_units(session_id: str):
 
 @router.get(
     "/documents/{session_id}",
+    response_model=DocumentListResponse,
     summary="List source documents",
     description="Get a list of unique source documents with row counts"
 )
@@ -62,11 +65,11 @@ async def list_source_documents(session_id: str):
     try:
         documents = unit_view_service.get_source_documents(session_id)
         total_rows = sum(d["row_count"] for d in documents)
-        return {
-            "documents": documents,
-            "total_documents": len(documents),
-            "total_rows": total_rows,
-        }
+        return DocumentListResponse(
+            documents=[DocumentSummary(**d) for d in documents],
+            total_documents=len(documents),
+            total_rows=total_rows,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
 

@@ -296,11 +296,9 @@ const DataTable: React.FC<DataTableProps> = ({
 
   // Column resize hook
   const {
-    columnWidths,
     getColumnWidth,
     handleResizeStart,
   } = useColumnResize({ sessionId });
-  const hasCustomWidths = Object.keys(columnWidths).length > 0;
 
   // Sensors for drag and drop
   const sensors = useSensors(
@@ -335,7 +333,11 @@ const DataTable: React.FC<DataTableProps> = ({
       filterState.rules.length > 0 ? filterState.rules : undefined,
       sortState.columns.length > 0 ? sortState.columns : undefined,
       searchTerm.trim() || undefined,
-      selectedDocuments && selectedDocuments.length > 0 && selectedDocuments[0] !== '__none__' ? selectedDocuments : undefined
+      selectedDocuments && selectedDocuments.length > 0
+        ? selectedDocuments.filter(d => d !== '__none__').length > 0
+          ? selectedDocuments.filter(d => d !== '__none__')
+          : undefined
+        : undefined
     ),
     {
       keepPreviousData: true,

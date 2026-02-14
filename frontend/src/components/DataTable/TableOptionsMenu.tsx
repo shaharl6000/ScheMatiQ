@@ -123,7 +123,6 @@ function MultiSelectFilterContent({
   }, [items, search]);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
-  const allNames = useMemo(() => items.map(i => i.name), [items]);
   const allSelected = selected.length === 0 || selected.length === items.length; // empty or full = all
   const noneSelected = selected.length > 0 && items.length > 0 &&
     !items.some(i => selectedSet.has(i.name)); // has values but none match items

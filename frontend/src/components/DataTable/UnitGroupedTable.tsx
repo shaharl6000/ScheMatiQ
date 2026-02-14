@@ -112,11 +112,9 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
   // Column resize hook
   const {
-    columnWidths,
     getColumnWidth,
     handleResizeStart,
   } = useColumnResize({ sessionId });
-  const hasCustomWidths = Object.keys(columnWidths).length > 0;
 
   // Sort, filter, and visibility hooks (use unit_ prefix to avoid collisions with DataTable)
   const {
@@ -169,7 +167,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
   // Fetch unit-grouped data
   // Filter out __none__ sentinel — treat as no filter (show all rows)
-  const effectiveUnitFilter = selectedUnits.length > 0 && selectedUnits[0] !== '__none__' ? selectedUnits : undefined;
+  const effectiveUnitFilter = useMemo(() => {
+    const filtered = selectedUnits.filter(u => u !== '__none__');
+    return filtered.length > 0 ? filtered : undefined;
+  }, [selectedUnits]);
 
   const { data: unitData, isLoading: dataLoading, refetch: refetchData } = useQuery(
     ['unitData', sessionId, selectedUnits, page, pageSize],
