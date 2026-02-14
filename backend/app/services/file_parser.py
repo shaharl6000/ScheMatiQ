@@ -614,13 +614,13 @@ class FileParser:
                 else:
                     data_rows = [data]
 
-        if not data_rows:
+        if not data_rows and not schema_metadata_from_export:
             raise ValueError("No data found in file")
 
         # Extract schema metadata from row-level "schema" field (legacy formats)
         # Only needed when we don't already have column definitions from a complete export
         schema_metadata = {}
-        sample_row = data_rows[0]
+        sample_row = data_rows[0] if data_rows else {}
         if not schema_metadata_from_export:
             if isinstance(sample_row, dict) and "schema" in sample_row and isinstance(sample_row["schema"], list):
                 for schema_col in sample_row["schema"]:
