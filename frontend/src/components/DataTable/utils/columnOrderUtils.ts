@@ -28,7 +28,18 @@ export function getDefaultColumnOrder(
     });
   });
 
-  const dataColumnArray = Array.from(allDataColumns).filter(col => !col.endsWith('_excerpt'));
+  let dataColumnArray = Array.from(allDataColumns).filter(col => !col.endsWith('_excerpt'));
+
+  // Sort data columns by schema order upfront for deterministic results
+  // regardless of row data iteration order
+  if (columnInfo && columnInfo.length > 0) {
+    const schemaOrder = new Map(columnInfo.map((col, idx) => [col.name, idx]));
+    dataColumnArray.sort((a, b) => {
+      const aIdx = schemaOrder.get(a) ?? Infinity;
+      const bIdx = schemaOrder.get(b) ?? Infinity;
+      return aIdx - bIdx;
+    });
+  }
 
   // Exact-match priority columns
   const exactMatches = ['row_name', 'name', 'id', 'title', 'row', 'identifier'];
@@ -51,16 +62,6 @@ export function getDefaultColumnOrder(
       }
     }
   });
-
-  // Sort regular columns by schema order for deterministic results
-  if (columnInfo && columnInfo.length > 0) {
-    const schemaOrder = new Map(columnInfo.map((col, idx) => [col.name, idx]));
-    regularColumns.sort((a, b) => {
-      const aIdx = schemaOrder.get(a) ?? Infinity;
-      const bIdx = schemaOrder.get(b) ?? Infinity;
-      return aIdx - bIdx;
-    });
-  }
 
   // If no priority columns found, promote first regular column
   if (priorityColumns.length === 0 && regularColumns.length > 0) {

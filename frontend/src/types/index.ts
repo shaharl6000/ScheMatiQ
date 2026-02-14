@@ -264,6 +264,8 @@ export interface RowCompletionData {
   total_rows: number;
   completed_at: string;
   additional_rows?: number;
+  document_names?: string[];
+  elapsed_seconds?: number;
 }
 
 export interface CellExtractedData {

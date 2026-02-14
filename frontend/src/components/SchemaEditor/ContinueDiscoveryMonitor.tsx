@@ -182,9 +182,10 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
     const handleMessage = (message: WebSocketMessage) => {
       if (message.type === 'connected') {
         setConnectionStatus('connected');
-        addLog('info', 'Connected to real-time updates');
+        // Don't log — connection status is shown by the indicator
       } else if (message.type === 'disconnected') {
         setConnectionStatus('disconnected');
+        // Don't log — connection status is shown by the indicator
       } else if (message.type === 'continue_discovery_progress') {
         const data = message.data as any;
         if (data?.phase === 'discovery') {
@@ -196,6 +197,10 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
             progress: (data.progress || 0) * 100,
           });
           setCurrentMessage(data.message || 'Discovering schema...');
+          // Only log meaningful phase transitions, not every progress tick
+          if (data.iteration && data.max_iterations) {
+            addLog('info', `Batch ${data.iteration}/${data.max_iterations}: Analyzing documents...`);
+          }
         } else if (data?.phase === 'extraction') {
           setPhase('extraction');
           setExtractionProgress({
@@ -205,14 +210,13 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
           });
           setCurrentMessage(data.message || 'Extracting values...');
         }
-        addLog('info', data?.message || 'Progress update');
       } else if (message.type === 'continue_discovery_completed') {
         setStatus('completed');
-        addLog('success', 'Operation completed successfully');
+        addLog('success', 'All done!');
       } else if (message.type === 'continue_discovery_stopped') {
         setStatus('stopped');
         setIsStopping(false);
-        addLog('warning', 'Operation stopped');
+        addLog('warning', 'Stopped by user.');
       } else if (message.type === 'log') {
         const data = message.data as any;
         addLog(data?.level || 'info', data?.message || 'Log message');
@@ -228,14 +232,20 @@ const ContinueDiscoveryMonitor: React.FC<ContinueDiscoveryMonitorProps> = ({
   }, [sessionId]);
 
   const addLog = (level: LogEntry['level'], message: string) => {
-    setLogs(prev => [
-      {
-        timestamp: new Date().toISOString(),
-        level,
-        message,
-      },
-      ...prev.slice(0, 99)
-    ]);
+    setLogs(prev => {
+      // Skip duplicate if most recent log has the same message
+      if (prev.length > 0 && prev[0].message === message) {
+        return prev;
+      }
+      return [
+        {
+          timestamp: new Date().toISOString(),
+          level,
+          message,
+        },
+        ...prev.slice(0, 99),
+      ];
+    });
   };
 
   const handleStop = async () => {
