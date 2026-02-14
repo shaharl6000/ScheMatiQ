@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Play,
   Square,
@@ -98,6 +98,12 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
   // Stop button loading state - shows immediate feedback when user clicks stop
   const [isStopping, setIsStopping] = useState(false);
 
+  // Track QBSD start time for elapsed display
+  const startTimeRef = useRef<number | null>(null);
+
+  // Track last logged phase to avoid repeating phase-transition messages
+  const lastLoggedPhaseRef = useRef<string | null>(null);
+
   // Fetch QBSD status - disable polling when WebSocket is connected
   const { data: status, isLoading } = useQuery(
     ['qbsd-status', sessionId],
@@ -146,22 +152,30 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
     const handleMessage = async (message: WebSocketMessage) => {
       if (message.type === 'connected') {
         setConnectionStatus('connected');
-        addLog('success', 'Connected to real-time monitoring');
+        // Don't log — connection status is shown by the indicator
       } else if (message.type === 'disconnected') {
         setConnectionStatus('disconnected');
-        addLog('warning', 'Disconnected from server');
+        // Don't log — connection status is shown by the indicator
       } else if (message.type === 'reconnecting') {
         setConnectionStatus('reconnecting');
-        addLog('info', message.message || 'Attempting to reconnect...');
+        // Only log if it's a repeated attempt (not the first automatic one)
+        const msg = message.message || '';
+        if (msg.includes('2/') || msg.includes('3/') || msg.includes('4/') || msg.includes('5/')) {
+          addLog('warning', 'Reconnecting to server...');
+        }
       } else if (message.type === 'progress') {
         const progressData = message.data as ProgressData;
         const stepName = progressData?.current_step || 'Processing...';
         setCurrentStepMessage(stepName);
-        addLog('info', stepName, message.data);
 
-        // Update processing state based on step name
-        if (stepName.toLowerCase().includes('schema')) {
+        // Only log phase transitions once, not every progress tick
+        const lower = stepName.toLowerCase();
+        if (lower.includes('schema') && !lower.includes('complete')) {
           setProcessingState('schema');
+          if (lastLoggedPhaseRef.current !== 'schema') {
+            lastLoggedPhaseRef.current = 'schema';
+            addLog('info', 'Starting schema discovery...');
+          }
           const details = progressData?.details as Record<string, unknown> | undefined;
           if (details?.iteration) {
             setSchemaProgress(prev => ({
@@ -171,13 +185,15 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
               columnsDiscovered: (details.columns_discovered as number) || prev.columnsDiscovered
             }));
           }
-        } else if (stepName.toLowerCase().includes('value extraction') || stepName.toLowerCase().includes('extracting')) {
+        } else if (lower.includes('value extraction') || lower.includes('extracting')) {
           setProcessingState('extraction');
-        } else if (stepName.toLowerCase().includes('finaliz')) {
+          if (lastLoggedPhaseRef.current !== 'extraction') {
+            lastLoggedPhaseRef.current = 'extraction';
+            addLog('info', 'Starting value extraction...');
+          }
+        } else if (lower.includes('finaliz')) {
           setProcessingState('completed');
           setExtractionProgress(prev => ({ ...prev, isComplete: true }));
-        } else if (processingState === 'starting') {
-          // Keep in starting state until we get a specific phase
         }
 
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
@@ -189,15 +205,39 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
         setProcessingState('idle');
         setQuotaExceeded(true);
         addLog('warning', message.message || 'API usage limit reached', message.data);
+      } else if (message.type === 'schema_progress') {
+        const data = message.data as unknown as Record<string, any>;
+        const iteration = data.iteration as number;
+        const maxIterations = data.max_iterations as number;
+        const newCols = data.new_columns as string[] | undefined;
+        setSchemaProgress(prev => ({
+          ...prev,
+          columnsDiscovered: data.columns_discovered || prev.columnsDiscovered,
+          iteration: iteration || prev.iteration,
+          maxIterations: maxIterations || prev.maxIterations,
+        }));
+
+        // Log batch results with column names
+        if (newCols && newCols.length > 0) {
+          const colList = newCols.length <= 5
+            ? newCols.join(', ')
+            : `${newCols.slice(0, 5).join(', ')} and ${newCols.length - 5} more`;
+          addLog('success', `Batch ${iteration}/${maxIterations}: Found ${newCols.length} new column${newCols.length > 1 ? 's' : ''} \u2014 ${colList}`);
+        } else if (iteration) {
+          addLog('info', `Batch ${iteration}/${maxIterations}: No new columns found (schema stable)`);
+        }
       } else if (message.type === 'completed') {
-        addLog('success', 'QBSD execution completed successfully!', message.data);
+        const data = message.data as any;
+        const elapsed = data?.elapsed_seconds;
+        const elapsedStr = elapsed ? ` Finished in ${formatElapsed(elapsed)}.` : '';
+        addLog('success', `All done!${elapsedStr}`, message.data);
         setProcessingState('completed');
         setSchemaProgress(prev => ({ ...prev, isComplete: true }));
         setExtractionProgress(prev => ({ ...prev, isComplete: true }));
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
       } else if (message.type === 'schema_completed') {
         const schemaData = message.data as SchemaCompletionData;
-        addLog('success', `Schema discovery finished! Discovered ${schemaData?.total_columns || 'several'} columns.`, message.data);
+        addLog('success', `Schema ready! Found ${schemaData?.total_columns || 'several'} columns`, message.data);
 
         setSchemaProgress(prev => ({
           ...prev,
@@ -213,7 +253,14 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
         }, 500);
       } else if (message.type === 'row_completed') {
         const rowData = message.data as RowCompletionData;
-        addLog('info', `Document ${rowData?.row_index}/${rowData?.total_rows} finished processing`, message.data);
+        const names = rowData?.document_names;
+        if (names && names.length === 1) {
+          addLog('info', `Processed ${names[0]} (${rowData?.row_index}/${rowData?.total_rows})`);
+        } else if (names && names.length > 1) {
+          addLog('info', `Processed ${names.length} documents (${rowData?.row_index}/${rowData?.total_rows})`);
+        } else {
+          addLog('info', `Processed document ${rowData?.row_index}/${rowData?.total_rows}`);
+        }
 
         setExtractionProgress(prev => ({
           ...prev,
@@ -228,7 +275,13 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
         addLog(logData?.level || 'info', logData?.message || 'Log message', message.data);
       } else if (message.type === 'stopped') {
         const stoppedData = message.data as StoppedData;
-        addLog('warning', `Processing stopped. Schema saved: ${stoppedData?.schema_saved}, Data rows: ${stoppedData?.data_rows_saved}`);
+        const schemaSaved = stoppedData?.schema_saved || false;
+        const rows = stoppedData?.data_rows_saved || 0;
+        if (schemaSaved) {
+          addLog('warning', `Stopped by user. Schema saved${rows > 0 ? `, ${rows} row${rows > 1 ? 's' : ''} extracted` : ''}.`);
+        } else {
+          addLog('warning', 'Stopped by user before schema discovery completed.');
+        }
 
         // Refetch session data FIRST to ensure columns are loaded before UI updates
         await queryClient.refetchQueries(['session', sessionId, 'qbsd']);
@@ -238,11 +291,11 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
         setProcessingState('stopped');
         setIsStopping(false);  // Reset stop button state
         setStoppedInfo({
-          schemaSaved: stoppedData?.schema_saved || false,
-          dataRowsSaved: stoppedData?.data_rows_saved || 0
+          schemaSaved: schemaSaved,
+          dataRowsSaved: rows
         });
         // Update schema progress if we have partial schema
-        if (stoppedData?.schema_saved) {
+        if (schemaSaved) {
           setSchemaProgress(prev => ({ ...prev, isComplete: true }));
         }
       }
@@ -266,16 +319,27 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
   }, [capacityMessage]);
 
   const addLog = (level: LogEntry['level'], message: string, details?: any) => {
-    const now = new Date();
-    setLogs(prev => [
-      {
-        timestamp: now.toISOString(),
-        level,
-        message,
-        details,
-      },
-      ...prev.slice(0, 99)
-    ]);
+    setLogs(prev => {
+      // Skip duplicate if most recent log has the same message
+      if (prev.length > 0 && prev[0].message === message) {
+        return prev;
+      }
+      return [
+        {
+          timestamp: new Date().toISOString(),
+          level,
+          message,
+          details,
+        },
+        ...prev.slice(0, 99),
+      ];
+    });
+  };
+
+  const formatElapsed = (seconds: number): string => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
   };
 
   const handleStart = async () => {
@@ -290,6 +354,8 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
     setCapacityMessage('');
     setQuotaExceeded(false);
     setStoppedInfo(null);
+    startTimeRef.current = Date.now();
+    lastLoggedPhaseRef.current = null;
 
     // Reset progress
     setSchemaProgress({
@@ -636,7 +702,9 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
               <ScrollArea className="h-[300px]">
                 {logs.length === 0 ? (
                   <div className="p-4 text-center text-muted-foreground">
-                    No logs yet. Logs will appear here when QBSD starts running.
+                    {isProcessing
+                      ? 'New activity will appear here as it happens.'
+                      : 'No logs yet. Logs will appear here when QBSD starts running.'}
                   </div>
                 ) : (
                   <div className="space-y-1">

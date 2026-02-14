@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Loader2, Lightbulb, FileText, AlertCircle, Search, ArrowUp, ArrowDown, Square } from 'lucide-react';
+import { Loader2, Lightbulb, FileText, AlertCircle, Search, Square } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
@@ -47,7 +47,7 @@ import { DataRow, CellValue, ModalContent, QBSDAnswerWithExcerpts } from '../../
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { formatColumnName } from '../../utils/formatting';
-import { buildColumnMetadata, applyFilters, applySort, parsePythonString, extractDisplayValue } from './utils';
+import { buildColumnMetadata, applyFilters, applySort, parsePythonString, extractDisplayValue, getDefaultColumnOrder } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import { useTableSort } from './hooks/useTableSort';
 import { useTableFilter } from './hooks/useTableFilter';
@@ -58,7 +58,7 @@ import FilterDialog from './FilterDialog';
 import TableOptionsMenu from './TableOptionsMenu';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
 import { Progress } from '@/components/ui/progress';
-import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
+import { useColumnResize, MIN_COLUMN_WIDTH, DEFAULT_COLUMN_WIDTH } from './hooks/useColumnResize';
 
 interface UnitGroupedTableProps {
   /** Session ID */
@@ -85,6 +85,8 @@ interface UnitGroupedTableProps {
   onStopProcessing?: () => void;
   /** Whether document processing is being stopped */
   isStoppingProcessing?: boolean;
+  /** External column order (from drag-and-drop in DataTable) */
+  columnOrder?: string[];
 }
 
 export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
@@ -100,6 +102,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   isProcessingDocuments,
   onStopProcessing,
   isStoppingProcessing,
+  columnOrder,
 }) => {
   // Unit data hooks
   const { units: unitListResponse, loading: unitsLoading, error: unitsError, refresh: refreshUnits } = useUnits(sessionId);
@@ -109,19 +112,14 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
   // Column resize hook
   const {
-    columnWidths,
     getColumnWidth,
     handleResizeStart,
   } = useColumnResize({ sessionId });
-  const hasCustomWidths = Object.keys(columnWidths).length > 0;
 
   // Sort, filter, and visibility hooks (use unit_ prefix to avoid collisions with DataTable)
   const {
     sortState,
-    toggleSort,
     setSortState,
-    getSortDirection,
-    getSortPriority,
   } = useTableSort({ sessionId, persistKey: `unit_sort_${sessionId}` });
 
   const {
@@ -140,7 +138,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   const units = useMemo(() => unitListResponse?.units || [], [unitListResponse?.units]);
 
   // Local state
-  const [selectedUnit, setSelectedUnit] = useState<string | null>(null);
+  const [selectedUnits, setSelectedUnits] = useState<string[]>([]);
   const [mergePickerOpen, setMergePickerOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
   const [unitsToMerge, setUnitsToMerge] = useState<UnitSummary[]>([]);
@@ -168,10 +166,16 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   const [bulkDeleteError, setBulkDeleteError] = useState<string | null>(null);
 
   // Fetch unit-grouped data
+  // Filter out __none__ sentinel — treat as no filter (show all rows)
+  const effectiveUnitFilter = useMemo(() => {
+    const filtered = selectedUnits.filter(u => u !== '__none__');
+    return filtered.length > 0 ? filtered : undefined;
+  }, [selectedUnits]);
+
   const { data: unitData, isLoading: dataLoading, refetch: refetchData } = useQuery(
-    ['unitData', sessionId, selectedUnit, page, pageSize],
+    ['unitData', sessionId, selectedUnits, page, pageSize],
     () => unitsAPI.getData(sessionId, {
-      unit: selectedUnit || undefined,
+      units: effectiveUnitFilter,
       page,
       pageSize,
     }),
@@ -190,6 +194,11 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     setPageSize(parseInt(value, 10));
     setPage(0);
   }, []);
+
+  // Reset to first page when unit filter changes
+  useEffect(() => {
+    setPage(0);
+  }, [selectedUnits]);
 
   // Total pages calculation — use filtered_count when a unit filter is active
   const displayedRowCount = unitData?.filtered_count ?? unitData?.total_count ?? 0;
@@ -335,17 +344,23 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   // Clear selection on page/filter/search changes
   useEffect(() => {
     clearSelection();
-  }, [page, pageSize, selectedUnit, searchTerm, filterState.rules, sortState.columns, clearSelection]);
+  }, [page, pageSize, selectedUnits, searchTerm, filterState.rules, sortState.columns, clearSelection]);
 
   // Check if any row has _source_document
   const hasSourceDocument = useMemo(() => {
     return unitData?.rows?.some(row => row._source_document != null) ?? false;
   }, [unitData?.rows]);
 
-  // All toggleable columns (exclude _unit_name frozen column and _source_document which is always visible)
+  // All toggleable columns with consistent ordering (matching DataTable's priority-based order)
   const allColumns = useMemo(() => {
-    return columns.filter(col => !col.startsWith('_'));
-  }, [columns]);
+    const defaultOrder = getDefaultColumnOrder(unitData?.rows || [], columnInfo);
+    if (columnOrder && columnOrder.length > 0) {
+      const validOrder = columnOrder.filter(col => defaultOrder.includes(col));
+      const newCols = defaultOrder.filter(col => !columnOrder.includes(col));
+      return [...validOrder, ...newCols];
+    }
+    return defaultOrder;
+  }, [unitData?.rows, columnInfo, columnOrder]);
 
   // Column visibility hook
   const {
@@ -487,7 +502,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                 <div className="relative w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search data..."
+                    placeholder="Search all cells..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-9"
@@ -517,8 +532,8 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               onShowAll={showAllColumns}
               onHideAll={hideAllColumns}
               unitList={units}
-              selectedUnit={selectedUnit}
-              onUnitChange={setSelectedUnit}
+              selectedUnits={selectedUnits}
+              onUnitChange={setSelectedUnits}
               unitDataLoading={dataLoading}
               onMergeUnits={() => setMergePickerOpen(true)}
               mergeDisabled={units.length < 2}
@@ -630,12 +645,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         {/* Table */}
         <div className="overflow-auto max-h-[600px] border rounded-md">
           <table
-            className="w-full border-collapse"
+            className="border-collapse"
             style={{
-              ...(hasCustomWidths ? { tableLayout: 'fixed' as const } : {}),
-              minWidth: hasCustomWidths
-                ? `${allTableColumns.reduce((sum, col) => sum + (getColumnWidth(col) || 150), 0)}px`
-                : undefined,
+              tableLayout: 'fixed' as const,
+              width: `${Math.max(600, 40 + allTableColumns.reduce((sum, col) => sum + (getColumnWidth(col) || DEFAULT_COLUMN_WIDTH), 0))}px`,
             }}
           >
             <thead className="sticky top-0 z-10 bg-background border-b">
@@ -657,29 +670,15 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                   className={cn(
                     "px-4 py-3 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
                     !getColumnWidth('_unit_name') && "min-w-[150px] max-w-[250px]",
-                    "left-0",
-                    getSortDirection('_unit_name') && "bg-primary/5"
+                    "left-0"
                   )}
-                  style={getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                  style={getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
                 >
                   <div className="flex items-center gap-1">
                     <div
-                      className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1 overflow-hidden"
-                      onClick={(e) => toggleSort('_unit_name', e.shiftKey)}
+                      className="flex items-center gap-1 flex-1 overflow-hidden"
                     >
                       <Badge variant="outline">{formatColumnName('_unit_name')}</Badge>
-                      {getSortDirection('_unit_name') && (
-                        <div className="flex items-center">
-                          {getSortDirection('_unit_name') === 'asc' ? (
-                            <ArrowUp className="h-4 w-4 text-primary" />
-                          ) : (
-                            <ArrowDown className="h-4 w-4 text-primary" />
-                          )}
-                          {getSortPriority('_unit_name') && getSortPriority('_unit_name')! > 1 && (
-                            <span className="text-xs text-primary ml-0.5">{getSortPriority('_unit_name')}</span>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </div>
                   {/* Resize handle */}
@@ -700,31 +699,15 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     ref={(el) => { headerRefs.current['_source_document'] = el; }}
                     className={cn(
                       "px-4 py-3 text-left font-semibold text-sm bg-background border-r relative",
-                      !getColumnWidth('_source_document') && "min-w-[180px]",
-                      getSortDirection('_source_document') && "bg-primary/5"
+                      !getColumnWidth('_source_document') && "min-w-[150px] max-w-[250px]"
                     )}
-                    style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                    style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
                   >
-                    <div
-                      className="flex items-center gap-1 cursor-pointer hover:text-primary"
-                      onClick={(e) => toggleSort('_source_document', e.shiftKey)}
-                    >
+                    <div className="flex items-center gap-1">
                       <div className="flex items-center gap-1.5">
                         <FileText className="h-4 w-4 text-muted-foreground" />
                         Source Document
                       </div>
-                      {getSortDirection('_source_document') && (
-                        <div className="flex items-center">
-                          {getSortDirection('_source_document') === 'asc' ? (
-                            <ArrowUp className="h-4 w-4 text-primary" />
-                          ) : (
-                            <ArrowDown className="h-4 w-4 text-primary" />
-                          )}
-                          {getSortPriority('_source_document') && getSortPriority('_source_document')! > 1 && (
-                            <span className="text-xs text-primary ml-0.5">{getSortPriority('_source_document')}</span>
-                          )}
-                        </div>
-                      )}
                     </div>
                     <div
                       className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
@@ -744,28 +727,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     ref={(el) => { headerRefs.current[column] = el; }}
                     className={cn(
                       "px-4 py-3 text-left font-semibold text-sm bg-background relative",
-                      !getColumnWidth(column) && "min-w-[120px]",
-                      getSortDirection(column) && "bg-primary/5"
+                      !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]"
                     )}
-                    style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                    style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
                   >
-                    <div
-                      className="flex items-center gap-1 cursor-pointer hover:text-primary"
-                      onClick={(e) => toggleSort(column, e.shiftKey)}
-                    >
+                    <div className="flex items-center gap-1">
                       {formatColumnName(column)}
-                      {getSortDirection(column) && (
-                        <div className="flex items-center">
-                          {getSortDirection(column) === 'asc' ? (
-                            <ArrowUp className="h-4 w-4 text-primary" />
-                          ) : (
-                            <ArrowDown className="h-4 w-4 text-primary" />
-                          )}
-                          {getSortPriority(column) && getSortPriority(column)! > 1 && (
-                            <span className="text-xs text-primary ml-0.5">{getSortPriority(column)}</span>
-                          )}
-                        </div>
-                      )}
                     </div>
                     <div
                       className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
@@ -832,7 +799,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     {hasSourceDocument && (
                       <td
                         className="px-4 py-3 text-sm border-r bg-muted/20"
-                        style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                        style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
                       >
                         <div className="flex items-center gap-1.5">
                           <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />

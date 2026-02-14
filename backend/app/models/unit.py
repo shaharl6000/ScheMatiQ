@@ -38,6 +38,19 @@ class MergeUnitsResponse(BaseModel):
     rows_affected: int = 0
 
 
+class DocumentSummary(BaseModel):
+    """Summary information for a source document."""
+    name: str
+    row_count: int
+
+
+class DocumentListResponse(BaseModel):
+    """Response containing list of source documents."""
+    documents: List[DocumentSummary]
+    total_documents: int
+    total_rows: int
+
+
 class UnitSimilarity(BaseModel):
     """Suggested merge based on similarity between units."""
     units: List[str] = Field(..., min_length=2, description="Similar unit names")

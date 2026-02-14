@@ -4,8 +4,9 @@ import json
 import logging
 from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator
-from qbsd.core.schema import Schema, Column, ObservationUnit
+from qbsd.core.schema import Schema, Column, ObservationUnit, _embed
 from qbsd.core.llm_backends import LLMInterface
+from sentence_transformers import util as st_util
 from qbsd.core.llm_call_tracker import LLMCallTracker
 from qbsd.core import utils
 
@@ -651,6 +652,87 @@ class PaperProcessor:
             except Exception as e:
                 print(f"⚠️  Warning callback error: {e}")
 
+    def _deduplicate_units(
+        self,
+        units: List[Dict[str, Any]],
+        sim_threshold: float = 0.85
+    ) -> List[Dict[str, Any]]:
+        """Deduplicate units using semantic similarity and substring containment.
+
+        Uses the same embedding model (all-MiniLM-L6-v2) used for schema column
+        deduplication, but with a slightly lower threshold (0.85 vs 0.9) since
+        unit names are shorter and more varied.
+
+        Greedy merge: iterate in order, merge into first matching cluster.
+        Keeps the highest-confidence representative, combines relevant_passages.
+        """
+        if len(units) <= 1:
+            return units
+
+        conf_priority = {"high": 0, "known": 1, "medium": 2, "low": 3}
+
+        # Compute embeddings for all unit names
+        names = [u.get("unit_name", "") for u in units]
+        embeddings = [_embed(name) for name in names]
+
+        # Greedy clustering
+        clusters: List[List[int]] = []  # each cluster is a list of indices
+        assigned = set()
+
+        for i in range(len(units)):
+            if i in assigned:
+                continue
+            cluster = [i]
+            assigned.add(i)
+
+            for j in range(i + 1, len(units)):
+                if j in assigned:
+                    continue
+
+                # Check semantic similarity
+                sim = st_util.cos_sim(embeddings[i], embeddings[j]).item()
+                is_similar = sim >= sim_threshold
+
+                # Check substring containment (case-insensitive)
+                name_i = names[i].lower().strip()
+                name_j = names[j].lower().strip()
+                is_substring = (name_i in name_j or name_j in name_i) and min(len(name_i), len(name_j)) > 2
+
+                if is_similar or is_substring:
+                    cluster.append(j)
+                    assigned.add(j)
+
+            clusters.append(cluster)
+
+        # Merge clusters: keep highest-confidence representative, combine passages
+        deduped = []
+        for cluster in clusters:
+            # Sort by confidence (best first)
+            cluster.sort(key=lambda idx: conf_priority.get(units[idx].get("confidence", "medium"), 2))
+            representative = dict(units[cluster[0]])  # copy best
+
+            # Combine relevant_passages from all cluster members
+            if len(cluster) > 1:
+                all_passages = []
+                for idx in cluster:
+                    all_passages.extend(units[idx].get("relevant_passages", []))
+                # Deduplicate passages by identity
+                seen = set()
+                unique_passages = []
+                for p in all_passages:
+                    p_id = id(p) if not isinstance(p, str) else p[:200]
+                    if p_id not in seen:
+                        seen.add(p_id)
+                        unique_passages.append(p)
+                representative["relevant_passages"] = unique_passages
+
+                merged_names = [names[idx] for idx in cluster]
+                logging.debug(f"Merged units: {merged_names} → {representative['unit_name']}")
+
+            deduped.append(representative)
+
+        return deduped
+
     def _attempt_unit_identification(
         self,
         paper_title: str,
@@ -678,18 +760,20 @@ class PaperProcessor:
         # Build the prompt for unit identification
         example_names_str = ", ".join(observation_unit.example_names or []) or "None provided"
 
-        # Format the system prompt with unit definition
+        # Format the system prompt with unit definition and query context
         system_prompt = SYSTEM_PROMPT_UNIT_IDENTIFICATION.format(
             unit_name=observation_unit.name,
             unit_definition=observation_unit.definition,
-            example_names=example_names_str
+            example_names=example_names_str,
+            query=schema.query
         )
 
         user_content = USER_PROMPT_TMPL_UNIT_IDENTIFICATION.format(
             unit_name=observation_unit.name,
             unit_definition=observation_unit.definition,
             example_names=example_names_str,
-            document_text=paper_text
+            document_text=paper_text,
+            query=schema.query
         )
 
         # Add retry instructions if this is a retry
@@ -775,8 +859,45 @@ class PaperProcessor:
                         if not unit.get("relevant_passages"):
                             unit["relevant_passages"] = [paper_text]
 
-                    logging.info(f"Found {len(result.units)} observation units in {paper_title}")
-                    return result.units
+                    raw_count = len(result.units)
+
+                    # --- Layer 2a: Confidence filtering ---
+                    units = [
+                        u for u in result.units
+                        if u.get("confidence", "medium") != "low"
+                    ]
+                    dropped_low = raw_count - len(units)
+                    if dropped_low > 0:
+                        logging.info(
+                            f"[{paper_title}] Confidence filter: {raw_count} → {len(units)} "
+                            f"(dropped {dropped_low} low-confidence units)"
+                        )
+
+                    # --- Layer 2b: Semantic deduplication ---
+                    pre_dedup = len(units)
+                    units = self._deduplicate_units(units)
+                    if len(units) < pre_dedup:
+                        logging.info(
+                            f"[{paper_title}] Semantic dedup: {pre_dedup} → {len(units)} units"
+                        )
+
+                    # --- Layer 2c: Hard cap ---
+                    MAX_UNITS = 15
+                    if len(units) > MAX_UNITS:
+                        logging.warning(
+                            f"[{paper_title}] Unit hard cap: {len(units)} → {MAX_UNITS} "
+                            f"(keeping top {MAX_UNITS} by confidence)"
+                        )
+                        # Sort by confidence priority: high > medium > known > low
+                        conf_order = {"high": 0, "known": 1, "medium": 2, "low": 3}
+                        units.sort(key=lambda u: conf_order.get(u.get("confidence", "medium"), 2))
+                        units = units[:MAX_UNITS]
+
+                    logging.info(
+                        f"[{paper_title}] Unit identification: {raw_count} raw → "
+                        f"{raw_count - dropped_low} after confidence → {len(units)} final"
+                    )
+                    return units
 
                 # Parse failed - record error for retry
                 last_error = result.error

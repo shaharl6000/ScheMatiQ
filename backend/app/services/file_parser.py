@@ -978,7 +978,8 @@ class FileParser:
         page_size: int = DEFAULT_PAGE_SIZE,
         filters: Optional[List[Dict]] = None,
         sort: Optional[List[Dict]] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        document_filter: Optional[List[str]] = None
     ) -> PaginatedData:
         """Get paginated data for a session with optional filtering and sorting."""
         session_dir = self.data_dir / session_id
@@ -988,11 +989,20 @@ class FileParser:
             raise FileNotFoundError("No processed data found")
 
         # Check if we need to filter/sort (requires loading all rows)
-        needs_processing = bool(filters or sort or search)
+        needs_processing = bool(filters or sort or search or document_filter)
 
         if needs_processing:
             # Load all rows for filtering/sorting
             all_rows = self._load_all_rows(data_file)
+
+            # Apply document filter before counting total
+            if document_filter:
+                doc_set = set(document_filter)
+                all_rows = [
+                    r for r in all_rows
+                    if (r.get('source_document') or r.get('_source_document') or '') in doc_set
+                ]
+
             total_count = len(all_rows)
 
             # Apply global search

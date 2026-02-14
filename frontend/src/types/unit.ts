@@ -65,3 +65,16 @@ export interface UnitGroupState {
   isSelected: boolean;
   rowCount: number;
 }
+
+/** Summary information for a source document */
+export interface DocumentSummary {
+  name: string;
+  rowCount: number;
+}
+
+/** Response from the documents endpoint */
+export interface DocumentListResponse {
+  documents: DocumentSummary[];
+  totalDocuments: number;
+  totalRows: number;
+}

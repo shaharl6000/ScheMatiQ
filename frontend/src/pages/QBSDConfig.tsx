@@ -665,10 +665,10 @@ const QBSDConfigPage = () => {
       />
 
       <div className="flex items-center justify-between mb-8">
+        <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back to Home">
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back to Home">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -678,8 +678,6 @@ const QBSDConfigPage = () => {
           >
             <HelpCircle className="h-5 w-5" />
           </Button>
-        </div>
-        <div className="flex items-center gap-2">
           {isDirty && (
             <Button variant="ghost" onClick={handleReset} className="text-muted-foreground">
               <RotateCcw className="mr-2 h-4 w-4" />

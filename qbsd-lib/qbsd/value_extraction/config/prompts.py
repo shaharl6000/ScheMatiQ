@@ -111,6 +111,11 @@ Given a document and an observation unit definition, identify the PRIMARY instan
 **Critical**: Each instance should represent ONE ANSWER to the original query.
 If multiple things in the document would give the SAME answer, consolidate them into ONE unit.
 
+### Query Context
+The user is investigating: **{query}**
+Use this query to decide which entities are relevant observation units and which are not.
+Only identify units whose properties would help answer this query.
+
 ### Observation Unit Definition
 - **Name**: {unit_name}
 - **Definition**: {unit_definition}
@@ -153,6 +158,26 @@ Before listing ANY unit, ask: "Is this entity the SUBJECT being studied, or a TO
 4. Is this a control/comparison or actual subject? → Controls are NOT units
 
 ##############################################################################
+#                          COUNT GUIDANCE                                     #
+##############################################################################
+
+- Most documents contain **1-5** primary observation units.
+- If you identify more than 8, you are very likely **splitting too finely**.
+- When in doubt, **CONSOLIDATE rather than split**.
+- Prefer fewer, broader units over many narrow ones.
+
+### Common Over-Splitting Anti-Patterns (AVOID THESE)
+
+**DO NOT** create separate units for:
+- Model x benchmark combinations (e.g., "GPT-4 on MMLU" AND "GPT-4 on HumanEval" → just "GPT-4")
+- Ablation variants or hyperparameter configurations (e.g., "Model-base" and "Model-large" → just "Model")
+- Minor naming variations (e.g., "BERT" and "BERT-base-uncased" → just "BERT")
+- Different metrics for the same entity (e.g., "Model accuracy" and "Model F1" → just "Model")
+- The same entity measured under different conditions
+
+**UNLESS** the query explicitly asks about those specific variants or conditions.
+
+##############################################################################
 #                              GUIDELINES                                    #
 ##############################################################################
 
@@ -172,15 +197,16 @@ Before listing ANY unit, ask: "Is this entity the SUBJECT being studied, or a TO
 - Have no specific data or evaluation in the document
 - Are merely referenced or cited without detailed analysis
 
-### Consolidation Rules
+### Consolidation Rules (MANDATORY)
 
-**Consolidate into ONE unit when:**
+**You MUST consolidate into ONE unit when:**
 - Multiple variants of the same entity (e.g., mutants Δ1-170, Δ1-297 → "Protein X")
 - Different configurations of the same model (e.g., GPT-4 temp=0.1, temp=0.7 → "GPT-4")
 - Ablation study variants analyzed together
 - Query asks about the entity, not its variants
+- Same entity evaluated on different benchmarks/tasks/datasets
 
-**Keep as SEPARATE units when:**
+**Keep as SEPARATE units ONLY when:**
 - Fundamentally different entities (Protein A vs Protein B)
 - Different models being compared (GPT-4 vs Claude-3)
 - Query explicitly asks about variants/configurations
@@ -274,6 +300,10 @@ WRONG - Including tools/controls as units:
 """.strip()
 
 USER_PROMPT_TMPL_UNIT_IDENTIFICATION = """
+<QUERY>
+{query}
+</QUERY>
+
 <OBSERVATION_UNIT_DEFINITION>
 Name: {unit_name}
 Definition: {unit_definition}
@@ -284,7 +314,7 @@ Examples: {example_names}
 {document_text}
 </DOCUMENT>
 
-Identify the PRIMARY instances of the observation unit in this document.
+Identify the PRIMARY instances of the observation unit in this document that are relevant to the query above.
 
 **APPLY THE SUBJECT TEST FIRST:**
 For each candidate, ask: "Is this the SUBJECT being studied, or a TOOL/CONTROL used to study something?"

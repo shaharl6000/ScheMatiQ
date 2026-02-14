@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Search, GripVertical, ArrowUp, ArrowDown, Loader2, Square, AlertCircle } from 'lucide-react';
+import { Search, GripVertical, Loader2, Square, AlertCircle } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/tooltip';
 import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
 import { sessionAPI, qbsdAPI, observationUnitAPI } from '../../services/api';
+import { DocumentSummary } from '../../types/unit';
 import EditableCell from './EditableCell';
 import {
   formatColumnName,
@@ -57,8 +58,8 @@ import { useTableSort } from './hooks/useTableSort';
 import { useTableFilter } from './hooks/useTableFilter';
 import { useColumnVisibility } from './hooks/useColumnVisibility';
 import { useColumnStats } from './hooks/useColumnStats';
-import { useColumnResize, MIN_COLUMN_WIDTH } from './hooks/useColumnResize';
-import { buildColumnMetadata, isEmpty, parsePythonString } from './utils';
+import { useColumnResize, MIN_COLUMN_WIDTH, DEFAULT_COLUMN_WIDTH } from './hooks/useColumnResize';
+import { buildColumnMetadata, isEmpty, parsePythonString, getDefaultColumnOrder } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
@@ -122,15 +123,20 @@ interface DataTableProps {
   hasUnits?: boolean;
   /** Number of observation units */
   unitCount?: number;
+  /** List of source documents for filtering */
+  documentList?: DocumentSummary[];
+  /** Currently selected documents for filtering */
+  selectedDocuments?: string[];
+  /** Callback when document selection changes */
+  onDocumentChange?: (documents: string[]) => void;
+  /** Whether document list is loading */
+  documentDataLoading?: boolean;
 }
 
 // Sortable Header Cell Component
 interface SortableHeaderCellProps {
   column: string;
   children: React.ReactNode;
-  sortDirection?: 'asc' | 'desc' | null;
-  sortPriority?: number | null;
-  onSort?: (column: string, multiSort: boolean) => void;
   columnWidth?: number;
   onResizeStart?: (e: React.MouseEvent, column: string, currentWidth: number) => void;
 }
@@ -138,9 +144,6 @@ interface SortableHeaderCellProps {
 const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
   column,
   children,
-  sortDirection,
-  sortPriority,
-  onSort,
   columnWidth,
   onResizeStart,
 }) => {
@@ -163,16 +166,8 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    cursor: 'grab',
     position: 'relative' as const,
-    ...(columnWidth ? { width: columnWidth, minWidth: MIN_COLUMN_WIDTH } : {}),
-  };
-
-  const handleHeaderClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onSort) {
-      onSort(column, e.shiftKey);
-    }
+    ...(columnWidth ? { width: columnWidth, minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }),
   };
 
   const handleResizeMouseDown = (e: React.MouseEvent) => {
@@ -187,35 +182,22 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
       ref={setRefs}
       style={style}
       className={cn(
-        "px-4 py-3 text-left font-semibold text-sm bg-background",
+        "group px-4 py-3 text-left font-semibold text-sm bg-background",
         !columnWidth && "min-w-[120px] sm:min-w-[150px]",
-        isDragging && "bg-muted",
-        sortDirection && "bg-primary/5"
+        isDragging && "bg-muted"
       )}
       {...attributes}
     >
       <div className="flex items-center gap-1">
-        <div {...listeners} className="cursor-grab">
-          <GripVertical className="h-4 w-4 text-muted-foreground opacity-50 hover:opacity-100" />
-        </div>
         <div
-          className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1 overflow-hidden"
-          onClick={handleHeaderClick}
+          className="flex items-center gap-1 flex-1 overflow-hidden"
         >
           {children}
-          {sortDirection && (
-            <div className="flex items-center">
-              {sortDirection === 'asc' ? (
-                <ArrowUp className="h-4 w-4 text-primary" />
-              ) : (
-                <ArrowDown className="h-4 w-4 text-primary" />
-              )}
-              {sortPriority && sortPriority > 1 && (
-                <span className="text-xs text-primary ml-0.5">{sortPriority}</span>
-              )}
-            </div>
-          )}
         </div>
+      </div>
+      {/* Grip icon - positioned in left padding area, not taking text space */}
+      <div {...listeners} className="absolute left-0.5 top-1/2 -translate-y-1/2 cursor-grab">
+        <GripVertical className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-50" />
       </div>
       {/* Resize handle */}
       <div
@@ -257,6 +239,10 @@ const DataTable: React.FC<DataTableProps> = ({
   onViewModeChange,
   hasUnits,
   unitCount,
+  documentList,
+  selectedDocuments,
+  onDocumentChange,
+  documentDataLoading,
 }) => {
   const { toast } = useToast();
   const [page, setPage] = useState(0);
@@ -297,10 +283,7 @@ const DataTable: React.FC<DataTableProps> = ({
   // Sort, filter, and visibility hooks
   const {
     sortState,
-    toggleSort,
     setSortState,
-    getSortDirection,
-    getSortPriority,
   } = useTableSort({ sessionId });
 
   const {
@@ -313,11 +296,9 @@ const DataTable: React.FC<DataTableProps> = ({
 
   // Column resize hook
   const {
-    columnWidths,
     getColumnWidth,
     handleResizeStart,
   } = useColumnResize({ sessionId });
-  const hasCustomWidths = Object.keys(columnWidths).length > 0;
 
   // Sensors for drag and drop
   const sensors = useSensors(
@@ -341,7 +322,8 @@ const DataTable: React.FC<DataTableProps> = ({
       pageSize,
       JSON.stringify(filterState.rules),
       JSON.stringify(sortState.columns),
-      searchTerm
+      searchTerm,
+      selectedDocuments
     ],
     () => sessionAPI.getData(
       sessionId,
@@ -350,7 +332,12 @@ const DataTable: React.FC<DataTableProps> = ({
       pageSize,
       filterState.rules.length > 0 ? filterState.rules : undefined,
       sortState.columns.length > 0 ? sortState.columns : undefined,
-      searchTerm.trim() || undefined
+      searchTerm.trim() || undefined,
+      selectedDocuments && selectedDocuments.length > 0
+        ? selectedDocuments.filter(d => d !== '__none__').length > 0
+          ? selectedDocuments.filter(d => d !== '__none__')
+          : undefined
+        : undefined
     ),
     {
       keepPreviousData: true,
@@ -651,14 +638,12 @@ const DataTable: React.FC<DataTableProps> = ({
 
   // Get all column names with proper ordering
   const defaultColumns = useMemo(() => {
-    const priorityColumns: string[] = [];
-    const regularColumns: string[] = [];
+    const internalColumns: string[] = [];
 
-    // First, collect all data columns to check for row-name-like columns
+    // Collect all data columns to check for row-name-like columns
     const allDataColumns = new Set<string>();
     data.rows.forEach(row => {
       Object.keys(row.data).forEach(key => {
-        // Skip internal columns starting with _ (these are system columns)
         if (!key.startsWith('_')) {
           allDataColumns.add(key);
         }
@@ -678,76 +663,27 @@ const DataTable: React.FC<DataTableProps> = ({
     // 1. Some rows have row_name at DataRow level, AND
     // 2. There's NO row-name-like column already in the data (to avoid duplicates)
     if (data.rows.some(row => row.row_name) && !hasRowNameColumnInData) {
-      priorityColumns.push('_row_name');
+      internalColumns.push('_row_name');
     }
 
     // Add _unit_name column if any row has it (observation unit for multi-row docs)
     if (data.rows.some(row => row._unit_name != null)) {
-      priorityColumns.push('_unit_name');
+      internalColumns.push('_unit_name');
     }
 
     // Add _source_document column if any row has it (shows actual document name)
     if (data.rows.some(row => row._source_document != null)) {
-      regularColumns.push('_source_document');
+      internalColumns.push('_source_document');
     }
 
     if (data.rows.some(row => row.papers?.length)) {
-      regularColumns.push('_papers');
+      internalColumns.push('_papers');
     }
 
-    const exactMatches = ['row_name', 'name', 'id', 'title', 'row', 'identifier'];
-    exactMatches.forEach(exactName => {
-      const found = dataColumnArray.find(col => col.toLowerCase() === exactName);
-      if (found && !priorityColumns.includes(found)) {
-        priorityColumns.push(found);
-      }
-    });
+    // Get ordered data columns from shared utility
+    const orderedDataColumns = getDefaultColumnOrder(data.rows, columnInfo);
 
-    dataColumnArray.forEach(key => {
-      const keyLower = key.toLowerCase();
-      if (!priorityColumns.includes(key)) {
-        if (keyLower.includes('name') || keyLower.includes('id') ||
-            keyLower.includes('title') || keyLower.includes('label')) {
-          priorityColumns.push(key);
-        } else {
-          regularColumns.push(key);
-        }
-      }
-    });
-
-    if (priorityColumns.length === 0 && regularColumns.length > 0) {
-      const firstColumn = regularColumns.shift();
-      if (firstColumn) priorityColumns.push(firstColumn);
-    }
-
-    // Include schema columns that don't have data yet (e.g., newly discovered columns)
-    // These columns are defined in the schema but may not have extracted values
-    const schemaColumns: string[] = [];
-    if (columnInfo && columnInfo.length > 0) {
-      columnInfo.forEach(col => {
-        if (!col.name.startsWith('_') && !col.name.endsWith('_excerpt')) {
-          if (!priorityColumns.includes(col.name) && !regularColumns.includes(col.name)) {
-            schemaColumns.push(col.name);
-          }
-        }
-      });
-    }
-
-    // Combine all columns
-    const allCols = [...priorityColumns, ...regularColumns, ...schemaColumns];
-
-    // Move "Document Directory" (and similar patterns) to the end
-    const isDocDirectoryColumn = (col: string) => {
-      const colLower = col.toLowerCase().replace(/[_-]/g, ' ');
-      return colLower.includes('document directory') ||
-             colLower.includes('doc directory') ||
-             colLower === 'directory';
-    };
-
-    const docDirectoryCols = allCols.filter(isDocDirectoryColumn);
-    const otherCols = allCols.filter(col => !isDocDirectoryColumn(col));
-
-    return [...otherCols, ...docDirectoryCols];
+    return [...internalColumns, ...orderedDataColumns];
   }, [data.rows, columnInfo]);
 
   const allColumns = useMemo(() => {
@@ -1299,6 +1235,10 @@ const DataTable: React.FC<DataTableProps> = ({
               onToggleColumn={toggleColumn}
               onShowAll={showAllColumns}
               onHideAll={hideAllColumns}
+              documentList={documentList}
+              selectedDocuments={selectedDocuments}
+              onDocumentChange={onDocumentChange}
+              documentDataLoading={documentDataLoading}
             />
           </div>
         </div>
@@ -1342,10 +1282,10 @@ const DataTable: React.FC<DataTableProps> = ({
             className="overflow-auto max-h-[600px] border rounded-md overscroll-x-contain"
           >
             <table
-              className="w-full border-collapse"
+              className="border-collapse"
               style={{
-                minWidth: `${Math.max(600, columns.reduce((sum, col) => sum + (getColumnWidth(col) || 150), 0))}px`,
-                ...(hasCustomWidths ? { tableLayout: 'fixed' } : {}),
+                tableLayout: 'fixed' as const,
+                width: `${Math.max(600, (readonly ? 0 : 40) + columns.reduce((sum, col) => sum + (getColumnWidth(col) || DEFAULT_COLUMN_WIDTH), 0))}px`,
               }}
             >
               <thead className="sticky top-0 z-10 bg-background border-b">
@@ -1370,32 +1310,18 @@ const DataTable: React.FC<DataTableProps> = ({
                       className={cn(
                         "px-4 py-3 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
                         !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
-                        "left-0",
-                        getSortDirection(frozenColumn) && "bg-primary/5"
+                        "left-0"
                       )}
-                      style={getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : undefined}
+                      style={getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
                     >
                       <div className="flex items-center gap-1">
                         <div
-                          className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1 overflow-hidden"
-                          onClick={(e) => toggleSort(frozenColumn, e.shiftKey)}
+                          className="flex items-center gap-1 flex-1 overflow-hidden"
                         >
-                          {frozenColumn.startsWith('_') ? (
+                          {frozenColumn.startsWith('_') && frozenColumn !== '_unit_name' ? (
                             <Badge variant="outline">{formatColumnName(frozenColumn)}</Badge>
                           ) : (
                             formatColumnName(frozenColumn)
-                          )}
-                          {getSortDirection(frozenColumn) && (
-                            <div className="flex items-center">
-                              {getSortDirection(frozenColumn) === 'asc' ? (
-                                <ArrowUp className="h-4 w-4 text-primary" />
-                              ) : (
-                                <ArrowDown className="h-4 w-4 text-primary" />
-                              )}
-                              {getSortPriority(frozenColumn) && getSortPriority(frozenColumn)! > 1 && (
-                                <span className="text-xs text-primary ml-0.5">{getSortPriority(frozenColumn)}</span>
-                              )}
-                            </div>
                           )}
                         </div>
                       </div>
@@ -1421,13 +1347,10 @@ const DataTable: React.FC<DataTableProps> = ({
                       <SortableHeaderCell
                         key={column}
                         column={column}
-                        sortDirection={getSortDirection(column)}
-                        sortPriority={getSortPriority(column)}
-                        onSort={toggleSort}
                         columnWidth={getColumnWidth(column)}
                         onResizeStart={handleResizeStart}
                       >
-                        {column.startsWith('_') ? (
+                        {column.startsWith('_') && column !== '_unit_name' ? (
                           <Badge variant="outline">{formatColumnName(column)}</Badge>
                         ) : (
                           formatColumnName(column)

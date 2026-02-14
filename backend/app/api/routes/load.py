@@ -310,6 +310,7 @@ async def get_data_with_filters(
     session_id: str,
     page: int = 0,
     page_size: int = 50,
+    documents: Optional[str] = Query(None, description="Comma-separated document names to filter by"),
     request: Optional[FilterSortRequest] = None
 ):
     """Get paginated data with optional filtering and sorting."""
@@ -330,9 +331,13 @@ async def get_data_with_filters(
             sort = [s.dict() for s in request.sort] if request.sort else None
             search = request.search
 
+        # Parse comma-separated document names
+        document_filter = [d.strip() for d in documents.split(',') if d.strip()] if documents else None
+
         data = await parser.get_paginated_data(
             session_id, page, page_size,
-            filters=filters, sort=sort, search=search
+            filters=filters, sort=sort, search=search,
+            document_filter=document_filter
         )
 
         return data
@@ -345,9 +350,14 @@ async def get_data_with_filters(
 
 
 @router.get("/data/{session_id}", response_model=PaginatedData)
-async def get_data(session_id: str, page: int = 0, page_size: int = 50):
+async def get_data(
+    session_id: str,
+    page: int = 0,
+    page_size: int = 50,
+    documents: Optional[str] = Query(None, description="Comma-separated document names to filter by"),
+):
     """Get paginated data for a session (backward compatible, no filtering)."""
-    return await get_data_with_filters(session_id, page, page_size, None)
+    return await get_data_with_filters(session_id, page, page_size, documents, None)
 
 @router.get("/sessions", response_model=List[VisualizationSession])
 async def list_sessions():

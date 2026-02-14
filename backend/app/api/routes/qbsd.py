@@ -337,6 +337,7 @@ async def get_qbsd_data_with_filters(
     session_id: str,
     page: int = 0,
     page_size: int = 50,
+    documents: Optional[str] = Query(None, description="Comma-separated document names to filter by"),
     request: Optional[FilterSortRequest] = None
 ):
     """Get extracted data with optional filtering and sorting."""
@@ -355,9 +356,13 @@ async def get_qbsd_data_with_filters(
             sort = [s.dict() for s in request.sort] if request.sort else None
             search = request.search
 
+        # Parse comma-separated document names
+        document_filter = [d.strip() for d in documents.split(',') if d.strip()] if documents else None
+
         data = await qbsd_runner.get_data(
             session_id, page, page_size,
-            filters=filters, sort=sort, search=search
+            filters=filters, sort=sort, search=search,
+            document_filter=document_filter
         )
 
         return data
@@ -367,9 +372,14 @@ async def get_qbsd_data_with_filters(
 
 
 @router.get("/data/{session_id}")
-async def get_qbsd_data(session_id: str, page: int = 0, page_size: int = 50):
+async def get_qbsd_data(
+    session_id: str,
+    page: int = 0,
+    page_size: int = 50,
+    documents: Optional[str] = Query(None, description="Comma-separated document names to filter by"),
+):
     """Get extracted data (backward compatible, no filtering)."""
-    return await get_qbsd_data_with_filters(session_id, page, page_size, None)
+    return await get_qbsd_data_with_filters(session_id, page, page_size, documents, None)
 
 
 @router.put("/cell/{session_id}")

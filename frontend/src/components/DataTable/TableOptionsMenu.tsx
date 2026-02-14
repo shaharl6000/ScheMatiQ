@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   MoreVertical,
   Plus,
@@ -12,6 +12,8 @@ import {
   EyeOff,
   Filter,
   Merge,
+  Search,
+  FileText,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -24,8 +26,6 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
@@ -50,10 +50,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { ColumnVisibilityState, FilterPreset, FilterRule, SortColumn, generatePresetId } from './types/filters';
 import { formatColumnName } from '../../utils/formatting';
-import { UnitSummary } from '../../types/unit';
+import { UnitSummary, DocumentSummary } from '../../types/unit';
 
 interface TableOptionsMenuProps {
   // Add Filter
@@ -80,14 +85,172 @@ interface TableOptionsMenuProps {
   onHideAll: () => void;
   // Unit-specific (optional, only rendered in By Unit view)
   unitList?: UnitSummary[];
-  selectedUnit?: string | null;
-  onUnitChange?: (unit: string | null) => void;
+  selectedUnits?: string[];
+  onUnitChange?: (units: string[]) => void;
   unitDataLoading?: boolean;
   onMergeUnits?: () => void;
   mergeDisabled?: boolean;
   onToggleSuggestions?: () => void;
   showSuggestions?: boolean;
   suggestionsCount?: number;
+  // Document filter (optional, for standard/by-document view)
+  documentList?: DocumentSummary[];
+  selectedDocuments?: string[];
+  onDocumentChange?: (documents: string[]) => void;
+  documentDataLoading?: boolean;
+}
+
+/** Reusable multi-select filter submenu content */
+function MultiSelectFilterContent({
+  items,
+  selected,
+  onChange,
+  searchPlaceholder,
+  itemLabel,
+}: {
+  items: { name: string; rowCount: number }[];
+  selected: string[];
+  onChange: (items: string[]) => void;
+  searchPlaceholder: string;
+  itemLabel: string;
+}) {
+  const [search, setSearch] = useState('');
+
+  const filteredItems = useMemo(() => {
+    if (!search.trim()) return items;
+    const term = search.toLowerCase();
+    return items.filter(item => item.name.toLowerCase().includes(term));
+  }, [items, search]);
+
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const allSelected = selected.length === 0 || selected.length === items.length; // empty or full = all
+  const noneSelected = selected.length > 0 && items.length > 0 &&
+    !items.some(i => selectedSet.has(i.name)); // has values but none match items
+
+  const handleToggle = (name: string) => {
+    if (selectedSet.has(name)) {
+      const next = selected.filter(n => n !== name);
+      // If removing the last item, treat as "all" (no filter)
+      onChange(next.length === 0 ? [] : next);
+    } else {
+      const next = [...selected, name];
+      // If all items are now selected, switch to "all" (no filter)
+      if (next.length === items.length) {
+        onChange([]);
+      } else {
+        onChange(next);
+      }
+    }
+  };
+
+  return (
+    <div
+      className="w-80 max-w-[90vw] flex flex-col"
+      style={{ maxHeight: 'min(500px, 70vh)' }}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      {/* Sticky search */}
+      <div className="p-2 border-b shrink-0">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            placeholder={searchPlaceholder}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-8 pl-8 text-sm"
+            autoFocus
+          />
+        </div>
+      </div>
+
+      {/* Quick actions */}
+      <div className="flex gap-1 p-2 border-b shrink-0">
+        <Button
+          variant={allSelected && !noneSelected ? 'default' : 'outline'}
+          size="sm"
+          className="flex-1 h-7 text-xs"
+          onClick={() => onChange([])}
+        >
+          All
+        </Button>
+        <Button
+          variant={noneSelected ? 'default' : 'outline'}
+          size="sm"
+          className="flex-1 h-7 text-xs"
+          onClick={() => onChange(['__none__'])}
+        >
+          None
+        </Button>
+      </div>
+
+      {/* Item list — flex-1 + overflow-auto so it scrolls within the constrained container */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="p-1">
+          {filteredItems.map((item) => {
+            const isChecked = (selected.length === 0) || selectedSet.has(item.name);
+            return (
+              <div
+                key={item.name}
+                className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-muted/50 cursor-pointer"
+                onClick={() => {
+                  if (selected.length === 0) {
+                    // Switch from "all" to "all except this one"
+                    onChange(items.filter(i => i.name !== item.name).map(i => i.name));
+                  } else if (noneSelected) {
+                    // From "none" state, select just this one
+                    onChange([item.name]);
+                  } else {
+                    handleToggle(item.name);
+                  }
+                }}
+              >
+                <Checkbox
+                  checked={isChecked}
+                  className="shrink-0"
+                />
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="flex-1 text-sm truncate min-w-0">{item.name}</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-[400px]">
+                    <p className="break-all">{item.name}</p>
+                  </TooltipContent>
+                </Tooltip>
+                <Badge variant="outline" className="h-5 px-1.5 text-xs shrink-0">
+                  {item.rowCount}
+                </Badge>
+              </div>
+            );
+          })}
+          {filteredItems.length === 0 && (
+            <div className="py-4 text-center text-sm text-muted-foreground">
+              No {itemLabel}s match &ldquo;{search}&rdquo;
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="p-2 border-t text-xs text-center text-muted-foreground shrink-0">
+        {noneSelected
+          ? `No ${itemLabel}s selected (showing all)`
+          : allSelected
+            ? `All ${items.length} ${itemLabel}s`
+            : `${selected.length} of ${items.length} ${itemLabel}s selected`}
+      </div>
+    </div>
+  );
+}
+
+/** Format badge text for multi-select filter trigger */
+function filterBadgeText(selected: string[], itemLabel: string): string | null {
+  if (selected.length === 0) return null;
+  // __none__ sentinel means "none selected" — no badge needed
+  if (selected.length === 1 && selected[0] === '__none__') return null;
+  if (selected.length === 1) return selected[0];
+  return `${selected.length} ${itemLabel}s`;
 }
 
 const FULLNESS_PRESETS = [0, 25, 50, 75, 100];
@@ -112,7 +275,7 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
   onShowAll,
   onHideAll,
   unitList,
-  selectedUnit,
+  selectedUnits,
   onUnitChange,
   unitDataLoading,
   onMergeUnits,
@@ -120,6 +283,10 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
   onToggleSuggestions,
   showSuggestions,
   suggestionsCount,
+  documentList,
+  selectedDocuments,
+  onDocumentChange,
+  documentDataLoading,
 }) => {
   // Preset state
   const [presets, setPresets] = useState<FilterPreset[]>([]);
@@ -197,6 +364,11 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
   // Active state indicator
   const visibleCount = columns.filter(col => visibility[col] !== false).length;
   const hiddenCount = columns.length - visibleCount;
+
+  // Badge text for unit filter
+  const unitBadgeText = filterBadgeText(selectedUnits || [], 'unit');
+  // Badge text for document filter
+  const docBadgeText = filterBadgeText(selectedDocuments || [], 'doc');
 
   return (
     <>
@@ -296,37 +468,25 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
             <>
               <DropdownMenuSeparator />
 
-              {/* Filter by Unit submenu */}
+              {/* Filter by Unit submenu - multi-select */}
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger disabled={unitDataLoading}>
                   <Filter className="h-4 w-4 mr-2" />
                   Filter by Unit
-                  {selectedUnit && (
+                  {unitBadgeText && (
                     <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-xs max-w-[100px] truncate">
-                      {selectedUnit}
+                      {unitBadgeText}
                     </Badge>
                   )}
                 </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-64">
-                  <ScrollArea className="max-h-[300px]">
-                    <DropdownMenuRadioGroup
-                      value={selectedUnit || '__all__'}
-                      onValueChange={(val) => onUnitChange?.(val === '__all__' ? null : val)}
-                    >
-                      <DropdownMenuRadioItem value="__all__">
-                        All Units
-                      </DropdownMenuRadioItem>
-                      <DropdownMenuSeparator />
-                      {unitList.map((unit) => (
-                        <DropdownMenuRadioItem key={unit.name} value={unit.name}>
-                          <span className="truncate flex-1">{unit.name}</span>
-                          <Badge variant="outline" className="ml-auto h-5 px-1.5 text-xs shrink-0">
-                            {unit.rowCount}
-                          </Badge>
-                        </DropdownMenuRadioItem>
-                      ))}
-                    </DropdownMenuRadioGroup>
-                  </ScrollArea>
+                <DropdownMenuSubContent className="p-0" style={{ maxHeight: 'min(500px, 70vh)' }}>
+                  <MultiSelectFilterContent
+                    items={unitList}
+                    selected={selectedUnits || []}
+                    onChange={(units) => onUnitChange?.(units)}
+                    searchPlaceholder="Search units..."
+                    itemLabel="unit"
+                  />
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
@@ -348,6 +508,33 @@ const TableOptionsMenu: React.FC<TableOptionsMenuProps> = ({
                   </Badge>
                 )}
               </DropdownMenuCheckboxItem>
+            </>
+          )}
+
+          {/* Document filter (only in standard/by-document view when documents exist) */}
+          {documentList && documentList.length > 0 && onDocumentChange && (
+            <>
+              {!unitList && <DropdownMenuSeparator />}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger disabled={documentDataLoading}>
+                  <FileText className="h-4 w-4 mr-2" />
+                  Filter by Document
+                  {docBadgeText && (
+                    <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-xs max-w-[100px] truncate">
+                      {docBadgeText}
+                    </Badge>
+                  )}
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="p-0" style={{ maxHeight: 'min(500px, 70vh)' }}>
+                  <MultiSelectFilterContent
+                    items={documentList}
+                    selected={selectedDocuments || []}
+                    onChange={onDocumentChange}
+                    searchPlaceholder="Search documents..."
+                    itemLabel="document"
+                  />
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             </>
           )}
 

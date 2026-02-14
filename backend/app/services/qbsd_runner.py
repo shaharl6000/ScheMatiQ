@@ -617,7 +617,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         """Execute the real QBSD process."""
         if not QBSD_AVAILABLE:
             raise RuntimeError("QBSD components not available. Cannot execute real QBSD pipeline.")
-        
+
+        qbsd_start_time = time.time()
         session_dir = self.work_dir / session_id
         session_dir.mkdir(exist_ok=True)
         
@@ -1048,6 +1049,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 "total_documents": total_docs,
                 "schema_columns": len(discovered_schema.columns),
                 "schema_only": schema_only,
+                "elapsed_seconds": int(time.time() - qbsd_start_time),
             }
             # Only expose LLM call stats to developers, not end users
             if DEVELOPER_MODE:
@@ -1441,6 +1443,18 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                 json.dump(partial_schema_data, f, indent=2)
             logger.debug("Saved partial schema with %d columns", len(current_schema.columns))
 
+            # Notify frontend about partial schema availability
+            await self.websocket_manager.broadcast_to_session(session_id, {
+                "type": "schema_progress",
+                "timestamp": datetime.now().isoformat(),
+                "data": {
+                    "columns_discovered": len(current_schema.columns),
+                    "iteration": iteration + 1,
+                    "max_iterations": len(batches),
+                    "new_columns": new_columns,
+                }
+            })
+
             # Small delay to allow other tasks
             await asyncio.sleep(0.1)
 
@@ -1533,6 +1547,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         start_time = time.time()
         last_line_count = 0
         last_update_time = time.time()
+        prev_completed_documents = set()
         
         stopped_early = False
         stop_requested_at = None
@@ -1584,21 +1599,19 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                         session.metadata.processed_documents = min(completed_doc_count, total_documents)
                         self.session_manager.update_session(session)
 
-                        # Send progress update with document count
-                        progress_msg = f"Value Extraction: Document {completed_doc_count}/{total_documents} completed"
-                        await progress_callback(progress_msg, 0.5 + (completed_doc_count / total_documents) * 0.5, {
-                            "rows_extracted": current_line_count,
-                            "documents_completed": completed_doc_count,
-                            "total_documents": total_documents,
-                            "elapsed_time": int(current_time - start_time)
-                        })
+                        # Compute newly completed documents since last poll
+                        newly_completed = list(completed_documents - prev_completed_documents)
 
-                        # Broadcast document completion (use document count, not row count)
+                        # Broadcast document completion with names
                         await self.broadcast_row_completed(session_id, {
                             "row_index": completed_doc_count,
                             "total_rows": total_documents,
-                            "completed_at": datetime.now().isoformat()
+                            "completed_at": datetime.now().isoformat(),
+                            "document_names": newly_completed,
+                            "elapsed_seconds": int(current_time - start_time),
                         })
+
+                        prev_completed_documents = set(completed_documents)
 
                         last_line_count = current_line_count
                         last_update_time = current_time
@@ -1641,6 +1654,15 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         # Extract results from the new return format
         suggested_values = extraction_result.get("suggested_values", {}) if extraction_result else {}
         skipped_documents = extraction_result.get("skipped_documents", []) if extraction_result else []
+
+        # Warn user about skipped documents
+        if skipped_documents:
+            names = ', '.join(skipped_documents[:5])
+            suffix = f' and {len(skipped_documents) - 5} more' if len(skipped_documents) > 5 else ''
+            await self.websocket_manager.broadcast_log(session_id, {
+                "level": "warning",
+                "message": f"{len(skipped_documents)} document(s) skipped: {names}{suffix}"
+            })
 
         # Process suggested values for schema evolution
         if suggested_values:
@@ -1957,7 +1979,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
         page_size: int = 50,
         filters: Optional[List[Dict]] = None,
         sort: Optional[List[Dict]] = None,
-        search: Optional[str] = None
+        search: Optional[str] = None,
+        document_filter: Optional[List[str]] = None
     ) -> PaginatedData:
         """Get extracted data from all possible locations with optional filtering and sorting.
 
@@ -2006,7 +2029,7 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             return row_data
 
         # Check if we need to filter/sort (requires loading all rows)
-        needs_processing = bool(filters or sort or search)
+        needs_processing = bool(filters or sort or search or document_filter)
 
         if needs_processing:
             # Load all rows from all data files (deduplicated by _row_name across files only)
@@ -2030,6 +2053,14 @@ class QBSDRunner(WebSocketBroadcasterMixin):
                                 pass
                 # After processing each file, add its row names for cross-file dedup
                 seen_row_names.update(file_row_names)
+
+            # Apply document filter before counting total
+            if document_filter:
+                doc_set = set(document_filter)
+                all_rows = [
+                    r for r in all_rows
+                    if (r.get('source_document') or r.get('_source_document') or '') in doc_set
+                ]
 
             total_count = len(all_rows)
 
