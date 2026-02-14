@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Loader2, Lightbulb, FileText, AlertCircle, Search, ArrowUp, ArrowDown, Square } from 'lucide-react';
+import { Loader2, Lightbulb, FileText, AlertCircle, Search, Square } from 'lucide-react';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
@@ -121,10 +121,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   // Sort, filter, and visibility hooks (use unit_ prefix to avoid collisions with DataTable)
   const {
     sortState,
-    toggleSort,
     setSortState,
-    getSortDirection,
-    getSortPriority,
   } = useTableSort({ sessionId, persistKey: `unit_sort_${sessionId}` });
 
   const {
@@ -504,7 +501,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                 <div className="relative w-64">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
-                    placeholder="Search data..."
+                    placeholder="Search all cells..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="pl-9"
@@ -672,29 +669,15 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                   className={cn(
                     "px-4 py-3 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
                     !getColumnWidth('_unit_name') && "min-w-[150px] max-w-[250px]",
-                    "left-0",
-                    getSortDirection('_unit_name') && "bg-primary/5"
+                    "left-0"
                   )}
                   style={getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
                 >
                   <div className="flex items-center gap-1">
                     <div
-                      className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1 overflow-hidden"
-                      onClick={(e) => toggleSort('_unit_name', e.shiftKey)}
+                      className="flex items-center gap-1 flex-1 overflow-hidden"
                     >
                       <Badge variant="outline">{formatColumnName('_unit_name')}</Badge>
-                      {getSortDirection('_unit_name') && (
-                        <div className="flex items-center">
-                          {getSortDirection('_unit_name') === 'asc' ? (
-                            <ArrowUp className="h-4 w-4 text-primary" />
-                          ) : (
-                            <ArrowDown className="h-4 w-4 text-primary" />
-                          )}
-                          {getSortPriority('_unit_name') && getSortPriority('_unit_name')! > 1 && (
-                            <span className="text-xs text-primary ml-0.5">{getSortPriority('_unit_name')}</span>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </div>
                   {/* Resize handle */}
@@ -715,31 +698,15 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     ref={(el) => { headerRefs.current['_source_document'] = el; }}
                     className={cn(
                       "px-4 py-3 text-left font-semibold text-sm bg-background border-r relative",
-                      !getColumnWidth('_source_document') && "min-w-[150px] max-w-[250px]",
-                      getSortDirection('_source_document') && "bg-primary/5"
+                      !getColumnWidth('_source_document') && "min-w-[150px] max-w-[250px]"
                     )}
                     style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
                   >
-                    <div
-                      className="flex items-center gap-1 cursor-pointer hover:text-primary"
-                      onClick={(e) => toggleSort('_source_document', e.shiftKey)}
-                    >
+                    <div className="flex items-center gap-1">
                       <div className="flex items-center gap-1.5">
                         <FileText className="h-4 w-4 text-muted-foreground" />
                         Source Document
                       </div>
-                      {getSortDirection('_source_document') && (
-                        <div className="flex items-center">
-                          {getSortDirection('_source_document') === 'asc' ? (
-                            <ArrowUp className="h-4 w-4 text-primary" />
-                          ) : (
-                            <ArrowDown className="h-4 w-4 text-primary" />
-                          )}
-                          {getSortPriority('_source_document') && getSortPriority('_source_document')! > 1 && (
-                            <span className="text-xs text-primary ml-0.5">{getSortPriority('_source_document')}</span>
-                          )}
-                        </div>
-                      )}
                     </div>
                     <div
                       className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
@@ -759,28 +726,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     ref={(el) => { headerRefs.current[column] = el; }}
                     className={cn(
                       "px-4 py-3 text-left font-semibold text-sm bg-background relative",
-                      !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]",
-                      getSortDirection(column) && "bg-primary/5"
+                      !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]"
                     )}
                     style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
                   >
-                    <div
-                      className="flex items-center gap-1 cursor-pointer hover:text-primary"
-                      onClick={(e) => toggleSort(column, e.shiftKey)}
-                    >
+                    <div className="flex items-center gap-1">
                       {formatColumnName(column)}
-                      {getSortDirection(column) && (
-                        <div className="flex items-center">
-                          {getSortDirection(column) === 'asc' ? (
-                            <ArrowUp className="h-4 w-4 text-primary" />
-                          ) : (
-                            <ArrowDown className="h-4 w-4 text-primary" />
-                          )}
-                          {getSortPriority(column) && getSortPriority(column)! > 1 && (
-                            <span className="text-xs text-primary ml-0.5">{getSortPriority(column)}</span>
-                          )}
-                        </div>
-                      )}
                     </div>
                     <div
                       className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"

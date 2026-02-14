@@ -141,7 +141,7 @@ const EditableCell: React.FC<EditableCellProps> = ({
   return (
     <div
       className={cn(
-        "group flex items-start gap-1",
+        "group relative",
         !disabled && "cursor-pointer"
       )}
       onDoubleClick={startEditing}
@@ -154,13 +154,13 @@ const EditableCell: React.FC<EditableCellProps> = ({
             e.stopPropagation();
             startEditing();
           }}
-          className="flex-shrink-0 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-muted rounded mt-0.5"
+          className="flex-shrink-0 p-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-muted rounded mt-0.5 hidden group-hover:inline-flex absolute -left-5"
           title="Edit"
         >
           <Pencil className="h-3 w-3 text-muted-foreground" />
         </button>
       )}
-      <div className="flex-1 min-w-0">{children}</div>
+      <div className="min-w-0">{children}</div>
     </div>
   );
 };

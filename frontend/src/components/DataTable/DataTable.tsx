@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Search, GripVertical, ArrowUp, ArrowDown, Loader2, Square, AlertCircle } from 'lucide-react';
+import { Search, GripVertical, Loader2, Square, AlertCircle } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -137,9 +137,6 @@ interface DataTableProps {
 interface SortableHeaderCellProps {
   column: string;
   children: React.ReactNode;
-  sortDirection?: 'asc' | 'desc' | null;
-  sortPriority?: number | null;
-  onSort?: (column: string, multiSort: boolean) => void;
   columnWidth?: number;
   onResizeStart?: (e: React.MouseEvent, column: string, currentWidth: number) => void;
 }
@@ -147,9 +144,6 @@ interface SortableHeaderCellProps {
 const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
   column,
   children,
-  sortDirection,
-  sortPriority,
-  onSort,
   columnWidth,
   onResizeStart,
 }) => {
@@ -172,16 +166,8 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.5 : 1,
-    cursor: 'grab',
     position: 'relative' as const,
     ...(columnWidth ? { width: columnWidth, minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }),
-  };
-
-  const handleHeaderClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (onSort) {
-      onSort(column, e.shiftKey);
-    }
   };
 
   const handleResizeMouseDown = (e: React.MouseEvent) => {
@@ -198,29 +184,15 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
       className={cn(
         "group px-4 py-3 text-left font-semibold text-sm bg-background",
         !columnWidth && "min-w-[120px] sm:min-w-[150px]",
-        isDragging && "bg-muted",
-        sortDirection && "bg-primary/5"
+        isDragging && "bg-muted"
       )}
       {...attributes}
     >
       <div className="flex items-center gap-1">
         <div
-          className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1 overflow-hidden"
-          onClick={handleHeaderClick}
+          className="flex items-center gap-1 flex-1 overflow-hidden"
         >
           {children}
-          {sortDirection && (
-            <div className="flex items-center">
-              {sortDirection === 'asc' ? (
-                <ArrowUp className="h-4 w-4 text-primary" />
-              ) : (
-                <ArrowDown className="h-4 w-4 text-primary" />
-              )}
-              {sortPriority && sortPriority > 1 && (
-                <span className="text-xs text-primary ml-0.5">{sortPriority}</span>
-              )}
-            </div>
-          )}
         </div>
       </div>
       {/* Grip icon - positioned in left padding area, not taking text space */}
@@ -311,10 +283,7 @@ const DataTable: React.FC<DataTableProps> = ({
   // Sort, filter, and visibility hooks
   const {
     sortState,
-    toggleSort,
     setSortState,
-    getSortDirection,
-    getSortPriority,
   } = useTableSort({ sessionId });
 
   const {
@@ -1339,32 +1308,18 @@ const DataTable: React.FC<DataTableProps> = ({
                       className={cn(
                         "px-4 py-3 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
                         !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
-                        "left-0",
-                        getSortDirection(frozenColumn) && "bg-primary/5"
+                        "left-0"
                       )}
                       style={getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
                     >
                       <div className="flex items-center gap-1">
                         <div
-                          className="flex items-center gap-1 cursor-pointer hover:text-primary flex-1 overflow-hidden"
-                          onClick={(e) => toggleSort(frozenColumn, e.shiftKey)}
+                          className="flex items-center gap-1 flex-1 overflow-hidden"
                         >
                           {frozenColumn.startsWith('_') && frozenColumn !== '_unit_name' ? (
                             <Badge variant="outline">{formatColumnName(frozenColumn)}</Badge>
                           ) : (
                             formatColumnName(frozenColumn)
-                          )}
-                          {getSortDirection(frozenColumn) && (
-                            <div className="flex items-center">
-                              {getSortDirection(frozenColumn) === 'asc' ? (
-                                <ArrowUp className="h-4 w-4 text-primary" />
-                              ) : (
-                                <ArrowDown className="h-4 w-4 text-primary" />
-                              )}
-                              {getSortPriority(frozenColumn) && getSortPriority(frozenColumn)! > 1 && (
-                                <span className="text-xs text-primary ml-0.5">{getSortPriority(frozenColumn)}</span>
-                              )}
-                            </div>
                           )}
                         </div>
                       </div>
@@ -1390,9 +1345,6 @@ const DataTable: React.FC<DataTableProps> = ({
                       <SortableHeaderCell
                         key={column}
                         column={column}
-                        sortDirection={getSortDirection(column)}
-                        sortPriority={getSortPriority(column)}
-                        onSort={toggleSort}
                         columnWidth={getColumnWidth(column)}
                         onResizeStart={handleResizeStart}
                       >
