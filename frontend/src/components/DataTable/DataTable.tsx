@@ -81,6 +81,7 @@ import { useToast } from '@/components/ui/use-toast';
 
 interface ColumnInfoProp {
   name: string;
+  definition?: string;
   allowed_values?: string[];
 }
 
@@ -205,6 +206,27 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
         onMouseDown={handleResizeMouseDown}
       />
     </th>
+  );
+};
+
+// Column header with optional definition tooltip
+const ColumnHeaderLabel: React.FC<{ column: string; definition?: string }> = ({ column, definition }) => {
+  const label = column.startsWith('_') && column !== '_unit_name'
+    ? <Badge variant="outline">{formatColumnName(column)}</Badge>
+    : formatColumnName(column);
+
+  if (!definition) return <>{label}</>;
+
+  return (
+    <Tooltip delayDuration={300}>
+      <TooltipTrigger asChild>
+        <span className="cursor-help underline decoration-dashed decoration-muted-foreground/40 underline-offset-4">{label}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="start" className="max-w-xs px-3 py-2">
+        <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 mb-1.5">Definition</p>
+        <p className="text-[13px] font-normal leading-snug">{definition}</p>
+      </TooltipContent>
+    </Tooltip>
   );
 };
 
@@ -1309,11 +1331,10 @@ const DataTable: React.FC<DataTableProps> = ({
                         <div
                           className="flex items-center gap-1 flex-1 overflow-hidden"
                         >
-                          {frozenColumn.startsWith('_') && frozenColumn !== '_unit_name' ? (
-                            <Badge variant="outline">{formatColumnName(frozenColumn)}</Badge>
-                          ) : (
-                            formatColumnName(frozenColumn)
-                          )}
+                          <ColumnHeaderLabel
+                            column={frozenColumn}
+                            definition={columnInfo?.find(c => c.name === frozenColumn)?.definition}
+                          />
                         </div>
                       </div>
                       {/* Resize handle */}
@@ -1341,11 +1362,10 @@ const DataTable: React.FC<DataTableProps> = ({
                         columnWidth={getColumnWidth(column)}
                         onResizeStart={handleResizeStart}
                       >
-                        {column.startsWith('_') && column !== '_unit_name' ? (
-                          <Badge variant="outline">{formatColumnName(column)}</Badge>
-                        ) : (
-                          formatColumnName(column)
-                        )}
+                        <ColumnHeaderLabel
+                          column={column}
+                          definition={columnInfo?.find(c => c.name === column)?.definition}
+                        />
                       </SortableHeaderCell>
                     ))}
                   </SortableContext>

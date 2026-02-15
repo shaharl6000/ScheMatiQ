@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useSearchParams, useNavigate, useLocation } from 'react-router-dom';
+import { useViewHistory } from '../hooks/useViewHistory';
+import { useNavigationGuardContext } from '../contexts/NavigationGuardContext';
+import { NavigationConfirmDialog } from '@/components/ui/NavigationConfirmDialog';
 import { debug } from '@/utils/debug';
 import {
   ArrowLeft,
@@ -853,18 +856,23 @@ const Visualize = () => {
     setDocumentUploadError(null);
 
     try {
-      // Retrieve API key from storage for the selected provider
-      const apiKey = await getApiKeyForProvider(llmConfig.provider as LLMProvider);
+      // Retrieve API key: prefer what was passed in, then check storage
+      const apiKey = llmConfig.api_key || await getApiKeyForProvider(llmConfig.provider as LLMProvider);
+
       if (!apiKey) {
-        setDocumentUploadError(`No API key configured for ${llmConfig.provider}. Please add your API key on the home page.`);
-        setDocumentUploadLoading(false);
-        return;
+        // No client-side key — check if server can provide one
+        const cfg = await configAPI.getConfig().catch(() => ({ server_has_api_keys: false }));
+        if (!cfg.server_has_api_keys) {
+          setDocumentUploadError(`No API key configured for ${llmConfig.provider}. Please add your API key on the home page.`);
+          setDocumentUploadLoading(false);
+          return;
+        }
       }
 
-      // Include API key in the config
+      // Include API key in the config (undefined = backend uses server key)
       const configWithKey = {
         ...llmConfig,
-        api_key: apiKey,
+        api_key: apiKey || undefined,
       };
 
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -980,37 +988,77 @@ const Visualize = () => {
     }
   };
 
-  const handleBackNavigation = async () => {
+  const handleBackNavigation = useCallback(async () => {
     if (session && mode === 'qbsd') {
       try {
         // Fetch full configuration used for this session
         const config = await qbsdAPI.getConfig(sessionId!);
-        
-        // Navigate back to QBSD config with state restoration
-        // Keys must match what QBSDConfig.tsx expects: config, previousSessionId, uploadedFileNames
-        navigate('/qbsd', {
-          state: {
-            config,
-            previousSessionId: sessionId,
-            uploadedFileNames: session?.metadata?.uploaded_documents || []
-          }
-        });
+        const statePayload = {
+          config,
+          previousSessionId: sessionId,
+          uploadedFileNames: session?.metadata?.uploaded_documents || []
+        };
+
+        // Save to sessionStorage so browser back also works
+        sessionStorage.setItem(`qbsd_config_${sessionId}`, JSON.stringify(statePayload));
+
+        // Navigate back (replace to keep history clean during edit cycles)
+        navigate('/qbsd', { replace: true, state: statePayload });
       } catch (err) {
         console.error('Failed to fetch config for restoration:', err);
         // Fallback: navigate with basic state from session
-        navigate('/qbsd', {
-          state: {
-            config: {
-              query: session.schema_query || '',
-              docs_path: session.metadata.cloud_dataset ? session.metadata.cloud_dataset.split(', ') : [],
-            }
+        const fallbackPayload = {
+          config: {
+            query: session?.schema_query || '',
+            docs_path: session?.metadata.cloud_dataset ? session.metadata.cloud_dataset.split(', ') : [],
           }
-        });
+        };
+        sessionStorage.setItem(`qbsd_config_${sessionId}`, JSON.stringify(fallbackPayload));
+        navigate('/qbsd', { replace: true, state: fallbackPayload });
       }
     } else {
       navigate('/');
     }
-  };
+  }, [session, mode, sessionId, navigate]);
+
+  // --- View history + navigation guard (must be before early returns) ---
+  const isAnyProcessingActive = (mode === 'qbsd' && session?.status === 'processing') ||
+    !!activeReextractionId ||
+    session?.status === 'processing_documents';
+
+  const handleViewRestore = useCallback((entry: { tab: string; viewMode: import('../types/unit').ViewMode }) => {
+    setActiveTab(entry.tab);
+    setViewMode(entry.viewMode);
+  }, [setViewMode]);
+
+  const { pushViewState, goBack, blocker: processingBlocker, requestNavigation } =
+    useViewHistory(activeTab, viewMode, isAnyProcessingActive, handleViewRestore);
+
+  // Register guard in context so the header banner also respects it
+  const { registerGuard } = useNavigationGuardContext();
+  useEffect(() => {
+    return registerGuard(requestNavigation);
+  }, [requestNavigation, registerGuard]);
+
+  // Wrapped tab change handler — records target view in browser history
+  const handleTabChange = useCallback((newTab: string) => {
+    if (newTab === activeTab) return;
+    pushViewState({ tab: newTab, viewMode });
+    setActiveTab(newTab);
+  }, [activeTab, viewMode, pushViewState]);
+
+  // Wrapped view mode change handler
+  const handleViewModeChange = useCallback((newMode: import('../types/unit').ViewMode) => {
+    if (newMode === viewMode) return;
+    pushViewState({ tab: activeTab, viewMode: newMode });
+    setViewMode(newMode);
+  }, [activeTab, viewMode, pushViewState, setViewMode]);
+
+  // Back arrow: traverse view history first, then leave page
+  const handleBackClick = useCallback(async () => {
+    if (goBack()) return; // view state restored
+    await handleBackNavigation(); // no view history left, leave page
+  }, [goBack, handleBackNavigation]);
 
   if (!sessionId) {
     return (
@@ -1088,7 +1136,7 @@ const Visualize = () => {
       {/* Header */}
       <div className="space-y-3 border-b pb-4">
         <div className="flex items-center justify-between">
-          <Button variant="ghost" size="sm" onClick={handleBackNavigation}>
+          <Button variant="ghost" size="sm" onClick={handleBackClick}>
             <ArrowLeft className="h-4 w-4 mr-2" />
             {mode === 'qbsd' ? 'Back to Configuration' : 'Back to Home'}
           </Button>
@@ -1168,7 +1216,7 @@ const Visualize = () => {
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
         <TabsList>
           <TabsTrigger
             value="data"
@@ -1216,7 +1264,7 @@ const Visualize = () => {
                 <div className="mb-4 flex items-center gap-4">
                   <ViewModeToggle
                     viewMode={viewMode}
-                    onViewModeChange={setViewMode}
+                    onViewModeChange={handleViewModeChange}
                     disabled={(!unitListResponse || unitListResponse.totalUnits === 0) && !hasUnitColumn}
                     disabledTooltip="No observation units found in this session"
                     unitCount={unitListResponse?.totalUnits || (hasUnitColumn ? undefined : 0)}
@@ -1229,7 +1277,7 @@ const Visualize = () => {
                   sessionId={sessionId!}
                   sessionType={mode}
                   columns={session?.columns?.map(col => col.name) || []}
-                  columnInfo={session?.columns?.map(col => ({ name: col.name, allowed_values: col.allowed_values ?? undefined }))}
+                  columnInfo={session?.columns?.map(col => ({ name: col.name, definition: col.definition, allowed_values: col.allowed_values ?? undefined }))}
                   onDataChange={() => {
                     queryClient.invalidateQueries(['session', sessionId, mode]);
                     queryClient.invalidateQueries(['data', sessionId, mode]);
@@ -1266,9 +1314,9 @@ const Visualize = () => {
                     queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
                     refreshUnits();
                   }}
-                  columnInfo={session?.columns?.map(col => ({ name: col.name, allowed_values: col.allowed_values ?? undefined }))}
+                  columnInfo={session?.columns?.map(col => ({ name: col.name, definition: col.definition, allowed_values: col.allowed_values ?? undefined }))}
                   viewMode={viewMode}
-                  onViewModeChange={setViewMode}
+                  onViewModeChange={handleViewModeChange}
                   hasUnits={((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) || false}
                   unitCount={unitListResponse?.totalUnits}
                   documentList={documentListResponse?.documents}
@@ -1534,7 +1582,14 @@ const Visualize = () => {
             setVisualizeGuideForceOpen(false);
           }
         }}
-        onDismiss={() => setActiveTab('data')}
+        onDismiss={() => handleTabChange('data')}
+      />
+
+      {/* Navigation guard for active processing */}
+      <NavigationConfirmDialog
+        blocker={processingBlocker}
+        title="Processing in progress"
+        description="Schema discovery is still running. You can return to this session later. Are you sure you want to leave?"
       />
     </div>
   );

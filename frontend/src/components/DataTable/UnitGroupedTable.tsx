@@ -68,7 +68,7 @@ interface UnitGroupedTableProps {
   /** Columns to display */
   columns: string[];
   /** Column metadata for display */
-  columnInfo?: { name: string; allowed_values?: string[] }[];
+  columnInfo?: { name: string; definition?: string; allowed_values?: string[] }[];
   /** Callback when data changes */
   onDataChange?: () => void;
   /** Columns currently being re-extracted */
@@ -721,29 +721,44 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                 )}
 
                 {/* Scrollable data columns */}
-                {visibleColumns.map(column => (
-                  <th
-                    key={column}
-                    ref={(el) => { headerRefs.current[column] = el; }}
-                    className={cn(
-                      "px-4 py-3 text-left font-semibold text-sm bg-background relative",
-                      !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]"
-                    )}
-                    style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
-                  >
-                    <div className="flex items-center gap-1">
-                      {formatColumnName(column)}
-                    </div>
-                    <div
-                      className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                        const th = headerRefs.current[column];
-                        if (th) handleResizeStart(e, column, th.offsetWidth);
-                      }}
-                    />
-                  </th>
-                ))}
+                {visibleColumns.map(column => {
+                  const colDef = columnInfo?.find(c => c.name === column)?.definition;
+                  return (
+                    <th
+                      key={column}
+                      ref={(el) => { headerRefs.current[column] = el; }}
+                      className={cn(
+                        "px-4 py-3 text-left font-semibold text-sm bg-background relative",
+                        !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]"
+                      )}
+                      style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
+                    >
+                      <div className="flex items-center gap-1">
+                        {colDef ? (
+                          <Tooltip delayDuration={300}>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-help underline decoration-dashed decoration-muted-foreground/40 underline-offset-4">{formatColumnName(column)}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" align="start" className="max-w-xs px-3 py-2">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 mb-1.5">Definition</p>
+                              <p className="text-[13px] font-normal leading-snug">{colDef}</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          formatColumnName(column)
+                        )}
+                      </div>
+                      <div
+                        className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          const th = headerRefs.current[column];
+                          if (th) handleResizeStart(e, column, th.offsetWidth);
+                        }}
+                      />
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
