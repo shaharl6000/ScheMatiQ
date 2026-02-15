@@ -1650,12 +1650,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                       )}
                                     </div>
                                   )}
-                                  {(column.non_null_count !== undefined || column.unique_count !== undefined) && (
+                                  {(column.non_null_count != null || column.unique_count != null) && (
                                     <div className="flex gap-2 mt-2">
-                                      {column.non_null_count !== undefined && (
+                                      {column.non_null_count != null && (
                                         <Badge variant="outline">{column.non_null_count} non-null</Badge>
                                       )}
-                                      {column.unique_count !== undefined && (
+                                      {column.unique_count != null && (
                                         <Badge variant="outline">{column.unique_count} unique</Badge>
                                       )}
                                     </div>
@@ -1931,12 +1931,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     </div>
                   )}
 
-                  {(column.non_null_count !== undefined || column.unique_count !== undefined) && (
+                  {(column.non_null_count != null || column.unique_count != null) && (
                     <div className="flex gap-2 mt-2">
-                      {column.non_null_count !== undefined && (
+                      {column.non_null_count != null && (
                         <Badge variant="outline">{column.non_null_count} non-null</Badge>
                       )}
-                      {column.unique_count !== undefined && (
+                      {column.unique_count != null && (
                         <Badge variant="outline">{column.unique_count} unique</Badge>
                       )}
                     </div>
