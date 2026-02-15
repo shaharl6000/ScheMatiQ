@@ -1166,6 +1166,7 @@ const Visualize = () => {
       documents_uploaded: 'warning',
       processing_documents: 'warning',
       processing: 'warning',
+      observation_unit_review: 'info',
       error: 'destructive',
     };
     const labels: Record<string, string> = {
@@ -1174,6 +1175,7 @@ const Visualize = () => {
       schema_extracted: 'Schema Extracted',
       documents_uploaded: 'Documents Ready',
       processing_documents: 'Processing Documents',
+      observation_unit_review: 'Reviewing Observation Unit',
     };
     return (
       <Badge variant={variants[status || ''] || 'default'}>
@@ -1536,6 +1538,24 @@ const Visualize = () => {
               onReextractionStarted={handleReextractionStarted}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}
               observationUnit={session.observation_unit}
+              onRegenerateSchema={mode === 'qbsd' ? async () => {
+                try {
+                  await qbsdAPI.resume(sessionId);
+                  toast({
+                    title: 'Schema Rediscovery Started',
+                    description: 'The schema is being rediscovered with the updated observation unit. Switching to the Monitor tab.',
+                  });
+                  // Switch to monitor tab to show progress
+                  setActiveTab('monitor');
+                } catch (error: any) {
+                  const detail = error?.response?.data?.detail;
+                  toast({
+                    title: 'Error',
+                    description: detail || 'Failed to start schema rediscovery',
+                    variant: 'destructive',
+                  });
+                }
+              } : undefined}
             />
           ) : (
             <Alert variant="info">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Play,
   Square,
@@ -11,6 +11,11 @@ import {
   XCircle,
   ChevronDown,
   Clock,
+  Layers,
+  ArrowRight,
+  Plus,
+  X,
+  Pencil,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -20,15 +25,18 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/components/ui/label';
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 
-import { schematiqAPI } from '../../services/api';
+import { schematiqAPI, observationUnitAPI, loadAPI } from '../../services/api';
 import { webSocketService } from '../../services/websocket';
-import { ScheMatiQStatus, WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData, LogData, StoppedData } from '../../types';
+import { ScheMatiQStatus, WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData, LogData, StoppedData, ObservationUnitReadyData } from '../../types';
 
 interface ScheMatiQMonitorProps {
   sessionId: string;
@@ -44,7 +52,7 @@ interface LogEntry {
 }
 
 // Processing state that changes IMMEDIATELY on user action
-type ProcessingState = 'idle' | 'starting' | 'schema' | 'extraction' | 'completed' | 'error' | 'stopped';
+type ProcessingState = 'idle' | 'starting' | 'schema' | 'extraction' | 'completed' | 'error' | 'stopped' | 'observation_unit_review';
 
 const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStarted = false, initialCapacityMessage = '' }) => {
   const queryClient = useQueryClient();
@@ -62,6 +70,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
       if (cachedStatus.status === 'completed') return 'completed';
       if (cachedStatus.status === 'stopped') return 'stopped';
       if (cachedStatus.status === 'error') return 'error';
+      if (cachedStatus.status === 'observation_unit_review') return 'observation_unit_review';
     }
     return autoStarted ? 'starting' : 'idle';
   });
@@ -98,6 +107,15 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
   // Stop button loading state - shows immediate feedback when user clicks stop
   const [isStopping, setIsStopping] = useState(false);
 
+  // Observation unit review state
+  const [reviewObsUnit, setReviewObsUnit] = useState<ObservationUnitReadyData | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDefinition, setEditDefinition] = useState('');
+  const [editExamples, setEditExamples] = useState<string[]>([]);
+  const [newExample, setNewExample] = useState('');
+  const [isResuming, setIsResuming] = useState(false);
+  const [obsUnitEdited, setObsUnitEdited] = useState(false);
+
   // Track ScheMatiQ start time for elapsed display
   const startTimeRef = useRef<number | null>(null);
 
@@ -125,6 +143,25 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
       setProcessingState('completed');
     } else if (status?.status === 'stopped' && processingState !== 'stopped') {
       setProcessingState('stopped');
+    } else if (status?.status === 'observation_unit_review' && processingState !== 'observation_unit_review') {
+      setProcessingState('observation_unit_review');
+      // Load observation unit from session if we don't have it (page refresh case)
+      if (!reviewObsUnit) {
+        loadAPI.getSession(sessionId).then(session => {
+          if (session?.observation_unit) {
+            const obsData: ObservationUnitReadyData = {
+              name: session.observation_unit.name,
+              definition: session.observation_unit.definition,
+              example_names: session.observation_unit.example_names || [],
+            };
+            setReviewObsUnit(obsData);
+            setEditName(obsData.name);
+            setEditDefinition(obsData.definition);
+            setEditExamples(obsData.example_names || []);
+            setObsUnitEdited(false);
+          }
+        }).catch(() => { /* ignore - will retry on next poll */ });
+      }
     } else if (status?.status === 'error') {
       setProcessingState('error');
       setErrorMessage(status.error_message || 'An error occurred');
@@ -288,6 +325,18 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
       } else if (message.type === 'log') {
         const logData = message.data as LogData;
         addLog(logData?.level || 'info', logData?.message || 'Log message', message.data);
+      } else if (message.type === 'observation_unit_ready') {
+        const obsData = message.data as ObservationUnitReadyData;
+        addLog('info', `Observation unit discovered: "${obsData?.name}". Review before continuing.`);
+        setProcessingState('observation_unit_review');
+        if (obsData) {
+          setReviewObsUnit(obsData);
+          setEditName(obsData.name);
+          setEditDefinition(obsData.definition);
+          setEditExamples(obsData.example_names || []);
+          setObsUnitEdited(false);
+        }
+        queryClient.invalidateQueries(['qbsd-status', sessionId]);
       } else if (message.type === 'stopped') {
         const stoppedData = message.data as StoppedData;
         const schemaSaved = stoppedData?.schema_saved || false;
@@ -423,6 +472,66 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
     } catch (error: any) {
       addLog('error', `Failed to stop ScheMatiQ: ${error.message}`);
       setIsStopping(false);
+    }
+  };
+
+  const handleAddExample = useCallback(() => {
+    const trimmed = newExample.trim();
+    if (!trimmed || editExamples.includes(trimmed)) return;
+    if (editExamples.length >= 20) return;
+    setEditExamples(prev => [...prev, trimmed]);
+    setNewExample('');
+    setObsUnitEdited(true);
+  }, [newExample, editExamples]);
+
+  const handleRemoveExample = useCallback((index: number) => {
+    setEditExamples(prev => prev.filter((_, i) => i !== index));
+    setObsUnitEdited(true);
+  }, []);
+
+  const handleResume = async (skipEdit = false) => {
+    setIsResuming(true);
+    try {
+      // If the user edited the observation unit, save changes first
+      if (!skipEdit && obsUnitEdited && editName.trim() && editDefinition.trim()) {
+        await observationUnitAPI.updateDefinition(sessionId, {
+          name: editName.trim(),
+          definition: editDefinition.trim(),
+          example_names: editExamples.length > 0 ? editExamples : undefined,
+        });
+        addLog('success', `Observation unit updated to "${editName.trim()}"`);
+      }
+
+      // Resume the pipeline
+      await qbsdAPI.resume(sessionId);
+      addLog('info', 'Resuming schema generation...');
+
+      // Transition to starting/schema state
+      setProcessingState('starting');
+      setCurrentStepMessage('Resuming pipeline...');
+      startTimeRef.current = Date.now();
+      lastLoggedPhaseRef.current = null;
+
+      // Reset progress for the new run
+      setSchemaProgress({
+        iteration: 0,
+        maxIterations: 5,
+        columnsDiscovered: 0,
+        isComplete: false
+      });
+      setExtractionProgress({
+        processedDocs: 0,
+        totalDocs: 0,
+        isComplete: false
+      });
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail;
+      const message = detail || error.message || 'Failed to resume';
+      setErrorMessage(message);
+      setProcessingState('error');
+      addLog('error', `Failed to resume: ${message}`);
+    } finally {
+      setIsResuming(false);
     }
   };
 
@@ -595,8 +704,177 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
               )}
             </>
           )}
+
+          {/* OBSERVATION UNIT REVIEW STATE */}
+          {processingState === 'observation_unit_review' && reviewObsUnit && (
+            <div className="w-full max-w-lg">
+              <div className="flex flex-col items-center mb-4">
+                <div className="w-14 h-14 rounded-full bg-purple-100 flex items-center justify-center mb-3">
+                  <Layers className="h-7 w-7 text-purple-600" />
+                </div>
+                <p className="text-xl font-semibold text-purple-700 mb-1">Review Observation Unit</p>
+                <p className="text-sm text-muted-foreground text-center">
+                  The observation unit defines what each row in your table represents.
+                  Review and optionally edit before schema generation.
+                </p>
+              </div>
+
+              <div className="space-y-3 text-left">
+                {/* Name */}
+                <div className="space-y-1">
+                  <Label htmlFor="obs-name" className="text-sm font-medium">Name</Label>
+                  <Input
+                    id="obs-name"
+                    value={editName}
+                    onChange={(e) => { setEditName(e.target.value); setObsUnitEdited(true); }}
+                    placeholder="e.g., Model, Protein, Study"
+                  />
+                </div>
+
+                {/* Definition */}
+                <div className="space-y-1">
+                  <Label htmlFor="obs-definition" className="text-sm font-medium">Definition</Label>
+                  <Textarea
+                    id="obs-definition"
+                    value={editDefinition}
+                    onChange={(e) => { setEditDefinition(e.target.value); setObsUnitEdited(true); }}
+                    placeholder="Describe what constitutes a single row..."
+                    rows={3}
+                    className="resize-none"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {editDefinition.length}/500 characters
+                  </p>
+                </div>
+
+                {/* Example Names */}
+                <div className="space-y-1">
+                  <Label className="text-sm font-medium">Example Names</Label>
+                  {editExamples.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-1.5">
+                      {editExamples.map((ex, i) => (
+                        <Badge key={i} variant="secondary" className="gap-1 pr-1">
+                          {ex}
+                          <button
+                            onClick={() => handleRemoveExample(i)}
+                            className="ml-0.5 hover:text-destructive rounded-full"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <Input
+                      value={newExample}
+                      onChange={(e) => setNewExample(e.target.value)}
+                      placeholder="Add an example..."
+                      className="flex-1"
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddExample(); } }}
+                    />
+                    <Button variant="outline" size="sm" onClick={handleAddExample} disabled={!newExample.trim()}>
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-col gap-2 mt-5">
+                <Button
+                  size="lg"
+                  onClick={() => handleResume(false)}
+                  disabled={isResuming || !editName.trim() || !editDefinition.trim()}
+                  className="w-full"
+                >
+                  {isResuming ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Resuming...
+                    </>
+                  ) : (
+                    <>
+                      <ArrowRight className="h-4 w-4 mr-2" />
+                      {obsUnitEdited ? 'Save & Continue to Schema Generation' : 'Continue to Schema Generation'}
+                    </>
+                  )}
+                </Button>
+                {obsUnitEdited && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      // Reset edits to original values
+                      setEditName(reviewObsUnit.name);
+                      setEditDefinition(reviewObsUnit.definition);
+                      setEditExamples(reviewObsUnit.example_names || []);
+                      setObsUnitEdited(false);
+                    }}
+                    className="text-muted-foreground"
+                  >
+                    Discard changes
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* Observation Unit Info + Edit Button (shown after review step, during or after processing) */}
+      {reviewObsUnit && processingState !== 'observation_unit_review' && processingState !== 'idle' && (
+        <Card className="bg-purple-50/50 border-purple-200">
+          <CardContent className="py-3 px-4 flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <Layers className="h-4 w-4 text-purple-600 shrink-0" />
+              <div className="min-w-0">
+                <span className="text-xs text-purple-600 font-medium">Observation Unit</span>
+                <p className="text-sm font-semibold text-purple-900 truncate">{editName || reviewObsUnit.name}</p>
+              </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-purple-600 hover:text-purple-800 hover:bg-purple-100 shrink-0"
+              disabled={isResuming}
+              onClick={async () => {
+                // If pipeline is running, stop it first
+                if (isProcessing) {
+                  try {
+                    await qbsdAPI.stop(sessionId);
+                    addLog('info', 'Stopped pipeline to edit observation unit');
+                  } catch (e) {
+                    // Ignore stop errors — might already be stopped
+                  }
+                }
+                // Load fresh observation unit from session
+                try {
+                  const session = await loadAPI.getSession(sessionId);
+                  if (session?.observation_unit) {
+                    const obsData: ObservationUnitReadyData = {
+                      name: session.observation_unit.name,
+                      definition: session.observation_unit.definition,
+                      example_names: session.observation_unit.example_names || [],
+                    };
+                    setReviewObsUnit(obsData);
+                    setEditName(obsData.name);
+                    setEditDefinition(obsData.definition);
+                    setEditExamples(obsData.example_names || []);
+                    setObsUnitEdited(false);
+                  }
+                } catch (e) {
+                  // Fall back to the cached observation unit data
+                }
+                setProcessingState('observation_unit_review');
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5 mr-1.5" />
+              Edit & Rediscover
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Phase Progress Cards - Side by Side */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

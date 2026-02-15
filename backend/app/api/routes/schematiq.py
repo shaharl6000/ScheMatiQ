@@ -11,7 +11,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.models.session import VisualizationSession, SessionType, SessionMetadata, FilterSortRequest
+from app.models.session import VisualizationSession, SessionType, SessionStatus, SessionMetadata, FilterSortRequest
 from app.models.schematiq import ScheMatiQConfig, ScheMatiQStatus, CostEstimate, CostEstimateRequest, PhaseEstimate, DocumentStats
 from app.services.schematiq_runner import ScheMatiQRunner
 from app.services.data_editor import DataEditor
@@ -302,6 +302,69 @@ async def run_schematiq(session_id: str, background_tasks: BackgroundTasks):
         await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/resume/{session_id}")
+async def resume_qbsd(session_id: str, background_tasks: BackgroundTasks):
+    """Resume QBSD execution after observation unit review or rediscover schema.
+
+    Called either:
+    - After the user reviews/edits the observation unit during the review step
+    - After the user edits the observation unit post-completion and wants to rediscover the schema
+
+    The pipeline will re-run schema discovery using the (potentially edited) observation unit.
+    """
+    try:
+        session = session_manager.get_session(session_id)
+        if not session or session.type != SessionType.QBSD:
+            raise HTTPException(status_code=404, detail="QBSD session not found")
+
+        allowed_statuses = {
+            SessionStatus.OBSERVATION_UNIT_REVIEW,
+            SessionStatus.COMPLETED,
+            SessionStatus.STOPPED,
+            SessionStatus.SCHEMA_READY,
+        }
+        if session.status not in allowed_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Session cannot be resumed from status '{session.status}'. "
+                       f"Allowed: {', '.join(s.value for s in allowed_statuses)}"
+            )
+
+        # Pre-check global LLM quota before starting background task
+        from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
+        from qbsd.core.llm_call_tracker import QuotaExceededError
+        if not DEVELOPER_MODE and LLM_CALL_GLOBAL_LIMIT > 0:
+            try:
+                qbsd_runner._sync_usage_from_sheets()
+                qbsd_runner._global_usage.check_quota(LLM_CALL_GLOBAL_LIMIT)
+            except QuotaExceededError as exc:
+                from app.core.email_alerts import send_quota_exceeded_alert
+                send_quota_exceeded_alert(total_used=exc.used)
+                raise HTTPException(
+                    status_code=429,
+                    detail="The system has reached its processing capacity. Please try again later."
+                )
+
+        # Reserve concurrency slot before starting background task
+        await concurrency_limiter.acquire(session_id, "qbsd")
+
+        # Start resumed QBSD in background
+        background_tasks.add_task(qbsd_runner.resume_qbsd, session_id)
+
+        return {"message": "QBSD execution resumed", "session_id": session_id}
+
+    except CapacityExceededError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        await concurrency_limiter.release(session_id)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/status/{session_id}", response_model=QBSDStatus)
+async def get_qbsd_status(session_id: str):
+    """Get QBSD execution status."""
 @router.get("/status/{session_id}", response_model=ScheMatiQStatus)
 async def get_schematiq_status(session_id: str):
     """Get ScheMatiQ execution status."""

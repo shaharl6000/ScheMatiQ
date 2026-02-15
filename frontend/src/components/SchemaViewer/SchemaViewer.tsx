@@ -107,6 +107,7 @@ interface SchemaViewerProps {
   llmConfig?: any;
   observationUnit?: ObservationUnitInfo;
   onObservationUnitUpdate?: (updated: ObservationUnitInfo) => void;
+  onRegenerateSchema?: () => void;
 }
 
 const SchemaViewer: React.FC<SchemaViewerProps> = ({
@@ -121,7 +122,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   websocketManager,
   llmConfig,
   observationUnit,
-  onObservationUnitUpdate
+  onObservationUnitUpdate,
+  onRegenerateSchema,
 }) => {
   const { toast } = useToast();
 
@@ -2169,6 +2171,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           onReextractionRequest={() => {
             setReextractionDialogOpen(true);
           }}
+          onRegenerateSchema={onRegenerateSchema}
         />
       )}
     </div>

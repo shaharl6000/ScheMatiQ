@@ -264,6 +264,10 @@ export const schematiqAPI = {
     await api.post(`/schematiq/run/${sessionId}`);
   },
 
+  resume: async (sessionId: string): Promise<void> => {
+    await api.post(`/schematiq/resume/${sessionId}`);
+  },
+
   getStatus: async (sessionId: string): Promise<ScheMatiQStatus> => {
     const response = await api.get(`/schematiq/status/${sessionId}`);
     return response.data;

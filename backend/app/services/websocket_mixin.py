@@ -165,3 +165,23 @@ class WebSocketBroadcasterMixin:
             "data": stopped_data
         }
         await self.websocket_manager.broadcast_to_session(session_id, message)
+
+    async def broadcast_observation_unit_ready(
+        self,
+        session_id: str,
+        observation_unit_data: Dict[str, Any]
+    ):
+        """Broadcast observation unit ready for review via WebSocket.
+
+        Sent when the pipeline pauses after observation unit discovery
+        so the user can review/edit before schema generation continues.
+
+        Args:
+            observation_unit_data: Dict with name, definition, and example_names keys
+        """
+        message = {
+            "type": "observation_unit_ready",
+            "timestamp": datetime.now().isoformat(),
+            "data": observation_unit_data
+        }
+        await self.websocket_manager.broadcast_to_session(session_id, message)

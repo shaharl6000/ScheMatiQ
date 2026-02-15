@@ -378,6 +378,9 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 "definition": config.initial_observation_unit.definition
             }
 
+        # Add review_observation_unit flag
+        schematiq_config["review_observation_unit"] = config.review_observation_unit
+
         return schematiq_config
 
     async def _resolve_docs_paths(self, config: ScheMatiQConfig, session_id: str) -> List[str]:
@@ -613,6 +616,50 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             # Release concurrency slot (safe even if not acquired)
             await concurrency_limiter.release(session_id)
 
+    async def resume_qbsd(self, session_id: str):
+        """Resume QBSD after observation unit review.
+
+        Reads the (potentially edited) observation unit from the session,
+        injects it into the config as a pre-configured unit, and re-runs
+        the pipeline. The pipeline will skip observation unit discovery
+        since it's already set.
+        """
+        set_session_context(session_id)
+
+        # Load saved config
+        config_file = self.work_dir / session_id / "config.json"
+        if not config_file.exists():
+            raise RuntimeError(f"Config file not found for session {session_id}")
+
+        with open(config_file) as f:
+            config_data = json.load(f)
+
+        # Read the current observation unit from the session (user may have edited it)
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            raise RuntimeError(f"Session {session_id} not found")
+
+        if session.observation_unit:
+            # Inject the observation unit as a fully pre-configured unit
+            config_data["initial_observation_unit"] = {
+                "name": session.observation_unit.name,
+                "definition": session.observation_unit.definition,
+            }
+
+        # Disable review flag so it won't pause again
+        config_data["review_observation_unit"] = False
+
+        # Save updated config
+        with open(config_file, 'w') as f:
+            json.dump(config_data, f, indent=2)
+
+        # Re-run the pipeline (will skip observation unit discovery since it's pre-configured)
+        await self.run_schematiq(session_id)
+
+    async def _execute_qbsd(self, session_id: str, config: QBSDConfig):
+        """Execute the real QBSD process."""
+        if not QBSD_AVAILABLE:
+            raise RuntimeError("QBSD components not available. Cannot execute real QBSD pipeline.")
     async def _execute_schematiq(self, session_id: str, config: ScheMatiQConfig):
         """Execute the real ScheMatiQ process."""
         if not SCHEMATIQ_AVAILABLE:
@@ -823,8 +870,104 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 logger.debug("No retriever config found, using None")
             
             await update_progress("Setting up retriever", 1.0)
-            
-            # Step 5: Schema discovery
+
+            # Step 5: Observation unit discovery (when review_observation_unit is enabled)
+            # When the user wants to review the observation unit before schema generation,
+            # we discover it as a separate step, save it, and pause the pipeline.
+            review_observation_unit = qbsd_config.get("review_observation_unit", False)
+            if review_observation_unit and has_documents:
+                current_step += 1
+                await update_progress("Discovering observation unit", 0.0)
+
+                # Check if observation unit is already fully pre-configured (name + definition)
+                initial_obs_unit = qbsd_config.get("initial_observation_unit")
+                obs_unit_already_set = initial_obs_unit and initial_obs_unit.get("definition")
+
+                if obs_unit_already_set:
+                    # Already fully specified - use as-is but still pause for review
+                    obs_unit = ObservationUnit(
+                        name=initial_obs_unit["name"],
+                        definition=initial_obs_unit["definition"]
+                    )
+                    logger.info("Using pre-configured observation unit for review: %s", obs_unit.name)
+                else:
+                    # Need to discover the observation unit from documents
+                    batch_size = qbsd_config.get("documents_batch_size", 1)
+                    first_batch_docs = documents[:batch_size]
+                    first_batch_names = filenames[:batch_size]
+                    query = qbsd_config.get("query", "")
+
+                    # Select relevant content from first batch
+                    loop = asyncio.get_running_loop()
+                    relevant_content = await loop.run_in_executor(
+                        qbsd_thread_pool,
+                        functools.partial(
+                            QBSD.select_relevant_content,
+                            docs=first_batch_docs,
+                            query=query,
+                            retriever=retriever,
+                        )
+                    )
+
+                    # Discover observation unit
+                    logger.info("Discovering observation unit for review...")
+                    try:
+                        obs_unit = await loop.run_in_executor(
+                            qbsd_thread_pool,
+                            functools.partial(
+                                discover_observation_unit,
+                                query=query if query.strip() else None,
+                                passages=relevant_content,
+                                llm=llm,
+                                context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
+                                source_document=first_batch_names[0] if first_batch_names else None,
+                            )
+                        )
+                        # If name was pre-configured (name-only mode), override discovered name
+                        if initial_obs_unit and initial_obs_unit.get("name") and not initial_obs_unit.get("definition"):
+                            logger.info("Overriding discovered name '%s' with pre-configured name '%s'", obs_unit.name, initial_obs_unit["name"])
+                            obs_unit.name = initial_obs_unit["name"]
+                        logger.info("Observation unit discovered for review: %s - %s", obs_unit.name, obs_unit.definition)
+                    except ObservationUnitDiscoveryError as e:
+                        logger.error("Observation unit discovery failed: %s", e)
+                        raise RuntimeError(
+                            f"Failed to discover observation unit: {e}. "
+                            "Ensure documents contain extractable entities."
+                        ) from e
+                    except Exception as e:
+                        logger.error("Unexpected error during observation unit discovery: %s", e)
+                        raise RuntimeError(
+                            f"Observation unit discovery failed unexpectedly: {e}"
+                        ) from e
+
+                # Save observation unit to session and pause for review
+                session = self.session_manager.get_session(session_id)
+                session.observation_unit = ObservationUnitInfo(
+                    name=obs_unit.name,
+                    definition=obs_unit.definition,
+                    example_names=obs_unit.example_names,
+                    source_document=getattr(obs_unit, 'source_document', None),
+                    discovery_iteration=getattr(obs_unit, 'discovery_iteration', None)
+                )
+                session.status = SessionStatus.OBSERVATION_UNIT_REVIEW
+                self.session_manager.update_session(session)
+                logger.info("Pipeline paused for observation unit review: %s", obs_unit.name)
+
+                # Broadcast observation_unit_ready event
+                obs_unit_data = {
+                    "name": obs_unit.name,
+                    "definition": obs_unit.definition,
+                    "example_names": obs_unit.example_names or [],
+                }
+                await self.broadcast_observation_unit_ready(session_id, obs_unit_data)
+
+                # Release concurrency slot while paused (will re-acquire on resume)
+                await concurrency_limiter.release(session_id)
+
+                # Return early - pipeline will be resumed via /qbsd/resume endpoint
+                return
+
+            # Step 6: Schema discovery
             current_step += 1
             await update_progress("Discovering schema", 0.0)
 
@@ -1956,6 +2099,9 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             elif session.status == SessionStatus.STOPPED:
                 status = "stopped"
                 progress = 1.0  # Stopped is a final state
+            elif session.status == SessionStatus.OBSERVATION_UNIT_REVIEW:
+                status = "observation_unit_review"
+                progress = 0.3  # Partway through the pipeline
             else:
                 status = "idle"
                 progress = 0.0
