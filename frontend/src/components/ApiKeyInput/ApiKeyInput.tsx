@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Eye, EyeOff, Key, CheckCircle } from 'lucide-react';
+import { Key, CheckCircle } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
   encryptAndStore,
@@ -19,9 +18,11 @@ export const ApiKeyInput = ({
   value,
   onChange,
 }: ApiKeyInputProps) => {
-  const [showKey, setShowKey] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  // Security: when true, input shows a mask instead of the real key
+  const [isLoadedFromStorage, setIsLoadedFromStorage] = useState(false);
+  const STORAGE_MASK = '••••••••••••••••';
 
   // Load saved key on mount and when provider changes
   useEffect(() => {
@@ -31,10 +32,12 @@ export const ApiKeyInput = ({
       if (savedKey) {
         onChange(savedKey);
         setIsSaved(true);
+        setIsLoadedFromStorage(true);
       } else {
         // Clear the value if no saved key for this provider
         onChange('');
         setIsSaved(false);
+        setIsLoadedFromStorage(false);
       }
       setIsLoading(false);
     };
@@ -44,6 +47,15 @@ export const ApiKeyInput = ({
 
   // Save key when it changes (or clear from storage if empty)
   const handleKeyChange = async (newValue: string) => {
+    if (isLoadedFromStorage) {
+      // User started editing a stored key — strip mask chars, keep only real input
+      setIsLoadedFromStorage(false);
+      const cleanValue = newValue.replace(/•/g, '');
+      onChange(cleanValue);
+      await encryptAndStore(provider, cleanValue);
+      setIsSaved(!!cleanValue);
+      return;
+    }
     onChange(newValue);
     // encryptAndStore handles empty values by clearing the stored key
     await encryptAndStore(provider, newValue);
@@ -95,28 +107,12 @@ export const ApiKeyInput = ({
         )}
       </div>
 
-      <div className="relative">
-        <Input
-          type={showKey ? 'text' : 'password'}
-          value={value}
-          onChange={(e) => handleKeyChange(e.target.value)}
-          placeholder={getPlaceholder()}
-          className="pr-10"
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 p-0"
-          onClick={() => setShowKey(!showKey)}
-        >
-          {showKey ? (
-            <EyeOff className="h-4 w-4 text-muted-foreground" />
-          ) : (
-            <Eye className="h-4 w-4 text-muted-foreground" />
-          )}
-        </Button>
-      </div>
+      <Input
+        type={isLoadedFromStorage ? 'password' : 'text'}
+        value={isLoadedFromStorage ? STORAGE_MASK : value}
+        onChange={(e) => handleKeyChange(e.target.value)}
+        placeholder={getPlaceholder()}
+      />
 
       <p className="text-xs text-muted-foreground">
         {value
