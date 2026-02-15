@@ -22,7 +22,10 @@ function getEditableValue(value: CellValue): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   if (typeof value === 'object' && 'answer' in value) {
-    return String((value as { answer: unknown }).answer ?? '');
+    const answer = (value as { answer: unknown }).answer;
+    if (answer === null || answer === undefined) return '';
+    if (typeof answer === 'object') return JSON.stringify(answer);
+    return String(answer);
   }
   if (Array.isArray(value)) return value.join(', ');
   return JSON.stringify(value);

@@ -59,7 +59,7 @@ import { useTableFilter } from './hooks/useTableFilter';
 import { useColumnVisibility } from './hooks/useColumnVisibility';
 import { useColumnStats } from './hooks/useColumnStats';
 import { useColumnResize, MIN_COLUMN_WIDTH, DEFAULT_COLUMN_WIDTH } from './hooks/useColumnResize';
-import { buildColumnMetadata, isEmpty, parsePythonString, getDefaultColumnOrder } from './utils';
+import { buildColumnMetadata, isEmpty, parsePythonString, extractDisplayValue, getDefaultColumnOrder } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import FilterBar from './FilterBar';
 import FilterDialog from './FilterDialog';
@@ -879,20 +879,25 @@ const DataTable: React.FC<DataTableProps> = ({
       // Parse answer if it's a JSON string
       if (typeof answerVal === 'string') {
         const parsed = parsePythonString(answerVal);
-        if (parsed !== answerVal && Array.isArray(parsed) && parsed.length > 0) {
-          const firstItem = parsed[0];
-          if (typeof firstItem === 'object') {
-            answerVal = firstItem.value || firstItem.answer || String(firstItem);
-            const allExcerpts: any[] = [];
-            for (const item of parsed) {
-              const exc = item.excerpt || item.excerpts;
-              if (exc) {
-                allExcerpts.push(...(Array.isArray(exc) ? exc : [exc]));
+        if (parsed !== answerVal && typeof parsed === 'object' && parsed !== null) {
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            const firstItem = parsed[0];
+            if (typeof firstItem === 'object') {
+              answerVal = firstItem.value || firstItem.answer || String(firstItem);
+              const allExcerpts: any[] = [];
+              for (const item of parsed) {
+                const exc = item.excerpt || item.excerpts;
+                if (exc) {
+                  allExcerpts.push(...(Array.isArray(exc) ? exc : [exc]));
+                }
+              }
+              if (allExcerpts.length > 0) {
+                excerptsVal = allExcerpts;
               }
             }
-            if (allExcerpts.length > 0) {
-              excerptsVal = allExcerpts;
-            }
+          } else {
+            // Plain object (e.g., parsed Python dict) — use as answer directly
+            answerVal = parsed;
           }
         }
       }
@@ -1031,7 +1036,9 @@ const DataTable: React.FC<DataTableProps> = ({
           return <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>;
         }
 
-        const answerStr = String(answer);
+        const answerStr = typeof answer === 'object' && answer !== null
+          ? extractDisplayValue(answer)
+          : String(answer);
         const hasExcerptsData = excerpts.length > 0;
         const showExpandIcon = hasExcerptsData || answerStr.length > 40;
 

@@ -107,7 +107,10 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
         const qbsdValue = value as QBSDAnswerWithExcerpts;
         const rawExcerpts = qbsdValue.excerpts || [];
         const excerpts = parseAllExcerpts(rawExcerpts);
-        let text = `Answer: ${qbsdValue.answer}`;
+        const answerText = typeof qbsdValue.answer === 'object' && qbsdValue.answer !== null
+          ? JSON.stringify(qbsdValue.answer, null, 2)
+          : String(qbsdValue.answer);
+        let text = `Answer: ${answerText}`;
         if (excerpts.length > 0) {
           text += '\n\nSupporting Evidence:\n';
           excerpts.forEach((excerpt) => {
@@ -167,7 +170,11 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
               <h4 className="font-semibold text-primary mb-2">Content:</h4>
               <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
                 <p className="text-base font-medium leading-relaxed">
-                  {String(answer)}
+                  {typeof answer === 'object' && answer !== null ? (
+                    <pre className="whitespace-pre-wrap break-words font-mono text-sm">
+                      {JSON.stringify(answer, null, 2)}
+                    </pre>
+                  ) : String(answer)}
                 </p>
               </div>
             </div>
