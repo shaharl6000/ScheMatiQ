@@ -37,7 +37,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-
 interface ColumnDialogProps {
   open: boolean;
   mode: 'add' | 'edit';
@@ -155,14 +154,17 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           definition: formData.definition.trim(),
           rationale: formData.rationale.trim() || undefined,
           allowed_values: formData.allowed_values.length > 0 ? formData.allowed_values : undefined,
-          llm_config: {
+        };
+
+        // Include LLM config if API key is available
+        if (apiKey) {
+          request.llm_config = {
             provider: 'gemini',
             model: 'gemini-2.5-flash-lite',
-            api_key: apiKey || undefined,
-            max_output_tokens: 2048,
+            api_key: apiKey,
             temperature: 0
-          },
-        };
+          };
+        }
 
         const response = await schemaAPI.addColumn(sessionId, request);
         onSuccess(

@@ -1375,7 +1375,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         return GeminiLLM(
                             model=RELEASE_CONFIG["value_extraction_model"],
                             api_key=api_key,
-                            max_output_tokens=2048,
                             temperature=RELEASE_CONFIG["llm_temperature"]
                         )
                 else:
@@ -1389,7 +1388,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
             logger.info(f"Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']} (no user API key, using env var)")
             return GeminiLLM(
                 model=RELEASE_CONFIG["value_extraction_model"],
-                max_output_tokens=2048,
                 temperature=RELEASE_CONFIG["llm_temperature"]
             )
 
@@ -1438,7 +1436,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
         logger.debug(f"Using default GeminiLLM - this will use GEMINI_API_KEY env var")
-        return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0)
+        return GeminiLLM(model="gemini-2.5-flash-lite", temperature=0)
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):
         """Broadcast an event via WebSocket."""

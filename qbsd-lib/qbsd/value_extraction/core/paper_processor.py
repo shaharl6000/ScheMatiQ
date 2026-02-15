@@ -40,6 +40,11 @@ def _chunk_list(lst: List, size: int) -> Iterator[List]:
 # Default batch size for fallback column extraction
 FALLBACK_BATCH_SIZE = 3
 
+# When True, skip retrieval and send the full document to the LLM.
+# This effectively disables chunking/passage-selection so the entire
+# document is sent together with the schema.
+DISABLE_RETRIEVER = True
+
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
 OnValueExtractedCallback = Callable[[str, str, Any], None]
 
@@ -154,6 +159,10 @@ class PaperProcessor:
 
     def _should_skip_truncation(self) -> bool:
         """Check if this LLM supports long context and should skip truncation."""
+        # Global override: when retriever is disabled, also skip truncation
+        if DISABLE_RETRIEVER:
+            return True
+
         # Check for Gemini or other long-context models
         model_name = getattr(self.llm, 'model', '').lower()
         provider = getattr(self.llm, '__class__', None)
@@ -200,7 +209,9 @@ class PaperProcessor:
                                             use_snippets: bool = False) -> Dict[str, Any]:
         """Single column extraction attempt with explicit retriever control."""
         # Prepare text based on retriever availability
-        if retriever is not None:
+        if DISABLE_RETRIEVER:
+            eff = paper_text
+        elif retriever is not None:
             try:
                 retrieval_query = self.text_processor.build_retrieval_query(schema, [col])
                 passages = retriever.query([paper_text], retrieval_query, k=(k_override or 8))
@@ -286,7 +297,9 @@ class PaperProcessor:
         scaled_k = min(base_k * batch_size, 15)
 
         # Prepare text based on retriever availability
-        if retriever is not None:
+        if DISABLE_RETRIEVER:
+            eff = paper_text
+        elif retriever is not None:
             try:
                 # Combined retrieval query for all columns in batch
                 retrieval_query = self.text_processor.build_retrieval_query(schema, columns)
@@ -363,7 +376,9 @@ class PaperProcessor:
             mode = "one_by_one"
 
         def _retrieve_effective_text(columns_for_query=None, k=None) -> str:
-            if self.retriever is None:
+            if DISABLE_RETRIEVER or self.retriever is None:
+                if DISABLE_RETRIEVER:
+                    print(f"🚫 DISABLE_RETRIEVER=True → sending full document ({len(paper_text)} chars) for {paper_title}")
                 return paper_text
             try:
                 retrieval_query = self.text_processor.build_retrieval_query(schema, columns_for_query)
@@ -383,7 +398,9 @@ class PaperProcessor:
                                   k_override: int | None,
                                   use_snippets: bool = False) -> Dict[str, Any]:
             # prepare text
-            if self.retriever is not None:
+            if DISABLE_RETRIEVER:
+                eff = paper_text
+            elif self.retriever is not None:
                 eff = _retrieve_effective_text([col], k=k_override)
             else:
                 if use_snippets:
@@ -786,12 +803,17 @@ class PaperProcessor:
             {"role": "user", "content": user_content},
         ]
 
-        # Fit to context window
+        # Fit to context window, using task-specific token budget
         max_ctx = getattr(self.llm, 'context_window_size', None) or 8192
-        trimmed = utils.fit_prompt(messages, truncate=True, max_new=1024,
+        task_tokens = self.llm.max_tokens_for_task("unit_identification")
+        trimmed = utils.fit_prompt(messages, truncate=True, max_new=task_tokens,
                                    context_window_size=max_ctx)
 
-        raw_response = self.llm.generate(trimmed)
+        raw_response = self.llm.generate(trimmed, max_output_tokens=task_tokens)
+
+        # Log raw response for diagnostics (truncated for readability)
+        preview = raw_response[:500] if raw_response else "(empty)"
+        logging.info(f"[{paper_title}] Unit identification raw response: {preview}")
 
         # Check for stop request
         if self._check_stop_requested():
@@ -800,6 +822,13 @@ class PaperProcessor:
 
         # Parse using dedicated unit parser
         result = self.unit_parser.parse_response(raw_response)
+
+        # Log parse result for diagnostics
+        if result.success:
+            unit_names = [u.get("unit_name", "?") for u in result.units] if result.units else []
+            logging.info(f"[{paper_title}] Unit identification result: {len(unit_names)} units found: {unit_names}")
+        else:
+            logging.warning(f"[{paper_title}] Unit identification parse failed: {result.error} (format: {result.detected_format})")
 
         return result
 
@@ -959,14 +988,16 @@ class PaperProcessor:
         # Replace the system prompt with unit-aware version
         msgs[0]["content"] = system_prompt
 
-        # Fit to context and generate
+        # Fit to context and generate, using task-specific token budget
         should_truncate = not self._should_skip_truncation()
         max_ctx = getattr(self.llm, 'context_window_size', None) or 8192
-        trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens,
+        task_tokens = self.llm.max_tokens_for_task("value_extraction")
+        effective_max = min(max_new_tokens, task_tokens) if max_new_tokens else task_tokens
+        trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=effective_max,
                                    safety_margins=SAFETY_MARGIN_ALL_MODE,
                                    context_window_size=max_ctx)
 
-        raw = self.llm.generate(trimmed)
+        raw = self.llm.generate(trimmed, max_output_tokens=effective_max)
 
         if self._check_stop_requested():
             return {}
@@ -1066,6 +1097,12 @@ class PaperProcessor:
             unit_name = unit.get("unit_name", f"Unit {i}")
             relevant_passages = unit.get("relevant_passages", [paper_text])
             confidence = unit.get("confidence", "medium")
+
+            # When DISABLE_RETRIEVER is on, always use the full document text
+            # instead of the (possibly truncated) relevant_passages from unit identification
+            if DISABLE_RETRIEVER:
+                relevant_passages = [paper_text]
+                print(f"🚫 DISABLE_RETRIEVER=True → sending full document ({len(paper_text)} chars) for unit '{unit_name}' in {paper_title}")
 
             print(f"  → Extracting values for unit {i}/{len(units)}: {unit_name} (confidence: {confidence})")
             unit_start = time_module.time()

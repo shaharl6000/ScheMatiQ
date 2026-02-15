@@ -345,7 +345,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           provider: llmProvider,
           model: llmModel,
           api_key: apiKey || undefined,
-          max_output_tokens: 8192,
           temperature: 0,
           context_window_size: 1000000
         },
@@ -442,8 +441,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         llm_config: {
           provider: extractionProvider,
           model: extractionModel,
-          api_key: extractionApiKey || apiKey || undefined, // Fallback to discovery API key, or undefined for server-side key
-          max_output_tokens: 2048,
+          api_key: extractionApiKey || apiKey, // Fallback to discovery API key if not configured
           temperature: 0
         }
       });
@@ -1011,7 +1009,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                   </Select>
                 </div>
               </div>
-              {configuredProviders.length === 0 && !serverHasApiKeys && (
+              {configuredProviders.length === 0 && (
                 <Alert>
                   <AlertDescription className="text-xs">
                     No API keys configured. Add an API key on the home page to select a model.

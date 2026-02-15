@@ -964,6 +964,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
             filename_batches = [filenames[i:i+batch_size] for i in range(0, len(filenames), batch_size)]
 
+            logger.info("📦 Continue discovery: %d documents → %d batches (batch_size=%d)", len(documents), len(batches), batch_size)
+
             # Update operation with actual batch count
             operation.total_batches = len(batches)
 
