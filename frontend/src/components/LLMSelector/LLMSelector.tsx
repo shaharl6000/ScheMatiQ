@@ -39,6 +39,7 @@ import {
   formatSpeedLevel,
   LLM_PROVIDER_NAMES,
 } from '@/constants/llmModels';
+import { configAPI } from '../../services/api';
 
 interface LLMSelectorProps {
   open: boolean;
@@ -87,6 +88,7 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
   const [configuredProviders, setConfiguredProviders] = useState<LLMProviderKey[]>([]);
   const [selectedProvider, setSelectedProvider] = useState<LLMProviderKey>('gemini');
   const [providersLoading, setProvidersLoading] = useState(true);
+  const [serverHasApiKeys, setServerHasApiKeys] = useState(false);
 
   // Load configured providers when dialog opens
   useEffect(() => {
@@ -95,6 +97,9 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
 
       setProvidersLoading(true);
       const providers = await getConfiguredProviders();
+      const cfg = await configAPI.getConfig().catch(() => ({ server_has_api_keys: false }));
+      setServerHasApiKeys(cfg.server_has_api_keys ?? false);
+
       // Filter to only providers with models
       const availableProviders = getAvailableProviders(providers);
       setConfiguredProviders(availableProviders);
@@ -111,6 +116,17 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
         const modelToUse = defaultModel || getDefaultModelForProvider(defaultProvider);
         setSelectedConfig({
           provider: defaultProvider,
+          model: modelToUse,
+          max_output_tokens: 1024,
+          temperature: 0,
+        });
+        setUsePreservedConfig(false);
+      } else if (cfg.server_has_api_keys) {
+        // No client-side keys but server has keys — default to gemini
+        setSelectedProvider('gemini');
+        const modelToUse = defaultModel || getDefaultModelForProvider('gemini');
+        setSelectedConfig({
+          provider: 'gemini',
           model: modelToUse,
           max_output_tokens: 1024,
           temperature: 0,
@@ -196,7 +212,7 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
           )}
 
           {/* No Providers Warning */}
-          {!providersLoading && configuredProviders.length === 0 && (
+          {!providersLoading && configuredProviders.length === 0 && !serverHasApiKeys && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
@@ -211,7 +227,7 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
             <Select
               value={selectedProvider}
               onValueChange={(value) => handleProviderChange(value as LLMProviderKey)}
-              disabled={usePreservedConfig || configuredProviders.length === 0 || providersLoading}
+              disabled={usePreservedConfig || (configuredProviders.length === 0 && !serverHasApiKeys) || providersLoading}
             >
               <SelectTrigger>
                 <SelectValue placeholder={providersLoading ? "Loading..." : "Select provider"} />
@@ -304,7 +320,7 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
           </Button>
           <Button
             onClick={handleConfirm}
-            disabled={loading || configuredProviders.length === 0 || !selectedModel}
+            disabled={loading || (configuredProviders.length === 0 && !serverHasApiKeys) || !selectedModel}
           >
             {selectedModel && getModelIcon(selectedModel)}
             <span className="ml-2">{loading ? 'Starting...' : 'Start Processing'}</span>

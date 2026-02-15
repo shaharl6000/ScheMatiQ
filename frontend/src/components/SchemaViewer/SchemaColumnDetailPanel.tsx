@@ -182,14 +182,14 @@ const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({
               )}
 
               {/* Statistics */}
-              {(column.non_null_count !== undefined || column.unique_count !== undefined) && (
+              {(column.non_null_count != null || column.unique_count != null) && (
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground mb-2">Statistics</p>
                   <div className="flex gap-2">
-                    {column.non_null_count !== undefined && (
+                    {column.non_null_count != null && (
                       <Badge variant="outline">{column.non_null_count} non-null</Badge>
                     )}
-                    {column.unique_count !== undefined && (
+                    {column.unique_count != null && (
                       <Badge variant="outline">{column.unique_count} unique</Badge>
                     )}
                   </div>

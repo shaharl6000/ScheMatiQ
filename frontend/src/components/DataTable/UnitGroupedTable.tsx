@@ -1051,22 +1051,27 @@ function normalizeToQBSD(val: unknown): unknown {
     // Parse answer if it's a JSON string
     if (typeof answerVal === 'string') {
       const parsed = parsePythonString(answerVal);
-      if (parsed !== answerVal && Array.isArray(parsed) && parsed.length > 0) {
-        const firstItem = parsed[0];
-        if (typeof firstItem === 'object') {
-          const item = firstItem as Record<string, unknown>;
-          answerVal = item.value || item.answer || String(firstItem);
-          const allExcerpts: unknown[] = [];
-          for (const p of parsed) {
-            const pObj = p as Record<string, unknown>;
-            const exc = pObj.excerpt || pObj.excerpts;
-            if (exc) {
-              allExcerpts.push(...(Array.isArray(exc) ? exc : [exc]));
+      if (parsed !== answerVal && typeof parsed === 'object' && parsed !== null) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const firstItem = parsed[0];
+          if (typeof firstItem === 'object') {
+            const item = firstItem as Record<string, unknown>;
+            answerVal = item.value || item.answer || String(firstItem);
+            const allExcerpts: unknown[] = [];
+            for (const p of parsed) {
+              const pObj = p as Record<string, unknown>;
+              const exc = pObj.excerpt || pObj.excerpts;
+              if (exc) {
+                allExcerpts.push(...(Array.isArray(exc) ? exc : [exc]));
+              }
+            }
+            if (allExcerpts.length > 0) {
+              excerptsVal = allExcerpts;
             }
           }
-          if (allExcerpts.length > 0) {
-            excerptsVal = allExcerpts;
-          }
+        } else {
+          // Plain object (e.g., parsed Python dict) — use as answer directly
+          answerVal = parsed;
         }
       }
     }

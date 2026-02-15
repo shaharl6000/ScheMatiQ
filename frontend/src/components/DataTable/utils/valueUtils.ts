@@ -156,8 +156,11 @@ export function extractDisplayValue(value: unknown): string {
     if ('text' in obj) {
       return extractDisplayValue(obj.text);
     }
-    // Last resort: stringify
-    return JSON.stringify(value);
+    // Generic object: collect non-null values into a readable summary
+    const values = Object.values(obj)
+      .filter(v => v !== null && v !== undefined && String(v).trim() !== '')
+      .map(v => typeof v === 'object' ? JSON.stringify(v) : String(v));
+    return values.length > 0 ? values.join(', ') : JSON.stringify(value);
   }
 
   return String(value);
