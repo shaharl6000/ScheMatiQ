@@ -59,7 +59,7 @@ export interface ColumnInfo {
   source_document?: string;  // Document that first added this column
   discovery_iteration?: number;  // Iteration when this column was discovered
   allowed_values?: string[];  // Closed set of valid values for categorical columns
-  auto_expand_threshold?: number;  // Auto-add new value if seen in N+ docs (0 = disabled)
+  auto_expand_threshold?: number;  // Auto-add new value if seen in N+ docs (-1 = disabled)
   pending_values?: PendingValue[];  // Values pending approval
 }
 
@@ -416,7 +416,7 @@ export interface EditColumnRequest {
 export interface AddColumnRequest {
   name: string;
   definition: string;
-  rationale: string;
+  rationale?: string;
   document_paths?: string[]; // Specific documents to process
   allowed_values?: string[]; // Closed set of valid values
   llm_config?: {

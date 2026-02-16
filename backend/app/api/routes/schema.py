@@ -49,7 +49,7 @@ class ColumnEditRequest(BaseModel):
 class ColumnAddRequest(BaseModel):
     name: str
     definition: str
-    rationale: str
+    rationale: Optional[str] = None
     allowed_values: Optional[List[str]] = None  # Closed set of valid values
     documents_path: Optional[str] = None
     data_type: str = "text"
@@ -272,7 +272,7 @@ async def add_column(
         new_column = ColumnInfo(
             name=add_request.name,
             definition=add_request.definition,
-            rationale=add_request.rationale,
+            rationale=add_request.rationale or "",
             data_type=add_request.data_type,
             allowed_values=add_request.allowed_values if add_request.allowed_values else None
         )
@@ -285,7 +285,7 @@ async def add_column(
             column_name=add_request.name,
             details={
                 "definition": add_request.definition,
-                "rationale": add_request.rationale,
+                "rationale": add_request.rationale or "",
                 "data_type": add_request.data_type,
             }
         )
@@ -554,7 +554,7 @@ class RejectSuggestionRequest(BaseModel):
     value: str
 
 class SetThresholdRequest(BaseModel):
-    threshold: int = 2  # 0 = disabled
+    threshold: int = 2  # -1 = disabled
 
 
 @router.get("/suggestions/{session_id}")
@@ -702,7 +702,7 @@ async def set_auto_expand_threshold(
     column_name: str,
     request: SetThresholdRequest
 ):
-    """Configure auto-expand threshold for a column (0 = disabled)."""
+    """Configure auto-expand threshold for a column (-1 = disabled)."""
     try:
         session = session_manager.get_session(session_id)
         if not session:
@@ -833,22 +833,20 @@ class ReextractionResponse(BaseModel):
 async def get_schema_change_status(session_id: str) -> SchemaChangeStatusResponse:
     """Detect which columns have changed since the baseline."""
     try:
+        set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
         changes = reextraction_service.detect_schema_changes(session)
 
-        # Count rows to determine affected row counts
-        paper_discovery = await reextraction_service.discover_papers(session_id)
-        row_count = paper_discovery["total_rows"]
-
-        # Update row counts in changes
+        # Use session statistics for row count (no need to call discover_papers)
+        row_count = session.statistics.total_rows if session.statistics else 0
         for col_name in changes["column_changes"]:
             changes["column_changes"][col_name]["row_count_affected"] = row_count
 
-        # Determine if we can reextract (need documents)
-        changes["can_reextract"] = paper_discovery["rows_with_papers"] > 0
+        # can_reextract = session has data (frontend checks doc availability separately)
+        changes["can_reextract"] = row_count > 0
 
         return SchemaChangeStatusResponse(
             has_changes=changes["has_changes"],
@@ -869,6 +867,7 @@ async def get_schema_change_status(session_id: str) -> SchemaChangeStatusRespons
 async def discover_papers(session_id: str) -> PaperDiscoveryResponse:
     """Find papers associated with table rows in storage."""
     try:
+        set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -910,6 +909,7 @@ async def precheck_document_availability(
 ) -> DocumentAvailabilityResponse:
     """Pre-check document availability before extraction."""
     try:
+        set_session_context(session_id)
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
