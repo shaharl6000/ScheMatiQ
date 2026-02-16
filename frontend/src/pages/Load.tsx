@@ -66,8 +66,8 @@ const Load = () => {
       // Parse the file
       await loadAPI.parseFile(result.session_id);
 
-      // Navigate directly to visualization page
-      navigate(`/visualize/${result.session_id}?mode=load`);
+      // Navigate directly to visualization page (replace so browser back skips empty Load form)
+      navigate(`/visualize/${result.session_id}?mode=load`, { replace: true });
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to load file');
       setLoading(false);
@@ -81,7 +81,7 @@ const Load = () => {
 
     try {
       const result = await cloudAPI.loadTemplate(templateName);
-      navigate(`/visualize/${result.session_id}?mode=load`);
+      navigate(`/visualize/${result.session_id}?mode=load`, { replace: true });
     } catch (err: any) {
       setError(err.response?.data?.detail || err.message || 'Failed to load template');
       setLoading(false);

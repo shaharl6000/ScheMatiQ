@@ -78,7 +78,6 @@ import ColumnDialog from '../SchemaEditor/ColumnDialog';
 import MergeDialog from '../SchemaEditor/MergeDialog';
 import ReextractionDialog from '../SchemaEditor/ReextractionDialog';
 import ContinueDiscoveryDialog from '../SchemaEditor/ContinueDiscoveryDialog';
-import ContinueDiscoveryMonitor from '../SchemaEditor/ContinueDiscoveryMonitor';
 import LLMConfigDisplay from '../LLMConfigDisplay';
 import SchemaColumnDetailPanel from './SchemaColumnDetailPanel';
 import ObservationUnitEditModal from './ObservationUnitEditModal';
@@ -143,8 +142,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
   const [reextractionDialogOpen, setReextractionDialogOpen] = useState(false);
   const [continueDiscoveryDialogOpen, setContinueDiscoveryDialogOpen] = useState(false);
-  const [continueDiscoveryMonitorOpen, setContinueDiscoveryMonitorOpen] = useState(false);
-  const [continueDiscoveryOperationId, setContinueDiscoveryOperationId] = useState<string | null>(null);
   const [observationUnitEditModalOpen, setObservationUnitEditModalOpen] = useState(false);
 
   // View mode, search, and sort state - always default to 'detailed'
@@ -743,27 +740,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     toast({ title: 'Continue Discovery Error', description: message, variant: 'destructive' });
   };
 
-  const handleContinueDiscoveryStarted = (operationId: string) => {
-    setContinueDiscoveryOperationId(operationId);
-    setContinueDiscoveryMonitorOpen(true);
-  };
-
-  const handleMonitorComplete = (newColumns: ColumnInfo[]) => {
-    setContinueDiscoveryMonitorOpen(false);
-    setContinueDiscoveryOperationId(null);
-    if (newColumns.length > 0 && onColumnsChange) {
-      const updatedColumns = [...localColumns, ...newColumns];
-      setLocalColumns(updatedColumns);
-      onColumnsChange(updatedColumns);
-      toast({ title: 'Success', description: `Added ${newColumns.length} new columns with extracted values.` });
-    }
-    loadSchemaChangeStatus();
-  };
-
-  const handleMonitorCancel = () => {
-    setContinueDiscoveryMonitorOpen(false);
-    setContinueDiscoveryOperationId(null);
-  };
 
   const handleBackup = async () => {
     setLoading(true);
@@ -2134,22 +2110,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         onSuccess={handleContinueDiscoverySuccess}
         onError={handleContinueDiscoveryError}
         onExtractionStarted={onReextractionStarted}
-        onDiscoveryStarted={handleContinueDiscoveryStarted}
       />
-
-      {/* Continue Discovery Monitor - Full Page View */}
-      {continueDiscoveryMonitorOpen && continueDiscoveryOperationId && (
-        <div className="fixed inset-0 z-50 bg-background">
-          <ContinueDiscoveryMonitor
-            sessionId={sessionId}
-            operationId={continueDiscoveryOperationId}
-            initialColumns={Array.from(new Set(displayColumns.map(c => c.name)))}
-            onComplete={handleMonitorComplete}
-            onCancel={handleMonitorCancel}
-            onError={handleContinueDiscoveryError}
-          />
-        </div>
-      )}
 
       {readonly && (
         <Alert variant="info">

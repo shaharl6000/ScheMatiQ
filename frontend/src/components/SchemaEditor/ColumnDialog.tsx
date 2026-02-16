@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Pencil, Loader2, X, Info } from 'lucide-react';
+import { Plus, Pencil, Loader2, X, Info, ChevronDown, ChevronRight } from 'lucide-react';
 
 import {
   Dialog,
@@ -14,7 +14,6 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import {
@@ -74,6 +73,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
   const [newAllowedValue, setNewAllowedValue] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [selectedClusterId, setSelectedClusterId] = useState<string | null>(null);
+  const [constraintsOpen, setConstraintsOpen] = useState(false);
 
   // Initialize form when dialog opens or column changes
   useEffect(() => {
@@ -87,6 +87,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           allowed_values: column.allowed_values || [],
           auto_expand_threshold: column.auto_expand_threshold ?? 2
         });
+        // Auto-expand constraints section if column has allowed values
+        setConstraintsOpen(!!(column.allowed_values && column.allowed_values.length > 0));
       } else {
         setFormData({
           name: '',
@@ -96,6 +98,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           allowed_values: [],
           auto_expand_threshold: 2
         });
+        setConstraintsOpen(false);
       }
       setNewAllowedValue('');
       setErrors({});
@@ -123,10 +126,6 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
       newErrors.definition = 'Definition is required';
     }
 
-    if (!formData.rationale.trim()) {
-      newErrors.rationale = 'Rationale is required';
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -136,8 +135,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
       // Scroll to first error
       const firstErrorField = Object.keys(errors)[0] ||
         (!formData.name.trim() && mode === 'add' ? 'name' :
-         !formData.definition.trim() ? 'definition' :
-         !formData.rationale.trim() ? 'rationale' : null);
+         !formData.definition.trim() ? 'definition' : null);
       if (firstErrorField) {
         const element = document.getElementById(firstErrorField);
         element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -155,7 +153,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
         const request: AddColumnRequest = {
           name: formData.name.trim(),
           definition: formData.definition.trim(),
-          rationale: formData.rationale.trim(),
+          rationale: formData.rationale.trim() || undefined,
           allowed_values: formData.allowed_values.length > 0 ? formData.allowed_values : undefined,
           llm_config: {
             provider: 'gemini',
@@ -176,7 +174,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
         const request: EditColumnRequest = {
           old_name: formData.name,  // Current name of the column being edited
           definition: formData.definition.trim(),
-          rationale: formData.rationale.trim(),
+          rationale: formData.rationale.trim() || undefined,
           new_name: formData.new_name.trim() !== formData.name ? formData.new_name.trim() : undefined,
           allowed_values: formData.allowed_values,  // Send even if empty to allow clearing
           reprocess: false,  // Don't reprocess documents for metadata-only edits
@@ -245,7 +243,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
     }
   };
 
-  const dialogTitle = mode === 'add' ? 'Add New Column' : 'Edit Column';
+  const dialogTitle = mode === 'add' ? 'Add Column' : 'Edit Column';
   const submitIcon = mode === 'add' ? <Plus className="h-4 w-4" /> : <Pencil className="h-4 w-4" />;
   const submitText = mode === 'add' ? 'Add Column' : 'Save Changes';
 
@@ -265,7 +263,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
         </DialogHeader>
 
         <ScrollArea className="flex-1 overflow-y-auto">
-          <div className="space-y-4 py-4 pr-4">
+          <div className="space-y-6 py-4 pr-4">
           {/* Column Name */}
           <div className="space-y-2">
             <Label htmlFor="name">
@@ -300,8 +298,6 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
             </div>
           )}
 
-          <Separator />
-
           {/* Definition */}
           <div className="space-y-2">
             <Label htmlFor="definition">
@@ -311,43 +307,36 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
               id="definition"
               value={formData.definition}
               onChange={(e) => handleChange('definition', e.target.value)}
+              placeholder="Describe what this column represents and what information it should contain"
               rows={3}
               disabled={loading}
               aria-required="true"
               aria-invalid={!!errors.definition}
-              aria-describedby={errors.definition ? 'definition-error' : 'definition-hint'}
+              aria-describedby={errors.definition ? 'definition-error' : undefined}
             />
             {errors.definition && <p id="definition-error" className="text-sm text-destructive">{errors.definition}</p>}
-            <p id="definition-hint" className="text-sm text-muted-foreground">
-              Describe what this column represents and what type of information it should contain
-            </p>
           </div>
 
           {/* Rationale */}
           <div className="space-y-2">
-            <Label htmlFor="rationale">
-              Rationale <span className="text-destructive">*</span>
+            <Label htmlFor="rationale" className="text-muted-foreground">
+              Rationale (Optional)
             </Label>
             <Textarea
               id="rationale"
               value={formData.rationale}
               onChange={(e) => handleChange('rationale', e.target.value)}
-              rows={4}
+              placeholder="Why is this column important for answering the research query?"
+              rows={2}
               disabled={loading}
-              aria-required="true"
-              aria-invalid={!!errors.rationale}
-              aria-describedby={errors.rationale ? 'rationale-error' : 'rationale-hint'}
+              aria-required="false"
             />
-            {errors.rationale && <p id="rationale-error" className="text-sm text-destructive">{errors.rationale}</p>}
-            <p id="rationale-hint" className="text-sm text-muted-foreground">
-              Explain why this column is important for answering the research query
-            </p>
           </div>
 
           {/* Cluster Selection (only for add mode) */}
           {mode === 'add' && clusters.length > 0 && (
             <div className="space-y-2">
-              <Label htmlFor="cluster">Assign to Cluster</Label>
+              <Label htmlFor="cluster" className="text-muted-foreground">Assign to Cluster</Label>
               <Select
                 value={selectedClusterId || 'auto'}
                 onValueChange={(value) => setSelectedClusterId(value === 'auto' ? null : value)}
@@ -372,173 +361,170 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-sm text-muted-foreground">
-                Choose a cluster for this column, or let the algorithm assign it automatically
-              </p>
             </div>
           )}
 
-          <Separator />
-
-          {/* Allowed Values (Closed Set) */}
+          {/* Value Constraints (Collapsible) */}
           <div className="space-y-2">
-            <div className="flex items-center gap-1">
-              <Label htmlFor="allowed_values">
-                Value Constraints (Optional)
-              </Label>
+            <button
+              type="button"
+              onClick={() => setConstraintsOpen(!constraintsOpen)}
+              className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+            >
+              {constraintsOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              Value Constraints
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                  <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-xs">
                   <p>Define constraints for this column: categorical values, numeric types, or ranges. Leave empty for free-form text columns.</p>
                 </TooltipContent>
               </Tooltip>
-            </div>
+              {!constraintsOpen && formData.allowed_values.length > 0 && (
+                <Badge variant="secondary" className="ml-1 text-xs">
+                  {formData.allowed_values.length}
+                </Badge>
+              )}
+            </button>
 
-            {/* Preset buttons for common constraints */}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['yes', 'no'] }))}
-                disabled={loading}
-                className="text-xs"
-              >
-                Yes/No
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['number'] }))}
-                disabled={loading}
-                className="text-xs"
-              >
-                Number
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['0-100'] }))}
-                disabled={loading}
-                className="text-xs"
-              >
-                0-100 (%)
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['0.0-1.0'] }))}
-                disabled={loading}
-                className="text-xs"
-              >
-                0-1 (Prob)
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setFormData(prev => ({ ...prev, allowed_values: [] }))}
-                disabled={loading}
-                className="text-xs text-muted-foreground"
-              >
-                Clear
-              </Button>
-            </div>
-
-            {/* Display existing allowed values as badges */}
-            {formData.allowed_values.length > 0 && (
-              <div className="flex flex-wrap gap-2 p-2 bg-muted/50 rounded-md">
-                {formData.allowed_values.map((value, index) => (
-                  <Badge key={index} variant="secondary" className="gap-1 pr-1">
-                    {value}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAllowedValue(index)}
-                      className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
-                      disabled={loading}
-                      aria-label={`Remove ${value}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            )}
-
-            {/* Input for adding new values */}
-            <div className="flex gap-2">
-              <Input
-                id="allowed_values"
-                placeholder="Add allowed value..."
-                value={newAllowedValue}
-                onChange={(e) => setNewAllowedValue(e.target.value)}
-                onKeyPress={handleAllowedValueKeyPress}
-                disabled={loading}
-                className="flex-1"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleAddAllowedValue}
-                disabled={loading || !newAllowedValue.trim()}
-              >
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Use presets above or add custom values. For custom ranges, enter "min-max" format (e.g., "1-10").
-            </p>
-
-            {/* Auto-expand threshold for schema evolution */}
-            {formData.allowed_values.length > 0 && (
-              <div className="mt-3 p-3 bg-muted/50 rounded-md">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <Label htmlFor="auto_expand" className="text-sm">
-                      Auto-expand threshold
-                    </Label>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Info className="h-3 w-3 text-muted-foreground cursor-help" />
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-xs">
-                        <p>Automatically add new values to allowed_values when they appear in at least this many documents. Set to 0 to disable auto-expansion.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Input
-                      id="auto_expand"
-                      type="number"
-                      min={0}
-                      max={10}
-                      value={formData.auto_expand_threshold}
-                      onChange={(e) => handleChange('auto_expand_threshold', e.target.value)}
-                      disabled={loading}
-                      className="w-16 h-8 text-center"
-                    />
-                    <span className="text-xs text-muted-foreground">
-                      {formData.auto_expand_threshold === 0 ? 'Disabled' : `${formData.auto_expand_threshold}+ docs`}
-                    </span>
-                  </div>
+            {constraintsOpen && (
+              <div className="space-y-3 pl-5.5">
+                {/* Preset buttons for common constraints */}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['yes', 'no'] }))}
+                    disabled={loading}
+                    className="text-xs"
+                  >
+                    Yes/No
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['number'] }))}
+                    disabled={loading}
+                    className="text-xs"
+                  >
+                    Number
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['0-100'] }))}
+                    disabled={loading}
+                    className="text-xs"
+                  >
+                    0-100 (%)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFormData(prev => ({ ...prev, allowed_values: ['0.0-1.0'] }))}
+                    disabled={loading}
+                    className="text-xs"
+                  >
+                    0-1 (Prob)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFormData(prev => ({ ...prev, allowed_values: [] }))}
+                    disabled={loading}
+                    className="text-xs text-muted-foreground"
+                  >
+                    Clear
+                  </Button>
                 </div>
+
+                {/* Display existing allowed values as badges */}
+                {formData.allowed_values.length > 0 && (
+                  <div className="flex flex-wrap gap-2 p-2 bg-muted/50 rounded-md">
+                    {formData.allowed_values.map((value, index) => (
+                      <Badge key={index} variant="secondary" className="gap-1 pr-1">
+                        {value}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAllowedValue(index)}
+                          className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                          disabled={loading}
+                          aria-label={`Remove ${value}`}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+
+                {/* Input for adding new values */}
+                <div className="flex gap-2">
+                  <Input
+                    id="allowed_values"
+                    placeholder="Add custom value (e.g., &quot;1-10&quot;)..."
+                    value={newAllowedValue}
+                    onChange={(e) => setNewAllowedValue(e.target.value)}
+                    onKeyPress={handleAllowedValueKeyPress}
+                    disabled={loading}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleAddAllowedValue}
+                    disabled={loading || !newAllowedValue.trim()}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                {/* Auto-expand threshold for schema evolution */}
+                {formData.allowed_values.length > 0 && (
+                  <div className="p-3 bg-muted/50 rounded-md">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1">
+                        <Label htmlFor="auto_expand" className="text-sm">
+                          Auto-expand threshold
+                        </Label>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Info className="h-3 w-3 text-muted-foreground cursor-help" />
+                          </TooltipTrigger>
+                          <TooltipContent side="right" className="max-w-xs">
+                            <p>Automatically add new values to allowed_values when they appear in at least this many documents. Set to -1 to disable auto-expansion.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id="auto_expand"
+                          type="number"
+                          min={-1}
+                          max={10}
+                          value={formData.auto_expand_threshold}
+                          onChange={(e) => handleChange('auto_expand_threshold', e.target.value)}
+                          disabled={loading}
+                          className="w-16 h-8 text-center"
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {formData.auto_expand_threshold <= 0 ? 'Disabled' : `${formData.auto_expand_threshold}+ docs`}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {mode === 'edit' && formData.new_name !== formData.name && formData.new_name.trim() && (
-            <Alert variant="warning">
-              <AlertDescription>
-                <strong>Note:</strong> Renaming a column will trigger reprocessing to ensure data consistency. This may take some time.
-              </AlertDescription>
-            </Alert>
-          )}
           </div>
         </ScrollArea>
 

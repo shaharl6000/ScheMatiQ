@@ -83,6 +83,8 @@ class QBSDStatus(BaseModel):
     # Phase tracking (for UI recovery on remount)
     schema_completed: bool = False
     columns_discovered: int = 0
+    total_documents: int = 0
+    processed_documents: int = 0
 
 class QBSDProgress(BaseModel):
     """Detailed progress information."""

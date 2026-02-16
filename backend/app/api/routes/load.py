@@ -238,6 +238,11 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
                 session.observation_unit = ObservationUnitInfo(**metadata['observation_unit'])
                 logger.debug(f"Restored observation unit from CSV: {session.observation_unit.name}")
 
+            # Restore cloud_dataset if present
+            if metadata.get('cloud_dataset'):
+                session.metadata.cloud_dataset = metadata['cloud_dataset']
+                logger.debug(f"Restored cloud_dataset: {session.metadata.cloud_dataset}")
+
             # Create a parsed schema file with the extracted LLM configuration
             if metadata.get('llm_config'):
                 session_dir = Path("./data") / session_id
@@ -760,7 +765,7 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         )
         is_valid_qbsd_session = (
             session.type == SessionType.QBSD and
-            session.status in [SessionStatus.CREATED, SessionStatus.COMPLETED]
+            session.status in [SessionStatus.CREATED, SessionStatus.COMPLETED, SessionStatus.STOPPED]
         )
 
         if not (is_valid_upload_session or is_valid_qbsd_session):
@@ -785,6 +790,10 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         # If over limit and not bypassed, randomly select files to fit within limit
         limit_applied = False
         enforce_limit = not (DEVELOPER_MODE and bypass_limit)
+        # Don't enforce document limit for completed sessions — these are complementary
+        # source documents for re-extraction/continue discovery, not initial QBSD uploads
+        if session.status == SessionStatus.COMPLETED:
+            enforce_limit = False
         available_slots = MAX_DOCUMENTS - existing_count
         if enforce_limit and new_count > MAX_DOCUMENTS:
             # Session is full or new batch alone exceeds limit — sample from new uploads to MAX_DOCUMENTS
@@ -828,9 +837,9 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
                 logger.debug(f"Skipping system file: {file.filename}")
                 continue
             
-            # Validate file size (10MB limit per file)
-            if file.size > 10 * 1024 * 1024:
-                errors.append(f"File '{file.filename}' exceeds 10MB limit")
+            # Validate file size (25MB limit per file)
+            if file.size > 25 * 1024 * 1024:
+                errors.append(f"File '{file.filename}' exceeds 25MB limit")
                 continue
             
             total_size += file.size
@@ -1412,7 +1421,8 @@ async def export_complete_data(session_id: str, format: str = "json"):
                 "total_rows": session.statistics.total_rows if session.statistics else 0,
                 "total_columns": len(session.columns),
                 "source": session.metadata.source,
-                "file_size": session.metadata.file_size
+                "file_size": session.metadata.file_size,
+                "cloud_dataset": session.metadata.cloud_dataset,
             },
             "data": []
         }

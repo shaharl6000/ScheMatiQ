@@ -1,5 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigationGuard } from '../hooks/useNavigationGuard';
+import { useNavigationGuardContext } from '../contexts/NavigationGuardContext';
+import { NavigationConfirmDialog } from '@/components/ui/NavigationConfirmDialog';
 import { Sparkles, Settings, ArrowLeft, Loader2, ChevronDown, Upload, Trash2, FileText, DollarSign, AlertTriangle, HelpCircle, RotateCcw } from 'lucide-react';
 import {
   getConfiguredProviders,
@@ -151,7 +154,7 @@ const QBSDConfigPage = () => {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/rtf': ['.rtf'],
     },
-    maxSize: 10 * 1024 * 1024, // 10MB per file
+    maxSize: 25 * 1024 * 1024, // 25MB per file
     onFilesSelected: setUploadedFiles,
     externalFiles: uploadedFiles,
   });
@@ -188,13 +191,21 @@ const QBSDConfigPage = () => {
 
       // Developer mode: full provider selection
       const availableProviders = getAvailableProviders(providers);
-      setConfiguredProviders(availableProviders as LLMProvider[]);
 
-      // Redirect if no providers with models are configured
-      if (availableProviders.length === 0) {
+      // Redirect if no providers with models are configured AND server has no keys
+      if (availableProviders.length === 0 && !cfg.server_has_api_keys) {
         navigate('/');
         return;
       }
+
+      // If no client-side providers but server has keys, default to gemini
+      if (availableProviders.length === 0 && cfg.server_has_api_keys) {
+        setConfiguredProviders(['gemini'] as LLMProvider[]);
+        setProvidersLoading(false);
+        return;
+      }
+
+      setConfiguredProviders(availableProviders as LLMProvider[]);
 
       // Update default providers if currently selected ones aren't available
       setConfig(prev => {
@@ -275,11 +286,28 @@ const QBSDConfigPage = () => {
 
   // Restore state when navigating back from Visualization screen
   useEffect(() => {
-    const state = location.state as {
+    let state = location.state as {
       config?: QBSDConfig;
       previousSessionId?: string;
       uploadedFileNames?: string[];
     } | null;
+
+    // Fallback: check sessionStorage (browser back button)
+    if (!state?.config) {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key?.startsWith('qbsd_config_')) {
+          try {
+            const saved = JSON.parse(sessionStorage.getItem(key)!);
+            if (saved?.config) {
+              state = saved;
+              sessionStorage.removeItem(key); // consume it
+              break;
+            }
+          } catch { /* ignore parse errors */ }
+        }
+      }
+    }
 
     if (!state?.config) return;
 
@@ -343,9 +371,6 @@ const QBSDConfigPage = () => {
     if (hasAdvancedChanges) {
       setSettingsOpen(true);
     }
-
-    // Clear navigation state to prevent re-restoration on refresh
-    window.history.replaceState({}, document.title);
   }, []); // Run only once on mount
 
   const handleReset = () => {
@@ -364,7 +389,6 @@ const QBSDConfigPage = () => {
     setEditingValueLlm(false);
     setCostExpanded(false);
     setError(null);
-    window.history.replaceState({}, document.title);
   };
 
   const [config, setConfig] = useState<QBSDConfig>(DEFAULT_CONFIG);
@@ -575,8 +599,15 @@ const QBSDConfigPage = () => {
         }
       }
 
-      // Step 4: Navigate to visualization
-      navigate(`/visualize/${sessionId}?mode=qbsd`, { state: navState });
+      // Step 4: Save config to sessionStorage for browser-back restoration
+      sessionStorage.setItem(`qbsd_config_${sessionId}`, JSON.stringify({
+        config: { ...config, upload_pending: uploadedFiles.length > 0 },
+        previousSessionId: sessionId,
+        uploadedFileNames: uploadedFiles.map(f => f.name),
+      }));
+
+      // Step 5: Navigate to visualization (replace to keep history clean during edit cycles)
+      navigate(`/visualize/${sessionId}?mode=qbsd`, { replace: true, state: navState });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to configure QBSD');
     } finally {
@@ -632,6 +663,15 @@ const QBSDConfigPage = () => {
     return false;
   }, [config, uploadedFiles.length, previousUploadedFiles.length, selectedPaths.length, observationUnitMode, initialSchemaPath, initialSchemaData, limitBypassEnabled]);
 
+  // Block navigation when form has unsaved changes (not during submission)
+  const blocker = useNavigationGuard(isDirty && !loading);
+
+  // Register guard in context so the header banner also respects it
+  const { registerGuard } = useNavigationGuardContext();
+  useEffect(() => {
+    return registerGuard(blocker.requestNavigation);
+  }, [blocker.requestNavigation, registerGuard]);
+
   // Summary badge text for advanced settings accordion
   const advancedConfigSummary = useMemo(() => {
     const parts: string[] = [];
@@ -663,9 +703,14 @@ const QBSDConfigPage = () => {
         onOpenChange={setConsentDialogOpen}
         onConfirm={handleConsentConfirm}
       />
+      <NavigationConfirmDialog
+        blocker={blocker}
+        title="Unsaved changes"
+        description="You have unsaved changes. Are you sure you want to leave?"
+      />
 
       <div className="flex items-center justify-between mb-8">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back to Home">
+        <Button variant="ghost" size="icon" onClick={() => blocker.requestNavigation(() => navigate('/'))} aria-label="Back to Home">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div className="flex items-center gap-2">
@@ -769,7 +814,7 @@ const QBSDConfigPage = () => {
                     {isDragActive ? 'Drop files here...' : 'Drag and drop files here, or click to browse'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Supports: .txt, .md, .pdf, .doc, .docx, .rtf (max 10MB each)
+                    Supports: .txt, .md, .pdf, .doc, .docx, .rtf (max 25MB each)
                   </p>
                 </div>
 
