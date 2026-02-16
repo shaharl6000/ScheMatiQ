@@ -14,7 +14,8 @@ from pathlib import Path
 from datetime import datetime
 
 from app.models.session import (
-    ColumnInfo, ColumnBaseline, SchemaBaseline, VisualizationSession
+    ColumnInfo, ColumnBaseline, SchemaBaseline, VisualizationSession,
+    ObservationUnitInfo
 )
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
@@ -829,6 +830,59 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if invalid_columns:
             raise ValueError(f"Invalid columns: {invalid_columns}")
 
+        # Validate observation_unit (required by value extraction pipeline)
+        # Must check before spawning background task to avoid race condition
+        # where the error fires before the WebSocket connects.
+        if not session.observation_unit:
+            inferred_unit_name = None
+            data_dir = Path("./data") / session_id
+            qbsd_dir = Path("./qbsd_work") / session_id
+
+            # Strategy 1: Check _metadata.observation_unit in raw QBSD pipeline output
+            for data_file in [qbsd_dir / "extracted_data.jsonl", data_dir / "data.jsonl"]:
+                if data_file.exists():
+                    with open(data_file) as f:
+                        for line in f:
+                            if line.strip():
+                                row = json.loads(line)
+                                meta = row.get("_metadata", {})
+                                if meta.get("observation_unit"):
+                                    inferred_unit_name = meta["observation_unit"]
+                                    break
+                    if inferred_unit_name:
+                        break
+
+            # Strategy 2: Check _unit_name in DataRow format (loaded exports)
+            if not inferred_unit_name:
+                data_jsonl = data_dir / "data.jsonl"
+                if data_jsonl.exists():
+                    with open(data_jsonl) as f:
+                        for line in f:
+                            if line.strip():
+                                row = json.loads(line)
+                                if row.get("_unit_name"):
+                                    # _unit_name has instance names, not the type name.
+                                    # Use a generic type name — re-extraction quality is
+                                    # unaffected because the schema columns already define
+                                    # what to extract.
+                                    inferred_unit_name = "entry"
+                                    logger.info(
+                                        "Inferred observation_unit presence from _unit_name in data rows"
+                                    )
+                                    break
+
+            if inferred_unit_name:
+                logger.info(f"Inferred observation_unit from existing data: {inferred_unit_name}")
+                session.observation_unit = ObservationUnitInfo(
+                    name=inferred_unit_name,
+                    definition=f"An individual {inferred_unit_name}",
+                )
+            else:
+                raise ValueError(
+                    "Cannot re-extract: session has no observation unit configured. "
+                    "Please set the observation unit before re-extracting."
+                )
+
         # Discover papers
         paper_discovery = await self.discover_papers(session_id)
 
@@ -935,6 +989,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             }
 
             # Add observation_unit (required by value extraction)
+            # Always set — start_reextraction validates/infers before spawning this task
             if session.observation_unit:
                 schema_data["observation_unit"] = {
                     "name": session.observation_unit.name,
@@ -943,32 +998,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 if session.observation_unit.example_names:
                     schema_data["observation_unit"]["example_names"] = session.observation_unit.example_names
             else:
-                # Try to infer from existing extracted data (_metadata.observation_unit)
-                inferred_unit_name = None
-                for data_file in [data_dir / "data.jsonl", qbsd_dir / "extracted_data.jsonl"]:
-                    if data_file.exists():
-                        with open(data_file) as f:
-                            for line in f:
-                                if line.strip():
-                                    row = json.loads(line)
-                                    meta = row.get("_metadata", {})
-                                    if meta.get("observation_unit"):
-                                        inferred_unit_name = meta["observation_unit"]
-                                        break
-                        if inferred_unit_name:
-                            break
-
-                if inferred_unit_name:
-                    logger.info(f"Inferred observation_unit from existing data: {inferred_unit_name}")
-                    schema_data["observation_unit"] = {
-                        "name": inferred_unit_name,
-                        "definition": f"An individual {inferred_unit_name}",
-                    }
-                else:
-                    raise ValueError(
-                        "Cannot re-extract: session has no observation unit configured. "
-                        "Set the observation unit in the Schema tab before re-extracting."
-                    )
+                raise ValueError(
+                    "Cannot re-extract: session has no observation unit configured. "
+                    "Please set the observation unit before re-extracting."
+                )
 
             # Save schema file
             schema_file = session_dir / f"reextract_schema_{operation_id}.json"

@@ -1060,6 +1060,29 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             if self._data_collection_service:
                 await self._data_collection_service.trigger_archive(session_id, "qbsd_completion")
 
+            # Move processed documents from pending_documents/ to documents/
+            # Prevents stale files from being re-picked up by continue discovery
+            data_session_dir = Path("./data") / session_id
+            pending_dir = data_session_dir / "pending_documents"
+            completed_docs_dir = data_session_dir / "documents"
+            if pending_dir.exists():
+                completed_docs_dir.mkdir(parents=True, exist_ok=True)
+                import shutil
+                moved_count = 0
+                for file_path in pending_dir.iterdir():
+                    if file_path.is_file():
+                        dest_path = completed_docs_dir / file_path.name
+                        if dest_path.exists():
+                            base_name = file_path.stem
+                            extension = file_path.suffix
+                            counter = 1
+                            while dest_path.exists():
+                                dest_path = completed_docs_dir / f"{base_name}_{counter}{extension}"
+                                counter += 1
+                        shutil.move(str(file_path), str(dest_path))
+                        moved_count += 1
+                logger.info("Moved %d files from pending_documents/ to documents/ for session %s", moved_count, session_id)
+
         except Exception as e:
             logger.error("QBSD execution failed: %s", e, exc_info=True)
             # Update session with error

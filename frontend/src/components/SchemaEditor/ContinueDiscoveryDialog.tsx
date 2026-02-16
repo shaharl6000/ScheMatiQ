@@ -313,10 +313,13 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     setStep('discovery');
 
     try {
-      // If uploading files, upload them first
+      // If uploading files, upload them first and capture server-confirmed filenames
+      // (filenames may differ from File.name due to PDF→TXT conversion or dedup suffixes)
+      let serverUploadedFiles: string[] | undefined;
       if (documentSource === 'upload' && uploadedFiles.length > 0) {
         try {
-          await loadAPI.addDocuments(sessionId, uploadedFiles);
+          const uploadResult = await loadAPI.addDocuments(sessionId, uploadedFiles);
+          serverUploadedFiles = uploadResult.uploaded_files;
         } catch (uploadError: any) {
           onError(uploadError.response?.data?.detail || 'Failed to upload documents');
           setStep('documents');
@@ -337,7 +340,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       const response = await schemaAPI.continueDiscovery.start(sessionId, {
         document_source: documentSource,
         cloud_dataset: documentSource === 'cloud' ? selectedCloudDataset : undefined,
-        uploaded_files: documentSource === 'upload' ? uploadedFiles.map(f => f.name) : undefined,
+        uploaded_files: serverUploadedFiles,
         llm_config: {
           provider: llmProvider,
           model: llmModel,

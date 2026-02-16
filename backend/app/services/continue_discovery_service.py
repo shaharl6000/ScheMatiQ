@@ -671,8 +671,14 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             pending_dir = session_dir / "pending_documents"
             if pending_dir.exists():
                 existing = set(filenames)
+                # Filter to only files from the latest upload (prevents stale files
+                # from initial QBSD being re-processed)
+                session = self.session_manager.get_session(session_id)
+                latest_uploads = set(session.metadata.uploaded_documents) if session and session.metadata.uploaded_documents else None
                 for f in sorted(pending_dir.iterdir()):
                     if f.is_file() and not f.name.startswith('.') and f.name not in existing:
+                        if latest_uploads and f.name not in latest_uploads:
+                            continue
                         try:
                             content = f.read_text(encoding='utf-8')
                             documents.append(content)
@@ -687,7 +693,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Use uploaded files from pending_documents
             pending_dir = session_dir / "pending_documents"
             if pending_dir.exists():
-                target_files = set(uploaded_files) if uploaded_files else None
+                # Filter to only files from the latest upload using session metadata
+                # (more reliable than frontend-passed filenames which may differ due to PDF conversion/dedup)
+                session = self.session_manager.get_session(session_id)
+                latest_uploads = set(session.metadata.uploaded_documents) if session and session.metadata.uploaded_documents else None
+                target_files = latest_uploads or (set(uploaded_files) if uploaded_files else None)
+                logger.info(f"Upload filter: target_files={target_files}, pending_dir contents={[f.name for f in pending_dir.iterdir() if f.is_file()]}")
                 for f in sorted(pending_dir.iterdir()):
                     if f.is_file() and not f.name.startswith('.'):
                         if target_files and f.name not in target_files:
