@@ -297,7 +297,7 @@ async def add_column(
             new_col_info = ColumnInfo(
                 name=add_request.name,
                 definition=add_request.definition,
-                rationale=add_request.rationale,
+                rationale=add_request.rationale or "",
                 data_type=add_request.data_type or "object",
                 non_null_count=0,
                 unique_count=0,
