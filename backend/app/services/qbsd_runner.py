@@ -1946,6 +1946,8 @@ class QBSDRunner(WebSocketBroadcasterMixin):
             total_steps=7,
             schema_completed=schema_completed,
             columns_discovered=columns_discovered,
+            total_documents=session.metadata.total_documents or 0,
+            processed_documents=session.metadata.processed_documents or 0,
         )
     
     async def get_schema(self, session_id: str) -> Dict[str, Any]:

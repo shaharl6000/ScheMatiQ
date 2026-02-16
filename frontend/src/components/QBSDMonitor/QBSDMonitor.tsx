@@ -83,11 +83,11 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
     columnsDiscovered: cachedStatus?.columns_discovered || 0,
     isComplete: cachedStatus?.schema_completed || false,
   }));
-  const [extractionProgress, setExtractionProgress] = useState({
-    processedDocs: 0,
-    totalDocs: 0,
-    isComplete: false
-  });
+  const [extractionProgress, setExtractionProgress] = useState(() => ({
+    processedDocs: cachedStatus?.processed_documents || 0,
+    totalDocs: cachedStatus?.total_documents || 0,
+    isComplete: cachedStatus?.status === 'completed',
+  }));
 
   // Stopped state info
   const [stoppedInfo, setStoppedInfo] = useState<{
@@ -142,7 +142,17 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
         setProcessingState('extraction');
       }
     }
-  }, [status?.status, status?.schema_completed, status?.columns_discovered]);
+
+    // Recover extraction progress from polled status
+    if (status?.total_documents && status.total_documents > 0) {
+      setExtractionProgress(prev => ({
+        ...prev,
+        totalDocs: status.total_documents || prev.totalDocs,
+        processedDocs: status.processed_documents || prev.processedDocs,
+        isComplete: prev.isComplete || status.status === 'completed',
+      }));
+    }
+  }, [status?.status, status?.schema_completed, status?.columns_discovered, status?.total_documents, status?.processed_documents]);
 
   // WebSocket connection status is now updated via message handlers below
   // (removed redundant 1-second polling interval)
@@ -233,7 +243,12 @@ const QBSDMonitor: React.FC<QBSDMonitorProps> = ({ sessionId, autoStarted = fals
         addLog('success', `All done!${elapsedStr}`, message.data);
         setProcessingState('completed');
         setSchemaProgress(prev => ({ ...prev, isComplete: true }));
-        setExtractionProgress(prev => ({ ...prev, isComplete: true }));
+        setExtractionProgress(prev => ({
+          ...prev,
+          isComplete: true,
+          totalDocs: data?.total_documents || prev.totalDocs,
+          processedDocs: data?.total_documents || prev.processedDocs,
+        }));
         queryClient.invalidateQueries(['qbsd-status', sessionId]);
       } else if (message.type === 'schema_completed') {
         const schemaData = message.data as SchemaCompletionData;
