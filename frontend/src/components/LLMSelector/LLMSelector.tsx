@@ -129,7 +129,7 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
         setSelectedConfig({
           provider: 'gemini',
           model: modelToUse,
-          max_output_tokens: 1024,
+        
           temperature: 0,
         });
         setUsePreservedConfig(false);
