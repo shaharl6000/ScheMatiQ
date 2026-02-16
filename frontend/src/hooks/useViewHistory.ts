@@ -108,6 +108,7 @@ export function useViewHistory(
       pendingNavRef.current = fn;
       setBlocked(true);
     } else {
+      skipCleanupRef.current = true;
       fn();
     }
   }, [shouldBlockExit]);
