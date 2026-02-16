@@ -154,7 +154,7 @@ const QBSDConfigPage = () => {
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/rtf': ['.rtf'],
     },
-    maxSize: 10 * 1024 * 1024, // 10MB per file
+    maxSize: 25 * 1024 * 1024, // 25MB per file
     onFilesSelected: setUploadedFiles,
     externalFiles: uploadedFiles,
   });
@@ -814,7 +814,7 @@ const QBSDConfigPage = () => {
                     {isDragActive ? 'Drop files here...' : 'Drag and drop files here, or click to browse'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Supports: .txt, .md, .pdf, .doc, .docx, .rtf (max 10MB each)
+                    Supports: .txt, .md, .pdf, .doc, .docx, .rtf (max 25MB each)
                   </p>
                 </div>
 

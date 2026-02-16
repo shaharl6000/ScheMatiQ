@@ -86,7 +86,7 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/rtf': ['.rtf'],
     },
-    maxSize: 10 * 1024 * 1024, // 10MB per file
+    maxSize: 25 * 1024 * 1024, // 25MB per file
     onFilesSelected: onFilesChange,
     externalFiles: uploadedFiles,
   });
@@ -239,7 +239,7 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
               Supported formats: TXT, MD, PDF, DOC, DOCX, RTF
             </p>
             <p className="text-sm text-muted-foreground">
-              Max 10MB per file, 100MB total
+              Max 25MB per file, 100MB total
             </p>
           </Card>
 

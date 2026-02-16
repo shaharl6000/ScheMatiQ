@@ -42,17 +42,19 @@ export const useFileUpload = (options: FileUploadOptions = {}): FileUploadResult
       setDragError(null);
 
       if (rejectedFiles.length > 0) {
-        const errorMessage = 'Some files were rejected. Please check file type and size requirements.';
+        const rejectedNames = rejectedFiles.map(r => r.file.name).join(', ');
+        const errorMessage = `Rejected: ${rejectedNames}. Please check file type and size requirements.`;
         setDragError(errorMessage);
         onError?.(errorMessage);
-        return;
       }
 
-      // Use externalFiles if provided (syncs with parent state), otherwise use internal state
-      const currentFiles = externalFiles ?? files;
-      const newFiles = allowMultiple ? [...currentFiles, ...acceptedFiles] : acceptedFiles;
-      setFiles(newFiles);
-      onFilesSelected?.(newFiles);
+      if (acceptedFiles.length > 0) {
+        // Use externalFiles if provided (syncs with parent state), otherwise use internal state
+        const currentFiles = externalFiles ?? files;
+        const newFiles = allowMultiple ? [...currentFiles, ...acceptedFiles] : acceptedFiles;
+        setFiles(newFiles);
+        onFilesSelected?.(newFiles);
+      }
     },
     accept: acceptedTypes,
     maxSize,

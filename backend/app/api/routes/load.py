@@ -238,6 +238,11 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
                 session.observation_unit = ObservationUnitInfo(**metadata['observation_unit'])
                 logger.debug(f"Restored observation unit from CSV: {session.observation_unit.name}")
 
+            # Restore cloud_dataset if present
+            if metadata.get('cloud_dataset'):
+                session.metadata.cloud_dataset = metadata['cloud_dataset']
+                logger.debug(f"Restored cloud_dataset: {session.metadata.cloud_dataset}")
+
             # Create a parsed schema file with the extracted LLM configuration
             if metadata.get('llm_config'):
                 session_dir = Path("./data") / session_id
@@ -828,9 +833,9 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
                 logger.debug(f"Skipping system file: {file.filename}")
                 continue
             
-            # Validate file size (10MB limit per file)
-            if file.size > 10 * 1024 * 1024:
-                errors.append(f"File '{file.filename}' exceeds 10MB limit")
+            # Validate file size (25MB limit per file)
+            if file.size > 25 * 1024 * 1024:
+                errors.append(f"File '{file.filename}' exceeds 25MB limit")
                 continue
             
             total_size += file.size
@@ -1412,7 +1417,8 @@ async def export_complete_data(session_id: str, format: str = "json"):
                 "total_rows": session.statistics.total_rows if session.statistics else 0,
                 "total_columns": len(session.columns),
                 "source": session.metadata.source,
-                "file_size": session.metadata.file_size
+                "file_size": session.metadata.file_size,
+                "cloud_dataset": session.metadata.cloud_dataset,
             },
             "data": []
         }
