@@ -525,13 +525,6 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
             )}
           </div>
 
-          {mode === 'edit' && formData.new_name !== formData.name && formData.new_name.trim() && (
-            <Alert variant="warning">
-              <AlertDescription>
-                <strong>Note:</strong> Renaming a column will trigger reprocessing to ensure data consistency. This may take some time.
-              </AlertDescription>
-            </Alert>
-          )}
           </div>
         </ScrollArea>
 

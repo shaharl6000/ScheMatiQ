@@ -942,6 +942,33 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 }
                 if session.observation_unit.example_names:
                     schema_data["observation_unit"]["example_names"] = session.observation_unit.example_names
+            else:
+                # Try to infer from existing extracted data (_metadata.observation_unit)
+                inferred_unit_name = None
+                for data_file in [data_dir / "data.jsonl", qbsd_dir / "extracted_data.jsonl"]:
+                    if data_file.exists():
+                        with open(data_file) as f:
+                            for line in f:
+                                if line.strip():
+                                    row = json.loads(line)
+                                    meta = row.get("_metadata", {})
+                                    if meta.get("observation_unit"):
+                                        inferred_unit_name = meta["observation_unit"]
+                                        break
+                        if inferred_unit_name:
+                            break
+
+                if inferred_unit_name:
+                    logger.info(f"Inferred observation_unit from existing data: {inferred_unit_name}")
+                    schema_data["observation_unit"] = {
+                        "name": inferred_unit_name,
+                        "definition": f"An individual {inferred_unit_name}",
+                    }
+                else:
+                    raise ValueError(
+                        "Cannot re-extract: session has no observation unit configured. "
+                        "Set the observation unit in the Schema tab before re-extracting."
+                    )
 
             # Save schema file
             schema_file = session_dir / f"reextract_schema_{operation_id}.json"
@@ -1123,7 +1150,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 await asyncio.get_event_loop().run_in_executor(qbsd_thread_pool, run_extraction)
                 logger.debug(f"build_table_jsonl completed, output_file exists: {output_file.exists()}")
             else:
-                logger.debug(f"No document directories exist, skipping extraction")
+                logger.warning("No document directories exist, skipping extraction")
+                # Give frontend time to establish WebSocket before broadcasting completion
+                await asyncio.sleep(3)
 
             # Merge results with existing data
             logger.debug(f"Merging re-extracted data...")

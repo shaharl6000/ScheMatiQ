@@ -144,6 +144,9 @@ const Visualize = () => {
   const [activeReextractionId, setActiveReextractionId] = useState<string | null>(null);
   const [isStoppingReextraction, setIsStoppingReextraction] = useState(false);
 
+  // Continue Discovery activity tracking (for navigation guard)
+  const [continueDiscoveryActive, setContinueDiscoveryActive] = useState(false);
+
   // Column order state
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
 
@@ -341,6 +344,7 @@ const Visualize = () => {
             // Continue Discovery events
             case 'continue_discovery_started':
               debug.log('Continue discovery started:', message.data);
+              setContinueDiscoveryActive(true);
               break;
             case 'continue_discovery_progress':
               debug.log('Continue discovery progress:', message.data);
@@ -354,15 +358,18 @@ const Visualize = () => {
               break;
             case 'continue_discovery_stopped':
               debug.log('Continue discovery stopped:', message.data);
+              setContinueDiscoveryActive(false);
               break;
             case 'continue_discovery_failed':
               debug.log('Continue discovery failed:', message.data);
+              setContinueDiscoveryActive(false);
               break;
             case 'incremental_extraction_started':
               // Initialize processing columns when incremental extraction starts
               if (message.data?.columns && Array.isArray(message.data.columns)) {
                 setProcessingColumns(new Set(message.data.columns));
               }
+              setContinueDiscoveryActive(true);
               break;
             case 'incremental_extraction_progress':
               if (message.data?.column) {
@@ -378,6 +385,7 @@ const Visualize = () => {
               setProcessingColumns(new Set()); // Clear processing state
               setCurrentDocumentProgress(null); // Clear document progress
               setStreamingCells(new Map());    // Clear streaming cells
+              setContinueDiscoveryActive(false);
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
               queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
@@ -647,6 +655,18 @@ const Visualize = () => {
                 queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
                 refreshUnits();
                 break;
+              case 'reextraction_failed':
+                debug.log('Re-extraction failed:', message.data);
+                setProcessingColumns(new Set());
+                setCurrentDocumentProgress(null);
+                setStreamingCells(new Map());
+                setActiveReextractionId(null);
+                setIsStoppingReextraction(false);
+                setForceWebSocketConnect(false);
+                // Refetch to show current state
+                queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+                break;
 
               case 'stopped':
                 debug.log('QBSD stopped:', message.data);
@@ -668,6 +688,7 @@ const Visualize = () => {
               // Continue Discovery events
               case 'continue_discovery_started':
                 debug.log('Continue discovery started:', message.data);
+                setContinueDiscoveryActive(true);
                 break;
               case 'continue_discovery_progress':
                 debug.log('Continue discovery progress:', message.data);
@@ -678,18 +699,22 @@ const Visualize = () => {
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
                 refreshUnits();
+                // Note: don't clear continueDiscoveryActive yet — extraction may follow
                 break;
               case 'continue_discovery_stopped':
                 debug.log('Continue discovery stopped:', message.data);
+                setContinueDiscoveryActive(false);
                 break;
               case 'continue_discovery_failed':
                 debug.log('Continue discovery failed:', message.data);
+                setContinueDiscoveryActive(false);
                 break;
               case 'incremental_extraction_started':
                 // Initialize processing columns when incremental extraction starts
                 if (message.data?.columns && Array.isArray(message.data.columns)) {
                   setProcessingColumns(new Set(message.data.columns));
                 }
+                setContinueDiscoveryActive(true);
                 break;
               case 'incremental_extraction_progress':
                 if (message.data?.column) {
@@ -706,6 +731,7 @@ const Visualize = () => {
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
                 setForceWebSocketConnect(false); // Allow WebSocket to close
+                setContinueDiscoveryActive(false);
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
                 queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
@@ -1024,14 +1050,15 @@ const Visualize = () => {
   // --- View history + navigation guard (must be before early returns) ---
   const isAnyProcessingActive = (mode === 'qbsd' && session?.status === 'processing') ||
     !!activeReextractionId ||
-    session?.status === 'processing_documents';
+    session?.status === 'processing_documents' ||
+    continueDiscoveryActive;
 
   const handleViewRestore = useCallback((entry: { tab: string; viewMode: import('../types/unit').ViewMode }) => {
     setActiveTab(entry.tab);
     setViewMode(entry.viewMode);
   }, [setViewMode]);
 
-  const { pushViewState, goBack, blocker: processingBlocker, requestNavigation } =
+  const { pushViewState, blocker: processingBlocker, requestNavigation } =
     useViewHistory(activeTab, viewMode, isAnyProcessingActive, handleViewRestore);
 
   // Register guard in context so the header banner also respects it
@@ -1054,11 +1081,10 @@ const Visualize = () => {
     setViewMode(newMode);
   }, [activeTab, viewMode, pushViewState, setViewMode]);
 
-  // Back arrow: traverse view history first, then leave page
-  const handleBackClick = useCallback(async () => {
-    if (goBack()) return; // view state restored
-    await handleBackNavigation(); // no view history left, leave page
-  }, [goBack, handleBackNavigation]);
+  // Back arrow: navigate directly to home/config (skip view history traversal)
+  const handleBackClick = useCallback(() => {
+    requestNavigation(() => { handleBackNavigation(); });
+  }, [requestNavigation, handleBackNavigation]);
 
   if (!sessionId) {
     return (

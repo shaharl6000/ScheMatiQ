@@ -94,31 +94,9 @@ const MissingDocumentsSection: React.FC<MissingDocumentsSectionProps> = ({
     );
   }
 
-  // Some documents missing - show warning with upload option
-  return (
-    <div className="space-y-3">
-      <Alert variant="destructive" className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 [&>svg]:text-amber-600">
-        <AlertTriangle className="h-4 w-4" />
-        <AlertDescription className="text-amber-800 dark:text-amber-200">
-          <div className="space-y-1">
-            <p className="font-medium">
-              {missing_documents.length} document{missing_documents.length !== 1 ? 's' : ''} missing
-              {rows_with_missing_docs > 0 && (
-                <span className="text-amber-600 dark:text-amber-400">
-                  {' '}({rows_with_missing_docs} of {total_rows} rows will be skipped)
-                </span>
-              )}
-            </p>
-            {can_proceed && totalAvailable > 0 && (
-              <p className="text-sm text-amber-700 dark:text-amber-300">
-                {totalAvailable} document{totalAvailable !== 1 ? 's are' : ' is'} available and will be processed.
-              </p>
-            )}
-          </div>
-        </AlertDescription>
-      </Alert>
-
-      <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
+  // Collapsible missing docs list + upload section (shared between "all missing" and "some missing")
+  const missingDocsCollapsible = (
+    <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
         <CollapsibleTrigger asChild>
           <Button variant="ghost" size="sm" className="w-full justify-between p-2 h-auto">
             <div className="flex items-center gap-2 text-sm">
@@ -212,7 +190,55 @@ const MissingDocumentsSection: React.FC<MissingDocumentsSectionProps> = ({
             )}
           </Card>
         </CollapsibleContent>
-      </Collapsible>
+    </Collapsible>
+  );
+
+  // ALL documents missing - show error
+  if (!can_proceed) {
+    return (
+      <div className="space-y-3">
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertDescription>
+            <p className="font-medium">
+              All {missing_documents.length} source document{missing_documents.length !== 1 ? 's are' : ' is'} missing.
+            </p>
+            <p className="text-sm mt-1">
+              Upload the original documents to enable re-extraction.
+            </p>
+          </AlertDescription>
+        </Alert>
+
+        {missingDocsCollapsible}
+      </div>
+    );
+  }
+
+  // Some documents missing - show warning with upload option
+  return (
+    <div className="space-y-3">
+      <Alert variant="destructive" className="border-amber-200 bg-amber-50 dark:bg-amber-950/20 [&>svg]:text-amber-600">
+        <AlertTriangle className="h-4 w-4" />
+        <AlertDescription className="text-amber-800 dark:text-amber-200">
+          <div className="space-y-1">
+            <p className="font-medium">
+              {missing_documents.length} document{missing_documents.length !== 1 ? 's' : ''} missing
+              {rows_with_missing_docs > 0 && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {' '}({rows_with_missing_docs} of {total_rows} rows will be skipped)
+                </span>
+              )}
+            </p>
+            {totalAvailable > 0 && (
+              <p className="text-sm text-amber-700 dark:text-amber-300">
+                {totalAvailable} document{totalAvailable !== 1 ? 's are' : ' is'} available and will be processed.
+              </p>
+            )}
+          </div>
+        </AlertDescription>
+      </Alert>
+
+      {missingDocsCollapsible}
     </div>
   );
 };

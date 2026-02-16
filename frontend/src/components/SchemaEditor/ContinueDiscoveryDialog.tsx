@@ -16,7 +16,6 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Input } from '@/components/ui/input';
@@ -48,7 +47,7 @@ import {
 } from '@/constants/llmModels';
 import { DEFAULT_MAX_DOCUMENTS } from '@/constants';
 
-type DialogStep = 'documents' | 'llm_config' | 'discovery' | 'review' | 'rows' | 'extraction' | 'no_new_columns';
+type DialogStep = 'documents' | 'llm_config' | 'discovery' | 'review' | 'extraction' | 'no_new_columns';
 
 interface ContinueDiscoveryDialogProps {
   open: boolean;
@@ -61,8 +60,6 @@ interface ContinueDiscoveryDialogProps {
   onError: (error: string) => void;
   /** Called when extraction starts for live updates */
   onExtractionStarted?: (columns: string[]) => void;
-  /** Called when discovery starts - pass operationId to show full-page monitor */
-  onDiscoveryStarted?: (operationId: string) => void;
 }
 
 const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
@@ -74,7 +71,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   onSuccess,
   onError,
   onExtractionStarted,
-  onDiscoveryStarted,
 }) => {
   // Ref for dialog content — used as portal container for Select dropdowns
   const dialogContentRef = useRef<HTMLDivElement>(null);
@@ -123,15 +119,12 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   // Discovery state
   const [operationId, setOperationId] = useState<string | null>(null);
   const [discoveryProgress, setDiscoveryProgress] = useState(0);
+  const [discoveryBatchInfo, setDiscoveryBatchInfo] = useState<{ current: number; total: number } | null>(null);
+  const [discoveryNewColumnCount, setDiscoveryNewColumnCount] = useState(0);
   const [newColumns, setNewColumns] = useState<NewColumnInfo[]>([]);
 
   // Column selection state
   const [selectedNewColumns, setSelectedNewColumns] = useState<Set<string>>(new Set());
-
-  // Row selection state
-  const [rowSelection, setRowSelection] = useState<'all' | 'selected'>('all');
-  const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
-  const [availableRows, setAvailableRows] = useState<string[]>([]);
 
   // Extraction state
   const [extractionProgress, setExtractionProgress] = useState(0);
@@ -147,9 +140,16 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   useEffect(() => {
     if (open && sessionId) {
       loadDocumentInfo();
-      loadApiKey();
     }
   }, [open, sessionId]);
+
+  // Load API key when dialog opens or provider changes
+  useEffect(() => {
+    if (open) {
+      loadApiKey();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, llmProvider]);
 
   // Load configured providers and config when dialog opens
   useEffect(() => {
@@ -220,10 +220,10 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setUploadedFiles([]);
       setNewColumns([]);
       setSelectedNewColumns(new Set());
-      setRowSelection('all');
-      setSelectedRows(new Set());
       setOperationId(null);
       setDiscoveryProgress(0);
+      setDiscoveryBatchInfo(null);
+      setDiscoveryNewColumnCount(0);
       setExtractionProgress(0);
       setIsStopping(false);
       setShowRetrieverConfig(false);
@@ -248,6 +248,11 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       }
     }
   }, [open]);
+
+  // Update discovery model when discovery provider changes
+  useEffect(() => {
+    setLlmModel(getDefaultModelForProvider(llmProvider));
+  }, [llmProvider]);
 
   // Update extraction model when extraction provider changes
   const handleExtractionProviderChange = (provider: LLMProviderKey) => {
@@ -285,7 +290,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   };
 
   const loadApiKey = async () => {
-    const key = await getApiKeyForProvider('gemini');
+    const key = await getApiKeyForProvider(llmProvider);
     if (key) {
       setApiKey(key);
     }
@@ -294,7 +299,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const handleApiKeyChange = (value: string) => {
     setApiKey(value);
     if (value) {
-      encryptAndStore('gemini', value);
+      encryptAndStore(llmProvider, value);
     }
   };
 
@@ -332,6 +337,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       const response = await schemaAPI.continueDiscovery.start(sessionId, {
         document_source: documentSource,
         cloud_dataset: documentSource === 'cloud' ? selectedCloudDataset : undefined,
+        uploaded_files: documentSource === 'upload' ? uploadedFiles.map(f => f.name) : undefined,
         llm_config: {
           provider: llmProvider,
           model: llmModel,
@@ -355,19 +361,17 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
 
       setOperationId(response.operation_id);
 
-      // If parent wants to show full-page monitor, notify and close dialog
-      if (onDiscoveryStarted) {
-        onDiscoveryStarted(response.operation_id);
-        onClose();
-        setLoading(false);
-        return;
-      }
-
-      // Otherwise, continue with in-dialog polling
+      // Poll for discovery status in-dialog
       pollIntervalRef.current = setInterval(async () => {
         try {
           const status = await schemaAPI.continueDiscovery.getStatus(sessionId, response.operation_id);
           setDiscoveryProgress(status.progress * 100);
+          if (status.current_batch && status.total_batches) {
+            setDiscoveryBatchInfo({ current: status.current_batch, total: status.total_batches });
+          }
+          if (status.new_columns) {
+            setDiscoveryNewColumnCount(status.new_columns.length);
+          }
 
           if (status.status === 'completed') {
             clearInterval(pollIntervalRef.current!);
@@ -391,8 +395,15 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
             pollIntervalRef.current = null;
             onClose();
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error('Failed to poll discovery status:', err);
+          // If operation not found (404), the backend cleaned it up — stop polling
+          if (err?.response?.status === 404) {
+            clearInterval(pollIntervalRef.current!);
+            pollIntervalRef.current = null;
+            onError('Discovery operation was lost. Please try again.');
+            setStep('documents');
+          }
         }
       }, 2000);
 
@@ -424,8 +435,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
 
       await schemaAPI.continueDiscovery.confirmColumns(sessionId, operationId!, {
         selected_columns: Array.from(selectedNewColumns),
-        row_selection: rowSelection,
-        selected_rows: rowSelection === 'selected' ? Array.from(selectedRows) : undefined,
+        row_selection: 'all',
         llm_config: {
           provider: extractionProvider,
           model: extractionModel,
@@ -477,8 +487,14 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
             onSuccess('Extraction stopped. Partial values may have been saved.', []);
             onClose();
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error('Failed to poll extraction status:', err);
+          // If operation not found (404), the backend cleaned it up — stop polling
+          if (err?.response?.status === 404) {
+            clearInterval(pollIntervalRef.current!);
+            pollIntervalRef.current = null;
+            onError('Extraction operation was lost. Please try again.');
+          }
         }
       }, 2000);
 
@@ -501,18 +517,14 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     setIsStopping(true);
     try {
       await schemaAPI.continueDiscovery.stop(sessionId, operationId);
-      // Clean up polling interval on successful stop
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-        pollIntervalRef.current = null;
-      }
-      // Status will be updated by next poll response or WebSocket
+      // Don't clear polling — let the next poll detect 'stopped' status
+      // and handle cleanup naturally
     } catch (error: any) {
       console.error('Failed to stop operation:', error);
       onError(error.response?.data?.detail || 'Failed to stop operation');
-    } finally {
-      setIsStopping(false);  // Always reset stopping state
+      setIsStopping(false);
     }
+    // Note: isStopping is cleared when poll detects 'stopped' status and closes dialog
   };
 
   const handleColumnToggle = (columnName: string, checked: boolean) => {
@@ -681,9 +693,11 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
               <SelectValue />
             </SelectTrigger>
             <SelectContent container={dialogContentRef.current}>
-              <SelectItem value="gemini">Google Gemini</SelectItem>
-              <SelectItem value="openai">OpenAI</SelectItem>
-              <SelectItem value="together">Together AI</SelectItem>
+              {(Object.keys(LLM_PROVIDER_NAMES) as LLMProviderKey[]).map((provider) => (
+                <SelectItem key={provider} value={provider}>
+                  {LLM_PROVIDER_NAMES[provider]}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -695,27 +709,11 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
               <SelectValue />
             </SelectTrigger>
             <SelectContent container={dialogContentRef.current}>
-              {llmProvider === 'gemini' && (
-                <>
-                  <SelectItem value="gemini-2.5-flash">Gemini 2.5 Flash</SelectItem>
-                  <SelectItem value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</SelectItem>
-                  <SelectItem value="gemini-2.5-pro">Gemini 2.5 Pro</SelectItem>
-                  <SelectItem value="gemini-3">Gemini 3</SelectItem>
-                  <SelectItem value="gemini-3-pro">Gemini 3 Pro</SelectItem>
-                </>
-              )}
-              {llmProvider === 'openai' && (
-                <>
-                  <SelectItem value="gpt-4o">GPT-4o</SelectItem>
-                  <SelectItem value="gpt-4o-mini">GPT-4o Mini</SelectItem>
-                </>
-              )}
-              {llmProvider === 'together' && (
-                <>
-                  <SelectItem value="meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo">Llama 3.1 70B</SelectItem>
-                  <SelectItem value="meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo">Llama 3.1 8B</SelectItem>
-                </>
-              )}
+              {getModelsForProvider(llmProvider).map((model) => (
+                <SelectItem key={model.id} value={model.id}>
+                  {model.label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -821,33 +819,47 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     </>
   );
 
-  const renderDiscoveryStep = () => (
-    <>
-      <DialogHeader>
-        <DialogTitle>Discovering New Columns</DialogTitle>
-        <DialogDescription>
-          Running schema discovery with your current schema as the starting point...
-        </DialogDescription>
-      </DialogHeader>
+  const renderDiscoveryStep = () => {
+    const progressText = (() => {
+      if (discoveryProgress >= 100) return 'Finalizing...';
+      if (discoveryBatchInfo && discoveryBatchInfo.total > 0) {
+        const batchText = `Processing batch ${discoveryBatchInfo.current}/${discoveryBatchInfo.total}`;
+        const columnText = discoveryNewColumnCount > 0
+          ? ` — ${discoveryNewColumnCount} new column${discoveryNewColumnCount !== 1 ? 's' : ''} found so far`
+          : '';
+        return batchText + columnText;
+      }
+      return 'Analyzing documents...';
+    })();
 
-      <div className="py-8 space-y-4">
-        <div className="flex items-center justify-center">
-          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+    return (
+      <>
+        <DialogHeader>
+          <DialogTitle>Discovering New Columns</DialogTitle>
+          <DialogDescription>
+            Running schema discovery with your current schema as the starting point...
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="py-8 space-y-4">
+          <div className="flex items-center justify-center">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+          </div>
+          <Progress value={discoveryProgress} className="w-full" />
+          <p className="text-center text-sm text-muted-foreground">
+            {progressText}
+          </p>
         </div>
-        <Progress value={discoveryProgress} className="w-full" />
-        <p className="text-center text-sm text-muted-foreground">
-          {discoveryProgress < 100 ? 'Analyzing documents...' : 'Finalizing...'}
-        </p>
-      </div>
 
-      <DialogFooter>
-        <Button variant="destructive" onClick={handleStop} disabled={isStopping}>
-          {isStopping ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Square className="h-4 w-4 mr-2" />}
-          Stop
-        </Button>
-      </DialogFooter>
-    </>
-  );
+        <DialogFooter>
+          <Button variant="destructive" onClick={handleStop} disabled={isStopping}>
+            {isStopping ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Square className="h-4 w-4 mr-2" />}
+            Stop
+          </Button>
+        </DialogFooter>
+      </>
+    );
+  };
 
   const renderNoNewColumnsStep = () => (
     <>
@@ -908,7 +920,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           </div>
         </div>
 
-        <ScrollArea className="h-[300px] border rounded-md p-3">
+        <ScrollArea className="h-[250px] border rounded-md p-3">
           <div className="space-y-3">
             {newColumns.map((col) => (
               <div key={col.name} className="flex items-start space-x-3 p-2 hover:bg-muted/50 rounded">
@@ -936,51 +948,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
             ))}
           </div>
         </ScrollArea>
-      </div>
-
-      <DialogFooter>
-        <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button
-          onClick={() => setStep('rows')}
-          disabled={selectedNewColumns.size === 0}
-        >
-          Next: Select Rows
-        </Button>
-      </DialogFooter>
-    </>
-  );
-
-  const renderRowsStep = () => (
-    <>
-      <DialogHeader>
-        <DialogTitle>Select Rows to Process</DialogTitle>
-        <DialogDescription>
-          Choose which rows to extract values for the new columns.
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="space-y-4 py-4">
-        <RadioGroup value={rowSelection} onValueChange={(v) => setRowSelection(v as any)}>
-          <div className="flex items-center space-x-3 p-3 border rounded-lg">
-            <RadioGroupItem value="all" id="all-rows" />
-            <div>
-              <Label htmlFor="all-rows" className="cursor-pointer">All Rows</Label>
-              <p className="text-sm text-muted-foreground">
-                Extract values for all existing rows in the table
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-start space-x-3 p-3 border rounded-lg opacity-50">
-            <RadioGroupItem value="selected" id="selected-rows" disabled />
-            <div>
-              <Label htmlFor="selected-rows" className="cursor-pointer">Select Specific Rows</Label>
-              <p className="text-sm text-muted-foreground">
-                Coming soon - choose specific rows to process
-              </p>
-            </div>
-          </div>
-        </RadioGroup>
 
         {/* Model Settings (Collapsible) - Only show in developer mode */}
         {allowLlmConfig && (
@@ -989,7 +956,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
               <Button variant="ghost" className="w-full justify-between p-2 h-auto">
                 <div className="flex items-center gap-2 text-sm">
                   <Brain className="h-4 w-4" />
-                  <span>Model Settings</span>
+                  <span>Extraction Model</span>
                   <Badge variant="outline" className="text-xs">
                     {LLM_PROVIDER_NAMES[extractionProvider]} / {extractionModel}
                   </Badge>
@@ -1052,20 +1019,18 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           </Collapsible>
         )}
 
-        <Separator />
-
         <Alert>
           <Info className="h-4 w-4" />
           <AlertDescription>
             <strong>{selectedNewColumns.size} column{selectedNewColumns.size !== 1 ? 's' : ''}</strong> will be added
-            and values will be extracted for {rowSelection === 'all' ? 'all rows' : `${selectedRows.size} rows`}.
+            and values will be extracted for all rows.
           </AlertDescription>
         </Alert>
       </div>
 
       <DialogFooter>
-        <Button variant="outline" onClick={() => setStep('review')}>Back</Button>
-        <Button onClick={handleConfirmColumns} disabled={loading}>
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+        <Button onClick={handleConfirmColumns} disabled={selectedNewColumns.size === 0 || loading}>
           {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
           Start Extraction
         </Button>
@@ -1113,8 +1078,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         return renderNoNewColumnsStep();
       case 'review':
         return renderReviewStep();
-      case 'rows':
-        return renderRowsStep();
       case 'extraction':
         return renderExtractionStep();
       default:

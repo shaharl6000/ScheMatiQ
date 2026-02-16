@@ -1108,6 +1108,7 @@ class ContinueDiscoveryDocumentsResponse(BaseModel):
 class ContinueDiscoveryRequest(BaseModel):
     document_source: str  # 'original', 'upload', 'cloud'
     cloud_dataset: Optional[str] = None
+    uploaded_files: Optional[List[str]] = None
     llm_config: Dict[str, Any]
     retriever_config: Optional[Dict[str, Any]] = None  # Retriever settings (empty = defaults)
     max_keys_schema: int = 100
@@ -1203,6 +1204,7 @@ async def start_continue_discovery(
                 document_source=request.document_source,
                 llm_config=request.llm_config,
                 cloud_dataset=request.cloud_dataset,
+                uploaded_files=request.uploaded_files,
                 retriever_config=request.retriever_config,
                 max_keys_schema=request.max_keys_schema,
                 documents_batch_size=request.documents_batch_size,

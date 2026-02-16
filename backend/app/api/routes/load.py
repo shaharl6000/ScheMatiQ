@@ -765,7 +765,7 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         )
         is_valid_qbsd_session = (
             session.type == SessionType.QBSD and
-            session.status in [SessionStatus.CREATED, SessionStatus.COMPLETED]
+            session.status in [SessionStatus.CREATED, SessionStatus.COMPLETED, SessionStatus.STOPPED]
         )
 
         if not (is_valid_upload_session or is_valid_qbsd_session):
@@ -790,6 +790,10 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         # If over limit and not bypassed, randomly select files to fit within limit
         limit_applied = False
         enforce_limit = not (DEVELOPER_MODE and bypass_limit)
+        # Don't enforce document limit for completed sessions — these are complementary
+        # source documents for re-extraction/continue discovery, not initial QBSD uploads
+        if session.status == SessionStatus.COMPLETED:
+            enforce_limit = False
         available_slots = MAX_DOCUMENTS - existing_count
         if enforce_limit and new_count > MAX_DOCUMENTS:
             # Session is full or new batch alone exceeds limit — sample from new uploads to MAX_DOCUMENTS

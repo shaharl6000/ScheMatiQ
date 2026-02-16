@@ -584,7 +584,7 @@ class FileParser:
                         if data.get("llm_configuration"):
                             metadata_info["llm_config"] = data["llm_configuration"]
                         export_meta = data.get("metadata", {})
-                        for field in ("total_documents", "skipped_documents", "session_id", "generated_timestamp"):
+                        for field in ("total_documents", "skipped_documents", "session_id", "generated_timestamp", "cloud_dataset"):
                             if export_meta.get(field):
                                 metadata_info[field] = export_meta[field]
                         # Pre-populate schema column definitions from the export
@@ -799,6 +799,7 @@ class FileParser:
                 "generated_timestamp": metadata_info.get("generated_timestamp"),
                 "column_count_with_metadata": len(schema_metadata_from_export),
                 "observation_unit": observation_unit,
+                "cloud_dataset": metadata_info.get("cloud_dataset"),
             }
 
         return result

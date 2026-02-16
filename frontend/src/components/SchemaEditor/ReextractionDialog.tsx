@@ -33,7 +33,6 @@ import { ChevronDown } from 'lucide-react';
 
 import {
   SchemaChangeStatus,
-  PaperDiscoveryResult,
   ColumnChangeDetail,
   ReextractionRequest,
   DocumentAvailabilityResponse,
@@ -70,7 +69,6 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
   const [loading, setLoading] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
-  const [paperStatus, setPaperStatus] = useState<PaperDiscoveryResult | null>(null);
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
 
   // Document availability pre-check state
@@ -104,40 +102,32 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
 
     const loadStatus = async () => {
       setLoadingStatus(true);
+      setCheckingAvailability(true);
       try {
-        const [changes, papers] = await Promise.all([
+        // Load schema changes and document availability in parallel (skip separate discover-papers)
+        const [changes, availability] = await Promise.all([
           schemaAPI.getSchemaChangeStatus(sessionId),
-          schemaAPI.discoverPapers(sessionId),
+          schemaAPI.precheckDocuments(sessionId, { operation_type: 'reextraction' }),
         ]);
         if (cancelled) return;
 
         setSchemaChanges(changes);
-        setPaperStatus(papers);
+        setDocumentAvailability(availability);
 
         const allChanged = new Set([
           ...changes.changed_columns,
           ...changes.new_columns,
         ]);
         setSelectedColumns(allChanged);
-
-        // Check document availability
-        setCheckingAvailability(true);
-        try {
-          const availability = await schemaAPI.precheckDocuments(sessionId, {
-            operation_type: 'reextraction',
-          });
-          if (!cancelled) setDocumentAvailability(availability);
-        } catch (error) {
-          console.error('Failed to check document availability:', error);
-        } finally {
-          if (!cancelled) setCheckingAvailability(false);
-        }
       } catch (error: any) {
         if (!cancelled) {
           onErrorRef.current(error.response?.data?.detail || 'Failed to load schema status');
         }
       } finally {
-        if (!cancelled) setLoadingStatus(false);
+        if (!cancelled) {
+          setLoadingStatus(false);
+          setCheckingAvailability(false);
+        }
       }
     };
 
@@ -266,6 +256,16 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
       };
 
       const response = await schemaAPI.startReextraction(sessionId, request);
+
+      if (response.rows_to_process === 0) {
+        // No documents available — extraction will complete instantly
+        onSuccess(
+          `No source documents available to process. Upload the missing documents and try again.`,
+          false
+        );
+        onClose();
+        return;
+      }
 
       // Notify parent about the columns being re-extracted (for WebSocket connection and skeleton display)
       if (onReextractionStarted) {
@@ -585,7 +585,7 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
             </Button>
             <Button
               onClick={handleStartReextraction}
-              disabled={loading || selectedColumns.size === 0 || !hasChanges || !schemaChanges?.can_reextract}
+              disabled={loading || selectedColumns.size === 0 || !hasChanges || !schemaChanges?.can_reextract || documentAvailability?.can_proceed === false}
             >
               {loading ? (
                 <>

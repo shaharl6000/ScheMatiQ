@@ -671,6 +671,7 @@ export interface ContinueDiscoveryDocuments {
 export interface ContinueDiscoveryRequest {
   document_source: 'original' | 'upload' | 'cloud';
   cloud_dataset?: string;
+  uploaded_files?: string[];
   llm_config: {
     provider: string;
     model: string;

@@ -666,12 +666,32 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 logger.error(f"Error downloading cloud documents: {e}")
                 raise
 
+            # Also include any documents uploaded via MissingDocumentsSection
+            # (these supplement the cloud dataset with locally-uploaded files)
+            pending_dir = session_dir / "pending_documents"
+            if pending_dir.exists():
+                existing = set(filenames)
+                for f in sorted(pending_dir.iterdir()):
+                    if f.is_file() and not f.name.startswith('.') and f.name not in existing:
+                        try:
+                            content = f.read_text(encoding='utf-8')
+                            documents.append(content)
+                            filenames.append(f.name)
+                            (docs_dir / f.name).write_text(content, encoding='utf-8')
+                        except Exception as e:
+                            logger.debug(f"Could not read pending file {f}: {e}")
+                if len(filenames) > len(existing):
+                    logger.info(f"Added {len(filenames) - len(existing)} documents from pending_documents")
+
         elif document_source == "upload":
             # Use uploaded files from pending_documents
             pending_dir = session_dir / "pending_documents"
             if pending_dir.exists():
+                target_files = set(uploaded_files) if uploaded_files else None
                 for f in sorted(pending_dir.iterdir()):
                     if f.is_file() and not f.name.startswith('.'):
+                        if target_files and f.name not in target_files:
+                            continue
                         try:
                             content = f.read_text(encoding='utf-8')
                             documents.append(content)
@@ -747,6 +767,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         document_source: str,
         llm_config: Dict[str, Any],
         cloud_dataset: Optional[str] = None,
+        uploaded_files: Optional[List[str]] = None,
         retriever_config: Optional[Dict[str, Any]] = None,
         max_keys_schema: int = 100,
         documents_batch_size: int = 1,
@@ -799,6 +820,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         config = {
             "document_source": document_source,
             "cloud_dataset": cloud_dataset,
+            "uploaded_files": uploaded_files,
             "retriever_config": retriever_config,
             "max_keys_schema": max_keys_schema,
             "documents_batch_size": documents_batch_size,
@@ -872,6 +894,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 operation.session_id,
                 config["document_source"],
                 config.get("cloud_dataset"),
+                uploaded_files=config.get("uploaded_files"),
                 bypass_limit=config.get("bypass_limit", False)
             )
 
@@ -1218,7 +1241,13 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             )
         finally:
             await concurrency_limiter.release(operation.session_id)
-            self._cleanup_operation(operation_id)
+            # Only cleanup on stopped — failed operations persist for polling,
+            # successful operations persist for the confirm/extraction step.
+            # TTL in get_operation_status handles abandoned operations.
+            if operation.status == "stopped":
+                self._cleanup_operation(operation_id)
+            elif operation.status == "completed":
+                operation.completed_at = datetime.now()
 
     # ==================== Incremental Extraction ====================
 
@@ -1519,11 +1548,6 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 output_file
             )
 
-            # Capture new baseline
-            from app.services.reextraction_service import ReextractionService
-            # Use session manager's capture baseline
-            self.session_manager.capture_schema_baseline(operation.session_id)
-
             # Note: Schema evolution snapshot was already added in discovery phase
             # Don't add another snapshot here to avoid double-counting columns
             # Just update the session to ensure consistency
@@ -1763,11 +1787,23 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         self._cleanup_operation(operation_id)
         return {"stopped": True, "phase": operation.phase, "message": "Operation stopped"}
 
+    # TTL for completed discovery operations awaiting confirm/extraction (30 minutes)
+    OPERATION_TTL_SECONDS = 30 * 60
+
     def get_operation_status(self, operation_id: str) -> Optional[Dict[str, Any]]:
-        """Get status of an operation."""
+        """Get status of an operation. Cleans up expired operations."""
         operation = self.active_operations.get(operation_id)
         if not operation:
             return None
+
+        # TTL cleanup: if discovery completed/failed but no further action taken
+        if (operation.status in ("completed", "failed") and operation.phase == "discovery"
+                and operation.completed_at):
+            elapsed = (datetime.now() - operation.completed_at).total_seconds()
+            if elapsed > self.OPERATION_TTL_SECONDS:
+                logger.info(f"Operation {operation_id} expired after {elapsed:.0f}s (status={operation.status})")
+                self._cleanup_operation(operation_id)
+                return None
 
         return {
             "operation_id": operation.operation_id,
