@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Loader2, Check, Info, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings, Brain, AlertTriangle } from 'lucide-react';
+import { Plus, Loader2, Check, Info, Square, Upload, Cloud, ChevronDown, ChevronRight, Settings, AlertTriangle } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
@@ -12,7 +12,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -37,17 +36,16 @@ import {
 } from '../../types';
 import { schemaAPI, loadAPI, configAPI } from '../../services/api';
 import MissingDocumentsSection from './MissingDocumentsSection';
-import { getApiKeyForProvider, encryptAndStore, getConfiguredProviders } from '../../utils/apiKeyStorage';
+import { getApiKeyForProvider, encryptAndStore } from '../../utils/apiKeyStorage';
 import {
   LLMProviderKey,
   getModelsForProvider,
   getDefaultModelForProvider,
-  getAvailableProviders,
   LLM_PROVIDER_NAMES,
 } from '@/constants/llmModels';
 import { DEFAULT_MAX_DOCUMENTS } from '@/constants';
 
-type DialogStep = 'documents' | 'llm_config' | 'discovery' | 'review' | 'extraction' | 'no_new_columns';
+type DialogStep = 'documents' | 'llm_config' | 'discovery' | 'results' | 'no_new_columns';
 
 interface ContinueDiscoveryDialogProps {
   open: boolean;
@@ -58,8 +56,6 @@ interface ContinueDiscoveryDialogProps {
   onClose: () => void;
   onSuccess: (message: string, newColumns: ColumnInfo[]) => void;
   onError: (error: string) => void;
-  /** Called when extraction starts for live updates */
-  onExtractionStarted?: (columns: string[]) => void;
 }
 
 const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
@@ -70,7 +66,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   onClose,
   onSuccess,
   onError,
-  onExtractionStarted,
 }) => {
   // Ref for dialog content — used as portal container for Select dropdowns
   const dialogContentRef = useRef<HTMLDivElement>(null);
@@ -90,11 +85,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [llmModel, setLlmModel] = useState('gemini-2.5-flash');
   const [apiKey, setApiKey] = useState('');
 
-  // Model settings for extraction (collapsible)
-  const [showModelSettings, setShowModelSettings] = useState(false);
-  const [configuredProviders, setConfiguredProviders] = useState<LLMProviderKey[]>([]);
-  const [extractionProvider, setExtractionProvider] = useState<LLMProviderKey>('gemini');
-  const [extractionModel, setExtractionModel] = useState('gemini-2.5-flash-lite');
+  // Config state
   const [allowLlmConfig, setAllowLlmConfig] = useState(false);
 
   // Server API key state
@@ -105,8 +96,9 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [developerMode, setDeveloperMode] = useState(false);
   const [limitBypassEnabled, setLimitBypassEnabled] = useState(false);
 
-  // Retriever config state (collapsed by default, empty = use defaults)
+  // Advanced settings state
   const [showRetrieverConfig, setShowRetrieverConfig] = useState(false);
+  const [maxKeysSchema, setMaxKeysSchema] = useState<string>('');
   const [retrieverConfig, setRetrieverConfig] = useState({
     model_name: '',
     passage_chars: '',
@@ -123,11 +115,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [discoveryNewColumnCount, setDiscoveryNewColumnCount] = useState(0);
   const [newColumns, setNewColumns] = useState<NewColumnInfo[]>([]);
 
-  // Column selection state
-  const [selectedNewColumns, setSelectedNewColumns] = useState<Set<string>>(new Set());
-
-  // Extraction state
-  const [extractionProgress, setExtractionProgress] = useState(0);
   const [isStopping, setIsStopping] = useState(false);
 
   // Document availability pre-check state (for cloud source)
@@ -151,12 +138,11 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, llmProvider]);
 
-  // Load configured providers and config when dialog opens
+  // Load config when dialog opens
   useEffect(() => {
-    const loadProviders = async () => {
+    const loadConfig = async () => {
       if (!open) return;
 
-      // Check if LLM config is allowed (release mode vs developer mode)
       const cfg = await configAPI.getConfig().catch(() => ({
         allow_llm_config: true,
         max_documents: DEFAULT_MAX_DOCUMENTS,
@@ -167,21 +153,9 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setMaxDocuments(cfg.max_documents ?? DEFAULT_MAX_DOCUMENTS);
       setDeveloperMode(cfg.developer_mode ?? false);
       setServerHasApiKeys(cfg.server_has_api_keys ?? false);
-
-      const providers = await getConfiguredProviders();
-      const available = getAvailableProviders(providers);
-      setConfiguredProviders(available);
-
-      // Set default extraction provider if current one is not available
-      if (available.length > 0 && !available.includes(extractionProvider)) {
-        const defaultProvider = available[0];
-        setExtractionProvider(defaultProvider);
-        setExtractionModel(getDefaultModelForProvider(defaultProvider));
-      }
     };
-    loadProviders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]); // Intentionally exclude extractionProvider to avoid re-running when provider changes
+    loadConfig();
+  }, [open]);
 
   // Check document availability when cloud dataset is selected
   const checkDocumentAvailability = useCallback(async () => {
@@ -198,7 +172,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setDocumentAvailability(availability);
     } catch (error: any) {
       console.error('Failed to check document availability:', error);
-      // Don't show error - not critical for continue discovery
     } finally {
       setCheckingAvailability(false);
     }
@@ -219,14 +192,13 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setSelectedCloudDataset('');
       setUploadedFiles([]);
       setNewColumns([]);
-      setSelectedNewColumns(new Set());
       setOperationId(null);
       setDiscoveryProgress(0);
       setDiscoveryBatchInfo(null);
       setDiscoveryNewColumnCount(0);
-      setExtractionProgress(0);
       setIsStopping(false);
       setShowRetrieverConfig(false);
+      setMaxKeysSchema('');
       setRetrieverConfig({
         model_name: '',
         passage_chars: '',
@@ -235,9 +207,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         dynamic_k_threshold: '',
         dynamic_k_minimum: ''
       });
-      setShowModelSettings(false);
-      setExtractionProvider('gemini');
-      setExtractionModel('gemini-2.5-flash-lite');
       setDocumentAvailability(null);
       setCheckingAvailability(false);
       setLimitBypassEnabled(false);
@@ -253,12 +222,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   useEffect(() => {
     setLlmModel(getDefaultModelForProvider(llmProvider));
   }, [llmProvider]);
-
-  // Update extraction model when extraction provider changes
-  const handleExtractionProviderChange = (provider: LLMProviderKey) => {
-    setExtractionProvider(provider);
-    setExtractionModel(getDefaultModelForProvider(provider));
-  };
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -345,6 +308,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           provider: llmProvider,
           model: llmModel,
           api_key: apiKey || undefined,
+          max_output_tokens: 8192,
           temperature: 0,
           context_window_size: 1000000
         },
@@ -356,7 +320,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           dynamic_k_threshold: retrieverConfig.dynamic_k_threshold ? parseFloat(retrieverConfig.dynamic_k_threshold) : undefined,
           dynamic_k_minimum: retrieverConfig.dynamic_k_minimum ? parseInt(retrieverConfig.dynamic_k_minimum) : undefined
         } : undefined,
-        max_keys_schema: 25,
+        max_keys_schema: maxKeysSchema ? parseInt(maxKeysSchema) : undefined,
         documents_batch_size: 1,
         bypass_limit: limitBypassEnabled
       });
@@ -383,9 +347,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
               setStep('no_new_columns');
             } else {
               setNewColumns(status.new_columns);
-              // Pre-select all new columns
-              setSelectedNewColumns(new Set(status.new_columns.map(c => c.name)));
-              setStep('review');
+              setStep('results');
             }
           } else if (status.status === 'failed') {
             clearInterval(pollIntervalRef.current!);
@@ -422,96 +384,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     }
   };
 
-  const handleConfirmColumns = async () => {
-    if (selectedNewColumns.size === 0) {
-      onError('Please select at least one column');
-      return;
-    }
-
-    setLoading(true);
-    setStep('extraction');
-
-    try {
-      // Get API key for the extraction provider
-      const extractionApiKey = await getApiKeyForProvider(extractionProvider);
-
-      await schemaAPI.continueDiscovery.confirmColumns(sessionId, operationId!, {
-        selected_columns: Array.from(selectedNewColumns),
-        row_selection: 'all',
-        llm_config: {
-          provider: extractionProvider,
-          model: extractionModel,
-          api_key: extractionApiKey || apiKey, // Fallback to discovery API key if not configured
-          temperature: 0
-        }
-      });
-
-      // Notify parent about extraction starting
-      if (onExtractionStarted) {
-        onExtractionStarted(Array.from(selectedNewColumns));
-      }
-
-      // Start polling for extraction progress
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const status = await schemaAPI.continueDiscovery.getStatus(sessionId, operationId!);
-
-          if (status.phase === 'extraction') {
-            setExtractionProgress(status.progress * 100);
-          }
-
-          if (status.status === 'completed' && status.phase === 'extraction') {
-            clearInterval(pollIntervalRef.current!);
-            pollIntervalRef.current = null;
-
-            // Convert new columns to ColumnInfo format
-            const addedColumns: ColumnInfo[] = newColumns
-              .filter(nc => selectedNewColumns.has(nc.name))
-              .map(nc => ({
-                name: nc.name,
-                definition: nc.definition,
-                rationale: nc.rationale,
-                allowed_values: nc.allowed_values,
-                source_document: nc.source_document,
-                discovery_iteration: nc.discovery_iteration
-              }));
-
-            onSuccess(`Added ${addedColumns.length} new column${addedColumns.length !== 1 ? 's' : ''} with extracted values.`, addedColumns);
-            onClose();
-          } else if (status.status === 'failed') {
-            clearInterval(pollIntervalRef.current!);
-            pollIntervalRef.current = null;
-            onError(status.error || 'Value extraction failed');
-          } else if (status.status === 'stopped') {
-            clearInterval(pollIntervalRef.current!);
-            pollIntervalRef.current = null;
-            onSuccess('Extraction stopped. Partial values may have been saved.', []);
-            onClose();
-          }
-        } catch (err: any) {
-          console.error('Failed to poll extraction status:', err);
-          // If operation not found (404), the backend cleaned it up — stop polling
-          if (err?.response?.status === 404) {
-            clearInterval(pollIntervalRef.current!);
-            pollIntervalRef.current = null;
-            onError('Extraction operation was lost. Please try again.');
-          }
-        }
-      }, 2000);
-
-    } catch (error: any) {
-      const detail = error.response?.data?.detail;
-      if (error.response?.status === 503) {
-        onError(detail || 'The server is currently busy. Please try again in a few minutes.');
-      } else {
-        onError(detail || 'Failed to start extraction');
-      }
-      setStep('review');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleStop = async () => {
     if (!operationId) return;
 
@@ -528,14 +400,22 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     // Note: isStopping is cleared when poll detects 'stopped' status and closes dialog
   };
 
-  const handleColumnToggle = (columnName: string, checked: boolean) => {
-    const newSet = new Set(selectedNewColumns);
-    if (checked) {
-      newSet.add(columnName);
-    } else {
-      newSet.delete(columnName);
-    }
-    setSelectedNewColumns(newSet);
+  const handleOk = () => {
+    // Convert new columns to ColumnInfo format and notify parent
+    const addedColumns: ColumnInfo[] = newColumns.map(nc => ({
+      name: nc.name,
+      definition: nc.definition,
+      rationale: nc.rationale,
+      allowed_values: nc.allowed_values,
+      source_document: nc.source_document,
+      discovery_iteration: nc.discovery_iteration,
+    }));
+
+    onSuccess(
+      `Discovered ${addedColumns.length} new column${addedColumns.length !== 1 ? 's' : ''}. Use Re-extract Data to populate values.`,
+      addedColumns
+    );
+    onClose();
   };
 
   const renderDocumentStep = () => (
@@ -805,6 +685,18 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                   className="h-8 text-sm"
                 />
               </div>
+              <div className="col-span-2 space-y-1">
+                <Label className="text-xs">Max Schema Columns</Label>
+                <Input
+                  type="number"
+                  value={maxKeysSchema}
+                  onChange={(e) => setMaxKeysSchema(e.target.value)}
+                  placeholder="No limit (preserves existing)"
+                  min={1}
+                  max={500}
+                  className="h-8 text-sm"
+                />
+              </div>
             </div>
           </CollapsibleContent>
         </Collapsible>
@@ -894,7 +786,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     </>
   );
 
-  const renderReviewStep = () => (
+  const renderResultsStep = () => (
     <>
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
@@ -902,47 +794,24 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           {newColumns.length} New Column{newColumns.length !== 1 ? 's' : ''} Discovered
         </DialogTitle>
         <DialogDescription>
-          Select which columns to add and extract values for.
+          The following new columns were found during schema discovery.
         </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-4 py-4">
-        <div className="flex items-center justify-between">
-          <Label className="text-sm font-medium">
-            Select columns ({selectedNewColumns.size} selected)
-          </Label>
-          <div className="space-x-2">
-            <Button variant="ghost" size="sm" onClick={() => setSelectedNewColumns(new Set(newColumns.map(c => c.name)))}>
-              Select All
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setSelectedNewColumns(new Set())}>
-              Clear
-            </Button>
-          </div>
-        </div>
-
         <ScrollArea className="h-[250px] border rounded-md p-3">
           <div className="space-y-3">
             {newColumns.map((col) => (
-              <div key={col.name} className="flex items-start space-x-3 p-2 hover:bg-muted/50 rounded">
-                <Checkbox
-                  id={`col-${col.name}`}
-                  checked={selectedNewColumns.has(col.name)}
-                  onCheckedChange={(checked) => handleColumnToggle(col.name, checked as boolean)}
-                />
+              <div key={col.name} className="flex items-start space-x-3 p-2 rounded">
                 <div className="flex-1 min-w-0">
-                  <Label htmlFor={`col-${col.name}`} className="font-medium cursor-pointer">
-                    {col.name}
-                  </Label>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{col.name}</span>
+                    <Badge variant="success" className="text-xs">New</Badge>
+                  </div>
                   {col.definition && (
                     <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
                       {col.definition}
                     </p>
-                  )}
-                  {col.source_document && (
-                    <Badge variant="outline" className="text-xs mt-1">
-                      From: {col.source_document}
-                    </Badge>
                   )}
                 </div>
               </div>
@@ -950,119 +819,16 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           </div>
         </ScrollArea>
 
-        {/* Model Settings (Collapsible) - Only show in developer mode */}
-        {allowLlmConfig && (
-          <Collapsible open={showModelSettings} onOpenChange={setShowModelSettings}>
-            <CollapsibleTrigger asChild>
-              <Button variant="ghost" className="w-full justify-between p-2 h-auto">
-                <div className="flex items-center gap-2 text-sm">
-                  <Brain className="h-4 w-4" />
-                  <span>Extraction Model</span>
-                  <Badge variant="outline" className="text-xs">
-                    {LLM_PROVIDER_NAMES[extractionProvider]} / {extractionModel}
-                  </Badge>
-                </div>
-                <ChevronDown className={`h-4 w-4 transition-transform ${showModelSettings ? 'rotate-180' : ''}`} />
-              </Button>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="pt-2 space-y-3">
-              <p className="text-xs text-muted-foreground">
-                Choose which AI model will be used for extracting values.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Provider</Label>
-                  <Select
-                    value={extractionProvider}
-                    onValueChange={(value) => handleExtractionProviderChange(value as LLMProviderKey)}
-                    disabled={configuredProviders.length === 0}
-                  >
-                    <SelectTrigger className="h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent container={dialogContentRef.current}>
-                      {configuredProviders.map((provider) => (
-                        <SelectItem key={provider} value={provider}>
-                          {LLM_PROVIDER_NAMES[provider]}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Model</Label>
-                  <Select
-                    value={extractionModel}
-                    onValueChange={setExtractionModel}
-                    disabled={getModelsForProvider(extractionProvider).length === 0}
-                  >
-                    <SelectTrigger className="h-8">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent container={dialogContentRef.current}>
-                      {getModelsForProvider(extractionProvider).map((model) => (
-                        <SelectItem key={model.id} value={model.id}>
-                          {model.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              {configuredProviders.length === 0 && (
-                <Alert>
-                  <AlertDescription className="text-xs">
-                    No API keys configured. Add an API key on the home page to select a model.
-                  </AlertDescription>
-                </Alert>
-              )}
-            </CollapsibleContent>
-          </Collapsible>
-        )}
-
         <Alert>
           <Info className="h-4 w-4" />
           <AlertDescription>
-            <strong>{selectedNewColumns.size} column{selectedNewColumns.size !== 1 ? 's' : ''}</strong> will be added
-            and values will be extracted for all rows.
+            New columns are now visible in the Schema tab. Use <strong>Re-extract Data</strong> to populate values for the new columns.
           </AlertDescription>
         </Alert>
       </div>
 
       <DialogFooter>
-        <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={handleConfirmColumns} disabled={selectedNewColumns.size === 0 || loading}>
-          {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-          Start Extraction
-        </Button>
-      </DialogFooter>
-    </>
-  );
-
-  const renderExtractionStep = () => (
-    <>
-      <DialogHeader>
-        <DialogTitle>Extracting Values</DialogTitle>
-        <DialogDescription>
-          Extracting values for {selectedNewColumns.size} new column{selectedNewColumns.size !== 1 ? 's' : ''}...
-        </DialogDescription>
-      </DialogHeader>
-
-      <div className="py-8 space-y-4">
-        <div className="flex items-center justify-center">
-          <Loader2 className="h-12 w-12 animate-spin text-primary" />
-        </div>
-        <Progress value={extractionProgress} className="w-full" />
-        <p className="text-center text-sm text-muted-foreground">
-          {extractionProgress < 100 ? 'Processing documents...' : 'Finalizing...'}
-        </p>
-      </div>
-
-      <DialogFooter>
-        <Button variant="destructive" onClick={handleStop} disabled={isStopping}>
-          {isStopping ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Square className="h-4 w-4 mr-2" />}
-          Stop
-        </Button>
+        <Button onClick={handleOk}>OK</Button>
       </DialogFooter>
     </>
   );
@@ -1077,10 +843,8 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         return renderDiscoveryStep();
       case 'no_new_columns':
         return renderNoNewColumnsStep();
-      case 'review':
-        return renderReviewStep();
-      case 'extraction':
-        return renderExtractionStep();
+      case 'results':
+        return renderResultsStep();
       default:
         return null;
     }

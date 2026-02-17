@@ -1111,7 +1111,7 @@ class ContinueDiscoveryRequest(BaseModel):
     uploaded_files: Optional[List[str]] = None
     llm_config: Dict[str, Any]
     retriever_config: Optional[Dict[str, Any]] = None  # Retriever settings (empty = defaults)
-    max_keys_schema: int = 100
+    max_keys_schema: Optional[int] = None  # None = no limit (preserves all existing columns)
     documents_batch_size: int = 1
     bypass_limit: bool = False  # Developer mode: bypass document limit
 
@@ -1142,26 +1142,12 @@ class ContinueDiscoveryStatus(BaseModel):
     total_batches: int
     initial_columns: List[str]
     new_columns: List[NewColumnInfo]
-    confirmed_columns: List[str]
     processed_documents: int
     total_documents: int
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     error: Optional[str] = None
 
-
-class ConfirmColumnsRequest(BaseModel):
-    selected_columns: List[str]
-    row_selection: str  # 'all' or 'selected'
-    selected_rows: Optional[List[str]] = None
-    llm_config: Optional[Dict[str, Any]] = None
-
-
-class ConfirmColumnsResponse(BaseModel):
-    status: str
-    operation_id: str
-    columns: List[str]
-    row_count: Any  # int or 'all'
 
 
 @router.get("/continue-discovery/documents/{session_id}")
@@ -1253,7 +1239,6 @@ async def get_continue_discovery_status(session_id: str, operation_id: str) -> C
             total_batches=status["total_batches"],
             initial_columns=status["initial_columns"],
             new_columns=new_columns,
-            confirmed_columns=status.get("confirmed_columns", []),
             processed_documents=status["processed_documents"],
             total_documents=status["total_documents"],
             started_at=status.get("started_at"),
@@ -1261,48 +1246,6 @@ async def get_continue_discovery_status(session_id: str, operation_id: str) -> C
             error=status.get("error")
         )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/continue-discovery/confirm/{session_id}/{operation_id}")
-async def confirm_new_columns(
-    session_id: str,
-    operation_id: str,
-    request: ConfirmColumnsRequest,
-    background_tasks: BackgroundTasks
-) -> ConfirmColumnsResponse:
-    """Confirm which new columns to add and start value extraction."""
-    try:
-        session = session_manager.get_session(session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Session not found")
-
-        # Reserve a concurrency slot for extraction phase
-        await concurrency_limiter.acquire(session_id, "continue_discovery_extraction")
-
-        try:
-            result = await continue_discovery_service.confirm_and_start_extraction(
-                operation_id=operation_id,
-                selected_columns=request.selected_columns,
-                row_selection=request.row_selection,
-                selected_rows=request.selected_rows,
-                llm_config=request.llm_config
-            )
-        except Exception:
-            await concurrency_limiter.release(session_id)
-            raise
-
-        return ConfirmColumnsResponse(**result)
-
-    except CapacityExceededError as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        raise HTTPException(status_code=409, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:

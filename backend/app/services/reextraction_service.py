@@ -599,7 +599,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
         for folder in folders_to_check:
             logger.debug(f"Listing Supabase folder: {folder} (checking {len(folders_to_check[folder])} papers)")
             try:
-                folder_contents[folder] = await storage.list_folder_files('datasets', folder)
+                dataset_file_infos = await storage.list_dataset_files(folder)
+                folder_contents[folder] = {f.name for f in dataset_file_infos}
                 logger.debug(f"Found {len(folder_contents[folder])} files in {folder}")
             except Exception as e:
                 logger.debug(f"Error listing Supabase folder {folder}: {e}")
@@ -756,7 +757,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
         downloaded = []
         for paper_name, supabase_path in cloud_papers.items():
             try:
-                content = await storage.download_file('datasets', supabase_path)
+                parts = supabase_path.rsplit('/', 1)
+                if len(parts) == 2:
+                    content = await storage.download_dataset_file(parts[0], parts[1])
+                else:
+                    content = await storage.download_dataset_file(supabase_path, supabase_path)
                 if content:
                     # Ensure paper_name has the correct extension
                     local_filename = paper_name if '.' in paper_name else f"{paper_name}.txt"

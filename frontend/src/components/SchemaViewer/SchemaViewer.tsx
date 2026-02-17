@@ -2109,7 +2109,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         onClose={() => setContinueDiscoveryDialogOpen(false)}
         onSuccess={handleContinueDiscoverySuccess}
         onError={handleContinueDiscoveryError}
-        onExtractionStarted={onReextractionStarted}
       />
 
       {readonly && (

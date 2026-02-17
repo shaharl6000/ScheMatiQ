@@ -38,6 +38,9 @@ class SessionManager:
                 try:
                     session_data = self._storage.get_session_sync(session_id)
                     if session_data:
+                        # Migrate old "qbsd" type to "schematiq"
+                        if session_data.get("type") == "qbsd":
+                            session_data["type"] = "schematiq"
                         session = VisualizationSession(**session_data)
                         # Migrate session to include new fields if missing
                         session = self.migrate_session(session)

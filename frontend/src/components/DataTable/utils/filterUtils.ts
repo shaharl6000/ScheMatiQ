@@ -306,7 +306,7 @@ export function buildColumnMetadata(
     return isEmpty(val);
   });
 
-  // For categorical and string columns, use actual unique values from data
+  // For categorical columns, use actual unique values from data instead of schema-defined values
   let actualValues: string[] | undefined;
   if (dataType === 'categorical' || dataType === 'string') {
     actualValues = getUniqueValues(rows, columnName);

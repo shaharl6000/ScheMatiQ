@@ -351,6 +351,7 @@ const Visualize = () => {
               break;
             case 'continue_discovery_completed':
               debug.log('Continue discovery completed:', message.data);
+              setContinueDiscoveryActive(false);
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
@@ -363,33 +364,6 @@ const Visualize = () => {
             case 'continue_discovery_failed':
               debug.log('Continue discovery failed:', message.data);
               setContinueDiscoveryActive(false);
-              break;
-            case 'incremental_extraction_started':
-              // Initialize processing columns when incremental extraction starts
-              if (message.data?.columns && Array.isArray(message.data.columns)) {
-                setProcessingColumns(new Set(message.data.columns));
-              }
-              setContinueDiscoveryActive(true);
-              break;
-            case 'incremental_extraction_progress':
-              if (message.data?.column) {
-                setProcessingColumns(prev => {
-                  const newSet = new Set(Array.from(prev));
-                  newSet.add(message.data.column);
-                  return newSet;
-                });
-              }
-              break;
-            case 'incremental_extraction_completed':
-              debug.log('Incremental extraction completed:', message.data);
-              setProcessingColumns(new Set()); // Clear processing state
-              setCurrentDocumentProgress(null); // Clear document progress
-              setStreamingCells(new Map());    // Clear streaming cells
-              setContinueDiscoveryActive(false);
-              queryClient.invalidateQueries(['session', sessionId, mode]);
-              queryClient.invalidateQueries(['data', sessionId, mode]);
-              queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
-              refreshUnits();
               break;
           }
         } catch (err) {
@@ -695,11 +669,11 @@ const Visualize = () => {
                 break;
               case 'continue_discovery_completed':
                 debug.log('Continue discovery completed:', message.data);
+                setContinueDiscoveryActive(false);
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
                 refreshUnits();
-                // Note: don't clear continueDiscoveryActive yet — extraction may follow
                 break;
               case 'continue_discovery_stopped':
                 debug.log('Continue discovery stopped:', message.data);
@@ -708,34 +682,6 @@ const Visualize = () => {
               case 'continue_discovery_failed':
                 debug.log('Continue discovery failed:', message.data);
                 setContinueDiscoveryActive(false);
-                break;
-              case 'incremental_extraction_started':
-                // Initialize processing columns when incremental extraction starts
-                if (message.data?.columns && Array.isArray(message.data.columns)) {
-                  setProcessingColumns(new Set(message.data.columns));
-                }
-                setContinueDiscoveryActive(true);
-                break;
-              case 'incremental_extraction_progress':
-                if (message.data?.column) {
-                  setProcessingColumns(prev => {
-                    const newSet = new Set(Array.from(prev));
-                    newSet.add(message.data.column);
-                    return newSet;
-                  });
-                }
-                break;
-              case 'incremental_extraction_completed':
-                debug.log('Incremental extraction completed:', message.data);
-                setProcessingColumns(new Set()); // Clear processing state
-                setCurrentDocumentProgress(null); // Clear document progress
-                setStreamingCells(new Map());    // Clear streaming cells
-                setForceWebSocketConnect(false); // Allow WebSocket to close
-                setContinueDiscoveryActive(false);
-                queryClient.invalidateQueries(['session', sessionId, mode]);
-                queryClient.invalidateQueries(['data', sessionId, mode]);
-                queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
-                refreshUnits();
                 break;
             }
           } catch (err) {
