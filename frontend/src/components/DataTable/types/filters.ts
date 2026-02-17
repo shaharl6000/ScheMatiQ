@@ -72,7 +72,7 @@ export interface ColumnMetadata {
 
 // Operators available per data type
 export const OPERATORS_BY_TYPE: Record<ColumnDataType, FilterOperator[]> = {
-  string: ['contains', 'equals', 'startsWith', 'endsWith', 'regex', 'isNull', 'isNotNull'],
+  string: ['contains', 'equals', 'in', 'notIn', 'startsWith', 'endsWith', 'regex', 'isNull', 'isNotNull'],
   number: ['eq', 'gt', 'lt', 'gte', 'lte', 'between', 'isNull', 'isNotNull'],
   boolean: ['isTrue', 'isFalse', 'isNull', 'isNotNull'],
   date: ['eq', 'gt', 'lt', 'gte', 'lte', 'between', 'isNull', 'isNotNull'],
