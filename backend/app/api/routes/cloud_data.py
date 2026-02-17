@@ -47,7 +47,7 @@ class TemplateResponse(BaseModel):
 async def list_datasets():
     """List available datasets (document collections).
 
-    Returns a list of datasets that can be used for QBSD processing.
+    Returns a list of datasets that can be used for ScheMatiQ processing.
     Each dataset contains multiple documents.
 
     Returns:
@@ -109,8 +109,8 @@ async def list_dataset_files(dataset_name: str):
 async def list_templates():
     """List available templates (pre-made tables).
 
-    Templates are pre-created QBSD results that can be loaded directly
-    without running the QBSD pipeline.
+    Templates are pre-created ScheMatiQ results that can be loaded directly
+    without running the ScheMatiQ pipeline.
 
     Returns:
         List of template information including name, file type, and row/column counts.
@@ -237,7 +237,7 @@ async def list_initial_schemas():
     """List available initial schema files.
 
     Initial schemas are JSON files containing column definitions
-    that can be used to seed the QBSD schema discovery process.
+    that can be used to seed the ScheMatiQ schema discovery process.
 
     Returns:
         List of initial schema information including name, columns count, and preview.

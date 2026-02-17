@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 from app.models.upload import (
     FileValidationResult, ColumnMappingRequest, SchemaValidationResult,
-    QBSDSchemaFormat, SchemaColumn, CompatibilityCheck, DualFileUploadResult
+    ScheMatiQSchemaFormat, SchemaColumn, CompatibilityCheck, DualFileUploadResult
 )
 from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SchemaEvolution, SchemaSnapshot
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
@@ -105,7 +105,7 @@ class FileParser:
         try:
             if detected_format == "csv":
                 # Use progressive reading for CSV to handle large metadata sections
-                # (QBSD exports can have extensive comment headers that exceed 8KB)
+                # (ScheMatiQ exports can have extensive comment headers that exceed 8KB)
                 csv_result = await self._validate_csv_with_metadata(file)
                 errors.extend(csv_result.get("errors", []))
                 warnings.extend(csv_result.get("warnings", []))
@@ -129,7 +129,7 @@ class FileParser:
                         sample_data = [sample_obj]
                     else:
                         # Regular JSON - read full file to avoid truncation errors
-                        # (complete QBSD exports can be large with embedded data)
+                        # (complete ScheMatiQ exports can be large with embedded data)
                         full_content = await file.read()
                         await file.seek(0)
                         data = json.loads(full_content.decode('utf-8'))
@@ -146,15 +146,15 @@ class FileParser:
                         elif isinstance(data, dict):
                             if 'data' in data and isinstance(data.get('data'), list):
                                 # Complete export format with "data" array
-                                warnings.append("Detected QBSD complete export format")
+                                warnings.append("Detected ScheMatiQ complete export format")
                                 estimated_rows = len(data['data'])
                                 if 'schema' in data and isinstance(data['schema'], dict):
                                     estimated_columns = len(data['schema'].get('columns', []))
                                 else:
                                     estimated_columns = len(data['data'][0].get('data', {}).keys()) if data['data'] else 0
                             elif 'schema' in data:
-                                # QBSD schema format
-                                warnings.append("Detected QBSD schema format")
+                                # ScheMatiQ schema format
+                                warnings.append("Detected ScheMatiQ schema format")
                                 estimated_columns = len(data.get('schema', []))
                             else:
                                 estimated_rows = 1
@@ -181,7 +181,7 @@ class FileParser:
         """
         Validate CSV file with progressive reading to handle large metadata sections.
 
-        QBSD-exported CSVs can have extensive metadata comments (session ID, query,
+        ScheMatiQ-exported CSVs can have extensive metadata comments (session ID, query,
         LLM config, column definitions with rationales) that may exceed 8KB. This
         method reads in chunks until finding header + data row, up to 256KB max.
         """
@@ -310,20 +310,20 @@ class FileParser:
         else:
             raise ValueError("Unsupported file format")
 
-        # Save documents_batch_size to qbsd_config.json if present (for loaded exports)
+        # Save documents_batch_size to schematiq_config.json if present (for loaded exports)
         if result.get("documents_batch_size") is not None:
-            qbsd_config_file = session_dir / "qbsd_config.json"
+            schematiq_config_file = session_dir / "schematiq_config.json"
             try:
                 # Load existing config or create new one
-                if qbsd_config_file.exists():
-                    with open(qbsd_config_file) as f:
+                if schematiq_config_file.exists():
+                    with open(schematiq_config_file) as f:
                         config = json.load(f)
                 else:
                     config = {}
                 config["documents_batch_size"] = result["documents_batch_size"]
-                with open(qbsd_config_file, 'w') as f:
+                with open(schematiq_config_file, 'w') as f:
                     json.dump(config, f, indent=2)
-                logger.debug("Saved documents_batch_size=%s to qbsd_config.json", result['documents_batch_size'])
+                logger.debug("Saved documents_batch_size=%s to schematiq_config.json", result['documents_batch_size'])
             except Exception as e:
                 logger.debug("Could not save documents_batch_size to config: %s", e)
 
@@ -456,7 +456,7 @@ class FileParser:
         with open(data_file, 'w') as f:
             for _, row in df.iterrows():
                 row_dict = row.to_dict()
-                # Merge _excerpts columns into QBSD format if they exist
+                # Merge _excerpts columns into ScheMatiQ format if they exist
                 if has_excerpt_columns:
                     merged_data = self._merge_excerpt_columns(row_dict, source_filename)
                 else:
@@ -483,7 +483,7 @@ class FileParser:
                 for col_name in papers_col_names:
                     if col_name in merged_data:
                         raw_val = merged_data.pop(col_name)  # Remove from data dict
-                        # Handle QBSD answer format
+                        # Handle ScheMatiQ answer format
                         if isinstance(raw_val, dict) and 'answer' in raw_val:
                             raw_val = raw_val.get('answer')
                         # Convert to list
@@ -540,7 +540,7 @@ class FileParser:
             with open(file_path) as f:
                 data = json.load(f)
 
-                # Check if this is a complete QBSD export with schema_evolution
+                # Check if this is a complete ScheMatiQ export with schema_evolution
                 if isinstance(data, dict):
                     # Extract schema_evolution if present (backward compatible)
                     if "schema_evolution" in data:
@@ -578,7 +578,7 @@ class FileParser:
                         if documents_batch_size is not None:
                             logger.debug("Imported documents_batch_size: %s", documents_batch_size)
 
-                    # Extract metadata from complete QBSD export (.qbsd.json format)
+                    # Extract metadata from complete ScheMatiQ export (.schematiq.json format)
                     if "query" in data and "schema" in data and isinstance(data["schema"], dict) and "columns" in data["schema"]:
                         metadata_info["query"] = data["query"]
                         if data.get("llm_configuration"):
@@ -598,14 +598,14 @@ class FileParser:
                                     "source_document": col_def.get("source_document"),
                                     "discovery_iteration": col_def.get("discovery_iteration"),
                                 }
-                        logger.debug("Extracted QBSD export metadata: query=%s, %d column definitions",
+                        logger.debug("Extracted ScheMatiQ export metadata: query=%s, %d column definitions",
                                      data["query"][:50] if data["query"] else "", len(schema_metadata_from_export))
 
                     # Check if this is a complete export format with "data" array
                     if "data" in data and isinstance(data["data"], list):
                         data_rows = data["data"]
                     elif "schema" in data:
-                        # QBSD schema format without data array
+                        # ScheMatiQ schema format without data array
                         data_rows = [data]
                     else:
                         data_rows = [data]
@@ -662,7 +662,7 @@ class FileParser:
                 )
                 columns.append(col_info)
         elif '_row_name' in sample_row and '_papers' in sample_row:
-            # QBSD extracted data format
+            # ScheMatiQ extracted data format
             for key, value in sample_row.items():
                 # Skip metadata columns - these are not schema columns for LLM extraction
                 if key.startswith('_') or key.lower() in self.METADATA_COLUMNS:
@@ -746,7 +746,7 @@ class FileParser:
         with open(data_file, 'w') as f:
             for row_data in data_rows:
                 if '_row_name' in row_data:
-                    # QBSD format - preserve _unit_name from extraction (set by observation unit logic)
+                    # ScheMatiQ format - preserve _unit_name from extraction (set by observation unit logic)
                     data_row = DataRow(
                         row_name=row_data.get('_row_name'),
                         papers=row_data.get('_papers', []),
@@ -771,7 +771,7 @@ class FileParser:
                     for col_name in papers_col_names:
                         if col_name in clean_data:
                             raw_val = clean_data.pop(col_name)
-                            # Handle QBSD answer format
+                            # Handle ScheMatiQ answer format
                             if isinstance(raw_val, dict) and 'answer' in raw_val:
                                 raw_val = raw_val.get('answer')
                             # Convert to list
@@ -840,11 +840,11 @@ class FileParser:
         return sanitized
 
     def _merge_excerpt_columns(self, data_dict: Dict[str, Any], source_filename: str = None) -> Dict[str, Any]:
-        """Merge _excerpts columns with their parent columns into QBSD format.
+        """Merge _excerpts columns with their parent columns into ScheMatiQ format.
 
         Converts CSV format with separate columns:
             {'Column': 'value', 'Column_excerpts': 'excerpt text'}
-        Into QBSD format:
+        Into ScheMatiQ format:
             {'Column': {'answer': 'value', 'excerpts': [{'text': 'excerpt text', 'source': 'filename'}]}}
 
         Maintains backward compatibility - if no _excerpts columns exist, returns data as-is.
@@ -868,14 +868,14 @@ class FileParser:
             if excerpt_key not in data_dict:
                 excerpt_key = f"{key}_excerpt"
             if excerpt_key in data_dict:
-                # Merge into QBSD format
+                # Merge into ScheMatiQ format
                 excerpt_value = data_dict[excerpt_key]
                 excerpts = []
 
                 if excerpt_value and excerpt_value != '' and not (isinstance(excerpt_value, float) and math.isnan(excerpt_value)):
                     # Parse excerpt value - could be string, list, or already structured
                     if isinstance(excerpt_value, str):
-                        # Check for QBSD export format: "{'text': '...', 'source': '...'} | {'text': '...', 'source': '...'}"
+                        # Check for ScheMatiQ export format: "{'text': '...', 'source': '...'} | {'text': '...', 'source': '...'}"
                         if " | " in excerpt_value and "{'text':" in excerpt_value:
                             # Split by ' | ' and parse each part as Python literal
                             parts = excerpt_value.split(" | ")
@@ -961,7 +961,7 @@ class FileParser:
                                     "source": source_filename or "Unknown"
                                 })
 
-                # Create QBSD format
+                # Create ScheMatiQ format
                 merged[key] = {
                     "answer": self._sanitize_value(value),
                     "excerpts": excerpts
@@ -1098,7 +1098,7 @@ class FileParser:
         """Check if a value contains the search term."""
         if value is None:
             return False
-        # Handle QBSD answer format
+        # Handle ScheMatiQ answer format
         if isinstance(value, dict) and 'answer' in value:
             value = value['answer']
         return search_lower in str(value).lower()
@@ -1129,7 +1129,7 @@ class FileParser:
 
     def _evaluate_filter(self, cell_value: Any, operator: str, filter_value: Any, case_sensitive: bool) -> bool:
         """Evaluate filter operator against cell value."""
-        # Handle QBSD answer format
+        # Handle ScheMatiQ answer format
         if isinstance(cell_value, dict) and 'answer' in cell_value:
             cell_value = cell_value['answer']
 
@@ -1258,7 +1258,7 @@ class FileParser:
         data = row.get('data', row)
         value = data.get(column)
 
-        # Handle QBSD format
+        # Handle ScheMatiQ format
         if isinstance(value, dict) and 'answer' in value:
             value = value['answer']
 
@@ -1272,7 +1272,7 @@ class FileParser:
         return value
     
     async def validate_schema_file(self, file: UploadFile) -> SchemaValidationResult:
-        """Validate QBSD schema file."""
+        """Validate ScheMatiQ schema file."""
         errors = []
         warnings = []
         detected_columns = []
@@ -1299,7 +1299,7 @@ class FileParser:
             
             schema_data = json.loads(content.decode('utf-8'))
             
-            # Validate QBSD schema format
+            # Validate ScheMatiQ schema format
             if not isinstance(schema_data, dict):
                 errors.append("Schema file must contain a JSON object")
                 return SchemaValidationResult(
@@ -1368,9 +1368,9 @@ class FileParser:
             if len(schema_columns) == 0:
                 errors.append("No valid column definitions found in schema")
             
-            # Parse as QBSD schema format for validation
+            # Parse as ScheMatiQ schema format for validation
             try:
-                qbsd_schema = QBSDSchemaFormat(**schema_data)
+                schematiq_schema = ScheMatiQSchemaFormat(**schema_data)
                 schema = schema_columns
             except Exception as e:
                 warnings.append(f"Schema format validation warning: {str(e)}")
@@ -1531,7 +1531,7 @@ class FileParser:
                 json.dump(parsed_schema, f, indent=2)
     
     async def extract_schema_from_data(self, session_id: str, query: Optional[str] = None) -> Dict[str, Any]:
-        """Extract schema information from uploaded data and convert to QBSD format."""
+        """Extract schema information from uploaded data and convert to ScheMatiQ format."""
         session_dir = self.data_dir / session_id
         data_file = session_dir / "data.jsonl"
         
@@ -1575,7 +1575,7 @@ class FileParser:
             # Analyze column data types and patterns
             column_info = self._analyze_column_data(col_name, sample_rows)
             
-            # Create QBSD-compatible column definition
+            # Create ScheMatiQ-compatible column definition
             extracted_column = {
                 "name": col_name,
                 "definition": column_info["definition"],
@@ -1583,7 +1583,7 @@ class FileParser:
             }
             extracted_columns.append(extracted_column)
         
-        # Create QBSD schema format
+        # Create ScheMatiQ schema format
         extracted_schema = {
             "query": query or f"Analysis of uploaded data with {len(extracted_columns)} columns",
             "schema": extracted_columns,
@@ -1684,9 +1684,9 @@ class FileParser:
                 elif value.startswith('http'):
                     value_type = 'url_string'
             elif isinstance(value, dict):
-                # Check if it looks like QBSD format
+                # Check if it looks like ScheMatiQ format
                 if 'answer' in value or 'excerpts' in value:
-                    value_type = 'qbsd_format'
+                    value_type = 'schematiq_format'
             
             type_counts[value_type] = type_counts.get(value_type, 0) + 1
         
@@ -1733,7 +1733,7 @@ class FileParser:
             definition = f"Data about {formatted_name}"
         
         # Add type-specific information
-        if primary_type == "qbsd_format":
+        if primary_type == "schematiq_format":
             definition += " (extracted from documents with supporting evidence)"
         elif primary_type == "url_string":
             definition += " (URL/link format)"
@@ -1763,7 +1763,7 @@ class FileParser:
             rationale_parts.append("Moderate uniqueness suggests semi-structured data suitable for detailed analysis")
         
         # Type-specific rationale
-        if primary_type == "qbsd_format":
+        if primary_type == "schematiq_format":
             rationale_parts.append("Contains extracted answers with supporting document excerpts for verification")
         elif "id" in col_name.lower():
             rationale_parts.append("Serves as a key identifier for linking and referencing records")
@@ -1780,9 +1780,9 @@ class FileParser:
         
         return ". ".join(rationale_parts) + "."
     
-    def convert_to_qbsd_format(self, extracted_schema: Dict[str, Any], docs_path: str = "documents/") -> Dict[str, Any]:
-        """Convert extracted schema to full QBSD configuration format."""
-        qbsd_config = {
+    def convert_to_schematiq_format(self, extracted_schema: Dict[str, Any], docs_path: str = "documents/") -> Dict[str, Any]:
+        """Convert extracted schema to full ScheMatiQ configuration format."""
+        schematiq_config = {
             "query": extracted_schema["query"],
             "docs_path": docs_path,
             "max_keys_schema": len(extracted_schema["schema"]),
@@ -1806,7 +1806,7 @@ class FileParser:
             "schema": extracted_schema["schema"]
         }
         
-        return qbsd_config
+        return schematiq_config
     
     def _extract_csv_metadata(self, file_path: Path) -> Dict[str, Any]:
         """Extract metadata from CSV comment lines."""
@@ -1993,7 +1993,7 @@ class FileParser:
                             source = source.strip()
                             if col_name and source:
                                 metadata_info['schema_evolution']['column_sources'][col_name] = source
-                        elif ':' in content and not content.startswith(('Column Definitions', 'Metadata-Rich', 'Upload Data Export', 'QBSD Export', 'Schema Evolution')):
+                        elif ':' in content and not content.startswith(('Column Definitions', 'Metadata-Rich', 'Upload Data Export', 'ScheMatiQ Export', 'Schema Evolution')):
                             # Reset column sources section flag when we hit a non-indented line
                             in_column_sources_section = False
                             # Parse column definitions

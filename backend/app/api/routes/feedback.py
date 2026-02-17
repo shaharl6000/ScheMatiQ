@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import DEVELOPER_MODE
-from app.services import qbsd_thread_pool
+from app.services import schematiq_thread_pool
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ async def submit_table_feedback(request: TableFeedbackRequest):
         if sheets_logger:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(
-                qbsd_thread_pool,
+                schematiq_thread_pool,
                 functools.partial(
                     sheets_logger.log_feedback,
                     session_id=request.session_id,

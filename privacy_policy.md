@@ -1,5 +1,5 @@
 
-# Privacy Policy — QueryDiscovery Research Data Collection
+# Privacy Policy — ScheMatiQ Research Data Collection
 
 **Last Updated:** February 2026
 
@@ -9,7 +9,7 @@ This research is conducted by **Shahar Levy** and **Eliya Habba** at the **Hebre
 
 ## What We Collect
 
-When you use QueryDiscovery in its public deployment, we may collect the following data from your session:
+When you use ScheMatiQ in its public deployment, we may collect the following data from your session:
 
 - **Your research query** — the question you type to guide schema discovery.
 - **Uploaded documents** — the text files or PDFs you provide for analysis.
@@ -21,11 +21,11 @@ When you use QueryDiscovery in its public deployment, we may collect the followi
 
 - API keys or authentication credentials.
 - Your IP address, browser fingerprint, or device identifiers.
-- Any account or login information (QueryDiscovery does not require accounts).
+- Any account or login information (ScheMatiQ does not require accounts).
 
 ## Purpose
 
-The collected data is used solely for **open academic research** on query-based schema discovery (QBSD). Specifically, we use it to:
+The collected data is used solely for **open academic research** on query-based schema discovery. Specifically, we use it to:
 
 - Build and publish open research datasets for the NLP and data management communities.
 - Evaluate and improve schema discovery and value extraction algorithms.
@@ -41,7 +41,7 @@ We do not intentionally collect personal identifiers. However, the content of yo
 
 ## Your Choices
 
-- **Opt out of data collection:** When you click "Start QBSD," a consent dialog will appear. You can check the **"Do not share my data for research purposes"** box to prevent your session data from being archived. Your session will work identically — the only difference is that no data is sent to Google Drive.
+- **Opt out of data collection:** When you click "Start ScheMatiQ," a consent dialog will appear. You can check the **"Do not share my data for research purposes"** box to prevent your session data from being archived. Your session will work identically — the only difference is that no data is sent to Google Drive.
 - **"Don't show again":** You can dismiss the consent dialog for future sessions. Your opt-out preference is saved locally in your browser and will be applied automatically.
 
 ## Data Retention
@@ -50,7 +50,7 @@ Collected session archives are retained indefinitely for research purposes. If y
 
 ## Eligibility
 
-By using QueryDiscovery, you confirm that you are **18 years of age or older**. Participation is entirely voluntary — you can use the tool with data collection opted out at no cost to functionality.
+By using ScheMatiQ, you confirm that you are **18 years of age or older**. Participation is entirely voluntary — you can use the tool with data collection opted out at no cost to functionality.
 
 ## Changes to This Policy
 

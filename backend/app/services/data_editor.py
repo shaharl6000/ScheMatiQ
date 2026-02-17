@@ -1,6 +1,6 @@
 """
 Service for editing individual cells in data tables.
-Handles updates to JSONL data files for both load and QBSD sessions.
+Handles updates to JSONL data files for both load and ScheMatiQ sessions.
 """
 
 import json
@@ -11,7 +11,7 @@ from typing import Any, Optional
 class DataEditor:
     """Handles cell-level data updates in JSONL data files."""
 
-    def __init__(self, work_dir: str = "./qbsd_work", data_dir: str = "./data"):
+    def __init__(self, work_dir: str = "./schematiq_work", data_dir: str = "./data"):
         self.work_dir = Path(work_dir)
         self.data_dir = Path(data_dir)
 
@@ -19,8 +19,8 @@ class DataEditor:
         """
         Find the data file for a session.
         Checks multiple locations in priority order:
-        1. qbsd_work/{session_id}/extracted_data.jsonl
-        2. qbsd_work/{session_id}/data.jsonl
+        1. schematiq_work/{session_id}/extracted_data.jsonl
+        2. schematiq_work/{session_id}/data.jsonl
         3. data/{session_id}/data.jsonl
         """
         candidates = [
@@ -73,7 +73,7 @@ class DataEditor:
                     # New format with nested 'data' key
                     if column in row["data"]:
                         cell_value = row["data"][column]
-                        # Handle QBSD answer format
+                        # Handle ScheMatiQ answer format
                         if isinstance(cell_value, dict) and "answer" in cell_value:
                             cell_value["answer"] = value
                         else:

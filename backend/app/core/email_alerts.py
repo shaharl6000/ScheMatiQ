@@ -116,11 +116,11 @@ def send_quota_exceeded_alert(total_used: int) -> None:
         _quota_alert_sent = True
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    subject = "QueryDiscovery — LLM Usage Limit Reached"
+    subject = "ScheMatiQ — LLM Usage Limit Reached"
     html_body = f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #e67e22;">LLM Usage Limit Reached</h2>
-        <p>The QueryDiscovery system has reached its API call limit and is no longer accepting new processing sessions.</p>
+        <p>The ScheMatiQ system has reached its API call limit and is no longer accepting new processing sessions.</p>
         <table style="border-collapse: collapse; margin: 16px 0;">
             <tr>
                 <td style="padding: 8px 16px; border: 1px solid #ddd; font-weight: bold;">Calls Used</td>

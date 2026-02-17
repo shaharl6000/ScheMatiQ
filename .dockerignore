@@ -1,4 +1,4 @@
-# Docker ignore file for QueryDiscovery
+# Docker ignore file for ScheMatiQ
 # Reduces build context size for faster builds
 
 # ============================================================================
@@ -87,7 +87,7 @@ cache/
 # ============================================================================
 backend/app/data/
 backend/app/sessions/
-backend/app/qbsd_work/
+backend/app/schematiq_work/
 
 # ============================================================================
 # Test & Coverage

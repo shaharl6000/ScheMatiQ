@@ -1,5 +1,5 @@
-# Backend Dockerfile for QueryDiscovery
-# Build from project root: docker build -f backend/Dockerfile -t qbsd-backend .
+# Backend Dockerfile for ScheMatiQ
+# Build from project root: docker build -f backend/Dockerfile -t schematiq-backend .
 
 FROM python:3.11-slim
 
@@ -12,14 +12,14 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy qbsd-lib first (dependency for backend)
-COPY qbsd-lib/ /app/qbsd-lib/
+# Copy schematiq-lib first (dependency for backend)
+COPY schematiq-lib/ /app/schematiq-lib/
 
 # Install CPU-only PyTorch first (saves ~2GB vs CUDA version)
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
-# Install qbsd-lib as editable package (torch already satisfied)
-RUN pip install --no-cache-dir -e /app/qbsd-lib/
+# Install schematiq-lib as editable package (torch already satisfied)
+RUN pip install --no-cache-dir -e /app/schematiq-lib/
 
 # Copy backend requirements and install (separate layer for caching)
 COPY backend/requirements.txt /app/backend/

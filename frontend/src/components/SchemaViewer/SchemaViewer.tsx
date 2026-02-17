@@ -98,7 +98,7 @@ interface SchemaViewerProps {
   columns: ColumnInfo[];
   query?: string;
   sessionId: string;
-  sessionType?: 'load' | 'qbsd';
+  sessionType?: 'load' | 'schematiq';
   readonly?: boolean;
   processingColumns?: Set<string>;
   onColumnsChange?: (columns: ColumnInfo[]) => void;
@@ -113,7 +113,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   columns,
   query,
   sessionId,
-  sessionType = 'qbsd',
+  sessionType = 'schematiq',
   readonly = false,
   processingColumns,
   onColumnsChange,
@@ -2100,7 +2100,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       <ContinueDiscoveryDialog
         open={continueDiscoveryDialogOpen}
         sessionId={sessionId}
-        sessionType={sessionType || 'qbsd'}
+        sessionType={sessionType || 'schematiq'}
         currentColumns={
           // Use displayColumns which filters out excerpt columns, then deduplicate
           Array.from(new Map(displayColumns.map(c => [c.name, c])).values())

@@ -143,8 +143,8 @@ class SessionManager:
 
     def finalize_creation(self, session_id: str, llm_model: str = "", llm_provider: str = "") -> bool:
         """
-        Finalize QBSD creation by capturing immutable creation metadata.
-        Call this when QBSD schema discovery or loading completes.
+        Finalize ScheMatiQ creation by capturing immutable creation metadata.
+        Call this when ScheMatiQ schema discovery or loading completes.
 
         Args:
             session_id: The session ID

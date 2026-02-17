@@ -38,14 +38,14 @@ export const WS_RECONNECT_DELAY_BASE = 1000; // milliseconds
 export const WS_RECONNECT_MAX_DELAY = 10000; // milliseconds
 
 // Data Refresh Intervals
-export const QBSD_REFRESH_INTERVAL = 3000; // milliseconds for QBSD data polling
+export const SCHEMATIQ_REFRESH_INTERVAL = 3000; // milliseconds for ScheMatiQ data polling
 export const PROCESSING_REFRESH_INTERVAL = 2000; // milliseconds for processing status
 export const SESSION_REFRESH_INTERVAL = 3000; // milliseconds
 
 // File Upload Configuration
 export const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB in bytes
 
-// QBSD Configuration Defaults
+// ScheMatiQ Configuration Defaults
 export const DEFAULT_MAX_KEYS_SCHEMA = 25;
 export const DEFAULT_DOCUMENTS_BATCH_SIZE = 1;
 export const DEFAULT_DOCUMENT_RANDOMIZATION_SEED = 42;
@@ -105,15 +105,15 @@ export const STATUS_MESSAGES = {
 export const ROUTES = {
   HOME: '/',
   LOAD: '/load',
-  QBSD: '/qbsd',
+  SCHEMATIQ: '/schematiq',
   VISUALIZE: '/visualize'
 } as const;
 
 // LocalStorage Keys
 export const STORAGE_KEYS = {
-  RECENT_SESSIONS: 'qbsd_recent_sessions',
-  USER_PREFERENCES: 'qbsd_user_preferences',
-  TABLE_SETTINGS: 'qbsd_table_settings'
+  RECENT_SESSIONS: 'schematiq_recent_sessions',
+  USER_PREFERENCES: 'schematiq_user_preferences',
+  TABLE_SETTINGS: 'schematiq_table_settings'
 } as const;
 
 // LLM Model Definitions

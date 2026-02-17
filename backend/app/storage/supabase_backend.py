@@ -522,7 +522,7 @@ class SupabaseStorageBackend(StorageInterface):
     async def download_dataset_to_local(self, dataset_name: str, local_dir: str) -> List[str]:
         """Download all files from a dataset to a local directory.
 
-        This is required for QBSD processing which needs local file access.
+        This is required for ScheMatiQ processing which needs local file access.
         """
         local_path = Path(local_dir)
         local_path.mkdir(parents=True, exist_ok=True)

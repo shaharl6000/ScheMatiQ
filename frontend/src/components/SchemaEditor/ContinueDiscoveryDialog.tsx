@@ -52,7 +52,7 @@ type DialogStep = 'documents' | 'llm_config' | 'discovery' | 'review' | 'extract
 interface ContinueDiscoveryDialogProps {
   open: boolean;
   sessionId: string;
-  sessionType: 'load' | 'qbsd';
+  sessionType: 'load' | 'schematiq';
   currentColumns: ColumnInfo[];
   query: string;
   onClose: () => void;

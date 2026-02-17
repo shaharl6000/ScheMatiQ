@@ -323,7 +323,7 @@ class StorageInterface(ABC):
     async def list_datasets(self) -> List[DatasetInfo]:
         """List available datasets (document collections).
 
-        Datasets are collections of documents that can be used for QBSD processing.
+        Datasets are collections of documents that can be used for ScheMatiQ processing.
         In local mode, these come from research/data/.
         In Supabase mode, these come from the datasets/ bucket.
 
@@ -361,7 +361,7 @@ class StorageInterface(ABC):
     async def download_dataset_to_local(self, dataset_name: str, local_dir: str) -> List[str]:
         """Download all files from a dataset to a local directory.
 
-        This is used for QBSD processing, which requires local file access.
+        This is used for ScheMatiQ processing, which requires local file access.
 
         Args:
             dataset_name: Name of the dataset
@@ -380,7 +380,7 @@ class StorageInterface(ABC):
     async def list_templates(self) -> List[TemplateInfo]:
         """List available templates (pre-made tables).
 
-        Templates are pre-created QBSD results that users can load.
+        Templates are pre-created ScheMatiQ results that users can load.
         In local mode, these come from a configured templates directory.
         In Supabase mode, these come from the templates/ bucket.
 
@@ -410,7 +410,7 @@ class StorageInterface(ABC):
         """List available initial schema files.
 
         Initial schemas are JSON files containing column definitions
-        that can be used to seed the QBSD schema discovery process.
+        that can be used to seed the ScheMatiQ schema discovery process.
         In local mode, these come from a configured initial_schemas directory.
         In Supabase mode, these come from the initial_schemas/ bucket.
 

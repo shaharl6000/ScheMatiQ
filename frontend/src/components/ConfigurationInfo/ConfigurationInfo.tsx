@@ -190,7 +190,7 @@ const ConfigurationInfo: React.FC<ConfigurationInfoProps> = ({
               {/* Fallback to basic session info */}
               <div className="flex flex-wrap gap-2">
                 <Badge>
-                  Type: {session.type === 'load' ? 'Load Existing' : 'QBSD Pipeline'}
+                  Type: {session.type === 'load' ? 'Load Existing' : 'ScheMatiQ Pipeline'}
                 </Badge>
                 {metadata.created && (
                   <Badge variant="outline">

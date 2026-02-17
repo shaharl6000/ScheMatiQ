@@ -31,7 +31,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 
-import { loadAPI, qbsdAPI, cloudAPI, configAPI, downloadBlob, unitsAPI } from '../services/api';
+import { loadAPI, schematiqAPI, cloudAPI, configAPI, downloadBlob, unitsAPI } from '../services/api';
 import { getApiKeyForProvider, LLMProvider } from '../utils/apiKeyStorage';
 import { VisualizationSession, CellValue, CellExtractedData } from '../types';
 import {
@@ -48,7 +48,7 @@ import DataTable from '../components/DataTable/DataTable';
 import UnitGroupedTable from '../components/DataTable/UnitGroupedTable';
 import SchemaViewer from '../components/SchemaViewer/SchemaViewer';
 import StatsDashboard from '../components/StatsDashboard/StatsDashboard';
-import QBSDMonitor from '../components/QBSDMonitor/QBSDMonitor';
+import ScheMatiQMonitor from '../components/ScheMatiQMonitor/ScheMatiQMonitor';
 import UploadProcessingMonitor from '../components/UploadProcessingMonitor/UploadProcessingMonitor';
 import DocumentUpload from '../components/DocumentUpload/DocumentUpload';
 import LLMSelector from '../components/LLMSelector';
@@ -66,10 +66,10 @@ const Visualize = () => {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
-  const mode = searchParams.get('mode') as 'load' | 'qbsd' || 'load';
-  const [activeTab, setActiveTab] = useState(mode === 'qbsd' ? 'monitor' : 'data');
+  const mode = searchParams.get('mode') as 'load' | 'schematiq' || 'load';
+  const [activeTab, setActiveTab] = useState(mode === 'schematiq' ? 'monitor' : 'data');
 
-  // Read auto-start state from navigation (set by QBSDConfig after calling run)
+  // Read auto-start state from navigation (set by ScheMatiQConfig after calling run)
   const [autoStartState] = useState(() => {
     const state = location.state as {
       autoStarted?: boolean;
@@ -254,7 +254,7 @@ const Visualize = () => {
               setStreamingCells(new Map());
               setCurrentDocumentProgress(null);
               setForceWebSocketConnect(false);
-              if (mode === 'qbsd' && !hasShownGuideRef.current) {
+              if (mode === 'schematiq' && !hasShownGuideRef.current) {
                 hasShownGuideRef.current = true;
                 setVisualizeGuideAutoOpen(true);
               }
@@ -325,7 +325,7 @@ const Visualize = () => {
               break;
 
             case 'stopped':
-              debug.log('QBSD stopped:', message.data);
+              debug.log('ScheMatiQ stopped:', message.data);
               setStreamingCells(new Map());
               setForceWebSocketConnect(false);
               setIsStoppingProcessing(false);
@@ -414,16 +414,16 @@ const Visualize = () => {
       } else {
         const [fullSession, status, schema] = await Promise.all([
           loadAPI.getSession(sessionId!).catch(() => null),
-          qbsdAPI.getStatus(sessionId!),
-          qbsdAPI.getSchema(sessionId!)
+          schematiqAPI.getStatus(sessionId!),
+          schematiqAPI.getSchema(sessionId!)
         ]);
 
         return {
           id: sessionId!,
-          type: 'qbsd' as const,
+          type: 'schematiq' as const,
           status: status.status as any,
           metadata: {
-            source: `QBSD Query: ${schema.query || 'Unknown'}`,
+            source: `ScheMatiQ Query: ${schema.query || 'Unknown'}`,
             created: fullSession?.metadata?.created || new Date().toISOString(),
             last_modified: fullSession?.metadata?.last_modified || new Date().toISOString(),
             uploaded_documents: fullSession?.metadata?.uploaded_documents,
@@ -446,7 +446,7 @@ const Visualize = () => {
           return false;
         }
         // Fallback polling when WebSocket is not connected
-        if (mode === 'qbsd') return PROCESSING_REFRESH_INTERVAL;
+        if (mode === 'schematiq') return PROCESSING_REFRESH_INTERVAL;
         if (data?.status === 'processing_documents') return PROCESSING_REFRESH_INTERVAL;
         return false;
       },
@@ -460,7 +460,7 @@ const Visualize = () => {
       if (mode === 'load') {
         return loadAPI.getData(sessionId!, 0, 100);
       } else {
-        return qbsdAPI.getData(sessionId!, 0, 100);
+        return schematiqAPI.getData(sessionId!, 0, 100);
       }
     },
     {
@@ -578,7 +578,7 @@ const Visualize = () => {
                 setStreamingCells(new Map());
                 setCurrentDocumentProgress(null);
                 setForceWebSocketConnect(false);
-                if (mode === 'qbsd' && !hasShownGuideRef.current) {
+                if (mode === 'schematiq' && !hasShownGuideRef.current) {
                   hasShownGuideRef.current = true;
                   setVisualizeGuideAutoOpen(true);
                 }
@@ -669,7 +669,7 @@ const Visualize = () => {
                 break;
 
               case 'stopped':
-                debug.log('QBSD stopped:', message.data);
+                debug.log('ScheMatiQ stopped:', message.data);
                 setStreamingCells(new Map());
                 setForceWebSocketConnect(false);
                 setIsStoppingProcessing(false);
@@ -767,7 +767,7 @@ const Visualize = () => {
     // Determine if we should connect
     const shouldConnect = forceWebSocketConnect ||
       session?.status === 'processing_documents' ||
-      (mode === 'qbsd' && session?.status === 'processing');
+      (mode === 'schematiq' && session?.status === 'processing');
 
     if (shouldConnect) {
       connectWebSocket();
@@ -786,7 +786,7 @@ const Visualize = () => {
   // Separate effect to close WebSocket when no longer needed
   useEffect(() => {
     if (!forceWebSocketConnect && session?.status !== 'processing_documents' &&
-        !(mode === 'qbsd' && session?.status === 'processing')) {
+        !(mode === 'schematiq' && session?.status === 'processing')) {
       // No longer need WebSocket, close it
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         debug.log('Closing WebSocket - no longer needed');
@@ -818,7 +818,7 @@ const Visualize = () => {
     try {
       const exportPath = mode === 'load'
         ? `/load/export/${sessionId}`
-        : `/qbsd/export/${sessionId}`;
+        : `/schematiq/export/${sessionId}`;
 
       const tzOffset = new Date().getTimezoneOffset();
       let queryStr = `?tz_offset=${tzOffset}`;
@@ -840,9 +840,9 @@ const Visualize = () => {
       const tzOffset = new Date().getTimezoneOffset();
       const exportPath = mode === 'load'
         ? `/load/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`
-        : `/qbsd/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`;
+        : `/schematiq/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`;
 
-      await downloadBlob(exportPath, 'project.qbsd.json');
+      await downloadBlob(exportPath, 'project.schematiq.json');
     } catch (error) {
       console.error('Export error:', error);
       alert('Save failed. Please try again.');
@@ -1015,10 +1015,10 @@ const Visualize = () => {
   };
 
   const handleBackNavigation = useCallback(async () => {
-    if (session && mode === 'qbsd') {
+    if (session && mode === 'schematiq') {
       try {
         // Fetch full configuration used for this session
-        const config = await qbsdAPI.getConfig(sessionId!);
+        const config = await schematiqAPI.getConfig(sessionId!);
         const statePayload = {
           config,
           previousSessionId: sessionId,
@@ -1026,10 +1026,10 @@ const Visualize = () => {
         };
 
         // Save to sessionStorage so browser back also works
-        sessionStorage.setItem(`qbsd_config_${sessionId}`, JSON.stringify(statePayload));
+        sessionStorage.setItem(`schematiq_config_${sessionId}`, JSON.stringify(statePayload));
 
         // Navigate back (replace to keep history clean during edit cycles)
-        navigate('/qbsd', { replace: true, state: statePayload });
+        navigate('/schematiq', { replace: true, state: statePayload });
       } catch (err) {
         console.error('Failed to fetch config for restoration:', err);
         // Fallback: navigate with basic state from session
@@ -1039,8 +1039,8 @@ const Visualize = () => {
             docs_path: session?.metadata.cloud_dataset ? session.metadata.cloud_dataset.split(', ') : [],
           }
         };
-        sessionStorage.setItem(`qbsd_config_${sessionId}`, JSON.stringify(fallbackPayload));
-        navigate('/qbsd', { replace: true, state: fallbackPayload });
+        sessionStorage.setItem(`schematiq_config_${sessionId}`, JSON.stringify(fallbackPayload));
+        navigate('/schematiq', { replace: true, state: fallbackPayload });
       }
     } else {
       navigate('/');
@@ -1048,7 +1048,7 @@ const Visualize = () => {
   }, [session, mode, sessionId, navigate]);
 
   // --- View history + navigation guard (must be before early returns) ---
-  const isAnyProcessingActive = (mode === 'qbsd' && session?.status === 'processing') ||
+  const isAnyProcessingActive = (mode === 'schematiq' && session?.status === 'processing') ||
     !!activeReextractionId ||
     session?.status === 'processing_documents' ||
     continueDiscoveryActive;
@@ -1110,10 +1110,10 @@ const Visualize = () => {
     );
   }
 
-  const isQBSDRunning = mode === 'qbsd' && session?.status === 'processing';
-  const isQBSDStopped = mode === 'qbsd' && session?.status === 'stopped';
+  const isScheMatiQRunning = mode === 'schematiq' && session?.status === 'processing';
+  const isScheMatiQStopped = mode === 'schematiq' && session?.status === 'stopped';
   const isSchemaReady = ['schema_ready', 'schema_extracted', 'documents_uploaded', 'processing_documents', 'completed', 'stopped'].includes(session?.status || '') ||
-    (mode === 'qbsd' && session?.status === 'processing' && (session?.columns?.length ?? 0) > 0);
+    (mode === 'schematiq' && session?.status === 'processing' && (session?.columns?.length ?? 0) > 0);
   const isCompleted = session?.status === 'completed';
   const isEnhancedUploadProcessing = session?.status === 'processing_documents';
 
@@ -1123,9 +1123,9 @@ const Visualize = () => {
     mode,
     isCompleted,
     isEnhancedUploadProcessing,
-    isQBSDRunning,
-    isQBSDStopped,
-    dataTabDisabled: !isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded'
+    isScheMatiQRunning,
+    isScheMatiQStopped,
+    dataTabDisabled: !isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isScheMatiQStopped && session?.status !== 'documents_uploaded'
   });
 
   const getStatusBadge = () => {
@@ -1164,12 +1164,12 @@ const Visualize = () => {
         <div className="flex items-center justify-between">
           <Button variant="ghost" size="sm" onClick={handleBackClick}>
             <ArrowLeft className="h-4 w-4 mr-2" />
-            {mode === 'qbsd' ? 'Back to Configuration' : 'Back to Home'}
+            {mode === 'schematiq' ? 'Back to Configuration' : 'Back to Home'}
           </Button>
 
           <div className="flex items-center gap-2">
             {getStatusBadge()}
-            {(isCompleted || isQBSDStopped) && (
+            {(isCompleted || isScheMatiQStopped) && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -1180,12 +1180,12 @@ const Visualize = () => {
                 <HelpCircle className="h-5 w-5" />
               </Button>
             )}
-            {(isCompleted || isEnhancedUploadProcessing || isQBSDStopped) && (
+            {(isCompleted || isEnhancedUploadProcessing || isScheMatiQStopped) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
                     <Download className="h-4 w-4 mr-2" />
-                    Export{isQBSDStopped ? ' Current Results' : ''}
+                    Export{isScheMatiQStopped ? ' Current Results' : ''}
                     <ChevronDown className="h-3 w-3 ml-1" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -1200,7 +1200,7 @@ const Visualize = () => {
                   <DropdownMenuItem onClick={handleSaveProject}>
                     <Save className="h-4 w-4 mr-2 shrink-0" />
                     <div>
-                      <div>Save Project (.qbsd.json)</div>
+                      <div>Save Project (.schematiq.json)</div>
                       <div className="text-xs text-muted-foreground">Full project with schema and history — for reloading</div>
                     </div>
                   </DropdownMenuItem>
@@ -1246,8 +1246,8 @@ const Visualize = () => {
         <TabsList>
           <TabsTrigger
             value="data"
-            disabled={sessionLoading || (!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded')}
-            title={(!isCompleted && !isEnhancedUploadProcessing && !isQBSDRunning && !isQBSDStopped && session?.status !== 'documents_uploaded') ? 'Data will appear once processing starts' : undefined}
+            disabled={sessionLoading || (!isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isScheMatiQStopped && session?.status !== 'documents_uploaded')}
+            title={(!isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isScheMatiQStopped && session?.status !== 'documents_uploaded') ? 'Data will appear once processing starts' : undefined}
           >
             Data
           </TabsTrigger>
@@ -1260,17 +1260,17 @@ const Visualize = () => {
           </TabsTrigger>
           <TabsTrigger
             value="stats"
-            disabled={sessionLoading || (!isCompleted && !isQBSDStopped)}
-            title={(!isCompleted && !isQBSDStopped) ? 'Statistics will appear once processing completes' : undefined}
+            disabled={sessionLoading || (!isCompleted && !isScheMatiQStopped)}
+            title={(!isCompleted && !isScheMatiQStopped) ? 'Statistics will appear once processing completes' : undefined}
           >
             Statistics
           </TabsTrigger>
-          {mode === 'qbsd' && (
+          {mode === 'schematiq' && (
             <TabsTrigger value="monitor" className={session?.status === 'processing' ? 'gap-2' : undefined}>
               {session?.status === 'processing' && (
                 <Loader2 className="h-4 w-4 animate-spin" />
               )}
-              QBSD Monitor
+              ScheMatiQ Monitor
             </TabsTrigger>
           )}
           {mode === 'load' && isEnhancedUploadProcessing && (
@@ -1283,7 +1283,7 @@ const Visualize = () => {
 
         {/* Data Tab */}
         <TabsContent value="data" className="mt-4">
-          {(isCompleted || isEnhancedUploadProcessing || isQBSDRunning || isQBSDStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
+          {(isCompleted || isEnhancedUploadProcessing || isScheMatiQRunning || isScheMatiQStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
             <div className="relative" data-table-container>
               {/* View mode toggle (only when observation units exist) */}
               {((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) && (
@@ -1354,13 +1354,13 @@ const Visualize = () => {
 
               {/* Document Upload Section (collapsible) */}
               {((mode === 'load' && ['documents_uploaded', 'processing_documents', 'completed', 'stopped'].includes(session?.status || '')) ||
-                (mode === 'qbsd' && ['completed', 'documents_uploaded', 'processing_documents', 'stopped'].includes(session?.status || ''))) &&
+                (mode === 'schematiq' && ['completed', 'documents_uploaded', 'processing_documents', 'stopped'].includes(session?.status || ''))) &&
                 !sessionLoading && !dataLoading && dataResponse && (
                   <Card className="mt-6">
                     <CardHeader className="cursor-pointer select-none" onClick={() => setAddDocsExpanded(!addDocsExpanded)}>
                       <div className="flex items-center justify-between">
                         <CardTitle className="text-base">
-                          {mode === 'qbsd' ? 'Add More Documents'
+                          {mode === 'schematiq' ? 'Add More Documents'
                             : session?.status === 'documents_uploaded' ? 'Process Your Documents'
                             : 'Add More Documents'}
                         </CardTitle>
@@ -1370,7 +1370,7 @@ const Visualize = () => {
                     {addDocsExpanded && (
                       <CardContent className="space-y-4">
                         <p className="text-sm text-muted-foreground">
-                          {mode === 'qbsd'
+                          {mode === 'schematiq'
                             ? 'Upload additional documents to extract more data using your discovered schema.'
                             : session?.status === 'documents_uploaded'
                               ? 'You have uploaded documents that are ready to be processed.'
@@ -1483,7 +1483,7 @@ const Visualize = () => {
           ) : (
             <Alert variant="info">
               <AlertDescription>
-                {isQBSDRunning ? 'Data will be available when QBSD processing completes' : 'No data available'}
+                {isScheMatiQRunning ? 'Data will be available when ScheMatiQ processing completes' : 'No data available'}
               </AlertDescription>
             </Alert>
           )}
@@ -1537,10 +1537,10 @@ const Visualize = () => {
           )}
         </TabsContent>
 
-        {/* QBSD Monitor Tab */}
-        {mode === 'qbsd' && (
+        {/* ScheMatiQ Monitor Tab */}
+        {mode === 'schematiq' && (
           <TabsContent value="monitor" className="mt-4">
-            <QBSDMonitor
+            <ScheMatiQMonitor
               sessionId={sessionId}
               autoStarted={autoStartState.autoStarted}
               initialCapacityMessage={autoStartState.initialCapacityMessage}

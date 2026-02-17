@@ -1,5 +1,5 @@
 """
-Schema management service for QBSD visualization.
+Schema management service for ScheMatiQ visualization.
 Handles schema editing operations and document reprocessing.
 """
 
@@ -17,19 +17,19 @@ from app.models.session import ColumnInfo, SessionStatus
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.services import qbsd_thread_pool, concurrency_limiter, find_session_data_file
+from app.services import schematiq_thread_pool, concurrency_limiter, find_session_data_file
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
 from app.core.logging_utils import set_session_context
 
 logger = logging.getLogger(__name__)
 
-# QBSD library imports
-from qbsd.value_extraction.main import build_table_jsonl
-from qbsd.core.llm_backends import GeminiLLM
-from qbsd.core.retrievers import EmbeddingRetriever
-from qbsd.core import utils
+# ScheMatiQ library imports
+from schematiq.value_extraction.main import build_table_jsonl
+from schematiq.core.llm_backends import GeminiLLM
+from schematiq.core.retrievers import EmbeddingRetriever
+from schematiq.core import utils
 
-QBSD_AVAILABLE = True
+SCHEMATIQ_AVAILABLE = True
 
 
 class SchemaManager(WebSocketBroadcasterMixin):
@@ -122,18 +122,18 @@ class SchemaManager(WebSocketBroadcasterMixin):
         except Exception as e:
             logger.debug(f"Could not load LLM config from parsed_schema.json: {e}")
 
-        # Priority 3: Check qbsd_config.json (legacy location)
+        # Priority 3: Check schematiq_config.json (legacy location)
         try:
-            qbsd_config_file = session_dir / "qbsd_config.json"
-            if qbsd_config_file.exists():
-                with open(qbsd_config_file) as f:
-                    qbsd_config = json.load(f)
-                backend_config = qbsd_config.get("value_extraction_backend") or qbsd_config.get("schema_creation_backend")
+            schematiq_config_file = session_dir / "schematiq_config.json"
+            if schematiq_config_file.exists():
+                with open(schematiq_config_file) as f:
+                    schematiq_config = json.load(f)
+                backend_config = schematiq_config.get("value_extraction_backend") or schematiq_config.get("schema_creation_backend")
                 if backend_config:
-                    logger.debug(f"Using LLM config from qbsd_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
+                    logger.debug(f"Using LLM config from schematiq_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
                     return utils.build_llm(backend_config)
         except Exception as e:
-            logger.debug(f"Could not load LLM config from qbsd_config.json: {e}")
+            logger.debug(f"Could not load LLM config from schematiq_config.json: {e}")
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
         logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
@@ -147,7 +147,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
         try:
             session = self.session_manager.get_session(session_id)
-            if not session or not QBSD_AVAILABLE:
+            if not session or not SCHEMATIQ_AVAILABLE:
                 return
 
             await self.broadcast_progress(
@@ -222,7 +222,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     return self.is_stop_requested(session_id)
 
                 await asyncio.get_event_loop().run_in_executor(
-                    qbsd_thread_pool,
+                    schematiq_thread_pool,
                     functools.partial(
                         build_table_jsonl,
                         schema_path=schema_file,
@@ -372,8 +372,8 @@ class SchemaManager(WebSocketBroadcasterMixin):
             self._stop_flags.pop(session_id, None)
 
         try:
-            if not QBSD_AVAILABLE:
-                await self.broadcast_error(session_id, "QBSD components not available")
+            if not SCHEMATIQ_AVAILABLE:
+                await self.broadcast_error(session_id, "ScheMatiQ components not available")
                 return
 
             await self.broadcast_progress(
@@ -438,28 +438,28 @@ class SchemaManager(WebSocketBroadcasterMixin):
             if documents_path:
                 docs_directories = [Path(documents_path)]
             else:
-                qbsd_dir = Path("./qbsd_work") / session_id
+                schematiq_dir = Path("./schematiq_work") / session_id
                 candidate_dirs = [
                     session_dir / "documents",
                     session_dir / "pending_documents",
                 ]
-                # Check qbsd_work datasets directories
-                qbsd_datasets_dir = qbsd_dir / "datasets"
-                if qbsd_datasets_dir.exists():
-                    for dataset_subdir in qbsd_datasets_dir.iterdir():
+                # Check schematiq_work datasets directories
+                schematiq_datasets_dir = schematiq_dir / "datasets"
+                if schematiq_datasets_dir.exists():
+                    for dataset_subdir in schematiq_datasets_dir.iterdir():
                         if dataset_subdir.is_dir():
                             candidate_dirs.append(dataset_subdir)
-                # Check qbsd_work capped_documents
-                capped_dir = qbsd_dir / "capped_documents"
+                # Check schematiq_work capped_documents
+                capped_dir = schematiq_dir / "capped_documents"
                 if capped_dir.exists():
                     candidate_dirs.append(capped_dir)
-                # Check original docs_path from QBSD config
-                qbsd_config_file = qbsd_dir / "qbsd_config.json"
-                if qbsd_config_file.exists():
+                # Check original docs_path from ScheMatiQ config
+                schematiq_config_file = schematiq_dir / "schematiq_config.json"
+                if schematiq_config_file.exists():
                     try:
-                        with open(qbsd_config_file) as f:
-                            qbsd_cfg = json.load(f)
-                        config_docs_path = qbsd_cfg.get("docs_path", [])
+                        with open(schematiq_config_file) as f:
+                            schematiq_cfg = json.load(f)
+                        config_docs_path = schematiq_cfg.get("docs_path", [])
                         if isinstance(config_docs_path, str):
                             config_docs_path = [config_docs_path]
                         for dp in config_docs_path:
@@ -485,7 +485,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 return self.is_stop_requested(session_id)
 
             await asyncio.get_event_loop().run_in_executor(
-                qbsd_thread_pool,
+                schematiq_thread_pool,
                 functools.partial(
                     build_table_jsonl,
                     schema_path=schema_file,
@@ -665,13 +665,13 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
         # Find ALL data files (same pattern as unit_view_service._get_all_data_files)
         data_files = []
-        qbsd_extracted = Path("./qbsd_work") / session_id / "extracted_data.jsonl"
-        if qbsd_extracted.exists():
-            data_files.append(qbsd_extracted)
+        schematiq_extracted = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
+        if schematiq_extracted.exists():
+            data_files.append(schematiq_extracted)
         if not data_files:
-            qbsd_data = Path("./qbsd_work") / session_id / "data.jsonl"
-            if qbsd_data.exists():
-                data_files.append(qbsd_data)
+            schematiq_data = Path("./schematiq_work") / session_id / "data.jsonl"
+            if schematiq_data.exists():
+                data_files.append(schematiq_data)
         load_data = Path("./data") / session_id / "data.jsonl"
         if load_data.exists() and load_data.resolve() not in [f.resolve() for f in data_files]:
             data_files.append(load_data)
@@ -729,8 +729,8 @@ class SchemaManager(WebSocketBroadcasterMixin):
     async def reprocess_documents(self, session_id: str, columns: List[str], incremental: bool = True, force: bool = False):
         """Reprocess documents for multiple columns using comprehensive schema context."""
         try:
-            if not QBSD_AVAILABLE:
-                await self.broadcast_error(session_id, "QBSD components not available")
+            if not SCHEMATIQ_AVAILABLE:
+                await self.broadcast_error(session_id, "ScheMatiQ components not available")
                 return
             
             session = self.session_manager.get_session(session_id)
@@ -849,7 +849,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
         """Reprocess a column using full schema context for improved accuracy."""
         try:
             session = self.session_manager.get_session(session_id)
-            if not session or not QBSD_AVAILABLE:
+            if not session or not SCHEMATIQ_AVAILABLE:
                 return
             
             await self.broadcast_progress(
@@ -922,7 +922,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     return self.is_stop_requested(session_id)
 
                 await asyncio.get_event_loop().run_in_executor(
-                    qbsd_thread_pool,
+                    schematiq_thread_pool,
                     functools.partial(
                         build_table_jsonl,
                         schema_path=enhanced_schema_file,

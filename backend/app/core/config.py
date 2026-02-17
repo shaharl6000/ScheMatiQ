@@ -2,17 +2,17 @@
 import os
 
 # API Configuration
-API_TITLE = "QBSD Visualization API"
+API_TITLE = "ScheMatiQ API"
 API_DESCRIPTION = """
-## Query-Based Schema Discovery (QBSD) API
+## ScheMatiQ API
 
-This API provides endpoints for **Query-Based Schema Discovery** - an approach to automatically
+This API provides endpoints for **ScheMatiQ** - an approach to automatically
 discover table schemas from document collections based on user queries.
 
 ### Key Features
 
 - **File Upload & Loading**: Upload CSV, JSON, or JSONL files to load existing data
-- **QBSD Pipeline**: Configure and run schema discovery on document collections
+- **ScheMatiQ Pipeline**: Configure and run schema discovery on document collections
 - **Schema Editing**: Interactively edit, merge, add, and delete schema columns
 - **Real-time Updates**: WebSocket connections for live progress monitoring
 - **Data Export**: Export data in CSV, JSON, or ZIP formats with full metadata
@@ -78,7 +78,7 @@ DEFAULT_TEMPERATURE = 0
 # Storage Configuration
 DEFAULT_SESSIONS_DIR = "./sessions"
 DEFAULT_DATA_DIR = "./data"
-DEFAULT_QBSD_WORK_DIR = "./qbsd_work"
+DEFAULT_SCHEMATIQ_WORK_DIR = "./schematiq_work"
 
 # Storage Backend Selection
 # Options: "local" (default) or "supabase"
@@ -138,8 +138,11 @@ ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO", "")          # recipient(s), c
 
 # ── Concurrency Configuration ────────────────────────────────────
 MAX_CONCURRENT_SESSIONS = int(os.environ.get("MAX_CONCURRENT_SESSIONS", "5"))
-QBSD_THREAD_POOL_SIZE = int(os.environ.get("QBSD_THREAD_POOL_SIZE", "6"))
+SCHEMATIQ_THREAD_POOL_SIZE = int(os.environ.get(
+    "SCHEMATIQ_THREAD_POOL_SIZE",
+    os.environ.get("QBSD_THREAD_POOL_SIZE", "6"),
+))
 
 # Status Messages
 HEALTH_CHECK_MESSAGE = "healthy"
-API_ROOT_MESSAGE = "QBSD Visualization API"
+API_ROOT_MESSAGE = "ScheMatiQ API"

@@ -7,8 +7,8 @@
 
 export type LLMProvider = 'openai' | 'together' | 'gemini';
 
-const STORAGE_KEY_PREFIX = 'qbsd_api_key_';
-const ENCRYPTION_KEY_STORAGE = 'qbsd_enc_key';
+const STORAGE_KEY_PREFIX = 'schematiq_api_key_';
+const ENCRYPTION_KEY_STORAGE = 'schematiq_enc_key';
 
 /**
  * Get or create the encryption key for AES-GCM.
@@ -151,7 +151,7 @@ export async function migrateGeminiKeys(): Promise<void> {
     // Clean up old storage
     clearStoredKey('gemini_single');
     clearStoredKey('gemini_multi');
-    localStorage.removeItem('qbsd_gemini_key_type');
+    localStorage.removeItem('schematiq_gemini_key_type');
   }
 }
 

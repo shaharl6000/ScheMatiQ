@@ -90,7 +90,7 @@ function extractComparableValue(value: CellValue): string | number | Date {
     return '';
   }
 
-  // Handle QBSD answer format
+  // Handle ScheMatiQ answer format
   if (typeof value === 'object' && 'answer' in value) {
     const answer = (value as { answer: unknown }).answer;
     return extractComparableValue(answer as CellValue);
@@ -176,7 +176,7 @@ function extractNumber(value: CellValue): number | null {
     return isNaN(parsed) ? null : parsed;
   }
 
-  // Handle QBSD answer format
+  // Handle ScheMatiQ answer format
   if (typeof value === 'object' && 'answer' in value) {
     return extractNumber((value as { answer: unknown }).answer as CellValue);
   }

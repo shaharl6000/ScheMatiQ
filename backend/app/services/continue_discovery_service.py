@@ -1,5 +1,5 @@
 """
-Continue Schema Discovery service for QBSD visualization.
+Continue Schema Discovery service for ScheMatiQ.
 Handles continuing schema discovery with existing schema as starting point,
 discovering new columns, and incremental value extraction.
 """
@@ -22,26 +22,26 @@ from app.models.session import (
     ColumnInfo, VisualizationSession
 )
 # Note: SchemaEvolution, SchemaSnapshot are imported locally where needed
-# to avoid conflict with qbsd.core.schema.SchemaEvolution
+# to avoid conflict with schematiq.core.schema.SchemaEvolution
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.services import qbsd_thread_pool, concurrency_limiter
+from app.services import schematiq_thread_pool, concurrency_limiter
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG, MAX_DOCUMENTS
 from app.core.logging_utils import set_session_context
 
-# QBSD library imports
-from qbsd.core import qbsd as QBSD
-from qbsd.core.qbsd import discover_schema
-from qbsd.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot
-from qbsd.core.llm_backends import GeminiLLM
-from qbsd.core.retrievers import EmbeddingRetriever
-from qbsd.core import utils as qbsd_utils
-from qbsd.core.llm_call_tracker import LLMCallTracker
-from qbsd.value_extraction.main import build_table_jsonl
+# ScheMatiQ library imports
+from schematiq.core import schematiq as ScheMatiQ
+from schematiq.core.schematiq import discover_schema
+from schematiq.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot
+from schematiq.core.llm_backends import GeminiLLM
+from schematiq.core.retrievers import EmbeddingRetriever
+from schematiq.core import utils as schematiq_utils
+from schematiq.core.llm_call_tracker import LLMCallTracker
+from schematiq.value_extraction.main import build_table_jsonl
 
-QBSD_AVAILABLE = True
+SCHEMATIQ_AVAILABLE = True
 
 
 def _enforce_release_llm_config(llm_config: dict, is_schema_creation: bool = False) -> dict:
@@ -148,14 +148,14 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             docker_data_dir.mkdir(exist_ok=True)
             return docker_data_dir
 
-    def _get_qbsd_work_dir(self) -> Path:
-        """Get the qbsd_work directory path - uses module location for reliability."""
+    def _get_schematiq_work_dir(self) -> Path:
+        """Get the schematiq_work directory path - uses module location for reliability."""
         module_dir = Path(__file__).parent  # app/services/
         app_dir = module_dir.parent  # app/
         backend_dir = app_dir.parent  # backend/
-        qbsd_work_dir = backend_dir / "qbsd_work"
-        qbsd_work_dir.mkdir(exist_ok=True)
-        return qbsd_work_dir
+        schematiq_work_dir = backend_dir / "schematiq_work"
+        schematiq_work_dir.mkdir(exist_ok=True)
+        return schematiq_work_dir
 
     @staticmethod
     def _is_local_path(path: str) -> bool:
@@ -402,7 +402,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
         Returns:
             Dictionary with:
-            - original_documents: Documents from original QBSD run or data.jsonl references
+            - original_documents: Documents from original ScheMatiQ run or data.jsonl references
             - cloud_datasets: Available cloud datasets
             - can_use_original: Whether original documents are available
         """
@@ -468,7 +468,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         row.get('data', {}).get('papers') or
                         []
                     )
-                    # Handle QBSD answer format
+                    # Handle ScheMatiQ answer format
                     if isinstance(papers_raw, dict) and 'answer' in papers_raw:
                         papers_raw = papers_raw.get('answer', [])
                     if isinstance(papers_raw, str):
@@ -504,10 +504,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 if f.is_file() and not f.name.startswith('.'):
                     local_docs.add(f.name)
 
-        # Also check qbsd_work
-        qbsd_work_dir = self._get_qbsd_work_dir() / session_id
-        if qbsd_work_dir.exists():
-            for subdir in qbsd_work_dir.iterdir():
+        # Also check schematiq_work
+        schematiq_work_dir = self._get_schematiq_work_dir() / session_id
+        if schematiq_work_dir.exists():
+            for subdir in schematiq_work_dir.iterdir():
                 if subdir.is_dir() and not subdir.name.startswith('.'):
                     for f in subdir.iterdir():
                         if f.is_file() and f.suffix in ['.txt', '.md']:
@@ -612,7 +612,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
         if document_source == "original":
             # Use existing documents
-            qbsd_work_dir = self._get_qbsd_work_dir() / session_id
+            schematiq_work_dir = self._get_schematiq_work_dir() / session_id
 
             # Check data/{session_id}/documents/ first
             if docs_dir.exists():
@@ -625,9 +625,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         except Exception as e:
                             logger.debug(f"Could not read {f}: {e}")
 
-            # Also check qbsd_work directory
-            if not documents and qbsd_work_dir.exists():
-                for subdir in qbsd_work_dir.iterdir():
+            # Also check schematiq_work directory
+            if not documents and schematiq_work_dir.exists():
+                for subdir in schematiq_work_dir.iterdir():
                     if subdir.is_dir() and not subdir.name.startswith('.'):
                         for f in sorted(subdir.iterdir()):
                             if f.is_file() and f.suffix in ['.txt', '.md']:
@@ -672,7 +672,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             if pending_dir.exists():
                 existing = set(filenames)
                 # Filter to only files from the latest upload (prevents stale files
-                # from initial QBSD being re-processed)
+                # from initial ScheMatiQ being re-processed)
                 session = self.session_manager.get_session(session_id)
                 latest_uploads = set(session.metadata.uploaded_documents) if session and session.metadata.uploaded_documents else None
                 for f in sorted(pending_dir.iterdir()):
@@ -712,7 +712,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         except Exception as e:
                             logger.debug(f"Could not read {f}: {e}")
 
-        # Enforce document limit (same as initial QBSD creation)
+        # Enforce document limit (same as initial ScheMatiQ creation)
         # The limit can be bypassed in developer mode via config
         if not (DEVELOPER_MODE and bypass_limit) and len(documents) > MAX_DOCUMENTS:
             import random
@@ -731,19 +731,19 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
     # ==================== Schema Discovery ====================
 
     def _convert_session_columns_to_schema(self, columns: List[ColumnInfo], query: str) -> Schema:
-        """Convert session columns to QBSD Schema object."""
-        qbsd_columns = []
+        """Convert session columns to ScheMatiQ Schema object."""
+        schematiq_columns = []
         for col in columns:
             if col.name and not col.name.lower().endswith('_excerpt'):
-                qbsd_col = Column(
+                schematiq_col = Column(
                     name=col.name,
                     definition=col.definition or "",
                     rationale=col.rationale or "",
                     allowed_values=col.allowed_values
                 )
-                qbsd_columns.append(qbsd_col)
+                schematiq_columns.append(schematiq_col)
 
-        return Schema(query=query, columns=qbsd_columns, max_keys=100)
+        return Schema(query=query, columns=schematiq_columns, max_keys=100)
 
     def _identify_new_columns(
         self,
@@ -800,8 +800,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         Returns:
             Dictionary with operation details
         """
-        if not QBSD_AVAILABLE:
-            raise RuntimeError("QBSD components not available")
+        if not SCHEMATIQ_AVAILABLE:
+            raise RuntimeError("ScheMatiQ components not available")
 
         session = self.session_manager.get_session(session_id)
         if not session:
@@ -922,7 +922,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
             # Build LLM - enforce release mode settings if applicable
             enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=True)
-            llm = qbsd_utils.build_llm(enforced_llm_config)
+            llm = schematiq_utils.build_llm(enforced_llm_config)
 
             # Build retriever - use config if provided, otherwise use library defaults
             retriever_cfg = config.get("retriever_config")
@@ -1019,17 +1019,17 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 # Select relevant content from this batch's documents (offloaded to thread pool)
                 loop = asyncio.get_running_loop()
                 relevant_content = await loop.run_in_executor(
-                    qbsd_thread_pool,
-                    functools.partial(QBSD.select_relevant_content, docs=batch_docs, query=query, retriever=retriever),
+                    schematiq_thread_pool,
+                    functools.partial(ScheMatiQ.select_relevant_content, docs=batch_docs, query=query, retriever=retriever),
                 )
                 logger.debug(f"Selected {len(relevant_content)} relevant passages from batch")
 
                 # Generate schema for this batch (offloaded to thread pool)
                 try:
                     schema_result = await loop.run_in_executor(
-                        qbsd_thread_pool,
+                        schematiq_thread_pool,
                         functools.partial(
-                            QBSD.generate_schema,
+                            ScheMatiQ.generate_schema,
                             passages=relevant_content,
                             query=query,
                             max_keys_schema=config.get("max_keys_schema", 100),
@@ -1047,7 +1047,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
                 # Merge with existing schema (offloaded to thread pool)
                 merged_schema = await loop.run_in_executor(
-                    qbsd_thread_pool,
+                    schematiq_thread_pool,
                     functools.partial(current_schema.merge, new_schema),
                 )
                 logger.debug(f"Merged schema has {len(merged_schema.columns)} columns")
@@ -1074,8 +1074,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
                 # Check convergence (offloaded to thread pool)
                 converged = await loop.run_in_executor(
-                    qbsd_thread_pool,
-                    functools.partial(QBSD.evaluate_schema_convergence, current_schema, merged_schema),
+                    schematiq_thread_pool,
+                    functools.partial(ScheMatiQ.evaluate_schema_convergence, current_schema, merged_schema),
                 )
                 if converged:
                     unchanged_count += 1
@@ -1103,7 +1103,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # So they appear in Schema tab even without extraction
             session = self.session_manager.get_session(operation.session_id)
             if session and new_columns:
-                # Use alias to avoid conflict with qbsd.core.schema.SchemaEvolution
+                # Use alias to avoid conflict with schematiq.core.schema.SchemaEvolution
                 from app.models.session import SchemaEvolution as SessionSchemaEvolution, SchemaSnapshot as SessionSchemaSnapshot
 
                 # First, deduplicate existing session.columns
@@ -1433,7 +1433,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Setup LLM and retriever - use config if provided, otherwise use library defaults
             # Enforce release mode settings if applicable (value extraction)
             enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=False)
-            llm = qbsd_utils.build_llm(enforced_llm_config)
+            llm = schematiq_utils.build_llm(enforced_llm_config)
             if retriever_cfg:
                 retriever = EmbeddingRetriever(
                     model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
@@ -1547,7 +1547,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         should_stop=should_stop
                     )
 
-                await asyncio.get_event_loop().run_in_executor(qbsd_thread_pool, run_extraction)
+                await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)
                 logger.info(f"Incremental extraction completed")
 
             # Clean up filtered docs directory

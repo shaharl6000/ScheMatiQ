@@ -105,7 +105,7 @@ export interface DataStatistics {
 
 export interface VisualizationSession {
   id: string;
-  type: 'load' | 'qbsd';
+  type: 'load' | 'schematiq';
   status: 'created' | 'processing' | 'schema_ready' | 'completed' | 'error' | 'stopped' |
           'schema_extracted' | 'documents_uploaded' | 'processing_documents';
   metadata: SessionMetadata;
@@ -186,7 +186,7 @@ export interface InitialObservationUnit {
   definition?: string;  // Optional - if not provided, will be auto-discovered
 }
 
-export interface QBSDConfig {
+export interface ScheMatiQConfig {
   /** Research query (optional for document-only mode) */
   query: string;
   /** Document paths (optional for query-only mode - can be empty array or null) */
@@ -208,7 +208,7 @@ export interface QBSDConfig {
   opt_out_data_collection?: boolean;  // User opted out of research data archival
 }
 
-export interface QBSDStatus {
+export interface ScheMatiQStatus {
   session_id: string;
   status: string;
   progress: number;
@@ -355,12 +355,12 @@ export interface ExcerptWithSource {
 // Union type for backwards compatibility
 export type Excerpt = string | ExcerptWithSource;
 
-export interface QBSDAnswerWithExcerpts {
+export interface ScheMatiQAnswerWithExcerpts {
   answer: string;
   excerpts: Excerpt[];  // Supports both old (string) and new (object) formats
 }
 
-export type CellValue = string | number | boolean | null | undefined | QBSDAnswerWithExcerpts | unknown[] | Record<string, unknown>;
+export type CellValue = string | number | boolean | null | undefined | ScheMatiQAnswerWithExcerpts | unknown[] | Record<string, unknown>;
 
 export interface ModalContent {
   title: string;
@@ -388,7 +388,7 @@ export interface SchemaData {
   metadata?: {
     imported_from_csv?: boolean;
     original_session_id?: string;
-    generated_timestamp?: string;  // Original QBSD creation timestamp
+    generated_timestamp?: string;  // Original ScheMatiQ creation timestamp
     import_timestamp?: string;     // When it was imported/loaded
   };
   observation_unit?: ObservationUnitInfo;
@@ -887,7 +887,7 @@ export interface DocumentStats {
 }
 
 /**
- * Complete cost estimate for QBSD execution.
+ * Complete cost estimate for ScheMatiQ execution.
  */
 export interface CostEstimate {
   /** Estimate for schema discovery phase */

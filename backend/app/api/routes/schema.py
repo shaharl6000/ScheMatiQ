@@ -1,5 +1,5 @@
 """
-Schema editing API endpoints for QBSD visualization.
+Schema editing API endpoints for ScheMatiQ.
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from app.models.session import VisualizationSession, SessionStatus, ColumnInfo
 from app.models.modification import ModificationAction
-from app.models.qbsd import RetrieverConfig
+from app.models.schematiq import RetrieverConfig
 from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
 from app.services.schema_manager import SchemaManager

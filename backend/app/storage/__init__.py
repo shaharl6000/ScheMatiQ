@@ -1,4 +1,4 @@
-"""Storage abstraction layer for QueryDiscovery backend.
+"""Storage abstraction layer for ScheMatiQ backend.
 
 This package provides a storage abstraction that allows the backend to use
 either local filesystem or Supabase cloud storage, controlled by environment

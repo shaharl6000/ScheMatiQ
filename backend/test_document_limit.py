@@ -26,10 +26,10 @@ def test_config_endpoint():
 def test_upload_over_limit():
     """Test that uploading >MAX_DOCUMENTS files is rejected.
 
-    This requires a valid QBSD session. We create one via /api/qbsd/configure,
+    This requires a valid ScheMatiQ session. We create one via /api/schematiq/configure,
     then try to upload too many files.
     """
-    # Step 1: Create a minimal QBSD session
+    # Step 1: Create a minimal ScheMatiQ session
     config_payload = {
         "query": "test query",
         "docs_path": None,
@@ -49,7 +49,7 @@ def test_upload_over_limit():
         "output_path": "test_output.json",
     }
 
-    r = requests.post(f"{BASE}/api/qbsd/configure", json=config_payload)
+    r = requests.post(f"{BASE}/api/schematiq/configure", json=config_payload)
     if r.status_code != 200:
         print(f"  SKIP: Could not create session ({r.status_code}: {r.text[:200]})")
         print("  (This is expected if no API keys are configured)")
@@ -118,7 +118,7 @@ def test_bypass_without_dev_mode():
         "output_path": "test_output.json",
     }
 
-    r = requests.post(f"{BASE}/api/qbsd/configure", json=config_payload)
+    r = requests.post(f"{BASE}/api/schematiq/configure", json=config_payload)
     if r.status_code != 200:
         print(f"  SKIP: Could not create session ({r.status_code})")
         return None

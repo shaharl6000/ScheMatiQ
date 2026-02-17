@@ -33,7 +33,7 @@ class DataPreviewRequest(BaseModel):
     filters: Optional[Dict[str, Any]] = None
 
 class SchemaColumn(BaseModel):
-    """Schema column definition from QBSD schema."""
+    """Schema column definition from ScheMatiQ schema."""
     name: str
     definition: Optional[str] = None
     rationale: Optional[str] = None
@@ -46,8 +46,8 @@ class LLMBackendConfig(BaseModel):
     temperature: float
     context_window_size: Optional[int] = None
 
-class QBSDSchemaFormat(BaseModel):
-    """QBSD schema file format."""
+class ScheMatiQSchemaFormat(BaseModel):
+    """ScheMatiQ schema file format."""
     query: Optional[str] = None
     docs_path: Optional[str] = None
     backend: Optional[Dict[str, Any]] = None  # Legacy single backend support

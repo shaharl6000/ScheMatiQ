@@ -152,7 +152,7 @@ function extractStringValue(value: CellValue): string {
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
 
-  // Handle QBSD answer format
+  // Handle ScheMatiQ answer format
   if (typeof value === 'object' && 'answer' in value) {
     return String((value as { answer: unknown }).answer ?? '');
   }
@@ -183,7 +183,7 @@ function extractNumericValue(value: CellValue): number | null {
     return isNaN(parsed) ? null : parsed;
   }
 
-  // Handle QBSD answer format
+  // Handle ScheMatiQ answer format
   if (typeof value === 'object' && 'answer' in value) {
     const answer = (value as { answer: unknown }).answer;
     if (typeof answer === 'number') return answer;
@@ -240,7 +240,7 @@ export function detectColumnType(
 
   // Check for objects (JSON)
   if (values.some(v => typeof v === 'object' && v !== null && !Array.isArray(v))) {
-    // Special case: QBSD answer format - treat as string
+    // Special case: ScheMatiQ answer format - treat as string
     if (values.some(v => typeof v === 'object' && 'answer' in (v as object))) {
       return 'string';
     }

@@ -3,8 +3,8 @@ import {
   VisualizationSession,
   PaginatedData,
   FileValidationResult,
-  QBSDConfig,
-  QBSDStatus,
+  ScheMatiQConfig,
+  ScheMatiQStatus,
   SchemaExtractionResult,
   DocumentUploadResult,
   DocumentProcessingResult,
@@ -113,7 +113,7 @@ export const configAPI = {
   },
 };
 
-// Load API (for loading existing QBSD data)
+// Load API (for loading existing ScheMatiQ data)
 export const loadAPI = {
   uploadFile: async (file: File): Promise<{
     session_id: string;
@@ -253,29 +253,29 @@ export const loadAPI = {
   },
 };
 
-// QBSD API
-export const qbsdAPI = {
-  configure: async (config: QBSDConfig): Promise<{ session_id: string; message: string }> => {
-    const response = await api.post('/qbsd/configure', config);
+// ScheMatiQ API
+export const schematiqAPI = {
+  configure: async (config: ScheMatiQConfig): Promise<{ session_id: string; message: string }> => {
+    const response = await api.post('/schematiq/configure', config);
     return response.data;
   },
 
   run: async (sessionId: string): Promise<void> => {
-    await api.post(`/qbsd/run/${sessionId}`);
+    await api.post(`/schematiq/run/${sessionId}`);
   },
 
-  getStatus: async (sessionId: string): Promise<QBSDStatus> => {
-    const response = await api.get(`/qbsd/status/${sessionId}`);
+  getStatus: async (sessionId: string): Promise<ScheMatiQStatus> => {
+    const response = await api.get(`/schematiq/status/${sessionId}`);
     return response.data;
   },
 
-  getConfig: async (sessionId: string): Promise<QBSDConfig> => {
-    const response = await api.get(`/qbsd/config/${sessionId}`);
+  getConfig: async (sessionId: string): Promise<ScheMatiQConfig> => {
+    const response = await api.get(`/schematiq/config/${sessionId}`);
     return response.data;
   },
 
   getSchema: async (sessionId: string): Promise<SchemaData> => {
-    const response = await api.get(`/qbsd/schema/${sessionId}`);
+    const response = await api.get(`/schematiq/schema/${sessionId}`);
     return response.data;
   },
 
@@ -293,7 +293,7 @@ export const qbsdAPI = {
     if (documents && documents.length > 0) {
       params.documents = documents.join(',');
     }
-    const response = await api.post(`/qbsd/data/${sessionId}`, {
+    const response = await api.post(`/schematiq/data/${sessionId}`, {
       filters: filters && filters.length > 0 ? filters : null,
       sort: sort && sort.length > 0 ? sort : null,
       search: search || null
@@ -305,17 +305,17 @@ export const qbsdAPI = {
     status: string;
     message: string;
   }> => {
-    const response = await api.post(`/qbsd/stop/${sessionId}`);
+    const response = await api.post(`/schematiq/stop/${sessionId}`);
     return response.data;
   },
 
   listSessions: async (): Promise<VisualizationSession[]> => {
-    const response = await api.get('/qbsd/sessions');
+    const response = await api.get('/schematiq/sessions');
     return response.data;
   },
 
   getDirectories: async (): Promise<{ value: string; label: string }[]> => {
-    const response = await api.get('/qbsd/directories');
+    const response = await api.get('/schematiq/directories');
     return response.data;
   },
 
@@ -331,21 +331,21 @@ export const qbsdAPI = {
       allowed_values?: string[];
     }[];
   }[]> => {
-    const response = await api.get('/qbsd/schema-files');
+    const response = await api.get('/schematiq/schema-files');
     return response.data;
   },
 
   export: async (sessionId: string): Promise<void> => {
-    const response = await api.get(`/qbsd/export/${sessionId}`, { 
-      responseType: 'blob' 
+    const response = await api.get(`/schematiq/export/${sessionId}`, {
+      responseType: 'blob'
     });
-    
+
     // Create download link
     const blob = new Blob([response.data], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `qbsd_data_${sessionId.slice(0, 8)}.csv`;
+    link.download = `schematiq_data_${sessionId.slice(0, 8)}.csv`;
     link.click();
     window.URL.revokeObjectURL(url);
   },
@@ -356,31 +356,31 @@ export const qbsdAPI = {
     column: string,
     value: string
   ): Promise<{ status: string; session_id: string; row_name: string; column: string; value: string }> => {
-    const response = await api.put(`/qbsd/cell/${sessionId}`, null, {
+    const response = await api.put(`/schematiq/cell/${sessionId}`, null, {
       params: { row_name: rowName, column, value }
     });
     return response.data;
   },
 
   /**
-   * Estimate cost for QBSD execution for an existing configured session.
+   * Estimate cost for ScheMatiQ execution for an existing configured session.
    */
   estimateCost: async (sessionId: string): Promise<CostEstimate> => {
-    const response = await api.post(`/qbsd/estimate-cost/${sessionId}`);
+    const response = await api.post(`/schematiq/estimate-cost/${sessionId}`);
     return response.data;
   },
 
   /**
    * Preview cost estimate without saving a session.
    * Useful for getting estimates before committing to a configuration.
-   * @param config - The QBSD configuration
+   * @param config - The ScheMatiQ configuration
    * @param uploadedFiles - Optional array of uploaded file info (name, size) for estimation
    */
   estimateCostPreview: async (
-    config: QBSDConfig, 
+    config: ScheMatiQConfig,
     uploadedFiles?: Array<{ name: string; size: number }>
   ): Promise<CostEstimate> => {
-    const response = await api.post('/qbsd/estimate-cost-preview', { 
+    const response = await api.post('/schematiq/estimate-cost-preview', { 
       config, 
       uploaded_files: uploadedFiles 
     });
@@ -390,21 +390,21 @@ export const qbsdAPI = {
 
 // Common session API
 export const sessionAPI = {
-  getSession: async (sessionId: string, type: 'load' | 'qbsd'): Promise<VisualizationSession> => {
+  getSession: async (sessionId: string, type: 'load' | 'schematiq'): Promise<VisualizationSession> => {
     if (type === 'load') {
       return loadAPI.getSession(sessionId);
     } else {
-      // For QBSD, we need to construct from multiple endpoints
+      // For ScheMatiQ, we need to construct from multiple endpoints
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const _status = await qbsdAPI.getStatus(sessionId);
+      const _status = await schematiqAPI.getStatus(sessionId);
       // This would need to be implemented based on actual backend structure
-      throw new Error('QBSD session details not yet implemented');
+      throw new Error('ScheMatiQ session details not yet implemented');
     }
   },
 
   getData: async (
     sessionId: string,
-    type: 'load' | 'qbsd',
+    type: 'load' | 'schematiq',
     page = 0,
     pageSize = 50,
     filters?: FilterRule[],
@@ -415,7 +415,7 @@ export const sessionAPI = {
     if (type === 'load') {
       return loadAPI.getData(sessionId, page, pageSize, filters, sort, search, documents);
     } else {
-      return qbsdAPI.getData(sessionId, page, pageSize, filters, sort, search, documents);
+      return schematiqAPI.getData(sessionId, page, pageSize, filters, sort, search, documents);
     }
   },
 };

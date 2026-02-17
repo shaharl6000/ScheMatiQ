@@ -35,7 +35,7 @@ def get_storage() -> StorageInterface:
         SUPABASE_KEY,
         DEFAULT_SESSIONS_DIR,
         DEFAULT_DATA_DIR,
-        DEFAULT_QBSD_WORK_DIR,
+        DEFAULT_SCHEMATIQ_WORK_DIR,
     )
 
     # Log configuration (without exposing secrets)
@@ -54,7 +54,7 @@ def get_storage() -> StorageInterface:
             _storage_instance = LocalStorageBackend(
                 sessions_dir=DEFAULT_SESSIONS_DIR,
                 data_dir=DEFAULT_DATA_DIR,
-                qbsd_work_dir=DEFAULT_QBSD_WORK_DIR,
+                schematiq_work_dir=DEFAULT_SCHEMATIQ_WORK_DIR,
             )
     else:
         logger.info(f"Using local storage backend (STORAGE_BACKEND='{STORAGE_BACKEND}')")
@@ -62,7 +62,7 @@ def get_storage() -> StorageInterface:
         _storage_instance = LocalStorageBackend(
             sessions_dir=DEFAULT_SESSIONS_DIR,
             data_dir=DEFAULT_DATA_DIR,
-            qbsd_work_dir=DEFAULT_QBSD_WORK_DIR,
+            schematiq_work_dir=DEFAULT_SCHEMATIQ_WORK_DIR,
         )
         logger.info("Initialized local storage backend")
 

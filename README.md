@@ -1,12 +1,12 @@
-# QueryDiscovery
+# ScheMatiQ
 
-**Query-Based Schema Discovery (QBSD) — Give a research query and documents, get a structured table back.**
+**ScheMatiQ — Give a research query and documents, get a structured table back.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![React 18](https://img.shields.io/badge/react-18-61dafb.svg)](https://reactjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688.svg)](https://fastapi.tiangolo.com/)
 
-QueryDiscovery takes a natural-language query and a collection of documents, automatically discovers the optimal table schema to answer it, then extracts values from each document into a structured table. No predefined schema needed — the system figures out what columns matter.
+ScheMatiQ takes a natural-language query and a collection of documents, automatically discovers the optimal table schema to answer it, then extracts values from each document into a structured table. No predefined schema needed — the system figures out what columns matter.
 
 **Try it live:** [querydiscovery-production.up.railway.app](https://querydiscovery-production.up.railway.app/)
 
@@ -15,14 +15,14 @@ QueryDiscovery takes a natural-language query and a collection of documents, aut
 ## Architecture
 
 ```
-QueryDiscovery/
-├── frontend/     # React 18 + TypeScript + Tailwind/shadcn (Railway Service 1)
-├── backend/      # FastAPI + WebSocket server (Railway Service 2)
-├── qbsd-lib/     # Core QBSD algorithms (Python package, imported by backend)
-└── research/     # Datasets, experiments, evaluation results
+ScheMatiQ/
+├── frontend/        # React 18 + TypeScript + Tailwind/shadcn (Railway Service 1)
+├── backend/         # FastAPI + WebSocket server (Railway Service 2)
+├── schematiq-lib/   # Core ScheMatiQ algorithms (Python package, imported by backend)
+└── research/        # Datasets, experiments, evaluation results
 ```
 
-**Request flow:** Frontend → Backend routes (`app/api/routes/`) → Services (`app/services/`) → qbsd-lib (`qbsd/`) → LLM API. Real-time progress via WebSocket.
+**Request flow:** Frontend → Backend routes (`app/api/routes/`) → Services (`app/services/`) → schematiq-lib (`schematiq/`) → LLM API. Real-time progress via WebSocket.
 
 ### System Flow
 
@@ -30,7 +30,7 @@ QueryDiscovery/
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   Research   │     │ Observation │     │   Schema    │     │    Value    │     │  Structured │
 │    Query     │ ──▶ │    Unit     │ ──▶ │  Discovery  │ ──▶ │  Extraction │ ──▶ │    Table    │
-│ + Documents  │     │  Discovery  │     │   (QBSD)    │     │             │     │             │
+│ + Documents  │     │  Discovery  │     │ (ScheMatiQ) │     │             │     │             │
 └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
@@ -46,7 +46,7 @@ The **Observation Unit** (e.g., "research paper", "patient") is discovered first
 # Backend
 cd backend
 pip install -r requirements.txt
-cd ../qbsd-lib && pip install -e . && cd ../backend
+cd ../schematiq-lib && pip install -e . && cd ../backend
 # Set OPENAI_API_KEY, GEMINI_API_KEY, or TOGETHER_API_KEY in environment
 uvicorn app.main:app --reload --port 8000
 ```
@@ -75,9 +75,9 @@ npm start
 | **Document Upload** | PDF and TXT support with automatic preprocessing |
 | **Export** | Download results as CSV, JSON, or JSONL |
 
-**Pages:** Landing → QBSDConfig → Load → Visualize
+**Pages:** Landing → ScheMatiQConfig → Load → Visualize
 
-### Core Library (qbsd-lib)
+### Core Library (schematiq-lib)
 
 | Feature | Description |
 |---------|-------------|
@@ -90,14 +90,14 @@ npm start
 
 ```bash
 # Standalone install
-cd qbsd-lib && pip install -e .
+cd schematiq-lib && pip install -e .
 ```
 
 ```python
-from qbsd import Schema, Column, EmbeddingRetriever
-from qbsd.core.llm_backends import GeminiLLM
-from qbsd.core import qbsd as QBSD
-from qbsd.value_extraction.main import build_table_jsonl
+from schematiq import Schema, Column, EmbeddingRetriever
+from schematiq.core.llm_backends import GeminiLLM
+from schematiq.core import schematiq as ScheMatiQ
+from schematiq.value_extraction.main import build_table_jsonl
 ```
 
 ---
@@ -144,7 +144,7 @@ Release mode (default) restricts features for public use. Set `DEVELOPER_MODE=tr
 Both services deploy on **Railway** using **Dockerfile-based** builds:
 
 - **Frontend** — Multi-stage Node 18 → Nginx (`frontend/Dockerfile`, `frontend/railway.json`)
-- **Backend** — Python 3.11-slim, CPU-only PyTorch, copies `qbsd-lib/` at build time (`backend/Dockerfile`, no `railway.json`)
+- **Backend** — Python 3.11-slim, CPU-only PyTorch, copies `schematiq-lib/` at build time (`backend/Dockerfile`, no `railway.json`)
 
 ### Concurrency
 
@@ -157,4 +157,3 @@ Both services deploy on **Railway** using **Dockerfile-based** builds:
 ## License
 
 MIT License — see [LICENSE](LICENSE).
-

@@ -10,7 +10,7 @@ from app.models.modification import CreationMetadata, ModificationAction
 class SessionType(str, Enum):
     """Types of visualization sessions."""
     UPLOAD = "upload"
-    QBSD = "qbsd"
+    SCHEMATIQ = "schematiq"
 
 class SessionStatus(str, Enum):
     """Status of a visualization session."""
@@ -23,7 +23,7 @@ class SessionStatus(str, Enum):
     # Enhanced upload workflow states
     SCHEMA_EXTRACTED = "schema_extracted"  # Schema extracted from uploaded data
     DOCUMENTS_UPLOADED = "documents_uploaded"  # Documents uploaded for processing
-    PROCESSING_DOCUMENTS = "processing_documents"  # Processing documents with QBSD pipeline
+    PROCESSING_DOCUMENTS = "processing_documents"  # Processing documents with ScheMatiQ pipeline
 
 class ObservationUnitInfo(BaseModel):
     """
