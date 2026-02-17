@@ -97,8 +97,10 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [limitBypassEnabled, setLimitBypassEnabled] = useState(false);
 
   // Advanced settings state
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   const [showRetrieverConfig, setShowRetrieverConfig] = useState(false);
   const [maxKeysSchema, setMaxKeysSchema] = useState<string>('');
+  const [documentsBatchSize, setDocumentsBatchSize] = useState<string>('1');
   const [retrieverConfig, setRetrieverConfig] = useState({
     model_name: '',
     passage_chars: '',
@@ -197,8 +199,10 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setDiscoveryBatchInfo(null);
       setDiscoveryNewColumnCount(0);
       setIsStopping(false);
+      setShowAdvancedSettings(false);
       setShowRetrieverConfig(false);
       setMaxKeysSchema('');
+      setDocumentsBatchSize('1');
       setRetrieverConfig({
         model_name: '',
         passage_chars: '',
@@ -321,7 +325,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           dynamic_k_minimum: retrieverConfig.dynamic_k_minimum ? parseInt(retrieverConfig.dynamic_k_minimum) : undefined
         } : undefined,
         max_keys_schema: maxKeysSchema ? parseInt(maxKeysSchema) : undefined,
-        documents_batch_size: 1,
+        documents_batch_size: documentsBatchSize ? parseInt(documentsBatchSize) : 1,
         bypass_limit: limitBypassEnabled
       });
 
@@ -536,6 +540,51 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
               <Switch checked={limitBypassEnabled} onCheckedChange={setLimitBypassEnabled} />
             </div>
           )}
+
+          {/* Advanced Settings */}
+          <Collapsible open={showAdvancedSettings} onOpenChange={setShowAdvancedSettings}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-start p-0 h-auto hover:bg-transparent">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {showAdvancedSettings ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  <Settings className="h-4 w-4" />
+                  <span>Advanced Settings</span>
+                  {!showAdvancedSettings && <Badge variant="secondary" className="ml-2">Default</Badge>}
+                </div>
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-3">
+              <div className="grid grid-cols-2 gap-3 p-3 border rounded-lg bg-muted/30">
+                <div className="space-y-1">
+                  <Label className="text-xs">Batch Size</Label>
+                  <Input
+                    type="number"
+                    value={documentsBatchSize}
+                    onChange={(e) => setDocumentsBatchSize(e.target.value)}
+                    placeholder="1"
+                    min={1}
+                    max={50}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Max Schema Columns</Label>
+                  <Input
+                    type="number"
+                    value={maxKeysSchema}
+                    onChange={(e) => setMaxKeysSchema(e.target.value)}
+                    placeholder="No limit (preserves existing)"
+                    min={1}
+                    max={500}
+                    className="h-8 text-sm"
+                  />
+                  <p className="text-xs text-amber-600">
+                    Setting this too low may remove existing columns. Leave empty to preserve all.
+                  </p>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       )}
 
@@ -682,18 +731,6 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                   placeholder="3"
                   min={1}
                   max={20}
-                  className="h-8 text-sm"
-                />
-              </div>
-              <div className="col-span-2 space-y-1">
-                <Label className="text-xs">Max Schema Columns</Label>
-                <Input
-                  type="number"
-                  value={maxKeysSchema}
-                  onChange={(e) => setMaxKeysSchema(e.target.value)}
-                  placeholder="No limit (preserves existing)"
-                  min={1}
-                  max={500}
                   className="h-8 text-sm"
                 />
               </div>

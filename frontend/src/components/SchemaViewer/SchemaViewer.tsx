@@ -725,14 +725,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const handleContinueDiscoverySuccess = (message: string, newColumns: ColumnInfo[]) => {
     toast({ title: 'Success', description: message });
     setContinueDiscoveryDialogOpen(false);
-
-    if (newColumns.length > 0 && onColumnsChange) {
-      // Add new columns to local state and notify parent
-      const updatedColumns = [...localColumns, ...newColumns];
-      setLocalColumns(updatedColumns);
-      onColumnsChange(updatedColumns);
+    // New columns are already persisted by the backend and synced via
+    // WebSocket session refetch. Just trigger parent refresh and reload
+    // schema change status for "new" column highlighting.
+    if (onColumnsChange) {
+      onColumnsChange(localColumns);
     }
-    // Reload schema change status
     loadSchemaChangeStatus();
   };
 

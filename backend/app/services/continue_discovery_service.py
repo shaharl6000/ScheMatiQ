@@ -777,7 +777,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         cloud_dataset: Optional[str] = None,
         uploaded_files: Optional[List[str]] = None,
         retriever_config: Optional[Dict[str, Any]] = None,
-        max_keys_schema: int = 100,
+        max_keys_schema: Optional[int] = None,
         documents_batch_size: int = 1,
         bypass_limit: bool = False
     ) -> Dict[str, Any]:
