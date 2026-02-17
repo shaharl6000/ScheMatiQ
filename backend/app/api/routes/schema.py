@@ -1105,6 +1105,10 @@ class ContinueDiscoveryDocumentsResponse(BaseModel):
     query: str
 
 
+class ContinueDiscoveryFinalizeRequest(BaseModel):
+    adopt_documents: bool = False
+
+
 class ContinueDiscoveryRequest(BaseModel):
     document_source: str  # 'original', 'upload', 'cloud'
     cloud_dataset: Optional[str] = None
@@ -1270,6 +1274,30 @@ async def stop_continue_discovery(session_id: str, operation_id: str):
         asyncio.create_task(_safe_stop_continue_discovery())
 
         return {"status": "stopping", "message": result["message"]}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/continue-discovery/finalize/{session_id}")
+async def finalize_continue_discovery(session_id: str, request: ContinueDiscoveryFinalizeRequest):
+    """Finalize continue discovery: adopt documents into session data or discard them."""
+    try:
+        session = session_manager.get_session(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        result = continue_discovery_service.finalize_documents(
+            session_id, adopt=request.adopt_documents
+        )
+
+        return {
+            "status": "success",
+            "adopted_count": result["adopted_count"],
+            "adopted_files": result["adopted_files"]
+        }
 
     except HTTPException:
         raise

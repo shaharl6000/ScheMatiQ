@@ -1271,10 +1271,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     operation.session_id, "continue_discovery_completion"
                 )
 
-            # Cleanup config files and temp discovery documents
+            # Cleanup config files (keep continue_discovery_documents for finalize)
             config_file.unlink(missing_ok=True)
             llm_config_file.unlink(missing_ok=True)
-            shutil.rmtree(session_dir / "continue_discovery_documents", ignore_errors=True)
 
         except Exception as e:
             logger.error(f"Continue discovery FAILED: {e}", exc_info=True)
@@ -1392,6 +1391,53 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             "started_at": operation.started_at.isoformat() if operation.started_at else None,
             "completed_at": operation.completed_at.isoformat() if operation.completed_at else None,
             "error": operation.error
+        }
+
+    def finalize_documents(self, session_id: str, adopt: bool) -> Dict[str, Any]:
+        """
+        Finalize continue discovery documents: adopt them into pending_documents or discard.
+
+        Args:
+            session_id: Session identifier
+            adopt: If True, copy files to pending_documents/ (skipping duplicates).
+                   Always cleans up continue_discovery_documents/ afterwards.
+
+        Returns:
+            Dictionary with adopted_count and adopted_files.
+        """
+        session_dir = self._get_data_dir() / session_id
+        cd_dir = session_dir / "continue_discovery_documents"
+        adopted_files: List[str] = []
+
+        if not cd_dir.exists():
+            logger.debug(f"No continue_discovery_documents to finalize for session {session_id}")
+            return {"adopted_count": 0, "adopted_files": []}
+
+        if adopt:
+            pending_dir = session_dir / "pending_documents"
+            pending_dir.mkdir(parents=True, exist_ok=True)
+
+            for f in sorted(cd_dir.iterdir()):
+                if f.is_file() and not f.name.startswith('.'):
+                    dest = pending_dir / f.name
+                    if dest.exists():
+                        logger.debug(f"Skipping duplicate: {f.name}")
+                        continue
+                    try:
+                        shutil.copy2(f, dest)
+                        adopted_files.append(f.name)
+                    except Exception as e:
+                        logger.error(f"Failed to copy {f.name} to pending_documents: {e}")
+
+            logger.info(f"Adopted {len(adopted_files)} documents into pending_documents for session {session_id}")
+
+        # Always clean up
+        shutil.rmtree(cd_dir, ignore_errors=True)
+        logger.info(f"Cleaned up continue_discovery_documents for session {session_id}")
+
+        return {
+            "adopted_count": len(adopted_files),
+            "adopted_files": adopted_files
         }
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):

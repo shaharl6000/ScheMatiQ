@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Input } from '@/components/ui/input';
@@ -118,12 +119,14 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [newColumns, setNewColumns] = useState<NewColumnInfo[]>([]);
 
   const [isStopping, setIsStopping] = useState(false);
+  const [adoptDocuments, setAdoptDocuments] = useState(false);
 
   // Document availability pre-check state (for cloud source)
   const [documentAvailability, setDocumentAvailability] = useState<DocumentAvailabilityResponse | null>(null);
   const [checkingAvailability, setCheckingAvailability] = useState(false);
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const finalizedRef = useRef(false);
 
   // Load document info when dialog opens
   useEffect(() => {
@@ -189,6 +192,12 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
+      // Clean up orphan discovery documents if finalize wasn't called
+      if (!finalizedRef.current && sessionId) {
+        schemaAPI.continueDiscovery.finalize(sessionId, { adopt_documents: false })
+          .catch(() => {});
+      }
+      finalizedRef.current = false;
       setStep('documents');
       setDocumentSource('cloud');
       setSelectedCloudDataset('');
@@ -199,6 +208,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       setDiscoveryBatchInfo(null);
       setDiscoveryNewColumnCount(0);
       setIsStopping(false);
+      setAdoptDocuments(false);
       setShowAdvancedSettings(false);
       setShowRetrieverConfig(false);
       setMaxKeysSchema('');
@@ -404,7 +414,15 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     // Note: isStopping is cleared when poll detects 'stopped' status and closes dialog
   };
 
-  const handleOk = () => {
+  const handleOk = async () => {
+    // Finalize: adopt or discard continue discovery documents
+    try {
+      finalizedRef.current = true;
+      await schemaAPI.continueDiscovery.finalize(sessionId, { adopt_documents: adoptDocuments });
+    } catch (err) {
+      console.error('Failed to finalize continue discovery documents:', err);
+    }
+
     // Convert new columns to ColumnInfo format and notify parent
     const addedColumns: ColumnInfo[] = newColumns.map(nc => ({
       name: nc.name,
@@ -415,8 +433,11 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       discovery_iteration: nc.discovery_iteration,
     }));
 
+    const adoptMsg = adoptDocuments
+      ? ' Documents will be included as new rows during re-extraction.'
+      : '';
     onSuccess(
-      `Discovered ${addedColumns.length} new column${addedColumns.length !== 1 ? 's' : ''}. Use Re-extract Data to populate values.`,
+      `Discovered ${addedColumns.length} new column${addedColumns.length !== 1 ? 's' : ''}. Use Re-extract Data to populate values.${adoptMsg}`,
       addedColumns
     );
     onClose();
@@ -440,6 +461,12 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
         </div>
       ) : (
         <div className="space-y-3 py-4">
+          <Alert className="bg-blue-50 border-blue-200 dark:bg-blue-950/20 dark:border-blue-800">
+            <Info className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-blue-700 dark:text-blue-400">
+              Documents provided here are used for schema discovery only and won't be automatically added to your data table. After discovery, you'll have the option to include them.
+            </AlertDescription>
+          </Alert>
           <RadioGroup value={documentSource} onValueChange={(v) => setDocumentSource(v as any)}>
             {/* Cloud Storage */}
             <div className="flex items-start space-x-3 p-3 border rounded-lg">
@@ -817,8 +844,14 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       </div>
 
       <DialogFooter>
-        <Button variant="outline" onClick={() => setStep('documents')}>Try Again</Button>
-        <Button onClick={onClose}>Close</Button>
+        <Button variant="outline" onClick={async () => {
+          try { finalizedRef.current = true; await schemaAPI.continueDiscovery.finalize(sessionId, { adopt_documents: false }); } catch {}
+          setStep('documents');
+        }}>Try Again</Button>
+        <Button onClick={async () => {
+          try { finalizedRef.current = true; await schemaAPI.continueDiscovery.finalize(sessionId, { adopt_documents: false }); } catch {}
+          onClose();
+        }}>Close</Button>
       </DialogFooter>
     </>
   );
@@ -856,10 +889,29 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           </div>
         </ScrollArea>
 
+        <div className="flex items-start space-x-2 p-3 border rounded-lg">
+          <Checkbox
+            id="adopt-docs"
+            checked={adoptDocuments}
+            onCheckedChange={(checked) => setAdoptDocuments(checked === true)}
+          />
+          <div className="grid gap-1 leading-none">
+            <Label htmlFor="adopt-docs" className="text-sm font-medium cursor-pointer">
+              Add these documents to session data
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              New rows will be created for these documents during re-extraction.
+            </p>
+          </div>
+        </div>
+
         <Alert>
           <Info className="h-4 w-4" />
           <AlertDescription>
-            New columns are now visible in the Schema tab. Use <strong>Re-extract Data</strong> to populate values for the new columns.
+            {adoptDocuments
+              ? <>New columns are visible in the Schema tab. Use <strong>Re-extract Data</strong> to populate values — new rows will also be created from the added documents.</>
+              : <>New columns are now visible in the Schema tab. Use <strong>Re-extract Data</strong> to populate values for the new columns.</>
+            }
           </AlertDescription>
         </Alert>
       </div>

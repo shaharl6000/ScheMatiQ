@@ -741,6 +741,11 @@ export const schemaAPI = {
       const response = await api.post(`/schema/continue-discovery/stop/${sessionId}/${operationId}`);
       return response.data;
     },
+
+    finalize: async (sessionId: string, request: { adopt_documents: boolean }): Promise<{ status: string; adopted_count: number; adopted_files: string[] }> => {
+      const response = await api.post(`/schema/continue-discovery/finalize/${sessionId}`, request);
+      return response.data;
+    },
   },
 };
 
