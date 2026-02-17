@@ -14,8 +14,7 @@ from pathlib import Path
 from datetime import datetime
 
 from app.models.session import (
-    ColumnInfo, ColumnBaseline, SchemaBaseline, VisualizationSession,
-    ObservationUnitInfo
+    ColumnInfo, ColumnBaseline, SchemaBaseline, VisualizationSession
 )
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
@@ -830,59 +829,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if invalid_columns:
             raise ValueError(f"Invalid columns: {invalid_columns}")
 
-        # Validate observation_unit (required by value extraction pipeline)
-        # Must check before spawning background task to avoid race condition
-        # where the error fires before the WebSocket connects.
-        if not session.observation_unit:
-            inferred_unit_name = None
-            data_dir = Path("./data") / session_id
-            qbsd_dir = Path("./qbsd_work") / session_id
-
-            # Strategy 1: Check _metadata.observation_unit in raw QBSD pipeline output
-            for data_file in [qbsd_dir / "extracted_data.jsonl", data_dir / "data.jsonl"]:
-                if data_file.exists():
-                    with open(data_file) as f:
-                        for line in f:
-                            if line.strip():
-                                row = json.loads(line)
-                                meta = row.get("_metadata", {})
-                                if meta.get("observation_unit"):
-                                    inferred_unit_name = meta["observation_unit"]
-                                    break
-                    if inferred_unit_name:
-                        break
-
-            # Strategy 2: Check _unit_name in DataRow format (loaded exports)
-            if not inferred_unit_name:
-                data_jsonl = data_dir / "data.jsonl"
-                if data_jsonl.exists():
-                    with open(data_jsonl) as f:
-                        for line in f:
-                            if line.strip():
-                                row = json.loads(line)
-                                if row.get("_unit_name"):
-                                    # _unit_name has instance names, not the type name.
-                                    # Use a generic type name — re-extraction quality is
-                                    # unaffected because the schema columns already define
-                                    # what to extract.
-                                    inferred_unit_name = "entry"
-                                    logger.info(
-                                        "Inferred observation_unit presence from _unit_name in data rows"
-                                    )
-                                    break
-
-            if inferred_unit_name:
-                logger.info(f"Inferred observation_unit from existing data: {inferred_unit_name}")
-                session.observation_unit = ObservationUnitInfo(
-                    name=inferred_unit_name,
-                    definition=f"An individual {inferred_unit_name}",
-                )
-            else:
-                raise ValueError(
-                    "Cannot re-extract: session has no observation unit configured. "
-                    "Please set the observation unit before re-extracting."
-                )
-
         # Discover papers
         paper_discovery = await self.discover_papers(session_id)
 
@@ -989,7 +935,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
             }
 
             # Add observation_unit (required by value extraction)
-            # Always set — start_reextraction validates/infers before spawning this task
             if session.observation_unit:
                 schema_data["observation_unit"] = {
                     "name": session.observation_unit.name,
@@ -997,11 +942,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 }
                 if session.observation_unit.example_names:
                     schema_data["observation_unit"]["example_names"] = session.observation_unit.example_names
-            else:
-                raise ValueError(
-                    "Cannot re-extract: session has no observation unit configured. "
-                    "Please set the observation unit before re-extracting."
-                )
 
             # Save schema file
             schema_file = session_dir / f"reextract_schema_{operation_id}.json"
@@ -1156,6 +1096,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         logger.warning(f"Error reading data file {df} for known_units: {e}")
 
                 if known_units:
+                    # Update total count to reflect observation units, not just documents
+                    total_units = sum(len(units) for units in known_units.values())
+                    if total_units > 0:
+                        operation.total_documents = total_units
+                        logger.info(f"Updated total_documents to {total_units} observation units (from {len(known_units)} papers)")
                     logger.info(f"Built known_units for {len(known_units)} papers: {known_units}")
                 else:
                     logger.debug(f"No known_units found from existing data")
@@ -1183,9 +1128,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 await asyncio.get_event_loop().run_in_executor(qbsd_thread_pool, run_extraction)
                 logger.debug(f"build_table_jsonl completed, output_file exists: {output_file.exists()}")
             else:
-                logger.warning("No document directories exist, skipping extraction")
-                # Give frontend time to establish WebSocket before broadcasting completion
-                await asyncio.sleep(3)
+                logger.debug(f"No document directories exist, skipping extraction")
 
             # Merge results with existing data
             logger.debug(f"Merging re-extracted data...")
@@ -1274,15 +1217,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
         extracted_by_row: Dict[str, Dict[str, Any]] = {}
         with open(extraction_file, 'r') as f:
             for line in f:
-                if line.strip():
-                    try:
-                        row_data = json.loads(line)
-                    except json.JSONDecodeError:
-                        logger.warning(f"Skipping malformed line in extraction output: {line[:100]}")
-                        continue
-                    row_name = row_data.get('_row_name') or row_data.get('row_name')
-                    if row_name:
-                        extracted_by_row[row_name] = row_data
+                if not line.strip():
+                    continue
+                try:
+                    row_data = json.loads(line)
+                except json.JSONDecodeError:
+                    logger.warning(f"Skipping malformed line in extraction output: {line[:100]}")
+                    continue
+                row_name = row_data.get('_row_name') or row_data.get('row_name')
+                if row_name:
+                    extracted_by_row[row_name] = row_data
 
         logger.debug(f"Extracted row names from extraction file: {list(extracted_by_row.keys())}")
 
@@ -1290,12 +1234,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
         extracted_by_paper_stem: Dict[str, Dict[str, Any]] = {}
         for row_name, row_data in extracted_by_row.items():
             extracted_by_paper_stem[row_name.lower()] = row_data
-            logger.debug(f"Paper stem mapping: '{row_name.lower()}' -> extracted data")
 
         # Process each data file
         import shutil
         total_rows_updated = 0
-        all_updated_rows = []  # Collect all rows for stats update
+        total_new_rows = 0
+        all_updated_rows = []
+        matched_extracted_rows = set()  # Track which extracted rows were matched
+        primary_data_file = data_files[0]
 
         for data_file in data_files:
             # Backup existing data
@@ -1316,7 +1262,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                     # Try direct row name match first
                     extracted = None
-
                     if row_name and row_name in extracted_by_row:
                         extracted = extracted_by_row[row_name]
                     else:
@@ -1329,6 +1274,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                     if extracted:
                         rows_updated += 1
+                        # Track matched rows
+                        if row_name:
+                            matched_extracted_rows.add(row_name)
+                        ext_rn = extracted.get('_row_name') or extracted.get('row_name')
+                        if ext_rn:
+                            matched_extracted_rows.add(ext_rn)
+                        
                         for col_name in columns:
                             if col_name in extracted:
                                 if 'data' in row:
@@ -1340,20 +1292,56 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                     updated_rows.append(row)
 
+            # Append new rows (only to the primary data file to avoid duplicates)
+            new_rows_added = 0
+            if data_file.resolve() == primary_data_file.resolve():
+                for ext_row_name, ext_row_data in extracted_by_row.items():
+                    # Skip if this row was already matched to an existing row
+                    if ext_row_name in matched_extracted_rows or ext_row_name.lower() in matched_extracted_rows:
+                        continue
+
+                    # Convert extraction format to data file format
+                    new_row = {
+                        "row_name": ext_row_name,
+                        "papers": ext_row_data.get("_papers", []),
+                        "data": {k: v for k, v in ext_row_data.items() 
+                                if not k.startswith('_') and k != "document_directory"}
+                    }
+                    if unit_name := ext_row_data.get("_unit_name"):
+                        new_row["_unit_name"] = unit_name
+                    metadata = ext_row_data.get("_metadata", {})
+                    if base_row_name := metadata.get("base_row_name"):
+                        new_row["_source_document"] = base_row_name
+                    elif papers_list := ext_row_data.get("_papers", []):
+                        new_row["_source_document"] = papers_list[0] if isinstance(papers_list, list) else str(papers_list)
+
+                    updated_rows.append(new_row)
+                    new_rows_added += 1
+
+                if new_rows_added > 0:
+                    logger.info(f"Appended {new_rows_added} new rows to {data_file.name}")
+
             # Write updated data
             with open(data_file, 'w') as f:
                 for row in updated_rows:
                     f.write(json.dumps(row) + '\n')
 
             total_rows_updated += rows_updated
+            total_new_rows += new_rows_added
             all_updated_rows.extend(updated_rows)
-            logger.debug(f"Merged re-extracted data in {data_file}: {rows_updated} rows updated")
+            logger.debug(f"Merged re-extracted data in {data_file}: {rows_updated} rows updated, {new_rows_added} new rows added")
 
-        logger.debug(f"Merged re-extracted data for {len(columns)} columns across {len(data_files)} files, {total_rows_updated} rows updated total")
+        logger.debug(f"Merged re-extracted data for {len(columns)} columns across {len(data_files)} files, {total_rows_updated} rows updated, {total_new_rows} new rows added")
 
-        # Update session statistics to reflect new data
+        # Update session statistics to reflect new data (including new rows)
         session = self.session_manager.get_session(session_id)
         if session and session.statistics:
+            if total_new_rows > 0:
+                old_total = session.statistics.total_rows
+                session.statistics.total_rows = len(all_updated_rows)
+                logger.info(f"Updated total_rows: {old_total} -> {session.statistics.total_rows} (+{total_new_rows} new rows)")
+
+            # Update non-null counts for re-extracted columns
             for col_stat in session.statistics.column_stats:
                 if col_stat.name in columns:
                     non_null_count = sum(
@@ -1366,7 +1354,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     logger.debug(f"Updated stats for column '{col_stat.name}': non_null_count {old_count} -> {non_null_count}")
 
             self.session_manager.update_session(session)
-            logger.debug(f"Updated session statistics for {len(columns)} columns")
+            logger.debug(f"Updated session statistics for {len(columns)} columns, {total_new_rows} new rows added")
 
     def _get_llm_from_session(self, session_id: str):
         """Get LLM configuration from session, including API key."""
