@@ -47,7 +47,6 @@ import {
   getAvailableProviders,
   LLM_PROVIDER_NAMES,
 } from '@/constants/llmModels';
-
 interface ReextractionDialogProps {
   open: boolean;
   sessionId: string;
@@ -81,7 +80,6 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
   const [llmModel, setLlmModel] = useState('gemini-2.5-flash-lite');
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [allowLlmConfig, setAllowLlmConfig] = useState(false);
-  const [serverHasApiKeys, setServerHasApiKeys] = useState(false);
 
   // Extraction progress state
   const [isExtracting, setIsExtracting] = useState(false);
@@ -141,9 +139,8 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
       if (!open) return;
 
       // Check if LLM config is allowed (release mode vs developer mode)
-      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true, server_has_api_keys: false }));
+      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
       setAllowLlmConfig(cfg.allow_llm_config);
-      setServerHasApiKeys(cfg.server_has_api_keys ?? false);
 
       const providers = await getConfiguredProviders();
       const available = getAvailableProviders(providers);
@@ -243,17 +240,20 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
       // Get API key for the selected provider
       const apiKey = await getApiKeyForProvider(llmProvider);
 
-      // Build the request with columns — always include llm_config so backend gets provider/model
+      // Build the request with columns
       const request: ReextractionRequest = {
         columns: Array.from(selectedColumns),
-        llm_config: {
+      };
+
+      // Include LLM config with selected provider and model
+      if (apiKey) {
+        request.llm_config = {
           provider: llmProvider,
           model: llmModel,
-          api_key: apiKey || undefined,
-          max_output_tokens: 2048,
+          api_key: apiKey,
           temperature: 0
-        },
-      };
+        };
+      }
 
       const response = await schemaAPI.startReextraction(sessionId, request);
 
@@ -524,7 +524,7 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
                       </Select>
                     </div>
                   </div>
-                  {configuredProviders.length === 0 && !serverHasApiKeys && (
+                  {configuredProviders.length === 0 && (
                     <Alert variant="warning">
                       <AlertDescription className="text-xs">
                         No API keys configured. Add an API key on the home page to select a model.

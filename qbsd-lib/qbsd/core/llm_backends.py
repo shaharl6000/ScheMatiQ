@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Union, Optional
 import re
 
-from qbsd.core.model_specs import get_model_spec
+from qbsd.core.model_specs import get_model_spec, get_max_output_tokens
 from qbsd.core.llm_call_tracker import LLMCallTracker
 
 
@@ -93,6 +93,9 @@ def _extract_wait_time(error_str: str) -> int:
 class LLMInterface(ABC):
     """Minimal wrapper so core code is backend-agnostic."""
 
+    # Subclasses set this to their provider name (e.g. "gemini", "openai").
+    _provider: str = "unknown"
+
     @abstractmethod
     def __init__(self, **backend_kwargs):
         self.backend_kwargs = backend_kwargs
@@ -100,6 +103,15 @@ class LLMInterface(ABC):
     def generate(self, prompt: str, **kwargs) -> str:           # noqa: D401
         """Return a raw text completion for *prompt*."""
         raise NotImplementedError
+
+    def max_tokens_for_task(self, task: Optional[str] = None) -> int:
+        """Resolve ``max_output_tokens`` for a specific *task*.
+
+        Uses ``TASK_TOKEN_BUDGETS`` from ``model_specs``, capped by the
+        model's hard limit.  ``task=None`` returns the model's full max.
+        """
+        model = getattr(self, "model", "") or getattr(self, "model_name", "")
+        return get_max_output_tokens(self._provider, model, task=task)
 
 
 ##############################################################################
@@ -111,6 +123,7 @@ class TogetherLLM(LLMInterface):
      llm = TogetherLLM(model="meta-llama/Llama-3-8b-chat-hf")
      answer = llm.generate("What is the capital of France?")
     """
+    _provider = "together"
 
     def __init__(
         self,
@@ -216,6 +229,7 @@ class OpenAILLM(LLMInterface):
      llm = OpenAILLM(model="gpt-4o-mini")
      answer = llm.generate("List three Israeli cities.")
     """
+    _provider = "openai"
 
     def __init__(
         self,
@@ -318,6 +332,7 @@ class HuggingFaceLLM(LLMInterface):
      llm = HuggingFaceLLM(model="meta-llama/Llama-3.3-70B-Instruct")
      answer = llm.generate("What's the meaning of life?")
     """
+    _provider = "hf"
 
     def __init__(
         self,
@@ -436,6 +451,7 @@ class GeminiLLM(LLMInterface):
         max_output_tokens and context_window_size are auto-detected from model specs
         when not explicitly provided. Override with explicit values if needed.
     """
+    _provider = "gemini"
 
     def __init__(
         self,

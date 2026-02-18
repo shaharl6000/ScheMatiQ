@@ -317,7 +317,8 @@ def _discover_observation_unit(
 
     try:
         LLMCallTracker.get_instance().set_stage("observation_unit_discovery")
-        llm_response = llm.generate(trimmed)
+        task_tokens = llm.max_tokens_for_task("observation_unit_discovery")
+        llm_response = llm.generate(trimmed, max_output_tokens=task_tokens)
         observation_unit = _parse_observation_unit_from_llm(llm_response)
 
         # Add source tracking
@@ -438,7 +439,8 @@ def generate_schema(
     messages, mode = build_messages(query, passages, current_schema, observation_unit)
     trimmed = utils.fit_prompt(messages, truncate=True, context_window_size=context_window_size)
     LLMCallTracker.get_instance().set_stage("schema_discovery")
-    llm_response = llm.generate(trimmed)
+    task_tokens = llm.max_tokens_for_task("schema_discovery")
+    llm_response = llm.generate(trimmed, max_output_tokens=task_tokens)
 
     # For query-only mode, document_helpful doesn't apply
     schema, document_helpful, suggested_value_additions = _parse_schema_from_llm(
@@ -612,10 +614,16 @@ def discover_schema(
     batches = [list(itertools.islice(doc_iter, documents_batch_size))
                for _ in range((len(documents)+documents_batch_size-1)//documents_batch_size)]
 
+    logging.info("📦 Schema discovery: %d documents → %d batches (batch_size=%d, max_iters=%d)",
+                 len(documents), len(batches), documents_batch_size, max_iters)
+
     for it, batch_docs_with_names in enumerate(batches[:max_iters], start=1):
         batch_docs = [doc for doc, _ in batch_docs_with_names]
         batch_filenames = [fname for _, fname in batch_docs_with_names]
         cumulative_docs += len(batch_filenames)
+
+        logging.info("📦 Iteration %d/%d: processing %d documents (cumulative: %d)",
+                     it, min(len(batches), max_iters), len(batch_filenames), cumulative_docs)
 
         # Track column names before this iteration
         columns_before = {col.name.lower() for col in schema.columns}

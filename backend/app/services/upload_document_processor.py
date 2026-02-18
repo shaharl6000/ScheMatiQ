@@ -24,7 +24,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import qbsd_thread_pool, concurrency_limiter
-from app.core.config import DEFAULT_MAX_OUTPUT_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.config import DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEVELOPER_MODE, RELEASE_CONFIG
 from app.core.logging_utils import set_session_context
 
 logger = logging.getLogger(__name__)
@@ -155,8 +155,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                     "provider": RELEASE_CONFIG["llm_provider"],
                     "model": RELEASE_CONFIG["value_extraction_model"],
                     "temperature": RELEASE_CONFIG["llm_temperature"],
-                    "max_output_tokens": backend_config.get("max_output_tokens", DEFAULT_MAX_OUTPUT_TOKENS),
                     "api_key": backend_config.get("api_key"),  # Preserve API key from user
+                    # max_output_tokens auto-detected from model_specs
                 }
 
             llm = utils.build_llm(backend_config)
@@ -1089,8 +1089,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         return {
             "provider": "gemini",
             "model": "gemini-2.5-flash-lite",  # Use lite model for extraction by default
-            "max_output_tokens": DEFAULT_MAX_OUTPUT_TOKENS,
-            "temperature": DEFAULT_TEMPERATURE
+            "temperature": DEFAULT_TEMPERATURE,
+            # max_output_tokens auto-detected from model_specs
         }
     
     def _clean_system_files(self, directory: Path) -> None:

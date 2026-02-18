@@ -77,7 +77,6 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         return GeminiLLM(
                             model=RELEASE_CONFIG["value_extraction_model"],
                             api_key=api_key,
-                            max_output_tokens=2048,
                             temperature=RELEASE_CONFIG["llm_temperature"]
                         )
                 else:
@@ -91,7 +90,6 @@ class SchemaManager(WebSocketBroadcasterMixin):
             logger.info(f"Release mode - using locked LLM: {RELEASE_CONFIG['value_extraction_model']} (no user API key, using env var)")
             return GeminiLLM(
                 model=RELEASE_CONFIG["value_extraction_model"],
-                max_output_tokens=2048,
                 temperature=RELEASE_CONFIG["llm_temperature"]
             )
 
@@ -139,7 +137,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
         logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
-        return GeminiLLM(model="gemini-2.5-flash-lite", max_output_tokens=2048, temperature=0)
+        return GeminiLLM(model="gemini-2.5-flash-lite", temperature=0)
     
     async def reprocess_column(self, session_id: str, column_name: str):
         """Reprocess documents for a specific column after editing."""

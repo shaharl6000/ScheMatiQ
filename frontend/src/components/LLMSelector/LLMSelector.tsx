@@ -41,6 +41,7 @@ import {
 } from '@/constants/llmModels';
 import { configAPI } from '../../services/api';
 
+
 interface LLMSelectorProps {
   open: boolean;
   onClose: () => void;
@@ -55,7 +56,6 @@ interface LLMSelectorProps {
 const DEFAULT_CONFIG: LLMConfig = {
   provider: 'gemini',
   model: 'gemini-2.5-flash-lite',
-  max_output_tokens: 1024,
   temperature: 0,
 };
 
@@ -117,7 +117,6 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
         setSelectedConfig({
           provider: defaultProvider,
           model: modelToUse,
-          max_output_tokens: 1024,
           temperature: 0,
         });
         setUsePreservedConfig(false);
@@ -128,7 +127,6 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
         setSelectedConfig({
           provider: 'gemini',
           model: modelToUse,
-          max_output_tokens: 1024,
           temperature: 0,
         });
         setUsePreservedConfig(false);
@@ -146,7 +144,6 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
     setSelectedConfig({
       provider,
       model: defaultModel,
-      max_output_tokens: 1024,
       temperature: 0,
     });
     setUsePreservedConfig(false);
