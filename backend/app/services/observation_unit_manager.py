@@ -64,12 +64,12 @@ class ObservationUnitManager:
 
         units = []
 
-        # Check qbsd_work directory first (primary location for extracted data)
-        qbsd_work_dir = Path("./qbsd_work") / session_id
+        # Check schematiq_work directory first (primary location for extracted data)
+        schematiq_work_dir = Path("./schematiq_work") / session_id
         data_dir = Path("./data") / session_id
 
-        # Try qbsd_work/extracted_data.jsonl first, then data/data.jsonl
-        jsonl_file = qbsd_work_dir / "extracted_data.jsonl"
+        # Try schematiq_work/extracted_data.jsonl first, then data/data.jsonl
+        jsonl_file = schematiq_work_dir / "extracted_data.jsonl"
         if not jsonl_file.exists():
             jsonl_file = data_dir / "data.jsonl"
 
@@ -136,14 +136,14 @@ class ObservationUnitManager:
         if not session:
             raise ValueError(f"Session {session_id} not found")
 
-        # Check qbsd_work directory first (primary location for extracted data)
-        qbsd_work_dir = Path("./qbsd_work") / session_id
+        # Check schematiq_work directory first (primary location for extracted data)
+        schematiq_work_dir = Path("./schematiq_work") / session_id
         data_dir = Path("./data") / session_id
         removed = False
         updated_rows = []
 
-        # Try qbsd_work/extracted_data.jsonl first, then data/data.jsonl
-        jsonl_file = qbsd_work_dir / "extracted_data.jsonl"
+        # Try schematiq_work/extracted_data.jsonl first, then data/data.jsonl
+        jsonl_file = schematiq_work_dir / "extracted_data.jsonl"
         if not jsonl_file.exists():
             jsonl_file = data_dir / "data.jsonl"
 
@@ -399,8 +399,8 @@ class ObservationUnitManager:
             session_id: Session identifier
             observation_unit: Updated ObservationUnitInfo
         """
-        qbsd_work_dir = Path("./qbsd_work") / session_id
-        schema_file = qbsd_work_dir / "discovered_schema.json"
+        schematiq_work_dir = Path("./schematiq_work") / session_id
+        schema_file = schematiq_work_dir / "discovered_schema.json"
 
         if schema_file.exists():
             try:

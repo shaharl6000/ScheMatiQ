@@ -1,4 +1,4 @@
-"""FastAPI application for QBSD visualization module."""
+"""FastAPI application for ScheMatiQ."""
 
 import logging
 import os
@@ -28,16 +28,16 @@ for _handler in logging.root.handlers:
 # Suppress noisy uvicorn access logs (frontend polling every ~3s floods Railway logs)
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
-# Add qbsd-lib to Python path (sibling directory to backend)
-_QBSD_LIB_PATH = Path(__file__).parent.parent.parent / "qbsd-lib"
-if _QBSD_LIB_PATH.exists() and str(_QBSD_LIB_PATH) not in sys.path:
-    sys.path.insert(0, str(_QBSD_LIB_PATH))
+# Add schematiq-lib to Python path (sibling directory to backend)
+_SCHEMATIQ_LIB_PATH = Path(__file__).parent.parent.parent / "schematiq-lib"
+if _SCHEMATIQ_LIB_PATH.exists() and str(_SCHEMATIQ_LIB_PATH) not in sys.path:
+    sys.path.insert(0, str(_SCHEMATIQ_LIB_PATH))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.load import router as load_router
-from app.api.routes.qbsd import router as qbsd_router
+from app.api.routes.schematiq import router as schematiq_router
 from app.api.routes.websocket import router as websocket_router
 from app.api.routes.schema import router as schema_router
 from app.api.routes.cloud_data import router as cloud_data_router
@@ -48,7 +48,7 @@ from app.core.config import (
     API_TITLE, API_DESCRIPTION, API_VERSION,
     ALLOWED_ORIGINS, DEFAULT_HOST, DEFAULT_PORT,
     HEALTH_CHECK_MESSAGE, API_ROOT_MESSAGE,
-    MAX_CONCURRENT_SESSIONS, QBSD_THREAD_POOL_SIZE,
+    MAX_CONCURRENT_SESSIONS, SCHEMATIQ_THREAD_POOL_SIZE,
 )
 
 app = FastAPI(
@@ -68,8 +68,8 @@ app = FastAPI(
             "description": "File upload and data loading operations. Supports CSV, JSON, JSONL files with schema extraction and document processing."
         },
         {
-            "name": "qbsd",
-            "description": "Query-Based Schema Discovery operations. Configure and run QBSD pipelines to discover schemas from document collections."
+            "name": "schematiq",
+            "description": "ScheMatiQ operations. Configure and run ScheMatiQ pipelines to discover schemas from document collections."
         },
         {
             "name": "schema",
@@ -106,7 +106,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(load_router, prefix="/api/load", tags=["load"])
-app.include_router(qbsd_router, prefix="/api/qbsd", tags=["qbsd"])
+app.include_router(schematiq_router, prefix="/api/schematiq", tags=["schematiq"])
 app.include_router(schema_router, prefix="/api/schema", tags=["schema"])
 app.include_router(websocket_router, prefix="/ws", tags=["websocket"])
 app.include_router(cloud_data_router, prefix="/api", tags=["cloud-data"])
@@ -117,7 +117,7 @@ app.include_router(feedback_router, prefix="/api/feedback", tags=["feedback"])
 logger = logging.getLogger(__name__)
 logger.info(
     "[concurrency] Server starting with MAX_CONCURRENT_SESSIONS=%d, THREAD_POOL_SIZE=%d",
-    MAX_CONCURRENT_SESSIONS, QBSD_THREAD_POOL_SIZE,
+    MAX_CONCURRENT_SESSIONS, SCHEMATIQ_THREAD_POOL_SIZE,
 )
 
 @app.get("/", tags=["root"], summary="API Root", description="Returns API information and version")

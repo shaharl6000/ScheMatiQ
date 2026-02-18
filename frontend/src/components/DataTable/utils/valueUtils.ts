@@ -37,7 +37,7 @@ export function isEmpty(value: unknown): boolean {
     }
   }
 
-  // Handle QBSD answer objects — check the inner answer value
+  // Handle ScheMatiQ answer objects — check the inner answer value
   if (
     typeof value === 'object' &&
     value !== null &&
@@ -116,7 +116,7 @@ export function parsePythonString(val: string): unknown {
 }
 
 /**
- * Extract display string from various QBSD value formats.
+ * Extract display string from various ScheMatiQ value formats.
  * Handles: answer/excerpts, value/excerpt, text (ExcerptWithSource), arrays, etc.
  */
 export function extractDisplayValue(value: unknown): string {
@@ -144,7 +144,7 @@ export function extractDisplayValue(value: unknown): string {
 
   if (typeof value === 'object') {
     const obj = value as Record<string, unknown>;
-    // QBSD format with answer/excerpts
+    // ScheMatiQ format with answer/excerpts
     if ('answer' in obj) {
       return extractDisplayValue(obj.answer);
     }

@@ -43,7 +43,7 @@ import { UnitMergePickerDialog } from './UnitMergePickerDialog';
 import BulkActionToolbar from './BulkActionToolbar';
 import { useRowSelection } from './hooks/useRowSelection';
 import ContentModal from '../ContentModal/ContentModal';
-import { DataRow, CellValue, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
+import { DataRow, CellValue, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { formatColumnName } from '../../utils/formatting';
@@ -64,7 +64,7 @@ interface UnitGroupedTableProps {
   /** Session ID */
   sessionId: string;
   /** Session type */
-  sessionType: 'load' | 'qbsd';
+  sessionType: 'load' | 'schematiq';
   /** Columns to display */
   columns: string[];
   /** Column metadata for display */
@@ -1046,19 +1046,19 @@ function parseExcerpts(excerpts: unknown[]): Array<{text: string; source: string
 }
 
 /**
- * Normalize value to QBSD format with 'answer' and 'excerpts'.
+ * Normalize value to ScheMatiQ format with 'answer' and 'excerpts'.
  */
-function normalizeToQBSD(val: unknown): unknown {
+function normalizeToScheMatiQ(val: unknown): unknown {
   if (!val || typeof val !== 'object') return val;
 
   // If it's an array with dict items, take first item
   if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object') {
-    return normalizeToQBSD(val[0]);
+    return normalizeToScheMatiQ(val[0]);
   }
 
   const obj = val as Record<string, unknown>;
 
-  // Already in QBSD format
+  // Already in ScheMatiQ format
   if ('answer' in obj) {
     let answerVal = obj.answer;
     let excerptsVal = obj.excerpts || [];
@@ -1135,7 +1135,7 @@ const lineClampStyle: React.CSSProperties = {
 
 /**
  * Cell value formatter for the unit table.
- * Handles QBSD answer/excerpts, value/excerpt, and text formats.
+ * Handles ScheMatiQ answer/excerpts, value/excerpt, and text formats.
  * Renders clickable cells for content with excerpts.
  */
 function formatCellValue(
@@ -1171,18 +1171,18 @@ function formatCellValue(
     return parseExcerpts([excerptStr]);
   };
 
-  // Normalize to QBSD format if it's an object
+  // Normalize to ScheMatiQ format if it's an object
   if (typeof processedValue === 'object' && processedValue !== null) {
-    processedValue = normalizeToQBSD(processedValue);
+    processedValue = normalizeToScheMatiQ(processedValue);
   }
 
-  // Handle QBSD format objects with answer and excerpts
+  // Handle ScheMatiQ format objects with answer and excerpts
   if (typeof processedValue === 'object' && processedValue !== null) {
     const obj = processedValue as Record<string, unknown>;
     if ('answer' in obj && typeof obj.answer !== 'undefined') {
-      const qbsdValue = processedValue as QBSDAnswerWithExcerpts;
-      const answer = qbsdValue.answer;
-      let excerpts = qbsdValue.excerpts || [];
+      const schematiqValue = processedValue as ScheMatiQAnswerWithExcerpts;
+      const answer = schematiqValue.answer;
+      let excerpts = schematiqValue.excerpts || [];
 
       // Check if the answer itself is empty
       const answerStr = extractDisplayValue(answer);

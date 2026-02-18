@@ -87,14 +87,14 @@ cache/
 config/secrets.*
 /test/
 
-# Add visualization specific ignores
-QBSD/visualization/frontend/build/
-QBSD/visualization/frontend/node_modules/
+# Add visualization specific ignores (legacy paths)
+ScheMatiQ/visualization/frontend/build/
+ScheMatiQ/visualization/frontend/node_modules/
 
 # Backend data and session directories (legacy location)
-QBSD/visualization/backend/data/
-QBSD/visualization/backend/sessions/
-QBSD/visualization/backend/qbsd_work/
+ScheMatiQ/visualization/backend/data/
+ScheMatiQ/visualization/backend/sessions/
+ScheMatiQ/visualization/backend/schematiq_work/
 
 # New structure ignores
 # Frontend
@@ -104,22 +104,24 @@ frontend/node_modules/
 # Backend
 backend/app/data/
 backend/app/sessions/
+backend/app/schematiq_work/
 backend/app/qbsd_work/
 backend/data/
 backend/sessions/
+backend/schematiq_work/
 backend/qbsd_work/
 backend/venv/
+backend/.oauth_creds.json
+backend/client_secret_*.json
 
-# Research data and experiments
-research/data/
-research/experiments/
-research/results/
+# Research data, experiments, and other research files
+research/
 
-# qbsd-lib
-qbsd-lib/.eggs/
-qbsd-lib/*.egg-info/
-qbsd-lib/build/
-qbsd-lib/dist/
+# schematiq-lib
+schematiq-lib/.eggs/
+schematiq-lib/*.egg-info/
+schematiq-lib/build/
+schematiq-lib/dist/
 
 # Railway deployment
 .railway-config

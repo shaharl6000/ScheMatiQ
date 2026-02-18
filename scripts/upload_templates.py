@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Upload example tables to Supabase storage as templates.
 
-This script uploads pre-made QBSD result tables (CSV, JSON, JSONL) to the
+This script uploads pre-made ScheMatiQ result tables (CSV, JSON, JSONL) to the
 Supabase 'templates' bucket for use in the production frontend's "Load from Examples" feature.
 
 Usage:

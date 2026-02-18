@@ -27,28 +27,28 @@ class UnitViewService:
 
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = Path(data_dir)
-        self.work_dir = Path("./qbsd_work")
+        self.work_dir = Path("./schematiq_work")
 
     def _get_all_data_files(self, session_id: str) -> List[Path]:
         """Get all data file paths for a session, checking multiple locations.
 
         Returns list of existing files from:
-        1. qbsd_work/{session_id}/extracted_data.jsonl (QBSD sessions)
-        2. qbsd_work/{session_id}/data.jsonl (fallback if extracted_data doesn't exist)
+        1. schematiq_work/{session_id}/extracted_data.jsonl (ScheMatiQ sessions)
+        2. schematiq_work/{session_id}/data.jsonl (fallback if extracted_data doesn't exist)
         3. data/{session_id}/data.jsonl (always check - may have additional docs)
         """
         data_files = []
 
-        # Check QBSD work directory (original QBSD extraction)
-        qbsd_extracted = self.work_dir / session_id / "extracted_data.jsonl"
-        if qbsd_extracted.exists():
-            data_files.append(qbsd_extracted)
+        # Check ScheMatiQ work directory (original ScheMatiQ extraction)
+        schematiq_extracted = self.work_dir / session_id / "extracted_data.jsonl"
+        if schematiq_extracted.exists():
+            data_files.append(schematiq_extracted)
 
-        # Check qbsd_work for data.jsonl (only if extracted_data.jsonl doesn't exist)
+        # Check schematiq_work for data.jsonl (only if extracted_data.jsonl doesn't exist)
         if not data_files:
-            qbsd_data = self.work_dir / session_id / "data.jsonl"
-            if qbsd_data.exists():
-                data_files.append(qbsd_data)
+            schematiq_data = self.work_dir / session_id / "data.jsonl"
+            if schematiq_data.exists():
+                data_files.append(schematiq_data)
 
         # Always check data directory - may contain additional documents
         data_file = self.data_dir / session_id / "data.jsonl"
@@ -70,7 +70,7 @@ class UnitViewService:
 
         Deduplicates rows by row_name only across files (not within a single file)
         to prevent duplicates when data exists in multiple locations
-        (e.g., both qbsd_work/ and data/ directories). Within a single file,
+        (e.g., both schematiq_work/ and data/ directories). Within a single file,
         multiple rows can legitimately share the same row_name.
         """
         data_files = self._get_all_data_files(session_id)
@@ -102,7 +102,7 @@ class UnitViewService:
         """Save all data rows to a session's JSONL file."""
         data_file = self._get_data_file(session_id)
         if not data_file:
-            # Default to qbsd_work directory for new files
+            # Default to schematiq_work directory for new files
             data_file = self.work_dir / session_id / "extracted_data.jsonl"
         data_file.parent.mkdir(parents=True, exist_ok=True)
 

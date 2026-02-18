@@ -9,8 +9,8 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
-const CONSENT_STORAGE_KEY = 'qbsd-consent-accepted';
-const OPT_OUT_STORAGE_KEY = 'qbsd-consent-opt-out';
+const CONSENT_STORAGE_KEY = 'schematiq-consent-accepted';
+const OPT_OUT_STORAGE_KEY = 'schematiq-consent-opt-out';
 
 interface ConsentDialogProps {
   open: boolean;
@@ -69,7 +69,7 @@ export function ConsentDialog({ open, onOpenChange, onConfirm }: ConsentDialogPr
 
         <div className="space-y-3 py-2 text-sm">
           <p>
-            QueryDiscovery is a research project by the{' '}
+            ScheMatiQ is a research project by the{' '}
             <strong>Hebrew University of Jerusalem</strong>. To improve our schema discovery
             algorithms, we may collect anonymized session data including your query,
             uploaded documents, discovered schema, and extracted table.
@@ -92,9 +92,9 @@ export function ConsentDialog({ open, onOpenChange, onConfirm }: ConsentDialogPr
 
           {showFullPolicy && (
             <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-2 max-h-48 overflow-y-auto">
-              <p><strong>Privacy Policy — QueryDiscovery</strong></p>
+              <p><strong>Privacy Policy — ScheMatiQ</strong></p>
               <p>
-                QueryDiscovery is a research tool developed at the Hebrew University of Jerusalem.
+                ScheMatiQ is a research tool developed at the Hebrew University of Jerusalem.
                 When data collection is enabled, we may collect the following anonymized session data:
                 your search query, uploaded documents, the discovered schema, and the extracted table.
               </p>

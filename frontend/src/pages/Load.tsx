@@ -111,7 +111,7 @@ const Load = () => {
 
   return (
     <div className="max-w-4xl mx-auto">
-      {/* Top nav bar — matches QBSDConfig */}
+      {/* Top nav bar — matches ScheMatiQConfig */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back to Home">
@@ -212,7 +212,7 @@ const Load = () => {
                 Drop your data file here or click to browse
               </p>
               <p className="text-xs text-muted-foreground">
-                CSV, JSON, JSONL, or .qbsd.json
+                CSV, JSON, JSONL, or .schematiq.json
               </p>
             </>
           )}

@@ -19,7 +19,7 @@ class ModificationAction(BaseModel):
 
 
 class CreationMetadata(BaseModel):
-    """Immutable metadata about QBSD creation."""
+    """Immutable metadata about ScheMatiQ creation."""
     created_at: datetime
     creation_query: str
     llm_model: str = ""

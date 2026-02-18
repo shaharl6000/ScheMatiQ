@@ -16,7 +16,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
-import { CellValue, QBSDAnswerWithExcerpts, Excerpt, ExcerptWithSource } from '../../types';
+import { CellValue, ScheMatiQAnswerWithExcerpts, Excerpt, ExcerptWithSource } from '../../types';
 import { copyToClipboard } from '../../utils/clipboard';
 
 interface ContentModalProps {
@@ -104,12 +104,12 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
     }
     if (typeof value === 'object' && value !== null) {
       if ('answer' in value && 'excerpts' in value) {
-        const qbsdValue = value as QBSDAnswerWithExcerpts;
-        const rawExcerpts = qbsdValue.excerpts || [];
+        const schematiqValue = value as ScheMatiQAnswerWithExcerpts;
+        const rawExcerpts = schematiqValue.excerpts || [];
         const excerpts = parseAllExcerpts(rawExcerpts);
-        const answerText = typeof qbsdValue.answer === 'object' && qbsdValue.answer !== null
-          ? JSON.stringify(qbsdValue.answer, null, 2)
-          : String(qbsdValue.answer);
+        const answerText = typeof schematiqValue.answer === 'object' && schematiqValue.answer !== null
+          ? JSON.stringify(schematiqValue.answer, null, 2)
+          : String(schematiqValue.answer);
         let text = `Answer: ${answerText}`;
         if (excerpts.length > 0) {
           text += '\n\nSupporting Evidence:\n';
@@ -156,11 +156,11 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
     }
 
     if (typeof value === 'object' && value !== null) {
-      // Check if this is QBSD format: {answer: "...", excerpts: [...]}
+      // Check if this is ScheMatiQ format: {answer: "...", excerpts: [...]}
       if ('answer' in value && 'excerpts' in value) {
-        const qbsdValue = value as QBSDAnswerWithExcerpts;
-        const answer = qbsdValue.answer;
-        const rawExcerpts = qbsdValue.excerpts || [];
+        const schematiqValue = value as ScheMatiQAnswerWithExcerpts;
+        const answer = schematiqValue.answer;
+        const rawExcerpts = schematiqValue.excerpts || [];
         // Parse excerpts to handle pipe-separated strings and Python dicts
         const excerpts = parseAllExcerpts(rawExcerpts);
 

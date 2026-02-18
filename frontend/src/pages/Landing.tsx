@@ -78,7 +78,7 @@ const Landing = () => {
             <Button
               className="w-full"
               size="lg"
-              onClick={() => navigate('/qbsd')}
+              onClick={() => navigate('/schematiq')}
               disabled={!hasApiKeys}
             >
               <Sparkles className="mr-2 h-4 w-4" />

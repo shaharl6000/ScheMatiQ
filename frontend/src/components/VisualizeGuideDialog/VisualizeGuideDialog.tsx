@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 
-const STORAGE_KEY = 'qbsd-visualize-guide-dismissed';
+const STORAGE_KEY = 'schematiq-visualize-guide-dismissed';
 
 interface VisualizeGuideDialogProps {
   autoOpen?: boolean;

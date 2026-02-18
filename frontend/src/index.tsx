@@ -27,7 +27,7 @@ const root = ReactDOM.createRoot(
 root.render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="system" storageKey="qbsd-theme">
+      <ThemeProvider defaultTheme="system" storageKey="schematiq-theme">
         <TooltipProvider>
           <BrowserRouter>
             <App />

@@ -32,7 +32,7 @@ import {
 } from '@/components/ui/tooltip';
 
 import { InitialSchemaColumn } from '../../types';
-import { qbsdAPI, cloudAPI } from '../../services/api';
+import { schematiqAPI, cloudAPI } from '../../services/api';
 
 type SchemaSource = 'none' | 'file' | 'manual';
 
@@ -144,7 +144,7 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
   const fetchSchemaFiles = async () => {
     setLoadingFiles(true);
     try {
-      const files = await qbsdAPI.getSchemaFiles();
+      const files = await schematiqAPI.getSchemaFiles();
       setSchemaFiles(files);
     } catch (error) {
       console.error('Failed to fetch schema files:', error);

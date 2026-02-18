@@ -14,9 +14,9 @@ _APP_DIR = _MODULE_DIR.parent              # app/
 _BACKEND_DIR = _APP_DIR.parent             # backend/
 
 
-def get_qbsd_work_dir() -> Path:
-    """Get the qbsd_work directory path, resolved from module location."""
-    return _BACKEND_DIR / "qbsd_work"
+def get_schematiq_work_dir() -> Path:
+    """Get the schematiq_work directory path, resolved from module location."""
+    return _BACKEND_DIR / "schematiq_work"
 
 
 def get_data_dir() -> Path:
@@ -41,7 +41,7 @@ def collect_all_data_rows(session_id: str, work_dir: Path = None, data_dir: Path
     """Read and deduplicate data rows from all possible file locations.
 
     Data can exist in multiple locations:
-    - work_dir/{session_id}/extracted_data.jsonl  (original QBSD value extraction)
+    - work_dir/{session_id}/extracted_data.jsonl  (original ScheMatiQ value extraction)
     - work_dir/{session_id}/data.jsonl            (fallback location)
     - data_dir/{session_id}/data.jsonl            (document processing, continue discovery, reextraction)
 
@@ -51,29 +51,29 @@ def collect_all_data_rows(session_id: str, work_dir: Path = None, data_dir: Path
 
     Args:
         session_id: The session ID
-        work_dir: Path to qbsd_work directory
+        work_dir: Path to schematiq_work directory
         data_dir: Path to data directory
 
     Returns:
         Combined, deduplicated list of raw row dicts
     """
     if work_dir is None:
-        work_dir = get_qbsd_work_dir()
+        work_dir = get_schematiq_work_dir()
     if data_dir is None:
         data_dir = get_data_dir()
 
     data_files = []
 
-    # 1. Check qbsd_work for extracted_data.jsonl
+    # 1. Check schematiq_work for extracted_data.jsonl
     extracted_file = work_dir / session_id / "extracted_data.jsonl"
     if extracted_file.exists():
         data_files.append(extracted_file)
 
-    # 2. Check qbsd_work for data.jsonl (only if extracted_data.jsonl doesn't exist)
+    # 2. Check schematiq_work for data.jsonl (only if extracted_data.jsonl doesn't exist)
     if not data_files:
-        qbsd_data_file = work_dir / session_id / "data.jsonl"
-        if qbsd_data_file.exists():
-            data_files.append(qbsd_data_file)
+        schematiq_data_file = work_dir / session_id / "data.jsonl"
+        if schematiq_data_file.exists():
+            data_files.append(schematiq_data_file)
 
     # 3. Always check data directory (may contain additional documents)
     data_dir_file = data_dir / session_id / "data.jsonl"

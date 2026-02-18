@@ -15,7 +15,7 @@ interface EditableCellProps {
 
 /**
  * Extracts the editable string value from a CellValue.
- * Handles QBSD objects with 'answer' field, arrays, etc.
+ * Handles ScheMatiQ objects with 'answer' field, arrays, etc.
  */
 function getEditableValue(value: CellValue): string {
   if (value === null || value === undefined) return '';

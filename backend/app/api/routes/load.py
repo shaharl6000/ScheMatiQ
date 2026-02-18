@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# Module-level singleton (same pattern as qbsd_runner, reextraction_service, etc.)
+# Module-level singleton (same pattern as schematiq_runner, reextraction_service, etc.)
 upload_processor = UploadDocumentProcessor(
     websocket_manager=websocket_manager,
     session_manager=session_manager
@@ -387,7 +387,7 @@ async def delete_session(session_id: str):
 
 @router.post("/dual-file", response_model=dict)
 async def upload_dual_files(
-    schema_file: UploadFile = File(..., description="QBSD schema JSON file"),
+    schema_file: UploadFile = File(..., description="ScheMatiQ schema JSON file"),
     data_file: UploadFile = File(..., description="Data file (CSV/JSON/JSONL)")
 ):
     """Upload and validate both schema and data files."""
@@ -568,9 +568,9 @@ async def export_upload_data(
         if not data_file.exists():
             raise HTTPException(status_code=404, detail="No data found for export")
 
-        # Helper function to flatten QBSD answer format to plain values
+        # Helper function to flatten ScheMatiQ answer format to plain values
         def flatten_cell_value(value):
-            """Convert QBSD answer format {'answer': ..., 'excerpts': [...]} to plain value."""
+            """Convert ScheMatiQ answer format {'answer': ..., 'excerpts': [...]} to plain value."""
             if isinstance(value, dict) and 'answer' in value:
                 return value['answer']
             return value
@@ -680,7 +680,7 @@ async def export_upload_data(
 
 @router.post("/extract-schema/{session_id}", response_model=dict)
 async def extract_schema(session_id: str, query: str = ""):
-    """Extract schema from uploaded data and convert to QBSD format."""
+    """Extract schema from uploaded data and convert to ScheMatiQ format."""
     try:
         set_session_context(session_id)
         logger.debug(f"Extracting schema for session: {session_id}")
@@ -758,20 +758,20 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        # Allow both upload sessions (various states) and QBSD sessions (created or completed)
+        # Allow both upload sessions (various states) and ScheMatiQ sessions (created or completed)
         is_valid_upload_session = (
             session.type == SessionType.UPLOAD and
             session.status in [SessionStatus.SCHEMA_EXTRACTED, SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]
         )
-        is_valid_qbsd_session = (
-            session.type == SessionType.QBSD and
+        is_valid_schematiq_session = (
+            session.type == SessionType.SCHEMATIQ and
             session.status in [SessionStatus.CREATED, SessionStatus.COMPLETED, SessionStatus.STOPPED]
         )
 
-        if not (is_valid_upload_session or is_valid_qbsd_session):
+        if not (is_valid_upload_session or is_valid_schematiq_session):
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot upload documents for session type '{session.type}' in status '{session.status}'. Upload sessions need schema extracted/completed, QBSD sessions must be created or completed."
+                detail=f"Cannot upload documents for session type '{session.type}' in status '{session.status}'. Upload sessions need schema extracted/completed, ScheMatiQ sessions must be created or completed."
             )
 
         # Document count: separate valid files from system files
@@ -791,7 +791,7 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         limit_applied = False
         enforce_limit = not (DEVELOPER_MODE and bypass_limit)
         # Don't enforce document limit for completed sessions — these are complementary
-        # source documents for re-extraction/continue discovery, not initial QBSD uploads
+        # source documents for re-extraction/continue discovery, not initial ScheMatiQ uploads
         if session.status == SessionStatus.COMPLETED:
             enforce_limit = False
         available_slots = MAX_DOCUMENTS - existing_count
@@ -1056,12 +1056,12 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
             session.type == SessionType.UPLOAD and
             session.status in [SessionStatus.SCHEMA_EXTRACTED, SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]
         )
-        is_valid_qbsd_session = (
-            session.type == SessionType.QBSD and
+        is_valid_schematiq_session = (
+            session.type == SessionType.SCHEMATIQ and
             session.status == SessionStatus.COMPLETED
         )
 
-        if not (is_valid_upload_session or is_valid_qbsd_session):
+        if not (is_valid_upload_session or is_valid_schematiq_session):
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot add documents for session type '{session.type}' in status '{session.status}'."
@@ -1167,7 +1167,7 @@ async def confirm_websocket_ready(session_id: str):
 
 @router.post("/process-documents/{session_id}", response_model=dict)
 async def process_documents(session_id: str, background_tasks: BackgroundTasks, request: Optional[DocumentProcessingRequest] = None):
-    """Start processing uploaded documents with extracted schema using QBSD pipeline."""
+    """Start processing uploaded documents with extracted schema using ScheMatiQ pipeline."""
     try:
         set_session_context(session_id)
         logger.debug(f"Starting document processing for session: {session_id}")
@@ -1176,30 +1176,30 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # Allow both upload sessions (with documents) and QBSD sessions (completed or with documents uploaded)
+        # Allow both upload sessions (with documents) and ScheMatiQ sessions (completed or with documents uploaded)
         is_valid_upload_session = (
             session.type == SessionType.UPLOAD and
             session.status in [SessionStatus.DOCUMENTS_UPLOADED, SessionStatus.COMPLETED]
         )
-        is_valid_qbsd_session = (
-            session.type == SessionType.QBSD and
+        is_valid_schematiq_session = (
+            session.type == SessionType.SCHEMATIQ and
             session.status in [SessionStatus.COMPLETED, SessionStatus.DOCUMENTS_UPLOADED]
         )
 
-        if not (is_valid_upload_session or is_valid_qbsd_session):
+        if not (is_valid_upload_session or is_valid_schematiq_session):
             raise HTTPException(
                 status_code=400,
                 detail=f"Cannot process documents for session type '{session.type}' in status '{session.status}'. Sessions need documents uploaded or be completed."
             )
 
-        # Check for schema - either extracted_schema (enhanced upload) or columns (regular upload/QBSD)
+        # Check for schema - either extracted_schema (enhanced upload) or columns (regular upload/ScheMatiQ)
         if not session.metadata.extracted_schema and not session.columns:
             raise HTTPException(status_code=400, detail="No schema found for processing")
 
-        # If session has columns but no extracted_schema, create it (for regular upload or QBSD sessions)
+        # If session has columns but no extracted_schema, create it (for regular upload or ScheMatiQ sessions)
         if not session.metadata.extracted_schema and session.columns:
             logger.debug(f"Converting session columns to extracted_schema format (type: {session.type})")
-            # Use schema_query for QBSD sessions, fallback for upload sessions
+            # Use schema_query for ScheMatiQ sessions, fallback for upload sessions
             query = session.schema_query if session.schema_query else f"Data processing for {session.metadata.source}"
             extracted_schema = {
                 "query": query,
@@ -1435,15 +1435,15 @@ async def export_complete_data(session_id: str, format: str = "json"):
         if session.observation_unit:
             export_data["observation_unit"] = session.observation_unit.model_dump()
 
-        # Include documents_batch_size from qbsd_config if available
+        # Include documents_batch_size from schematiq_config if available
         session_dir = Path("./data") / session_id
-        qbsd_config_file = session_dir / "qbsd_config.json"
-        if qbsd_config_file.exists():
+        schematiq_config_file = session_dir / "schematiq_config.json"
+        if schematiq_config_file.exists():
             try:
-                with open(qbsd_config_file) as f:
-                    qbsd_config = json.load(f)
-                    if "documents_batch_size" in qbsd_config:
-                        export_data["metadata"]["documents_batch_size"] = qbsd_config["documents_batch_size"]
+                with open(schematiq_config_file) as f:
+                    schematiq_config = json.load(f)
+                    if "documents_batch_size" in schematiq_config:
+                        export_data["metadata"]["documents_batch_size"] = schematiq_config["documents_batch_size"]
             except Exception:
                 pass  # Continue without batch size if there's an error
 
@@ -1705,13 +1705,13 @@ async def export_upload_rich_csv(session_id: str):
 
 @router.get("/export-schema/{session_id}")
 async def export_schema_only(session_id: str):
-    """Export only the schema metadata in QBSD format."""
+    """Export only the schema metadata in ScheMatiQ format."""
     try:
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # Create QBSD-compatible schema export
+        # Create ScheMatiQ-compatible schema export
         schema_columns = []
         for col in session.columns:
             if col.name and not col.name.lower().endswith('_excerpt'):

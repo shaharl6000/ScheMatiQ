@@ -32,7 +32,7 @@ const TableFeedbackWidget: React.FC<TableFeedbackWidgetProps> = ({
   const interactionTriggered = useRef(false);
   const dismissedThisView = useRef(false);
 
-  const submittedKey = `qbsd_feedback_submitted_${sessionId}`;
+  const submittedKey = `schematiq_feedback_submitted_${sessionId}`;
 
   // Check if should show based on conditions
   const shouldBeVisible =

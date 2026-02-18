@@ -37,8 +37,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { PaginatedData, CellValue, DataRow, ModalContent, QBSDAnswerWithExcerpts } from '../../types';
-import { sessionAPI, qbsdAPI, observationUnitAPI } from '../../services/api';
+import { PaginatedData, CellValue, DataRow, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
+import { sessionAPI, schematiqAPI, observationUnitAPI } from '../../services/api';
 import { DocumentSummary } from '../../types/unit';
 import EditableCell from './EditableCell';
 import {
@@ -48,7 +48,7 @@ import {
 import ContentModal from '../ContentModal/ContentModal';
 import ExtractingCell from './ExtractingCell';
 import {
-  QBSD_REFRESH_INTERVAL,
+  SCHEMATIQ_REFRESH_INTERVAL,
   AVAILABLE_PAGE_SIZES,
 } from '../../constants/index';
 import { webSocketService } from '../../services/websocket';
@@ -88,7 +88,7 @@ interface ColumnInfoProp {
 interface DataTableProps {
   data?: PaginatedData;
   sessionId: string;
-  sessionType: 'load' | 'qbsd';
+  sessionType: 'load' | 'schematiq';
   newlyAddedRows?: Set<number>;
   columnOrder?: string[];
   onColumnReorder?: (newOrder: string[]) => void;
@@ -368,14 +368,14 @@ const DataTable: React.FC<DataTableProps> = ({
       // When WebSocket is connected, data updates come via real-time messages
       refetchInterval: () => {
         if (webSocketService.isConnected()) return false;
-        return sessionType === 'qbsd' ? QBSD_REFRESH_INTERVAL : false;
+        return sessionType === 'schematiq' ? SCHEMATIQ_REFRESH_INTERVAL : false;
       },
     }
   );
 
   // Cell edit handler
   const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string) => {
-    await qbsdAPI.updateCell(sessionId, rowName, column, value);
+    await schematiqAPI.updateCell(sessionId, rowName, column, value);
     refetchData();
   }, [sessionId, refetchData]);
 
@@ -461,7 +461,7 @@ const DataTable: React.FC<DataTableProps> = ({
       if (row.row_name) return row.row_name;
       if (rowIdentifierColumn && row.data[rowIdentifierColumn]) {
         const val = row.data[rowIdentifierColumn];
-        // Handle both simple values and QBSD format {answer: ...}
+        // Handle both simple values and ScheMatiQ format {answer: ...}
         if (typeof val === 'string') return val;
         if (typeof val === 'object' && val !== null) {
           if ('answer' in val) return String(val.answer);
@@ -884,16 +884,16 @@ const DataTable: React.FC<DataTableProps> = ({
     return result;
   };
 
-  // Normalize value to QBSD format with 'answer' and 'excerpts'
-  const normalizeToQBSD = (val: any): any => {
+  // Normalize value to ScheMatiQ format with 'answer' and 'excerpts'
+  const normalizeToScheMatiQ = (val: any): any => {
     if (!val || typeof val !== 'object') return val;
 
     // If it's an array with dict items, take first item
     if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object') {
-      return normalizeToQBSD(val[0]);
+      return normalizeToScheMatiQ(val[0]);
     }
 
-    // Already in QBSD format
+    // Already in ScheMatiQ format
     if ('answer' in val) {
       let answerVal = val.answer;
       let excerptsVal = val.excerpts || [];
@@ -1013,9 +1013,9 @@ const DataTable: React.FC<DataTableProps> = ({
       return <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>;
     }
 
-    // Normalize to QBSD format if it's an object
+    // Normalize to ScheMatiQ format if it's an object
     if (typeof processedValue === 'object' && processedValue !== null) {
-      processedValue = normalizeToQBSD(processedValue);
+      processedValue = normalizeToScheMatiQ(processedValue);
     }
 
     // Handle arrays (already checked for empty above)
@@ -1043,12 +1043,12 @@ const DataTable: React.FC<DataTableProps> = ({
       );
     }
 
-    // Handle QBSD format objects with answer and excerpts
+    // Handle ScheMatiQ format objects with answer and excerpts
     if (typeof processedValue === 'object' && processedValue !== null) {
-      if ('answer' in processedValue && typeof (processedValue as QBSDAnswerWithExcerpts).answer !== 'undefined') {
-        const qbsdValue = processedValue as QBSDAnswerWithExcerpts;
-        const answer = qbsdValue.answer;
-        const excerpts = qbsdValue.excerpts || [];
+      if ('answer' in processedValue && typeof (processedValue as ScheMatiQAnswerWithExcerpts).answer !== 'undefined') {
+        const schematiqValue = processedValue as ScheMatiQAnswerWithExcerpts;
+        const answer = schematiqValue.answer;
+        const excerpts = schematiqValue.excerpts || [];
 
         // Check if the answer itself is empty (e.g., "None", "", "N/A", null)
         if (isEmpty(answer)) {

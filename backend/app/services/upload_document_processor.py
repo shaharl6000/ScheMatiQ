@@ -1,4 +1,4 @@
-"""Upload document processing service integrating with QBSD pipeline."""
+"""Upload document processing service integrating with ScheMatiQ pipeline."""
 
 import json
 import asyncio
@@ -11,19 +11,19 @@ from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime
 
-# QBSD library imports
-from qbsd.value_extraction.main import build_table_jsonl
-from qbsd.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
-from qbsd.core.retrievers import EmbeddingRetriever
-from qbsd.core import utils
+# ScheMatiQ library imports
+from schematiq.value_extraction.main import build_table_jsonl
+from schematiq.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
+from schematiq.core.retrievers import EmbeddingRetriever
+from schematiq.core import utils
 
-QBSD_AVAILABLE = True
+SCHEMATIQ_AVAILABLE = True
 
 from app.models.session import SessionStatus, DataRow, DataStatistics, ColumnInfo, VisualizationSession
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.services import qbsd_thread_pool, concurrency_limiter
+from app.services import schematiq_thread_pool, concurrency_limiter
 from app.core.config import DEFAULT_TEMPERATURE, DEFAULT_RETRIEVAL_K, PROGRESS_CHECK_INTERVAL, DEVELOPER_MODE, RELEASE_CONFIG
 from app.core.logging_utils import set_session_context
 
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class UploadDocumentProcessor(WebSocketBroadcasterMixin):
-    """Handles document processing for upload sessions using QBSD pipeline."""
+    """Handles document processing for upload sessions using ScheMatiQ pipeline."""
 
     # Metadata columns that should not be sent to LLM for extraction
     METADATA_COLUMNS = {'papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata'}
@@ -96,11 +96,11 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         return on_value_extracted
     
     async def process_documents(self, session_id: str):
-        """Process uploaded documents using QBSD pipeline."""
+        """Process uploaded documents using ScheMatiQ pipeline."""
         set_session_context(session_id)
 
-        if not QBSD_AVAILABLE:
-            raise RuntimeError("QBSD components not available for document processing")
+        if not SCHEMATIQ_AVAILABLE:
+            raise RuntimeError("ScheMatiQ components not available for document processing")
 
         with self._state_lock:
             self.running_sessions[session_id] = True
@@ -132,7 +132,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
             logger.debug(f"Processing with schema: {len(current_schema['schema'])} columns")
 
-            # Create enhanced QBSD schema file for value extraction
+            # Create enhanced ScheMatiQ schema file for value extraction
             await self.broadcast_progress(session_id, "Preparing schema for processing", 0.1, "processing_documents")
 
             # Enhance schema with extraction instructions based on column metadata
@@ -221,7 +221,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # Monitor progress while extraction runs
             # NOTE: We only track progress here - actual data writing happens in _merge_extracted_data()
             # to avoid duplicate writes
-            extraction_task = loop.run_in_executor(qbsd_thread_pool, run_extraction)
+            extraction_task = loop.run_in_executor(schematiq_thread_pool, run_extraction)
 
             start_time = time.time()
             last_processed_line = 0
@@ -463,7 +463,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         row_data = json.loads(line)
                         # Ensure the row has proper structure for DataRow
                         if 'data' not in row_data:
-                            # Convert QBSD format to DataRow format with proper data cleaning
+                            # Convert ScheMatiQ format to DataRow format with proper data cleaning
                             row_name = row_data.get("_row_name", f"Row_{len(original_rows) + new_rows_added + 1}")
                             papers_list = row_data.get("_papers", [])
 
@@ -487,22 +487,22 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                                 # Try to parse string values that look like JSON/Python objects
                                 parsed_value = self._try_parse_string_value(value)
 
-                                # Handle QBSD answer format vs direct values
+                                # Handle ScheMatiQ answer format vs direct values
                                 if isinstance(parsed_value, dict):
-                                    # Normalize to QBSD format with 'answer' and 'excerpts' keys
-                                    normalized = self._normalize_to_qbsd_format(parsed_value)
+                                    # Normalize to ScheMatiQ format with 'answer' and 'excerpts' keys
+                                    normalized = self._normalize_to_schematiq_format(parsed_value)
                                     clean_data[key] = normalized
                                 elif isinstance(parsed_value, list) and len(parsed_value) > 0:
                                     # Handle list format (e.g., [{'value': '...', 'excerpt': '...'}])
                                     if isinstance(parsed_value[0], dict):
                                         # Take first item and normalize it
-                                        normalized = self._normalize_to_qbsd_format(parsed_value[0])
+                                        normalized = self._normalize_to_schematiq_format(parsed_value[0])
                                         # If there are multiple items, collect all excerpts
                                         if len(parsed_value) > 1:
                                             all_excerpts = normalized.get('excerpts', [])
                                             for item in parsed_value[1:]:
                                                 if isinstance(item, dict):
-                                                    item_normalized = self._normalize_to_qbsd_format(item)
+                                                    item_normalized = self._normalize_to_schematiq_format(item)
                                                     all_excerpts.extend(item_normalized.get('excerpts', []))
                                             normalized['excerpts'] = all_excerpts
                                         clean_data[key] = normalized
@@ -638,11 +638,11 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
         return value
 
-    def _normalize_to_qbsd_format(self, value: dict) -> dict:
-        """Normalize a dict value to QBSD format with 'answer' and 'excerpts' keys.
+    def _normalize_to_schematiq_format(self, value: dict) -> dict:
+        """Normalize a dict value to ScheMatiQ format with 'answer' and 'excerpts' keys.
 
         Handles various possible key names from LLM outputs:
-        - 'answer' / 'excerpts' (standard QBSD format)
+        - 'answer' / 'excerpts' (standard ScheMatiQ format)
         - 'value' / 'excerpt' (alternative LLM output)
         - 'response' / 'evidence' (another alternative)
         """
@@ -679,7 +679,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             answer_val = str(first_item)
                     elif isinstance(parsed_answer, dict):
                         # Recursively normalize the parsed dict
-                        return self._normalize_to_qbsd_format(parsed_answer)
+                        return self._normalize_to_schematiq_format(parsed_answer)
 
             result = {
                 'answer': answer_val,
@@ -714,7 +714,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                     excerpts = [exc_val] if exc_val else []
                 break
 
-        # If we found a recognized format, return normalized QBSD format
+        # If we found a recognized format, return normalized ScheMatiQ format
         if answer is not None:
             return {
                 'answer': str(answer),
@@ -858,7 +858,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # Combine into comprehensive extraction guidance
             column["extraction_guidance"] = " ".join(extraction_prompt_parts)
             
-            # Add metadata-aware extraction hints for the QBSD value extractor
+            # Add metadata-aware extraction hints for the ScheMatiQ value extractor
             column["extraction_strategy"] = self._generate_extraction_strategy(column_name, definition, rationale)
             
             # Ensure column has basic structure if metadata is missing
@@ -981,7 +981,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         if value is None:
             return False
             
-        # Handle QBSD format
+        # Handle ScheMatiQ format
         if isinstance(value, dict):
             if "answer" in value:
                 answer = value["answer"]
@@ -1064,25 +1064,25 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 logger.debug(f"Using preserved schema_creation_backend for extraction in session {session_id}")
                 return llm_config["schema_creation_backend"]
         
-        # Third priority: Session-level QBSD config file
-        qbsd_config_file = session_dir / "qbsd_config.json"
-        if qbsd_config_file.exists():
+        # Third priority: Session-level ScheMatiQ config file
+        schematiq_config_file = session_dir / "schematiq_config.json"
+        if schematiq_config_file.exists():
             try:
-                with open(qbsd_config_file) as f:
-                    qbsd_config = json.load(f)
+                with open(schematiq_config_file) as f:
+                    schematiq_config = json.load(f)
                     
                 # Use value_extraction_backend if available
-                if "value_extraction_backend" in qbsd_config:
-                    logger.debug(f"Using session QBSD value_extraction_backend for session {session_id}")
-                    return qbsd_config["value_extraction_backend"]
-                elif "schema_creation_backend" in qbsd_config:
-                    logger.debug(f"Using session QBSD schema_creation_backend for extraction in session {session_id}")
-                    return qbsd_config["schema_creation_backend"]
-                elif "backend" in qbsd_config:  # Legacy support
+                if "value_extraction_backend" in schematiq_config:
+                    logger.debug(f"Using session ScheMatiQ value_extraction_backend for session {session_id}")
+                    return schematiq_config["value_extraction_backend"]
+                elif "schema_creation_backend" in schematiq_config:
+                    logger.debug(f"Using session ScheMatiQ schema_creation_backend for extraction in session {session_id}")
+                    return schematiq_config["schema_creation_backend"]
+                elif "backend" in schematiq_config:  # Legacy support
                     logger.debug(f"Using legacy backend config for session {session_id}")
-                    return qbsd_config["backend"]
+                    return schematiq_config["backend"]
             except Exception as e:
-                logger.debug(f"Could not load session QBSD config: {e}")
+                logger.debug(f"Could not load session ScheMatiQ config: {e}")
         
         # Fallback to default configuration
         logger.debug(f"Using default LLM configuration for extraction in session {session_id}")
@@ -1111,7 +1111,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
     def _compute_statistics_from_data(self, session_id: str, session: VisualizationSession) -> Optional[DataStatistics]:
         """Compute statistics from the merged data.jsonl file.
 
-        NOTE: Similar to qbsd_runner._compute_statistics_from_extracted_data() but:
+        NOTE: Similar to schematiq_runner._compute_statistics_from_extracted_data() but:
         - Reads from data.jsonl (not extracted_data.jsonl)
         - Handles DataRow format with 'data' wrapper
         - Does not include schema_evolution (upload sessions don't track evolution)

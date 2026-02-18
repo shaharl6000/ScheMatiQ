@@ -20,14 +20,14 @@ class LocalStorageBackend(StorageInterface):
     - documents -> ./data/{session_id}/documents/
     - data -> ./data/{session_id}/
     - exports -> ./data/{session_id}/exports/
-    - qbsd_work -> ./qbsd_work/{session_id}/
+    - schematiq_work -> ./schematiq_work/{session_id}/
     """
 
     def __init__(
         self,
         sessions_dir: str = "./sessions",
         data_dir: str = "./data",
-        qbsd_work_dir: str = "./qbsd_work",
+        schematiq_work_dir: str = "./schematiq_work",
         datasets_dir: str = "../research/data",
         templates_dir: str = "./templates",
         initial_schemas_dir: str = "./initial_schemas"
@@ -37,14 +37,14 @@ class LocalStorageBackend(StorageInterface):
         Args:
             sessions_dir: Directory for session files
             data_dir: Base directory for data files
-            qbsd_work_dir: Directory for QBSD work files
+            schematiq_work_dir: Directory for ScheMatiQ work files
             datasets_dir: Directory containing shared datasets (document collections)
             templates_dir: Directory containing template tables
             initial_schemas_dir: Directory containing initial schema files
         """
         self.sessions_dir = Path(sessions_dir)
         self.data_dir = Path(data_dir)
-        self.qbsd_work_dir = Path(qbsd_work_dir)
+        self.schematiq_work_dir = Path(schematiq_work_dir)
         self.datasets_dir = Path(datasets_dir)
         self.templates_dir = Path(templates_dir)
         self.initial_schemas_dir = Path(initial_schemas_dir)
@@ -52,7 +52,7 @@ class LocalStorageBackend(StorageInterface):
         # Ensure directories exist (except datasets which is read-only)
         self.sessions_dir.mkdir(exist_ok=True)
         self.data_dir.mkdir(exist_ok=True)
-        self.qbsd_work_dir.mkdir(exist_ok=True)
+        self.schematiq_work_dir.mkdir(exist_ok=True)
         self.templates_dir.mkdir(exist_ok=True)
         self.initial_schemas_dir.mkdir(exist_ok=True)
 
@@ -76,8 +76,8 @@ class LocalStorageBackend(StorageInterface):
         elif bucket == "exports":
             # Exports are stored under data/{session_id}/exports/
             return self.data_dir / path
-        elif bucket == "qbsd_work":
-            return self.qbsd_work_dir / path
+        elif bucket == "schematiq_work":
+            return self.schematiq_work_dir / path
         else:
             # Default to data directory
             return self.data_dir / bucket / path
@@ -123,8 +123,8 @@ class LocalStorageBackend(StorageInterface):
             if data_dir.exists():
                 shutil.rmtree(data_dir)
 
-            # Delete qbsd work directory
-            work_dir = self.qbsd_work_dir / session_id
+            # Delete schematiq work directory
+            work_dir = self.schematiq_work_dir / session_id
             if work_dir.exists():
                 shutil.rmtree(work_dir)
 

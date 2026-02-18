@@ -16,7 +16,7 @@ interface SchemaColumnDetailPanelProps {
   readonly: boolean;
   schemaChanges?: SchemaChangeStatus | null;
   processingColumns?: Set<string>;
-  sessionType?: 'load' | 'qbsd';
+  sessionType?: 'load' | 'schematiq';
 }
 
 const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({

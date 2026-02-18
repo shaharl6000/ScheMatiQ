@@ -1,5 +1,5 @@
 """
-Re-extraction service for QBSD visualization.
+Re-extraction service for ScheMatiQ visualization.
 Handles schema change detection, paper discovery, and selective re-extraction.
 """
 
@@ -19,21 +19,21 @@ from app.models.session import (
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.services import qbsd_thread_pool, concurrency_limiter
+from app.services import schematiq_thread_pool, concurrency_limiter
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
 from app.core.logging_utils import set_session_context
 
-# QBSD library imports
-from qbsd.value_extraction.main import build_table_jsonl
-from qbsd.value_extraction.core.paper_processor import PaperProcessor
-from qbsd.core.schema import Schema, Column
-from qbsd.core.llm_backends import GeminiLLM
-from qbsd.core.retrievers import EmbeddingRetriever
-from qbsd.core import utils as qbsd_utils
-from qbsd.core.llm_call_tracker import LLMCallTracker
+# ScheMatiQ library imports
+from schematiq.value_extraction.main import build_table_jsonl
+from schematiq.value_extraction.core.paper_processor import PaperProcessor
+from schematiq.core.schema import Schema, Column
+from schematiq.core.llm_backends import GeminiLLM
+from schematiq.core.retrievers import EmbeddingRetriever
+from schematiq.core import utils as schematiq_utils
+from schematiq.core.llm_call_tracker import LLMCallTracker
 
-QBSD_AVAILABLE = True
+SCHEMATIQ_AVAILABLE = True
 
 logger = logging.getLogger(__name__)
 
@@ -421,25 +421,25 @@ class ReextractionService(WebSocketBroadcasterMixin):
             logger.debug(f"Session has cloud_dataset fallback: {session_cloud_dataset}")
 
         data_session_dir = Path("./data") / session_id
-        qbsd_session_dir = Path("./qbsd_work") / session_id
+        schematiq_session_dir = Path("./schematiq_work") / session_id
         docs_dir = data_session_dir / "documents"
 
-        # Find data files from all possible locations (same logic as qbsd_runner.get_extracted_data)
+        # Find data files from all possible locations (same logic as schematiq_runner.get_extracted_data)
         data_files = []
-        extracted_file = qbsd_session_dir / "extracted_data.jsonl"
+        extracted_file = schematiq_session_dir / "extracted_data.jsonl"
         if extracted_file.exists():
             data_files.append(extracted_file)
         if not data_files:
-            qbsd_data_file = qbsd_session_dir / "data.jsonl"
-            if qbsd_data_file.exists():
-                data_files.append(qbsd_data_file)
+            schematiq_data_file = schematiq_session_dir / "data.jsonl"
+            if schematiq_data_file.exists():
+                data_files.append(schematiq_data_file)
         data_dir_file = data_session_dir / "data.jsonl"
         if data_dir_file.exists() and data_dir_file not in data_files:
             data_files.append(data_dir_file)
 
         logger.info(f"discover_papers: data_files={[str(f) for f in data_files]}, "
                      f"data_session_dir exists={data_session_dir.exists()}, "
-                     f"qbsd_session_dir exists={qbsd_session_dir.exists()}")
+                     f"schematiq_session_dir exists={schematiq_session_dir.exists()}")
 
         # Collect paper references and document directories from all rows
         paper_refs: Set[str] = set()
@@ -456,7 +456,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             row = json.loads(line)
                             row_name = row.get('row_name') or row.get('_row_name') or f"row_{total_rows}"
 
-                            # Helper to extract value from QBSD answer format or plain value
+                            # Helper to extract value from ScheMatiQ answer format or plain value
                             def extract_value(val: Any) -> str:
                                 if val is None:
                                     return ''
@@ -474,7 +474,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 []
                             )
 
-                            # Handle QBSD answer format for papers
+                            # Handle ScheMatiQ answer format for papers
                             if isinstance(papers_raw, dict) and 'answer' in papers_raw:
                                 papers_raw = papers_raw.get('answer', [])
 
@@ -523,28 +523,28 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             continue
 
         # Check which papers exist in local storage
-        # Check documents/, pending_documents/, qbsd_work datasets, and original docs_path
+        # Check documents/, pending_documents/, schematiq_work datasets, and original docs_path
         local_files: Set[str] = set()
         pending_dir = data_session_dir / "pending_documents"
 
         local_dirs_to_check = [docs_dir, pending_dir]
-        # Also check qbsd_work datasets directories (Supabase datasets downloaded during QBSD creation)
-        qbsd_datasets_dir = qbsd_session_dir / "datasets"
-        if qbsd_datasets_dir.exists():
-            for dataset_dir in qbsd_datasets_dir.iterdir():
+        # Also check schematiq_work datasets directories (Supabase datasets downloaded during ScheMatiQ creation)
+        schematiq_datasets_dir = schematiq_session_dir / "datasets"
+        if schematiq_datasets_dir.exists():
+            for dataset_dir in schematiq_datasets_dir.iterdir():
                 if dataset_dir.is_dir():
                     local_dirs_to_check.append(dataset_dir)
-        # Also check qbsd_work capped_documents (if document limit was applied)
-        capped_dir = qbsd_session_dir / "capped_documents"
+        # Also check schematiq_work capped_documents (if document limit was applied)
+        capped_dir = schematiq_session_dir / "capped_documents"
         if capped_dir.exists():
             local_dirs_to_check.append(capped_dir)
-        # Also check original docs_path from QBSD config (the directories used during creation)
-        qbsd_config_file = qbsd_session_dir / "qbsd_config.json"
-        if qbsd_config_file.exists():
+        # Also check original docs_path from ScheMatiQ config (the directories used during creation)
+        schematiq_config_file = schematiq_session_dir / "schematiq_config.json"
+        if schematiq_config_file.exists():
             try:
-                with open(qbsd_config_file) as f:
-                    qbsd_config = json.load(f)
-                config_docs_path = qbsd_config.get("docs_path", [])
+                with open(schematiq_config_file) as f:
+                    schematiq_config = json.load(f)
+                config_docs_path = schematiq_config.get("docs_path", [])
                 if isinstance(config_docs_path, str):
                     config_docs_path = [config_docs_path]
                 for dp in config_docs_path:
@@ -552,9 +552,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         dp_path = Path(dp)
                         if dp_path.is_dir() and dp_path not in local_dirs_to_check:
                             local_dirs_to_check.append(dp_path)
-                            logger.debug(f"Added docs_path from QBSD config: {dp_path}")
+                            logger.debug(f"Added docs_path from ScheMatiQ config: {dp_path}")
             except Exception as e:
-                logger.debug(f"Could not read QBSD config for docs_path: {e}")
+                logger.debug(f"Could not read ScheMatiQ config for docs_path: {e}")
 
         for local_dir in local_dirs_to_check:
             if local_dir.exists():
@@ -816,8 +816,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
         Returns:
             Dictionary with operation details
         """
-        if not QBSD_AVAILABLE:
-            raise RuntimeError("QBSD components not available for re-extraction")
+        if not SCHEMATIQ_AVAILABLE:
+            raise RuntimeError("ScheMatiQ components not available for re-extraction")
 
         session = self.session_manager.get_session(session_id)
         if not session:
@@ -829,6 +829,58 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if invalid_columns:
             raise ValueError(f"Invalid columns: {invalid_columns}")
 
+        # Validate observation_unit (required by value extraction pipeline)
+        # Must check before spawning background task to avoid race condition
+        # where the error fires before the WebSocket connects.
+        if not session.observation_unit:
+            inferred_unit_name = None
+            data_dir = Path("./data") / session_id
+            schematiq_dir = Path("./schematiq_work") / session_id
+
+            # Strategy 1: Check _metadata.observation_unit in raw ScheMatiQ pipeline output
+            for data_file in [schematiq_dir / "extracted_data.jsonl", data_dir / "data.jsonl"]:
+                if data_file.exists():
+                    with open(data_file) as f:
+                        for line in f:
+                            if line.strip():
+                                row = json.loads(line)
+                                meta = row.get("_metadata", {})
+                                if meta.get("observation_unit"):
+                                    inferred_unit_name = meta["observation_unit"]
+                                    break
+                    if inferred_unit_name:
+                        break
+
+            # Strategy 2: Check _unit_name in DataRow format (loaded exports)
+            if not inferred_unit_name:
+                data_jsonl = data_dir / "data.jsonl"
+                if data_jsonl.exists():
+                    with open(data_jsonl) as f:
+                        for line in f:
+                            if line.strip():
+                                row = json.loads(line)
+                                if row.get("_unit_name"):
+                                    # _unit_name has instance names, not the type name.
+                                    # Use a generic type name — re-extraction quality is
+                                    # unaffected because the schema columns already define
+                                    # what to extract.
+                                    inferred_unit_name = "entry"
+                                    logger.info(
+                                        "Inferred observation_unit presence from _unit_name in data rows"
+                                    )
+                                    break
+
+            if inferred_unit_name:
+                logger.info(f"Inferred observation_unit from existing data: {inferred_unit_name}")
+                session.observation_unit = ObservationUnitInfo(
+                    name=inferred_unit_name,
+                    definition=f"An individual {inferred_unit_name}",
+                )
+            else:
+                raise ValueError(
+                    "Cannot re-extract: session has no observation unit configured. "
+                    "Please set the observation unit before re-extracting."
+                )
         # Discover papers
         paper_discovery = await self.discover_papers(session_id)
 
@@ -884,7 +936,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 raise ValueError(f"Session {operation.session_id} not found")
 
             data_dir = Path("./data") / operation.session_id
-            qbsd_dir = Path("./qbsd_work") / operation.session_id
+            schematiq_dir = Path("./schematiq_work") / operation.session_id
             session_dir = data_dir  # Keep for schema/output file paths
             docs_dir = data_dir / "documents"
             pending_dir = data_dir / "pending_documents"
@@ -1024,25 +1076,25 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 except Exception as e:
                     logger.warning(f"Broadcast error: {e}")
 
-            # Run extraction - check documents/, pending_documents/, qbsd_work datasets, and original docs_path
+            # Run extraction - check documents/, pending_documents/, schematiq_work datasets, and original docs_path
             candidate_dirs = [docs_dir, pending_dir]
-            # Also check qbsd_work datasets directories (Supabase datasets downloaded during QBSD creation)
-            qbsd_datasets_dir = qbsd_dir / "datasets"
-            if qbsd_datasets_dir.exists():
-                for dataset_subdir in qbsd_datasets_dir.iterdir():
+            # Also check schematiq_work datasets directories (Supabase datasets downloaded during ScheMatiQ creation)
+            schematiq_datasets_dir = schematiq_dir / "datasets"
+            if schematiq_datasets_dir.exists():
+                for dataset_subdir in schematiq_datasets_dir.iterdir():
                     if dataset_subdir.is_dir():
                         candidate_dirs.append(dataset_subdir)
-            # Also check qbsd_work capped_documents
-            capped_dir = qbsd_dir / "capped_documents"
+            # Also check schematiq_work capped_documents
+            capped_dir = schematiq_dir / "capped_documents"
             if capped_dir.exists():
                 candidate_dirs.append(capped_dir)
-            # Also check original docs_path from QBSD config
-            qbsd_config_file = qbsd_dir / "qbsd_config.json"
-            if qbsd_config_file.exists():
+            # Also check original docs_path from ScheMatiQ config
+            schematiq_config_file = schematiq_dir / "schematiq_config.json"
+            if schematiq_config_file.exists():
                 try:
-                    with open(qbsd_config_file) as f:
-                        qbsd_cfg = json.load(f)
-                    config_docs_path = qbsd_cfg.get("docs_path", [])
+                    with open(schematiq_config_file) as f:
+                        schematiq_cfg = json.load(f)
+                    config_docs_path = schematiq_cfg.get("docs_path", [])
                     if isinstance(config_docs_path, str):
                         config_docs_path = [config_docs_path]
                     for dp in config_docs_path:
@@ -1062,13 +1114,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # This skips the expensive LLM unit discovery for rows that already exist
                 known_units: Dict[str, List[str]] = {}
                 reextract_data_files = []
-                qbsd_extracted = Path("./qbsd_work") / operation.session_id / "extracted_data.jsonl"
-                if qbsd_extracted.exists():
-                    reextract_data_files.append(qbsd_extracted)
+                schematiq_extracted = Path("./schematiq_work") / operation.session_id / "extracted_data.jsonl"
+                if schematiq_extracted.exists():
+                    reextract_data_files.append(schematiq_extracted)
                 if not reextract_data_files:
-                    qbsd_data = Path("./qbsd_work") / operation.session_id / "data.jsonl"
-                    if qbsd_data.exists():
-                        reextract_data_files.append(qbsd_data)
+                    schematiq_data = Path("./schematiq_work") / operation.session_id / "data.jsonl"
+                    if schematiq_data.exists():
+                        reextract_data_files.append(schematiq_data)
                 load_data = Path("./data") / operation.session_id / "data.jsonl"
                 if load_data.exists() and load_data.resolve() not in [f.resolve() for f in reextract_data_files]:
                     reextract_data_files.append(load_data)
@@ -1125,7 +1177,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         known_units=known_units if known_units else None,
                     )
 
-                await asyncio.get_event_loop().run_in_executor(qbsd_thread_pool, run_extraction)
+                await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)
                 logger.debug(f"build_table_jsonl completed, output_file exists: {output_file.exists()}")
             else:
                 logger.debug(f"No document directories exist, skipping extraction")
@@ -1197,15 +1249,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
             return
 
         # Find ALL data files (same pattern as unit_view_service._get_all_data_files)
-        qbsd_extracted_file = Path("./qbsd_work") / session_id / "extracted_data.jsonl"
-        qbsd_data_file = Path("./qbsd_work") / session_id / "data.jsonl"
+        schematiq_extracted_file = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
+        schematiq_data_file = Path("./schematiq_work") / session_id / "data.jsonl"
         load_data_file = Path("./data") / session_id / "data.jsonl"
 
         data_files = []
-        if qbsd_extracted_file.exists():
-            data_files.append(qbsd_extracted_file)
-        if not data_files and qbsd_data_file.exists():
-            data_files.append(qbsd_data_file)
+        if schematiq_extracted_file.exists():
+            data_files.append(schematiq_extracted_file)
+        if not data_files and schematiq_data_file.exists():
+            data_files.append(schematiq_data_file)
         if load_data_file.exists() and load_data_file.resolve() not in [f.resolve() for f in data_files]:
             data_files.append(load_data_file)
 
@@ -1379,7 +1431,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         )
                 else:
                     logger.debug(f"Using LLM config from user_llm_config.json: {user_config.get('provider')} {user_config.get('model')}, api_key={'present' if user_config.get('api_key') else 'MISSING'}")
-                    return qbsd_utils.build_llm(user_config)
+                    return schematiq_utils.build_llm(user_config)
         except Exception as e:
             logger.debug(f"Could not load user LLM config: {e}")
 
@@ -1402,7 +1454,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
                         logger.debug(f"Using LLM config from session metadata: {backend_config.get('provider')} {backend_config.get('model')}")
-                        return qbsd_utils.build_llm(backend_config)
+                        return schematiq_utils.build_llm(backend_config)
         except Exception as e:
             logger.debug(f"Could not load LLM config from session metadata: {e}")
 
@@ -1417,22 +1469,22 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     backend_config = llm_config.get("value_extraction_backend") or llm_config.get("schema_creation_backend")
                     if backend_config:
                         logger.debug(f"Using LLM config from parsed_schema.json: {backend_config.get('provider')} {backend_config.get('model')}")
-                        return qbsd_utils.build_llm(backend_config)
+                        return schematiq_utils.build_llm(backend_config)
         except Exception as e:
             logger.debug(f"Could not load LLM config from parsed_schema.json: {e}")
 
-        # Priority 3: Check qbsd_config.json (legacy location)
+        # Priority 3: Check schematiq_config.json (legacy location)
         try:
-            qbsd_config_file = session_dir / "qbsd_config.json"
-            if qbsd_config_file.exists():
-                with open(qbsd_config_file) as f:
-                    qbsd_config = json.load(f)
-                backend_config = qbsd_config.get("value_extraction_backend") or qbsd_config.get("schema_creation_backend")
+            schematiq_config_file = session_dir / "schematiq_config.json"
+            if schematiq_config_file.exists():
+                with open(schematiq_config_file) as f:
+                    schematiq_config = json.load(f)
+                backend_config = schematiq_config.get("value_extraction_backend") or schematiq_config.get("schema_creation_backend")
                 if backend_config:
-                    logger.debug(f"Using LLM config from qbsd_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
-                    return qbsd_utils.build_llm(backend_config)
+                    logger.debug(f"Using LLM config from schematiq_config.json: {backend_config.get('provider')} {backend_config.get('model')}")
+                    return schematiq_utils.build_llm(backend_config)
         except Exception as e:
-            logger.debug(f"Could not load LLM config from qbsd_config.json: {e}")
+            logger.debug(f"Could not load LLM config from schematiq_config.json: {e}")
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
         logger.debug(f"Using default GeminiLLM - this will use GEMINI_API_KEY env var")
@@ -1524,13 +1576,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Find data files from all possible locations
         precheck_data_files = []
-        qbsd_extracted = Path("./qbsd_work") / session_id / "extracted_data.jsonl"
-        if qbsd_extracted.exists():
-            precheck_data_files.append(qbsd_extracted)
+        schematiq_extracted = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
+        if schematiq_extracted.exists():
+            precheck_data_files.append(schematiq_extracted)
         if not precheck_data_files:
-            qbsd_data = Path("./qbsd_work") / session_id / "data.jsonl"
-            if qbsd_data.exists():
-                precheck_data_files.append(qbsd_data)
+            schematiq_data = Path("./schematiq_work") / session_id / "data.jsonl"
+            if schematiq_data.exists():
+                precheck_data_files.append(schematiq_data)
         data_dir_file = Path("./data") / session_id / "data.jsonl"
         if data_dir_file.exists() and data_dir_file not in precheck_data_files:
             precheck_data_files.append(data_dir_file)

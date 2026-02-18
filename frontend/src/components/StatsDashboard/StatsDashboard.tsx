@@ -43,7 +43,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
   const schemaBackend = llmConfig?.schema_creation_backend;
   const extractionBackend = llmConfig?.value_extraction_backend;
 
-  // Get original creation timestamp - prefer from extracted_schema metadata (original QBSD creation)
+  // Get original creation timestamp - prefer from extracted_schema metadata (original ScheMatiQ creation)
   // over session.metadata.created (which is the loading time for loaded sessions)
   const extractedSchemaMetadata = session?.metadata?.extracted_schema?.metadata;
   const originalCreationTime =
@@ -267,7 +267,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
               />
               <InfoCard
                 title="Session Type"
-                value={session?.type === 'qbsd' ? 'QBSD Pipeline' : 'Load Existing'}
+                value={session?.type === 'schematiq' ? 'ScheMatiQ Pipeline' : 'Load Existing'}
                 size="small"
               />
               <InfoCard
@@ -432,7 +432,7 @@ const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evoluti
             <Info className="h-4 w-4" />
             <AlertDescription>
               Schema evolution data is not available. This feature tracks how the schema
-              grew during QBSD discovery and is available for new QBSD sessions.
+              grew during ScheMatiQ discovery and is available for new ScheMatiQ sessions.
             </AlertDescription>
           </Alert>
         </CardContent>

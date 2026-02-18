@@ -11,26 +11,26 @@ from typing import Dict, Optional, Tuple
 from .websocket_manager import WebSocketManager
 from .session_manager import SessionManager
 
-from app.core.config import MAX_CONCURRENT_SESSIONS, QBSD_THREAD_POOL_SIZE
+from app.core.config import MAX_CONCURRENT_SESSIONS, SCHEMATIQ_THREAD_POOL_SIZE
 from app.core.exceptions import CapacityExceededError
 
 logger = logging.getLogger(__name__)
 
-# ── Shared thread pool for blocking QBSD operations ──────────────────
+# ── Shared thread pool for blocking ScheMatiQ operations ─────────────
 # Bounded pool prevents unbounded thread growth under concurrent load.
 # 6 workers on 8 vCPU leaves headroom for the event loop and OS.
-qbsd_thread_pool = ThreadPoolExecutor(
-    max_workers=QBSD_THREAD_POOL_SIZE,
-    thread_name_prefix="qbsd-worker",
+schematiq_thread_pool = ThreadPoolExecutor(
+    max_workers=SCHEMATIQ_THREAD_POOL_SIZE,
+    thread_name_prefix="schematiq-worker",
 )
-logger.info("[concurrency] Thread pool initialized: %d workers (QBSD_THREAD_POOL_SIZE)", QBSD_THREAD_POOL_SIZE)
+logger.info("[concurrency] Thread pool initialized: %d workers (SCHEMATIQ_THREAD_POOL_SIZE)", SCHEMATIQ_THREAD_POOL_SIZE)
 
 
 # ── Concurrency limiter for long-running operations ──────────────────
 class ConcurrencyLimiter:
     """Tracks active long-running operations across all services.
 
-    All LLM-heavy operations (QBSD creation, reextraction, continue discovery,
+    All LLM-heavy operations (ScheMatiQ creation, reextraction, continue discovery,
     document processing) share a single counter so the server never exceeds
     its capacity.
     """
@@ -86,14 +86,14 @@ logger.info("[concurrency] Concurrency limiter initialized: max %d sessions", MA
 
 
 def find_session_data_file(session_id: str) -> Optional[Path]:
-    """Find the primary data file for a session (QBSD or load).
+    """Find the primary data file for a session (ScheMatiQ or load).
 
-    QBSD sessions store extracted data in ./qbsd_work/{session_id}/extracted_data.jsonl.
+    ScheMatiQ sessions store extracted data in ./schematiq_work/{session_id}/extracted_data.jsonl.
     Load sessions store data in ./data/{session_id}/data.jsonl.
     """
-    qbsd_file = Path("./qbsd_work") / session_id / "extracted_data.jsonl"
-    if qbsd_file.exists():
-        return qbsd_file
+    schematiq_file = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
+    if schematiq_file.exists():
+        return schematiq_file
     load_file = Path("./data") / session_id / "data.jsonl"
     if load_file.exists():
         return load_file

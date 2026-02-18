@@ -62,7 +62,7 @@ export function WelcomeDialog({ forceOpen, onOpenChange }: WelcomeDialogProps) {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle className="text-xl">Welcome to QueryBasedSchemaDiscovery!</DialogTitle>
+          <DialogTitle className="text-xl">Welcome to ScheMatiQ!</DialogTitle>
           <DialogDescription className="text-base pt-2">
             Turn your documents into structured data in three simple steps:
           </DialogDescription>
