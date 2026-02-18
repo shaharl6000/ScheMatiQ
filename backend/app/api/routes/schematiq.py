@@ -304,7 +304,7 @@ async def run_schematiq(session_id: str, background_tasks: BackgroundTasks):
 
 @router.post("/resume/{session_id}")
 async def resume_schematiq(session_id: str, background_tasks: BackgroundTasks):
-    """Resume QBSD execution after observation unit review or rediscover schema.
+    """Resume ScheMatiQ execution after observation unit review or rediscover schema.
 
     Called either:
     - After the user reviews/edits the observation unit during the review step

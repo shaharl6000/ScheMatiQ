@@ -71,7 +71,7 @@ DEFAULT_RETRIEVAL_K = 8
 DEFAULT_TIMEOUT = 120  # seconds
 
 # LLM Configuration
-# max_output_tokens is auto-detected per model from qbsd.core.model_specs.
+# max_output_tokens is auto-detected per model from schematiq.core.model_specs.
 # Do NOT hardcode a default here — each model has its own limit.
 DEFAULT_TEMPERATURE = 0
 
