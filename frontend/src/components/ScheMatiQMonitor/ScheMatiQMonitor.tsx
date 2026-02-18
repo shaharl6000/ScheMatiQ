@@ -336,7 +336,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
           setEditExamples(obsData.example_names || []);
           setObsUnitEdited(false);
         }
-        queryClient.invalidateQueries(['qbsd-status', sessionId]);
+        queryClient.invalidateQueries(['schematiq-status', sessionId]);
       } else if (message.type === 'stopped') {
         const stoppedData = message.data as StoppedData;
         const schemaSaved = stoppedData?.schema_saved || false;

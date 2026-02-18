@@ -617,7 +617,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             await concurrency_limiter.release(session_id)
 
     async def resume_qbsd(self, session_id: str):
-        """Resume QBSD after observation unit review.
+        """Resume ScheMatiQ after observation unit review.
 
         Reads the (potentially edited) observation unit from the session,
         injects it into the config as a pre-configured unit, and re-runs
@@ -870,13 +870,13 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             # Step 5: Observation unit discovery (when review_observation_unit is enabled)
             # When the user wants to review the observation unit before schema generation,
             # we discover it as a separate step, save it, and pause the pipeline.
-            review_observation_unit = qbsd_config.get("review_observation_unit", False)
+            review_observation_unit = schematiq_config.get("review_observation_unit", False)
             if review_observation_unit and has_documents:
                 current_step += 1
                 await update_progress("Discovering observation unit", 0.0)
 
                 # Check if observation unit is already fully pre-configured (name + definition)
-                initial_obs_unit = qbsd_config.get("initial_observation_unit")
+                initial_obs_unit = schematiq_config.get("initial_observation_unit")
                 obs_unit_already_set = initial_obs_unit and initial_obs_unit.get("definition")
 
                 if obs_unit_already_set:
@@ -888,17 +888,17 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                     logger.info("Using pre-configured observation unit for review: %s", obs_unit.name)
                 else:
                     # Need to discover the observation unit from documents
-                    batch_size = qbsd_config.get("documents_batch_size", 1)
+                    batch_size = schematiq_config.get("documents_batch_size", 1)
                     first_batch_docs = documents[:batch_size]
                     first_batch_names = filenames[:batch_size]
-                    query = qbsd_config.get("query", "")
+                    query = schematiq_config.get("query", "")
 
                     # Select relevant content from first batch
                     loop = asyncio.get_running_loop()
                     relevant_content = await loop.run_in_executor(
-                        qbsd_thread_pool,
+                        schematiq_thread_pool,
                         functools.partial(
-                            QBSD.select_relevant_content,
+                            ScheMatiQ.select_relevant_content,
                             docs=first_batch_docs,
                             query=query,
                             retriever=retriever,
@@ -909,13 +909,13 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                     logger.info("Discovering observation unit for review...")
                     try:
                         obs_unit = await loop.run_in_executor(
-                            qbsd_thread_pool,
+                            schematiq_thread_pool,
                             functools.partial(
                                 discover_observation_unit,
                                 query=query if query.strip() else None,
                                 passages=relevant_content,
                                 llm=llm,
-                                context_window_size=qbsd_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
+                                context_window_size=schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
                                 source_document=first_batch_names[0] if first_batch_names else None,
                             )
                         )
@@ -960,7 +960,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 # Release concurrency slot while paused (will re-acquire on resume)
                 await concurrency_limiter.release(session_id)
 
-                # Return early - pipeline will be resumed via /qbsd/resume endpoint
+                # Return early - pipeline will be resumed via /schematiq/resume endpoint
                 return
 
             # Step 6: Schema discovery
