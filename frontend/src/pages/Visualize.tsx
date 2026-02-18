@@ -116,6 +116,9 @@ const Visualize = () => {
   // Processing columns state (for re-extraction visual indicators)
   const [processingColumns, setProcessingColumns] = useState<Set<string>>(new Set());
 
+  // Current column being extracted (for active chip highlight in progress bar)
+  const [currentColumn, setCurrentColumn] = useState<string | null>(null);
+
   // Current document being processed (for progress display)
   const [currentDocumentProgress, setCurrentDocumentProgress] = useState<{
     documentName: string;
@@ -291,6 +294,7 @@ const Visualize = () => {
               break;
             case 'reextraction_progress':
               if (message.data?.column) {
+                setCurrentColumn(message.data.column);
                 setProcessingColumns(prev => {
                   const newSet = new Set(Array.from(prev));
                   newSet.add(message.data.column);
@@ -301,6 +305,7 @@ const Visualize = () => {
             case 'reextraction_completed':
               debug.log('Re-extraction completed:', message.data);
               setProcessingColumns(new Set()); // Clear processing state
+              setCurrentColumn(null);          // Clear current column
               setCurrentDocumentProgress(null); // Clear document progress
               setStreamingCells(new Map());    // Clear streaming cells
               setActiveReextractionId(null);   // Clear operation ID
@@ -313,6 +318,7 @@ const Visualize = () => {
             case 'reextraction_stopped':
               debug.log('Re-extraction stopped:', message.data);
               setProcessingColumns(new Set()); // Clear processing state
+              setCurrentColumn(null);          // Clear current column
               setActiveReextractionId(null);   // Clear operation ID
               setIsStoppingReextraction(false); // Clear stopping state
               setCurrentDocumentProgress(null); // Clear document progress
@@ -322,6 +328,17 @@ const Visualize = () => {
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
               refreshUnits();
+              break;
+            case 'reextraction_failed':
+              debug.log('Re-extraction failed:', message.data);
+              setProcessingColumns(new Set());
+              setCurrentColumn(null);
+              setCurrentDocumentProgress(null);
+              setStreamingCells(new Map());
+              setActiveReextractionId(null);
+              setIsStoppingReextraction(false);
+              queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               break;
 
             case 'stopped':
@@ -373,6 +390,7 @@ const Visualize = () => {
               break;
             case 'incremental_extraction_progress':
               if (message.data?.column) {
+                setCurrentColumn(message.data.column);
                 setProcessingColumns(prev => {
                   const newSet = new Set(Array.from(prev));
                   newSet.add(message.data.column);
@@ -383,6 +401,7 @@ const Visualize = () => {
             case 'incremental_extraction_completed':
               debug.log('Incremental extraction completed:', message.data);
               setProcessingColumns(new Set()); // Clear processing state
+              setCurrentColumn(null);          // Clear current column
               setCurrentDocumentProgress(null); // Clear document progress
               setStreamingCells(new Map());    // Clear streaming cells
               setContinueDiscoveryActive(false);
@@ -615,6 +634,7 @@ const Visualize = () => {
                 break;
               case 'reextraction_progress':
                 if (message.data?.column) {
+                  setCurrentColumn(message.data.column);
                   setProcessingColumns(prev => {
                     const newSet = new Set(Array.from(prev));
                     newSet.add(message.data.column);
@@ -625,6 +645,7 @@ const Visualize = () => {
               case 'reextraction_completed':
                 debug.log('Re-extraction completed:', message.data);
                 setProcessingColumns(new Set()); // Clear processing state
+                setCurrentColumn(null);          // Clear current column
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
                 setActiveReextractionId(null);   // Clear operation ID
@@ -644,6 +665,7 @@ const Visualize = () => {
               case 'reextraction_stopped':
                 debug.log('Re-extraction stopped:', message.data);
                 setProcessingColumns(new Set()); // Clear processing state
+                setCurrentColumn(null);          // Clear current column
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
                 setActiveReextractionId(null);   // Clear operation ID
@@ -658,6 +680,7 @@ const Visualize = () => {
               case 'reextraction_failed':
                 debug.log('Re-extraction failed:', message.data);
                 setProcessingColumns(new Set());
+                setCurrentColumn(null);
                 setCurrentDocumentProgress(null);
                 setStreamingCells(new Map());
                 setActiveReextractionId(null);
@@ -718,6 +741,7 @@ const Visualize = () => {
                 break;
               case 'incremental_extraction_progress':
                 if (message.data?.column) {
+                  setCurrentColumn(message.data.column);
                   setProcessingColumns(prev => {
                     const newSet = new Set(Array.from(prev));
                     newSet.add(message.data.column);
@@ -728,6 +752,7 @@ const Visualize = () => {
               case 'incremental_extraction_completed':
                 debug.log('Incremental extraction completed:', message.data);
                 setProcessingColumns(new Set()); // Clear processing state
+                setCurrentColumn(null);          // Clear current column
                 setCurrentDocumentProgress(null); // Clear document progress
                 setStreamingCells(new Map());    // Clear streaming cells
                 setForceWebSocketConnect(false); // Allow WebSocket to close
@@ -1311,6 +1336,7 @@ const Visualize = () => {
                     refreshUnits();
                   }}
                   processingColumns={processingColumns}
+                  currentColumn={currentColumn}
                   currentDocumentProgress={currentDocumentProgress}
                   onStopReextraction={handleStopReextraction}
                   isStoppingReextraction={isStoppingReextraction}
@@ -1328,6 +1354,7 @@ const Visualize = () => {
                   onColumnReorder={handleColumnReorder}
                   streamingCells={streamingCells}
                   processingColumns={processingColumns}
+                  currentColumn={currentColumn}
                   currentDocumentProgress={currentDocumentProgress}
                   onStopReextraction={handleStopReextraction}
                   isStoppingReextraction={isStoppingReextraction}
