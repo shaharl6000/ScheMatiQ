@@ -143,6 +143,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [reextractionDialogOpen, setReextractionDialogOpen] = useState(false);
   const [continueDiscoveryDialogOpen, setContinueDiscoveryDialogOpen] = useState(false);
   const [observationUnitEditModalOpen, setObservationUnitEditModalOpen] = useState(false);
+  const [showAllExamples, setShowAllExamples] = useState(false);
 
   // View mode, search, and sort state - always default to 'detailed'
   const [viewMode, setViewMode] = useState<'compact' | 'detailed'>('detailed');
@@ -955,14 +956,25 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             {observationUnit.example_names && observationUnit.example_names.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 <span className="text-xs text-purple-600">Examples:</span>
-                {observationUnit.example_names.slice(0, 3).map((name, i) => (
+                {(showAllExamples ? observationUnit.example_names : observationUnit.example_names.slice(0, 3)).map((name, i) => (
                   <Badge key={i} variant="secondary" className="text-xs">
                     {name}
                   </Badge>
                 ))}
-                {observationUnit.example_names.length > 3 && (
-                  <span className="text-xs text-purple-600">
+                {observationUnit.example_names.length > 3 && !showAllExamples && (
+                  <span
+                    className="text-xs text-purple-600 cursor-pointer hover:text-purple-800 hover:underline"
+                    onClick={() => setShowAllExamples(true)}
+                  >
                     +{observationUnit.example_names.length - 3} more
+                  </span>
+                )}
+                {observationUnit.example_names.length > 3 && showAllExamples && (
+                  <span
+                    className="text-xs text-purple-600 cursor-pointer hover:text-purple-800 hover:underline"
+                    onClick={() => setShowAllExamples(false)}
+                  >
+                    show less
                   </span>
                 )}
               </div>
