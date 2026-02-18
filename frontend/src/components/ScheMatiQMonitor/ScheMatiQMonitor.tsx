@@ -503,7 +503,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
       }
 
       // Resume the pipeline
-      await qbsdAPI.resume(sessionId);
+      await schematiqAPI.resume(sessionId);
       addLog('info', 'Resuming schema generation...');
 
       // Transition to starting/schema state
@@ -842,7 +842,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
                 // If pipeline is running, stop it first
                 if (isProcessing) {
                   try {
-                    await qbsdAPI.stop(sessionId);
+                    await schematiqAPI.stop(sessionId);
                     addLog('info', 'Stopped pipeline to edit observation unit');
                   } catch (e) {
                     // Ignore stop errors — might already be stopped

@@ -303,7 +303,7 @@ async def run_schematiq(session_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/resume/{session_id}")
-async def resume_qbsd(session_id: str, background_tasks: BackgroundTasks):
+async def resume_schematiq(session_id: str, background_tasks: BackgroundTasks):
     """Resume QBSD execution after observation unit review or rediscover schema.
 
     Called either:
@@ -314,8 +314,8 @@ async def resume_qbsd(session_id: str, background_tasks: BackgroundTasks):
     """
     try:
         session = session_manager.get_session(session_id)
-        if not session or session.type != SessionType.QBSD:
-            raise HTTPException(status_code=404, detail="QBSD session not found")
+        if not session or session.type != SessionType.SCHEMATIQ:
+            raise HTTPException(status_code=404, detail="ScheMatiQ session not found")
 
         allowed_statuses = {
             SessionStatus.OBSERVATION_UNIT_REVIEW,
@@ -332,11 +332,11 @@ async def resume_qbsd(session_id: str, background_tasks: BackgroundTasks):
 
         # Pre-check global LLM quota before starting background task
         from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
-        from qbsd.core.llm_call_tracker import QuotaExceededError
+        from schematiq.core.llm_call_tracker import QuotaExceededError
         if not DEVELOPER_MODE and LLM_CALL_GLOBAL_LIMIT > 0:
             try:
-                qbsd_runner._sync_usage_from_sheets()
-                qbsd_runner._global_usage.check_quota(LLM_CALL_GLOBAL_LIMIT)
+                schematiq_runner._sync_usage_from_sheets()
+                schematiq_runner._global_usage.check_quota(LLM_CALL_GLOBAL_LIMIT)
             except QuotaExceededError as exc:
                 from app.core.email_alerts import send_quota_exceeded_alert
                 send_quota_exceeded_alert(total_used=exc.used)
@@ -346,12 +346,12 @@ async def resume_qbsd(session_id: str, background_tasks: BackgroundTasks):
                 )
 
         # Reserve concurrency slot before starting background task
-        await concurrency_limiter.acquire(session_id, "qbsd")
+        await concurrency_limiter.acquire(session_id, "schematiq")
 
-        # Start resumed QBSD in background
-        background_tasks.add_task(qbsd_runner.resume_qbsd, session_id)
+        # Start resumed ScheMatiQ in background
+        background_tasks.add_task(schematiq_runner.resume_schematiq, session_id)
 
-        return {"message": "QBSD execution resumed", "session_id": session_id}
+        return {"message": "ScheMatiQ execution resumed", "session_id": session_id}
 
     except CapacityExceededError as e:
         raise HTTPException(status_code=503, detail=str(e))
@@ -362,9 +362,6 @@ async def resume_qbsd(session_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/status/{session_id}", response_model=QBSDStatus)
-async def get_qbsd_status(session_id: str):
-    """Get QBSD execution status."""
 @router.get("/status/{session_id}", response_model=ScheMatiQStatus)
 async def get_schematiq_status(session_id: str):
     """Get ScheMatiQ execution status."""
