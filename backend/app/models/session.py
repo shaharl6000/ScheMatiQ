@@ -24,6 +24,7 @@ class SessionStatus(str, Enum):
     SCHEMA_EXTRACTED = "schema_extracted"  # Schema extracted from uploaded data
     DOCUMENTS_UPLOADED = "documents_uploaded"  # Documents uploaded for processing
     PROCESSING_DOCUMENTS = "processing_documents"  # Processing documents with ScheMatiQ pipeline
+    OBSERVATION_UNIT_REVIEW = "observation_unit_review"  # Paused for user to review observation unit
 
 class ObservationUnitInfo(BaseModel):
     """

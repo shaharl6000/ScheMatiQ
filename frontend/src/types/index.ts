@@ -204,6 +204,7 @@ export interface ScheMatiQConfig {
   output_path: string;
   document_randomization_seed: number;
   skip_value_extraction?: boolean;  // Schema discovery only mode
+  review_observation_unit?: boolean;  // Pause after observation unit discovery for user review
   previous_session_id?: string;  // Session ID to copy uploaded files from
   opt_out_data_collection?: boolean;  // User opted out of research data archival
 }
@@ -283,12 +284,18 @@ export interface StoppedData {
   message: string;
 }
 
+export interface ObservationUnitReadyData {
+  name: string;
+  definition: string;
+  example_names: string[];
+}
+
 export interface WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded';
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready';
   timestamp?: string;
   session_id?: string;
   message?: string;
-  data?: ProgressData | LogData | ErrorData | CompletionData | SchemaCompletionData | RowCompletionData | SchemaUpdatedData | ReprocessingProgressData | ReprocessingCompletedData | CellExtractedData | StoppedData;
+  data?: ProgressData | LogData | ErrorData | CompletionData | SchemaCompletionData | RowCompletionData | SchemaUpdatedData | ReprocessingProgressData | ReprocessingCompletedData | CellExtractedData | StoppedData | ObservationUnitReadyData;
 }
 
 // Schema types

@@ -1092,6 +1092,8 @@ const ScheMatiQConfigPage = () => {
                         setObservationUnitDefinition('');
                       } else {
                         setObservationUnitMode('name_only');
+                        // Clear review flag when user specifies manually
+                        handleConfigChange('review_observation_unit', false);
                       }
                     }}
                     className="space-y-3"
@@ -1105,6 +1107,19 @@ const ScheMatiQConfigPage = () => {
                         <p className="text-sm text-muted-foreground">
                           The system will automatically determine the observation unit from your query and documents.
                         </p>
+                        {observationUnitMode === 'auto' && (
+                          <div className="flex items-center gap-2 mt-1.5">
+                            <Checkbox
+                              id="review-obs-unit"
+                              checked={config.review_observation_unit || false}
+                              onCheckedChange={(checked) => handleConfigChange('review_observation_unit', checked)}
+                            />
+                            <Label htmlFor="review-obs-unit" className="text-sm cursor-pointer inline-flex items-center gap-1.5">
+                              Review before schema generation
+                              <InfoTooltip text="Pause after the observation unit is discovered so you can review and edit it before schema generation begins." />
+                            </Label>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-start space-x-3">
