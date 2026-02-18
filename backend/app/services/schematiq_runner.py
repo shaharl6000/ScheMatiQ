@@ -75,7 +75,7 @@ def build_llm_interface(
             context_window_size=context_window_size,  # None = auto-detect
             api_key=api_key
         )
-    elif provider.lower() == "gemini":
+    if provider.lower() == "gemini":
         # Token limits are auto-detected from model specs when None
         kwargs = {
             "max_output_tokens": max_output_tokens,  # None = auto-detect

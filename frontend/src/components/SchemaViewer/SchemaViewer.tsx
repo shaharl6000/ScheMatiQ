@@ -70,10 +70,13 @@ import {
   WebSocketMessageExtended,
   SchemaChangeStatus,
   ColumnCluster,
-  ObservationUnitInfo
+  ObservationUnitInfo,
+  ReextractionRequest
 } from '../../types';
 import { formatColumnName } from '../../utils/formatting';
-import { schemaAPI } from '../../services/api';
+import { schemaAPI, configAPI } from '../../services/api';
+import { getApiKeyForProvider, getConfiguredProviders } from '../../utils/apiKeyStorage';
+import { getDefaultModelForProvider, getAvailableProviders, LLMProviderKey } from '@/constants/llmModels';
 import ColumnDialog from '../SchemaEditor/ColumnDialog';
 import MergeDialog from '../SchemaEditor/MergeDialog';
 import ReextractionDialog from '../SchemaEditor/ReextractionDialog';
@@ -102,7 +105,7 @@ interface SchemaViewerProps {
   readonly?: boolean;
   processingColumns?: Set<string>;
   onColumnsChange?: (columns: ColumnInfo[]) => void;
-  onReextractionStarted?: (columns: string[]) => void;
+  onReextractionStarted?: (columns: string[], operationId?: string) => void;
   websocketManager?: any;
   llmConfig?: any;
   observationUnit?: ObservationUnitInfo;
@@ -724,6 +727,56 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const handleReextractionError = (message: string) => {
     toast({ title: 'Re-extraction Error', description: message, variant: 'destructive' });
   };
+
+  /** Start full table re-extraction (all columns). Used when user clicks "Re-extract Table" from observation unit modal. */
+  const handleFullReextractionRequest = useCallback(async () => {
+    const reextractColumns = localColumns
+      .filter((c) => c.name && !c.name.toLowerCase().endsWith('_excerpt'))
+      .map((c) => c.name);
+    if (reextractColumns.length === 0) {
+      toast({ title: 'No columns', description: 'There are no columns to re-extract.', variant: 'destructive' });
+      return;
+    }
+    try {
+      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
+      const configured = await getConfiguredProviders();
+      const available = getAvailableProviders(configured);
+      const provider: LLMProviderKey = !cfg.allow_llm_config
+        ? 'gemini'
+        : (available[0] ?? 'gemini');
+      const model = getDefaultModelForProvider(provider);
+      const apiKey = await getApiKeyForProvider(provider);
+      const request: ReextractionRequest = {
+        columns: reextractColumns,
+      };
+      if (apiKey) {
+        request.llm_config = { provider, model, api_key: apiKey, temperature: 0 };
+      }
+      const response = await schemaAPI.startReextraction(sessionId, request);
+      if (response.rows_to_process === 0) {
+        toast({
+          title: 'No documents',
+          description: 'No source documents available to process. Upload documents and try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+      if (onReextractionStarted) {
+        onReextractionStarted(response.columns, response.operation_id);
+      }
+      toast({
+        title: 'Re-extraction started',
+        description: `Re-extracting ${response.columns.length} column(s) across ${response.rows_to_process} documents. View the Data tab for progress.`,
+      });
+    } catch (error: any) {
+      const detail = error.response?.data?.detail;
+      if (error.response?.status === 503) {
+        handleReextractionError(detail || 'Server is busy. Try again in a few minutes.');
+      } else {
+        handleReextractionError(detail || 'Failed to start re-extraction');
+      }
+    }
+  }, [localColumns, sessionId, onReextractionStarted, toast]);
 
   const handleContinueDiscoverySuccess = (message: string, newColumns: ColumnInfo[]) => {
     toast({ title: 'Success', description: message });
@@ -2168,9 +2221,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             }
             // NOTE: Don't show toast here - the modal handles its own toast messaging
           }}
-          onReextractionRequest={() => {
-            setReextractionDialogOpen(true);
-          }}
+          onReextractionRequest={handleFullReextractionRequest}
           onRegenerateSchema={onRegenerateSchema}
         />
       )}

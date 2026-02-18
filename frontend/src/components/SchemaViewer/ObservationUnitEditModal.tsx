@@ -53,7 +53,8 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
   onRegenerateSchema,
 }) => {
   const { toast } = useToast();
-  const [loading, setLoading] = useState(false);
+  type LoadingAction = 'save' | 'reextract' | 'rediscover' | null;
+  const [loadingAction, setLoadingAction] = useState<LoadingAction>(null);
   const [name, setName] = useState('');
   const [definition, setDefinition] = useState('');
   const [exampleNames, setExampleNames] = useState<string[]>([]);
@@ -137,7 +138,7 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
   const handleSave = async () => {
     if (!validateForm()) return;
 
-    setLoading(true);
+    setLoadingAction('save');
     try {
       const response = await observationUnitAPI.updateDefinition(sessionId, {
         name: name.trim(),
@@ -176,14 +177,14 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      setLoadingAction(null);
     }
   };
 
   const handleSaveAndReextract = async () => {
     if (!validateForm()) return;
 
-    setLoading(true);
+    setLoadingAction('reextract');
     try {
       const response = await observationUnitAPI.updateDefinition(sessionId, {
         name: name.trim(),
@@ -216,14 +217,14 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      setLoadingAction(null);
     }
   };
 
   const handleSaveAndRegenerate = async () => {
     if (!validateForm()) return;
 
-    setLoading(true);
+    setLoadingAction('rediscover');
     try {
       const response = await observationUnitAPI.updateDefinition(sessionId, {
         name: name.trim(),
@@ -257,7 +258,7 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      setLoadingAction(null);
     }
   };
 
@@ -275,7 +276,7 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]" onKeyDown={handleKeyDown}>
+      <DialogContent className="sm:max-w-[550px]" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <DialogTitle>Edit Observation Unit</DialogTitle>
           <DialogDescription>
@@ -417,36 +418,37 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
           )}
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
+        <DialogFooter className="sm:justify-between">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={!!loadingAction}>
             Cancel
           </Button>
-          {onReextractionRequest && (
-            <Button
-              variant="outline"
-              onClick={handleSaveAndReextract}
-              disabled={loading}
-            >
-              {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Save & Re-extract
+          <div className="flex gap-2">
+            {onReextractionRequest && (
+              <Button
+                variant="secondary"
+                onClick={handleSaveAndReextract}
+                disabled={!!loadingAction}
+                size="sm"
+              >
+                {loadingAction === 'reextract' ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <RefreshCw className="h-3 w-3 mr-1" />}
+                Re-extract Table
+              </Button>
+            )}
+            {onRegenerateSchema && (
+              <Button
+                variant="secondary"
+                onClick={handleSaveAndRegenerate}
+                disabled={!!loadingAction}
+                size="sm"
+              >
+                {loadingAction === 'rediscover' ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : <Sparkles className="h-3 w-3 mr-1" />}
+                Rediscover Schema
+              </Button>
+            )}
+            <Button onClick={handleSave} disabled={!!loadingAction} className="min-w-[70px]">
+              {loadingAction === 'save' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
             </Button>
-          )}
-          {onRegenerateSchema && (
-            <Button
-              variant="outline"
-              onClick={handleSaveAndRegenerate}
-              disabled={loading}
-            >
-              {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <Sparkles className="h-4 w-4 mr-2" />
-              Save & Rediscover Schema
-            </Button>
-          )}
-          <Button onClick={handleSave} disabled={loading}>
-            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Save Changes
-          </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

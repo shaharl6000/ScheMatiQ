@@ -1541,10 +1541,18 @@ const Visualize = () => {
               onRegenerateSchema={mode === 'qbsd' ? async () => {
                 try {
                   await qbsdAPI.resume(sessionId);
+                  
+                  // Invalidate session query to refetch fresh status (should now show "processing")
+                  queryClient.invalidateQueries(['session', sessionId]);
+                  
+                  // Force WebSocket connection to receive real-time progress updates
+                  setForceWebSocketConnect(true);
+                  
                   toast({
                     title: 'Schema Rediscovery Started',
                     description: 'The schema is being rediscovered with the updated observation unit. Switching to the Monitor tab.',
                   });
+                  
                   // Switch to monitor tab to show progress
                   setActiveTab('monitor');
                 } catch (error: any) {
