@@ -168,8 +168,8 @@ const Load = () => {
                     <span className="font-medium">{template.name}</span>
                     <span className="text-xs text-muted-foreground">
                       {template.file_type.toUpperCase()}
-                      {template.row_count !== undefined && ` • ${template.row_count} rows`}
-                      {template.column_count !== undefined && ` • ${template.column_count} cols`}
+                      {template.row_count != null && ` • ${template.row_count} rows`}
+                      {template.column_count != null && ` • ${template.column_count} cols`}
                     </span>
                   </DropdownMenuItem>
                 ))

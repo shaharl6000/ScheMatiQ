@@ -536,6 +536,19 @@ class LocalStorageBackend(StorageInterface):
                                         row_count = len(data)
                                         if data:
                                             column_count = len(data[0].keys())
+                                    elif isinstance(data, dict):
+                                        # ScheMatiQ export format: {data: [...], schema: {columns: [...]}}
+                                        if isinstance(data.get('data'), list):
+                                            row_count = len(data['data'])
+                                        schema = data.get('schema', {})
+                                        columns = schema.get('columns', []) if isinstance(schema, dict) else []
+                                        if columns:
+                                            column_count = len(columns)
+                                        elif row_count and data['data']:
+                                            first_row = data['data'][0]
+                                            inner = first_row.get('data', first_row) if isinstance(first_row, dict) else first_row
+                                            if isinstance(inner, dict):
+                                                column_count = len(inner.keys())
                         except Exception:
                             pass  # Ignore count errors
 
