@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Search, GripVertical, Loader2, Square, AlertCircle } from 'lucide-react';
+import { Search, GripVertical, Loader2, AlertCircle } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -23,7 +23,6 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Progress } from '@/components/ui/progress';
 import {
   Select,
   SelectContent,
@@ -47,6 +46,7 @@ import {
 } from '../../utils/formatting';
 import ContentModal from '../ContentModal/ContentModal';
 import ExtractingCell from './ExtractingCell';
+import ExtractionProgressBar from './ExtractionProgressBar';
 import {
   SCHEMATIQ_REFRESH_INTERVAL,
   AVAILABLE_PAGE_SIZES,
@@ -96,6 +96,8 @@ interface DataTableProps {
   columnInfo?: ColumnInfoProp[];
   /** Columns currently being re-extracted (for skeleton display) */
   processingColumns?: Set<string>;
+  /** Column currently being extracted (for active chip highlight) */
+  currentColumn?: string | null;
   /** Current document being processed for re-extraction */
   currentDocumentProgress?: {
     documentName: string;
@@ -249,6 +251,7 @@ const DataTable: React.FC<DataTableProps> = ({
   streamingCells,
   columnInfo,
   processingColumns,
+  currentColumn,
   currentDocumentProgress,
   onStopReextraction,
   isStoppingReextraction,
@@ -1158,55 +1161,16 @@ const DataTable: React.FC<DataTableProps> = ({
 
       {/* Re-extraction / Document Processing Progress Bar */}
       {((processingColumns && processingColumns.size > 0) || isProcessingDocuments) && (
-        <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg">
-          <div className="flex items-center justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" />
-              <span className="font-medium">
-                {processingColumns && processingColumns.size > 0
-                  ? `Re-extracting ${processingColumns.size} column${processingColumns.size !== 1 ? 's' : ''}`
-                  : 'Extracting data from new documents'}
-              </span>
-              {currentDocumentProgress && (
-                <span className="text-sm text-muted-foreground">
-                  — {hasObservationUnits ? 'Observation Unit' : 'Document'} {currentDocumentProgress.documentIndex} of {currentDocumentProgress.totalDocuments}
-                </span>
-              )}
-            </div>
-            {(processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing) && (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing}
-                disabled={processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing}
-                className="gap-1"
-              >
-                {(processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing) ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Stopping...
-                  </>
-                ) : (
-                  <>
-                    <Square className="h-4 w-4" />
-                    Stop
-                  </>
-                )}
-              </Button>
-            )}
-          </div>
-          {currentDocumentProgress && currentDocumentProgress.totalDocuments > 0 && (
-            <div className="space-y-1">
-              <Progress
-                value={(currentDocumentProgress.documentIndex / currentDocumentProgress.totalDocuments) * 100}
-                className="h-2"
-              />
-              <p className="text-xs text-muted-foreground">
-                Processing: {currentDocumentProgress.documentName}
-              </p>
-            </div>
-          )}
-        </div>
+        <ExtractionProgressBar
+          processingColumns={processingColumns || new Set()}
+          currentColumn={currentColumn}
+          currentDocumentProgress={currentDocumentProgress}
+          onStop={processingColumns && processingColumns.size > 0 ? onStopReextraction : onStopProcessing}
+          isStopping={processingColumns && processingColumns.size > 0 ? isStoppingReextraction : isStoppingProcessing}
+          isProcessingDocuments={isProcessingDocuments}
+          unitLabel={hasObservationUnits ? 'Observation Unit' : 'Document'}
+          variant="blue"
+        />
       )}
 
       <Card>

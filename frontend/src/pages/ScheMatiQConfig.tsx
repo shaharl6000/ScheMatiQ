@@ -927,7 +927,9 @@ const ScheMatiQConfigPage = () => {
                       ) : selectedPaths.length === 0 ? (
                         'Select datasets...'
                       ) : (
-                        `${selectedPaths.length} dataset${selectedPaths.length > 1 ? 's' : ''} selected`
+                        selectedPaths.length <= 3
+                          ? selectedPaths.join(', ')
+                          : `${selectedPaths.slice(0, 2).join(', ')} +${selectedPaths.length - 2} more`
                       )}
                       <ChevronDown className="ml-2 h-4 w-4" />
                     </Button>
