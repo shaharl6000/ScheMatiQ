@@ -56,7 +56,6 @@ interface LLMSelectorProps {
 const DEFAULT_CONFIG: LLMConfig = {
   provider: 'gemini',
   model: 'gemini-2.5-flash-lite',
-
   temperature: 0,
 };
 
@@ -118,7 +117,6 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
         setSelectedConfig({
           provider: defaultProvider,
           model: modelToUse,
-        
           temperature: 0,
         });
         setUsePreservedConfig(false);
@@ -129,7 +127,6 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
         setSelectedConfig({
           provider: 'gemini',
           model: modelToUse,
-        
           temperature: 0,
         });
         setUsePreservedConfig(false);
@@ -147,7 +144,6 @@ const LLMSelector: React.FC<LLMSelectorProps> = ({
     setSelectedConfig({
       provider,
       model: defaultModel,
-    
       temperature: 0,
     });
     setUsePreservedConfig(false);

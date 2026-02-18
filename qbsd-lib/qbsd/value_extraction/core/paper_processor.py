@@ -375,10 +375,11 @@ class PaperProcessor:
         if mode == "one":
             mode = "one_by_one"
 
+        if DISABLE_RETRIEVER:
+            print(f"🚫 Retriever disabled → sending full document ({len(paper_text)} chars) for {paper_title}")
+
         def _retrieve_effective_text(columns_for_query=None, k=None) -> str:
             if DISABLE_RETRIEVER or self.retriever is None:
-                if DISABLE_RETRIEVER:
-                    print(f"🚫 DISABLE_RETRIEVER=True → sending full document ({len(paper_text)} chars) for {paper_title}")
                 return paper_text
             try:
                 retrieval_query = self.text_processor.build_retrieval_query(schema, columns_for_query)
@@ -1102,7 +1103,6 @@ class PaperProcessor:
             # instead of the (possibly truncated) relevant_passages from unit identification
             if DISABLE_RETRIEVER:
                 relevant_passages = [paper_text]
-                print(f"🚫 DISABLE_RETRIEVER=True → sending full document ({len(paper_text)} chars) for unit '{unit_name}' in {paper_title}")
 
             print(f"  → Extracting values for unit {i}/{len(units)}: {unit_name} (confidence: {confidence})")
             unit_start = time_module.time()
