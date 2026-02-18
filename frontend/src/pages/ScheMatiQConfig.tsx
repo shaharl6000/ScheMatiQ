@@ -354,18 +354,18 @@ const ScheMatiQConfigPage = () => {
 
     // Open advanced settings if any non-default values were restored
     const hasAdvancedChanges =
-      restoredConfig.max_keys_schema !== DEFAULT_MAX_KEYS_SCHEMA ||
-      restoredConfig.documents_batch_size !== DEFAULT_DOCUMENTS_BATCH_SIZE ||
-      restoredConfig.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED ||
+      (restoredConfig.max_keys_schema ?? DEFAULT_MAX_KEYS_SCHEMA) !== DEFAULT_MAX_KEYS_SCHEMA ||
+      (restoredConfig.documents_batch_size ?? DEFAULT_DOCUMENTS_BATCH_SIZE) !== DEFAULT_DOCUMENTS_BATCH_SIZE ||
+      (restoredConfig.document_randomization_seed ?? DEFAULT_DOCUMENT_RANDOMIZATION_SEED) !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED ||
       restoredConfig.initial_observation_unit ||
       (restoredConfig.schema_creation_backend &&
-        (restoredConfig.schema_creation_backend.provider !== DEFAULT_CONFIG.schema_creation_backend.provider ||
-        restoredConfig.schema_creation_backend.model !== DEFAULT_CONFIG.schema_creation_backend.model ||
-        restoredConfig.schema_creation_backend.temperature !== DEFAULT_CONFIG.schema_creation_backend.temperature)) ||
+        ((restoredConfig.schema_creation_backend.provider ?? DEFAULT_CONFIG.schema_creation_backend.provider) !== DEFAULT_CONFIG.schema_creation_backend.provider ||
+        (restoredConfig.schema_creation_backend.model ?? DEFAULT_CONFIG.schema_creation_backend.model) !== DEFAULT_CONFIG.schema_creation_backend.model ||
+        (restoredConfig.schema_creation_backend.temperature ?? DEFAULT_CONFIG.schema_creation_backend.temperature) !== DEFAULT_CONFIG.schema_creation_backend.temperature)) ||
       (restoredConfig.value_extraction_backend &&
-        (restoredConfig.value_extraction_backend.provider !== DEFAULT_CONFIG.value_extraction_backend.provider ||
-        restoredConfig.value_extraction_backend.model !== DEFAULT_CONFIG.value_extraction_backend.model ||
-        restoredConfig.value_extraction_backend.temperature !== DEFAULT_CONFIG.value_extraction_backend.temperature)) ||
+        ((restoredConfig.value_extraction_backend.provider ?? DEFAULT_CONFIG.value_extraction_backend.provider) !== DEFAULT_CONFIG.value_extraction_backend.provider ||
+        (restoredConfig.value_extraction_backend.model ?? DEFAULT_CONFIG.value_extraction_backend.model) !== DEFAULT_CONFIG.value_extraction_backend.model ||
+        (restoredConfig.value_extraction_backend.temperature ?? DEFAULT_CONFIG.value_extraction_backend.temperature) !== DEFAULT_CONFIG.value_extraction_backend.temperature)) ||
       restoredConfig.retriever;
 
     if (hasAdvancedChanges) {
