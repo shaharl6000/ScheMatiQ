@@ -2168,6 +2168,9 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             }
             // NOTE: Don't show toast here - the modal handles its own toast messaging
           }}
+          onReextractionRequest={() => {
+            setReextractionDialogOpen(true);
+          }}
           onRegenerateSchema={onRegenerateSchema}
         />
       )}

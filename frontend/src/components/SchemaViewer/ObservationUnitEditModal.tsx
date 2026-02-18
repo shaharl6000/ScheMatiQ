@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, Plus, X, Loader2, FileText, Clock, Sparkles } from 'lucide-react';
+import { AlertTriangle, Plus, X, Loader2, FileText, Clock, RefreshCw, Sparkles } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -39,6 +39,7 @@ interface ObservationUnitEditModalProps {
   sessionId: string;
   observationUnit: ObservationUnitInfo;
   onUpdate: (updated: ObservationUnitInfo) => void;
+  onReextractionRequest?: () => void;
   onRegenerateSchema?: () => void;
 }
 
@@ -48,6 +49,7 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
   sessionId,
   observationUnit,
   onUpdate,
+  onReextractionRequest,
   onRegenerateSchema,
 }) => {
   const { toast } = useToast();
@@ -167,6 +169,46 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
       }
 
       onOpenChange(false);
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.detail || 'Failed to update observation unit definition',
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveAndReextract = async () => {
+    if (!validateForm()) return;
+
+    setLoading(true);
+    try {
+      const response = await observationUnitAPI.updateDefinition(sessionId, {
+        name: name.trim(),
+        definition: definition.trim(),
+        example_names: exampleNames.length > 0 ? exampleNames : undefined,
+      });
+
+      onUpdate({
+        name: response.observation_unit.name,
+        definition: response.observation_unit.definition,
+        example_names: response.observation_unit.example_names,
+        source_document: response.observation_unit.source_document,
+        discovery_iteration: response.observation_unit.discovery_iteration,
+      });
+
+      toast({
+        title: 'Success',
+        description: 'Definition updated. Opening re-extraction dialog...',
+      });
+
+      onOpenChange(false);
+
+      if (onReextractionRequest) {
+        onReextractionRequest();
+      }
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -375,21 +417,30 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
           )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex-col sm:flex-row gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancel
           </Button>
-          <Button variant="outline" onClick={handleSave} disabled={loading}>
-            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-            Save Changes
-          </Button>
-          {onRegenerateSchema && (
-            <Button onClick={handleSaveAndRegenerate} disabled={loading}>
+          <div className="flex gap-2 flex-wrap justify-end">
+            <Button variant="outline" onClick={handleSave} disabled={loading}>
               {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              <Sparkles className="h-4 w-4 mr-2" />
-              Save & Rediscover Schema
+              Save Changes
             </Button>
-          )}
+            {onReextractionRequest && (
+              <Button variant="outline" onClick={handleSaveAndReextract} disabled={loading}>
+                {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                <RefreshCw className="h-4 w-4 mr-2" />
+                Save & Re-extract Table
+              </Button>
+            )}
+            {onRegenerateSchema && (
+              <Button onClick={handleSaveAndRegenerate} disabled={loading}>
+                {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                <Sparkles className="h-4 w-4 mr-2" />
+                Save & Rediscover Schema
+              </Button>
+            )}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
