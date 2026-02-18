@@ -10,11 +10,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 
 import { CellValue, ScheMatiQAnswerWithExcerpts, Excerpt, ExcerptWithSource } from '../../types';
 import { copyToClipboard } from '../../utils/clipboard';
@@ -246,26 +241,19 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
       <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <DialogTitle className="pr-8">{title}</DialogTitle>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 shrink-0"
-                onClick={handleCopy}
-                aria-label="Copy content to clipboard"
-              >
-                {copied ? (
-                  <Check className="h-3 w-3 text-green-500" />
-                ) : (
-                  <Copy className="h-3 w-3" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={5}>
-              {copied ? 'Copied!' : 'Copy to clipboard'}
-            </TooltipContent>
-          </Tooltip>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 shrink-0"
+            onClick={handleCopy}
+            aria-label="Copy content to clipboard"
+          >
+            {copied ? (
+              <Check className="h-3 w-3 text-green-500" />
+            ) : (
+              <Copy className="h-3 w-3" />
+            )}
+          </Button>
         </DialogHeader>
 
         <ScrollArea className="flex-1 min-h-[200px]">

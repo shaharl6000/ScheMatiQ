@@ -26,8 +26,6 @@ import {
   ContinueDiscoveryRequest,
   ContinueDiscoveryResponse,
   ContinueDiscoveryStatus,
-  ConfirmColumnsRequest,
-  ConfirmColumnsResponse,
   DocumentAvailabilityRequest,
   DocumentAvailabilityResponse,
   CostEstimate
@@ -739,13 +737,13 @@ export const schemaAPI = {
       return response.data;
     },
 
-    confirmColumns: async (sessionId: string, operationId: string, request: ConfirmColumnsRequest): Promise<ConfirmColumnsResponse> => {
-      const response = await api.post(`/schema/continue-discovery/confirm/${sessionId}/${operationId}`, request);
+    stop: async (sessionId: string, operationId: string): Promise<{ status: string; phase: string; message: string }> => {
+      const response = await api.post(`/schema/continue-discovery/stop/${sessionId}/${operationId}`);
       return response.data;
     },
 
-    stop: async (sessionId: string, operationId: string): Promise<{ status: string; phase: string; message: string }> => {
-      const response = await api.post(`/schema/continue-discovery/stop/${sessionId}/${operationId}`);
+    finalize: async (sessionId: string, request: { adopt_documents: boolean }): Promise<{ status: string; adopted_count: number; adopted_files: string[] }> => {
+      const response = await api.post(`/schema/continue-discovery/finalize/${sessionId}`, request);
       return response.data;
     },
   },

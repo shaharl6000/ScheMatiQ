@@ -267,7 +267,7 @@ class TableBuilder:
                 papers_by_row[row_name] = []
             papers_by_row[row_name].append(doc_path)
         
-        print(f"📊 Found {len(papers_by_row)} unique rows from documents")
+        print(f"📊 Found {len(papers_by_row)} documents to process")
         
         # Handle resume logic
         existing_rows, processed_papers, completed_rows = {}, set(), set()
@@ -278,19 +278,19 @@ class TableBuilder:
         
         # Process rows
         written_rows = set()
-        total_rows = len(papers_by_row)
+        total_documents = len(papers_by_row)
 
-        for row_idx, (row_name, papers) in enumerate(papers_by_row.items(), 1):
+        for doc_idx, (row_name, papers) in enumerate(papers_by_row.items(), 1):
             # Check for stop request before processing each row
             if self.should_stop and self.should_stop():
-                print(f"\n🛑 Stop requested - exiting after {row_idx-1}/{total_rows} rows")
+                print(f"\n🛑 Stop requested - exiting after {doc_idx-1}/{total_documents} documents")
                 self._stopped = True
                 break
 
-            print(f"\n🔄 Processing row {row_idx}/{total_rows}: {row_name}")
+            print(f"\n🔄 Processing document {doc_idx}/{total_documents}: {row_name}")
 
             if row_name in completed_rows:
-                print(f"⏭️  Row {row_name} already completed, skipping...")
+                print(f"⏭️  Document {row_name} already completed, skipping...")
                 written_rows.add(row_name)
                 continue
 
@@ -302,7 +302,7 @@ class TableBuilder:
                 known_units=known_units
             )
 
-        print(f"\n✅ Processing complete! Wrote {len(written_rows)} rows to {output_path}")
+        print(f"\n✅ Processing complete! {len(written_rows)} documents processed to {output_path}")
 
         # Print summary of skipped documents (no observation units found)
         self._report_skipped_documents_summary()
@@ -630,7 +630,7 @@ class TableBuilder:
         print("📋 Grouping papers by row name...")
         papers_by_row = self.row_manager.group_papers_by_row(docs)
         
-        print(f"📊 Found {len(papers_by_row)} unique row names from {len(docs)} papers")
+        print(f"📊 Found {len(papers_by_row)} document groups from {len(docs)} papers")
         for row_name, papers in papers_by_row.items():
             print(f"  • {row_name}: {len(papers)} papers")
 

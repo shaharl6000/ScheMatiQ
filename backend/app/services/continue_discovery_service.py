@@ -1,13 +1,14 @@
 """
 Continue Schema Discovery service for ScheMatiQ.
-Handles continuing schema discovery with existing schema as starting point,
-discovering new columns, and incremental value extraction.
+Handles continuing schema discovery with existing schema as starting point
+and discovering new columns.
 """
 
 import logging
 import json
 import asyncio
 import functools
+import hashlib
 import threading
 import uuid
 import math
@@ -34,12 +35,11 @@ from app.core.logging_utils import set_session_context
 # ScheMatiQ library imports
 from schematiq.core import schematiq as ScheMatiQ
 from schematiq.core.schematiq import discover_schema
-from schematiq.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot
+from schematiq.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot, ObservationUnit
 from schematiq.core.llm_backends import GeminiLLM
 from schematiq.core.retrievers import EmbeddingRetriever
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
-from schematiq.value_extraction.main import build_table_jsonl
 
 SCHEMATIQ_AVAILABLE = True
 
@@ -78,14 +78,12 @@ class ContinueDiscoveryOperation:
         self.operation_id = operation_id
         self.session_id = session_id
         self.status = status  # pending, running, completed, failed, stopped
-        self.phase = "discovery"  # discovery, extraction
+        self.phase = "discovery"
         self.progress = 0.0
         self.current_batch = 0
         self.total_batches = 0
         self.initial_columns: List[str] = []
         self.new_columns: List[Dict[str, Any]] = []
-        self.confirmed_columns: List[str] = []
-        self.extraction_rows: List[str] = []
         self.processed_documents = 0
         self.total_documents = 0
         self.started_at: Optional[datetime] = None
@@ -602,9 +600,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         Returns:
             Tuple of (docs_directory, document_contents, filenames)
         """
-        # Use storage backend's directories for correct path resolution
+        # Use a temp directory so discovery documents don't contaminate the session's
+        # main document directory (which is used by standard re-extraction)
         session_dir = self._get_data_dir() / session_id
-        docs_dir = session_dir / "documents"
+        docs_dir = session_dir / "continue_discovery_documents"
         docs_dir.mkdir(parents=True, exist_ok=True)
 
         documents = []
@@ -645,23 +644,21 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
             storage = get_storage()
             try:
-                files = await storage.list_files('datasets', cloud_dataset)
-                for file_info in files:
-                    if not file_info.get('is_folder', False):
-                        file_path = f"{cloud_dataset}/{file_info['name']}"
-                        content = await storage.download_file('datasets', file_path)
-                        if content:
-                            # Save locally
-                            local_path = docs_dir / file_info['name']
-                            local_path.write_bytes(content)
+                dataset_files = await storage.list_dataset_files(cloud_dataset)
+                for file_info in dataset_files:
+                    content = await storage.download_dataset_file(cloud_dataset, file_info.name)
+                    if content:
+                        # Save locally
+                        local_path = docs_dir / file_info.name
+                        local_path.write_bytes(content)
 
-                            # Add to documents list
-                            try:
-                                text_content = content.decode('utf-8')
-                                documents.append(text_content)
-                                filenames.append(file_info['name'])
-                            except UnicodeDecodeError:
-                                logger.debug(f"Could not decode {file_info['name']} as UTF-8")
+                        # Add to documents list
+                        try:
+                            text_content = content.decode('utf-8')
+                            documents.append(text_content)
+                            filenames.append(file_info.name)
+                        except UnicodeDecodeError:
+                            logger.debug(f"Could not decode {file_info.name} as UTF-8")
             except Exception as e:
                 logger.error(f"Error downloading cloud documents: {e}")
                 raise
@@ -743,7 +740,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 )
                 schematiq_columns.append(schematiq_col)
 
-        return Schema(query=query, columns=schematiq_columns, max_keys=100)
+        return Schema(query=query, columns=schematiq_columns, max_keys=None)
 
     def _identify_new_columns(
         self,
@@ -780,7 +777,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         cloud_dataset: Optional[str] = None,
         uploaded_files: Optional[List[str]] = None,
         retriever_config: Optional[Dict[str, Any]] = None,
-        max_keys_schema: int = 100,
+        max_keys_schema: Optional[int] = None,
         documents_batch_size: int = 1,
         bypass_limit: bool = False
     ) -> Dict[str, Any]:
@@ -920,6 +917,44 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             initial_schema = self._convert_session_columns_to_schema(session.columns, query)
             logger.debug(f"Initial schema has {len(initial_schema.columns)} columns")
 
+            # Convert session's observation unit for use in generate_schema
+            # (matches initial discovery which passes observation_unit to the LLM)
+            session_obs_unit = None
+            if session.observation_unit:
+                session_obs_unit = ObservationUnit(
+                    name=session.observation_unit.name,
+                    definition=session.observation_unit.definition or "",
+                    example_names=getattr(session.observation_unit, 'example_names', None) or []
+                )
+                logger.debug(f"Using observation unit: {session_obs_unit.name}")
+
+            # Compute effective max_keys_schema: if not explicitly set by user,
+            # use initial columns + 50 to avoid truncating existing columns
+            effective_max_keys = config.get("max_keys_schema")
+            if effective_max_keys is None:
+                effective_max_keys = len(initial_schema.columns) + 50
+            logger.debug(f"Effective max_keys_schema: {effective_max_keys}")
+
+            # Capture schema baseline before discovery so new columns
+            # are properly detected as "new" in SchemaViewer afterwards
+            if not session.schema_baseline:
+                from app.models.session import ColumnBaseline, SchemaBaseline
+                columns_dict = {}
+                for col in session.columns:
+                    if col.name and not col.name.lower().endswith('_excerpt'):
+                        content = f"{col.definition or ''}{col.rationale or ''}"
+                        if col.allowed_values:
+                            content += "|".join(sorted(col.allowed_values))
+                        checksum = hashlib.md5(content.encode()).hexdigest()
+                        columns_dict[col.name] = ColumnBaseline(
+                            name=col.name, definition=col.definition or "",
+                            rationale=col.rationale or "",
+                            allowed_values=col.allowed_values, checksum=checksum
+                        )
+                session.schema_baseline = SchemaBaseline(columns=columns_dict, captured_at=datetime.now())
+                self.session_manager.update_session(session)
+                logger.info(f"Captured schema baseline with {len(columns_dict)} columns before continue discovery")
+
             # Build LLM - enforce release mode settings if applicable
             enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=True)
             llm = schematiq_utils.build_llm(enforced_llm_config)
@@ -985,6 +1020,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     stopped = True
                     operation.status = "stopped"
                     operation.completed_at = datetime.now()
+                    # Clean up temp discovery documents
+                    shutil.rmtree(session_dir / "continue_discovery_documents", ignore_errors=True)
                     await self.broadcast_event(
                         operation.session_id,
                         "continue_discovery_stopped",
@@ -995,6 +1032,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 # Update progress
                 operation.current_batch = iteration + 1
                 progress = (iteration + 1) / len(batches)
+                operation.progress = progress
 
                 await self.broadcast_event(
                     operation.session_id,
@@ -1032,10 +1070,11 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                             ScheMatiQ.generate_schema,
                             passages=relevant_content,
                             query=query,
-                            max_keys_schema=config.get("max_keys_schema", 100),
+                            max_keys_schema=effective_max_keys,
                             current_schema=current_schema,
                             llm=llm,
                             context_window_size=context_window_size,
+                            observation_unit=session_obs_unit,
                         ),
                     )
                     # generate_schema returns a tuple (Schema, bool)
@@ -1165,8 +1204,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     next_iteration = len(stats_evolution.snapshots) + 1
 
                     # Get document names that were used for discovery
-                    docs_dir = self._get_data_dir() / operation.session_id / "documents"
-                    doc_names = [f.name for f in docs_dir.glob("*") if f.is_file()][:10] if docs_dir.exists() else []
+                    doc_names = filenames[:10]
 
                     # Filter out any excerpt columns from new_columns list
                     non_excerpt_new_cols = [col["name"] for col in new_columns if not col["name"].lower().endswith('_excerpt')]
@@ -1233,7 +1271,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     operation.session_id, "continue_discovery_completion"
                 )
 
-            # Cleanup config files
+            # Cleanup config files (keep continue_discovery_documents for finalize)
             config_file.unlink(missing_ok=True)
             llm_config_file.unlink(missing_ok=True)
 
@@ -1252,495 +1290,15 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     "error": str(e)
                 }
             )
+            # Clean up temp discovery documents on failure
+            session_dir = self._get_data_dir() / operation.session_id
+            shutil.rmtree(session_dir / "continue_discovery_documents", ignore_errors=True)
         finally:
             await concurrency_limiter.release(operation.session_id)
-            # Only cleanup on stopped — failed operations persist for polling,
-            # successful operations persist for the confirm/extraction step.
-            # TTL in get_operation_status handles abandoned operations.
+            # Only cleanup on stopped — completed operations stay alive for
+            # the frontend poll to detect completion (cleaned up by TTL).
             if operation.status == "stopped":
                 self._cleanup_operation(operation_id)
-            elif operation.status == "completed":
-                operation.completed_at = datetime.now()
-
-    # ==================== Incremental Extraction ====================
-
-    async def confirm_and_start_extraction(
-        self,
-        operation_id: str,
-        selected_columns: List[str],
-        row_selection: str,
-        selected_rows: Optional[List[str]] = None,
-        llm_config: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        Confirm new columns and start incremental value extraction.
-
-        Args:
-            operation_id: The discovery operation ID
-            selected_columns: List of new column names to add and extract
-            row_selection: 'all' or 'selected'
-            selected_rows: List of row names if row_selection is 'selected'
-            llm_config: LLM configuration (optional, uses discovery config if not provided)
-
-        Returns:
-            Dictionary with extraction status
-        """
-        operation = self.active_operations.get(operation_id)
-        if not operation:
-            raise ValueError(f"Operation {operation_id} not found")
-
-        if operation.status != "completed" or operation.phase != "discovery":
-            raise ValueError(f"Operation not ready for extraction (status={operation.status}, phase={operation.phase})")
-
-        session = self.session_manager.get_session(operation.session_id)
-        if not session:
-            raise ValueError(f"Session {operation.session_id} not found")
-
-        # Filter selected columns from discovered new columns
-        new_columns_to_add = [
-            col for col in operation.new_columns
-            if col["name"] in selected_columns
-        ]
-
-        if not new_columns_to_add:
-            return {
-                "status": "no_columns",
-                "message": "No columns selected for extraction"
-            }
-
-        # Add new columns to session
-        for col_data in new_columns_to_add:
-            new_col = ColumnInfo(
-                name=col_data["name"],
-                definition=col_data.get("definition", ""),
-                rationale=col_data.get("rationale", ""),
-                allowed_values=col_data.get("allowed_values"),
-                source_document=col_data.get("source_document"),
-                discovery_iteration=col_data.get("discovery_iteration")
-            )
-            session.columns.append(new_col)
-
-        self.session_manager.update_session(session)
-        logger.info(f"Added {len(new_columns_to_add)} new columns to session")
-
-        # Determine rows to process
-        if row_selection == "all":
-            rows_to_process = None  # Will process all rows
-        else:
-            rows_to_process = selected_rows or []
-
-        # Update operation for extraction phase
-        operation.confirmed_columns = selected_columns
-        operation.extraction_rows = rows_to_process or []
-        operation.status = "running"
-        operation.phase = "extraction"
-        operation.progress = 0.0
-
-        # Save extraction config
-        session_dir = self._get_data_dir() / operation.session_id
-        extraction_config = {
-            "columns": selected_columns,
-            "row_selection": row_selection,
-            "selected_rows": selected_rows,
-            "llm_config": llm_config or operation.llm_config
-        }
-        extraction_config_file = session_dir / f"extraction_config_{operation_id}.json"
-        with open(extraction_config_file, 'w') as f:
-            json.dump(extraction_config, f, indent=2)
-
-        # Start extraction in background
-        task = asyncio.create_task(self._run_incremental_extraction(operation_id))
-        with self._state_lock:
-            self._tasks[operation_id] = task
-
-        return {
-            "status": "started",
-            "operation_id": operation_id,
-            "columns": selected_columns,
-            "row_count": len(rows_to_process) if rows_to_process else "all"
-        }
-
-    async def _run_incremental_extraction(self, operation_id: str):
-        """Execute incremental value extraction for new columns."""
-        operation = self.active_operations.get(operation_id)
-        if not operation:
-            return
-
-        # Set session context for logging
-        set_session_context(operation.session_id)
-
-        logger.info(f"_run_incremental_extraction started for operation {operation_id}")
-
-        try:
-            session = self.session_manager.get_session(operation.session_id)
-            if not session:
-                raise ValueError(f"Session {operation.session_id} not found")
-
-            session_dir = self._get_data_dir() / operation.session_id
-            docs_dir = session_dir / "documents"
-
-            # Load extraction config
-            extraction_config_file = session_dir / f"extraction_config_{operation_id}.json"
-            with open(extraction_config_file) as f:
-                extraction_config = json.load(f)
-
-            columns_to_extract = extraction_config["columns"]
-            llm_config = extraction_config.get("llm_config") or operation.llm_config
-
-            # Load original discovery config for retriever settings
-            discovery_config_file = session_dir / f"continue_discovery_config_{operation_id}.json"
-            discovery_config = {}
-            if discovery_config_file.exists():
-                with open(discovery_config_file) as f:
-                    discovery_config = json.load(f)
-            retriever_cfg = discovery_config.get("retriever_config")
-
-            # Broadcast extraction start
-            await self.broadcast_event(
-                operation.session_id,
-                "incremental_extraction_started",
-                {
-                    "operation_id": operation_id,
-                    "columns": columns_to_extract
-                }
-            )
-
-            # Get target columns from session
-            target_columns = [
-                col for col in session.columns
-                if col.name in columns_to_extract
-            ]
-
-            # Build schema for extraction (only new columns)
-            schema_data = {
-                "query": session.schema_query or "Extract information",
-                "schema": [
-                    {
-                        "column": col.name,
-                        "definition": col.definition or f"Data field: {col.name}",
-                        "explanation": col.rationale or f"Information for {col.name}",
-                        "allowed_values": col.allowed_values
-                    }
-                    for col in target_columns
-                ]
-            }
-
-            # Save schema file
-            schema_file = session_dir / f"incremental_schema_{operation_id}.json"
-            with open(schema_file, 'w') as f:
-                json.dump(schema_data, f, indent=2)
-
-            # Setup LLM and retriever - use config if provided, otherwise use library defaults
-            # Enforce release mode settings if applicable (value extraction)
-            enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=False)
-            llm = schematiq_utils.build_llm(enforced_llm_config)
-            if retriever_cfg:
-                retriever = EmbeddingRetriever(
-                    model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
-                    k=retriever_cfg.get("k", 15),
-                    max_words=retriever_cfg.get("passage_chars", 512),
-                    enable_dynamic_k=retriever_cfg.get("enable_dynamic_k", True),
-                    dynamic_k_threshold=retriever_cfg.get("dynamic_k_threshold", 0.65),
-                    dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
-                )
-            else:
-                # No config provided - no retriever
-                retriever = None
-
-            output_file = session_dir / f"incremental_output_{operation_id}.jsonl"
-
-            # Get existing row names from data.jsonl - only extract for existing rows
-            existing_rows = set()
-            data_file = session_dir / "data.jsonl"
-            if data_file.exists():
-                with open(data_file, 'r') as f:
-                    for line in f:
-                        if line.strip():
-                            row_data = json.loads(line)
-                            row_name = row_data.get('row_name') or row_data.get('_row_name')
-                            if row_name:
-                                existing_rows.add(row_name)
-            logger.debug(f"Existing rows to extract: {existing_rows}")
-
-            # Create filtered docs directory with only documents for existing rows
-            filtered_docs_dir = session_dir / "documents_filtered"
-            if filtered_docs_dir.exists():
-                shutil.rmtree(filtered_docs_dir)
-            filtered_docs_dir.mkdir(exist_ok=True)
-
-            # Copy only documents that belong to existing rows
-            if docs_dir.exists():
-                for doc_path in docs_dir.iterdir():
-                    if doc_path.is_file() and doc_path.suffix in ['.txt', '.md']:
-                        # Extract row name from filename (first part before underscore)
-                        row_name = doc_path.stem.split('_')[0]
-                        if row_name in existing_rows:
-                            shutil.copy2(doc_path, filtered_docs_dir / doc_path.name)
-                            logger.debug(f"Including document for existing row: {doc_path.name}")
-                        else:
-                            logger.debug(f"Skipping document for new row: {doc_path.name}")
-
-            # Count filtered documents
-            doc_count = sum(1 for f in filtered_docs_dir.iterdir() if f.is_file()) if filtered_docs_dir.exists() else 0
-            logger.info(f"Filtered to {doc_count} documents for existing rows")
-            operation.total_documents = doc_count
-
-            # Track progress via callback
-            processed_count = [0]
-            loop = asyncio.get_running_loop()
-
-            def on_value_extracted(row_name: str, column_name: str, value: Any):
-                processed_count[0] += 1
-                operation.processed_documents = processed_count[0]
-
-                try:
-                    # Broadcast cell extracted
-                    asyncio.run_coroutine_threadsafe(
-                        self.broadcast_cell_extracted(
-                            operation.session_id,
-                            {
-                                "row_name": row_name,
-                                "column": column_name,
-                                "value": value
-                            }
-                        ),
-                        loop
-                    )
-
-                    # Broadcast progress
-                    asyncio.run_coroutine_threadsafe(
-                        self.broadcast_event(
-                            operation.session_id,
-                            "incremental_extraction_progress",
-                            {
-                                "operation_id": operation_id,
-                                "column": column_name,
-                                "progress": processed_count[0] / max(operation.total_documents * len(columns_to_extract), 1),
-                                "processed_documents": processed_count[0],
-                                "current_row": row_name
-                            }
-                        ),
-                        loop
-                    )
-                except Exception as e:
-                    logger.warning(f"Broadcast error: {e}")
-
-            def should_stop():
-                return self.is_stop_requested(operation_id)
-
-            # Run extraction (using filtered docs directory with only existing rows)
-            if filtered_docs_dir.exists() and doc_count > 0:
-                logger.info(f"Starting incremental extraction for {len(columns_to_extract)} columns on {doc_count} documents")
-
-                def run_extraction():
-                    return build_table_jsonl(
-                        schema_path=schema_file,
-                        docs_directories=[filtered_docs_dir],  # Use filtered directory
-                        output_path=output_file,
-                        llm=llm,
-                        retriever=retriever,
-                        resume=False,
-                        mode="all",  # Extract all columns at once with fallback for missing
-                        retrieval_k=10,
-                        max_workers=1,
-                        on_value_extracted=on_value_extracted,
-                        should_stop=should_stop
-                    )
-
-                await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)
-                logger.info(f"Incremental extraction completed")
-
-            # Clean up filtered docs directory
-            if filtered_docs_dir.exists():
-                shutil.rmtree(filtered_docs_dir, ignore_errors=True)
-
-            # Merge results with existing data
-            await self._merge_incremental_data(
-                operation.session_id,
-                columns_to_extract,
-                output_file
-            )
-
-            # Note: Schema evolution snapshot was already added in discovery phase
-            # Don't add another snapshot here to avoid double-counting columns
-            # Just update the session to ensure consistency
-            session = self.session_manager.get_session(operation.session_id)
-            if session and session.statistics:
-                # Update total columns in statistics (should already be correct from discovery phase)
-                session.statistics.total_columns = len(session.columns)
-                self.session_manager.update_session(session)
-                logger.info(f"Extraction complete, total columns: {len(session.columns)}")
-
-            # Update session status to completed after extraction
-            session = self.session_manager.get_session(operation.session_id)
-            if session:
-                session.status = "completed"
-                self.session_manager.update_session(session)
-                logger.info(f"Set session status to 'completed' after incremental extraction")
-
-            # Recompute statistics with proper column stats (non_null_count, unique_count, etc.)
-            self._recompute_statistics(operation.session_id, preserve_evolution=True)
-            logger.info(f"Statistics recomputed after extraction phase")
-
-            # Cleanup
-            schema_file.unlink(missing_ok=True)
-            output_file.unlink(missing_ok=True)
-            extraction_config_file.unlink(missing_ok=True)
-
-            operation.status = "completed"
-            operation.phase = "extraction"
-            operation.progress = 1.0
-            operation.completed_at = datetime.now()
-
-            await self.broadcast_event(
-                operation.session_id,
-                "incremental_extraction_completed",
-                {
-                    "operation_id": operation_id,
-                    "columns": columns_to_extract,
-                    "status": "success"
-                }
-            )
-
-            # Archive session data for research (fire-and-forget)
-            if self._data_collection_service:
-                await self._data_collection_service.trigger_archive(
-                    operation.session_id, "continue_discovery_extraction"
-                )
-
-        except Exception as e:
-            logger.error(f"Incremental extraction FAILED: {e}", exc_info=True)
-
-            operation.status = "failed"
-            operation.error = str(e)
-            operation.completed_at = datetime.now()
-
-            await self.broadcast_event(
-                operation.session_id,
-                "incremental_extraction_failed",
-                {
-                    "operation_id": operation_id,
-                    "error": str(e)
-                }
-            )
-        finally:
-            await concurrency_limiter.release(operation.session_id)
-            self._cleanup_operation(operation_id)
-
-    async def _merge_incremental_data(
-        self,
-        session_id: str,
-        new_columns: List[str],
-        extraction_file: Path
-    ):
-        """
-        Merge newly extracted column values with existing data.
-        Only adds NEW column values, preserves all existing columns.
-        """
-        if not extraction_file.exists():
-            logger.debug(f"Extraction file not found: {extraction_file}")
-            return
-
-        session_dir = self._get_data_dir() / session_id
-        data_file = session_dir / "data.jsonl"
-
-        if not data_file.exists():
-            logger.debug(f"Data file not found: {data_file}")
-            return
-
-        # Read extracted values indexed by row_name
-        extracted_by_row: Dict[str, Dict[str, Any]] = {}
-        with open(extraction_file, 'r') as f:
-            for line in f:
-                if line.strip():
-                    row_data = json.loads(line)
-                    row_name = row_data.get('_row_name') or row_data.get('row_name')
-                    if row_name:
-                        extracted_by_row[row_name] = row_data
-
-        logger.debug(f"Extracted data for {len(extracted_by_row)} rows")
-
-        # Build paper stem mapping for fallback matching
-        extracted_by_paper_stem: Dict[str, Dict[str, Any]] = {}
-        for row_name, row_data in extracted_by_row.items():
-            extracted_by_paper_stem[row_name.lower()] = row_data
-
-        # Backup existing data
-        import shutil
-        backup_file = session_dir / f"data_backup_incremental_{int(datetime.now().timestamp())}.jsonl"
-        shutil.copy2(data_file, backup_file)
-
-        # Read and update existing rows
-        updated_rows = []
-        rows_updated = 0
-
-        with open(data_file, 'r') as f:
-            for line in f:
-                if not line.strip():
-                    continue
-
-                row = json.loads(line)
-                row_name = row.get('row_name') or row.get('_row_name')
-                papers = row.get('papers') or []
-
-                # Try direct row name match first
-                extracted = None
-                if row_name and row_name in extracted_by_row:
-                    extracted = extracted_by_row[row_name]
-                else:
-                    # Fallback: try to match by paper name stem
-                    for paper in papers:
-                        paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                        if paper_stem in extracted_by_paper_stem:
-                            extracted = extracted_by_paper_stem[paper_stem]
-                            break
-
-                if extracted:
-                    rows_updated += 1
-                    # Add ONLY new columns, preserve existing
-                    for col_name in new_columns:
-                        if col_name in extracted:
-                            if 'data' in row:
-                                row['data'][col_name] = extracted[col_name]
-                            else:
-                                row[col_name] = extracted[col_name]
-
-                updated_rows.append(row)
-
-        # Ensure all rows have the new columns (with null if not extracted)
-        for row in updated_rows:
-            for col_name in new_columns:
-                # Check both direct key and nested 'data' structure
-                if 'data' in row:
-                    if col_name not in row['data']:
-                        row['data'][col_name] = None
-                else:
-                    if col_name not in row:
-                        row[col_name] = None
-
-        # Write updated data
-        with open(data_file, 'w') as f:
-            for row in updated_rows:
-                f.write(json.dumps(row) + '\n')
-
-        logger.info(f"Merged incremental data for {len(new_columns)} columns, {rows_updated} rows updated")
-
-        # Update session statistics
-        session = self.session_manager.get_session(session_id)
-        if session:
-            # Add new columns to column_stats if not present
-            if session.statistics:
-                existing_stat_names = {cs.name for cs in session.statistics.column_stats}
-                for col_name in new_columns:
-                    if col_name not in existing_stat_names:
-                        # Find column info
-                        col_info = next((c for c in session.columns if c.name == col_name), None)
-                        if col_info:
-                            session.statistics.column_stats.append(col_info)
-
-                session.statistics.total_columns = len(session.columns)
-
-            self.session_manager.update_session(session)
 
     # ==================== Operation Management ====================
 
@@ -1800,7 +1358,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         self._cleanup_operation(operation_id)
         return {"stopped": True, "phase": operation.phase, "message": "Operation stopped"}
 
-    # TTL for completed discovery operations awaiting confirm/extraction (30 minutes)
+    # TTL for completed discovery operations awaiting frontend poll (30 minutes)
     OPERATION_TTL_SECONDS = 30 * 60
 
     def get_operation_status(self, operation_id: str) -> Optional[Dict[str, Any]]:
@@ -1828,12 +1386,58 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             "total_batches": operation.total_batches,
             "initial_columns": operation.initial_columns,
             "new_columns": operation.new_columns,
-            "confirmed_columns": operation.confirmed_columns,
             "processed_documents": operation.processed_documents,
             "total_documents": operation.total_documents,
             "started_at": operation.started_at.isoformat() if operation.started_at else None,
             "completed_at": operation.completed_at.isoformat() if operation.completed_at else None,
             "error": operation.error
+        }
+
+    def finalize_documents(self, session_id: str, adopt: bool) -> Dict[str, Any]:
+        """
+        Finalize continue discovery documents: adopt them into pending_documents or discard.
+
+        Args:
+            session_id: Session identifier
+            adopt: If True, copy files to pending_documents/ (skipping duplicates).
+                   Always cleans up continue_discovery_documents/ afterwards.
+
+        Returns:
+            Dictionary with adopted_count and adopted_files.
+        """
+        session_dir = self._get_data_dir() / session_id
+        cd_dir = session_dir / "continue_discovery_documents"
+        adopted_files: List[str] = []
+
+        if not cd_dir.exists():
+            logger.debug(f"No continue_discovery_documents to finalize for session {session_id}")
+            return {"adopted_count": 0, "adopted_files": []}
+
+        if adopt:
+            pending_dir = session_dir / "pending_documents"
+            pending_dir.mkdir(parents=True, exist_ok=True)
+
+            for f in sorted(cd_dir.iterdir()):
+                if f.is_file() and not f.name.startswith('.'):
+                    dest = pending_dir / f.name
+                    if dest.exists():
+                        logger.debug(f"Skipping duplicate: {f.name}")
+                        continue
+                    try:
+                        shutil.copy2(f, dest)
+                        adopted_files.append(f.name)
+                    except Exception as e:
+                        logger.error(f"Failed to copy {f.name} to pending_documents: {e}")
+
+            logger.info(f"Adopted {len(adopted_files)} documents into pending_documents for session {session_id}")
+
+        # Always clean up
+        shutil.rmtree(cd_dir, ignore_errors=True)
+        logger.info(f"Cleaned up continue_discovery_documents for session {session_id}")
+
+        return {
+            "adopted_count": len(adopted_files),
+            "adopted_files": adopted_files
         }
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):

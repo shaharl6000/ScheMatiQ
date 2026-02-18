@@ -721,32 +721,11 @@ export interface ContinueDiscoveryStatus {
   total_batches: number;
   initial_columns: string[];
   new_columns: NewColumnInfo[];
-  confirmed_columns: string[];
   processed_documents: number;
   total_documents: number;
   started_at?: string;
   completed_at?: string;
   error?: string;
-}
-
-export interface ConfirmColumnsRequest {
-  selected_columns: string[];
-  row_selection: 'all' | 'selected';
-  selected_rows?: string[];
-  llm_config?: {
-    provider: string;
-    model: string;
-    api_key?: string;
-    max_output_tokens?: number;
-    temperature?: number;
-  };
-}
-
-export interface ConfirmColumnsResponse {
-  status: string;
-  operation_id: string;
-  columns: string[];
-  row_count: number | 'all';
 }
 
 // Continue Discovery WebSocket event types

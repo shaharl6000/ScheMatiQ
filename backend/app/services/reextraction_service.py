@@ -599,7 +599,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
         for folder in folders_to_check:
             logger.debug(f"Listing Supabase folder: {folder} (checking {len(folders_to_check[folder])} papers)")
             try:
-                folder_contents[folder] = await storage.list_folder_files('datasets', folder)
+                dataset_file_infos = await storage.list_dataset_files(folder)
+                folder_contents[folder] = {f.name for f in dataset_file_infos}
                 logger.debug(f"Found {len(folder_contents[folder])} files in {folder}")
             except Exception as e:
                 logger.debug(f"Error listing Supabase folder {folder}: {e}")
@@ -756,7 +757,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
         downloaded = []
         for paper_name, supabase_path in cloud_papers.items():
             try:
-                content = await storage.download_file('datasets', supabase_path)
+                parts = supabase_path.rsplit('/', 1)
+                if len(parts) == 2:
+                    content = await storage.download_dataset_file(parts[0], parts[1])
+                else:
+                    content = await storage.download_dataset_file(supabase_path, supabase_path)
                 if content:
                     # Ensure paper_name has the correct extension
                     local_filename = paper_name if '.' in paper_name else f"{paper_name}.txt"
@@ -1006,75 +1011,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
             output_file = session_dir / f"reextract_output_{operation_id}.jsonl"
 
-            # Track progress via callback
-            processed_count = [0]
-            current_document = [None]  # Track current document for document_started broadcasts
-            document_index = [0]
-
             # Capture event loop before entering thread pool
             loop = asyncio.get_running_loop()
 
-            def on_value_extracted(row_name: str, column_name: str, value: Any):
-                processed_count[0] += 1
-                operation.processed_documents = processed_count[0]
-
-                # Broadcast document_started when we start processing a new document
-                if current_document[0] != row_name:
-                    current_document[0] = row_name
-                    document_index[0] += 1
-                    try:
-                        asyncio.run_coroutine_threadsafe(
-                            self.broadcast_event(
-                                operation.session_id,
-                                "document_started",
-                                {
-                                    "document_name": row_name,
-                                    "document_index": document_index[0],
-                                    "total_documents": operation.total_documents,
-                                    "columns": operation.columns
-                                }
-                            ),
-                            loop
-                        )
-                    except Exception as e:
-                        logger.warning(f"Document started broadcast error: {e}")
-
-                # Schedule broadcasts on main event loop from thread (fire and forget)
-                try:
-                    # 1. Broadcast individual cell value for live table updates
-                    # Use broadcast_event (same as document_started) since broadcast_cell_extracted
-                    # uses buffering that fails silently
-                    asyncio.run_coroutine_threadsafe(
-                        self.broadcast_event(
-                            operation.session_id,
-                            "cell_extracted",
-                            {
-                                "row_name": row_name,
-                                "column": column_name,
-                                "value": value
-                            }
-                        ),
-                        loop
-                    )
-
-                    # 2. Broadcast progress for UI indicators
-                    asyncio.run_coroutine_threadsafe(
-                        self.broadcast_event(
-                            operation.session_id,
-                            "reextraction_progress",
-                            {
-                                "operation_id": operation_id,
-                                "column": column_name,
-                                "progress": processed_count[0] / max(operation.total_documents * len(operation.columns), 1),
-                                "processed_documents": processed_count[0],
-                                "total_documents": operation.total_documents,
-                                "current_row": row_name
-                            }
-                        ),
-                        loop
-                    )
-                except Exception as e:
-                    logger.warning(f"Broadcast error: {e}")
+            # Track progress via callback (placeholder - actual callback defined after known_units)
+            processed_count = [0]
 
             # Run extraction - check documents/, pending_documents/, schematiq_work datasets, and original docs_path
             candidate_dirs = [docs_dir, pending_dir]
@@ -1105,6 +1046,17 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 except Exception:
                     pass
             docs_directories = [d for d in candidate_dirs if d.exists()]
+
+            # Update total_documents based on actual document files in directories
+            # (handles documents added via continue discovery that aren't in data file references)
+            actual_doc_files = set()
+            for d in docs_directories:
+                for f_path in d.iterdir():
+                    if f_path.is_file() and not f_path.name.startswith('.'):
+                        actual_doc_files.add(f_path.stem)
+            if actual_doc_files:
+                operation.total_documents = len(actual_doc_files)
+
             logger.info(f"Re-extraction docs_directories={[str(d) for d in docs_directories]}, count={len(docs_directories)}")
 
             if docs_directories:
@@ -1147,15 +1099,81 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     except Exception as e:
                         logger.warning(f"Error reading data file {df} for known_units: {e}")
 
+                # Build reverse mapping: unit_name -> paper_stem
+                unit_to_paper: Dict[str, str] = {}
                 if known_units:
-                    # Update total count to reflect observation units, not just documents
-                    total_units = sum(len(units) for units in known_units.values())
-                    if total_units > 0:
-                        operation.total_documents = total_units
-                        logger.info(f"Updated total_documents to {total_units} observation units (from {len(known_units)} papers)")
+                    for paper_stem, units in known_units.items():
+                        for unit in units:
+                            unit_to_paper[unit] = paper_stem
                     logger.info(f"Built known_units for {len(known_units)} papers: {known_units}")
                 else:
                     logger.debug(f"No known_units found from existing data")
+
+                # Define progress callback now that unit_to_paper is available
+                current_row = [None]
+                current_paper = [None]
+                document_index = [0]
+
+                def on_value_extracted(row_name: str, column_name: str, value: Any):
+                    processed_count[0] += 1
+                    operation.processed_documents = processed_count[0]
+
+                    # Broadcast document_started when we start processing a new document (paper)
+                    if current_row[0] != row_name:
+                        current_row[0] = row_name
+                        paper = unit_to_paper.get(row_name, row_name)
+                        if paper != current_paper[0]:
+                            current_paper[0] = paper
+                            document_index[0] += 1
+                        try:
+                            asyncio.run_coroutine_threadsafe(
+                                self.broadcast_event(
+                                    operation.session_id,
+                                    "document_started",
+                                    {
+                                        "document_name": row_name,
+                                        "document_index": document_index[0],
+                                        "total_documents": operation.total_documents,
+                                        "columns": operation.columns
+                                    }
+                                ),
+                                loop
+                            )
+                        except Exception as e:
+                            logger.warning(f"Document started broadcast error: {e}")
+
+                    # Schedule broadcasts on main event loop from thread (fire and forget)
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            self.broadcast_event(
+                                operation.session_id,
+                                "cell_extracted",
+                                {
+                                    "row_name": row_name,
+                                    "column": column_name,
+                                    "value": value
+                                }
+                            ),
+                            loop
+                        )
+
+                        asyncio.run_coroutine_threadsafe(
+                            self.broadcast_event(
+                                operation.session_id,
+                                "reextraction_progress",
+                                {
+                                    "operation_id": operation_id,
+                                    "column": column_name,
+                                    "progress": processed_count[0] / max(operation.total_documents * len(operation.columns), 1),
+                                    "processed_documents": processed_count[0],
+                                    "total_documents": operation.total_documents,
+                                    "current_row": row_name
+                                }
+                            ),
+                            loop
+                        )
+                    except Exception as e:
+                        logger.warning(f"Broadcast error: {e}")
 
                 # Create should_stop callback that checks for stop requests
                 def should_stop():
@@ -1184,11 +1202,106 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
             # Merge results with existing data
             logger.debug(f"Merging re-extracted data...")
-            await self._merge_reextracted_data(
+            merge_result = await self._merge_reextracted_data(
                 operation.session_id,
                 operation.columns,
                 output_file
             )
+
+            # Supplementary extraction: remaining columns for new documents only
+            # New documents (from adopted continue discovery) only got target columns extracted.
+            # They need ALL schema columns extracted for a complete table.
+            session = self.session_manager.get_session(operation.session_id)
+            all_col_names = {c.name for c in session.columns if c.name and not c.name.lower().endswith('_excerpt')}
+            remaining_columns = sorted(all_col_names - set(operation.columns))
+
+            if (merge_result and merge_result.get("new_row_names")
+                    and remaining_columns and docs_directories):
+                import shutil as shutil_supp
+                logger.info(
+                    f"Supplementary extraction: {len(remaining_columns)} remaining columns "
+                    f"for {len(merge_result['new_row_names'])} new rows"
+                )
+
+                # Create temp directory with only the new document files
+                supp_docs_dir = session_dir / f"supp_docs_{operation_id}"
+                supp_schema_file = session_dir / f"reextract_supp_schema_{operation_id}.json"
+                supp_output_file = session_dir / f"reextract_supp_output_{operation_id}.jsonl"
+                try:
+                    supp_docs_dir.mkdir(exist_ok=True)
+                    new_papers = merge_result["new_row_papers"]
+                    for d in docs_directories:
+                        for f_path in d.iterdir():
+                            if f_path.is_file() and (f_path.name in new_papers or f_path.stem in new_papers):
+                                dest = supp_docs_dir / f_path.name
+                                if not dest.exists():
+                                    shutil_supp.copy2(f_path, dest)
+
+                    # Build supplementary schema (remaining columns only)
+                    supp_columns = [c for c in session.columns if c.name in remaining_columns]
+                    supp_schema_data = {
+                        "query": session.schema_query or "Extract information",
+                        "schema": [
+                            {
+                                "column": c.name,
+                                "definition": c.definition or f"Data field: {c.name}",
+                                "explanation": c.rationale or f"Information for {c.name}",
+                                "allowed_values": c.allowed_values
+                            }
+                            for c in supp_columns
+                        ]
+                    }
+                    if session.observation_unit:
+                        supp_schema_data["observation_unit"] = {
+                            "name": session.observation_unit.name,
+                            "definition": session.observation_unit.definition,
+                        }
+                        if session.observation_unit.example_names:
+                            supp_schema_data["observation_unit"]["example_names"] = session.observation_unit.example_names
+
+                    with open(supp_schema_file, 'w') as f:
+                        json.dump(supp_schema_data, f, indent=2)
+
+                    # Build known_units for new rows only
+                    supp_known_units: Dict[str, List[str]] = {}
+                    for row_name in merge_result["new_row_names"]:
+                        paper = unit_to_paper.get(row_name, row_name)
+                        if paper not in supp_known_units:
+                            supp_known_units[paper] = []
+                        supp_known_units[paper].append(row_name)
+
+                    def run_supp_extraction():
+                        return build_table_jsonl(
+                            schema_path=supp_schema_file,
+                            docs_directories=[supp_docs_dir],
+                            output_path=supp_output_file,
+                            llm=llm,
+                            retriever=retriever,
+                            resume=False,
+                            mode="one_by_one",
+                            retrieval_k=10,
+                            max_workers=1,
+                            should_stop=should_stop,
+                            known_units=supp_known_units if supp_known_units else None,
+                        )
+
+                    await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_supp_extraction)
+                    logger.debug(f"Supplementary extraction completed, output exists: {supp_output_file.exists()}")
+
+                    # Merge supplementary data for new rows only
+                    await self._merge_reextracted_data(
+                        operation.session_id,
+                        remaining_columns,
+                        supp_output_file,
+                        only_rows=set(merge_result["new_row_names"])
+                    )
+
+                    logger.info(f"Supplementary extraction complete for {len(merge_result['new_row_names'])} new rows")
+                finally:
+                    # Cleanup supplementary files even on exception
+                    supp_schema_file.unlink(missing_ok=True)
+                    supp_output_file.unlink(missing_ok=True)
+                    shutil_supp.rmtree(supp_docs_dir, ignore_errors=True)
 
             # Update baseline after successful extraction
             await self.capture_and_save_baseline(operation.session_id)
@@ -1242,11 +1355,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
         self,
         session_id: str,
         columns: List[str],
-        extraction_file: Path
-    ):
-        """Merge re-extracted values with existing data across ALL data files."""
+        extraction_file: Path,
+        only_rows: Optional[Set[str]] = None
+    ) -> Dict[str, Any]:
+        """Merge re-extracted values with existing data across ALL data files.
+
+        Args:
+            only_rows: If set, only merge data for these row names (skip others).
+
+        Returns:
+            Dict with total_rows_updated, total_new_rows, new_row_names, new_row_papers.
+        """
         if not extraction_file.exists():
-            return
+            return {"total_rows_updated": 0, "total_new_rows": 0, "new_row_names": [], "new_row_papers": set()}
 
         # Find ALL data files (same pattern as unit_view_service._get_all_data_files)
         schematiq_extracted_file = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
@@ -1263,7 +1384,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         if not data_files:
             logger.warning(f"No data files found for merge in session {session_id}")
-            return
+            return {"total_rows_updated": 0, "total_new_rows": 0, "new_row_names": [], "new_row_papers": set()}
 
         # Read extracted values indexed by row_name
         extracted_by_row: Dict[str, Dict[str, Any]] = {}
@@ -1293,6 +1414,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
         total_new_rows = 0
         all_updated_rows = []
         matched_extracted_rows = set()  # Track which extracted rows were matched
+        all_new_row_names: List[str] = []
+        all_new_row_papers: Set[str] = set()
         primary_data_file = data_files[0]
 
         for data_file in data_files:
@@ -1325,14 +1448,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 break
 
                     if extracted:
-                        rows_updated += 1
                         # Track matched rows
                         if row_name:
                             matched_extracted_rows.add(row_name)
                         ext_rn = extracted.get('_row_name') or extracted.get('row_name')
                         if ext_rn:
                             matched_extracted_rows.add(ext_rn)
-                        
+
+                        # Skip merge if only_rows is set and this row isn't in it
+                        if only_rows and row_name not in only_rows:
+                            updated_rows.append(row)
+                            continue
+
+                        rows_updated += 1
                         for col_name in columns:
                             if col_name in extracted:
                                 if 'data' in row:
@@ -1369,6 +1497,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                     updated_rows.append(new_row)
                     new_rows_added += 1
+                    all_new_row_names.append(ext_row_name)
+                    # Track source papers for new rows
+                    for p in ext_row_data.get("_papers", []):
+                        all_new_row_papers.add(Path(p).stem)
+                        all_new_row_papers.add(p)  # Also keep original filename
 
                 if new_rows_added > 0:
                     logger.info(f"Appended {new_rows_added} new rows to {data_file.name}")
@@ -1407,6 +1540,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
             self.session_manager.update_session(session)
             logger.debug(f"Updated session statistics for {len(columns)} columns, {total_new_rows} new rows added")
+
+        return {
+            "total_rows_updated": total_rows_updated,
+            "total_new_rows": total_new_rows,
+            "new_row_names": all_new_row_names,
+            "new_row_papers": all_new_row_papers,
+        }
 
     def _get_llm_from_session(self, session_id: str):
         """Get LLM configuration from session, including API key."""

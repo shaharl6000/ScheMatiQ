@@ -602,7 +602,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                 </span>
                 {currentDocumentProgress && (
                   <span className="text-sm text-muted-foreground">
-                    — Observation Unit {currentDocumentProgress.documentIndex} of {currentDocumentProgress.totalDocuments}
+                    — Document {currentDocumentProgress.documentIndex} of {currentDocumentProgress.totalDocuments}
                   </span>
                 )}
               </div>

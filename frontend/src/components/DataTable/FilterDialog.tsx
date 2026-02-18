@@ -149,7 +149,7 @@ const FilterDialog: React.FC<FilterDialogProps> = ({
       return (
         <div className="space-y-2 max-h-[200px] overflow-y-auto border rounded-md p-2">
           {columnMeta.allowedValues.map((val) => (
-            <div key={val} className="flex items-center space-x-2">
+            <div key={val} className="flex items-center space-x-2 min-w-0">
               <Checkbox
                 id={`value-${val}`}
                 checked={selectedValues.includes(val)}
@@ -160,10 +160,12 @@ const FilterDialog: React.FC<FilterDialogProps> = ({
                     setSelectedValues(selectedValues.filter(v => v !== val));
                   }
                 }}
+                className="shrink-0"
               />
               <Label
                 htmlFor={`value-${val}`}
-                className="text-sm cursor-pointer"
+                className="text-sm cursor-pointer truncate"
+                title={val}
               >
                 {val}
               </Label>
