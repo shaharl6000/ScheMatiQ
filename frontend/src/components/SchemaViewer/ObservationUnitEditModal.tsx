@@ -417,30 +417,36 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
           )}
         </div>
 
-        <DialogFooter className="flex-col sm:flex-row gap-2">
+        <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
             Cancel
           </Button>
-          <div className="flex gap-2 flex-wrap justify-end">
-            <Button variant="outline" onClick={handleSave} disabled={loading}>
+          {onReextractionRequest && (
+            <Button
+              variant="outline"
+              onClick={handleSaveAndReextract}
+              disabled={loading}
+            >
               {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              Save Changes
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Save & Re-extract
             </Button>
-            {onReextractionRequest && (
-              <Button variant="outline" onClick={handleSaveAndReextract} disabled={loading}>
-                {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Save & Re-extract Table
-              </Button>
-            )}
-            {onRegenerateSchema && (
-              <Button onClick={handleSaveAndRegenerate} disabled={loading}>
-                {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                <Sparkles className="h-4 w-4 mr-2" />
-                Save & Rediscover Schema
-              </Button>
-            )}
-          </div>
+          )}
+          {onRegenerateSchema && (
+            <Button
+              variant="outline"
+              onClick={handleSaveAndRegenerate}
+              disabled={loading}
+            >
+              {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Sparkles className="h-4 w-4 mr-2" />
+              Save & Rediscover Schema
+            </Button>
+          )}
+          <Button onClick={handleSave} disabled={loading}>
+            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            Save Changes
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
