@@ -656,10 +656,6 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         # Re-run the pipeline (will skip observation unit discovery since it's pre-configured)
         await self.run_schematiq(session_id)
 
-    async def _execute_qbsd(self, session_id: str, config: QBSDConfig):
-        """Execute the real QBSD process."""
-        if not QBSD_AVAILABLE:
-            raise RuntimeError("QBSD components not available. Cannot execute real QBSD pipeline.")
     async def _execute_schematiq(self, session_id: str, config: ScheMatiQConfig):
         """Execute the real ScheMatiQ process."""
         if not SCHEMATIQ_AVAILABLE:
