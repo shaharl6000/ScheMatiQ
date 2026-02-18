@@ -1538,9 +1538,9 @@ const Visualize = () => {
               onReextractionStarted={handleReextractionStarted}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}
               observationUnit={session.observation_unit}
-              onRegenerateSchema={mode === 'qbsd' ? async () => {
+              onRegenerateSchema={mode === 'schematiq' ? async () => {
                 try {
-                  await qbsdAPI.resume(sessionId);
+                  await schematiqAPI.resume(sessionId!);
                   
                   // Invalidate session query to refetch fresh status (should now show "processing")
                   queryClient.invalidateQueries(['session', sessionId]);
