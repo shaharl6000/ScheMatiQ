@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AlertTriangle, Plus, X, Loader2, FileText, Clock, RefreshCw, Sparkles } from 'lucide-react';
+import { AlertTriangle, Plus, X, Loader2, FileText, Clock, Sparkles } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -39,7 +39,6 @@ interface ObservationUnitEditModalProps {
   sessionId: string;
   observationUnit: ObservationUnitInfo;
   onUpdate: (updated: ObservationUnitInfo) => void;
-  onReextractionRequest?: () => void;
   onRegenerateSchema?: () => void;
 }
 
@@ -49,7 +48,6 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
   sessionId,
   observationUnit,
   onUpdate,
-  onReextractionRequest,
   onRegenerateSchema,
 }) => {
   const { toast } = useToast();
@@ -169,56 +167,6 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
       }
 
       onOpenChange(false);
-    } catch (error: any) {
-      toast({
-        title: 'Error',
-        description: error.response?.data?.detail || 'Failed to update observation unit definition',
-        variant: 'destructive',
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSaveAndReextract = async () => {
-    if (!validateForm()) return;
-
-    setLoading(true);
-    try {
-      const response = await observationUnitAPI.updateDefinition(sessionId, {
-        name: name.trim(),
-        definition: definition.trim(),
-        example_names: exampleNames.length > 0 ? exampleNames : undefined,
-      });
-
-      onUpdate({
-        name: response.observation_unit.name,
-        definition: response.observation_unit.definition,
-        example_names: response.observation_unit.example_names,
-        source_document: response.observation_unit.source_document,
-        discovery_iteration: response.observation_unit.discovery_iteration,
-      });
-
-      toast({
-        title: 'Success',
-        description: 'Definition updated. Opening re-extraction dialog...',
-      });
-
-      // Show warning if present
-      if (response.warning) {
-        toast({
-          title: 'Note',
-          description: response.warning,
-          variant: 'default',
-        });
-      }
-
-      onOpenChange(false);
-
-      // Trigger re-extraction dialog
-      if (onReextractionRequest) {
-        onReextractionRequest();
-      }
     } catch (error: any) {
       toast({
         title: 'Error',
