@@ -95,7 +95,7 @@ DEVELOPER_MODE = os.environ.get("DEVELOPER_MODE", "false").lower() == "true"
 # All mode-dependent feature flags live here.
 # To add a new release restriction, add a key with its release-mode default.
 RELEASE_CONFIG = {
-    "max_documents": 20,           # release mode cap
+    "max_documents": 40,           # release mode cap
     # LLM configuration for release mode (locked to Gemini)
     "schema_creation_model": "gemini-2.5-flash",
     "value_extraction_model": "gemini-2.5-flash-lite",
