@@ -51,7 +51,7 @@ export const DEFAULT_DOCUMENTS_BATCH_SIZE = 1;
 export const DEFAULT_DOCUMENT_RANDOMIZATION_SEED = 42;
 
 // Document Upload Limits (Public Release)
-export const DEFAULT_MAX_DOCUMENTS = 20;
+export const DEFAULT_MAX_DOCUMENTS = 40;
 export const ALLOWED_FILE_TYPES = {
   'text/csv': ['.csv'],
   'application/json': ['.json'],
