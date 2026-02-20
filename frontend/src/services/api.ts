@@ -51,10 +51,10 @@ function getApiBaseUrl(): string {
     return `${process.env.REACT_APP_API_URL}/api`;
   }
 
-  // Runtime detection for Railway
+  // Runtime detection for Railway or custom domain
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-    if (hostname.includes('railway.app') || hostname.includes('up.railway.app')) {
+    if (hostname.includes('railway.app') || hostname.includes('up.railway.app') || hostname.includes('schematiq-ai.com')) {
       return `${RAILWAY_BACKEND_URL}/api`;
     }
   }
@@ -72,7 +72,7 @@ export const getBackendBaseUrl = (): string => {
   }
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
-    if (hostname.includes('railway.app') || hostname.includes('up.railway.app')) {
+    if (hostname.includes('railway.app') || hostname.includes('up.railway.app') || hostname.includes('schematiq-ai.com')) {
       return RAILWAY_BACKEND_URL;
     }
   }
