@@ -15,15 +15,11 @@ function AppHeader() {
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">
         <div className="flex items-center gap-2 mr-6">
-          <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="2" y="2" width="15" height="14" rx="2" className="text-primary" />
-            <line x1="2" y1="6" x2="17" y2="6" className="text-primary" />
-            <line x1="2" y1="10" x2="17" y2="10" className="text-primary" />
-            <line x1="8" y1="2" x2="8" y2="16" className="text-primary" />
-            <line x1="13" y1="2" x2="13" y2="16" className="text-primary" />
-            <circle cx="18" cy="18" r="4" className="text-primary" />
-            <line x1="21" y1="21" x2="23" y2="23" className="text-primary" strokeWidth="2" />
-          </svg>
+          <img
+            src="/logo.png"
+            alt="ScheMatiQ logo"
+            className="h-6 w-auto"
+          />
           <span className="text-xl font-semibold bg-gradient-to-r from-primary to-blue-400 bg-clip-text text-transparent">
             ScheMatiQ
           </span>
