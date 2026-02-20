@@ -46,7 +46,9 @@ DEFAULT_PORT = int(os.environ.get("PORT", 8000))
 _default_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://querydiscovery-production.up.railway.app",  # Production frontend
+    "https://querydiscovery-production.up.railway.app",  # Production frontend (Railway)
+    "https://www.schematiq-ai.com",  # Production frontend (custom domain)
+    "https://schematiq-ai.com",  # Production frontend (custom domain, no www)
 ]
 _env_origins = os.environ.get("ALLOWED_ORIGINS", "")
 ALLOWED_ORIGINS = (
