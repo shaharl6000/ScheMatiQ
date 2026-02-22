@@ -1052,11 +1052,14 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             logger.debug("Session %s saved with %d columns, status: %s", session_id, len(schema_columns), session.status)
             
             # Broadcast schema completion event
-            await self.broadcast_schema_completed(session_id, {
+            schema_completed_data = {
                 "query": schematiq_config["query"],
                 "columns": [col.model_dump() for col in schema_columns],
                 "total_columns": len(discovered_schema.columns)
-            })
+            }
+            if discovered_schema.observation_unit:
+                schema_completed_data["observation_unit"] = discovered_schema.observation_unit.to_dict()
+            await self.broadcast_schema_completed(session_id, schema_completed_data)
 
             # Check if stop was requested during schema discovery - skip remaining steps
             if self.is_stop_requested(session_id):
@@ -1343,8 +1346,37 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             })
 
             try:
-                # Call generate_schema with empty passages (offloaded to thread pool)
                 loop = asyncio.get_running_loop()
+
+                # Resolve observation unit: use pre-configured one, or discover from query
+                obs_unit_config = schematiq_config.get("initial_observation_unit")
+                if obs_unit_config and obs_unit_config.get("name"):
+                    observation_unit = ObservationUnit(
+                        name=obs_unit_config["name"],
+                        definition=obs_unit_config.get("definition", ""),
+                        source_document="query_only",
+                        discovery_iteration=1,
+                    )
+                    logger.info("[%s] QUERY_ONLY: using pre-configured observation unit: %s", session_id, observation_unit.name)
+                else:
+                    logger.info("[%s] QUERY_ONLY: discovering observation unit from query", session_id)
+                    observation_unit = await loop.run_in_executor(
+                        schematiq_thread_pool,
+                        functools.partial(
+                            discover_observation_unit,
+                            query=query,
+                            passages=None,
+                            llm=llm,
+                            source_document="query_only",
+                        )
+                    )
+                    logger.info("[%s] QUERY_ONLY: discovered observation unit: %s", session_id, observation_unit.name if observation_unit else None)
+
+                # Attach observation unit to the base schema so merge() preserves it
+                if observation_unit:
+                    current_schema.observation_unit = observation_unit
+
+                # Call generate_schema with empty passages (offloaded to thread pool)
                 logger.debug("[%s] Offloading QUERY_ONLY generate_schema to thread pool", session_id)
                 schema_result = await loop.run_in_executor(
                     schematiq_thread_pool,
@@ -1356,6 +1388,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                         current_schema=current_schema,
                         llm=llm,
                         context_window_size=schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
+                        observation_unit=observation_unit,
                     )
                 )
                 new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
@@ -1370,6 +1403,11 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                     )
                 else:
                     merged_schema = new_schema
+
+                # Ensure observation_unit is propagated (merge preserves from current_schema,
+                # but if current_schema had no columns, we went through new_schema directly)
+                if observation_unit and not merged_schema.observation_unit:
+                    merged_schema.observation_unit = observation_unit
 
                 # Track new columns
                 new_column_names = [col.name for col in merged_schema.columns
