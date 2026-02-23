@@ -260,6 +260,7 @@ export interface SchemaCompletionData {
   query: string;
   columns: ColumnInfo[];
   total_columns: number;
+  observation_unit?: ObservationUnitInfo;
 }
 
 export interface RowCompletionData {
