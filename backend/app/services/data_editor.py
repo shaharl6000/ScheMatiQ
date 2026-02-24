@@ -76,10 +76,20 @@ class DataEditor:
                         # Handle ScheMatiQ answer format
                         if isinstance(cell_value, dict) and "answer" in cell_value:
                             cell_value["answer"] = value
+                            cell_value["excerpts"] = []
+                            cell_value["manually_edited"] = True
                         else:
-                            row["data"][column] = value
+                            row["data"][column] = {
+                                "answer": value,
+                                "excerpts": [],
+                                "manually_edited": True,
+                            }
                     else:
-                        row["data"][column] = value
+                        row["data"][column] = {
+                            "answer": value,
+                            "excerpts": [],
+                            "manually_edited": True,
+                        }
                 else:
                     # Old flat format
                     row[column] = value
