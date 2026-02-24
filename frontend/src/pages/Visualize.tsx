@@ -1538,6 +1538,10 @@ const Visualize = () => {
               onReextractionStarted={handleReextractionStarted}
               llmConfig={session.metadata?.extracted_schema?.llm_configuration?.schema_creation_backend || null}
               observationUnit={session.observation_unit}
+              onObservationUnitUpdate={() => {
+                // Refetch session so the updated observation unit is reflected immediately
+                queryClient.refetchQueries({ queryKey: ['session', sessionId, mode] });
+              }}
               onRegenerateSchema={mode === 'schematiq' ? async () => {
                 try {
                   await schematiqAPI.resume(sessionId!);

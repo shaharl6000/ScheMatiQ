@@ -2049,11 +2049,12 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                     value = row_data[col.name]
                     if is_valid_value(value):
                         non_null_count += 1
-                    # Count unique values (serialize to JSON for comparison)
+                    # Count unique values by answer only (not excerpt) to avoid inflating count
+                    canonical = value.get("answer") if isinstance(value, dict) else value
                     try:
-                        unique_values.add(json.dumps(value, sort_keys=True))
+                        unique_values.add(json.dumps(canonical, sort_keys=True))
                     except (TypeError, ValueError):
-                        unique_values.add(str(value))
+                        unique_values.add(str(canonical))
             unique_count = len(unique_values)
 
             # Include source document info from evolution if available
