@@ -51,9 +51,44 @@ const Landing = () => {
         <h1 className="text-4xl font-bold tracking-tight mb-4 bg-gradient-to-r from-primary via-blue-500 to-blue-400 bg-clip-text text-transparent">
           From Documents to Data
         </h1>
-        <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+        <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-6">
           Turn research documents into structured datasets — automatically.
         </p>
+        <div className="flex items-center justify-center gap-3 flex-wrap font-['Google_Sans',sans-serif]">
+          <a
+            href="https://arxiv.org/abs/your-paper"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-[1.1rem] transition-colors shadow-sm"
+          >
+            <span className="flex items-center justify-center w-5 h-5">
+              <i className="ai ai-arxiv text-xl"></i>
+            </span>
+            <span>arXiv</span>
+          </a>
+          <a
+            href="https://github.com/your-org/your-repo"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-[1.1rem] transition-colors shadow-sm"
+          >
+            <span className="flex items-center justify-center w-5 h-5">
+              <i className="fab fa-github text-xl"></i>
+            </span>
+            <span>Code</span>
+          </a>
+          <a
+            href="https://your-demo-video-url.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-[1.1rem] transition-colors shadow-sm"
+          >
+            <span className="flex items-center justify-center w-5 h-5">
+              <i className="fas fa-play text-sm"></i>
+            </span>
+            <span>Video</span>
+          </a>
+        </div>
       </div>
 
       {/* API Key Configuration Section */}
