@@ -1,5 +1,5 @@
-import React from 'react';
-import { Copy, Check } from 'lucide-react';
+import React, { useRef, useEffect } from 'react';
+import { Copy, Check, Pencil, Loader2 } from 'lucide-react';
 
 import {
   Dialog,
@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Tooltip,
   TooltipContent,
@@ -18,12 +19,30 @@ import {
 
 import { CellValue, ScheMatiQAnswerWithExcerpts, Excerpt, ExcerptWithSource } from '../../types';
 import { copyToClipboard } from '../../utils/clipboard';
+import { extractDisplayValue } from '../DataTable/utils/valueUtils';
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
 
 interface ContentModalProps {
   open: boolean;
   onClose: () => void;
   title: string;
   content: CellValue;
+  onSave?: (newValue: string) => Promise<void>;
+}
+
+/** Extract the editable string value from a CellValue. */
+function getEditableValue(value: CellValue): string {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (typeof value === 'object' && 'answer' in value) {
+    const answer = (value as { answer: unknown }).answer;
+    if (answer === null || answer === undefined) return '';
+    return extractDisplayValue(answer);
+  }
+  if (Array.isArray(value)) return value.join(', ');
+  return extractDisplayValue(value);
 }
 
 // Helper to parse Python-style dict/list strings to JSON
@@ -93,8 +112,96 @@ const parseAllExcerpts = (excerpts: Excerpt[]): ExcerptWithSource[] => {
   return result;
 };
 
-const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, content }) => {
+const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, content, onSave }) => {
   const [copied, setCopied] = React.useState(false);
+  const [isEditing, setIsEditing] = React.useState(false);
+  const [editValue, setEditValue] = React.useState('');
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [saveError, setSaveError] = React.useState<string | null>(null);
+  const [saved, setSaved] = React.useState(false);
+  // Local override only used after optimistic save; null means use content prop directly
+  const [localOverride, setLocalOverride] = React.useState<CellValue | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Use content prop directly; only fall back to localOverride after a save
+  const displayContent = localOverride ?? content;
+
+  // Reset edit state and local override when modal closes
+  useEffect(() => {
+    if (!open) {
+      setIsEditing(false);
+      setEditValue('');
+      setSaveError(null);
+      setSaved(false);
+      setLocalOverride(null);
+    }
+  }, [open]);
+
+  // Focus textarea when entering edit mode
+  useEffect(() => {
+    if (isEditing && textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.select();
+    }
+  }, [isEditing]);
+
+  const startEditing = () => {
+    setEditValue(getEditableValue(displayContent));
+    setSaveError(null);
+    setSaved(false);
+    setIsEditing(true);
+  };
+
+  const handleSave = async () => {
+    if (isSaving || !onSave) return;
+    const originalValue = getEditableValue(displayContent);
+    if (editValue === originalValue) {
+      setIsEditing(false);
+      return;
+    }
+    setIsSaving(true);
+    setSaveError(null);
+    try {
+      await onSave(editValue);
+      // Optimistically override displayed content until modal closes
+      if (typeof displayContent === 'object' && displayContent !== null && 'answer' in displayContent) {
+        setLocalOverride({ ...displayContent as Record<string, unknown>, answer: editValue, excerpts: [], manually_edited: true } as CellValue);
+      } else {
+        setLocalOverride({ answer: editValue, excerpts: [], manually_edited: true });
+      }
+      setIsEditing(false);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      setSaveError('Failed to save. Please try again.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setIsEditing(false);
+    setEditValue('');
+    setSaveError(null);
+  };
+
+  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      handleCancel();
+    } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSave();
+    }
+  };
+
+  const handleOpenChange = (isOpen: boolean) => {
+    if (!isOpen) {
+      if (isEditing) handleCancel();
+      onClose();
+    }
+  };
 
   // Extract text content for copying
   const getTextContent = (value: CellValue): string => {
@@ -107,9 +214,7 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
         const schematiqValue = value as ScheMatiQAnswerWithExcerpts;
         const rawExcerpts = schematiqValue.excerpts || [];
         const excerpts = parseAllExcerpts(rawExcerpts);
-        const answerText = typeof schematiqValue.answer === 'object' && schematiqValue.answer !== null
-          ? JSON.stringify(schematiqValue.answer, null, 2)
-          : String(schematiqValue.answer);
+        const answerText = extractDisplayValue(schematiqValue.answer);
         let text = `Answer: ${answerText}`;
         if (excerpts.length > 0) {
           text += '\n\nSupporting Evidence:\n';
@@ -125,12 +230,73 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
   };
 
   const handleCopy = async () => {
-    const text = getTextContent(content);
+    const text = getTextContent(displayContent);
     const success = await copyToClipboard(text);
     if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  /** Render the excerpts section (shared between read and edit modes). */
+  const renderExcerpts = (excerpts: ExcerptWithSource[]) => {
+    if (excerpts.length === 0) return null;
+    return (
+      <div>
+        <h4 className="font-semibold text-muted-foreground mb-2">
+          {excerpts.length === 1 ? 'Supporting Evidence:' : `Supporting Evidence (${excerpts.length} sources):`}
+        </h4>
+        {excerpts.map((excerpt: ExcerptWithSource, index: number) => (
+          <div key={index} className="mb-3 p-4 bg-muted/50 rounded-md border-l-4 border-primary">
+            <p className="text-xs text-muted-foreground mb-1">
+              From: <span className="font-medium">{excerpt.source}</span>
+            </p>
+            <p className="text-sm leading-relaxed">
+              {excerpt.text}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  /** Render the edit UI: textarea + inline save/cancel buttons + excerpts below. */
+  const renderEditMode = (excerpts: ExcerptWithSource[]) => {
+    return (
+      <div className="space-y-4">
+        <div>
+          <h4 className="font-semibold text-primary mb-2">Edit Value:</h4>
+          <Textarea
+            ref={textareaRef}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={handleTextareaKeyDown}
+            disabled={isSaving}
+            className={`min-h-[60px] max-h-[200px] resize-y ${saveError ? 'border-red-500' : ''}`}
+            aria-label="Cell value editor"
+          />
+          {saveError && (
+            <p className="text-xs text-red-500 mt-1" role="alert">{saveError}</p>
+          )}
+          <div className="flex items-center justify-between mt-2">
+            <span className="text-xs text-muted-foreground">
+              {IS_MAC ? '⌘' : 'Ctrl'}+Enter to save, Esc to cancel
+            </span>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleCancel} disabled={isSaving}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={isSaving}>
+                {isSaving ? (
+                  <><Loader2 className="h-3 w-3 mr-1 animate-spin" />Saving</>
+                ) : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </div>
+        {renderExcerpts(excerpts)}
+      </div>
+    );
   };
 
   const formatContent = (value: CellValue): React.ReactNode => {
@@ -161,8 +327,12 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
         const schematiqValue = value as ScheMatiQAnswerWithExcerpts;
         const answer = schematiqValue.answer;
         const rawExcerpts = schematiqValue.excerpts || [];
-        // Parse excerpts to handle pipe-separated strings and Python dicts
         const excerpts = parseAllExcerpts(rawExcerpts);
+        const isManuallyEdited = !!schematiqValue.manually_edited;
+
+        if (isEditing) {
+          return renderEditMode(isManuallyEdited ? [] : excerpts);
+        }
 
         return (
           <div className="space-y-4">
@@ -170,37 +340,24 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
               <h4 className="font-semibold text-primary mb-2">Content:</h4>
               <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
                 <p className="text-base font-medium leading-relaxed">
-                  {typeof answer === 'object' && answer !== null ? (
-                    <pre className="whitespace-pre-wrap break-words font-mono text-sm">
-                      {JSON.stringify(answer, null, 2)}
-                    </pre>
-                  ) : String(answer)}
+                  {extractDisplayValue(answer)}
                 </p>
               </div>
             </div>
-
-            {excerpts.length > 0 && (
-              <div>
-                <h4 className="font-semibold text-muted-foreground mb-2">
-                  {excerpts.length === 1 ? 'Supporting Evidence:' : `Supporting Evidence (${excerpts.length} sources):`}
-                </h4>
-                {excerpts.map((excerpt: ExcerptWithSource, index: number) => (
-                  <div key={index} className="mb-3 p-4 bg-muted/50 rounded-md border-l-4 border-primary">
-                    <p className="text-xs text-muted-foreground mb-1">
-                      From: <span className="font-medium">{excerpt.source}</span>
-                    </p>
-                    <p className="text-sm leading-relaxed">
-                      {excerpt.text}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
+            {isManuallyEdited ? (
+              <p className="text-sm text-muted-foreground italic flex items-center gap-1.5">
+                <Pencil className="h-3 w-3" />
+                Manually edited
+              </p>
+            ) : renderExcerpts(excerpts)}
           </div>
         );
       }
 
       // Regular object handling
+      if (isEditing) {
+        return renderEditMode([]);
+      }
       return (
         <div>
           <p className="font-semibold text-sm mb-2">Object:</p>
@@ -217,6 +374,10 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
                            title.toLowerCase().includes('excerpt') ||
                            title.toLowerCase().includes('evidence') ||
                            title.toLowerCase().includes('source');
+
+    if (isEditing) {
+      return renderEditMode([]);
+    }
 
     if (isLikelyExcerpt) {
       return (
@@ -242,35 +403,73 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
   };
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+        onEscapeKeyDown={(e) => {
+          if (isEditing) {
+            e.preventDefault();
+            handleCancel();
+          }
+        }}
+        onInteractOutside={(e) => {
+          if (isEditing) {
+            e.preventDefault();
+          }
+        }}
+      >
         <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <DialogTitle className="pr-8">{title}</DialogTitle>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6 shrink-0"
-                onClick={handleCopy}
-                aria-label="Copy content to clipboard"
-              >
-                {copied ? (
-                  <Check className="h-3 w-3 text-green-500" />
-                ) : (
-                  <Copy className="h-3 w-3" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" sideOffset={5}>
-              {copied ? 'Copied!' : 'Copy to clipboard'}
-            </TooltipContent>
-          </Tooltip>
+          <div className="flex items-center gap-1">
+            {onSave && !isEditing && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1 text-xs"
+                    onClick={startEditing}
+                    aria-label="Edit cell value"
+                  >
+                    {saved ? (
+                      <Check className="h-3 w-3 text-green-500" />
+                    ) : (
+                      <Pencil className="h-3 w-3" />
+                    )}
+                    {saved ? 'Saved' : 'Edit'}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" sideOffset={5}>
+                  {saved ? 'Changes saved!' : 'Edit cell value'}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0"
+                  onClick={handleCopy}
+                  aria-label="Copy content to clipboard"
+                >
+                  {copied ? (
+                    <Check className="h-3 w-3 text-green-500" />
+                  ) : (
+                    <Copy className="h-3 w-3" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" sideOffset={5}>
+                {copied ? 'Copied!' : 'Copy to clipboard'}
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </DialogHeader>
 
         <ScrollArea className="flex-1 min-h-[200px]">
           <div className="pr-4">
-            {formatContent(content)}
+            {formatContent(displayContent)}
           </div>
         </ScrollArea>
       </DialogContent>

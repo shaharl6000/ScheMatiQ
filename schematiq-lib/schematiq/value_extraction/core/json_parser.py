@@ -6,9 +6,42 @@ import re
 from typing import Dict, Any, List, Tuple, Optional
 
 
+def _flatten_answer(answer: Any) -> str:
+    """Convert a non-string answer (dict/list) to a clean readable string.
+
+    - dict: extract all non-null values, join with ", "
+    - list of dicts: flatten each dict, join items with "; "
+    - list of primitives: join with ", "
+    - other: str(answer)
+    """
+    if isinstance(answer, str):
+        return answer
+    if isinstance(answer, dict):
+        values = [
+            str(v) for v in answer.values()
+            if v is not None and str(v).strip()
+        ]
+        return ', '.join(values) if values else str(answer)
+    if isinstance(answer, list):
+        if answer and isinstance(answer[0], dict):
+            parts = []
+            for item in answer:
+                if isinstance(item, dict):
+                    vals = [
+                        str(v) for v in item.values()
+                        if v is not None and str(v).strip()
+                    ]
+                    parts.append(', '.join(vals) if vals else str(item))
+                else:
+                    parts.append(str(item))
+            return '; '.join(parts)
+        return ', '.join(str(v) for v in answer)
+    return str(answer)
+
+
 class JSONResponseParser:
     """Handles parsing and validation of LLM JSON responses."""
-    
+
     def __init__(self):
         self.json_fence_re = re.compile(r"```json(.*?)```", re.S)
         self.last_js_re = re.compile(r"\{[\s\S]*\}\s*$", re.S)
@@ -66,7 +99,7 @@ class JSONResponseParser:
                 excerpts = val.get("excerpts", [])
                 # Guarantee correct types
                 if not isinstance(answer, str):
-                    answer = str(answer)
+                    answer = _flatten_answer(answer)
                 if not isinstance(excerpts, list):
                     excerpts = [str(excerpts)]
                 norm[col] = {"answer": answer, "excerpts": excerpts}
@@ -226,7 +259,7 @@ class JSONResponseParser:
                 continue
             # normalize types
             if not isinstance(ans, str):
-                ans = str(ans)
+                ans = _flatten_answer(ans)
             if not isinstance(exs, list):
                 exs = [str(exs)]
 
