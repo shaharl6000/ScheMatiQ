@@ -890,10 +890,20 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     );
   }, [displayColumns, searchQuery]);
 
+  // TEMP HACK: check if a column name matches "court level" / "court_level" (case-insensitive)
+  const isCourtNameColumn = (name: string) =>
+    /^court[_ ]?level$/i.test(name.trim());
+
   // Sort columns
   const sortedColumns = useMemo(() => {
     const cols = [...filteredColumns];
     cols.sort((a, b) => {
+      // TEMP HACK: court name always first
+      const aIsCourt = isCourtNameColumn(a.name);
+      const bIsCourt = isCourtNameColumn(b.name);
+      if (aIsCourt && !bIsCourt) return -1;
+      if (!aIsCourt && bIsCourt) return 1;
+
       let comparison = 0;
       switch (sortBy) {
         case 'name':
@@ -973,14 +983,15 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Observation Unit Info Card */}
+      {/* Observation Unit Info Card — TEMP: narrow vertical layout for screenshots */}
       {observationUnit && (
+        <div className="max-w-xs">
         <Card className="bg-purple-50 border-purple-200">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
+          <CardContent className="px-4 py-2">
+            <div className="flex items-center justify-between mb-1">
               <div className="flex items-start gap-2">
                 <Layers className="h-4 w-4 text-purple-600 mt-0.5" />
-                <div className="flex flex-col gap-0.5">
+                <div className="flex flex-col gap-0">
                   <span className="text-xs text-purple-600 font-medium">
                     Observation Unit
                   </span>
@@ -1005,7 +1016,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                 </Tooltip>
               )}
             </div>
-            <p className="text-sm text-purple-700 mb-2">
+            <p className="text-sm text-purple-700 mb-1">
               {observationUnit.definition}
             </p>
             {observationUnit.example_names && observationUnit.example_names.length > 0 && (
@@ -1036,6 +1047,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
             )}
           </CardContent>
         </Card>
+        </div>
       )}
 
       {/* Schema Metadata for Load Sessions */}

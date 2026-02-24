@@ -647,7 +647,9 @@ class FileParser:
                         val = row.get(key)
                     if val is not None:
                         non_null += 1
-                    values_set.add(json.dumps(val, sort_keys=True) if val is not None else 'null')
+                    # Count unique values by answer only (not excerpt)
+                    canonical = val.get("answer") if isinstance(val, dict) else val
+                    values_set.add(json.dumps(canonical, sort_keys=True) if canonical is not None else 'null')
 
                 col_info = ColumnInfo(
                     name=key,
@@ -674,7 +676,10 @@ class FileParser:
                     name=key,
                     data_type="object",
                     non_null_count=sum(1 for row in data_rows if key in row and row[key] is not None),
-                    unique_count=len(set(json.dumps(row.get(key, None), sort_keys=True) for row in data_rows)),
+                    unique_count=len(set(
+                        json.dumps(v.get("answer") if isinstance(v, dict) else v, sort_keys=True)
+                        for row in data_rows for v in [row.get(key, None)]
+                    )),
                     definition=meta.get("definition", ""),
                     rationale=meta.get("rationale", ""),
                     allowed_values=meta.get("allowed_values")
@@ -694,7 +699,10 @@ class FileParser:
                     name=key,
                     data_type=type(sample_data[key]).__name__,
                     non_null_count=sum(1 for row in data_rows if 'data' in row and key in row['data'] and row['data'][key] is not None),
-                    unique_count=len(set(json.dumps(row.get('data', {}).get(key, None), sort_keys=True) for row in data_rows)),
+                    unique_count=len(set(
+                        json.dumps(v.get("answer") if isinstance(v, dict) else v, sort_keys=True)
+                        for row in data_rows for v in [row.get('data', {}).get(key, None)]
+                    )),
                     definition=meta.get("definition", ""),
                     rationale=meta.get("rationale", ""),
                     allowed_values=meta.get("allowed_values")
@@ -713,7 +721,10 @@ class FileParser:
                     name=key,
                     data_type=type(sample_row[key]).__name__,
                     non_null_count=sum(1 for row in data_rows if key in row and row[key] is not None),
-                    unique_count=len(set(json.dumps(row.get(key, None), sort_keys=True) for row in data_rows)),
+                    unique_count=len(set(
+                        json.dumps(v.get("answer") if isinstance(v, dict) else v, sort_keys=True)
+                        for row in data_rows for v in [row.get(key, None)]
+                    )),
                     definition=meta.get("definition", ""),
                     rationale=meta.get("rationale", ""),
                     allowed_values=meta.get("allowed_values")
