@@ -56,7 +56,7 @@ const Landing = () => {
         </p>
         <div className="flex items-center justify-center gap-3 flex-wrap font-['Google_Sans',sans-serif]">
           <a
-            href="https://arxiv.org/abs/2601.23265"
+            href="#"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-[1.1rem] transition-colors shadow-sm"
@@ -67,7 +67,7 @@ const Landing = () => {
             <span>arXiv</span>
           </a>
           <a
-            href="https://github.com/dwzhu-pku/PaperBanana"
+            href="https://github.com/shaharl6000/"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-[1.1rem] transition-colors shadow-sm"
@@ -78,7 +78,7 @@ const Landing = () => {
             <span>Code</span>
           </a>
           <a
-            href="https://x.com/dwzhu128/status/2018405593976103010"
+            href="https://x.com/"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-[1.1rem] transition-colors shadow-sm"
