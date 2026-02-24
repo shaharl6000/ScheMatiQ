@@ -1,3 +1,5 @@
+<div align="center">
+
 # ScheMatiQ
 
 **A framework for query-driven schema discovery and structured data extraction from document collections.**
@@ -6,27 +8,35 @@
 [![React 18](https://img.shields.io/badge/react-18-61dafb.svg)](https://reactjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688.svg)](https://fastapi.tiangolo.com/)
 
-ScheMatiQ helps domain experts turn a research question and a document collection into a structured table — no predefined schema needed. The system uses a backbone LLM to iteratively discover an annotation schema, then extracts structured data grounded in the source documents. A web interface at [schematiq-ai.com](https://www.schematiq-ai.com/) supports human--AI collaboration, letting users inspect, revise, and refine results at every stage.
+</div>
 
----
+ScheMatiQ helps domain experts turn a research question and a document collection into a structured table — no predefined schema needed. The system uses a backbone LLM to iteratively discover an annotation schema, then extracts structured data grounded in the source documents. A web interface at [schematiq-ai.com](https://www.schematiq-ai.com/) supports human–AI collaboration, letting users inspect, revise, and refine results at every stage.
+
+<div align="center">
+  <img src="docs/screenshot.png" alt="ScheMatiQ web interface" width="700">
+</div>
+
+## Table of Contents
+
+- [How It Works](#how-it-works)
+- [Getting Started](#getting-started)
+- [Features](#features)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Citation](#citation)
 
 ## How It Works
 
 ScheMatiQ runs a three-stage pipeline:
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Research   │     │ Observation │     │   Schema    │     │ Structured  │     │  Structured │
-│  Question    │ ──▶ │    Unit     │ ──▶ │  Discovery  │ ──▶ │    Data     │ ──▶ │    Table    │
-│ + Documents  │     │  Discovery  │     │             │     │ Extraction  │     │             │
-└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+Research Question    Observation Unit      Schema          Structured Data      Structured
+  + Documents    ──▶   Discovery      ──▶  Discovery  ──▶   Extraction     ──▶   Table
 ```
 
 1. **Observation Unit Discovery** — Identifies the entity each row represents (e.g., "research paper", "patient").
 2. **Schema Discovery** — Iteratively refines annotation schema fields across document batches using embedding-based retrieval, LLM generation, and semantic merging.
 3. **Structured Data Extraction** — Produces a structured table with values grounded in the source documents.
-
----
 
 ## Getting Started
 
@@ -52,34 +62,28 @@ documents = [open(f).read() for f in your_files]
 observation_unit = discover_observation_unit(documents, "your research question", llm)
 ```
 
-See the [Core Library features](#core-library-schematiq-lib) section for the full API surface.
-
----
+See [Features > Core Library](#core-library-schematiq-lib) for the full API surface.
 
 ## Features
 
 ### Web Application
 
-| Feature | Description |
-|---------|-------------|
-| **Real-time Progress** | WebSocket-based live updates during discovery and extraction |
-| **Interactive Schema Editor** | Inspect and revise schema elements — add, edit, remove, or merge fields |
-| **Continue Discovery** | Extend schema after initial convergence by processing more documents |
-| **Reextraction** | Re-run structured data extraction with the current or edited schema |
-| **Cost Estimation** | Preview estimated API costs before running expensive operations |
-| **Document Upload** | PDF and TXT support with automatic preprocessing |
-| **Export** | Download results as CSV, JSON, or JSONL |
+- **Real-time Progress** — WebSocket-based live updates during discovery and extraction
+- **Interactive Schema Editor** — Inspect and revise schema elements — add, edit, remove, or merge fields
+- **Continue Discovery** — Extend schema after initial convergence by processing more documents
+- **Reextraction** — Re-run structured data extraction with the current or edited schema
+- **Cost Estimation** — Preview estimated API costs before running expensive operations
+- **Document Upload** — PDF and TXT support with automatic preprocessing
+- **Export** — Download results as CSV, JSON, or JSONL
 
 ### Core Library (schematiq-lib)
 
-| Feature | Description |
-|---------|-------------|
-| **Backbone LLM Support** | OpenAI, Google Gemini, and Together AI |
-| **Observation Unit Discovery** | Automatically determines what entity each row represents |
-| **Embedding Retrieval** | Passage-level retrieval for long documents (sentence-transformers) |
-| **Iterative Schema Discovery** | Retrieval → LLM generation → semantic merging → convergence check |
-| **Parallel Extraction** | Multi-threaded document processing with incremental writes |
-| **Evaluation** | Schema and row-level evaluation against ground truth |
+- **Backbone LLM Support** — OpenAI, Google Gemini, and Together AI
+- **Observation Unit Discovery** — Automatically determines what entity each row represents
+- **Embedding Retrieval** — Passage-level retrieval for long documents (sentence-transformers)
+- **Iterative Schema Discovery** — Retrieval → LLM generation → semantic merging → convergence check
+- **Parallel Extraction** — Multi-threaded document processing with incremental writes
+- **Evaluation** — Schema and row-level evaluation against ground truth
 
 ```python
 from schematiq import Schema, Column, EmbeddingRetriever
@@ -88,9 +92,20 @@ from schematiq.core import schematiq as ScheMatiQ
 from schematiq.value_extraction.main import build_table_jsonl
 ```
 
----
+<details>
+<summary><h2>Development</h2></summary>
 
-## Development
+### Architecture
+
+```
+ScheMatiQ/
+├── frontend/        # React 18 + TypeScript + Tailwind/shadcn
+├── backend/         # FastAPI + WebSocket server
+├── schematiq-lib/   # Core ScheMatiQ algorithms (Python package)
+└── research/        # Datasets, experiments, evaluation results
+```
+
+**Request flow:** Frontend → Backend routes (`app/api/routes/`) → Services (`app/services/`) → schematiq-lib (`schematiq/`) → Backbone LLM. Real-time progress via WebSocket.
 
 ### Local Setup
 
@@ -155,27 +170,11 @@ Both services deploy on **Railway** using **Dockerfile-based** builds:
 - **Frontend** — Multi-stage Node 18 → Nginx (`frontend/Dockerfile`, `frontend/railway.json`)
 - **Backend** — Python 3.11-slim, CPU-only PyTorch, copies `schematiq-lib/` at build time (`backend/Dockerfile`, no `railway.json`)
 
----
-
-## Architecture
-
-```
-ScheMatiQ/
-├── frontend/        # React 18 + TypeScript + Tailwind/shadcn
-├── backend/         # FastAPI + WebSocket server
-├── schematiq-lib/   # Core ScheMatiQ algorithms (Python package, imported by backend)
-└── research/        # Datasets, experiments, evaluation results
-```
-
-**Request flow:** Frontend → Backend routes (`app/api/routes/`) → Services (`app/services/`) → schematiq-lib (`schematiq/`) → Backbone LLM. Real-time progress via WebSocket.
-
----
+</details>
 
 ## Contributing
 
 Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/shaharl6000/QueryDiscovery/issues).
-
----
 
 ## Citation
 
@@ -189,8 +188,6 @@ If you use ScheMatiQ in your research, please cite:
   year      = {2026}
 }
 ```
-
----
 
 ## License
 
