@@ -799,10 +799,12 @@ const DataTable: React.FC<DataTableProps> = ({
     setPage(0);
   };
 
-  const handleViewContent = (columnName: string, content: CellValue) => {
+  const handleViewContent = (columnName: string, content: CellValue, row?: DataRow) => {
     setModalContent({
       title: `${formatColumnName(columnName)} - Full Content`,
-      content: content
+      content: content,
+      rowName: row?.row_name || row?._unit_name,
+      column: columnName,
     });
     setModalOpen(true);
   };
@@ -932,7 +934,8 @@ const DataTable: React.FC<DataTableProps> = ({
 
       return {
         answer: answerVal,
-        excerpts: parsedExcerpts
+        excerpts: parsedExcerpts,
+        ...(val.manually_edited ? { manually_edited: true } : {})
       };
     }
 
@@ -1001,7 +1004,15 @@ const DataTable: React.FC<DataTableProps> = ({
       if (processingColumns?.has(columnName)) {
         return <ExtractingCell />;
       }
-      return <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>;
+      return (
+        <div
+          className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+          onClick={() => handleViewContent(columnName, value, rowData)}
+          title="Click to edit"
+        >
+          <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>
+        </div>
+      );
     }
 
     // Try to parse string values that look like JSON/Python objects
@@ -1013,7 +1024,15 @@ const DataTable: React.FC<DataTableProps> = ({
       if (processingColumns?.has(columnName)) {
         return <ExtractingCell />;
       }
-      return <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>;
+      return (
+        <div
+          className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+          onClick={() => handleViewContent(columnName, value, rowData)}
+          title="Click to edit"
+        >
+          <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>
+        </div>
+      );
     }
 
     // Normalize to ScheMatiQ format if it's an object
@@ -1027,7 +1046,7 @@ const DataTable: React.FC<DataTableProps> = ({
         return (
           <div
             className="flex items-center gap-1 cursor-pointer"
-            onClick={() => handleViewContent(columnName, processedValue)}
+            onClick={() => handleViewContent(columnName, processedValue, rowData)}
             title={`View all ${processedValue.length} items`}
           >
             {processedValue.slice(0, 2).map((item, index) => (
@@ -1052,13 +1071,22 @@ const DataTable: React.FC<DataTableProps> = ({
         const schematiqValue = processedValue as ScheMatiQAnswerWithExcerpts;
         const answer = schematiqValue.answer;
         const excerpts = schematiqValue.excerpts || [];
+        const manuallyEdited = schematiqValue.manually_edited;
 
         // Check if the answer itself is empty (e.g., "None", "", "N/A", null)
         if (isEmpty(answer)) {
           if (processingColumns?.has(columnName)) {
             return <ExtractingCell />;
           }
-          return <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>;
+          return (
+            <div
+              className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+              onClick={() => handleViewContent(columnName, processedValue, rowData)}
+              title="Click to edit"
+            >
+              <Badge variant="outline" className="text-muted-foreground bg-muted/50">null</Badge>
+            </div>
+          );
         }
 
         const answerStr = typeof answer === 'object' && answer !== null
@@ -1066,12 +1094,13 @@ const DataTable: React.FC<DataTableProps> = ({
           : String(answer);
         const hasExcerptsData = excerpts.length > 0;
         const showExpandIcon = hasExcerptsData || answerStr.length > 40;
+        const cellContent = { answer, excerpts, ...(manuallyEdited ? { manually_edited: true } : {}) };
 
         if (showExpandIcon) {
           const tooltip = hasExcerptsData ? "Click to view excerpts" : "Click to view full content";
           return renderClickableCell(
             answerStr,
-            () => handleViewContent(columnName, { answer, excerpts }),
+            () => handleViewContent(columnName, cellContent, rowData),
             tooltip
           );
         }
@@ -1079,7 +1108,7 @@ const DataTable: React.FC<DataTableProps> = ({
         return (
           <div
             className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
-            onClick={() => handleViewContent(columnName, { answer, excerpts })}
+            onClick={() => handleViewContent(columnName, cellContent, rowData)}
             title="Click to view content"
           >
             <div className="text-xs leading-relaxed" style={lineClampStyle}>
@@ -1093,7 +1122,7 @@ const DataTable: React.FC<DataTableProps> = ({
       return (
         <div
           className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1 inline-flex items-center gap-1"
-          onClick={() => handleViewContent(columnName, processedValue)}
+          onClick={() => handleViewContent(columnName, processedValue, rowData)}
           title="View object details"
         >
           <span className="text-xs text-muted-foreground">[Object]</span>
@@ -1122,9 +1151,9 @@ const DataTable: React.FC<DataTableProps> = ({
           handleViewContent(columnName, {
             answer: stringValue,
             excerpts: parsedExcerpts
-          });
+          }, rowData);
         } else {
-          handleViewContent(columnName, value);
+          handleViewContent(columnName, value, rowData);
         }
       };
 
@@ -1135,7 +1164,7 @@ const DataTable: React.FC<DataTableProps> = ({
     return (
       <div
         className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
-        onClick={() => handleViewContent(columnName, value)}
+        onClick={() => handleViewContent(columnName, value, rowData)}
         title="Click to view content"
       >
         <div className="text-xs leading-relaxed" style={lineClampStyle}>
@@ -1604,6 +1633,12 @@ const DataTable: React.FC<DataTableProps> = ({
         onClose={() => setModalOpen(false)}
         title={modalContent.title}
         content={modalContent.content}
+        onSave={!readonly && modalContent.rowName && modalContent.column
+          ? async (value: string) => {
+              await handleCellUpdate(modalContent.rowName!, modalContent.column!, value);
+            }
+          : undefined
+        }
       />
 
       {/* Filter Dialog */}

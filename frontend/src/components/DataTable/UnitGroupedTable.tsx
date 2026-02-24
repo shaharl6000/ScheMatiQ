@@ -34,7 +34,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
-import { unitsAPI, observationUnitAPI } from '../../services/api';
+import { unitsAPI, observationUnitAPI, schematiqAPI } from '../../services/api';
 import { useUnits, useMergeUnits, useUnitSuggestions } from '../../hooks/useUnits';
 import { MergeUnitsRequest, UnitSummary } from '../../types/unit';
 import { UnitMergeDialog } from '../ViewMode/UnitMergeDialog';
@@ -255,13 +255,20 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   }, []);
 
   // Handle viewing cell content in modal
-  const handleViewContent = useCallback((columnName: string, content: CellValue) => {
+  const handleViewContent = useCallback((columnName: string, content: CellValue, row?: DataRow) => {
     setModalContent({
       title: `${formatColumnName(columnName)} - Full Content`,
-      content: content
+      content: content,
+      rowName: row?.row_name || row?._unit_name,
+      column: columnName,
     });
     setModalOpen(true);
   }, []);
+
+  const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string) => {
+    await schematiqAPI.updateCell(sessionId, rowName, column, value);
+    refetchData();
+  }, [sessionId, refetchData]);
 
   // Filter suggestions by dismissed
   const visibleSuggestions = useMemo(() => {
@@ -901,6 +908,12 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         onClose={() => setModalOpen(false)}
         title={modalContent.title}
         content={modalContent.content}
+        onSave={modalContent.rowName && modalContent.column
+          ? async (value: string) => {
+              await handleCellUpdate(modalContent.rowName!, modalContent.column!, value);
+            }
+          : undefined
+        }
       />
 
       {/* Filter Dialog */}
@@ -1060,7 +1073,8 @@ function normalizeToScheMatiQ(val: unknown): unknown {
 
     return {
       answer: answerVal,
-      excerpts: parsedExcerpts
+      excerpts: parsedExcerpts,
+      ...(obj.manually_edited ? { manually_edited: true } : {})
     };
   }
 
@@ -1107,10 +1121,18 @@ function formatCellValue(
   columnName: string,
   rowData: DataRow | null,
   excerptMapping: Record<string, string>,
-  onViewContent: (columnName: string, content: CellValue) => void
+  onViewContent: (columnName: string, content: CellValue, row?: DataRow) => void
 ): React.ReactNode {
   if (value === null || value === undefined) {
-    return <Badge variant="outline" className="text-muted-foreground">null</Badge>;
+    return (
+      <div
+        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+        onClick={() => onViewContent(columnName, value, rowData ?? undefined)}
+        title="Click to edit"
+      >
+        <Badge variant="outline" className="text-muted-foreground">null</Badge>
+      </div>
+    );
   }
 
   // Try to parse string values that look like JSON/Python objects
@@ -1119,7 +1141,15 @@ function formatCellValue(
   // Check if parsing resulted in an empty value
   const displayStr = extractDisplayValue(processedValue);
   if (!displayStr || displayStr === 'null' || displayStr === 'None' || displayStr === 'N/A') {
-    return <Badge variant="outline" className="text-muted-foreground">null</Badge>;
+    return (
+      <div
+        className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+        onClick={() => onViewContent(columnName, value, rowData ?? undefined)}
+        title="Click to edit"
+      >
+        <Badge variant="outline" className="text-muted-foreground">null</Badge>
+      </div>
+    );
   }
 
   // Check for excerpt in separate _excerpt column
@@ -1147,11 +1177,20 @@ function formatCellValue(
       const schematiqValue = processedValue as ScheMatiQAnswerWithExcerpts;
       const answer = schematiqValue.answer;
       let excerpts = schematiqValue.excerpts || [];
+      const manuallyEdited = schematiqValue.manually_edited;
 
       // Check if the answer itself is empty
       const answerStr = extractDisplayValue(answer);
       if (!answerStr || answerStr === 'null' || answerStr === 'None' || answerStr === 'N/A') {
-        return <Badge variant="outline" className="text-muted-foreground">null</Badge>;
+        return (
+          <div
+            className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
+            onClick={() => onViewContent(columnName, processedValue as CellValue, rowData ?? undefined)}
+            title="Click to edit"
+          >
+            <Badge variant="outline" className="text-muted-foreground">null</Badge>
+          </div>
+        );
       }
 
       // Also check for excerpts in _excerpt column if not already present
@@ -1161,6 +1200,7 @@ function formatCellValue(
 
       const hasExcerptsData = excerpts.length > 0 || hasExcerptColumn;
       const showExpandIcon = hasExcerptsData || answerStr.length > 30;
+      const editedFlag = manuallyEdited ? { manually_edited: true as const } : {};
 
       if (showExpandIcon) {
         const tooltip = hasExcerptsData ? "Click to view excerpts" : "Click to view full content";
@@ -1169,7 +1209,7 @@ function formatCellValue(
         return (
           <div
             className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
-            onClick={() => onViewContent(columnName, { answer, excerpts: modalExcerpts })}
+            onClick={() => onViewContent(columnName, { answer, excerpts: modalExcerpts, ...editedFlag }, rowData ?? undefined)}
             title={tooltip}
           >
             <div className="text-xs leading-relaxed break-words" style={lineClampStyle}>
@@ -1182,7 +1222,7 @@ function formatCellValue(
       return (
         <div
           className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
-          onClick={() => onViewContent(columnName, { answer, excerpts: [] })}
+          onClick={() => onViewContent(columnName, { answer, excerpts: [], ...editedFlag }, rowData ?? undefined)}
           title="Click to view content"
         >
           <div className="text-xs leading-relaxed" style={lineClampStyle}>
@@ -1204,7 +1244,7 @@ function formatCellValue(
         onClick={() => onViewContent(columnName, {
           answer: displayStr,
           excerpts: modalExcerpts
-        })}
+        }, rowData ?? undefined)}
         title={tooltip}
       >
         <div className="text-xs leading-relaxed break-words" style={lineClampStyle}>
@@ -1217,7 +1257,7 @@ function formatCellValue(
   return (
     <div
       className="cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-950 rounded p-1 -m-1"
-      onClick={() => onViewContent(columnName, displayStr)}
+      onClick={() => onViewContent(columnName, displayStr, rowData ?? undefined)}
       title="Click to view content"
     >
       <div className="text-xs leading-relaxed" style={lineClampStyle}>{displayStr}</div>

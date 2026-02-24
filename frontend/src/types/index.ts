@@ -366,6 +366,7 @@ export type Excerpt = string | ExcerptWithSource;
 export interface ScheMatiQAnswerWithExcerpts {
   answer: string;
   excerpts: Excerpt[];  // Supports both old (string) and new (object) formats
+  manually_edited?: boolean;
 }
 
 export type CellValue = string | number | boolean | null | undefined | ScheMatiQAnswerWithExcerpts | unknown[] | Record<string, unknown>;
@@ -373,6 +374,8 @@ export type CellValue = string | number | boolean | null | undefined | ScheMatiQ
 export interface ModalContent {
   title: string;
   content: CellValue;
+  rowName?: string;
+  column?: string;
 }
 
 export interface ApiError {
