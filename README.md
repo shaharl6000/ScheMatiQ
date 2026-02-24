@@ -1,44 +1,100 @@
 # ScheMatiQ
 
-**ScheMatiQ — Give a research query and documents, get a structured table back.**
+**A framework for query-driven schema discovery and structured data extraction from document collections.**
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![React 18](https://img.shields.io/badge/react-18-61dafb.svg)](https://reactjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688.svg)](https://fastapi.tiangolo.com/)
 
-ScheMatiQ takes a natural-language query and a collection of documents, automatically discovers the optimal table schema to answer it, then extracts values from each document into a structured table. No predefined schema needed — the system figures out what columns matter.
-
-**Try it live:** [querydiscovery-production.up.railway.app](https://querydiscovery-production.up.railway.app/)
+ScheMatiQ helps domain experts turn a research question and a document collection into a structured table — no predefined schema needed. The system uses a backbone LLM to iteratively discover an annotation schema, then extracts structured data grounded in the source documents. A web interface at [schematiq-ai.com](https://www.schematiq-ai.com/) supports human--AI collaboration, letting users inspect, revise, and refine results at every stage.
 
 ---
 
-## Architecture
+## How It Works
 
-```
-ScheMatiQ/
-├── frontend/        # React 18 + TypeScript + Tailwind/shadcn (Railway Service 1)
-├── backend/         # FastAPI + WebSocket server (Railway Service 2)
-├── schematiq-lib/   # Core ScheMatiQ algorithms (Python package, imported by backend)
-└── research/        # Datasets, experiments, evaluation results
-```
-
-**Request flow:** Frontend → Backend routes (`app/api/routes/`) → Services (`app/services/`) → schematiq-lib (`schematiq/`) → LLM API. Real-time progress via WebSocket.
-
-### System Flow
+ScheMatiQ runs a three-stage pipeline:
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│   Research   │     │ Observation │     │   Schema    │     │    Value    │     │  Structured │
-│    Query     │ ──▶ │    Unit     │ ──▶ │  Discovery  │ ──▶ │  Extraction │ ──▶ │    Table    │
-│ + Documents  │     │  Discovery  │     │ (ScheMatiQ) │     │             │     │             │
+│   Research   │     │ Observation │     │   Schema    │     │ Structured  │     │  Structured │
+│  Question    │ ──▶ │    Unit     │ ──▶ │  Discovery  │ ──▶ │    Data     │ ──▶ │    Table    │
+│ + Documents  │     │  Discovery  │     │             │     │ Extraction  │     │             │
 └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
-The **Observation Unit** (e.g., "research paper", "patient") is discovered first — it determines what each row in the final table represents.
+1. **Observation Unit Discovery** — Identifies the entity each row represents (e.g., "research paper", "patient").
+2. **Schema Discovery** — Iteratively refines annotation schema fields across document batches using embedding-based retrieval, LLM generation, and semantic merging.
+3. **Structured Data Extraction** — Produces a structured table with values grounded in the source documents.
 
 ---
 
-## Quick Start
+## Getting Started
+
+### Web Application
+
+Go to **[www.schematiq-ai.com](https://www.schematiq-ai.com/)**, enter a research question, upload your documents, and start discovery. No installation required.
+
+### Core Library
+
+Use `schematiq-lib` as a standalone Python package — no web interface needed.
+
+```bash
+cd schematiq-lib && pip install -e .
+```
+
+```python
+from schematiq import GeminiLLM, EmbeddingRetriever, discover_observation_unit
+
+llm = GeminiLLM(model="gemini-2.5-flash")
+retriever = EmbeddingRetriever(k=8)
+documents = [open(f).read() for f in your_files]
+
+observation_unit = discover_observation_unit(documents, "your research question", llm)
+```
+
+See the [Core Library features](#core-library-schematiq-lib) section for the full API surface.
+
+---
+
+## Features
+
+### Web Application
+
+| Feature | Description |
+|---------|-------------|
+| **Real-time Progress** | WebSocket-based live updates during discovery and extraction |
+| **Interactive Schema Editor** | Inspect and revise schema elements — add, edit, remove, or merge fields |
+| **Continue Discovery** | Extend schema after initial convergence by processing more documents |
+| **Reextraction** | Re-run structured data extraction with the current or edited schema |
+| **Cost Estimation** | Preview estimated API costs before running expensive operations |
+| **Document Upload** | PDF and TXT support with automatic preprocessing |
+| **Export** | Download results as CSV, JSON, or JSONL |
+
+### Core Library (schematiq-lib)
+
+| Feature | Description |
+|---------|-------------|
+| **Backbone LLM Support** | OpenAI, Google Gemini, and Together AI |
+| **Observation Unit Discovery** | Automatically determines what entity each row represents |
+| **Embedding Retrieval** | Passage-level retrieval for long documents (sentence-transformers) |
+| **Iterative Schema Discovery** | Retrieval → LLM generation → semantic merging → convergence check |
+| **Parallel Extraction** | Multi-threaded document processing with incremental writes |
+| **Evaluation** | Schema and row-level evaluation against ground truth |
+
+```python
+from schematiq import Schema, Column, EmbeddingRetriever
+from schematiq.core.llm_backends import GeminiLLM
+from schematiq.core import schematiq as ScheMatiQ
+from schematiq.value_extraction.main import build_table_jsonl
+```
+
+---
+
+## Development
+
+### Local Setup
+
+To run the full web application locally (for development or self-hosting):
 
 **Prerequisites:** Node.js 18+, Python 3.10+, at least one LLM API key (OpenAI, Gemini, or Together AI)
 
@@ -59,52 +115,7 @@ npm start
 # Opens at http://localhost:3000
 ```
 
----
-
-## Features
-
-### Web Application
-
-| Feature | Description |
-|---------|-------------|
-| **Real-time Progress** | WebSocket-based live updates during discovery and extraction |
-| **Interactive Schema Editor** | Edit, add, or remove columns after discovery |
-| **Continue Discovery** | Extend schema after initial convergence by processing more documents |
-| **Reextraction** | Re-run value extraction with the current or edited schema |
-| **Cost Estimation** | Preview estimated LLM API costs before running expensive operations |
-| **Document Upload** | PDF and TXT support with automatic preprocessing |
-| **Export** | Download results as CSV, JSON, or JSONL |
-
-**Pages:** Landing → ScheMatiQConfig → Load → Visualize
-
-### Core Library (schematiq-lib)
-
-| Feature | Description |
-|---------|-------------|
-| **Multi-LLM Support** | OpenAI, Google Gemini, Together AI |
-| **Observation Unit Discovery** | Automatically determines what entity each row represents |
-| **Embedding Retrieval** | Passage-level retrieval for long documents (sentence-transformers) |
-| **Iterative Schema Discovery** | Retrieval → LLM generation → semantic merging → convergence check |
-| **Parallel Extraction** | Multi-threaded document processing with incremental writes |
-| **Evaluation** | Schema and row-level evaluation against ground truth |
-
-```bash
-# Standalone install
-cd schematiq-lib && pip install -e .
-```
-
-```python
-from schematiq import Schema, Column, EmbeddingRetriever
-from schematiq.core.llm_backends import GeminiLLM
-from schematiq.core import schematiq as ScheMatiQ
-from schematiq.value_extraction.main import build_table_jsonl
-```
-
----
-
-## Configuration
-
-### Environment Variables
+### Configuration
 
 **Backend** (at least one LLM key required):
 
@@ -125,7 +136,7 @@ from schematiq.value_extraction.main import build_table_jsonl
 | `REACT_APP_API_URL` | Backend URL (default: `http://localhost:8000`) |
 | `REACT_APP_WS_URL` | WebSocket URL (default: `ws://localhost:8000`) |
 
-### Release Mode vs Developer Mode
+#### Release Mode vs Developer Mode
 
 Release mode (default) restricts features for public use. Set `DEVELOPER_MODE=true` to unlock.
 
@@ -134,23 +145,50 @@ Release mode (default) restricts features for public use. Set `DEVELOPER_MODE=tr
 | Document limit | 20 | 10,000 |
 | LLM configuration | Locked (Gemini only) | User-configurable |
 | Schema creation model | gemini-2.5-flash | User's choice |
-| Value extraction model | gemini-2.5-flash-lite | User's choice |
+| Extraction model | gemini-2.5-flash-lite | User's choice |
 | Research data collection | Enabled (if configured) | Disabled |
 
----
-
-## Deployment
+### Deployment (Railway)
 
 Both services deploy on **Railway** using **Dockerfile-based** builds:
 
 - **Frontend** — Multi-stage Node 18 → Nginx (`frontend/Dockerfile`, `frontend/railway.json`)
 - **Backend** — Python 3.11-slim, CPU-only PyTorch, copies `schematiq-lib/` at build time (`backend/Dockerfile`, no `railway.json`)
 
-### Concurrency
+---
 
-- Blocking LLM/embedding calls offloaded via `run_in_executor` with a configurable thread pool
-- `ConcurrencyLimiter` tracks active sessions; exceeding capacity returns HTTP 503
-- Thread-safe session and WebSocket management
+## Architecture
+
+```
+ScheMatiQ/
+├── frontend/        # React 18 + TypeScript + Tailwind/shadcn
+├── backend/         # FastAPI + WebSocket server
+├── schematiq-lib/   # Core ScheMatiQ algorithms (Python package, imported by backend)
+└── research/        # Datasets, experiments, evaluation results
+```
+
+**Request flow:** Frontend → Backend routes (`app/api/routes/`) → Services (`app/services/`) → schematiq-lib (`schematiq/`) → Backbone LLM. Real-time progress via WebSocket.
+
+---
+
+## Contributing
+
+Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/shaharl6000/QueryDiscovery/issues).
+
+---
+
+## Citation
+
+If you use ScheMatiQ in your research, please cite:
+
+```bibtex
+@inproceedings{schematiq2026,
+  title     = {ScheMatiQ: Query-Driven Schema Discovery and Structured Data Extraction from Document Collections},
+  author    = {TODO},
+  booktitle = {TODO},
+  year      = {2026}
+}
+```
 
 ---
 
