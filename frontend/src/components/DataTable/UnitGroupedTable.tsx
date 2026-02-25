@@ -1101,7 +1101,7 @@ function normalizeToScheMatiQ(val: unknown): unknown {
 }
 
 /** Maximum visible lines in data cells before CSS truncation */
-const DATA_CELL_MAX_LINES = 8;
+const DATA_CELL_MAX_LINES = 5;
 
 /** CSS line-clamp style for multi-line text truncation */
 const lineClampStyle: React.CSSProperties = {

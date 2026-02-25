@@ -154,7 +154,7 @@ const Visualize = () => {
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
 
   // Add More Documents collapsible state
-  const [addDocsExpanded, setAddDocsExpanded] = useState(false);
+  const [addDocsExpanded, setAddDocsExpanded] = useState(true);
 
   // WebSocket state
   const [forceWebSocketConnect, setForceWebSocketConnect] = useState(false);
@@ -1120,11 +1120,7 @@ const Visualize = () => {
   }
 
   if (sessionLoading && !autoStartState.autoStarted) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      </div>
-    );
+    return null;
   }
 
   if (sessionError) {
@@ -1634,16 +1630,6 @@ const Visualize = () => {
         )}
       </Tabs>
 
-      {/* Table Feedback Widget (release mode only) */}
-      {!developerMode && sessionId && (
-        <TableFeedbackWidget
-          sessionId={sessionId}
-          sessionStatus={session?.status || ''}
-          activeTab={activeTab}
-          tableRowCount={dataResponse?.total_count || 0}
-          tableColumnCount={session?.columns?.length || 0}
-        />
-      )}
 
       {/* LLM Selection Dialog */}
       <LLMSelector

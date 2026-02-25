@@ -270,9 +270,9 @@ async def run_schematiq(session_id: str, background_tasks: BackgroundTasks):
 
         # Pre-check global LLM quota before starting background task.
         # This gives the user an immediate HTTP error instead of a delayed WebSocket error.
-        from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
+        from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE, DEMO_MODE
         from schematiq.core.llm_call_tracker import QuotaExceededError
-        if not DEVELOPER_MODE and LLM_CALL_GLOBAL_LIMIT > 0:
+        if not DEMO_MODE and not DEVELOPER_MODE and LLM_CALL_GLOBAL_LIMIT > 0:
             try:
                 schematiq_runner._sync_usage_from_sheets()
                 schematiq_runner._global_usage.check_quota(LLM_CALL_GLOBAL_LIMIT)

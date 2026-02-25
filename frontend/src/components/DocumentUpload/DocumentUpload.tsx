@@ -186,17 +186,6 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
         </p>
       </div>
 
-      {maxDocuments && (
-        <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
-          <FileText className="h-4 w-4 text-blue-600" />
-          <AlertDescription className="text-sm text-blue-700 dark:text-blue-400">
-            <strong>Document limit:</strong> Processing is limited to {maxDocuments} documents.
-            {existingDocumentCount > 0
-              ? ` You currently have ${existingDocumentCount} document${existingDocumentCount !== 1 ? 's' : ''}, so you can add up to ${Math.max(0, maxDocuments - existingDocumentCount)} more.`
-              : ' If you provide more, a representative sample will be used.'}
-          </AlertDescription>
-        </Alert>
-      )}
 
       <Tabs defaultValue="upload" className="w-full">
         <TabsList className="grid w-full grid-cols-2">

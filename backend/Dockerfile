@@ -25,6 +25,9 @@ RUN pip install --no-cache-dir -e /app/schematiq-lib/
 COPY backend/requirements.txt /app/backend/
 RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
+# Copy demo data (used when DEMO_MODE=true)
+COPY demo.json /app/demo.json
+
 # Copy backend source code
 COPY backend/ /app/backend/
 

@@ -160,14 +160,6 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
         description: response.message,
       });
 
-      // Show warning if present
-      if (response.warning) {
-        toast({
-          title: 'Note',
-          description: response.warning,
-          variant: 'default',
-        });
-      }
 
       onOpenChange(false);
     } catch (error: any) {

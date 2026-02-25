@@ -267,8 +267,13 @@ class UnitViewService:
             unit_name = self._get_unit_name(row) or ''
             unit_groups[unit_name].append(row)
 
-        # Sort unit names alphabetically
-        sorted_unit_names = sorted(unit_groups.keys(), key=str.lower)
+        # Preserve original row order (order of first appearance)
+        seen = []
+        for row in rows:
+            unit_name = self._get_unit_name(row) or ''
+            if unit_name not in seen:
+                seen.append(unit_name)
+        sorted_unit_names = seen
         total_unit_count = len(sorted_unit_names)
 
         # Paginate by units

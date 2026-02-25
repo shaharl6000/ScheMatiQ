@@ -153,7 +153,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   // View mode, search, and sort state - always default to 'detailed'
   const [viewMode, setViewMode] = useState<'compact' | 'detailed'>('detailed');
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'name' | 'type' | 'completeness' | 'modified'>('name');
+  const [sortBy, setSortBy] = useState<'original' | 'name' | 'type' | 'completeness' | 'modified'>('original');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [selectedDetailColumn, setSelectedDetailColumn] = useState<ColumnInfo | null>(null);
 
@@ -892,6 +892,9 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   // Sort columns
   const sortedColumns = useMemo(() => {
+    if (sortBy === 'original') {
+      return filteredColumns;
+    }
     const cols = [...filteredColumns];
     cols.sort((a, b) => {
       let comparison = 0;
@@ -1226,6 +1229,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                         Sort Columns
                       </DropdownMenuSubTrigger>
                       <DropdownMenuSubContent>
+                        <DropdownMenuItem onClick={() => setSortBy('original')}>
+                          {sortBy === 'original' && <Check className="h-4 w-4 mr-2" />}
+                          {sortBy !== 'original' && <span className="w-4 mr-2" />}
+                          Original Order
+                        </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setSortBy('name')}>
                           {sortBy === 'name' && <Check className="h-4 w-4 mr-2" />}
                           {sortBy !== 'name' && <span className="w-4 mr-2" />}
@@ -1661,7 +1669,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                     </div>
                                   )}
                                   {column.rationale && (
-                                    <details className="mb-3">
+                                    <details className="mb-3" open>
                                       <summary className="text-xs text-blue-600 dark:text-blue-400 cursor-pointer hover:underline">
                                         Why this column?
                                       </summary>
@@ -1673,24 +1681,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                   {column.allowed_values && column.allowed_values.length > 0 && (
                                     <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-950 rounded-md border border-purple-200 dark:border-purple-800">
                                       <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-2">Allowed Values</p>
-                                      {column.allowed_values.length <= 3 ? (
-                                        <div className="flex flex-wrap gap-1">
-                                          {column.allowed_values.map((value, idx) => (
-                                            <Badge key={idx} variant="outline" className="text-xs">{value}</Badge>
-                                          ))}
-                                        </div>
-                                      ) : (
-                                        <details>
-                                          <summary className="text-xs text-purple-600 dark:text-purple-400 cursor-pointer hover:underline">
-                                            {column.allowed_values.length} values
-                                          </summary>
-                                          <div className="flex flex-wrap gap-1 mt-1">
-                                            {column.allowed_values.map((value, idx) => (
-                                              <Badge key={idx} variant="outline" className="text-xs">{value}</Badge>
-                                            ))}
-                                          </div>
-                                        </details>
-                                      )}
+                                      <div className="flex flex-wrap gap-1">
+                                        {column.allowed_values.map((value, idx) => (
+                                          <Badge key={idx} variant="outline" className="text-xs">{value}</Badge>
+                                        ))}
+                                      </div>
                                     </div>
                                   )}
                                   {(column.non_null_count != null || column.unique_count != null) && (
@@ -1918,7 +1913,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   )}
 
                   {column.rationale && (
-                    <details className="mb-3">
+                    <details className="mb-3" open>
                       <summary className="text-xs text-blue-600 dark:text-blue-400 cursor-pointer hover:underline">
                         Why this column?
                       </summary>
@@ -1939,38 +1934,23 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                             ? 'Range Constraint'
                             : 'Allowed Values'}
                       </p>
-                      {column.allowed_values.length <= 3 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {column.allowed_values.length === 1 && column.allowed_values[0].toLowerCase() === 'number' ? (
-                            <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
-                              Any Number (int/float)
+                      <div className="flex flex-wrap gap-1">
+                        {column.allowed_values.length === 1 && column.allowed_values[0].toLowerCase() === 'number' ? (
+                          <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
+                            Any Number (int/float)
+                          </Badge>
+                        ) : column.allowed_values.length === 1 && /^(-?\d+(\.\d+)?)-(-?\d+(\.\d+)?)$/.test(column.allowed_values[0]) ? (
+                          <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
+                            Range: {column.allowed_values[0]}
+                          </Badge>
+                        ) : (
+                          column.allowed_values.map((value, idx) => (
+                            <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
+                              {value}
                             </Badge>
-                          ) : column.allowed_values.length === 1 && /^(-?\d+(\.\d+)?)-(-?\d+(\.\d+)?)$/.test(column.allowed_values[0]) ? (
-                            <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
-                              Range: {column.allowed_values[0]}
-                            </Badge>
-                          ) : (
-                            column.allowed_values.map((value, idx) => (
-                              <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
-                                {value}
-                              </Badge>
-                            ))
-                          )}
-                        </div>
-                      ) : (
-                        <details>
-                          <summary className="text-xs text-purple-600 dark:text-purple-400 cursor-pointer hover:underline">
-                            {column.allowed_values.length} values
-                          </summary>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {column.allowed_values.map((value, idx) => (
-                              <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
-                                {value}
-                              </Badge>
-                            ))}
-                          </div>
-                        </details>
-                      )}
+                          ))
+                        )}
+                      </div>
                     </div>
                   )}
 

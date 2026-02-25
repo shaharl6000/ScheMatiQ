@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
 
-from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, LLM_CALL_GLOBAL_LIMIT
+from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, LLM_CALL_GLOBAL_LIMIT, DEMO_MODE
 from app.core.logging_utils import set_session_context
 from app.services import schematiq_thread_pool, concurrency_limiter
 
@@ -120,6 +120,102 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.storage import get_storage
+
+
+# ── Demo mode helpers ─────────────────────────────────────────────
+
+def _split_columns_into_batches(columns: list) -> list:
+    """Split columns into unequal batches for realistic progressive reveal."""
+    total = len(columns)
+    if total <= 5:
+        return [columns]
+
+    proportions = [0.15, 0.12, 0.19, 0.08, 0.15, 0.12, 0.08, 0.11]
+    batches = []
+    start = 0
+    for i, prop in enumerate(proportions):
+        if start >= total:
+            break
+        if i == len(proportions) - 1:
+            # Last batch gets the remainder
+            batches.append(columns[start:])
+            start = total
+        else:
+            size = max(1, round(total * prop))
+            end = min(start + size, total)
+            if end > start:
+                batches.append(columns[start:end])
+                start = end
+    return [b for b in batches if b]
+
+
+def _batch_delay(batch_idx: int, total_batches: int) -> float:
+    """Return delay in seconds after each schema batch (~30s total)."""
+    if total_batches <= 1:
+        return 2.0
+    base_per_batch = 30.0 / total_batches
+    normalized_pos = batch_idx / (total_batches - 1)
+    variation = 1.0 + 0.8 * (1.0 - 4.0 * (normalized_pos - 0.5) ** 2)
+    return base_per_batch * variation
+
+
+def _convert_demo_row_to_jsonl(row: dict) -> dict:
+    """Convert a demo.json data row to the JSONL format expected by the backend."""
+    return {
+        "row_name": row.get("row_name", ""),
+        "papers": row.get("papers", []),
+        "data": row.get("data", {}),
+        "_unit_name": row.get("_unit_name"),
+        "_source_document": row.get("_source_document"),
+        "_parent_document": row.get("_parent_document"),
+    }
+
+
+def _compute_demo_statistics(
+    demo_rows: list, demo_schema_columns: list, total_documents: int
+) -> DataStatistics:
+    """Compute statistics from demo data without reading from JSONL."""
+    total_columns = len(demo_schema_columns)
+    total_rows = len(demo_rows)
+
+    column_stats = []
+    for col_def in demo_schema_columns:
+        col_name = col_def["name"]
+        non_null = 0
+        unique_vals = set()
+        for row in demo_rows:
+            val = row.get("data", {}).get(col_name)
+            if val is not None:
+                answer = val.get("answer") if isinstance(val, dict) else val
+                if answer is not None and str(answer) not in ("None", "", "[]"):
+                    non_null += 1
+                    try:
+                        unique_vals.add(json.dumps(answer, sort_keys=True))
+                    except (TypeError, ValueError):
+                        unique_vals.add(str(answer))
+
+        column_stats.append(ColumnInfo(
+            name=col_name,
+            definition=col_def.get("definition", ""),
+            rationale=col_def.get("rationale", ""),
+            data_type=col_def.get("data_type", "object"),
+            non_null_count=non_null,
+            unique_count=len(unique_vals),
+            allowed_values=col_def.get("allowed_values"),
+        ))
+
+    total_cells = total_rows * total_columns
+    total_filled = sum(c.non_null_count or 0 for c in column_stats)
+    completeness = (total_filled / total_cells * 100) if total_cells > 0 else 0.0
+
+    return DataStatistics(
+        total_rows=total_rows,
+        total_columns=total_columns,
+        total_documents=total_documents,
+        completeness=completeness,
+        column_stats=column_stats,
+    )
+
 
 class ScheMatiQRunner(WebSocketBroadcasterMixin):
     """Handles ScheMatiQ execution and integration."""
@@ -451,6 +547,10 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
         At least one of query or documents must be provided.
         """
+        # In demo mode, skip all validation — no API keys or documents needed
+        if DEMO_MODE:
+            return {"is_valid": True, "errors": [], "warnings": []}
+
         errors = []
         warnings = []
 
@@ -574,8 +674,11 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 config_data = json.load(f)
             config = ScheMatiQConfig(**config_data)
             
-            # Create task for ScheMatiQ execution
-            task = asyncio.create_task(self._execute_schematiq(session_id, config))
+            # Create task for ScheMatiQ execution (demo mode uses simulated pipeline)
+            if DEMO_MODE:
+                task = asyncio.create_task(self._execute_demo(session_id, config))
+            else:
+                task = asyncio.create_task(self._execute_schematiq(session_id, config))
             with self._state_lock:
                 self.running_sessions[session_id] = task
 
@@ -655,6 +758,252 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
         # Re-run the pipeline (will skip observation unit discovery since it's pre-configured)
         await self.run_schematiq(session_id)
+
+    async def _execute_demo(self, session_id: str, config: ScheMatiQConfig):
+        """Execute a demo simulation using pre-loaded data from demo.json.
+
+        Simulates the full pipeline over ~1 minute:
+        1. Observation unit appears (~5s)
+        2. Schema fields appear in unequal batches (~30s)
+        3. Full table data appears all at once
+        """
+        demo_start_time = time.time()
+        session_dir = self.work_dir / session_id
+        session_dir.mkdir(parents=True, exist_ok=True)
+
+        # Load demo data
+        demo_json_path = PROJECT_ROOT / "demo.json"
+        if not demo_json_path.exists():
+            # Fallback: check in backend directory
+            demo_json_path = Path(__file__).parent.parent.parent / "demo.json"
+        if not demo_json_path.exists():
+            raise RuntimeError("Demo data file not found. Ensure demo.json is in the project root.")
+
+        with open(demo_json_path, 'r', encoding='utf-8') as f:
+            demo_data = json.load(f)
+
+        demo_query = demo_data.get("query", config.query)
+        demo_schema_columns = demo_data["schema"]["columns"]
+        demo_observation_unit = demo_data.get("observation_unit", {})
+        demo_rows = demo_data["data"]
+        total_columns = len(demo_schema_columns)
+        total_rows = len(demo_rows)
+        total_steps = 5
+
+        try:
+            # ── Phase 1: Initialization ──
+            await self.broadcast_step_progress(
+                session_id, "Initializing", step_number=1, total_steps=total_steps,
+                step_progress=0.0, message="Initializing pipeline..."
+            )
+            await asyncio.sleep(1.5)
+            await self.broadcast_step_progress(
+                session_id, "Initializing", step_number=1, total_steps=total_steps,
+                step_progress=1.0, message="Pipeline initialized"
+            )
+
+            # ── Phase 2: Loading documents (skip display, go straight to schema) ──
+            # Collect unique document names from demo data
+            document_names = list({
+                row.get("_source_document", "")
+                for row in demo_rows if row.get("_source_document")
+            })
+            total_documents = len(document_names)
+
+            # ── Phase 2.5: Observation unit appears ──
+            await asyncio.sleep(1.5)
+
+            session = self.session_manager.get_session(session_id)
+            session.observation_unit = ObservationUnitInfo(
+                name=demo_observation_unit.get("name", "Document"),
+                definition=demo_observation_unit.get("definition", ""),
+                example_names=demo_observation_unit.get("example_names"),
+                source_document=demo_observation_unit.get("source_document"),
+                discovery_iteration=demo_observation_unit.get("discovery_iteration"),
+            )
+            session.schema_query = demo_query
+            self.session_manager.update_session(session)
+
+            # Notify frontend so it refetches and sees observation unit
+            await self.websocket_manager.broadcast_to_session(session_id, {
+                "type": "schema_progress",
+                "timestamp": datetime.now().isoformat(),
+                "data": {
+                    "columns_discovered": 0,
+                    "iteration": 0,
+                    "max_iterations": 1,
+                    "new_columns": [],
+                }
+            })
+
+            # ── Phase 3: Schema discovery with progressive reveal ──
+            await self.broadcast_step_progress(
+                session_id, "Discovering schema", step_number=3, total_steps=total_steps,
+                step_progress=0.0, message="Schema Discovery: Analyzing documents"
+            )
+
+            batches = _split_columns_into_batches(demo_schema_columns)
+            cumulative_columns = []
+
+            for batch_idx, batch in enumerate(batches):
+                if self.is_stop_requested(session_id):
+                    break
+
+                cumulative_columns.extend(batch)
+                new_column_names = [col["name"] for col in batch]
+
+                # Update session with new columns
+                session = self.session_manager.get_session(session_id)
+                session.columns = [
+                    ColumnInfo(
+                        name=col["name"],
+                        definition=col.get("definition", ""),
+                        rationale=col.get("rationale", ""),
+                        data_type=col.get("data_type", "object"),
+                        allowed_values=col.get("allowed_values"),
+                    )
+                    for col in cumulative_columns
+                ]
+                self.session_manager.update_session(session)
+
+                # Save partial schema file
+                partial_schema = {
+                    "query": demo_query,
+                    "schema": [
+                        {"name": c["name"], "definition": c.get("definition", ""), "rationale": c.get("rationale", "")}
+                        for c in cumulative_columns
+                    ],
+                }
+                if demo_observation_unit:
+                    partial_schema["observation_unit"] = demo_observation_unit
+                with open(session_dir / "discovered_schema.json", 'w') as f:
+                    json.dump(partial_schema, f, indent=2)
+
+                # Broadcast schema_progress (triggers frontend refetch)
+                await self.websocket_manager.broadcast_to_session(session_id, {
+                    "type": "schema_progress",
+                    "timestamp": datetime.now().isoformat(),
+                    "data": {
+                        "columns_discovered": len(cumulative_columns),
+                        "iteration": batch_idx + 1,
+                        "max_iterations": len(batches),
+                        "new_columns": new_column_names,
+                    }
+                })
+
+                schema_progress = (batch_idx + 1) / len(batches)
+                await self.broadcast_step_progress(
+                    session_id, "Discovering schema", step_number=3, total_steps=total_steps,
+                    step_progress=schema_progress,
+                    message=f"Schema Discovery: Found {len(cumulative_columns)} columns"
+                )
+
+                # Wait between batches (unequal delays for realism)
+                delay = _batch_delay(batch_idx, len(batches))
+                await asyncio.sleep(delay)
+
+            # Handle stop during schema discovery
+            if self.is_stop_requested(session_id):
+                session = self.session_manager.get_session(session_id)
+                session.status = SessionStatus.STOPPED
+                session.error_message = None
+                self.session_manager.update_session(session)
+                await self.broadcast_stopped(session_id, {
+                    "schema_saved": True,
+                    "data_rows_saved": 0,
+                    "message": "Demo stopped during schema discovery"
+                })
+                return
+
+            # Mark schema as ready
+            session = self.session_manager.get_session(session_id)
+            session.status = SessionStatus.SCHEMA_READY
+            session.metadata.schema_discovery_completed = True
+            self.session_manager.update_session(session)
+
+            # Broadcast schema_completed
+            await self.broadcast_schema_completed(session_id, {
+                "query": demo_query,
+                "columns": [col.model_dump(mode='json') for col in session.columns],
+                "total_columns": total_columns,
+                "observation_unit": demo_observation_unit,
+            })
+
+            # ── Phase 4: Value extraction — write all data at once ──
+            await self.broadcast_step_progress(
+                session_id, "Extracting values", step_number=4, total_steps=total_steps,
+                step_progress=0.0, message="Value Extraction: Processing documents"
+            )
+            await asyncio.sleep(3.0)
+
+            # Write ALL rows to JSONL at once
+            output_path = session_dir / "extracted_data.jsonl"
+            with open(output_path, 'w', encoding='utf-8') as f:
+                for row in demo_rows:
+                    jsonl_row = _convert_demo_row_to_jsonl(row)
+                    f.write(json.dumps(jsonl_row, ensure_ascii=False) + '\n')
+
+            # Update session metadata
+            session = self.session_manager.get_session(session_id)
+            session.metadata.total_documents = total_documents
+            session.metadata.processed_documents = total_documents
+            self.session_manager.update_session(session)
+
+            # Broadcast row_completed to trigger frontend data refetch
+            await self.broadcast_row_completed(session_id, {
+                "row_index": total_rows,
+                "total_rows": total_rows,
+                "document_names": document_names,
+                "elapsed_seconds": int(time.time() - demo_start_time),
+            })
+
+            await self.broadcast_step_progress(
+                session_id, "Extracting values", step_number=4, total_steps=total_steps,
+                step_progress=1.0, message=f"Value Extraction: {total_rows} rows extracted"
+            )
+
+            # ── Phase 5: Finalization ──
+            await self.broadcast_step_progress(
+                session_id, "Finalizing results", step_number=5, total_steps=total_steps,
+                step_progress=0.0, message="Finalizing results..."
+            )
+
+            # Compute statistics
+            statistics = _compute_demo_statistics(demo_rows, demo_schema_columns, total_documents)
+
+            session = self.session_manager.get_session(session_id)
+            session.statistics = statistics
+            session.status = SessionStatus.COMPLETED
+            self.session_manager.update_session(session)
+
+            # Capture schema baseline for re-extraction change detection
+            self.session_manager.capture_schema_baseline(session_id)
+
+            await asyncio.sleep(1.0)
+            await self.broadcast_step_progress(
+                session_id, "Finalizing results", step_number=5, total_steps=total_steps,
+                step_progress=1.0
+            )
+
+            # Broadcast completion
+            await self.broadcast_completion(
+                session_id,
+                "ScheMatiQ execution completed successfully",
+                {
+                    "total_documents": total_documents,
+                    "schema_columns": total_columns,
+                    "elapsed_seconds": int(time.time() - demo_start_time),
+                }
+            )
+
+        except Exception as e:
+            logger.error("Demo execution failed: %s", e, exc_info=True)
+            session = self.session_manager.get_session(session_id)
+            session.status = SessionStatus.ERROR
+            session.error_message = str(e)
+            self.session_manager.update_session(session)
+            await self.broadcast_error(session_id, str(e))
+            raise
 
     async def _execute_schematiq(self, session_id: str, config: ScheMatiQConfig):
         """Execute the real ScheMatiQ process."""

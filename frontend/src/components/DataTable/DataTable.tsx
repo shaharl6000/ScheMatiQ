@@ -963,7 +963,7 @@ const DataTable: React.FC<DataTableProps> = ({
   };
 
   // CSS line-clamp for multi-line text truncation (matches UnitGroupedTable)
-  const DATA_CELL_MAX_LINES = 8;
+  const DATA_CELL_MAX_LINES = 5;
   const lineClampStyle: React.CSSProperties = {
     display: '-webkit-box',
     WebkitBoxOrient: 'vertical' as const,

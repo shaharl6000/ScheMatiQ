@@ -140,6 +140,7 @@ const ScheMatiQConfigPage = () => {
   // Document limit state (Public Release)
   const [maxDocuments, setMaxDocuments] = useState(DEFAULT_MAX_DOCUMENTS);
   const [developerMode, setDeveloperMode] = useState(false);
+  const [demoMode, setDemoMode] = useState(false);
   const [limitBypassEnabled, setLimitBypassEnabled] = useState(false);
   const [allowLlmConfig, setAllowLlmConfig] = useState(false);
 
@@ -278,6 +279,7 @@ const ScheMatiQConfigPage = () => {
       .then(cfg => {
         setMaxDocuments(cfg.max_documents);
         setDeveloperMode(cfg.developer_mode);
+        setDemoMode(cfg.demo_mode ?? false);
         setAllowLlmConfig(cfg.allow_llm_config);
         setDataCollectionEnabled(cfg.data_collection_enabled ?? false);
       })
@@ -638,7 +640,7 @@ const ScheMatiQConfigPage = () => {
   const hasCloudDocuments = documentSource === 'cloud' && selectedPaths.length > 0;
   const hasUploadedFiles = documentSource === 'upload' && (uploadedFiles.length > 0 || previousUploadedFiles.length > 0);
   const hasDocuments = hasCloudDocuments || hasUploadedFiles;
-  const isFormValid = hasQuery || hasDocuments;
+  const isFormValid = demoMode || hasQuery || hasDocuments;
 
   // Track whether form has been modified from defaults
   const isDirty = useMemo(() => {
@@ -762,12 +764,12 @@ const ScheMatiQConfigPage = () => {
                 rows={3}
                 value={config.query}
                 onChange={(e) => handleConfigChange('query', e.target.value)}
-                placeholder='e.g. "Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?"'
+                placeholder='e.g. "Do judges appointed by different U.S. presidents differ in how they rule on immigration injunction cases?"'
                 className="resize-none"
                 onKeyDown={(e) => {
                   if (e.key === 'Tab' && config.query === '') {
                     e.preventDefault();
-                    handleConfigChange('query', 'Given a protein sequence, can it be determined whether or not it contains a nuclear export signal (NES)? If it does, how strong is the NES, and what is the confidence in that assessment?');
+                    handleConfigChange('query', 'Do judges appointed by different U.S. presidents differ in how they rule on immigration injunction cases?');
                   }
                 }}
               />

@@ -94,6 +94,11 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 # Default: release mode (restricted). Set DEVELOPER_MODE=true to unlock.
 DEVELOPER_MODE = os.environ.get("DEVELOPER_MODE", "false").lower() == "true"
 
+# ── Demo Mode ──────────────────────────────────────────────────
+# Set DEMO_MODE=true to replace real LLM processing with a simulated
+# demo using pre-loaded data from demo.json. No API keys required.
+DEMO_MODE = os.environ.get("DEMO_MODE", "false").lower() == "true"
+
 # All mode-dependent feature flags live here.
 # To add a new release restriction, add a key with its release-mode default.
 RELEASE_CONFIG = {

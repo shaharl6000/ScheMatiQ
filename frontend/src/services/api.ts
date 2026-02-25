@@ -107,6 +107,7 @@ export const configAPI = {
     data_collection_enabled: boolean;
     release_config: Record<string, any>;
     server_has_api_keys: boolean;
+    demo_mode: boolean;
   }> => {
     const response = await api.get('/config');
     return response.data;

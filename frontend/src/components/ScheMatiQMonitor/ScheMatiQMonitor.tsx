@@ -413,7 +413,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
 
     // IMMEDIATELY set to starting state - don't wait for anything
     setProcessingState('starting');
-    setCurrentStepMessage('Initializing...');
+    setCurrentStepMessage('Analyzing documents...');
     setErrorMessage('');
     setCapacityMessage('');
     setQuotaExceeded(false);
@@ -620,7 +620,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
                 </div>
               </div>
               <p className="text-xl font-semibold mb-1">
-                {processingState === 'starting' && 'Starting...'}
+                {processingState === 'starting' && 'Discovering Schema...'}
                 {processingState === 'schema' && 'Discovering Schema...'}
                 {processingState === 'extraction' && 'Extracting Values...'}
               </p>

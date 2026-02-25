@@ -133,7 +133,7 @@ async def health_check():
 @app.get("/api/config", tags=["root"], summary="Public Configuration", description="Returns public configuration for frontend")
 async def get_public_config():
     """Return public configuration for frontend."""
-    from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, ALLOW_LLM_CONFIG, DATA_COLLECTION_ENABLED
+    from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, ALLOW_LLM_CONFIG, DATA_COLLECTION_ENABLED, DEMO_MODE
     from app.services import concurrency_limiter
 
     # Check if the server has the required LLM API keys set as env vars.
@@ -154,7 +154,8 @@ async def get_public_config():
         "data_collection_enabled": DATA_COLLECTION_ENABLED,
         "max_concurrent_sessions": MAX_CONCURRENT_SESSIONS,
         "active_sessions": await concurrency_limiter.get_active_count(),
-        "server_has_api_keys": server_has_api_keys,
+        "server_has_api_keys": server_has_api_keys or DEMO_MODE,
+        "demo_mode": DEMO_MODE,
     }
 
 if __name__ == "__main__":
