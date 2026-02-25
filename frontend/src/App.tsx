@@ -16,7 +16,7 @@ function AppHeader() {
       <div className="container flex h-14 items-center">
         <div className="flex items-center gap-2 mr-6">
           <img
-            src="/logo.png"
+            src="/icon.png"
             alt="ScheMatiQ logo"
             className="h-6 w-auto"
           />
