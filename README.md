@@ -1,8 +1,22 @@
 <div align="center">
 
+<img src="frontend/public/icon.png" alt="ScheMatiQ logo" width="100">
+
 # ScheMatiQ
 
 **A framework for query-driven schema discovery and structured data extraction from document collections.**
+
+<p align="center">
+ <a href="">
+    <img src="https://img.shields.io/badge/ArXiv-2509.11106-B31B1B?logo=arxiv&logoColor=white">
+ </a>
+ <a href="https://www.schematiq-ai.com/">
+    <img src="https://img.shields.io/badge/🌐-website-blue">
+ </a>
+ <a href="https://www.apache.org/licenses/LICENSE-2.0">
+    <img src="https://img.shields.io/badge/Apache-2.0-D22128?logo=apache&logoColor=white">
+ </a>
+</p>
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![React 18](https://img.shields.io/badge/react-18-61dafb.svg)](https://reactjs.org/)
