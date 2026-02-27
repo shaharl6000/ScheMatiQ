@@ -171,9 +171,8 @@ class TogetherLLM(LLMInterface):
             • str  – plain prompt → wrapped as [{'role':'user', 'content': prompt}]
             • list – already‑formatted chat messages (role/content pairs)
         """
-        # Track LLM call
+        # Calculate prompt length for tracking
         prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
-        LLMCallTracker.get_instance().increment(model=self.model, prompt_length=prompt_len)
 
         params = {**self._default_args, **kwargs}
 
@@ -190,7 +189,15 @@ class TogetherLLM(LLMInterface):
         for attempt in range(max_retries + 1):
             try:
                 resp = self._client.chat.completions.create(**params)
-                return resp.choices[0].message.content.strip()
+                content = resp.choices[0].message.content.strip()
+                
+                # Track LLM call after success
+                LLMCallTracker.get_instance().increment(
+                    model=self.model, 
+                    prompt_length=prompt_len,
+                    completion_length=len(content)
+                )
+                return content
             except Exception as e:
                 error_str = str(e)
                 last_exception = e
@@ -275,9 +282,8 @@ class OpenAILLM(LLMInterface):
             • str  – plain prompt → wrapped as [{'role':'user', 'content': prompt}]
             • list – already‑formatted chat messages (role/content pairs)
         """
-        # Track LLM call
+        # Calculate prompt length for tracking
         prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
-        LLMCallTracker.get_instance().increment(model=self.model, prompt_length=prompt_len)
 
         params = {**self._default_args, **kwargs}
 
@@ -294,7 +300,15 @@ class OpenAILLM(LLMInterface):
         for attempt in range(max_retries + 1):
             try:
                 resp = self._client.chat.completions.create(**params)
-                return resp.choices[0].message.content.strip()
+                content = resp.choices[0].message.content.strip()
+                
+                # Track LLM call after success
+                LLMCallTracker.get_instance().increment(
+                    model=self.model, 
+                    prompt_length=prompt_len,
+                    completion_length=len(content)
+                )
+                return content
             except Exception as e:
                 error_str = str(e)
                 last_exception = e
@@ -409,9 +423,8 @@ class HuggingFaceLLM(LLMInterface):
             • str  – plain prompt
             • list – chat-style messages (merged to prompt text)
         """
-        # Track LLM call
+        # Calculate prompt length for tracking
         prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
-        LLMCallTracker.get_instance().increment(model=self.model_name, prompt_length=prompt_len)
 
         if isinstance(prompt, list):
             # Convert messages to plain prompt text
@@ -424,8 +437,16 @@ class HuggingFaceLLM(LLMInterface):
             "return_full_text": False,
         }
 
-        output = self.generator(prompt, **gen_args)[0]["generated_text"]
-        return output.strip()
+        output = self.generator(prompt, **gen_args)[0]["generated_text"].strip()
+        
+        # Track LLM call after success
+        LLMCallTracker.get_instance().increment(
+            model=self.model_name, 
+            prompt_length=prompt_len,
+            completion_length=len(output)
+        )
+        
+        return output
 
 
 ##############################################################################
@@ -565,9 +586,8 @@ class GeminiLLM(LLMInterface):
             • str  – plain prompt
             • list – chat-style messages (converted to plain prompt)
         """
-        # Track LLM call
+        # Calculate prompt length for tracking
         prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
-        LLMCallTracker.get_instance().increment(model=self.model, prompt_length=prompt_len)
 
         # Convert chat messages to plain text if needed
         if isinstance(prompt, list):
@@ -628,7 +648,16 @@ class GeminiLLM(LLMInterface):
                     print("Gemini returned empty content")
                     return "Empty response from Gemini."
 
-                return response.text.strip()
+                content = response.text.strip()
+                
+                # Track LLM call after success
+                LLMCallTracker.get_instance().increment(
+                    model=self.model, 
+                    prompt_length=prompt_len,
+                    completion_length=len(content)
+                )
+                
+                return content
 
             except Exception as e:
                 error_str = str(e)

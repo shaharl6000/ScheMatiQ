@@ -142,6 +142,7 @@ interface SortableHeaderCellProps {
   children: React.ReactNode;
   columnWidth?: number;
   onResizeStart?: (e: React.MouseEvent, column: string, currentWidth: number) => void;
+  className?: string;
 }
 
 const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
@@ -149,6 +150,7 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
   children,
   columnWidth,
   onResizeStart,
+  className,
 }) => {
   const thRef = useRef<HTMLTableCellElement>(null);
   const {
@@ -185,9 +187,10 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
       ref={setRefs}
       style={style}
       className={cn(
-        "group px-4 py-3 text-left font-semibold text-sm bg-background",
-        !columnWidth && "min-w-[120px] sm:min-w-[150px]",
-        isDragging && "bg-muted"
+        "group px-2 py-2 text-left font-semibold text-xs bg-background",
+        !columnWidth && "min-w-[30px] sm:min-w-[50px]",
+        isDragging && "bg-muted",
+        className
       )}
       {...attributes}
     >
@@ -1291,31 +1294,18 @@ const DataTable: React.FC<DataTableProps> = ({
               className="border-collapse"
               style={{
                 tableLayout: 'fixed' as const,
-                width: `${Math.max(600, (readonly ? 0 : 40) + columns.reduce((sum, col) => sum + (getColumnWidth(col) || DEFAULT_COLUMN_WIDTH), 0))}px`,
+                width: `${Math.max(100, columns.reduce((sum, col) => sum + (getColumnWidth(col) || DEFAULT_COLUMN_WIDTH), 0))}px`,
               }}
             >
               <thead className="sticky top-0 z-10 bg-background border-b">
                 <tr>
-                  {/* Checkbox column header - only show if not readonly */}
-                  {!readonly && (
-                    <th className="w-[40px] min-w-[40px] px-2 py-3 text-center sticky top-0 bg-background z-20">
-                      {selectedCount > 0 && (
-                        <Checkbox
-                          checked={isAllPageSelected ? true : isIndeterminate ? 'indeterminate' : false}
-                          onCheckedChange={() => toggleAllPage(pageRowIds)}
-                          aria-label="Select all rows on page"
-                        />
-                      )}
-                    </th>
-                  )}
-
                   {/* Frozen first column with sort/filter support */}
                   {frozenColumn && (
                     <th
                       ref={frozenThRef}
                       className={cn(
-                        "px-4 py-3 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
-                        !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
+                        "px-2 py-2 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
+                        !getColumnWidth(frozenColumn) && "min-w-[30px] max-w-[120px]",
                         "left-0"
                       )}
                       style={getColumnWidth(frozenColumn) ? { width: getColumnWidth(frozenColumn), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
@@ -1343,18 +1333,18 @@ const DataTable: React.FC<DataTableProps> = ({
                     </th>
                   )}
 
-                  {/* Sortable columns */}
-                  <SortableContext
-                    items={scrollableColumns}
-                    strategy={horizontalListSortingStrategy}
-                  >
-                    {scrollableColumns.map(column => (
-                      <SortableHeaderCell
-                        key={column}
-                        column={column}
-                        columnWidth={getColumnWidth(column)}
-                        onResizeStart={handleResizeStart}
-                      >
+                <SortableContext
+                  items={scrollableColumns}
+                  strategy={horizontalListSortingStrategy}
+                >
+                  {scrollableColumns.map(column => (
+                    <SortableHeaderCell
+                      key={column}
+                      column={column}
+                      columnWidth={getColumnWidth(column)}
+                      onResizeStart={handleResizeStart}
+                      className="px-2 py-2 text-xs"
+                    >
                         <ColumnHeaderLabel
                           column={column}
                           definition={columnInfo?.find(c => c.name === column)?.definition}
@@ -1409,36 +1399,13 @@ const DataTable: React.FC<DataTableProps> = ({
                       onMouseEnter={() => setHoveredRowId(rowId)}
                       onMouseLeave={() => setHoveredRowId(null)}
                     >
-                      {/* Row status indicator + Checkbox column */}
-                      {!readonly && (
-                        <td className="w-[40px] min-w-[40px] px-2 py-3 text-center">
-                          {isNewlyAdded ? (
-                            <Badge variant="secondary" className="text-[10px] px-1 py-0 bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-200">NEW</Badge>
-                          ) : isStreaming ? (
-                            <Loader2 className="h-3 w-3 animate-spin text-blue-600 dark:text-blue-400 mx-auto motion-reduce:animate-none" />
-                          ) : (
-                            <div className={cn(
-                              "transition-opacity duration-100",
-                              showCheckbox ? "opacity-100" : "opacity-0"
-                            )}>
-                              <Checkbox
-                                checked={rowSelected}
-                                onCheckedChange={() => toggleRow(rowId)}
-                                onClick={(e) => e.stopPropagation()}
-                                aria-label={`Select row ${rowId}`}
-                              />
-                            </div>
-                          )}
-                        </td>
-                      )}
-
                       {/* Frozen first column - visual grouping without rowSpan */}
                       {frozenColumn && (
                         hasObservationUnits ? (
                           <td
                             className={cn(
-                              "px-4 py-3",
-                              !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
+                              "px-2 py-2",
+                              !getColumnWidth(frozenColumn) && "min-w-[30px] max-w-[120px]",
                               "sticky border-r",
                               "left-0",
                               isOddGroup ? "bg-muted/30" : "bg-background",
@@ -1469,8 +1436,8 @@ const DataTable: React.FC<DataTableProps> = ({
                           // Regular frozen column (no grouping)
                           <td
                             className={cn(
-                              "px-4 py-3 sticky border-r",
-                              !getColumnWidth(frozenColumn) && "min-w-[150px] max-w-[250px]",
+                              "px-2 py-2 sticky border-r",
+                              !getColumnWidth(frozenColumn) && "min-w-[30px] max-w-[120px]",
                               "left-0",
                               "bg-background"
                             )}
@@ -1549,7 +1516,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         return (
                           <td
                             key={column}
-                            className={cn("px-4 py-3", !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]")}
+                            className={cn("px-2 py-2", !getColumnWidth(column) && "min-w-[30px] sm:min-w-[50px]")}
                             style={{ verticalAlign: 'top', ...(getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : {}) }}
                           >
                             {isEditable ? (

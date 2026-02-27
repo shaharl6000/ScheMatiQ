@@ -81,6 +81,11 @@ export function getDefaultColumnOrder(
     });
   }
 
+  // TEMP HACK: Sort all data columns alphabetically
+  priorityColumns.sort((a, b) => a.localeCompare(b));
+  regularColumns.sort((a, b) => a.localeCompare(b));
+  schemaColumns.sort((a, b) => a.localeCompare(b));
+
   // Combine all columns
   const allCols = [...priorityColumns, ...regularColumns, ...schemaColumns];
 

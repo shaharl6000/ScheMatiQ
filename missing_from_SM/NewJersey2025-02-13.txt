@@ -1,0 +1,1649 @@
+266 766 FEDERAL SUPPLEMENT, 3d SERIES
+that there are no assets left in the receiv- duty (Count XVI). The Court also DE-
+ership estate that could be used to satisfy NIES BI 40’s motion for summary judg-
+claims by any creditor, except for $100,000 ment as to Frost’s request for equitable
+that it deposited into escrow to secure any subordination in the Receivership Action.
+liability on its part to Frost. See Dkt. 88
+SO ORDERED.
+¶ 9; Dkt. 128 ¶ P.
+[19–21] The doctrine of equitable sub- ,
+ordination allows a bankruptcy court to
+‘‘subordinate for purposes of distribution
+all or part of an allowed claim to all or part
+of another allowed claim.’’ In re Merrimac
+Paper Co., 420 F.3d 53, 59 (1st Cir. 2005)
+(quoting 11 U.S.C. § 510(c)(1)). This reme-
+O. DOE et al., Plaintiffs,
+dy is warranted when 1) ‘‘the claimant [is]
+found to have engaged in inequitable con- v.
+duct’’; 2) ‘‘the misconduct TTT either result-
+Donald J. TRUMP et al., Defendants.
+ed in injury to creditors or g[ave] the
+claimant an unfair advantage’’; and 3) equi- State of New Jersey et al., Plaintiffs,
+table subordination is not ‘‘in conflict with
+v.
+the provisions of federal bankruptcy law.’’
+Id. The doctrine of equitable subordination Donald J. Trump et al., Defendants.
+is applicable in receiverships. See SEC v.
+Civil No. 25-10135-LTS, Civil
+Spongetech Delivery Sys., Inc., 98 F.
+No. 25-10139-LTS
+Supp. 3d 530, 551 (E.D.N.Y. 2015).
+As previously discussed, Frost has United States District Court,
+raised a genuine dispute as to whether BI D. Massachusetts.
+40 intentionally underfunded the receiver-
+Signed February 13, 2025
+ship and whether she suffered harm as a
+Background: Two groups of plaintiffs,
+result. If proven at trial, that underfunding
+comprised of states in one group, and a
+would qualify as ‘‘inequitable conduct’’ that
+noncitizen expectant mother and immigra-
+could justify equitably subordinating BI
+tion rights groups in the other, brought
+40’s interest in any remaining receivership
+pair of lawsuits against the President, fed-
+assets to Frost’s claim.
+eral departments and agency heads chal-
+ORDER lenging the constitutionality under the
+Fourteenth Amendment’s Citizenship
+For the foregoing reasons, BI 40’s mo-
+Clause of Executive Order that directed
+tion for summary judgment (Dkt. 244) is
+federal agencies to cease issuing docu-
+DENIED as to Frost’s claim in the Frost
+ments recognizing United States citizen-
+Action for tortious interference with con-
+ship for certain categories of individuals
+tract (Count X) with regard to her allega-
+born in the United States to noncitizen or
+tions of underfunding operations during
+non-permanent resident parents. Each
+the receivership and ALLOWED as to
+group filed motion for preliminary injunc-
+Frost’s other theories of tortious interfer-
+tion, and cases were consolidated.
+ence with contract (Count X) and her
+claims of civil conspiracy (Count VII) and Holdings: The District Court, Leo T. So-
+aiding and abetting a breach of fiduciary rokin, J., held that:
+
+DOE v. TRUMP 267
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+(1) states’ identified financial harm was 3. Aliens, Immigration, and Citizenship
+sufficient to confer standing; O667
+(2) Immigration and Nationality Act (INA) United States O254
+did not provide adequate alternative to States’ identified financial harm was a
+cause of action seeking equitable relief sufficiently concrete and imminent injury
+for allegedly unconstitutional actions of that was fairly traceable to the challenged
+federal officials; action, so as to confer Article III standing
+to bring suit alleging that President’s Ex-
+(3) states, mother, and groups were likely
+ecutive Order ending birthright citizenship
+to succeed on merits of their claim;
+for children born to fathers who were nei-
+(4) states established irreparable harm fa-
+ther citizens nor lawful permanent resi-
+voring issuance of a preliminary injunc-
+dents of the United States and mothers
+tion;
+who were either unlawfully or temporarily
+(5) mother and groups established sub- present in the country violated the Citizen-
+stantial and irreparable harm that fa- ship Clause of the Fourteenth Amend-
+vored preliminary injunction; ment, where states alleged that they would
+face reductions in federal funds for public
+(6) balance of harms and public interest
+services that were allocated based on the
+favored issuance of preliminary injunc-
+eligible population in the state, and as a
+tion; and
+result of the Executive Order, there would
+(7) universal or nationwide preliminary in-
+be fewer citizens and thus fewer eligible
+junction was not necessary to protect
+persons for such services. U.S. Const. art.
+rights of mother and groups’ members.
+3, § 2, cl. 1; U.S. Const. Amend. 14; Exec.
+Motion granted. Order No. 14160.
+4. Civil Rights O1457(7)
+1. Federal Civil Procedure O103.2, 103.3 Provision of the INA providing ave-
+To establish standing under Article nue for a ‘‘national of the United States’’ to
+III, a plaintiff must have suffered an inju- challenge discrete denials of rights or priv-
+ry in fact—a concrete and imminent harm ileges was not exclusive means of asserting
+to a legally protected interest, like proper- rights associated with citizenship, nor did
+ty or money—that is fairly traceable to the it provide adequate alternative to states’,
+challenged conduct and likely to be re- noncitizen expectant mother’s, and immi-
+dressed by the lawsuit. U.S. Const. art. 3, gration rights groups’ claim for injunctive
+§ 2, cl. 1. relief to prevent enforcement of Presi-
+dent’s Executive Order ending birthright
+2. United States O316(4) citizenship for children whose fathers were
+Test for Article III standing is satis- neither citizens nor lawful permanent resi-
+fied if state- or local-government plaintiffs dents of the United States and whose
+show that an allegedly unconstitutional ex- mothers were either unlawfully or tempo-
+ecutive action will likely trigger a loss of rarily present in the country on grounds
+federal funds to which they otherwise that it violated the Citizenship Clause of
+would be entitled; such showing estab- the Fourteenth Amendment, because
+lishes injury that is sufficiently concrete bringing suit in court of equity to enjoin
+and imminent and fairly traceable to the unconstitutional actions by federal officials
+challenged action, thereby satisfying Arti- was recognized as a valid cause of action.
+cle III. U.S. Const. art. 3, § 2, cl. 1. U.S. Const. Amend. 14; Immigration and
+
+268 766 FEDERAL SUPPLEMENT, 3d SERIES
+Nationality Act § 360, 8 U.S.C.A. § 1503(a); dent’s Executive Order ending birthright
+Exec. Order No. 14160. citizenship for children whose fathers were
+neither citizens nor lawful permanent resi-
+5. Injunction O1042
+dents of the United States and whose
+The test for injunctive relief requires
+mothers were either unlawfully or tempo-
+the plaintiffs to prove, and the court to
+rarily present in the country violated the
+evaluate, questions of harm that bear on
+Citizenship Clause of the Fourteenth
+the scope of any permanent relief ultimate-
+Amendment, thus favoring issuance of pre-
+ly awarded.
+liminary injunction against enforcement of
+6. Injunction O1016 the Executive Order; plain language of the
+Citizenship Clause, as interpreted by Su-
+In considering injunctive relief, court
+preme Court more than a century ago and
+has an independent duty to ensure that
+routinely applied by all branches of the
+any relief provided is appropriately tai-
+government, was directed at the person
+lored to address the harms established by
+born or naturalized, and did not condition
+the parties before it.
+grant of citizenship on immigration status
+7. Injunction O1092 of the parents. U.S. Const. Amend. 14;
+To secure the extraordinary remedy Exec. Order No. 14160.
+provided by preliminary injunctions, plain-
+12. Courts O96(3)
+tiffs must establish that: (1) they are likely
+Lower federal courts are not merely
+to succeed on the merits, (2) they are
+obligated to apply the holdings of Supreme
+likely to suffer irreparable harm in the
+Court decisions; they also are bound by
+absence of preliminary relief, (3) balance of
+the Supreme Court’s considered dicta.
+equities tips in their favor, and (4) an
+injunction is in the public interest. 13. Courts O96(3)
+8. Injunction O1096, 1106 Carefully considered statements of
+the Supreme Court, even if technically dic-
+First two factors of the traditional
+tum, must be accorded great weight and
+standard for injunctive relief, likelihood of
+should be treated as authoritative when
+success on merits and irreparable harm,
+badges of reliability abound.
+are the most critical.
+9. Injunction O1246 14. Courts O96(3)
+If a statement of the Supreme Court
+Third and fourth factors of the injunc-
+bears the earmarks of deliberative thought
+tion test, balance of equities and public
+purposefully expressed, concerns an issue
+interest, merge when the government is
+that was thoroughly debated in the recent
+the opposing party.
+past, and has not been diluted by any
+10. Injunction O1096 subsequent pronouncement of the Su-
+The sine qua non of the four-part preme Court, a lower federal court must
+inquiry governing motions for preliminary adhere to it.
+injunctions is the first factor: likelihood of
+15. Injunction O1496
+success on the merits.
+Section of the INA confirming citizen-
+11. Civil Rights O1457(7) ship of ‘‘a person born in the United
+States, noncitizen expectant mother, States, and subject to the jurisdiction
+and immigration rights groups were likely thereof,’’ provided distinct claim upon
+to succeed on merits of claim that Presi- which states, noncitizen expecting mother,
+
+DOE v. TRUMP 269
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+and immigration rights groups were likely of President’s Executive Order seeking to
+to succeed, thus weighing in favor of a end birthright citizenship for children
+preliminary injunction against enforcement whose fathers were neither citizens nor
+of President’s Executive Order ending lawful permanent residents of the United
+birthright citizenship for children born to States and whose mothers were unlawfully
+fathers who were neither citizens nor law- or temporarily present in the country,
+ful permanent residents of the United based on violation of the Citizenship
+States and mothers who were either un- Clause of the Fourteenth Amendment,
+lawfully or temporarily present in the where states faced unpredictable, continu-
+country; language mirrored language in ing losses, including loss of federal reim-
+the Fourteenth Amendment’s Citizenship bursements for public programs, coupled
+Clause and as such was intended by Con- with serious administrative upheaval.
+gress to be accorded same meaning in both U.S. Const. Amend. 14; Exec. Order No.
+contexts, that citizenship was derived from 14160.
+child’s birth in the United States, regard-
+less of parents’ immigration status. U.S. 18. Civil Rights O1457(7)
+Const. Amend. 14; Immigration and Na- Noncitizen expectant mother and im-
+tionality Act § 301, 8 U.S.C.A. § 1401(a); migration rights groups established sub-
+Exec. Order No. 14160. stantial and irreparable harm, thus favor-
+ing issuance of preliminary injunction
+16. Aliens, Immigration, and Citizenship
+O655 against enforcement of President’s Execu-
+tive Order seeking to end birthright citi-
+Phrase ‘‘subject to the jurisdiction of’’
+zenship for children whose fathers were
+in Citizenship Clause of the Fourteenth
+neither citizens nor lawful permanent resi-
+Amendment was not a bar to citizenship
+dents of the United States and whose
+for children born in the United States to
+mothers were unlawfully or temporarily
+noncitizen mothers and fathers, and thus
+present in the country, based on violation
+did not provide principle that could over-
+of the Citizenship Clause of the Four-
+come states’, noncitizen expectant moth-
+teenth Amendment; children born without
+er’s, and immigration rights groups’ consti-
+recognized or lawful status would face bar-
+tutional challenge to President’s Executive
+riers to accessing critical healthcare,
+Order seeking to end birthright citizenship
+among other services, along with threat of
+for children whose fathers were neither
+removal to countries they never lived in
+citizens nor lawful permanent residents of
+and possible family separation. U.S.
+the United States and whose mothers were
+Const. Amend. 14; Exec. Order No. 14160.
+unlawfully or temporarily present in the
+country; Citizenship Clause spoke only of 19. Civil Rights O1457(7)
+the child and children born in the United
+Balance of harms and public interest
+States were both entitled to government’s
+favored issuance of preliminary injunction
+protection and bound to adhere to its laws,
+against enforcement of President’s Execu-
+regardless of parents’ characteristics.
+tive Order seeking to end birthright citi-
+U.S. Const. Amend. 14; Exec. Order No.
+zenship for children whose fathers were
+14160.
+neither citizens nor lawful permanent resi-
+17. Civil Rights O1457(7) dents of the United States and whose
+States established substantial and ir- mothers were unlawfully or temporarily
+reparable harm, thus favoring issuance of present in the country, as relief for states’,
+preliminary injunction against enforcement noncitizen expectant mother’s, and immi-
+
+270 766 FEDERAL SUPPLEMENT, 3d SERIES
+gration rights groups’ claim that Execu- zens nor lawful permanent residents of the
+tive Order violated the Citizenship Clause United States and whose mothers were
+of the Fourteenth Amendment; affected unlawfully or temporarily present in the
+children would be stripped of birthright country, on ground that it violated the
+citizenship, while the government had no Fourteenth Amendment’s Citizenship
+legitimate interest in pursuing unconstitu- Clause; limiting injunctive relief to the
+tional agency action, and it was in the state plaintiffs would be inadequate, as
+public interest to prevent violation of con- children born in other states that were not
+stitutional rights. U.S. Const. Amend. 14; plaintiffs would lack birthright citizenship
+Exec. Order No. 14160. even after returning or moving to, and
+seeking various services in, a state that
+20. Civil Rights O1457(1)
+was among the plaintiffs in the lawsuit.
+For purposes of the public interest
+U.S. Const. Amend. 14; Exec. Order No.
+factor for preliminary injunctions, it is al-
+14160.
+ways in the public interest to prevent the
+violation of a party’s constitutional rights. 23. Civil Rights O1457(7)
+Preliminary injunctive relief against
+21. Civil Rights O1457(7)
+federal officials other than the President,
+Universal or nationwide preliminary
+and other officers or agents acting on be-
+injunction was not necessary to protect
+half of the President, was sufficient relief
+noncitizen expectant mother and immigra-
+for states’, noncitizen expectant mother’s,
+tion rights groups from harm during pen-
+and immigration rights groups’ claim that
+dency of lawsuit alleging that President’s
+President’s Executive Order seeking to
+Executive Order seeking to end birthright
+end birthright citizenship for children
+citizenship for children whose fathers were
+whose fathers were neither citizens nor
+neither citizens nor lawful permanent resi-
+lawful permanent residents of the United
+dents of the United States and whose
+States and whose mothers were unlawfully
+mothers were unlawfully or temporarily
+or temporarily present in the country vio-
+present in the country violated the Four-
+lated the Fourteenth Amendment’s Citi-
+teenth Amendment’s Citizenship Clause,
+zenship Clause; no further action by the
+and thus, federal officers and their agents
+President was described by the Executive
+would be enjoined from enforcing the Ex-
+Order or predicted by plaintiffs, while oth-
+ecutive Order against expectant mother or
+er officers and agencies within the Execu-
+any member of immigration rights groups,
+tive Branch were responsible for imple-
+where record did not establish how award-
+menting the Executive Order and it was
+ing similar relief to persons or organiza-
+their conduct that plaintiffs really sought
+tions who were not parties to the lawsuit
+to restrain. U.S. Const. Amend. 14; Exec.
+was necessary to provide complete relief to
+Order No. 14160.
+plaintiffs. U.S. Const. Amend. 14; Exec.
+Order No. 14160.
+MEMORANDUM OF DECISION ON
+22. Civil Rights O1457(7)
+MOTIONS FOR PRELIMINARY
+Universal or nationwide preliminary
+INJUNCTION
+injunctive relief was necessary to prevent
+SOROKIN, United States District
+states from suffering irreparable harm as
+Judge
+result of President’s Executive Order
+seeking to end birthright citizenship for In this pair of lawsuits, two groups of
+children whose fathers were neither citi- plaintiffs advance similar challenges to the
+
+DOE v. TRUMP 271
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+legality of one executive order among uncontested facts establish each would suf-
+many issued by President Donald Trump fer direct injury from the EO’s implemen-
+on January 20, 2025. The executive order tation. The plaintiffs are also likely to suc-
+is titled ‘‘Protecting the Meaning and Val- ceed on the merits of their claims. In a
+ue of American Citizenship’’ (‘‘the EO’’). lengthy 1898 decision, the Supreme Court
+Exec. Order No. 14,160 (Jan. 20, 2025).1 examined the Citizenship Clause, adopting
+The EO identifies two ‘‘categories of indi- the interpretation the plaintiffs advance
+viduals born in the United States’’ to and rejecting the interpretation expressed
+whom the EO says ‘‘the privilege of United in the EO. The rule and reasoning from
+States citizenship does not automatically that decision were reiterated and applied
+extend,’’ then directs federal departments in later decisions, adopted by Congress as
+and agencies to cease issuing or accepting a matter of federal statutory law in 1940,
+‘‘documents recognizing United States citi- and followed consistently by the Executive
+zenship’’ for such individuals born after Branch for the past 100 years, at least. A
+February 19, 2025. Doe, Doc. No. 1-1 §§ 1- single district judge would be bound to
+3. apply that settled interpretation, even if a
+Both groups of plaintiffs assert that the party were to present persuasive argu-
+EO violates the Citizenship Clause of the ments that the long-established under-
+Fourteenth Amendment to the United standing is erroneous.
+State Constitution, along with other consti- The defendants, however, have offered
+tutional provisions and federal statutes. no such arguments here. Their three main
+Each group seeks a preliminary injunction contentions are flawed. First, allegiance in
+preventing the EO from taking effect. Doe, the United States arises from the fact of
+Doc. No. 10; New Jersey, Doc. No. 3. The birth. It does not depend on the status of a
+motions are fully briefed and were the child’s parents, nor must it be exclusive, as
+subject of a motion hearing.2 the defendants contend. Applying the de-
+In opposing the requests for injunctions, fendants’ view of allegiance would mean
+the defendants assert an array of argu- children of dual citizens and lawful perma-
+ments, which the Court addresses briefly nent residents would not be birthright citi-
+here and in detail below. For starters, each zens—a result even the defendants do not
+plaintiff has standing to sue, because the support. Next, the defendants argue birth-
+1. Multiple copies of the EO have been made seventy-two jurisdictions in twenty-four
+part of the record before the Court. When states; eighteen members of Congress serving
+referencing submissions filed in Doe et al. v. on the House Judiciary Committee; the Immi-
+Trump et al., No. 25-cv-10135, the Court will gration Reform Law Institute; the State of
+cite to ‘‘Doe, Doc. No. at .’’ For sub- Iowa along with seventeen other states; the
+missions filed in New Jersey et al. v. Trump et State of Tennessee; and former U.S. Attorney
+al., No. 25-cv-10139, the Court will cite to General Edwin Meese III. Doe, Doc. Nos. 32,
+‘‘New Jersey, Doc. No. at .’’ All such
+38, 40; New Jersey, Doc. Nos. 88, 118, 120,
+citations use the document and page number-
+122, 127, 129. The Court has considered these
+ing appearing in the ECF header, except
+submissions only insofar as they concern legal
+where pinpoint citations reference enumerat-
+issues and positions advanced by the parties.
+ed sections or paragraphs within the docu-
+See United States v. Sturm, Ruger & Co., 84
+ment. The EO appears at Doe, Doc. No. 1-1,
+F.3d 1, 6 (1st Cir. 1996) (explaining ‘‘an ami-
+and New Jersey, Doc. No. 1-1.
+cus cannot introduce a new argument into a
+2. The Court has accepted amicus curiae briefs case’’). While several of these briefs were
+from the following groups: a collection of helpful, the submission by the State of Ten-
+local governments and officials representing nessee was especially well written.
+
+272 766 FEDERAL SUPPLEMENT, 3d SERIES
+right citizenship requires the mutual con- junction. Applying traditional equity prin-
+sent of the person and the Nation. This ciples, such relief is necessary because the
+theory disregards the original purpose of record establishes that the harms these
+the Fourteenth Amendment: to recognize plaintiffs face arise not only from births
+as birthright citizens the children of en- within their borders, but also when chil-
+slaved persons who did not enter the coun- dren born elsewhere return or move to one
+try consensually, but were brought to our of the plaintiff jurisdictions.
+shores in chains. There is no basis to think
+For these reasons, the plaintiffs’ motions
+the drafters imposed a requirement ex-
+are ALLOWED. This ruling, explained
+cluding the very people the Amendment
+further below and memorialized in sepa-
+aimed to make citizens. Simply put, the
+rate Orders issued concurrently with this
+Amendment is the Nation’s consent to ac-
+Memorandum, is based on straightforward
+cept and protect as citizens those born
+application of settled Supreme Court prec-
+here, subject to the few narrow exceptions
+edent reiterated and reaffirmed in various
+recognized at the time of enactment, none
+ways for more than a century by all three
+of which are at issue here. Finally, the
+branches of the federal government.
+Amendment requires states to recognize
+birthright citizens as citizens of their state
+I. BACKGROUND
+of residence. The text includes no domicile
+Within hours of taking office, the Presi-
+requirement at all.
+dent signed the EO, which he describes as
+Each of the defendants’ theories focuses
+‘‘an integral part of [his] broader effort to
+on the parents, rather than the child
+repair the United States’ immigration sys-
+whose citizenship is at stake. In so doing,
+tem and to address the ongoing crises at
+these interpretations stray from the text of
+the southern border.’’ Doe, Doc. No. 22 at
+the Citizenship Clause. The Fourteenth
+14. The EO, however, does not directly
+Amendment says nothing of the birthright
+concern immigration; rather, it seeks to
+citizen’s parents, and efforts to import
+define the scope of birthright citizenship in
+such considerations at the time of enact-
+the United States. In the section stating
+ment and when the Supreme Court con-
+its purpose, the EO acknowledges that the
+strued the text were rejected. This Court
+Citizenship Clause and a section of the
+is likewise bound to reject such theories
+Immigration and Naturalization Act
+now.
+(‘‘INA’’), 8 U.S.C. § 1401, confer citizenship
+The plaintiffs have also satisfied the oth- on any person born in the United States
+er preliminary-injunction factors. Each and ‘‘subject to the jurisdiction thereof.’’
+plaintiff faces irreparable harm, the defen- Doe, Doc. No. 1-1 § 1. The EO goes on to
+dants face none, and the public interest identify two ‘‘categories of individuals born
+favors enjoining the EO. Accordingly, the in the United States’’ but ‘‘not subject to
+plaintiffs in each case are entitled to an the jurisdiction thereof,’’ to whom birth-
+injunction preventing implementation of right citizenship ‘‘does not automatically
+the EO. The individual and two associa- extend.’’ Id. A child falls within one of the
+tions who are plaintiffs in the earlier-filed identified categories if, at the time of their
+action will be fully protected by an injunc- birth, their father was neither a citizen nor
+tion limited to the individual and the mem- a lawful permanent resident (‘‘LPR’’) of
+bers of the associations. The later-filed the United States, and their mother was 1)
+case, brought by eighteen states and two ‘‘unlawfully present in the United States,’’
+cities, requires a broader, nationwide in- or 2) lawfully but temporarily present in
+
+DOE v. TRUMP 273
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+the United States ‘‘(such as, but not limit- Protected Status’’ (‘‘TPS’’). Id. ¶ 13. Doe’s
+ed to, visiting the United States under the husband, the father of the child due to be
+auspices of the Visa Waiver Program or born next month, is neither a citizen nor
+visiting on a student, work, or tourist LPR of this country. Id. The baby will be
+visa).’’ Id. Doe’s second child; her first, now seven
+The second section announces that it is years old, also was born in the United
+‘‘the policy of the United States that no States. Doe, Doc. No. 11-1 ¶ 3.
+department or agency’’ of the federal
+Doe’s co-plaintiffs are La Colaborativa
+‘‘government shall issue [or accept] docu-
+and the Brazilian Worker Center, two
+ments recognizing United States citizen-
+membership organizations located in
+ship’’ of children within the identified cate-
+eastern Massachusetts who provide immi-
+gories. Id. § 2. The stated policy ‘‘shall
+gration-related assistance, among other
+apply only to persons who are born’’ after
+services. Doe, Doc. No. 1 ¶¶ 14-15. Both
+February 19, 2025. Id. The EO expressly
+organizations have members who are un-
+does not restrict the ability of U.S.-born
+lawfully present in the United States,
+children of LPRs to receive or use docu-
+some of whom ‘‘are either pregnant or
+ments recognizing ‘‘their United States cit-
+plan to grow their families in the fu-
+izenship.’’ Id. Next, the EO directs the
+ture.’’ Id.; see Doe, Doc. No. 11-2 ¶ 4;
+Secretary of State, the Attorney General,
+Doe, Doc. No. 11-3 ¶¶ 8-10. Though the
+the Secretary of Homeland Security, and
+present record does not conclusively es-
+the Commissioner of Social Security to
+tablish where the organizations’ members
+‘‘take all appropriate measures to ensure
+live, counsel at the motion hearing sug-
+that the regulations and policies of their
+gested the Court could view the mem-
+respective departments and agencies are
+bers as located ‘‘primarily’’ (though per-
+consistent with’’ the EO, and that no one
+haps not exclusively) in Massachusetts.
+within any identified department ‘‘act[s],
+Mot. Hr’g Tr. at 10, 76.3 Doe and the
+or forbear[s] from acting, in any manner
+organizations’ members have submitted
+inconsistent with’’ the EO. Id. § 3(a). The
+unrebutted declarations describing the
+EO further requires ‘‘[t]he heads of all
+harms they allege the EO will cause the
+executive departments and agencies’’ to
+children it targets, who will be treated
+‘‘issue public guidance’’ by February 19,
+as noncitizens lacking any recognized,
+2025, regarding implementation of the EO.
+lawful immigration status. See generally
+Id. § 3(b).
+Doe, Doc. Nos. 11-1 to -3.
+In a complaint filed the day the EO
+issued, an individual plaintiff and two non- The day after Doe and her co-plaintiffs
+profit associations challenged its legality filed suit, New Jersey and a group of
+and sought equitable relief preventing its seventeen other states, along with the Dis-
+implementation. See generally Doe, Doc. trict of Columbia and San Francisco (col-
+No. 1. The individual plaintiff, proceeding lectively, ‘‘the State plaintiffs’’), instituted
+under the pseudonym ‘‘O. Doe,’’ is ‘‘an a separate action also challenging the EO
+expectant mother’’ who is lawfully present under provisions of the Constitution and
+in the United States ‘‘through Temporary other federal statutes.4 New Jersey, Doc.
+3. The transcript of the February 7, 2025, 4. Besides New Jersey, the plaintiffs in this
+hearing on the motions appears on both dock- action are Massachusetts, California, Colora-
+ets. Doe, Doc. No. 44; New Jersey, Doc. No. do, Connecticut, Delaware, Hawaii, Maine,
+142. Maryland, Michigan (through its Attorney
+
+274 766 FEDERAL SUPPLEMENT, 3d SERIES
+No. 1. Along with their complaint, the Doc. No. 33; New Jersey, Doc. No. 123.
+State plaintiffs filed a motion for a prelimi- The Court heard argument from all parties
+nary injunction supported by a memoran- on February 7, 2025.
+dum and more than two dozen exhibits.
+New Jersey, Doc. Nos. 3, 5, 5-1 to -27. The II. DISCUSSION
+exhibits include declarations by various
+Before addressing the factors governing
+representatives of state agencies describ-
+requests for injunctive relief, the Court
+ing financial and administrative burdens
+disposes of two preliminary challenges
+they anticipate will result from the EO.
+that the defendants suggest foreclose con-
+See, e.g., New Jersey, Doc. Nos. 5-2, 5-8,
+sideration of the merits of the plaintiffs’
+5-14, 5-18 (describing impacts of EO on
+motions. As the Court will explain, the de-
+federal funding related to state health in-
+fendants’ opening pair of procedural chal-
+surance programs, education, foster care,
+lenges, like their substantive arguments
+and hospital-based process for acquiring
+opposing the motions, wither in the face of
+Social Security numbers at birth).
+settled and binding Supreme Court prece-
+Both complaints name as defendants the dent.
+President, the State Department, the Sec-
+retary of State, the Social Security Admin- A. Threshold Issues
+istration, and the Acting Commissioner of
+1. Standing
+Social Security. The State plaintiffs also
+The defendants first argue that the
+sued the United States, the Department of
+State plaintiffs lack standing to bring the
+Homeland Security, the Secretary of
+claims alleged in their complaint. See New
+Homeland Security, the Department of
+Jersey, Doc. No. 92 at 18-22. They are
+Health and Human Services, and the Act-
+wrong.
+ing Secretary of Health and Human Ser-
+vices. [1, 2] Article III of the Constitution
+On January 23, 2025, the Doe plaintiffs ‘‘confines the federal judicial power to the
+filed their own motion for a preliminary resolution of ‘Cases’ and ‘Controversies’ ’’
+injunction, supporting memorandum, dec- in which a plaintiff can ‘‘demonstrate [a]
+larations, and other exhibits. Doe, Doc. personal stake.’’ TransUnion LLC v. Ra-
+Nos. 10, 11, 11-1 to -10. After hearing from mirez, 594 U.S. 413, 423, 141 S.Ct. 2190,
+the parties, the Court deemed the cases 210 L.Ed.2d 568 (2021). To establish stand-
+related to one another and set a consoli- ing under Article III, a ‘‘plaintiff must
+dated briefing schedule. New Jersey, Doc. have suffered an injury in fact—a concrete
+No. 71; Doe, Doc. No. 12. The defendants and imminent harm to a legally protected
+opposed both motions, challenging the interest, like property or money—that is
+State plaintiffs’ standing to sue, arguing no fairly traceable to the challenged conduct
+plaintiff has advanced a valid cause of ac- and likely to be redressed by the lawsuit.’’
+tion, and urging that the plaintiffs have not Biden v. Nebraska, 600 U.S. 477, 143 S. Ct.
+satisfied the test governing preliminary- 2355, 2365, 216 L.Ed.2d 1063 (2023). This
+injunctive relief. See generally Doe, Doc. test is satisfied if state- or local-govern-
+No. 22. Both sets of plaintiffs replied. Doe, ment plaintiffs show that an allegedly un-
+General), Minnesota, Nevada, New Mexico, fendants are all officers or agencies of the
+New York, North Carolina, Rhode Island, United States, and at least one plaintiff in
+Vermont, and Wisconsin. Venue is proper in each case resides in Massachusetts. See 28
+the District of Massachusetts because the de- U.S.C. § 1391(e)(1)(C).
+
+DOE v. TRUMP 275
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+constitutional executive action will likely dressable by the injunctive relief the State
+trigger a loss of federal funds to which plaintiffs seek.
+they otherwise would be entitled. See
+[3] This is all the Constitution re-
+Dep’t of Com. v. New York, 588 U.S. 752,
+quires. Two decisions of the Supreme
+767, 139 S.Ct. 2551, 204 L.Ed.2d 978
+Court, both authored by Chief Justice
+(2019). Such a showing establishes injury
+Roberts, make the point. In 2023, the
+that is ‘‘sufficiently concrete and immi-
+Chief Justice, joined by five other Justices,
+nent’’ and ‘‘fairly traceable’’ to the chal-
+explained that Missouri had standing to
+lenged action, thereby satisfying Article
+challenge executive action discharging fed-
+III. Id.
+eral student loans, where a quasi-state
+The State plaintiffs easily meet this agency stood to lose fees it would have
+standard.5 Uncontested declarations from collected for servicing the forgiven loans.
+officials representing several State plain- Nebraska, 143 S. Ct. at 2366. A few years
+tiffs articulate various forms of federal earlier, the Chief Justice conveyed the Su-
+funding that will be diminished as a direct preme Court’s unanimous conclusion that
+result of the EO. States receive federal ‘‘at least some’’ states had standing to
+funding to cover portions of services like challenge executive action revising the
+health insurance, special education, and United States census. New York, 588 U.S.
+foster care in amounts that depend on how at 767-68, 139 S.Ct. 2551.6 The proposed
+many ‘‘eligible’’ children receive such ser- changes at issue raised the likelihood that
+vices. Citizenship is one component of eli- persons without lawful immigration status
+gibility for purposes of these programs. would be undercounted, and states faced
+Pursuant to the EO, fewer children will be reductions in federal funds allocated ac-
+recognized as citizens at birth. That means cording to population. Id. The State plain-
+the number of persons receiving services tiffs here challenge the EO based on pre-
+who are ‘‘eligible’’ under the identified fed- cisely the same sort of direct financial
+eral programs will fall—and, as a direct impacts. They have identified federal
+result, the reimbursements and grants the grants and reimbursements to which they
+State plaintiffs receive for these services are entitled that will diminish under the
+will decrease. The reduction to such fund- EO. As in Nebraska and New York, there-
+ing is a concrete and imminent injury di- fore, the State plaintiffs have Article III
+rectly and fairly traceable to the EO, re- standing.7
+5. The defendants direct their standing chal- 6. Though some Justices parted ways as to
+lenge against the State plaintiffs as a group. other issues in the case, all agreed as to
+They have not contested the showing made by standing.
+any individual State plaintiff or subset of
+State plaintiffs. Even if the defendants had 7. The Court does not consider a parens patri-
+done so, the result would be the same. The ae theory of standing, because the State plain-
+record before the Court includes sworn decla- tiffs are not pursuing it. The State plaintiffs
+rations establishing standing on the part of at also probably have standing based on their
+least several State plaintiffs. No more is re- sovereign interests. The Citizenship Clause
+quired at this juncture. See Nebraska, 143 S. defines which individuals become birthright
+Ct. at 2365 (‘‘If at least one plaintiff has citizens not only of the United States, but also
+standing, the suit may proceed.’’); United of the state in which they reside. U.S. Const.
+States v. Texas, 599 U.S. 670, 709 n.1, 143 amend. XIV, § 1. States have general sover-
+S.Ct. 1964, 216 L.Ed.2d 624 (2023) (Alito, J., eign interests in which persons are their citi-
+dissenting) (‘‘In a case with multiple plain- zens. They very likely also have sovereign
+tiffs, Article III permits us to reach the merits interests in which persons are U.S. citizens,
+if any plaintiff has standing.’’). as state laws commonly define civic obli-
+
+276 766 FEDERAL SUPPLEMENT, 3d SERIES
+The defendants have neither disputed The defendants have not challenged the
+the State plaintiffs’ showing of harm nor standing of Doe or her co-plaintiffs to
+materially distinguished the Chief Justice’s sue—nor could they. Doe has plainly es-
+analysis. Their standing challenge hinges tablished injury, to herself and her unborn
+child, that is concrete, imminent, traceable
+on an attempt to analogize this case to
+to the EO, and redressable by the relief
+United States v. Texas. There, the Su-
+she seeks in this lawsuit. The same is true
+preme Court held state plaintiffs lacked
+of the association plaintiffs, which provide
+standing to compel the federal government
+services impacted by the EO and have
+to pursue more ‘‘arrests and prosecutions’’
+described one or more members facing the
+for violations of immigration laws. 599 U.S.
+same type of injury as Doe. See Summers
+at 678-79, 143 S.Ct. 1964. The analogy is
+v. Earth Island Inst., 555 U.S. 488, 498,
+inapt.8 Texas involved ‘‘novel’’ theories of
+129 S.Ct. 1142, 173 L.Ed.2d 1 (2009) (re-
+standing and a ‘‘highly unusual’’ claim that quiring, for associational standing, ‘‘specif-
+the Executive Branch was not sufficiently ic allegations establishing that at least one
+vigorous in exercising its prosecutorial dis- identified member had suffered or would
+cretion. Id. at 681, 684, 143 S.Ct. 1964. suffer harm’’); see also United Food &
+This case, however, concerns the bounds of Com. Workers Union Loc. 751 v. Brown
+citizenship guaranteed by the Constitu- Grp., Inc., 517 U.S. 544, 551-53, 116 S.Ct.
+tion—not an area typically reserved for 1529, 134 L.Ed.2d 758 (1996) (describing
+executive discretion. The theory of stand- test for associational standing).
+ing advanced by the State plaintiffs—di- Accordingly, the defendants’ standing
+rect financial harm—is ordinary.9 Texas challenge fails. All plaintiffs before the
+simply does not aid the defendants here. Court have satisfied Article III.
+gations such as jury service using eligibility 143 S.Ct. 1964). Contrary to the defendants’
+criteria that include U.S. citizenship. E.g., characterization, that footnote is not a ‘‘hold-
+N.J. Stat. Ann. § 2B:20-1(c); Mass. Gen. Laws ing,’’ and it does not ‘‘foreclose[ ]’’ the State
+ch. 234A, § 4. The defendants essentially con- plaintiffs’ standing in this case. Id. Rather, it
+ceded at the motion hearing that the State acknowledges that ‘‘States sometimes have
+plaintiffs would have standing under these standing to sue TTT an executive agency or
+theories, but suggested the theories were ‘‘for- officer,’’ and though it warns that ‘‘standing
+feited,’’ at least ‘‘[f]or purposes of deciding can become more attenuated’’ when based on
+[the pending] motion[s],’’ because they were ‘‘indirect effects’’ of federal action, it stops
+not advanced in the State plaintiffs’ submis- short of saying such effects could never satisfy
+sions thus far. Mot. Hr’g Tr. at 40, 63. The Article III. Id. This case, in any event, con-
+defendants cited no authority for their forfei- cerns direct effects.
+ture theory. The plaintiffs generally endorsed
+the sovereign-interest theories during the 9. The harms the State plaintiffs have identi-
+hearing. Given the strength of the plaintiffs’ fied are not ‘‘indirect’’—indeed, when specifi-
+showing of direct financial harms, the Court cally asked, the defendants failed to identify
+need not resolve whether the State plaintiffs’ any ‘‘extra step’’ separating the loss of fund-
+sovereign interests supply an alternative basis ing identified by the State plaintiffs from the
+for satisfying Article III. EO’s direct effects. Mot. Hr’g Tr. at 37-39.
+Nor do they arise, as defendants argue, exclu-
+8. In fact, the defendants’ discussion of Texas sively from services ‘‘the states have volun-
+in their papers verges on misleading. The tarily chosen to provide.’’ New Jersey, Doc.
+language upon which they most heavily rely No. 92 at 20; see Plyler v. Doe, 457 U.S. 202,
+appears in a footnote quoted in their opposi- 230, 102 S.Ct. 2382, 72 L.Ed.2d 786 (1982)
+tion memorandum and referenced during the (holding states are required by federal law to
+motion hearing. See New Jersey, Doc. No. 92 provide public education services to all chil-
+at 18-19 (quoting Texas, 599 U.S. at 680 n.3, dren, regardless of immigration status).
+
+DOE v. TRUMP 277
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+2. Cause of Action Nor can the defendants short-circuit this
+Next, the defendants assert the Court lawsuit by pointing to a narrow provision
+must deny the pending motions because no of the INA providing an avenue for a
+plaintiff has a valid cause of action under ‘‘national of the United States’’ to chal-
+the Citizenship Clause or the identified lenge discrete denials of rights or privi-
+federal statutes. This is meritless. leges. See id. (invoking 8 U.S.C. § 1503(a)).
+That statute does not facially create an
+As Justice Scalia observed, ‘‘[t]he ability
+exclusive remedy for such claims, nor does
+to sue to enjoin unconstitutional actions by
+it offer an adequate alternative to the
+state and federal officers is the creation of
+claims advanced in these actions—includ-
+courts of equity, and reflects a long history
+ing, but not only, because it is not a mech-
+of judicial review of illegal executive ac-
+anism through which the State plaintiffs
+tion, tracing back to England.’’ Armstrong
+can obtain relief. Cf. Rusk v. Cort, 369
+v. Exceptional Child Ctr., Inc., 575 U.S.
+U.S. 367, 375, 82 S.Ct. 787, 7 L.Ed.2d 809
+320, 327, 135 S.Ct. 1378, 191 L.Ed.2d 471
+(1962) (considering related provisions of
+(2015). Indeed, the Supreme Court has
+same statute and concluding they were not
+‘‘long held that federal courts may in some
+exclusive means of asserting rights associ-
+circumstances grant injunctive relief’’ to
+ated with citizenship).
+prevent ‘‘violations of federal law’’ planned
+or committed by ‘‘state officers’’ or ‘‘by The defendants’ threshold challenges fail
+federal officials.’’ Id. at 326-27, 135 S.Ct. under clear Supreme Court precedent. The
+1378. The plaintiffs here ask the Court to plaintiffs assert valid causes of action and
+do just that.10 have standing to pursue them. The Court,
+therefore, turns to the substance of the
+[4] Limitations that apply where plain-
+pending motions.
+tiffs seek damages, rather than equitable
+relief, have no bearing on the claims pend-
+B. Preliminary Injunction Analysis 11
+ing here. See New Jersey, Doc. No. 92 at
+24 (citing DeVillier v. Texas, 601 U.S. 285, [5–7] The familiar standard governs
+291, 144 S.Ct. 938, 218 L.Ed.2d 268 (2024)). the plaintiffs’ requests for interlocutory re-
+10. In fact, the Department of Justice is doing final, permanent injunction. See New Jersey,
+precisely what it says the plaintiffs cannot do. Doc. No. 92 at 50 n.6. The plaintiffs expressed
+The day before this Court’s motion hearing, no objection to this proposal during the mo-
+the United States sued Illinois and various tion hearing, agreeing that the Court could
+state and local officials, seeking equitable re- now enter a final injunction if it concluded an
+lief via claims brought directly under the Su- injunction was warranted. After consider-
+premacy Clause. See Compl., United States v. ation, the Court resolves now only the plain-
+Illinois, No. 25-cv-1285 (N.D. Ill. Feb. 6, tiffs’ original requests for preliminary relief.
+2025), ECF No. 1; cf. New Hampshire v. The defendants are correct that the plaintiffs’
+Maine, 532 U.S. 742, 749-50, 121 S.Ct. 1808, causes of action ‘‘are purely legal,’’ id., but
+149 L.Ed.2d 968 (2001) (discussing equitable they are wrong to imply that facts are imma-
+doctrine of ‘‘judicial estoppel,’’ which in some terial here. The test for injunctive relief re-
+circumstances prevents parties that have tak- quires the plaintiffs to prove, and the Court to
+en one legal position from reversing course evaluate, questions of harm that bear on the
+‘‘simply because [their] interests have scope of any permanent relief ultimately
+changed’’ (cleaned up)). During the motion awarded. Though the defendants have leveled
+hearing, the State plaintiffs raised this issue, no challenges to the plaintiffs’ factual submis-
+and the defendants offered no response. sions, the Court has an independent duty to
+ensure that any relief provided is appropriate-
+11. The defendants proposed, in a footnote, ly tailored to address the harms established
+that the Court proceed now to enter or deny a by the parties before it. Cf. DraftKings Inc. v.
+
+278 766 FEDERAL SUPPLEMENT, 3d SERIES
+lief. To secure the ‘‘extraordinary remedy’’ Comm Wireless Servs., Inc. v. SprintCom,
+provided by preliminary injunctions, each Inc., 287 F.3d 1, 9 (1st Cir. 2002). This
+group of plaintiffs ‘‘must establish’’ that: 1) factor weighs strongly in the plaintiffs’
+they are ‘‘likely to succeed on the merits,’’ favor. The plain language of the Citizen-
+2) they are ‘‘likely to suffer irreparable ship Clause—as interpreted by the Su-
+harm in the absence of preliminary relief,’’ preme Court more than a century ago and
+3) ‘‘the balance of equities tips in [their] routinely applied by all branches of gov-
+favor,’’ and 4) ‘‘an injunction is in the ernment since then—compels a finding
+public interest.’’ Winter v. Nat. Def. Res. that the plaintiffs’ challenges to the EO
+Council, Inc., 555 U.S. 7, 20, 129 S.Ct. 365, are nearly certain to prevail.
+172 L.Ed.2d 249 (2008).
+[11] The Citizenship Clause speaks in
+[8, 9] ‘‘The first two factors of the tra- plain and simple terms. ‘‘All persons born
+ditional standard are the most critical.’’ or naturalized in the United States, and
+Nken v. Holder, 556 U.S. 418, 434, 129 subject to the jurisdiction thereof, are citi-
+S.Ct. 1749, 173 L.Ed.2d 550 (2009). Courts zens of the United States and of the State
+wherein they reside.’’ U.S. Const. amend.
+consider them in tandem. See Vaqueria
+XIV, § 1. The words chosen by the draft-
+Tres Monjitas, Inc. v. Irizarry, 587 F.3d
+ers and ratified by the states, understood
+464, 485 (1st Cir. 2009) (noting ‘‘irrepara-
+‘‘in their normal and ordinary’’ way, Unit-
+ble harm is not a rigid’’ factor, but rather
+ed States v. Sprague, 282 U.S. 716, 731, 51
+‘‘a sliding scale, working in conjunction
+S.Ct. 220, 75 L.Ed. 640 (1931), bestow
+with’’ the first factor); EEOC v. Astra
+birthright citizenship broadly to persons
+U.S.A., Inc., 94 F.3d 738, 743 (1st Cir.
+born in the United States. The text is
+1996) (‘‘[W]hen the likelihood of success on
+directed at the person born (or natural-
+the merits is great, a movant can show
+ized). It does not mention the person’s
+somewhat less in the way of irreparable
+parents at all, let alone expressly condition
+harm and still garner preliminary injunc-
+its grant of citizenship on any characteris-
+tive relief.’’). The third and fourth factors
+tic of the parents. So, at the outset, the EO
+of the injunction test ‘‘merge when the
+and its focus on the immigration status of
+Government is the opposing party.’’ Nken,
+a child’s parents find no support in the
+556 U.S. at 435, 129 S.Ct. 1749.
+text.
+Measured against these standards, the
+One phrase in the Citizenship Clause is
+plaintiffs’ submissions support entry of the
+at the heart of the parties’ disagreement.
+injunctions they seek, with only minor ad-
+The constitutionality of the EO, and the
+justments explained below.
+success of the plaintiffs’ claims, turns on
+1. Likelihood of Success
+the meaning of ‘‘subject to the jurisdiction
+[10] ‘‘The sine qua non of th[e] four- thereof.’’ To understand that phrase, how-
+part inquiry’’ governing motions for pre- ever, this Court need look no further than
+liminary injunctions is the first factor: United States v. Wong Kim Ark, 169 U.S.
+‘‘likelihood of success on the merits.’’ New 649, 18 S.Ct. 456, 42 L.Ed. 890 (1898).12 In
+Hermalyn, 118 F.4th 416, 423 (1st Cir. 2024) opment may be required before the Court
+(noting trial judge is ‘‘uniquely placed to de- crafts a final judgment.
+sign’’ injunctive relief that corresponds to
+12. In a line of cases not directly relevant
+‘‘specific harm’’ proven based on facts found
+here, courts have considered whether a per-
+by judge). To that end, further factual devel-
+son born in an unincorporated territory of the
+
+DOE v. TRUMP 279
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+that case, the Supreme Court meticulously ing and eventually returned to China—was
+reviewed the contours of citizenship under a citizen ‘‘by virtue of the [C]onstitution
+English and early American common law, itself.’’ Wong Kim Ark, 169 U.S. at 652-53,
+under the 1866 Civil Rights Act and the 703-05, 18 S.Ct. 456. This holding followed
+Fourteenth Amendment, and as reflected ‘‘irresistibly’’ from the extensive analysis
+in legal scholarship and court decisions in the majority articulated. Id. at 693, 18
+the decades leading up to the turn of the S.Ct. 456. Throughout that analysis, the
+twentieth century. See generally id. at 653- availability of birthright citizenship ‘‘irre-
+704, 18 S.Ct. 456. From these sources, the spective of parentage’’ was repeatedly em-
+Supreme Court concluded that ‘‘subject to phasized. E.g., id. at 690, 18 S.Ct. 456. The
+the jurisdiction thereof’’ was meant ‘‘to duration of the parents’ residency in the
+exclude, by the fewest and fittest words,’’ United States was not assessed, nor did
+the following categories of persons: ‘‘chil- laws preventing the parents from seeking
+dren of members of the Indian tribes,’’ naturalization influence the Court’s deter-
+‘‘children born of alien enemies in hostile mination of the petitioner’s status. The
+occupation, and children of diplomatic rep- question was resolved, for purposes of the
+resentatives of a foreign state.’’13 Id. at Citizenship Clause, by the location of the
+682, 18 S.Ct. 456. As to all other persons, petitioner’s birth, and the inapplicability of
+‘‘the fundamental rule of citizenship by the narrow exceptions to birthright citizen-
+birth within the dominion of the United ship that had been identified by the Court.
+States, notwithstanding alienage of par- Understood this way—indeed, the way all
+ents,’’ applied. Id. at 689, 18 S.Ct. 456.14 branches of government have understood
+Applying this longstanding and ‘‘funda- the decision for 125 years—Wong Kim Ark
+mental rule of citizenship,’’ the Supreme leaves no room for the defendants’ pro-
+Court held that the petitioner—born in the posed reading of the Citizenship Clause. Of
+United States to Chinese-citizen parents, course, the defendants can seek to revisit
+who were living and working in the United this long-settled rule of law, but that is a
+States at the time of the child’s birth, but matter for the Supreme Court, not a dis-
+who were prevented by law from naturaliz- trict judge.
+United States—such as American Samoa or, enter this country in an effort to create sleep-
+for a time, the Philippines—was born ‘‘in the er cells or other hostile networks’’). Accord-
+United States’’ for purposes of the Citizenship ingly, the Court need not consider this excep-
+Clause. E.g., Tuaua v. United States, 788 F.3d tion to birthright citizenship.
+300, 302 (D.C. Cir. 2015). That language is
+not the focus of the present dispute, nor was 14. This rule has been reiterated by the Su-
+it the Supreme Court’s focus in Wong Kim
+preme Court. See, e.g., Perkins v. Elg, 307
+Ark.
+U.S. 325, 329, 59 S.Ct. 884, 83 L.Ed. 1320
+13. Neither the EO nor the defendants’ brief (1939) (citing Wong Kim Ark majority’s
+has suggested that all (or any) persons within ‘‘comprehensive review’’ supporting ‘‘deci-
+the EO’s categories are ‘‘children born of sion TTT that a child born here of alien par-
+alien enemies in hostile occupation,’’ speci- entage becomes a citizen of the United
+fied which portions of the country are pres- States’’); Weedin v. Chin Bow, 274 U.S. 657,
+ently so occupied, or identified which foreign 660, 670, 47 S.Ct. 772, 71 L.Ed. 1284 (1927)
+powers or organizations are the ‘‘enemies’’ (stating ‘‘learned and useful opinion’’ of
+presently controlling those areas. See New Wong Kim Ark majority ‘‘held that TTT one
+Jersey, Doc. No. 92 at 38 (quoting another born in the United States, although TTT of a
+Executive Order and summarily stating that parentage denied naturalization under the
+plaintiffs’ view might grant citizenship to chil- law, was nevertheless TTT a citizen’’ under
+dren of ‘‘unlawful enemy combatants who Fourteenth Amendment).
+
+280 766 FEDERAL SUPPLEMENT, 3d SERIES
+The defendants accept that this Court is ment’s common-law foundations, the pur-
+bound by the prior holdings of the Su- pose and intent of its drafters, and its
+preme Court. See New Jersey, Doc. No. 92 application during the first thirty years
+at 44; Mot. Hr’g Tr. at 48. Nevertheless, after its ratification can be called ‘‘dicta’’ at
+they urge the Court to essentially ignore all, it is undoubtedly the ‘‘considered’’ and
+all but a handful of sentences from Wong ‘‘authoritative’’ sort that this Court is
+Kim Ark, arguing the bulk of the majori- bound to apply. The sheer detail and
+ty’s lengthy opinion is dicta. See New Jer- length of the discussion by the Court’s
+sey, Doc. No. 92 at 44 (urging Wong Kim majority make this plain. Add to that the
+Ark resolved only whether Citizenship fact that the opposite view—the one the
+Clause extended to ‘‘children of parents defendants advance to justify the EO—was
+with ‘a permanent domicile and residence
+rejected by the majority in Wong Kim Ark
+in the United States,’ ’’ and that ‘‘[t]he case
+(in the portions of the decision now labeled
+should not be read as doing anything more
+‘‘dicta’’ by the defendants) and endorsed
+than answering that question’’ (quoting 169
+only by the dissent. See 169 U.S. at 705-32,
+U.S. at 653, 18 S.Ct. 456)). At the motion
+18 S.Ct. 456. The plaintiffs are not relying
+hearing, the defendants doubled down on
+on a stray ‘‘remark’’ that lacks ‘‘care and
+this point, brazenly claiming that ‘‘dicta
+exactness,’’ standing ‘‘wholly aside from
+can be disregarded.’’ Mot. Hr’g Tr. at 75.
+the question in judgment’’ and ‘‘unsupport-
+That position reflects a serious misunder-
+ed by any argument, or by any reference
+standing at best—and a conscious flouting
+to authorities,’’ that might not ‘‘control the
+at worst—of the judicial process and the
+judgment’’ of a lower court. 169 U.S. at
+rule of law.
+678, 18 S.Ct. 456. They are ‘‘leaning into’’
+[12–14] Lower federal courts are not the central reasoning of the Supreme
+merely obligated to apply the holdings of Court in support of its holding. Mot. Hr’g
+Supreme Court decisions; they also ‘‘are Tr. at 48. The defendants’ argument to the
+bound by the Supreme Court’s ‘considered contrary invites the Court to commit legal
+dicta.’ ’’ United Nurses & Allied Prof’ls v. error.
+NLRB, 975 F.3d 34, 40 (1st Cir. 2020)
+Whether ‘‘holding’’ or ‘‘considered dic-
+(quoting McCoy v. Mass. Inst. of Tech.,
+ta,’’ the straightforward rule and limited
+950 F.2d 13, 19 (1st Cir. 1991)). ‘‘Carefully
+exceptions identified in Wong Kim Ark
+considered statements of the Supreme
+and summarized above have been applied
+Court, even if technically dictum, must be
+repeatedly and without hesitation, includ-
+accorded great weight and should be treat-
+ed as authoritative when TTT badges of ing by the Supreme Court and the First
+Circuit. For example:
+reliability abound.’’ United States v. Santa-
+na, 6 F.3d 1, 9 (1st Cir. 1993). If such a 1 In Morrison v. California, despite
+statement ‘‘bears the earmarks of delibera- statutes that then rendered Japanese
+tive thought purposefully expressed,’’ con- persons ‘‘ineligible’’ for citizenship
+cerns an issue that was ‘‘thoroughly debat- via naturalization, the Supreme
+ed in the recent past,’’ and ‘‘has not been Court stated without qualification:
+diluted by any subsequent pronounce- ‘‘A person of the Japanese race is a
+ment’’ of the Supreme Court, a lower fed- citizen of the United State if he was
+eral court must adhere to it. Id. born within the United States.’’ 291
+To the extent the thorough analysis in U.S. 82, 85, 54 S.Ct. 281, 78 L.Ed.
+Wong Kim Ark of the Fourteenth Amend- 664 (1934).
+
+DOE v. TRUMP 281
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+1 In Dos Reis ex rel. Camara v. Ni- child born to foreigners, both of
+colls, the First Circuit described a whom had entered the U.S. with
+person ‘‘born in Massachusetts’’ as temporary permission but remained
+having become ‘‘an American citizen, after their authorization expired, to
+not by gift of Congress, but by force be ‘‘of course[ ] an American citizen
+of the constitution,’’ despite his par- by birth,’’ despite the parents’ ‘‘ille-
+ents’ status as foreign nationals gal presence.’’ 353 U.S. 72, 73, 77
+‘‘never naturalized in the United S.Ct. 618, 1 L.Ed.2d 652 (1957); see
+States,’’ and despite his own ‘‘dual id. at 79, 77 S.Ct. 618 (reflecting
+nationality’’ that led to his ‘‘service dissent’s agreement that the child
+as a draftee in the Portuguese was a citizen).
+army.’’ 161 F.2d 860, 861-62 (1st Cir. 1 In INS v. Errico, two different chil-
+1947). dren ‘‘acquired United States citizen-
+1 In Kawakita v. United States, a per- ship at birth’’ despite their parents
+son ‘‘born in this country in 1921 of having gained admission to this
+Japanese parents who were citizens country by misrepresenting material
+of Japan’’ was ‘‘a citizen of the Unit- facts about themselves and thereby
+ed States by birth’’—a status the evading statutory restrictions on law-
+person did not lose despite later ful immigration. 385 U.S. 214, 215-16,
+committing treason by acts of cruelty 87 S.Ct. 473, 17 L.Ed.2d 318 (1966).
+undertaken while working at a Japa- 1 In INS v. Rios-Pineda, a unanimous
+nese camp for American prisoners Supreme Court viewed a child ‘‘born
+during World War II. 343 U.S. 717, in the United States’’ as ‘‘a citizen of
+720, 72 S.Ct. 950, 96 L.Ed. 1249 this country,’’ even though the father
+(1952). See also Nishikawa v. Dulles, had entered the country ‘‘illegally’’
+356 U.S. 129, 131, 78 S.Ct. 612, 2 on his own and ‘‘returned to Mexico
+L.Ed.2d 659 (1958) (finding Japanese TTT under threat of deportation’’;
+military service during World War II both parents had then ‘‘paid a pro-
+was basis for expatriation of U.S.- fessional smuggler TTT to transport
+born citizen of Japanese-citizen par- them’’ across the border; and the
+ents only if service was voluntary); father, when apprehended again, had
+Hirabayashi v. United States, 320 failed to depart voluntarily ‘‘as prom-
+U.S. 81, 96-97, 63 S.Ct. 1375, 87 ised.’’ 471 U.S. 444, 446, 105 S.Ct.
+L.Ed. 1774 (1943) (noting, in context 2098, 85 L.Ed.2d 452 (1985).
+of World War II, that tens of thou- 1 In Hamdi v. Rumsfeld, at least six
+sands of ‘‘persons of Japanese de- Justices treated the petitioner as a
+scent’’ living on Pacific coast ‘‘are citizen of the United States based on
+citizens because born in the United his birth in Louisiana, without even
+States,’’ even though ‘‘under many discussing his parents’ status (they
+circumstances’’ they also were citi- were present lawfully but temporari-
+zens of Japan ‘‘by Japanese law’’). ly), despite the petitioner’s active
+1 In United States ex rel. Hintopou- participation in a foreign terrorist
+lous v. Shaughnessy, all members of organization. 542 U.S. 507, 510, 124
+the Supreme Court considered a S.Ct. 2633, 159 L.Ed.2d 578 (2004).15
+15. Justice Scalia, joined by Justice Stevens, referred to Hamdi as a ‘‘presumed American
+
+282 766 FEDERAL SUPPLEMENT, 3d SERIES
+1 In Mariko v. Holder, a panel of the pendent avenue to prevailing here. In the
+First Circuit considered a child INA, Congress conferred birthright citi-
+‘‘born in the United States’’ to be ‘‘a zenship via statute on several categories of
+United State citizen’’ despite the par- individuals, the first of which is described
+ents’ concession that both of them using language mirroring the Citizenship
+‘‘were here illegally’’ and therefore Clause. 8 U.S.C. § 1401(a) (confirming citi-
+removable. 632 F.3d 1, 3, 8 n.4 (1st zenship of ‘‘a person born in the United
+Cir. 2011). States, and subject to the jurisdiction
+thereof’’). As the plaintiffs point out, this
+1 In Hasan v. Holder, a different panel
+provision was enacted in 1940 and ‘‘re-
+of the First Circuit similarly viewed
+codified’’ in 1952. See Doe, Doc. No. 33 at
+as ‘‘a U.S. citizen’’ a child born in
+2; see also Doe, Doc. No. 11 at 15 (raising
+California to foreign-national parents
+statutory claim and advancing brief but
+who had overstayed their nonimmi-
+distinct argument about likelihood of suc-
+grant visas. 673 F.3d 26, 28 & n.1
+cess thereunder). Because it uses the same
+(1st Cir. 2012).
+language chosen by the Fourteenth
+This line of decisions—which is not limited Amendment’s drafters—words that had
+to the cases described above—further un- been studied in Wong Kim Ark decades
+dermines the defendants’ proposed inter- earlier—the statute must be understood to
+pretation.16 have incorporated the Supreme Court’s in-
+If that were not enough to find that the terpretation of those words. See Bostock v.
+Clayton Cnty., 590 U.S. 644, 654, 140 S.Ct.
+plaintiffs are likely to succeed on the mer-
+1731, 207 L.Ed.2d 218 (2020) (explaining
+its (and it is), the fact that Congress incor-
+statute ‘‘normally’’ is interpreted ‘‘in ac-
+porated the language of the Citizenship
+cord with the ordinary public meaning of
+Clause into provisions of the INA passed
+its terms at the time of its enactment’’).17
+more than forty years after Wong Kim
+Ark cements the meaning of the disputed [15] Here, the fundamental rule con-
+phrase and provides the plaintiffs an inde- veyed by the Citizenship Clause was clear
+citizen.’’ 542 U.S. at 554, 124 S.Ct. 2633 how to properly assess the original meaning
+(Scalia, J., dissenting); see Hamdi v. Rums- of language in the Constitution or a federal
+feld, 243 F. Supp. 2d 527, 534 (E.D. Va. 2002) statute. See Standard Oil Co. v. United States,
+(noting Hamdi had ‘‘identified himself as a 221 U.S. 1, 59 & n.6, 31 S.Ct. 502, 55 L.Ed.
+Saudi citizen who had been born in the Unit- 619 (1911); cf. BNSF Ry. Co. v. Loos, 586
+ed States’’ when detained and interrogated by U.S. 310, 329, 139 S.Ct. 893, 203 L.Ed.2d 160
+the American military). No justice took up the (2019) (Gorsuch, J., dissenting) (citing Wong
+invitation of one amicus in the case to revisit Kim Ark majority opinion as authority reflect-
+the meaning of the Citizenship Clause, correct ing ‘‘everyone agrees’’ that ‘‘record of enacted
+the ‘‘erroneous interpretation’’ adopted in changes Congress made’’ to relevant text
+Wong Kim Ark, and conclude Hamdi was not ‘‘over time’’ is ‘‘textual evidence’’ that ‘‘can
+a citizen because his parents, though living in sometimes shed light on meaning’’).
+Louisiana lawfully at the time of his birth,
+had only temporary work visas authorizing 17. Justice Gorsuch went on to explain why
+their presence in this country. See Br. Amicus this is so: ‘‘If judges could add to, remodel,
+Curiae The Claremont Inst. Ctr. Const. Juris- update, or detract from old statutory terms
+prudence at 2-3, 5, Hamdi v. Rumsfeld, No. inspired only by extratextual sources and our
+03-6696, 2004 WL 871165 (U.S. Mar. 29, own imaginations, TTT we would deny the
+2004). people the right to continue relying on the
+original meaning of the law they have count-
+16. So does the fact that the Supreme Court ed on to settle their rights and obligations.’’
+has cited Wong Kim Ark as an example of Bostock, 590 U.S. at 654-55, 140 S.Ct. 1731.
+
+DOE v. TRUMP 283
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+by the time § 1401 was enacted, and the ing Wong Kim Ark. See, e.g., 169 U.S. at
+legislators who chose to include the same 654, 18 S.Ct. 456 (noting English common
+phrase the Supreme Court already had law provided citizenship to those ‘‘born
+examined presumably intended the same within the king’s allegiance, and subject to
+words would be accorded the same mean- his protection’’). The defendants veer off
+ing in both contexts. See Taggart v. Loren- course, however, by suggesting allegiance
+zen, 587 U.S. 554, 560, 139 S.Ct. 1795, 204 must be exclusive, and that it derives from
+L.Ed.2d 129 (2019) (recognizing ‘‘long- the status of a child’s parents. If that were
+standing interpretive principle’’ that if so, then the children of dual citizens or
+statutory term ‘‘is obviously transplanted LPRs could not receive birthright citizen-
+from another legal source, it brings the old ship via the Fourteenth Amendment. A
+soil with it’’ (cleaned up)). Thus, the stat- dual citizen necessarily bears some alle-
+ute supports a related but distinct claim giance to both the United States and the
+upon which the plaintiffs are likely to suc- second nation of which they are a citizen.
+ceed.18 LPRs, unless and until naturalized, remain
+foreign nationals who are citizens of other
+[16] Beyond sidestepping Wong Kim
+countries bearing some allegiance to their
+Ark, the defendants urge the Court to
+read three specific requirements into the places of origin. This principle would also
+phrase ‘‘subject to the jurisdiction there- rule out the petitioner in Wong Kim Ark,
+of.’’ The defendants contend these require- whose parents resided for years in the
+ments are necessary to ensure adherence United States but remained ‘‘subjects of
+to the phrase’s original meaning. None of the emperor of China’’ (and, indeed, re-
+these requirements, however, find support turned to China when their U.S.-born son
+in the text itself or the cases construing was a teenager). 169 U.S. at 652-53, 18
+and applying it. And, more importantly, S.Ct. 456. The defendants, however, agree
+each of them, if applied as argued, would that children of dual citizens and LPRs are
+prevent the Citizenship Clause from reach- entitled to birthright citizenship, and that
+ing groups of persons to whom even the the petitioner in Wong Kim Ark was as
+defendants concede it must apply. well.
+First, the defendants suggest the ‘‘juris- These anomalies are avoided by focusing
+diction’’ phrase is satisfied only by persons on the allegiance of the child, not the
+who owe the United States ‘‘allegiance’’ parents. As noted earlier, the Citizenship
+that is ‘‘direct,’’ ‘‘immediate,’’ ‘‘complete,’’ Clause itself speaks only of the child. A
+and ‘‘unqualified by allegiance to any alien child born in the United States necessarily
+power.’’ New Jersey, Doc. No. 92 at 27-28 acquires at birth the sort of allegiance that
+(cleaned up). Certainly, allegiance matters. justified birthright citizenship at the com-
+Various sources link the ‘‘jurisdiction’’ mon law. That is, they are born ‘‘locally
+phrase and concepts of allegiance, includ- within the dominions of’’ the United States
+18. The defendants advance no separate chal- waived any discrete argument related to the
+lenge to the plaintiffs’ statutory claim, statutory claim for purposes of the pending
+choosing to ‘‘focus TTT on the constitutional motions. Cf. United States v. Zannino, 895
+provision’’ which is ‘‘coterminous’’ with the F.2d 1, 17 (1st Cir. 1990) (applying ‘‘settled
+statute. New Jersey, Doc. No. 92 at 25 n.4. appellate rule that issues adverted to in a
+By opting not to address the statute, or the perfunctory manner, unaccompanied by
+manner in which its enactment necessarily some effort at developed augmentation, are
+strengthens the plaintiffs’ interpretation of
+deemed waived’’).
+the relevant language, the defendants have
+
+284 766 FEDERAL SUPPLEMENT, 3d SERIES
+and immediately ‘‘derive protection from’’ sion to do so, or without permission to
+the United States. Id. at 659, 18 S.Ct. 456. remain here permanently. The absence of
+A child born here is both entitled to the ‘‘mutual consent’’ in those circumstances
+government’s protection and bound to ad- means, according to the defendants, that
+here to its laws. This is true regardless of the children of such parents fall beyond
+the characteristics of the child’s parents, the ‘‘jurisdiction’’ of the United States for
+subject only to the narrow exceptions iden- Fourteenth Amendment purposes.
+tified in Wong Kim Ark. Allegiance, in this
+This argument fares even worse than
+context, means nothing more than that.
+the first. The Fourteenth Amendment en-
+See id. at 662, 18 S.Ct. 456 (‘‘Birth and
+shrined in the Constitution language en-
+allegiance go together.’’). As James Madi-
+suring ‘‘the fundamental principle of citi-
+son explained:
+zenship by birth’’ in the United States
+It is an established maxim that birth is a
+applied regardless of race—including, and
+criterion of allegiance. Birth however de-
+especially, to formerly enslaved persons.
+rives its force sometimes from place and
+169 U.S. at 675, 18 S.Ct. 456; see Afroyim
+sometimes from parentage, but in gener-
+v. Rusk, 387 U.S. 253, 262-63, 87 S.Ct.
+al place is the most certain criterion; it
+1660, 18 L.Ed.2d 757 (1967). The defen-
+is what applies in the United States; it
+dants do not (and could not) deny this.
+will be therefore unnecessary to investi-
+Enslaved persons, of course, did not ‘‘con-
+gate any other.
+sent’’ to come to the United States or to
+Founders Online, Citizenship, Nat’l Ar-
+remain here. They were brought here vio-
+chives (May 22, 1789), https://founders.
+lently, in chains, without their consent.
+archives.gov/documents/Madison/01-12-02-
+These conditions persisted after their ar-
+0115 [https://perma.cc/ZC4B-NS9R]. So,
+rival. Against this backdrop, it verges on
+‘‘allegiance’’ does not mean what the defen-
+frivolous to suggest that Congress drafted,
+dants think it means, and their first pro-
+debated, and passed a constitutional
+posed rule founders.19
+amendment, thereafter enacted by the
+Next, the defendants seek to graft con-
+states, that imposed a consent requirement
+cepts of social-contract theory onto the
+necessarily excluding the one group of peo-
+‘‘jurisdiction’’ clause of the Fourteenth
+ple the legislators and enactors most spe-
+Amendment by arguing birthright citizen-
+cifically intended to protect.
+ship requires ‘‘mutual consent between
+person and polity.’’ New Jersey, Doc. No. Finally, the defendants seek to trans-
+92 at 45. The defendants again center form the use of the term ‘‘reside’’ at the
+their argument on the parents at the ex- end of the Citizenship Clause into a basis
+pense of the child whose birthright is at for finding that the ‘‘jurisdiction’’ phrase
+stake—perhaps, in part, because infants eliminates any person without a lawful
+are incapable of consent in the legal sense. ‘‘domicile’’ in the United States. The defen-
+In the defendants’ view, mutual consent is dants contend that persons here with tem-
+lacking where a person (the parent) has porary visas retain ‘‘domiciles’’ in their
+entered the United States without permis- native countries, and persons here without
+19. To the extent the defendants believe tem- Schooner Exchange v. McFaddon, 11 U.S. (7
+porary, lawful visitors to this country are peo- Cranch) 116, 144, 3 L.Ed. 287 (1812), and its
+ple who ‘‘do not owe an allegiance to the description of the ‘‘temporary and local alle-
+United States,’’ Mot. Hr’g Tr. at 55, the Su- giance’’ private visitors from other countries
+preme Court disagrees, see Wong Kim Ark, owe the United States while passing through
+169 U.S. at 685, 18 S.Ct. 456 (quoting or doing business here).
+
+DOE v. TRUMP 285
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+lawful status cannot establish a true ‘‘dom- and intent of the Fourteenth Amend-
+icile.’’ And so, the argument goes, they ment—and, in some instances, with the
+cannot ‘‘reside’’ in any state, and they re- parameters set out in the EO itself.
+main outside the ‘‘jurisdiction’’ of the Unit-
+For all these reasons, the Court finds
+ed States for Fourteenth Amendment pur-
+the plaintiffs are exceedingly likely to pre-
+poses. This, once again, shifts the focus
+vail on the merits of their constitutional
+away from the child and the location of
+and statutory claims. This conclusion
+birth to the parents and the status and
+would allow the plaintiffs to ‘‘show some-
+duration of their presence in this country.
+what less in the way of irreparable harm.’’
+The word ‘‘reside’’ appears in the Citi-
+Astra U.S.A., 94 F.3d at 743. That relaxed
+zenship Clause only in the phrase specify-
+burden, however, is not essential, as the
+ing that a person entitled to birthright
+second factor also favors the plaintiffs
+citizenship becomes a citizen not only of
+strongly.
+the United States, but also of the state
+where they live. For example, a state with- 2. Irreparable Harm
+in the former Confederacy (or any other
+[17] The plaintiffs have supported
+state) could not constitutionally deny state
+their assertions of irreparable harm with
+citizenship to the child of a formerly en-
+numerous declarations detailing the immi-
+slaved person who lived and gave birth
+nent and damaging impacts they anticipate
+there. The word ‘‘reside’’ does not inject a
+will flow from the EO. See Doe, Doc. Nos.
+‘‘domicile’’ requirement limiting the reach
+11-1 to -10; New Jersey, Doc. Nos. 5-2 to -
+of the Citizenship Clause as a whole and
+21, -23.20 Upon review, the Court accepts
+justifying examination of the immigration
+and credits those declarations, which the
+status of a child’s parents. See New Jer-
+defendants have not disputed or rebutted
+sey, Doc. No. 123 at 11-12 (articulating the
+in any way. The declarations establish that
+flaws in this theory). In any event, it is not
+the State plaintiffs do not stand to lose
+so clear that ‘‘illegal entry into the country
+discrete amounts of one-time funds; they
+would TTT, under traditional criteria, bar a
+face unpredictable, continuing losses cou-
+person from obtaining domicile within a
+pled with serious administrative upheaval.
+State.’’ Plyler, 457 U.S. at 227 n.22, 102
+They have established irreparable harm.
+S.Ct. 2382.
+In sum, the defendants invite the Court [18] As for the Doe plaintiffs, what is
+to adopt a set of rules that work (except at stake is a bedrock constitutional guaran-
+when they don’t). None of the principles tee and all of its attendant privileges. The
+the defendants advance are sturdy enough loss of birthright citizenship—even if tem-
+to overcome the settled interpretation and porary, and later restored at the conclu-
+longstanding application of the Citizenship sion of litigation—has cascading effects
+Clause described above. Each principle, that would cut across a young child’s life
+applied uniformly, would lead to unintend- (and the life of that child’s family), very
+ed results at odds with the text, meaning, likely leaving permanent scars. The record
+20. Not every State plaintiff has submitted its the same federal programs used the same way
+own declarations, but the complaint alleges and forecasts the loss of the same types of
+that all face the same categories of harm. federal reimbursements. See, e.g., Doc. Nos.
+E.g., New Jersey, Doc. No. 1 ¶ 122. The 5-2, -6, -11, -12, -16, -19. At this stage, that is
+record supports that allegation, for example, enough to find that all State plaintiffs would
+by reflecting that each official attesting to suffer irreparable harm absent injunctive re-
+health-insurance-related impacts describes lief. The defendants do not contend otherwise.
+
+286 766 FEDERAL SUPPLEMENT, 3d SERIES
+before the Court establishes that children No. 25-cv-38 (D.N.H. Feb. 11, 2025), ECF
+born without a recognized or lawful status No. 79.
+face barriers to accessing critical health-
+[19] It is difficult to imagine a govern-
+care, among other services, along with the
+ment or public interest that could outweigh
+threat of removal to countries they have
+the harms established by the plaintiffs
+never lived in and possible family separa-
+here. Perhaps that is why the defendants
+tion.21 That is irreparable harm.22
+have identified none. Instead, they point
+The plaintiffs in both cases have shown only to the Executive Branch’s discretion
+they are likely to suffer substantial and in matters of immigration. New Jersey,
+irreparable harm in the absence of a pre- Doc. No. 92 at 49. But this case is not
+liminary injunction. Thus, the two most about how ‘‘to manage the immigration
+system.’’ Id. It is about the Constitution’s
+important factors strongly favor the plain-
+guarantee of citizenship by virtue of birth.
+tiffs.
+When this right was enshrined in the
+3. Balance of Harms and Public Interest
+Fourteenth Amendment, it was moved
+firmly beyond the bounds of the ‘‘core
+The final merged factors also support
+executive authority’’ the defendants in-
+the plaintiffs’ requests for relief. On the
+voke. Id.; see Afroyim, 387 U.S. at 263, 87
+plaintiffs’ side of the scales, there is a
+S.Ct. 1660 (noting framers of Fourteenth
+grave risk of significant and irreparable
+Amendment ‘‘wanted to put citizenship be-
+harm arising from the EO. Children not
+yond the power of any governmental unit
+yet born will be stripped of birthright citi-
+to destroy’’). The defendants’ only argu-
+zenship constitutionally guaranteed to
+ment, therefore, adds nothing to their side
+them, as confirmed by settled law and
+of the scales.
+practice spanning more than a dozen dec-
+ades. They will be deprived of a ‘‘title’’ that [20] Though the government has
+is, as ‘‘Justice Brandeis observed, TTT su- waived any other arguments on these final
+perior to the title of President.’’ Tuaua, 788 factors by not developing them in their
+F.3d at 301. And that harm will arise from opposition memorandum, see Zannino, 895
+an EO that is unconstitutional on its face— F.2d at 17, the Court makes two more
+an assessment that has now been echoed observations. First, the government has no
+by multiple federal courts in different ju- legitimate interest in pursuing unconstitu-
+risdictions. E.g., Prelim. Inj. Order at 6, tional agency action; ‘‘it is always in the
+N.H. Indonesian Cmty. Support v. Trump, public interest to prevent the violation of a
+21. Doe, for example, has a pending asylum asylum application is granted. Or, in the
+petition and an older child who is a U.S. worst case, ‘‘if any removal action were initi-
+citizen by birthright—assuming the defen- ated against the children of any of the private
+dants do not later reconsider the effective plaintiffs at issue in this case, the [child] sub-
+date contained in the EO and opt to apply ject of the action could assert their claim to
+their reading of the Citizenship Clause retro- citizenship as defense in that proceeding.’’
+actively, a possibility they did not definitively
+New Jersey, Doc. No. 92 at 48. That answer is
+rule out during the motion hearing. Mot. Hr’g
+not persuasive. Cf. Texas v. EEOC, 933 F.3d
+Tr. at 45-47. Her family would be placed at a
+433, 448 & n.29 (5th Cir. 2019) (stating ‘‘it
+distressing crossroads if her new baby were to
+would strain credulity to find that an agency
+face removal from the country.
+action targeting’’ conduct the agency has
+22. The defendants’ only responses are to sug- deemed ‘‘presumptively unlawful’’ would not
+gest that the plaintiffs wait and see how the trigger implementation ‘‘immediately enough
+EO will be implemented, and hope that Doe’s to constitute’’ nonspeculative injury).
+
+DOE v. TRUMP 287
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+party’s constitutional rights.’’ Dorce v. quences). That trend raises meaningful
+Wolf, 506 F. Supp. 3d 142, 145 (D. Mass. concerns about the appropriate scope of a
+2020) (cleaned up); accord League of Wom- single district judge’s equitable powers.
+en Voters v. Newby, 838 F.3d 1, 12 (D.C. See Trump v. Hawaii, 585 U.S. 667, 713-21,
+Cir. 2016). Second, an injunction will do no 138 S.Ct. 2392, 201 L.Ed.2d 775 (2018)
+more than maintain a status quo that has (Thomas, J., concurring) (examining rea-
+been in place for well over a century. The sons to be ‘‘skeptical that district courts
+defendants have not even attempted to have the authority to enter universal in-
+demonstrate how they or the public will be junctions’’).
+harmed by continuing, for the duration of
+Alluding to such concerns, the defen-
+this action, to adhere to the interpretation
+dants urge the Court to enter relief that is
+of birthright citizenship that has been con-
+limited in scope. New Jersey, Doc. No. 92
+sistently applied by the Executive Branch
+at 49-50. Though the defendants have not
+throughout that time period—including un-
+proposed specific terms, two of the limita-
+der this President during his first term in
+tions they urge merit consideration.23
+office.
+First, the defendants argue ‘‘the Court
+The scales tip decisively toward the
+should limit any relief to any party before
+plaintiffs. Because all factors favor entry of
+it that is able to establish an entitlement to
+injunctive relief, the Court ends by ex-
+preliminary injunctive relief.’’ Id. at 50. As
+plaining the appropriate parameters of
+explained above, the Court has concluded
+such relief.
+all plaintiffs are so entitled. But that con-
+clusion does not alone justify relief that is
+C. Scope of Injunction
+universal in scope. The Court still must
+Both sets of plaintiffs ask the Court to
+confront the general principle that injunc-
+universally enjoin the defendants from im-
+tive relief should be tailored to the parties
+plementing the EO. That is, they seek an
+before it. Cf. Califano v. Yamasaki, 442
+order that prevents the defendants from
+U.S. 682, 702, 99 S.Ct. 2545, 61 L.Ed.2d
+applying the EO not only to them—to Doe,
+176 (1979) (noting ‘‘injunctive relief should
+to members of the plaintiff associations, be no more burdensome TTT than neces-
+and to the State plaintiffs—but at all, to
+sary to provide complete relief to the
+anyone, anywhere. Orders like those the
+plaintiffs’’). Here, the Court finds this prin-
+plaintiffs seek here have become ‘‘increas-
+ciple leads to different results for the two
+ingly common’’ over the last twenty years.
+sets of plaintiffs.
+Dep’t of Homeland Sec. v. New York, –––
+U.S. ––––, 140 S. Ct. 599, 600, 206 L.Ed.2d [21] For Doe and the members of the
+115 (2020) (mem.) (Gorsuch, J., concurring two plaintiff organizations, the record be-
+in grant of stay); see generally Develop- fore the Court does not demonstrate that
+ments in the Law—District Court Reform: universal relief is necessary to ‘‘provide
+Nationwide Injunctions, 137 Harv. L. Rev. complete relief to,’’ and protect the rights
+1701, 1703-15 (2024) (quantifying rise in of, those parties. An injunction that pre-
+such injunctions and examining conse- vents the defendants and their agents from
+23. The third, which urges the Court to reject fendants do not explain how their third pro-
+any facial challenge to the EO and require posal, which is supported only by a citation to
+‘‘individual as-applied challenges,’’ can be re- general language from a criminal case in
+jected out of hand. The plaintiffs have ad- which injunctive relief was not at issue, has
+vanced substantial facial challenges that the anything to do with the scope of injunctive
+Court has deemed likely to succeed. The de- relief. See New Jersey, Doc. No. 92 at 50.
+
+288 766 FEDERAL SUPPLEMENT, 3d SERIES
+implementing and applying the EO against U.S. 489, 500-04, 119 S.Ct. 1518, 143
+Doe or any member of either plaintiff or- L.Ed.2d 689 (1999) (identifying as compo-
+ganization suffices to protect them from nent of ‘‘right to travel’’ protected by
+harm during the pendency of this lawsuit. Fourteenth Amendment ‘‘the right of the
+The record does not establish how award- newly arrived citizen to the same privi-
+ing similar relief to other persons or or- leges and immunities enjoyed by other citi-
+ganizations that are not parties to this
+zens of the same State’’). For the State
+lawsuit is necessary to provide complete
+plaintiffs, then, universal or nationwide re-
+relief to the Doe plaintiffs.
+lief is necessary to prevent them from
+[22] Different considerations arise as suffering irreparable harm. Cf. Trump v.
+to the State plaintiffs. They have identified Int’l Refugee Assistance Project, 582 U.S.
+harms that do not hinge on the citizenship 571, 579-83, 137 S.Ct. 2080, 198 L.Ed.2d
+status of one child, or even of all children 643 (2017) (narrowing in part but uphold-
+born within their borders. The harms they ing in part injunction that protected non-
+have established stem from the EO’s im-
+parties similarly situated to the plaintiffs).
+pact on the citizenship status—and the
+ability to discern or verify such status—for
+[23] Only one issue remains. The de-
+any child located or seeking various ser-
+fendants assert the Court may not enjoin
+vices within their jurisdiction. For exam-
+the President.24 New Jersey, Doc. No. 92
+ple, Massachusetts will suffer the identi-
+at 50. The Doe plaintiffs offer no response
+fied harms not only if children born and
+to this point, see generally Doe, Doc. No.
+living there are unlawfully denied citizen-
+33, but the State plaintiffs disagree in a
+ship, but also if a pregnant woman living in
+footnote citing instances where executive
+the northeastern part of the Common-
+orders have been enjoined, see New Jer-
+wealth gives birth across the border in a
+sey, Doc. No. 123 at 15 n.8. Assuming
+nearby New Hampshire hospital, or if a
+without deciding that this Court is empow-
+family moves to Massachusetts from Penn-
+ered to issue an injunction directly con-
+sylvania (or any other state that has not
+straining the President’s actions in any set
+joined this lawsuit) after welcoming a new
+baby. These examples illustrate why in- of circumstances, nothing in the record
+junctive relief limited to the State plaintiffs suggests such relief is necessary here. The
+is inadequate. In both, children born in President has signed the EO. No further
+states that are not parties to this lawsuit action by him is described by the EO or
+(such as New Hampshire and Pennsylva- predicted by the plaintiffs. Other officers
+nia) would theoretically lack birthright citi- and agencies within the Executive Branch
+zenship even after returning or moving are responsible for implementing the EO,
+to—and seeking various services in—a and it is their conduct that the plaintiffs
+state that is among the plaintiffs here. really seek to restrain. Thus, for purposes
+That result not only fails in providing of the preliminary injunction, the relief will
+complete relief to the State plaintiffs, but be awarded against all other defendants
+also risks creating a new set of constitu- besides the President, and against any oth-
+tional problems. See Saenz v. Roe, 526 er officers or agents acting on behalf of the
+24. They also suggest the Court should dismiss sition brief), after conferral and in compli-
+the President as a defendant, New Jersey, ance with the Local Rule governing motion
+Doc. No. 92 at 50, but a request like that is practice in this Court. See generally L.R. 7.1.
+properly advanced in a motion (not an oppo-
+
+DOE v. TRUMP 289
+Cite as 766 F.Supp.3d 266 (D.Mass. 2025)
+President, but not against the President vor. The plaintiffs are likely to succeed on
+himself.25 the merits of their claims under the Citi-
+zenship Clause and 8 U.S.C. § 1401, they
+III. CONCLUSION
+are likely to suffer irreparable harm in the
+‘‘What the Constitution has conferred absence of relief, the balance of harms tips
+neither the Congress, nor the Executive, overwhelmingly in their favor, and the
+nor the Judiciary, nor all three in concert, public interest favors an injunction.
+may strip away.’’ Nishikawa, 356 U.S. at
+Accordingly, pursuant to Federal Rule
+138, 78 S.Ct. 612 (Black, J., concurring).
+of Civil Procedure 65(a), this Court OR-
+Here, the Constitution confers birthright
+DERS as follows:
+citizenship broadly, including to persons
+within the categories described in the EO. 1. The United States Department of
+Under the plain language of the Citizen- State, the Secretary of State, the
+ship Clause and the INA provision that United States Social Security Admin-
+later borrowed its wording, and pursuant istration, the Acting Commissioner of
+to binding Supreme Court precedent, the
+Social Security, and all officers,
+Court concludes that the plaintiffs’ consti-
+agents, employees, attorneys, and
+tutional and statutory challenges to the
+any other persons acting in concert
+EO are likely to prevail, the plaintiffs face
+with or behalf of any named defen-
+serious and irreparable harm in the ab-
+dant in this action (including agents,
+sence of relief, the defendants face no cog-
+employees, and other representatives
+nizable harm from a preliminary injunc-
+of President Donald J. Trump), are
+tion, and the public interest is served by
+ENJOINED from implementing and
+preventing the implementation of a facially
+enforcing Executive Order No. 14,-
+unconstitutional policy.
+160, ‘‘Protecting the Meaning and
+Accordingly, the plaintiffs’ motions (Doe,
+Value of American Citizenship,’’
+Doc. No. 10, and New Jersey, Doc. No. 3)
+against plaintiff O. Doe, or against
+are ALLOWED as described herein. Sepa-
+any member of La Colaborativa or
+rate orders will issue in each case memori-
+the Brazilian Worker Center.
+alizing the preliminary injunctions entered
+by the Court. 2. No security under Federal Rule of
+Civil Procedure 65(c) is necessary or
+PRELIMINARY INJUNCTION warranted in the circumstances of
+For the reasons set forth in the Memo- this case, where the plaintiffs are an
+randum of Decision issued today, Doc. No. individual and two local non-profit or-
+46, the plaintiffs’ motion for preliminary ganizations, they seek to vindicate an
+injunction (Doc. No. 3) is ALLOWED. As important constitutional and federal
+explained in the Memorandum, the plain- statutory right, and the injunction
+tiffs have advanced valid causes of action will not expose the defendants to fi-
+seeking equitable relief, and they have nancial loss. See da Silva Medeiros v.
+standing to pursue such claims. They also Martin, 458 F. Supp. 3d 122, 130
+have demonstrated that each factor gov- (D.R.I. May 1, 2020) (citing Crowley
+erning their request for preliminary in- v. Loc. No. 82, 679 F.2d 978, 1000-01
+junctive relief weighs strongly in their fa- (1st Cir. 1982)).
+25. Should circumstances arise that merit re- the plaintiffs may bring them to the Court’s
+consideration of this aspect of the injunction, attention via an appropriate motion.
+
+290 766 FEDERAL SUPPLEMENT, 3d SERIES
+3. This preliminary injunction shall take er of Social Security, and all officers,
+effect immediately upon the docketing agents, employees, attorneys, and
+of this Order and shall remain in ef- any other persons acting in concert
+fect until the entry of judgment in with or behalf of any named defen-
+this matter, unless this Court, the dant in this action (including agents,
+United States Court of Appeals for employees, and other representatives
+the First Circuit, or the United States of President Donald J. Trump), are
+Supreme Court order otherwise. ENJOINED from implementing and
+SO ORDERED. enforcing Executive Order No. 14,-
+160, ‘‘Protecting the Meaning and
+PRELIMINARY INJUNCTION Value of American Citizenship.’’
+For the reasons set forth in the Memo-
+2. No security under Federal Rule of
+randum of Decision issued today, Doc. No.
+Civil Procedure 65(c) is necessary or
+144, the plaintiffs’ motion for preliminary
+warranted in the circumstances of
+injunction (Doc. No. 3) is ALLOWED. As
+this case, where the plaintiffs seek to
+explained in the Memorandum, the plain-
+vindicate an important constitutional
+tiffs have advanced valid causes of action
+and federal statutory right, and the
+seeking equitable relief, and they have
+injunction will not expose the defen-
+standing to pursue such claims. They also
+dants to financial loss. See da Silva
+have demonstrated that each factor gov-
+Medeiros v. Martin, 458 F. Supp. 3d
+erning their request for preliminary in-
+junctive relief weighs strongly in their fa- 122, 130 (D.R.I. May 1, 2020) (citing
+vor. The plaintiffs are likely to succeed on Crowley v. Loc. No. 82, 679 F.2d 978,
+the merits of their claims under the Citi- 1000-01 (1st Cir. 1982)).
+zenship Clause and 8 U.S.C. § 1401, they
+3. This preliminary injunction shall take
+are likely to suffer irreparable harm in the
+effect immediately upon the docketing
+absence of relief, the balance of harms tips
+of this Order and shall remain in ef-
+overwhelmingly in their favor, and the
+fect until the entry of judgment in
+public interest favors an injunction. Addi-
+this matter, unless this Court, the
+tionally, the record establishes that univer-
+United States Court of Appeals for
+sal relief is required in order to provide
+the First Circuit, or the United States
+complete relief to the eighteen states and
+Supreme Court order otherwise.
+two cities that have brought this case.
+Accordingly, pursuant to Federal Rule SO ORDERED.
+of Civil Procedure 65(a), this Court OR-
+DERS as follows:
+1. The United States Department of
+State, the Secretary of State, the ,
+United States Department of Home-
+land Security, the Secretary of
+Homeland Security, the United
+States Department of Health and
+Human Services, the Acting Secre-
+tary of Health and Human Services,
+the United States Social Security Ad-
+ministration, the Acting Commission-

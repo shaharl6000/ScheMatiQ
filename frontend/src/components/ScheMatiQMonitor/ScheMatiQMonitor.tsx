@@ -54,9 +54,18 @@ interface LogEntry {
 // Processing state that changes IMMEDIATELY on user action
 type ProcessingState = 'idle' | 'starting' | 'schema' | 'extraction' | 'completed' | 'error' | 'stopped' | 'observation_unit_review';
 
+interface LlmStats {
+  total_calls: number;
+  current_cost_usd: number;
+  estimated_cost_usd: number;
+  estimated_calls: number;
+}
+
 const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStarted = false, initialCapacityMessage = '' }) => {
   const queryClient = useQueryClient();
+  const llmStatsCacheKey = ['schematiq-llm-stats', sessionId];
   const cachedStatus = queryClient.getQueryData<ScheMatiQStatus>(['schematiq-status', sessionId]);
+  const cachedLlmStats = queryClient.getQueryData<LlmStats>(llmStatsCacheKey);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'reconnecting'>('connecting');
   const [logsOpen, setLogsOpen] = useState(false);
@@ -115,6 +124,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
   const [newExample, setNewExample] = useState('');
   const [isResuming, setIsResuming] = useState(false);
   const [obsUnitEdited, setObsUnitEdited] = useState(false);
+
+  // LLM Stats state
+  const [llmStats, setLlmStats] = useState<LlmStats | null>(cachedLlmStats || null);
 
   // Track ScheMatiQ start time for elapsed display
   const startTimeRef = useRef<number | null>(null);
@@ -189,7 +201,28 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
         isComplete: prev.isComplete || status.status === 'completed',
       }));
     }
+
+    // Recover/persist LLM stats from status endpoint (tab switches/remounts).
+    if (status?.llm_stats) {
+      const stats = status.llm_stats as LlmStats;
+      setLlmStats(stats);
+      queryClient.setQueryData(llmStatsCacheKey, stats);
+    }
   }, [status?.status, status?.schema_completed, status?.columns_discovered, status?.total_documents, status?.processed_documents]);
+
+  // Recover final llm stats for already-completed sessions (after remount/page refresh).
+  useEffect(() => {
+    if (llmStats || status?.status !== 'completed') return;
+    loadAPI.getSession(sessionId).then((session) => {
+      const savedStats = session?.metadata?.processing_stats?.llm_stats as LlmStats | undefined;
+      if (savedStats) {
+        setLlmStats(savedStats);
+        queryClient.setQueryData(llmStatsCacheKey, savedStats);
+      }
+    }).catch(() => {
+      // ignore; live websocket updates still cover active runs
+    });
+  }, [llmStats, status?.status, sessionId, queryClient]);
 
   // WebSocket connection status is now updated via message handlers below
   // (removed redundant 1-second polling interval)
@@ -214,6 +247,14 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
         const progressData = message.data as ProgressData;
         const stepName = progressData?.current_step || 'Processing...';
         setCurrentStepMessage(stepName);
+        const details = progressData?.details as Record<string, unknown> | undefined;
+
+        // Keep llm stats updated for every step, not just schema step.
+        if (details?.llm_stats) {
+          const stats = details.llm_stats as LlmStats;
+          setLlmStats(stats);
+          queryClient.setQueryData(llmStatsCacheKey, stats);
+        }
 
         // Only log phase transitions once, not every progress tick
         const lower = stepName.toLowerCase();
@@ -223,7 +264,6 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
             lastLoggedPhaseRef.current = 'schema';
             addLog('info', 'Starting schema discovery...');
           }
-          const details = progressData?.details as Record<string, unknown> | undefined;
           if (details?.iteration) {
             setSchemaProgress(prev => ({
               ...prev,
@@ -275,6 +315,12 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
         }
       } else if (message.type === 'completed') {
         const data = message.data as any;
+        if (data?.llm_stats) {
+          const stats = data.llm_stats as LlmStats;
+          setLlmStats(stats);
+          queryClient.setQueryData(llmStatsCacheKey, stats);
+          addLog('success', `LLM usage: ${stats.total_calls} calls, $${stats.current_cost_usd.toFixed(4)} total`);
+        }
         const elapsed = data?.elapsed_seconds;
         const elapsedStr = elapsed ? ` Finished in ${formatElapsed(elapsed)}.` : '';
         addLog('success', `All done!${elapsedStr}`, message.data);
@@ -418,6 +464,8 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
     setCapacityMessage('');
     setQuotaExceeded(false);
     setStoppedInfo(null);
+    setLlmStats(null);
+    queryClient.removeQueries(llmStatsCacheKey, { exact: true });
     startTimeRef.current = Date.now();
     lastLoggedPhaseRef.current = null;
 
@@ -970,6 +1018,53 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
           );
         })()}
       </div>
+
+      {/* LLM Usage & Cost Stats */}
+      {llmStats && (
+        <Card className="border-2 border-blue-100 bg-blue-50/30">
+          <CardContent className="pt-4 pb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Activity className="h-5 w-5 text-blue-600" />
+              <span className="font-medium text-blue-900">LLM Usage & Cost</span>
+              <Badge variant="outline" className="ml-auto bg-white text-blue-700 border-blue-200">
+                Live Estimate
+              </Badge>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-6">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-1">API Calls</p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-slate-800">{llmStats.total_calls}</span>
+                  <span className="text-sm text-muted-foreground">
+                    / ~{llmStats.estimated_calls} est.
+                  </span>
+                </div>
+                <Progress 
+                  value={Math.min(100, (llmStats.total_calls / (llmStats.estimated_calls || 1)) * 100)} 
+                  className="h-1.5 mt-2 bg-blue-100" 
+                  indicatorClassName="bg-blue-500"
+                />
+              </div>
+              
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold mb-1">Cost (USD)</p>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-bold text-slate-800">${llmStats.current_cost_usd.toFixed(4)}</span>
+                  <span className="text-sm text-muted-foreground">
+                    / ~${llmStats.estimated_cost_usd.toFixed(4)} est.
+                  </span>
+                </div>
+                <Progress 
+                  value={Math.min(100, (llmStats.current_cost_usd / (llmStats.estimated_cost_usd || 0.01)) * 100)} 
+                  className="h-1.5 mt-2 bg-blue-100" 
+                  indicatorClassName={llmStats.current_cost_usd > llmStats.estimated_cost_usd ? "bg-amber-500" : "bg-blue-500"}
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Error Display */}
       {status?.error_message && processingState !== 'error' && (

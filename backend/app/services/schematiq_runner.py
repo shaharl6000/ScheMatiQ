@@ -27,6 +27,7 @@ from schematiq.core import schematiq as ScheMatiQ
 from schematiq.core.schema import Schema, Column, ObservationUnit
 from schematiq.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
 from schematiq.core.llm_call_tracker import LLMCallTracker, GlobalLLMUsageTracker, QuotaExceededError
+from schematiq.core.cost_estimator import estimate_from_config
 from schematiq.core.retrievers import EmbeddingRetriever
 from schematiq.value_extraction.main import build_table_jsonl
 from schematiq import discover_observation_unit, ObservationUnitDiscoveryError
@@ -679,8 +680,28 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         current_step = 0
         total_steps = len(progress_steps)
         
+        # Cost estimation variables (updated after document load)
+        initial_cost_estimate_usd = 0.0
+        initial_calls_estimate = 0
+        
         async def update_progress(step_name: str, step_progress: float = 0.0, details: Dict[str, Any] = None):
             nonlocal current_step
+            
+            # Fetch current LLM stats
+            llm_tracker = LLMCallTracker.get_instance()
+            current_cost_data = llm_tracker.calculate_current_cost()
+            
+            llm_stats = {
+                "total_calls": llm_tracker.get_total(),
+                "current_cost_usd": current_cost_data["total_cost_usd"],
+                "estimated_cost_usd": initial_cost_estimate_usd,
+                "estimated_calls": initial_calls_estimate
+            }
+            
+            if details is None:
+                details = {}
+            details["llm_stats"] = llm_stats
+            
             await self.broadcast_step_progress(
                 session_id,
                 step_name,
@@ -800,6 +821,16 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 "total_documents": total_docs,
                 "loaded_documents": len(documents)
             })
+            
+            # Calculate cost estimate now that documents are loaded
+            try:
+                # schematiq_config is already a dict with all necessary fields
+                cost_estimate = estimate_from_config(documents, schematiq_config)
+                initial_cost_estimate_usd = cost_estimate.total_cost_usd
+                initial_calls_estimate = cost_estimate.total_api_calls
+                logger.info(f"Initial cost estimate: ${initial_cost_estimate_usd}, calls: {initial_calls_estimate}")
+            except Exception as e:
+                logger.warning(f"Failed to estimate cost during execution: {e}")
 
             # Determine mode based on what's available
             has_query = bool(schematiq_config.get("query", "").strip())
@@ -1173,6 +1204,13 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             session = self.session_manager.get_session(session_id)
             session.statistics = statistics
             session.status = SessionStatus.COMPLETED
+            final_cost_data = llm_tracker.calculate_current_cost()
+            session.metadata.processing_stats["llm_stats"] = {
+                "total_calls": llm_tracker.get_total(),
+                "current_cost_usd": final_cost_data.get("total_cost_usd", 0.0),
+                "estimated_cost_usd": initial_cost_estimate_usd,
+                "estimated_calls": initial_calls_estimate,
+            }
             self.session_manager.update_session(session)
 
             # Capture schema baseline for re-extraction change detection
@@ -1192,6 +1230,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 "schema_columns": len(discovered_schema.columns),
                 "schema_only": schema_only,
                 "elapsed_seconds": int(time.time() - schematiq_start_time),
+                "llm_stats": session.metadata.processing_stats.get("llm_stats", {}),
             }
             # Only expose LLM call stats to developers, not end users
             if DEVELOPER_MODE:
@@ -2152,6 +2191,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             columns_discovered=columns_discovered,
             total_documents=session.metadata.total_documents or 0,
             processed_documents=session.metadata.processed_documents or 0,
+            llm_stats=session.metadata.processing_stats.get("llm_stats"),
         )
     
     async def get_schema(self, session_id: str) -> Dict[str, Any]:

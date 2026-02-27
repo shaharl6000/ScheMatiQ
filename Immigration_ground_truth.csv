@@ -1,0 +1,198 @@
+Original Row,Count,Name,Citation,DecisionDate,Court,D/C/SCOTUS,SCOTUS,Judge,AppointingPresident,Dem/Rep/Trump,BirthYear,Under55,Gender,Decision/Vote,AppPosition (appellate courts only),Substantive or Procedual (only if against govt),Summary,Notes,Notes DK
+2,1,GFF2025-05-06SDNY,2025 WL 1301052,5/6/2025,SDNY,D,N,HellersteinA,Clinton,D,1933,0,M,I,,S,Preliminary injunction granted against Alien Enemies Act enforcement in class action habeas action,,
+3,1,JAV2025-05-01SDTX,2025 WL 1257450,5/1/2025,SDTX,D,N,RodriguezF,Trump,T,1969,0,M,I,,S,SJ against enforcement of Alien Enemies Act in class action habeas action,,
+4,1,Matos2025-04-07SDTX,No. 1:25-CV-00057,4/7/2025,SDTX,D,N,RodriguezF,Trump,T,1969,0,M,I,,S,Preliminary injunction granted  against removal under AEA prior to evidentiary hearing to determine whether petitioner is a member of TdA.,Case dismissed,
+5,1,DBU2025-05-06DCO,2025 WL 1304288,5/6/2025,DCO,D,N,SweeneyC,Biden,D,1969,0,F,I,,S,Preliminary injunction granted against Alien Enemies Act enforcement in class action habeas action,,
+6,1,JGG2025-06-04DDC,2025 WL 1577811,6/4/2025,DDC,D,N,BoasbergJ,Obama,D,1963,0,M,I,,S,"Class certified; preliminary injuction granted stating the Government must ""facilitate… habeas relief to contest removal under the [AEA].""",,
+7,1,JGG2025-06-10CADC,Not on Westlaw,6/10/2025,CADC,C,N,KatsasG,Trump,T,1964,0,M,G,M ,S,Stay of preliminary injunction granted.,Per curiam opinion.,
+8,1,JGG2025-06-10CADC,Not on Westlaw,6/10/2025,CADC,C,N,RaoN,Trump,T,1973,1,F,G,M,,,,
+9,1,JGG2025-06-10CADC,Not on Westlaw,6/10/2025,CADC,C,N,WalkerJustin,Trump,T,1982,1,M,G,M,,,,
+10,1,WMM2025-04-17NDTX,2025 WL 1148140,4/17/2025,NDTX,D,N,HendrixJ,Trump,T,1977,1,M,G,,S,TRO denied against AEA enforcement in class action habeas action,Used to be A.A.R.P. v. Trump,
+11,1,WMM2025-05-16SCt,145 S.Ct. 1364,5/16/2025,S. Ct.,SCOTUS,Y,RobertsJ,Bush,R,,,,I,M,S ,Class certified; temporary injuction granted preventing the government from removing class members under AEA pending decision on remand; remanded to 5th Circuit.,Used to be A.A.R.P. v. Trump; per curiam opinion,
+12,1,WMM2025-05-16SCt,145 S.Ct. 1364,5/16/2025,S. Ct.,SCOTUS,Y,ThomasC,H.W. Bush,R,,,,G,D,P,,,
+13,1,WMM2025-05-16SCt,145 S.Ct. 1364,5/16/2025,S. Ct.,SCOTUS,Y,AlitoS,Bush,R,,,,G,WD,P,,Dissent argues that the Court lacks jurisdiction to grant relief,
+14,1,WMM2025-05-16SCt,145 S.Ct. 1364,5/16/2025,S. Ct.,SCOTUS,Y,SotomayorE,Obama,D,,,,I,M,S,,,
+15,1,WMM2025-05-16SCt,145 S.Ct. 1364,5/16/2025,S. Ct.,SCOTUS,Y,KaganE,Obama,D,,,,I,M,S,,,
+16,1,WMM2025-05-16SCt,145 S.Ct. 1364,5/16/2025,S. Ct.,SCOTUS,Y,GorsuchN,Trump,T,,,,I,M,S,,,
+17,1,WMM2025-05-16SCt,145 S.Ct. 1364,5/16/2025,S. Ct.,SCOTUS,Y,KavanaughB,Trump,T,,,,I,WC,S,,,
+18,1,WMM2025-05-16SCt,145 S.Ct. 1364,5/16/2025,S. Ct.,SCOTUS,Y,BarrettA,Trump,T,,,,I,M,S,,,
+19,1,WMM2025-05-16SCt,145 S.Ct. 1364,5/16/2025,S. Ct.,SCOTUS,Y,JacksonK,Biden,D,,,,I,M,S,,,
+20,1,JOP2025-04-23DMD,2025 WL 1180191,4/23/2025,DMD,D,N,GallagherS,Trump,T,1972,1,F,I,,S,Granted motion to enforce TRO granted to class members preventing removal under AEA prior to determination of asylum application,,
+21,1,JOP2025-05-19CA4,2025 WL 1431263,5/19/2025,CA4,C,N,BenjaminD,Biden,D,1972,1,F,I,WC,S,Denied stay of TRO pending appeal,,
+22,1,JOP2025-05-19CA4,2025 WL 1431263,5/19/2025,CA4,C,N,GregoryR,Clinton/Bush,D,1953,0,M,I,WC,S,,,
+23,1,JOP2025-05-19CA4,2025 WL 1431263,5/19/2025,CA4,C,N,RichardsonJ,Trump,T,1976,1,M,G,WD,P,,Dissent argues that the Court does not have jurisdiction to order the government to facilitate the return of detainees deported removed to El Salvador.,
+24,1,ASR2025-05-13WDPA,2025 WL 1378784,5/13/2025,WDPA,D,N,HainesS,Trump,T,1969,0,F,I,,S,Preliminary injunction granted requiring 3 weeks notice and an opportunity to be heard before removal under AEA.,Case paused after A.S.R. accepted a final order of removal to Venezuela,
+25,1,WJCC2025-06-18WDPA,2025 WL 1703682,6/18/2025,WDPA,D,N,HainesS,Trump,T,1969,0,F,I,,S,Preliminary injuction granted requiring notice prior to removal under AEA,Denied preliminary injuction to prevent petitioner from being transferred out of the district,
+26,1,MAPS2025-06-09WDTX,2025 WL 1622260,6/9/2025,WDTX,D,N,BrionesD,Clinton,D,1943,0,M,I,,S,Preliminary injunction granted against AEA enforcement in class action habeas action,Court ruled that the invocation of the AEA was illegal; deportations under AEA blocked in WDTX,
+27,1,Puentes2025-04-25WDTX,2025 WL 1203179,4/25/2025,WDTX,D,N,BrionesD,Clinton,D,1943,0,M,I,,S,Court ordered the release of petioners from detention under AEA and enjoined the government from removing non-citizens detained in WDTX under the AEA.,Updates: granted govt request for stay pending appeal then entered an order granting relief of the petitioners.,
+28,1,Arevalo2025-06-02CDCA,2025 WL 1554183,6/2/2025,CDCA,D,N,HolcombJ,Trump,T,1963,0,M,I,,S,Preliminary injunction granted against removal under AEA without legal notice or due process in class action habeas action,,
+29,1,YAPA2025-05-21MDGA,2025 WL 1454014,5/21/2025,MDGA,D,N,LandC,Bush,R,1960,0,M,I,,S,Preliminary injunction granted against removal under AEA until the government complies with W.M.M. v. Trump requirements (legal notice and due process),Matter stayed until government designates petitioner as an alien enemy.,
+30,1,Garcia2025-04-06DMD,2025 WL 1014261,4/6/2025,DMD,D,N,XinisP,Obama,D,1968,0,F,I,,S,"Preliminary injunction granted, ordering the government to facilitate and effectuate the return of Plaintiff.",,
+31,1,Garcia2025-04-07CA4,2025 WL 1021113,4/7/2025,CA4,C,N,ThackerS,Obama,D,1965,0,F,I,WC,S,Stay of preliminary injunction denied,,not redundant with 7/21. b/f and after SCOTUS
+32,1,Garcia2025-04-07CA4,2025 WL 1021113,4/7/2025,CA4,C,N,WilkinsonJ,Reagan,R,1944,0,M,I,WC,S,,,not redundant with 7/21. b/f and after SCOTUS
+33,1,Garcia2025-04-07CA4,2025 WL 1021113,4/7/2025,CA4,C,N,KingR,Clinton,D,1940,0,M,I,C,S,,,not redundant with 7/21. b/f and after SCOTUS
+34,1,Garcia2025-04-10SCt,145 S.Ct. 1017,4/10/2025,SCt,SCOTUS,Y,RobertsJ,Bush,R,,,,I,M,S,"District Court's order upheld in part, and remanded in part for clarification on ""effectuate""",Per curiam opinion.,
+35,1,Garcia2025-04-10SCt,145 S.Ct. 1017,4/10/2025,SCt,SCOTUS,Y,ThomasC,H.W. Bush,R,,,,I,M,S,,,
+36,1,Garcia2025-04-10SCt,145 S.Ct. 1017,4/10/2025,SCt,SCOTUS,Y,AlitoS,Bush,R,,,,I,M,S,,,
+37,1,Garcia2025-04-10SCt,145 S.Ct. 1017,4/10/2025,SCt,SCOTUS,Y,SotomayorE,Obama,D,,,,I,"M, WS",S,,,
+38,1,Garcia2025-04-10SCt,145 S.Ct. 1017,4/10/2025,SCt,SCOTUS,Y,KaganE,Obama,D,,,,I,"M, S",S,,,
+39,1,Garcia2025-04-10SCt,145 S.Ct. 1017,4/10/2025,SCt,SCOTUS,Y,GorsuchN,Trump,T,,,,I,M,S,,,
+40,1,Garcia2025-04-10SCt,145 S.Ct. 1017,4/10/2025,SCt,SCOTUS,Y,KavanaughB,Trump,T,,,,I,M,S,,,
+41,1,Garcia2025-04-10SCt,145 S.Ct. 1017,4/10/2025,SCt,SCOTUS,Y,BarrettA,Trump,T,,,,I,M,S,,,
+42,1,Garcia2025-04-10SCt,145 S.Ct. 1017,4/10/2025,SCt,SCOTUS,Y,JacksonK,Biden,D,,,,I,"M, S",S,,,
+43,1,Garcia2025-04-10DMD,2025 WL 1085601,4/10/2025,DMD,D,N,XinisP,Obama,D,1968,0,F,I,,S,"Altered language to ""direct that Defendants take all available steps to facilitate the return…""",,count. b/f and after SCOTUS (but pretty minor)
+44,1,Garcia2025-04-17CA4,2025 WL 1135112,4/17/2025,CA4,C,N,ThackerS,Obama,D,1965,0,F,I,M,S,Stay of preliminary injunction denied,,
+45,1,Garcia2025-04-17CA4,2025 WL 1135112,4/17/2025,CA4,C,N,WilkinsonJ,Reagan,R,1944,0,M,I,WM,S,,,
+46,1,Garcia2025-04-17CA4,2025 WL 1135112,4/17/2025,CA4,C,N,KingR,Clinton,D,1940,0,M,I,M,S,,,
+47,1,Garcia2025-07-23DMD,2025 WL 2062203,7/23/2025,DMD,D,N,XinisP,Obama,D,1968,0,F,I,,S,"Order prohibiting Government from taking Garcia into ICE custody, requiring his return to Baltimore, and requiring notice prior to third-country removal proceedings.",,count b/c different issues now that he is back in the US
+48,1,Rojas2025-04-02SDTX,2025 WL 996421,4/2/2025,SDTX,D,N,OlveraJ,Obama,D,1963,0,M,I,,S,Court held that petitioner was wrongfully detained and ordered that he be returned to New York pending his immigration hearing there.,,
+49,1,IndonesianCommunity2025-02-11DNH,765 F.Supp.3d 102,2/11/2025,DNH,D,N,LaplanteJ,Bush,R,1965,0,M,I,,S,Preliminary injunction granted against enforcement of EO14160 revoking birthright citizenship.,See Barbara for class-wide injunction,
+50,0,Doe2025-02-13DMA,766 F.Supp.3d 266,2/13/2025,DMA,D,N,SorokinL,Obama,D,1961,0,M,I,,S,Preliminary injunction granted against enforcement of EO14160 revoking birthright citizenship.,,Same as NewJersey2025-02-13DMA
+51,1,Doe2025-07-03CA1,142 F.4th 109,7/3/2025,CA1,C,N,BarronD,Obama,D,1967,0,M,G,M,S,Remanded for Dist. Ct. to consider the bearing of the guidance in CASA on the scope of their preliminary injunction.,unsigned opinion,
+52,1,Doe2025-07-03CA1,142 F.4th 109,7/3/2025,CA1,C,N,RikelmanJ,Biden,D,1972,1,F,G,M,S,,,
+53,1,Doe2025-07-03CA1,142 F.4th 109,7/3/2025,CA1,C,N,AframeS,Biden,D,1974,1,M,G,M,S,,,
+54,1,NewJersey2025-02-13DMA,766 F.Supp.3d 266,2/13/2025,DMA,D,N,SorokinL,Obama,D,1961,0,M,I,,S,Preliminary injunction granted against enforcement of EO14160 revoking birthright citizenship.,Consolodated with Doe for purposes of the injunciton,
+55,1,NewJersey2025-03-11CA1,131 F.4th 27,3/11/2025,CA1,C,N,BarronD,Obama,D,1967,0,M,I,WM,P,Stay of preliminary injunction denied,,Not redundant with 07-03. stay v remand in light of CASA
+56,1,NewJersey2025-03-11CA1,131 F.4th 27,3/11/2025,CA1,C,N,RikelmanJ,Biden,D,1972,1,F,I,M,P,,,Not redundant with 07-03. stay v remand in light of CASA
+57,1,NewJersey2025-03-11CA1,131 F.4th 27,3/11/2025,CA1,C,N,AframeS,Biden,D,1974,1,M,I,M,P,,,Not redundant with 07-03. stay v remand in light of CASA
+58,1,NewJersey2025-07-03CA1,142 F.4th 109,7/3/2025,CA1,C,N,BarronD,Obama,D,1967,0,M,G,M,S,Remanded for Dist. Ct. to consider the bearing of the guidance in CASA on the scope of their preliminary injunction.,Consolodated with Doe,
+59,1,NewJersey2025-07-03CA1,142 F.4th 109,7/3/2025,CA1,C,N,RikelmanJ,Biden,D,1972,1,F,G,M,S,,,
+60,1,NewJersey2025-07-03CA1,142 F.4th 109,7/3/2025,CA1,C,N,AframeS,Biden,D,1974,1,M,G,M,S,,,
+61,1,NewJersey2025-07-25DMA,Not on Westlaw,7/25/2025,DMA,D,N,SorokinL,Obama,D,1961,0,M,I,,S,Court declined to narrow the scope of the injunction,This likely applies to Doe as well,not superceded b/ 7/25 order b/c appellate court remand for CASA in between
+62,1,CASA2025-02-05DMD,763 F.Supp.3d 723,2/5/2025,DMD,D,N,BoardmanD,Biden,D,1974,1,F,I,,S,Preliminary (nationwide) injunction granted against implementation of EO14160,,count even though later similar decisions by same jduge because appellate decision in between
+63,1,CASA2025-02-28CA4,2025 WL 654902,2/28/2025,CA4,C,N,HarrisP,Obama,D,1962,0,F,I,WM,S,Stay of preliminary injunction denied.,,not redundant with 07/29. Bf and after SCOTUS decision
+64,1,CASA2025-02-28CA4,2025 WL 654902,2/28/2025,CA4,C,N,GregoryR,Clinton/Bush,D,1953,0,M,I,M,S,,,not redundant with 07/29. Bf and after SCOTUS decision
+65,1,CASA2025-02-28CA4,2025 WL 654902,2/28/2025,CA4,C,N,NiemeyerP,H.W. Bush,R,1941,0,M,G,WD,S,,Dissent argues that issuing a partial stay for the nationwide injuction (and continuing the injunction for the parties in this case) would be appropriate.,not redundant with 07-29. Bf and after SCOTUS decision
+66,1,CASA2025-06-27SCt,145 S.Ct. 2540,6/27/2025,SCt,SCOTUS,Y,RobertsJ,Bush,R,,,,G,M,P,"Partial stay of preliminary injunction granted, limiting the injunction's scope to only the litigants in the case.",,Relative coding; somewhat inconsistent given that even pro-G justies didn't overturn entire injunction
+67,1,CASA2025-06-27SCt,145 S.Ct. 2540,6/27/2025,SCt,SCOTUS,Y,ThomasC,H.W. Bush,R,,,,G,"M, WC",P,,,
+68,1,CASA2025-06-27SCt,145 S.Ct. 2540,6/27/2025,SCt,SCOTUS,Y,AlitoS,Bush,R,,,,G,"M, WC",P,,,
+69,1,CASA2025-06-27SCt,145 S.Ct. 2540,6/27/2025,SCt,SCOTUS,Y,SotomayorE,Obama,D,,,,I,WD,P,,,
+70,1,CASA2025-06-27SCt,145 S.Ct. 2540,6/27/2025,SCt,SCOTUS,Y,KaganE,Obama,D,,,,I,D,P,,,
+71,1,CASA2025-06-27SCt,145 S.Ct. 2540,6/27/2025,SCt,SCOTUS,Y,GorsuchN,Trump,T,,,,G,C,P,,,
+72,1,CASA2025-06-27SCt,145 S.Ct. 2540,6/27/2025,SCt,SCOTUS,Y,KavanaughB,Trump,T,,,,G,"M, WC",P,,,
+73,1,CASA2025-06-27SCt,145 S.Ct. 2540,6/27/2025,SCt,SCOTUS,Y,BarrettA,Trump,T,,,,G,WM,P,,,
+74,1,CASA2025-06-27SCt,145 S.Ct. 2540,6/27/2025,SCt,SCOTUS,Y,JacksonK,Biden,D,,,,I,WD,P,,,
+75,0,CASA2025-07-16DMD,2025 WL 1952521,7/16/2025,DMD,D,N,BoardmanD,Biden,D,1974,1,F,I,,S,"Class-wide injunction granted, pending the Court regaining jurisdiciton upon remand from CA4",,"Do not count. Supersided by 8/7 decision. Didn't grant injunction, but said would. Decision really denied j."
+76,1,CASA2025-07-29CA4,2025 WL 2141296,7/29/2025,CA4,C,N,HarrisP,Obama,D,1962,0,F,I,M,P,Case remanded to DMD so that class-wide injunction could be granted.,,
+77,1,CASA2025-07-29CA4,2025 WL 2141296,7/29/2025,CA4,C,N,GregoryR,Clinton/Bush,D,1953,0,M,I,M,P,,,
+78,1,CASA2025-07-29CA4,2025 WL 2141296,7/29/2025,CA4,C,N,NiemeyerP,H.W. Bush,R,1941,0,M,I,WM,P,,,
+79,1,CASA2025-08-07DMD,2025 WL 2257625,8/7/2025,DMD,D,N,BoardmanD,Biden,D,1974,1,F,I,,S,Preliminary injunction granted against implimentation of EO14160,,count even though earlier similar decision b/c SCOTUS decision in between that changed things
+80,1,Washington2025-02-06WDWA,765 F.Supp.3d 1142,2/6/2025,WDWA,D,N,CoughenourJ,Reagan,R,1941,0,M,I,,S,Preliminary injunction (nationwide) granted againsted implimentation of EO14160,Consolidated with class action suit Franco Aleman et al. v. Trump et al.,
+81,1,Washington2025-02-19CA9,2025 WL 553485,2/19/2025,CA9,C,N,CanbyW,Carter,D,1931,0,M,I,M,S,Stay of preliminary injunction denied.,,
+82,1,Washington2025-02-19CA9,2025 WL 553485,2/19/2025,CA9,C,N,SmithM,Bush,R,1942,0,M,I,M,S,,,
+83,1,Washington2025-02-19CA9,2025 WL 553485,2/19/2025,CA9,C,N,ForrestD,Trump,T,1977,1,F,I,WC,S,,,
+84,1,Barbara2025-07-10DNH,2025 WL 1902218,7/10/2025,DNH,D,N,LaplanteJ,Bush,R,1965,0,M,I,,S,Classwide preliminary injunction granted against enforcement of EO14160,,
+85,1,SanFrancisco2025-04-24NDCA,2025 WL 1186310,4/24/2025,NDCA,D,N,OrrickW,Nixon,R,1953,0,M,I,,S,"Preliminary injunction granted against enforcement of EO13768, EO14159, and EO14218 (enjoined from withholding federal funds from ""sanctuary cities"")",,
+86,0,LasAmericas2025-02-06DDC,2025 WL 1575677,2/6/2025,DDC,D,N,ContrerasR,Obama,D,1962,0,M,G,,P,Temporary restraining order denied (to parole plaintiffs so they could pursue their claims for asylum),,Superceded by 5/9 (although somewhat different)
+87,1,LasAmericas2025-05-09DDC,2025 WL 1403811,5/9/2025,DDC,D,N,ContrerasR,Obama,D,1962,0,M,I,,S,"Plaintiff's MSJ granted in part, ordering that limitations on alysum eligibility and manifestation of fear requirements be vacated and set aside.",,
+88,1,Amica2025-07-06DDC,2025 WL 1852762,7/6/2025,DDC,D,N,MossR,Obama,D,1961,0,M,G,,P,"Preliminary injunction denied (to prevent enforecement of EO14159's ""stop work order"")",I switched between P and S multiple times while reading this opinion,
+89,1,AmericanGateways2025-07-21DDC,2025 WL 2029764,7/21/2025,DDC,D,N,AliA,Biden,D,1985,1,M,I,,S,Preliminary injunction granted against termination of the NQRP,,
+90,0,TPSAlliance2025-03-31NDCA,773 F.Supp.3d 807,3/31/2025,NDCA,D,N,ChenE,Obama,D,1953,0,M,I,,S,APA motion granted to postpone termination of temporary protected status of Venezuelan nationals,,do not count b/c superseded by 05-30
+91,1,TPSAlliance2025-04-18CA9,2025 WL 1142444,4/18/2025,CA9,C,N,TashimaA,Clinton,D,1934,0,M,I,M,S,Stay of District Court's order to postpone denied.,,
+92,1,TPSAlliance2025-04-18CA9,2025 WL 1142444,4/18/2025,CA9,C,N,OwensJ,Obama,D,1971,1,M,I,M,S,,,
+93,1,TPSAlliance2025-04-18CA9,2025 WL 1142444,4/18/2025,CA9,C,N,DesaiR,Biden,D,1977,1,F,I,M,S,,,
+94,1,TPSAlliance2025-05-19SCt,2025 WL 1427560,5/19/2025,SCt,SCOTUS,Y,RobertsJ,Bush,R,,,,G,M,U,Stay of District Court's order to postpone granted.,"No reasoning provided in the opinion, so I'm not sure how to code it (S or P)",Create new category -- U (uncertain)
+95,1,TPSAlliance2025-05-19SCt,2025 WL 1427560,5/19/2025,SCt,SCOTUS,Y,ThomasC,H.W. Bush,R,,,,G,M,U,,,
+96,1,TPSAlliance2025-05-19SCt,2025 WL 1427560,5/19/2025,SCt,SCOTUS,Y,AlitoS,Bush,R,,,,G,M,U,,,
+97,1,TPSAlliance2025-05-19SCt,2025 WL 1427560,5/19/2025,SCt,SCOTUS,Y,SotomayorE,Obama,D,,,,G,M,U,,,
+98,1,TPSAlliance2025-05-19SCt,2025 WL 1427560,5/19/2025,SCt,SCOTUS,Y,KaganE,Obama,D,,,,G,M,U,,,
+99,1,TPSAlliance2025-05-19SCt,2025 WL 1427560,5/19/2025,SCt,SCOTUS,Y,GorsuchN,Trump,T,,,,G,M,U,,,
+100,1,TPSAlliance2025-05-19SCt,2025 WL 1427560,5/19/2025,SCt,SCOTUS,Y,KavanaughB,Trump,T,,,,G,M,U,,,
+101,1,TPSAlliance2025-05-19SCt,2025 WL 1427560,5/19/2025,SCt,SCOTUS,Y,BarrettA,Trump,T,,,,G,M,U,,,
+102,1,TPSAlliance2025-05-19SCt,2025 WL 1427560,5/19/2025,SCt,SCOTUS,Y,JacksonK,Biden,D,,,,I,D,,,,check
+103,1,TPSAlliance2025-05-30NDCA,2025 WL 1547628,5/30/2025,NDCA,D,N,ChenE,Obama,D,1953,0,M,I,,P,Order to postpone narrowed in scope to only TPS holders who are entitled to relief,"Order to postpone reinstated but narrowed, unclear whether to code as I or G",count as pro I b/c ultimate decision is postponement
+104,1,EvangelicalClergy2025-07-01EDNY,2025 WL 1808743,7/1/2025,EDNY,D,N,CoganB,Bush,R,1954,0,M,I,,S,"Postponement of agency action granted, preventing DHS from revoking humanitarian protections against deportations.",,
+105,1,NationalTPS2025-07-31NDCA,2025 WL 2233985,7/31/2025,NDCA,D,N,ThompsonT,Biden,D,1961,0,F,I,,S,"Postponement of agency action granted, postponing TPS terminations",,
+106,1,NationalTPS2025-08-20CA9,Not on Westlaw ,8/20/2025,CA9,C,N,HawkinsM,Clinton,D,1945,0,M,G,M,P,"Stay granted, ending the postponement of agency action.","I'm not entirely sure that the reasoning here is procedural, but some langauge at the end of the order makes me think that jurisdiction is a consideration.",
+107,1,NationalTPS2025-08-20CA9,Not on Westlaw ,8/20/2025,CA9,C,N,CallahanC,Bush,R,1950,0,F,G,M,P,,,
+108,1,NationalTPS2025-08-20CA9,Not on Westlaw ,8/20/2025,CA9,C,N,MillerE,Trump,T,1975,1,M,G,M,P,,,
+109,1,CasaInc2025-07-10DMD,2025 WL 1907378,7/10/2025,DMD,D,N,ChuangT,Obama,D,1969,0,M,G,,S ,Preliminary injunction denied (requesting the administration be prevented from terminating TPS),,
+110,1,CasaInc2025-07-21CA4,2025 WL 2028397,7/22/2025,CA4,C,N,GregoryR,Clinton/Bush,D,1953,0,M,G,WM,S,Motion for Postponement of Agency Action (termination of TPS) denied.,,
+111,1,CasaInc2025-07-21CA4,2025 WL 2028397,7/22/2025,CA4,C,N,KingR,Clinton,D,1940,0,M,G,M,S, ,,
+112,1,CasaInc2025-07-21CA4,2025 WL 2028397,7/22/2025,CA4,C,N,BernerN,Biden,D,1965,0,F,G,M,S, ,,
+113,1,ImmigrantRights2025-08-01DDC,2025 WL 2192986,8/1/2025,DDC,D,N,CobbJ,Biden,D,1980,1,F,I,,S,Stay granted against administration's expedited deportation practices for immigrants paroled in the United States (EO 14165),,
+114,1,Doe2025-04-14DMA,2025 WL 1099602,4/14/2025,DMA,D,N,TalwaniI,Obama,D,1960,0,F,I,,S ,Stay granted against implimentation of EO 14165 (termination of parole programs for immigrants paroled in the United States),,
+115,1,Doe2025-05-05CA1,2025 WL 1505688,5/5/2025,CA1,C,N,GelpíG,Biden,D,1965,0,M,I,M,S ,Stay of District Court's Stay denied.,,
+116,1,Doe2025-05-05CA1,2025 WL 1505688,5/5/2025,CA1,C,N,KayattaW,Obama,D,1953,0,M,I,M,S , ,,
+117,1,Doe2025-05-05CA1,2025 WL 1505688,5/5/2025,CA1,C,N,MontecalvoL,Biden,D,1974,1,F,I,M,S , ,,
+118,1,Doe2025-05-30SCt,145 S.Ct. 1524,5/30/2025,SCt,SCOTUS,Y,RobertsJ,Bush,R,,,,G,M,U,Stay of District Court's Stay granted.,"No reasoning provided in the opinion, so I'm not sure how to code it (S or P)",Create new category -- U (uncertain)
+119,1,Doe2025-05-30SCt,145 S.Ct. 1524,5/30/2025,SCt,SCOTUS,Y,ThomasC,H.W. Bush,R,,,,G,M,U, ,,
+120,1,Doe2025-05-30SCt,145 S.Ct. 1524,5/30/2025,SCt,SCOTUS,Y,AlitoS,Bush,R,,,,G,M,U, ,,
+121,1,Doe2025-05-30SCt,145 S.Ct. 1524,5/30/2025,SCt,SCOTUS,Y,SotomayorE,Obama,D,,,,I,D,S , ,,check
+122,1,Doe2025-05-30SCt,145 S.Ct. 1524,5/30/2025,SCt,SCOTUS,Y,KaganE,Obama,D,,,,G,M,U, ,,
+123,1,Doe2025-05-30SCt,145 S.Ct. 1524,5/30/2025,SCt,SCOTUS,Y,GorsuchN,Trump,T,,,,G,M,U, ,,
+124,1,Doe2025-05-30SCt,145 S.Ct. 1524,5/30/2025,SCt,SCOTUS,Y,KavanaughB,Trump,T,,,,G,M,U, ,,
+125,1,Doe2025-05-30SCt,145 S.Ct. 1524,5/30/2025,SCt,SCOTUS,Y,BarrettA,Trump,T,,,,G,M,U, ,,
+126,1,Doe2025-05-30SCt,145 S.Ct. 1524,5/30/2025,SCt,SCOTUS,Y,JacksonK,Biden,D,,,,I,WD,S,Dissent argues that the Government failed to demonstrate that they faced irreparable harm from the Stay granted by the District Court.,,
+127,0,ImmigrantCenter2025-02-22DDC,2025 WL 823987,2/22/2025,DDC,D,N,MossR,Obama,D,1961,0,M,G,,P,Motion to stay removal of asylum seekers denied as moot.,,Do not count. Just preliminary to 7/2 order.
+128,1,Immigrant Center2025-07-02DDC,2025 WL 1825431,7/2/2025,DDC,D,N,MossR,Obama,D,1961,0,M,I,,S,"Summary Judgment granted, vacating Proc 10888 (which would bar immigrants without a visa from applying for asylum)",,
+129,1,Parra2025-02-09DNM,765 F.Supp.3d 1241,2/9/2025,DNM,D,N,GonzalesK,Obama,D,1964,0,M,I,,P,TRO granted against trafer of plaintiffs to Guantanamo,TRO granted because court wasn't sure they would maintin jurisdiction for the underlying habeas petition if plaintiffs were transferred,"Related to 2/28 and 3/24 decisions, but different judge in different district, so coount"
+130,0,Pacito2025-02-28WDWA,768 F.Supp.3d 1199,2/28/2025,WDWA,D,N,WhiteheadJ,Biden,D,1979,1,M,I,,S,Preliminary injunction granted against implementation of EO 14163 (suspending the refugee assistance program),,Superceded by 3/24 prelim inj. Do not count
+131,1,Pacito2025-03-24WDWA,772 F.Supp.3d 1204,3/24/2025,WDWA,D,N,WhiteheadJ,Biden,D,1979,1,M,I,,S,Preliminary injunction granted against implementation of EO 14163,"This is a new preliminary injunction based on the second amended complaint, but does essentially the same thing.",
+132,1,Pacito2025-03-25CA9,2025 WL 1325305,3/25/2025,CA9,C,N,SilvermanB,Clinton,D,1951,0,M,G,M,S ,"Stay of preliminary injunction granted in part, but denied insofar as it applies to immigrants who were conditionally approved for refugee status before Jan. 20, 2025.",,
+133,1,Pacito2025-03-25CA9,2025 WL 1325305,3/25/2025,CA9,C,N,BadeB,Trump,T,1965,0,F,G,M,S ,,,
+134,1,Pacito2025-03-25CA9,2025 WL 1325305,3/25/2025,CA9,C,N,DeAlbaA,Biden,D,1979,1,F,G,M,S ,,,
+135,1,Pacito2025-04-11WDWA,2025 WL 1397613,4/11/2025,WDWA,D,N,WhiteheadJ,Biden,D,1979,1,M,I,,S ,"Motion to enforce preliminary injunction granted, to the extent that the stay was denied by the Ninth Circuit.",,
+136,0,Pacito2025-04-21CA9,2025 WL 1325306,4/21/2025,CA9,C,N,SilvermanB,Clinton,D,1951,0,M, ,M,P,"Clarification of earlier stay (clarifying the word ""conditional"")",Keep or delete? I'm not sure if this clarification warrants a spot on the spreadsheet.,Do not code. Just clarification or prior stay
+137,0,Pacito2025-04-21CA9,2025 WL 1325306,4/21/2025,CA9,C,N,BadeB,Trump,T,1965,0,F, ,M,P,,,Do not code. Just clarification or prior stay
+138,0,Pacito2025-04-21CA9,2025 WL 1325306,4/21/2025,CA9,C,N,DeAlbaA,Biden,D,1979,1,F, ,M,P,,,Do not code. Just clarification or prior stay
+139,1,CatholicBishops2025-03-11DDC,770 F.Supp.3d 155,3/11/2025,DDC,D,N,McFaddenT,Trump,T,1978,1,M,G,,P,"Preliminary injunction denied, which requested the government be enjoined implimenting EO 14169 (terminating grants supporting immigration-related work).",Denied on jurisdictional grounds,
+140,1,Solutions2025-05-29DMA,2025 WL 1530318,5/29/2025,DMA,D,N,GriggsbyL,Biden,D,1968,0,F,G,,P,"Preliminary injunction denied, which requested the government be enjoined implimenting EO 14169 (terminating grants supporting immigration-related work).","Denied primarily on jurisdiction grounds, but the court also provides substantive reasons",
+141,1,Community2025-04-29NDCA,2025 WL 1233674,4/29/2025,NDCA,D,N,Martínez-OlguínA,Biden,D,1977,1,F,I,,S,"Preliminary injunction granted, enjoining government from withdrawing services or funds from immigration-related services (under EO 14169)",,
+142,1,Community2025-05-14CA9,137 F.4th 932,5/14/2025,CA9,C,N,KohL,Obama,D,1968,0,F,I,WM,S,Stay of preliminary injunction denied.,,
+143,1,Community2025-05-14CA9,137 F.4th 932,5/14/2025,CA9,C,N,FletcherW,Clinton,D,1945,0,M,I,M,S , ,,
+144,1,Community2025-05-14CA9,137 F.4th 932,5/14/2025,CA9,C,N,CallahanC,Bush,R,1950,0,F,G,WD,P, ,Dissent argues that the District Court did not have jurisdiction under the APA and that the decision whether/who to fund is up to agency discretion (outside judicial review),
+145,1,Centro2025-05-12DDC,2025 WL 1380420,5/12/2025,DDC,D,N,FriedrichD,Trump,T,1967,0,F,G,,S,"Preliminary injunction denied, which requested that the IRS be enjoined from sharing tax information with the DHS",,
+146,1,Khalil2025-06-11DNJ,2025 WL 1649197,6/11/2025,DNJ,D,N,FarbiarzM,Biden,D,1973,1,M,I,,S ,"Preliminary injunction granted, enjoining the government from removing plaintiff from the United States",,
+147,0,DVD2025-03-28DMA,2025 WL 942948,3/28/2025,DMA,D,N,MurphyB,Biden,D,1979,1,M,I,,S,TRO granted against removal of plaintiffs to a third country,,"OCG not part of TRO; TRO turned into preliminary injunction on 4/18, so this case should not count; appellate decision in between, but only stay of prelimin inj"
+148,1,DVD2025-04-07CA1,2025 WL 1029774,4/7/2025,CA1,C,N,MontecalvoL,Biden,D,1974,1,F,I,M,P,Stay of TRO denied.,,
+149,1,DVD2025-04-07CA1,2025 WL 1029774,4/7/2025,CA1,C,N,HowardJ,Bush,R,1955,0,M,I,M,P,,,
+150,1,DVD2025-04-07CA1,2025 WL 1029774,4/7/2025,CA1,C,N,AframeS,Biden,D,1974,1,M,I,M,P,,,
+151,1,DVD2025-04-18DMA,2025 WL 1142968,4/18/2025,DMA,D,N,MurphyB,Biden,D,1979,1,M,I,,S,Preliminary injunction granted against removal to a third country without notice or meaningful opportunity to assert claims for protection,,Converts 3/28 TRO to prelim Inj; OCG still not included
+152,1,DVD2025-05-23DMA,2025 WL 1487238,5/23/2025,DMA,D,N,MurphyB,Biden,D,1979,1,M,I,,S,Preliminary injunction granted requiring the government facilitate the return of O.C.G. to the United States,,"Just about OCG, who not part of TRO or Prelim Inj, so count"
+153,1,DVD2025-06-23SCt,145 S.Ct. 2153,6/23/2025,SCt,SCOTUS,Y,RobertsJ,Bush,R,,,,G,M,U,Stay of the April 18 preliminary injunction granted.,"No reasoning provided in the opinion, so I'm not sure how to code it (S or P)",Create new category -- U (uncertain)
+154,1,DVD2025-06-23SCt,145 S.Ct. 2153,6/23/2025,SCt,SCOTUS,Y,ThomasC,H.W. Bush,R,,,,G,M,U,,,
+155,1,DVD2025-06-23SCt,145 S.Ct. 2153,6/23/2025,SCt,SCOTUS,Y,AlitoS,Bush,R,,,,G,M,U,,,
+156,1,DVD2025-06-23SCt,145 S.Ct. 2153,6/23/2025,SCt,SCOTUS,Y,SotomayorE,Obama,D,,,,I,WD,S,,"Dissent argues that granting a stay of the preliminary injunction was an abuse of the Court's equitable discretion. ""[T]he Court appeaks to give no serious consideration to the irreparable harm factor.""",Check S/p
+157,1,DVD2025-06-23SCt,145 S.Ct. 2153,6/23/2025,SCt,SCOTUS,Y,KaganE,Obama,D,,,,I,D,S,,,
+158,1,DVD2025-06-23SCt,145 S.Ct. 2153,6/23/2025,SCt,SCOTUS,Y,GorsuchN,Trump,T,,,,G,M,U,,,
+159,1,DVD2025-06-23SCt,145 S.Ct. 2153,6/23/2025,SCt,SCOTUS,Y,KavanaughB,Trump,T,,,,G,M,U,,,
+160,1,DVD2025-06-23SCt,145 S.Ct. 2153,6/23/2025,SCt,SCOTUS,Y,BarrettA,Trump,T,,,,G,M,U,,,
+161,1,DVD2025-06-23SCt,145 S.Ct. 2153,6/23/2025,SCt,SCOTUS,Y,JacksonK,Biden,D,,,,I,D,S,,,
+162,1,Angelica2025-06-09DDC,2025 WL 1635369,6/9/2025,DDC,D,N,FriedrichD,Trump,T,1967,0,F,I,,S,"Preliminary injunction granted in part, preventing the ORR from creating a new blanket policy that departs from its previous one without adequate explanation.",This was barely a ruling in favor of the individual,
+163,1,CM2025-07-23SCFL,Not on Westlaw,7/23/2025,SDFL,D,N,RuizR,Trump,T,1979,1,M,G,,P,"Preliminary injunciton denied, which requested the government be required to ensure people detained in ""Alligator Alcatraz"" have access to counsel and the ability to file petitions.",,
+164,1,Everglades2025-08-21SDFL,2025 WL 2423258,8/21/2025,SDFL,D,N,WilliamsK,Obama,D,1956,0,F,I,,S,"Preliminary injunction granted, blocking the government from continuing construction on ""Alligator Alcatraz"" and from bringing any new detainees to the site.",,
+165,0,Coalition2025-04-10DDC,2025 WL 1078776,4/10/2025,DDC,D,N,McFaddenT,Trump,T,1978,1,M,G,,P,"Preliminary injunction and stay denied, requesting the government be enjoined from implementing EO 14159 through IFR",Plaintiffs lacked standing for the injunction.,superceded by 6/12
+166,1,Coalition2025-06-12DDC,2025 WL 1662910,6/12/2025,DDC,D,N,McFaddenT,Trump,T,1978,1,M,G,,S,"Preliminary injunction and stay denied, requesting the government be enjoined from implementing EO 14159 through IFR","""Although Plaintiffs have remedied the Court’s concerns about associational standing, they still fail to show irreparable harm""",
+167,1,Coalition2025-08-12CADC,Not on Westlaw ,8/12/2025,CADC,C,N,HendersonK,H.W. Bush,R,1944,0,F,G,,U,Motion for stay or injunction pending appeal denied.,"No reasoning provided in the opinion, so I'm not sure how to code it (S or P)",Create new category -- U (uncertain)
+168,1,Coalition2025-08-12CADC,Not on Westlaw ,8/12/2025,CADC,C,N,WilkinsR,Obama,D,1963,0,M,G,,U,,,
+169,1,Coalition2025-08-12CADC,Not on Westlaw ,8/12/2025,CADC,C,N,GarciaB,Biden,D,1986,1,M,G,,U,,,
+170,1,Taal2025-03-27NDNY,2025 WL 926207,3/27/3035,NDNY,D,N,CoombeE,Biden,D,1967,0,F,G,,S,"TRO denied, requesting the Government be enjoined from enforcing EO 14161 and EO 14188.",,
+171,1,Vizguerra2025-03-21DCO,Not on Westlaw ,3/21/2025,DCO,D,N,WangN,Biden,D,1972,1,F,I,,P,"Injunction granted, enjoining the government from removing plaintiff from Colorado or the United States",Not really sure whether this ruling is substantive or procedural.,
+172,0,Suri2025-03-20EDVA,2025 WL 914757,3/20/3035,EDVA,D,N,GilesP,Biden,D,1973,1,F,I,,P,Order preventing the Government from removing plaintiff from the United States,"Not entirely clear from the opinion why this order was issued, but based on similar cases/orders I think it was to preserve jurisdiction.",superseded by 5/14. non removal converted to release
+173,1,Suri2025-05-14EDVA,2025 WL 1392143,5/14/2025,EDVA,D,N,GilesP,Biden,D,1973,1,F,I,,S,Order requiring that the Government release Plaintiff on bond and preventing Government from redetaining plaintiff.,(found in appellate opinion) the release order was based on the District Court's conclusion that Plaintiff's detention was retaliation for his first amendment activity.,
+174,1,Suri2025-07-01CA4,2025 WL 1806692,7/1/2025,CA4,C,N,WynnJ,Obama,D,1954,0,M,I,WM,S,Stay of release order denied.,,
+175,1,Suri2025-07-01CA4,2025 WL 1806692,7/1/2025,CA4,C,N,BenjaminD,Biden,D,1972,1,F,I,M,S, ,,
+176,1,Suri2025-07-01CA4,2025 WL 1806692,7/1/2025,CA4,C,N,WilkinsonJ,Reagan,R,1944,0,M,G,WD,P, ,Dissent argues that plaintiff is trying to use federal habeas proceedings to circumvent usual immigrant process.,
+177,1,Chung2025-06-05SDNY,Not on Westlaw,6/5/2025,SDNY,D,N,BuchwaldN,Clinton,D,1944,0,F,I,,P,"Preliminary injunction granted, preventing the Government from detaining Chung or transferring Chung out of the Court's jurisdiction.",Plaintiff proactively filed habeas petition before being detained (and has not been detained),
+178,0,Ozturk2025-04-18DVT,2025 WL 1145250,4/18/2025,DVT,D,N,SessionsW,Ford,R,1947,0,M,I,,S,Rejected the Government's request to dismiss the habeas petition and ordered that petitioner be transferred to custody in Vermont,,supercided by 8/18 release
+179,1,Ozturk2025-05-07CA2,136 F.4th 382,5/7/2025,CA2,C,N,ParkerB,Bush,R,1944,0,M,I,M,S,Motion for stay of order to transfer and request for writ of mandamus denied.,,
+180,1,Ozturk2025-05-07CA2,136 F.4th 382,5/7/2025,CA2,C,N,CarneyS,Obama,D,1951,0,F,I,M,S,,,
+181,1,Ozturk2025-05-07CA2,136 F.4th 382,5/7/2025,CA2,C,N,NathanA,Biden,D,1972,1,F,I,M,S,,,
+182,1,Ozturk2025-05-09DVT,2025 WL 1355667,5/9/2025,DVT,D,N,SessionsW,Ford,R,1947,0,M,I,,S,Order for petitioner to be released from ICE custody.,,"08/18 order does not superced. About different issue (student visa, not detention)"
+183,1,Ozturk2025-08-18DVT,2025 WL 2391505,8/18/2025,DVT,D,N,SessionsW,Ford,R,1947,0,M,G,,P,"Motion for preliminary injunction denied, which requested petitioner's Student Exchange and Visitor Information System (SEVIS) record be restored.",Motion denied because the proper venue would be in Massachusetts.,
+184,1,Professors2025-04-29DMA,2025 WL 1235084,4/29/2025,DMA,D,N,YoungW,Reagan,R,1940,0,M,I,,S ,Government's motion to dismiss denied in part ,Preliminary Injunction collapsed into trial on the merits (the Government's opposition was treated as a motion to dismiss). I'm not sure if that changes how/whether to code this.,"I think it is coded propoerly, but if there is a decision based on the trial, it will supersede this one and this one will no longer be counted."
+185,0,Mahdawi2025-04-14DVT,2025 WL 1099021,4/14/2025,DVT,D,N,SessionsW,Ford,R,1947,0,M,I,,P,Order preventing the government from removing plaintiff from the United States or DVT.,,supercieded by 4/30 release
+186,1,Mahdawi2025-04-30DVT,2025 WL 1243135,4/30/2025,DVT,D,N,SessionsW,Ford,R,1947,0,M,I,,S ,Order that plaintiff be released from custody during the pendancy of his habeas proceeding.,,
+187,1,Perdomo2025-07-11CDCA,2025 WL 1915964,7/11/2025,CDCA,D,N,FrimpongM,Biden,D,1976,1,F,I,,S ,"Two TROs granted, enjoining the Government from stopping individuals based on factors including race, accent, location, or work.",,
+188,1,Perdomo2025-08-01CA9,2025 WL 2181709,8/1/2025,CA9,C,N,GouldR,Clinton,D,1946,0,M,I,M,S ,Stay of TROs denied.,Per curiam,
+189,1,Perdomo2025-08-01CA9,2025 WL 2181709,8/1/2025,CA9,C,N,BerzonM,Clinton,D,1945,0,F,I,M,S ,,,
+190,1,Perdomo2025-08-01CA9,2025 WL 2181709,8/1/2025,CA9,C,N,SungJ,Biden,D,1972,1,F,I,M,S ,,,
+191,1,FarmWorkers2025-04-29EDCA,2025 WL 1235525,4/29/2025,EDCA,D,N,ThurstonJ,Biden,D,1967,0,F,I,,S ,"Preliminary injunction granted, preventing the Government from conducting detention stops without reasonable suspicion.",,
+192,0,Gunaydin2025-04-28DMN,2025 WL 1218301,4/28/2025,DMN,D,N,BryanJ,Biden,D,1976,1,M,I,,S ,"TRO granted, blocking the government from removing plaintiff from DMN",,TRO essentially preliminary to HC on 5/21. do not count'
+193,1,Gunaydin2025-05-21DMN,2025 WL 1459154,5/21/2025,DMN,D,N,BryanJ,Biden,D,1976,1,M,I,,S ,Order that plaintiff be realsed from custody (petition for writ of habeas corpus granted),,
+194,0,JaneDoe2025-04-18NDGA,2025 WL 1188469,4/18/2025,NDGA,D,N,CalvertV,Biden,D,1981,1,F,I,,S ,TRO granted to prevent termination of F-1 student visa holders' status.,,superceded by 5/02 order
+195,1,JaneDoe2025-05-02NDGA,Not on Westlaw,5/2/2025,NDGA,D,N,CalvertV,Biden,D,1981,1,F,I,,S ,TRO converted into preliminary injunction,Keep or delete? Maybe only one of the Jane Doe opinions should be coded.,Yes. Keep only the second
+196,1,Mercado2025-08-12SDNY,Not on Westlaw,8/12/2025,SDNY,D,N,KaplanL,Clinton,D,1944,0,M,I,,S ,"TRO granted, requiring ICE to improve conditions and access to attorneys at a detention site.",,
+197,0,SantaClara,,,NDCA,,N,,,,,,,,,,Case stayed pending developments in Washington v. Trump,,
+198,0,Le,,,CDCA,,N,,,,,,,,,,Case stayed pending developments in Washington v. Trump and New Jersey v. Trump,,
