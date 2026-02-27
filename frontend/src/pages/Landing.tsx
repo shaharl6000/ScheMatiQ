@@ -19,7 +19,7 @@ import { ApiKeySection } from '@/components/ApiKeySection';
 import { getConfiguredProviders, LLMProvider } from '@/utils/apiKeyStorage';
 import { configAPI } from '@/services/api';
 
-// Custom styles for the demonstration video button (matching first button style)
+// Custom styles for the demonstration video button (matching PromptSuite shine effects)
 const videoButtonStyles = `
   .video-button-shine {
     position: relative;
@@ -39,11 +39,22 @@ const videoButtonStyles = `
       rgba(255, 255, 255, 0.4),
       transparent
     );
-    animation: button-shine 4s linear 2s infinite;
+    animation: button-shine-initial 2s ease-out 0.5s 1 forwards, button-shine-regular 4s linear 3s infinite;
     z-index: 1;
   }
 
-  @keyframes button-shine {
+  /* Initial fast shine when page loads */
+  @keyframes button-shine-initial {
+    0% {
+      left: -100%;
+    }
+    100% {
+      left: 100%;
+    }
+  }
+
+  /* Regular slower shine that repeats */
+  @keyframes button-shine-regular {
     0% {
       left: -100%;
     }
