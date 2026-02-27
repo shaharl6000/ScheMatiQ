@@ -86,6 +86,7 @@ class ScheMatiQStatus(BaseModel):
     columns_discovered: int = 0
     total_documents: int = 0
     processed_documents: int = 0
+    llm_stats: Optional[Dict[str, Any]] = None
 
 class ScheMatiQProgress(BaseModel):
     """Detailed progress information."""

@@ -32,6 +32,14 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+# Import cost estimator for pricing logic
+try:
+    from schematiq.core.cost_estimator import get_model_pricing, calculate_cost
+except ImportError:
+    # Fallback if cost_estimator not available (e.g. during tests)
+    def get_model_pricing(provider, model): return {"input": 0.0, "output": 0.0}
+    def calculate_cost(input_tokens, output_tokens, pricing): return 0.0
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,7 +80,7 @@ class LLMCallTracker:
         with self._lock:
             return self._current_stage
 
-    def increment(self, *, model: str = "", prompt_length: int = 0) -> None:
+    def increment(self, *, model: str = "", prompt_length: int = 0, completion_length: int = 0) -> None:
         """Record one LLM API call under the current stage.
 
         Parameters
@@ -80,7 +88,9 @@ class LLMCallTracker:
         model : str, optional
             Model identifier (e.g. ``"gemini-2.5-flash-lite"``).
         prompt_length : int, optional
-            Approximate character length of the prompt sent to the LLM.
+            Approximate character length (or token count) of the prompt sent to the LLM.
+        completion_length : int, optional
+            Approximate character length (or token count) of the completion received.
         """
         with self._lock:
             stage = self._current_stage
@@ -90,6 +100,7 @@ class LLMCallTracker:
                 "stage": stage,
                 "model": model,
                 "prompt_length": prompt_length,
+                "completion_length": completion_length,
             })
 
     def get_counts(self) -> Dict[str, int]:
@@ -115,6 +126,54 @@ class LLMCallTracker:
                 "per_stage": dict(self._counts),
                 "log_length": len(self._log),
             }
+            
+    def calculate_current_cost(self) -> Dict[str, Any]:
+        """Calculate current cost based on tracked calls.
+        
+        Returns:
+            Dict with total cost and breakdown.
+        """
+        with self._lock:
+            logs = list(self._log)
+            
+        total_cost = 0.0
+        total_input_tokens = 0
+        total_output_tokens = 0
+        
+        for entry in logs:
+            model = entry.get("model", "")
+            # Assume lengths are roughly tokens if not specified otherwise
+            # If lengths are chars, we divide by 4. 
+            # The backends are passing lengths. Let's assume they are chars for now as per docstring "Approximate character length".
+            # But cost estimator expects tokens.
+            # I will standardize on passing TOKENS to increment if possible, or convert here.
+            # The backends currently pass `len(prompt_text)` which is chars.
+            # So I should divide by 4 here.
+            
+            input_tokens = entry.get("prompt_length", 0) // 4
+            output_tokens = entry.get("completion_length", 0) // 4
+            
+            total_input_tokens += input_tokens
+            total_output_tokens += output_tokens
+            
+            # Determine provider from model name or default
+            provider = "unknown"
+            if "gemini" in model.lower():
+                provider = "gemini"
+            elif "gpt" in model.lower():
+                provider = "openai"
+            elif "llama" in model.lower() or "mistral" in model.lower():
+                provider = "together" # or hf
+                
+            pricing = get_model_pricing(provider, model)
+            cost = calculate_cost(input_tokens, output_tokens, pricing)
+            total_cost += cost
+            
+        return {
+            "total_cost_usd": round(total_cost, 6),
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens
+        }
 
     def reset(self, stage: Optional[str] = None) -> None:
         """Reset counters and log.
@@ -293,4 +352,3 @@ class GlobalLLMUsageTracker:
         """Reset all global usage data (e.g. new billing cycle)."""
         with self._lock:
             self._save({"total_calls": 0, "per_stage": {}, "sessions": []})
-

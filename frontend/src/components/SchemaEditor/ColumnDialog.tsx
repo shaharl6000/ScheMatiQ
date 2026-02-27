@@ -266,23 +266,24 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
 
         <ScrollArea className="flex-1 overflow-y-auto">
           <div className="space-y-6 py-4 pr-4">
-          {/* Column Name */}
-          <div className="space-y-2">
-            <Label htmlFor="name">
-              {mode === 'edit' ? 'Current Name' : 'Column Name'} <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="name"
-              value={mode === 'edit' ? formData.name : formData.name}
-              onChange={(e) => mode !== 'edit' && handleChange('name', e.target.value)}
-              disabled={mode === 'edit' || loading}
-              className={mode === 'edit' ? 'bg-muted' : ''}
-              aria-required={mode === 'add'}
-              aria-invalid={!!errors.name}
-              aria-describedby={errors.name ? 'name-error' : undefined}
-            />
-            {errors.name && <p id="name-error" className="text-sm text-destructive">{errors.name}</p>}
-          </div>
+          {/* Column Name (add mode only) */}
+          {mode === 'add' && (
+            <div className="space-y-2">
+              <Label htmlFor="name">
+                Column Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => handleChange('name', e.target.value)}
+                disabled={loading}
+                aria-required
+                aria-invalid={!!errors.name}
+                aria-describedby={errors.name ? 'name-error' : undefined}
+              />
+              {errors.name && <p id="name-error" className="text-sm text-destructive">{errors.name}</p>}
+            </div>
+          )}
 
           {/* New Name (for edit mode) */}
           {mode === 'edit' && (

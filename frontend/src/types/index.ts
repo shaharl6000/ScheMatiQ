@@ -223,6 +223,12 @@ export interface ScheMatiQStatus {
   columns_discovered?: number;
   total_documents?: number;
   processed_documents?: number;
+  llm_stats?: {
+    total_calls: number;
+    current_cost_usd: number;
+    estimated_cost_usd: number;
+    estimated_calls: number;
+  };
 }
 
 // WebSocket data payload types
@@ -254,6 +260,12 @@ export interface CompletionData {
   total_documents?: number;
   schema_columns?: number;
   additional_rows?: number;
+  llm_stats?: {
+    total_calls: number;
+    current_cost_usd: number;
+    estimated_cost_usd: number;
+    estimated_calls: number;
+  };
 }
 
 export interface SchemaCompletionData {

@@ -619,31 +619,20 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             className="border-collapse"
             style={{
               tableLayout: 'fixed' as const,
-              width: `${Math.max(600, 40 + allTableColumns.reduce((sum, col) => sum + (getColumnWidth(col) || DEFAULT_COLUMN_WIDTH), 0))}px`,
+              width: `${Math.max(600, allTableColumns.reduce((sum, col) => sum + (getColumnWidth(col) || DEFAULT_COLUMN_WIDTH), 0))}px`,
             }}
           >
             <thead className="sticky top-0 z-10 bg-background border-b">
               <tr>
-                {/* Checkbox column header */}
-                <th className="w-[40px] min-w-[40px] px-2 py-3 text-center bg-background">
-                  {selectedCount > 0 && (
-                    <Checkbox
-                      checked={isAllPageSelected ? true : isIndeterminate ? 'indeterminate' : false}
-                      onCheckedChange={() => toggleAllPage(pageRowIds)}
-                      aria-label="Select all rows on page"
-                    />
-                  )}
-                </th>
-
                 {/* Frozen _unit_name column */}
                 <th
                   ref={frozenThRef}
                   className={cn(
-                    "px-4 py-3 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
-                    !getColumnWidth('_unit_name') && "min-w-[150px] max-w-[250px]",
+                    "pl-1 pr-2 py-1 text-left font-semibold text-sm sticky bg-background z-20 border-r-2 border-primary shadow-[2px_0_4px_rgba(0,0,0,0.1)] relative",
+                    !getColumnWidth('_unit_name') && "min-w-[80px] max-w-[150px]",
                     "left-0"
                   )}
-                  style={getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
+                  style={getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }}
                 >
                   <div className="flex items-center gap-1">
                     <div
@@ -669,10 +658,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                   <th
                     ref={(el) => { headerRefs.current['_source_document'] = el; }}
                     className={cn(
-                      "px-4 py-3 text-left font-semibold text-sm bg-background border-r relative",
-                      !getColumnWidth('_source_document') && "min-w-[150px] max-w-[250px]"
+                      "px-2 py-1 text-left font-semibold text-sm bg-background border-r relative",
+                      !getColumnWidth('_source_document') && "min-w-[80px] max-w-[150px]"
                     )}
-                    style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
+                    style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }}
                   >
                     <div className="flex items-center gap-1">
                       <div className="flex items-center gap-1.5">
@@ -699,10 +688,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       key={column}
                       ref={(el) => { headerRefs.current[column] = el; }}
                       className={cn(
-                        "px-4 py-3 text-left font-semibold text-sm bg-background relative",
-                        !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]"
+                        "px-2 py-1 text-left font-semibold text-sm bg-background relative",
+                        !getColumnWidth(column) && "min-w-[80px] sm:min-w-[100px]"
                       )}
-                      style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
+                      style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }}
                     >
                       <div className="flex items-center gap-1">
                         {colDef ? (
@@ -749,33 +738,18 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     onMouseEnter={() => setHoveredRowId(rowId)}
                     onMouseLeave={() => setHoveredRowId(null)}
                   >
-                    {/* Checkbox cell */}
-                    <td className="w-[40px] min-w-[40px] px-2 py-3 text-center" style={{ verticalAlign: 'top' }}>
-                      <div className={cn(
-                        "transition-opacity duration-100",
-                        showCheckbox ? "opacity-100" : "opacity-0"
-                      )}>
-                        <Checkbox
-                          checked={rowSelected}
-                          onCheckedChange={() => toggleRow(rowId)}
-                          onClick={(e) => e.stopPropagation()}
-                          aria-label={`Select row ${rowId}`}
-                        />
-                      </div>
-                    </td>
-
                     {/* Frozen _unit_name cell */}
                     <td
                       className={cn(
-                        "px-4 py-3 sticky border-r",
-                        !getColumnWidth('_unit_name') && "min-w-[150px] max-w-[250px]",
+                        "pl-1 pr-2 py-1 sticky border-r",
+                        !getColumnWidth('_unit_name') && "min-w-[80px] max-w-[150px]",
                         "left-0",
                         "bg-background"
                       )}
                       style={{
                         zIndex: 5,
                         verticalAlign: 'top',
-                        ...(getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : {}),
+                        ...(getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }),
                       }}
                     >
                       <span className="text-sm font-medium">{row._unit_name || 'Unknown'}</span>
@@ -784,8 +758,8 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     {/* Source Document cell - always visible when present */}
                     {hasSourceDocument && (
                       <td
-                        className="px-4 py-3 text-sm border-r bg-muted/20"
-                        style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: DEFAULT_COLUMN_WIDTH }}
+                        className="pl-1 pr-2 py-1 text-sm border-r bg-muted/20"
+                        style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }}
                       >
                         <div className="flex items-center gap-1.5">
                           <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -807,10 +781,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     {visibleColumns.map(column => (
                       <td
                         key={column}
-                        className={cn("px-4 py-3", !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]")}
+                        className={cn("px-2 py-1", !getColumnWidth(column) && "min-w-[80px] sm:min-w-[100px]")}
                         style={{
                           verticalAlign: 'top',
-                          ...(getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : {}),
+                          ...(getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }),
                         }}
                       >
                         {formatCellValue(row.data[column], column, row, excerptMapping, handleViewContent)}
@@ -823,7 +797,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               {processedRows.length === 0 && unitData?.rows && unitData.rows.length > 0 && (
                 <tr>
                   <td
-                    colSpan={visibleColumns.length + (hasSourceDocument ? 3 : 2)}
+                    colSpan={visibleColumns.length + (hasSourceDocument ? 2 : 1)}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
                     No rows match the current filters or search.

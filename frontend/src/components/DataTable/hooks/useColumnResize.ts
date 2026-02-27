@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 
-export const MIN_COLUMN_WIDTH = 80;
-export const DEFAULT_COLUMN_WIDTH = 150;
+export const MIN_COLUMN_WIDTH = 10;
+export const DEFAULT_COLUMN_WIDTH = 80;
 
 interface UseColumnResizeOptions {
   sessionId: string;
