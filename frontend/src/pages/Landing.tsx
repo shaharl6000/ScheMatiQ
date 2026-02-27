@@ -78,6 +78,17 @@ const Landing = () => {
             <span>Code</span>
           </a>
           <a
+            href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-[1.1rem] transition-colors shadow-sm"
+          >
+            <span className="flex items-center justify-center w-5 h-5">
+              <i className="fa-brands fa-youtube text-base"></i>
+            </span>
+            <span>Demonstration Video</span>
+          </a>
+          <a
             href="https://x.com/"
             target="_blank"
             rel="noopener noreferrer"
