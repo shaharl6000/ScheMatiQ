@@ -107,6 +107,17 @@ const Landing = () => {
         </p>
         <div className="flex items-center justify-center gap-3 flex-wrap font-['Google_Sans',sans-serif]">
           <a
+            href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-gray-800 hover:bg-gray-700 text-white text-[1.1rem] transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1 relative overflow-hidden video-button-shine"
+          >
+            <span className="flex items-center justify-center w-5 h-5">
+              <i className="fa-brands fa-youtube text-base"></i>
+            </span>
+            <span>Demonstration Video</span>
+          </a>
+          <a
             href="#"
             target="_blank"
             rel="noopener noreferrer"
@@ -127,17 +138,6 @@ const Landing = () => {
               <i className="fab fa-github text-xl"></i>
             </span>
             <span>Code</span>
-          </a>
-          <a
-            href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-gray-800 hover:bg-gray-700 text-white text-[1.1rem] transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1 relative overflow-hidden video-button-shine"
-          >
-            <span className="flex items-center justify-center w-5 h-5">
-              <i className="fa-brands fa-youtube text-base"></i>
-            </span>
-            <span>Demonstration Video</span>
           </a>
           <a
             href="https://x.com/"
