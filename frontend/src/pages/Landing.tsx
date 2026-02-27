@@ -19,8 +19,13 @@ import { ApiKeySection } from '@/components/ApiKeySection';
 import { getConfiguredProviders, LLMProvider } from '@/utils/apiKeyStorage';
 import { configAPI } from '@/services/api';
 
-// Custom styles for the demonstration video button
+// Custom styles for the demonstration video button (matching first button style)
 const videoButtonStyles = `
+  .video-button-shine {
+    position: relative;
+    overflow: hidden;
+  }
+
   .video-button-shine::before {
     content: '';
     position: absolute;
@@ -31,14 +36,14 @@ const videoButtonStyles = `
     background: linear-gradient(
       90deg,
       transparent,
-      rgba(255, 255, 255, 0.3),
+      rgba(255, 255, 255, 0.4),
       transparent
     );
-    animation: video-shine 3s linear infinite;
+    animation: button-shine 4s linear 2s infinite;
     z-index: 1;
   }
 
-  @keyframes video-shine {
+  @keyframes button-shine {
     0% {
       left: -100%;
     }
@@ -116,8 +121,7 @@ const Landing = () => {
             href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-2 rounded-full text-white text-[1.1rem] transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1 relative overflow-hidden video-button-shine"
-            style={{ background: 'linear-gradient(135deg, #10b981 0%, #047857 100%)' }}
+            className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-gray-800 hover:bg-gray-700 text-white text-[1.1rem] transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1 relative overflow-hidden video-button-shine"
           >
             <span className="flex items-center justify-center w-5 h-5">
               <i className="fa-brands fa-youtube text-base"></i>
