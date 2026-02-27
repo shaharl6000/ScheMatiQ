@@ -111,7 +111,7 @@ const Landing = () => {
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-6 py-2 rounded-full text-white text-[1.1rem] transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1 relative overflow-hidden video-button-shine"
-            style={{ background: 'linear-gradient(135deg, #10b981 0%, #047857 100%)' }}
+            style={{ background: 'linear-gradient(135deg, #ff4444 0%, #cc0000 100%)' }}
           >
             <span className="flex items-center justify-center w-5 h-5">
               <i className="fa-brands fa-youtube text-base"></i>
