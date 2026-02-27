@@ -103,7 +103,7 @@ const Landing = () => {
           From Documents to Data
         </h1>
         <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-6">
-          Turn research documents into structured datasets — automatically.
+          Turn a collection of documents into structured datasets — automatically.
         </p>
         <div className="flex items-center justify-center gap-3 flex-wrap font-['Google_Sans',sans-serif]">
           <a
@@ -195,7 +195,7 @@ const Landing = () => {
               Load an Existing Project
             </CardTitle>
             <CardDescription>
-              Open a previously generated dataset to explore, refine, or export.
+              Open a previously generated dataset to continue exploring, refining, and analyzing your results.
             </CardDescription>
           </CardHeader>
           <CardFooter className="mt-auto">
