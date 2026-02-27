@@ -19,6 +19,40 @@ import { ApiKeySection } from '@/components/ApiKeySection';
 import { getConfiguredProviders, LLMProvider } from '@/utils/apiKeyStorage';
 import { configAPI } from '@/services/api';
 
+// Custom styles for the demonstration video button
+const videoButtonStyles = `
+  .video-button-shine::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(255, 255, 255, 0.3),
+      transparent
+    );
+    animation: video-shine 3s linear infinite;
+    z-index: 1;
+  }
+
+  @keyframes video-shine {
+    0% {
+      left: -100%;
+    }
+    100% {
+      left: 100%;
+    }
+  }
+
+  .video-button-shine span {
+    position: relative;
+    z-index: 2;
+  }
+`;
+
 const Landing = () => {
   const navigate = useNavigate();
   const [configuredProviders, setConfiguredProviders] = useState<LLMProvider[]>([]);
@@ -46,6 +80,7 @@ const Landing = () => {
 
   return (
     <div className="max-w-5xl mx-auto">
+      <style dangerouslySetInnerHTML={{ __html: videoButtonStyles }} />
       {/* Hero Section */}
       <div className="text-center mb-8">
         <h1 className="text-4xl font-bold tracking-tight mb-4 bg-gradient-to-r from-primary via-blue-500 to-blue-400 bg-clip-text text-transparent">
@@ -81,7 +116,8 @@ const Landing = () => {
             href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-[1.1rem] transition-colors shadow-sm"
+            className="inline-flex items-center gap-2 px-6 py-2 rounded-full text-white text-[1.1rem] transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1 relative overflow-hidden video-button-shine"
+            style={{ background: 'linear-gradient(135deg, #10b981 0%, #047857 100%)' }}
           >
             <span className="flex items-center justify-center w-5 h-5">
               <i className="fa-brands fa-youtube text-base"></i>
