@@ -41,7 +41,6 @@ We do not intentionally collect personal identifiers. However, the content of yo
 
 ## Your Choices
 
-- **Opt out of data collection:** When you click "Start ScheMatiQ," a consent dialog will appear. You can check the **"Do not share my data for research purposes"** box to prevent your session data from being archived. Your session will work identically — the only difference is that no data is sent to Google Drive.
 - **"Don't show again":** You can dismiss the consent dialog for future sessions. Your opt-out preference is saved locally in your browser and will be applied automatically.
 
 ## Data Retention

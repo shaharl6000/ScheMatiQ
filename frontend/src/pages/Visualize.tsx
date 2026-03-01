@@ -131,6 +131,7 @@ const Visualize = () => {
 
   // Developer mode state (for conditionally showing feedback widget)
   const [developerMode, setDeveloperMode] = useState<boolean>(true);
+  const [demoMode, setDemoMode] = useState<boolean>(false);
 
   // LLM selection state
   const [showLLMSelector, setShowLLMSelector] = useState(false);
@@ -180,6 +181,7 @@ const Visualize = () => {
       .then(cfg => {
         setMaxDocuments(cfg.max_documents);
         setDeveloperMode(cfg.developer_mode);
+        setDemoMode(cfg.demo_mode ?? false);
       })
       .catch(() => {});
   }, []);
@@ -1305,7 +1307,7 @@ const Visualize = () => {
         </TabsList>
 
         {/* Data Tab */}
-        <TabsContent value="data" className="mt-4">
+        <TabsContent value="data" className="mt-4" forceMount style={{ display: activeTab === 'data' ? undefined : 'none' }}>
           {(isCompleted || isEnhancedUploadProcessing || isScheMatiQRunning || isScheMatiQStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
             <div className="relative" data-table-container>
               {/* View mode toggle (only when observation units exist) */}
@@ -1402,7 +1404,7 @@ const Visualize = () => {
                               : 'Upload additional documents to extract more data using your existing schema.'}
                         </p>
 
-                        {session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
+                        {!demoMode && session?.metadata?.uploaded_documents && session.metadata.uploaded_documents.length > 0 && (
                           <div className="space-y-2">
                             <p className="text-sm font-medium">Uploaded documents ({session.metadata.uploaded_documents.length}):</p>
                             <div className="flex flex-wrap gap-2">

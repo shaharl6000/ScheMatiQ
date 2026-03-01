@@ -144,6 +144,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [reprocessingStatus, setReprocessingStatus] = useState<ReprocessingStatus | null>(null);
   const [validationResult, setValidationResult] = useState<SchemaValidationResultType | null>(null);
   const [loading, setLoading] = useState(false);
+  const newlyAddedColumnRef = useRef<string | null>(null);
   const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
   const [reextractionDialogOpen, setReextractionDialogOpen] = useState(false);
   const [continueDiscoveryDialogOpen, setContinueDiscoveryDialogOpen] = useState(false);
@@ -503,7 +504,18 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
   // Update local columns when props change
   useEffect(() => {
-    setLocalColumns(columns || []);
+    const incoming = columns || [];
+    // If a column was just added, keep it at the front after refetch
+    if (newlyAddedColumnRef.current) {
+      const newColName = newlyAddedColumnRef.current;
+      const newCol = incoming.find(c => c.name === newColName);
+      if (newCol) {
+        newlyAddedColumnRef.current = null;
+        setLocalColumns([newCol, ...incoming.filter(c => c.name !== newColName)]);
+        return;
+      }
+    }
+    setLocalColumns(incoming);
   }, [columns]);
 
   // Run clustering ONLY ONCE on initial load when no clusters exist
@@ -664,24 +676,33 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   };
 
   const handleDialogSuccess = (message: string, updatedColumns?: ColumnInfo[], selectedClusterId?: string | null) => {
-    toast({ title: 'Success', description: message });
     setSelectedColumns([]);
     setDialogState({ open: false, mode: 'add' });
     setMergeDialogOpen(false);
 
     // Update columns if provided in the response
     if (updatedColumns && updatedColumns.length > 0) {
-      setLocalColumns(updatedColumns);
+      // If adding a new column, move it to the front so it's visible immediately
+      let reorderedColumns = updatedColumns;
+      let newColumnName: string | undefined;
+      if (dialogState.mode === 'add') {
+        const newCol = updatedColumns.find(
+          col => !localColumns.some(lc => lc.name === col.name)
+        );
+        if (newCol) {
+          newColumnName = newCol.name;
+          newlyAddedColumnRef.current = newCol.name;
+          reorderedColumns = [newCol, ...updatedColumns.filter(c => c.name !== newCol.name)];
+        }
+      }
+
+      setLocalColumns(reorderedColumns);
       if (onColumnsChange) {
-        onColumnsChange(updatedColumns);
+        onColumnsChange(reorderedColumns);
       }
 
       // Handle cluster assignment for new columns
       if (dialogState.mode === 'add') {
-        // Find the newly added column (last one added)
-        const newColumnName = updatedColumns.find(
-          col => !localColumns.some(lc => lc.name === col.name)
-        )?.name;
 
         if (newColumnName) {
           if (selectedClusterId) {
