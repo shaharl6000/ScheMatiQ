@@ -272,26 +272,31 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     const row = unitData?.rows?.find(r => r.row_name === rowName || r._unit_name === rowName);
     const oldValue = row ? getEditableValue(row.data[column]) : '';
 
-    await schematiqAPI.updateCell(sessionId, rowName, column, value);
-    refetchData();
+    try {
+      await schematiqAPI.updateCell(sessionId, rowName, column, value);
+      refetchData();
 
-    toast({
-      title: 'Cell updated',
-      description: `Updated "${column}" for "${rowName}"`,
-      duration: 8000,
-      action: (
-        <ToastAction altText="Undo" onClick={async () => {
-          try {
-            await schematiqAPI.updateCell(sessionId, rowName, column, oldValue);
-            refetchData();
-          } catch {
-            toast({ title: 'Undo failed', description: 'Could not revert the cell edit.', variant: 'destructive' });
-          }
-        }}>
-          Undo
-        </ToastAction>
-      ),
-    });
+      toast({
+        title: 'Cell updated',
+        description: `Updated "${column}" for "${rowName}"`,
+        duration: 8000,
+        action: (
+          <ToastAction altText="Undo" onClick={async () => {
+            try {
+              await schematiqAPI.updateCell(sessionId, rowName, column, oldValue);
+              refetchData();
+            } catch {
+              toast({ title: 'Undo failed', description: 'Could not revert the cell edit.', variant: 'destructive' });
+            }
+          }}>
+            Undo
+          </ToastAction>
+        ),
+      });
+    } catch (error) {
+      toast({ title: 'Update failed', description: 'Could not save the cell edit.', variant: 'destructive' });
+      throw error;  // Re-throw so EditableCell keeps edit mode open
+    }
   }, [sessionId, refetchData, unitData, toast]);
 
   // Filter suggestions by dismissed

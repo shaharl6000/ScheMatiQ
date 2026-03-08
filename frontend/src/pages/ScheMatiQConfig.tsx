@@ -260,6 +260,10 @@ const ScheMatiQConfigPage = () => {
           setConfig(prev => {
             const currentPaths = Array.isArray(prev.docs_path) ? prev.docs_path : [prev.docs_path];
             const validPaths = currentPaths.filter((path): path is string => path != null && datasetsArray.some(d => d.name === path));
+            const droppedCount = currentPaths.filter(p => p != null).length - validPaths.length;
+            if (droppedCount > 0) {
+              console.warn(`${droppedCount} previously selected dataset(s) are no longer available`);
+            }
             return { ...prev, docs_path: validPaths };
           });
         }
@@ -985,7 +989,7 @@ const ScheMatiQConfigPage = () => {
               size="lg"
               className="w-full max-w-xs"
               onClick={handleStartClick}
-              disabled={!isFormValid || loading || providersLoading || datasetsLoading}
+              disabled={!isFormValid || loading || providersLoading || (documentSource === 'cloud' && datasetsLoading)}
             >
               {(loading || isUploading) ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

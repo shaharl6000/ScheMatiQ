@@ -110,3 +110,6 @@ export const formatSessionStatus = (status: string): string => {
     .replace(/_/g, ' ')
     .replace(/\b\w/g, char => char.toUpperCase());
 };
+
+/** Regex to detect range constraint values like "0-100" or "-1.5-2.5" */
+export const RANGE_CONSTRAINT_REGEX = /^(-?\d+(\.\d+)?)-(-?\d+(\.\d+)?)$/;

@@ -19,6 +19,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.schema_manager import SchemaManager
 from app.services.reextraction_service import ReextractionService
 from app.services.continue_discovery_service import ContinueDiscoveryService
+from app.services.data_editor import DataEditor
 from app.services import session_manager, websocket_manager, concurrency_limiter, data_collection_service
 from app.core.exceptions import CapacityExceededError
 from app.core.logging_utils import set_session_context
@@ -36,6 +37,9 @@ reextraction_service = ReextractionService(websocket_manager, session_manager,
 # Create continue discovery service instance
 continue_discovery_service = ContinueDiscoveryService(websocket_manager, session_manager,
                                                       data_collection_service=data_collection_service)
+
+# Create data editor instance
+data_editor = DataEditor()
 
 # Request/Response Models
 class ColumnEditRequest(BaseModel):
@@ -103,7 +107,12 @@ async def edit_column(
             if col.name == edit_request.old_name:
                 # Update column properties
                 if edit_request.new_name:
-                    # Update baseline key so renamed column stays tracked (not "new")
+                    # Move baseline entry to the new key so the renamed column stays
+                    # tracked (not reported as "new").  Intentionally, old_baseline.name
+                    # is NOT updated — it retains the previous column name.
+                    # reextraction_service.detect_schema_changes() compares
+                    # col.name (current) vs baseline.name (old) to detect renames;
+                    # keeping the stale name in the baseline entry is the signal it relies on.
                     if session.schema_baseline and edit_request.old_name in session.schema_baseline.columns:
                         old_baseline = session.schema_baseline.columns.pop(edit_request.old_name)
                         session.schema_baseline.columns[edit_request.new_name] = old_baseline
@@ -138,6 +147,13 @@ async def edit_column(
         # Update session
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
+
+        # Rename column key in data rows so the data table matches the schema
+        if edit_request.new_name:
+            try:
+                await data_editor.rename_column(session_id, edit_request.old_name, edit_request.new_name)
+            except FileNotFoundError:
+                pass  # No data file yet — nothing to rename
 
         # Broadcast schema update
         await websocket_manager.broadcast_schema_updated(session_id, {

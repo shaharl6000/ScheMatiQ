@@ -302,7 +302,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if not session.schema_baseline:
             baseline = self.capture_baseline(session)
             session.schema_baseline = baseline
-            self.session_manager.update_session(session)
+            # Only persist if session has extracted data to avoid writes on every poll
+            if any((c.non_null_count or 0) > 0 for c in session.columns):
+                self.session_manager.update_session(session)
             # Return no changes — baseline just captured from current state
             return result
 
@@ -369,7 +371,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         checksum=self.calculate_column_checksum(col),
                     )
                 self.session_manager.update_session(session)
-                return self.detect_schema_changes(session)
+                # Inline re-detection: remove the now-patched stale columns from
+                # the result so they are no longer reported as new or changed,
+                # then fall through to recalculate has_changes. This avoids the
+                # infinite recursion that a recursive self.detect_schema_changes()
+                # call would cause if stale_cols were somehow repopulated.
+                for col_name in stale_cols:
+                    result["new_columns"] = [n for n in result["new_columns"] if n != col_name]
+                    result["column_changes"].pop(col_name, None)
 
         result["has_changes"] = bool(result["changed_columns"] or result["new_columns"])
         return result

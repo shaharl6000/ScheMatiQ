@@ -76,7 +76,7 @@ import {
   ReextractionRequest,
   EditColumnRequest,
 } from '../../types';
-import { formatColumnName } from '../../utils/formatting';
+import { formatColumnName, RANGE_CONSTRAINT_REGEX } from '../../utils/formatting';
 import { schemaAPI, configAPI } from '../../services/api';
 import { getApiKeyForProvider, getConfiguredProviders } from '../../utils/apiKeyStorage';
 import { getDefaultModelForProvider, getAvailableProviders, LLMProviderKey } from '@/constants/llmModels';
@@ -147,6 +147,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const [reprocessingStatus, setReprocessingStatus] = useState<ReprocessingStatus | null>(null);
   const [validationResult, setValidationResult] = useState<SchemaValidationResultType | null>(null);
   const [loading, setLoading] = useState(false);
+  const [revertingColumn, setRevertingColumn] = useState<string | null>(null);
   const [schemaChanges, setSchemaChanges] = useState<SchemaChangeStatus | null>(null);
   const [reextractionDialogOpen, setReextractionDialogOpen] = useState(false);
   const [continueDiscoveryDialogOpen, setContinueDiscoveryDialogOpen] = useState(false);
@@ -636,7 +637,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   };
 
   const handleRevertColumn = async (columnName: string, baseline: { definition?: string; rationale?: string; allowed_values?: string[]; old_name?: string }) => {
-    setLoading(true);
+    setRevertingColumn(columnName);
     try {
       const response = await schemaAPI.editColumn(sessionId, {
         old_name: columnName,
@@ -664,7 +665,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         variant: 'destructive',
       });
     } finally {
-      setLoading(false);
+      setRevertingColumn(null);
     }
   };
 
@@ -699,10 +700,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     setSelectedColumns([]);
   };
 
-  const handleDialogSuccess = (message: string, updatedColumns?: ColumnInfo[], selectedClusterId?: string | null) => {
-    // Capture dialog state before clearing
+  const handleDialogSuccess = useCallback((message: string, updatedColumns?: ColumnInfo[], selectedClusterId?: string | null) => {
+    // Capture state snapshots before any updates
     const savedMode = dialogState.mode;
     const savedColumn = dialogState.column;
+    const preEditColumns = localColumns;
 
     setSelectedColumns([]);
     setDialogState({ open: false, mode: 'add' });
@@ -719,7 +721,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       if (savedMode === 'add') {
         // Find the newly added column (last one added)
         const newColumnName = updatedColumns.find(
-          col => !localColumns.some(lc => lc.name === col.name)
+          col => !preEditColumns.some(lc => lc.name === col.name)
         )?.name;
 
         if (newColumnName) {
@@ -747,7 +749,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     if (savedMode === 'edit' && savedColumn && updatedColumns) {
       // Find the post-edit column name (may have been renamed)
       const postEditName = updatedColumns.find(
-        col => !localColumns.some(lc => lc.name === col.name)
+        col => !preEditColumns.some(lc => lc.name === col.name)
       )?.name || savedColumn.name;
 
       toast({
@@ -790,7 +792,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
 
     // Reload schema change status after any schema operation
     loadSchemaChangeStatus();
-  };
+  }, [dialogState.mode, dialogState.column, localColumns, clusters, clusteringEnabled, sessionId, onColumnsChange, loadSchemaChangeStatus, toast]);
 
   const handleDialogError = (message: string) => {
     toast({ title: 'Error', description: message, variant: 'destructive' });
@@ -956,12 +958,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   }, [clusteringEnabled]);
 
   // Filter out excerpt columns for display
-  const displayColumns = (localColumns || []).filter(column => {
+  const displayColumns = useMemo(() => (localColumns || []).filter(column => {
     return column &&
       column.name &&
       !column.name.toLowerCase().includes('excerpt') &&
       !column.name.toLowerCase().endsWith('_excerpt');
-  });
+  }), [localColumns]);
 
   // Filter columns by search query
   const filteredColumns = useMemo(() => {
@@ -1543,6 +1545,8 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                             const isModified = schemaChanges?.changed_columns?.includes(column.name);
                             const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
                             const isProcessing = processingColumns?.has(column.name);
+                            const changeDetail = schemaChanges?.column_changes?.[column.name];
+                            const canRevert = isModified && !isNew && changeDetail && (changeDetail.old_definition != null || changeDetail.old_rationale != null || changeDetail.old_allowed_values != null);
 
                             // Compact view card
                             if (viewMode === 'compact') {
@@ -1721,10 +1725,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                             </DropdownMenuContent>
                                           </DropdownMenu>
                                         )}
-                                        {isModified && !isNew && (() => {
-                                          const cd = schemaChanges?.column_changes?.[column.name];
-                                          return cd && (cd.old_definition != null || cd.old_rationale != null || cd.old_allowed_values != null);
-                                        })() && (
+                                        {canRevert && (
                                           <Tooltip>
                                             <TooltipTrigger asChild>
                                               <Button
@@ -1732,13 +1733,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                                 size="icon"
                                                 className="h-8 w-8 text-amber-600"
                                                 onClick={() => {
-                                                  const cd = schemaChanges?.column_changes?.[column.name];
-                                                  if (cd) {
+                                                  if (changeDetail) {
                                                     handleRevertColumn(column.name, {
-                                                      definition: cd.old_definition ?? undefined,
-                                                      rationale: cd.old_rationale ?? undefined,
-                                                      allowed_values: cd.old_allowed_values ?? undefined,
-                                                      old_name: cd.old_name ?? undefined,
+                                                      definition: changeDetail.old_definition ?? undefined,
+                                                      rationale: changeDetail.old_rationale ?? undefined,
+                                                      allowed_values: changeDetail.old_allowed_values ?? undefined,
+                                                      old_name: changeDetail.old_name ?? undefined,
                                                     });
                                                   }
                                                 }}
@@ -1853,6 +1853,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
               const isProcessing = processingColumns?.has(column.name);
               const changeDetail = schemaChanges?.column_changes?.[column.name];
+              const canRevert = isModified && !isNew && changeDetail && (changeDetail.old_definition != null || changeDetail.old_rationale != null || changeDetail.old_allowed_values != null);
 
               // Compact view card
               if (viewMode === 'compact') {
@@ -2000,10 +2001,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                           </TooltipTrigger>
                           <TooltipContent>Edit column definition</TooltipContent>
                         </Tooltip>
-                        {isModified && !isNew && (() => {
-                          const cd = schemaChanges?.column_changes?.[column.name];
-                          return cd && (cd.old_definition != null || cd.old_rationale != null || cd.old_allowed_values != null);
-                        })() && (
+                        {canRevert && (
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <Button
@@ -2011,13 +2009,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                 size="icon"
                                 className="h-8 w-8 text-amber-600"
                                 onClick={() => {
-                                  const cd = schemaChanges?.column_changes?.[column.name];
-                                  if (cd) {
+                                  if (changeDetail) {
                                     handleRevertColumn(column.name, {
-                                      definition: cd.old_definition ?? undefined,
-                                      rationale: cd.old_rationale ?? undefined,
-                                      allowed_values: cd.old_allowed_values ?? undefined,
-                                      old_name: cd.old_name ?? undefined,
+                                      definition: changeDetail.old_definition ?? undefined,
+                                      rationale: changeDetail.old_rationale ?? undefined,
+                                      allowed_values: changeDetail.old_allowed_values ?? undefined,
+                                      old_name: changeDetail.old_name ?? undefined,
                                     });
                                   }
                                 }}
@@ -2076,7 +2073,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                         {/* Detect constraint type for better labeling */}
                         {column.allowed_values.length === 1 && column.allowed_values[0].toLowerCase() === 'number'
                           ? 'Numeric Constraint'
-                          : column.allowed_values.length === 1 && /^-?\d+(\.\d+)?--?\d+(\.\d+)?$/.test(column.allowed_values[0])
+                          : column.allowed_values.length === 1 && RANGE_CONSTRAINT_REGEX.test(column.allowed_values[0])
                             ? 'Range Constraint'
                             : 'Allowed Values'}
                       </p>
@@ -2086,7 +2083,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                             <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
                               Any Number (int/float)
                             </Badge>
-                          ) : column.allowed_values.length === 1 && /^(-?\d+(\.\d+)?)-(-?\d+(\.\d+)?)$/.test(column.allowed_values[0]) ? (
+                          ) : column.allowed_values.length === 1 && RANGE_CONSTRAINT_REGEX.test(column.allowed_values[0]) ? (
                             <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
                               Range: {column.allowed_values[0]}
                             </Badge>

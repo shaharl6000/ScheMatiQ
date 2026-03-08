@@ -112,3 +112,57 @@ class DataEditor:
             "value": value,
         }
 
+    async def rename_column(
+        self, session_id: str, old_name: str, new_name: str
+    ) -> dict:
+        """
+        Rename a column key in all rows of the session's data file.
+
+        Args:
+            session_id: The session identifier
+            old_name: The current column name
+            new_name: The new column name
+
+        Returns:
+            dict with status and count of updated rows
+
+        Raises:
+            FileNotFoundError: If no data file exists for the session
+        """
+        data_file = self._find_data_file(session_id)
+        if not data_file:
+            raise FileNotFoundError(f"No data file found for session {session_id}")
+
+        rows = []
+        with open(data_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    rows.append(json.loads(line))
+
+        updated_count = 0
+        for row in rows:
+            if "data" in row and isinstance(row["data"], dict):
+                if old_name in row["data"]:
+                    row["data"][new_name] = row["data"].pop(old_name)
+                    updated_count += 1
+                # Also rename the excerpt column if it exists
+                old_excerpt = f"{old_name}_excerpt"
+                new_excerpt = f"{new_name}_excerpt"
+                if old_excerpt in row["data"]:
+                    row["data"][new_excerpt] = row["data"].pop(old_excerpt)
+            elif old_name in row:
+                row[new_name] = row.pop(old_name)
+                updated_count += 1
+
+        with open(data_file, "w", encoding="utf-8") as f:
+            for row in rows:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+        return {
+            "status": "success",
+            "session_id": session_id,
+            "old_name": old_name,
+            "new_name": new_name,
+            "rows_updated": updated_count,
+        }
+
