@@ -103,6 +103,10 @@ async def edit_column(
             if col.name == edit_request.old_name:
                 # Update column properties
                 if edit_request.new_name:
+                    # Update baseline key so renamed column stays tracked (not "new")
+                    if session.schema_baseline and edit_request.old_name in session.schema_baseline.columns:
+                        old_baseline = session.schema_baseline.columns.pop(edit_request.old_name)
+                        session.schema_baseline.columns[edit_request.new_name] = old_baseline
                     col.name = edit_request.new_name
                 if edit_request.definition is not None:
                     col.definition = edit_request.definition
@@ -799,6 +803,7 @@ class ColumnChangeDetail(BaseModel):
     old_definition: Optional[str] = None
     old_rationale: Optional[str] = None
     old_allowed_values: Optional[List[str]] = None
+    old_name: Optional[str] = None
 
 
 class SchemaChangeStatusResponse(BaseModel):

@@ -498,29 +498,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const loadSchemaChangeStatus = useCallback(async () => {
     try {
       const changes = await schemaAPI.getSchemaChangeStatus(sessionId);
-
-      // Auto-heal stale baselines: if columns marked "new" already have extracted
-      // data, the baseline is outdated (e.g., continue discovery didn't recapture).
-      // Recapture once and reload.
-      if (!changes.missing_baseline && changes.new_columns.length > 0) {
-        const cols = columns || [];
-        const newColsWithData = changes.new_columns.filter(name => {
-          const col = cols.find(c => c.name === name);
-          return col && (col.non_null_count ?? 0) > 0;
-        });
-        if (newColsWithData.length > 0) {
-          await schemaAPI.captureBaseline(sessionId);
-          const refreshed = await schemaAPI.getSchemaChangeStatus(sessionId);
-          setSchemaChanges(refreshed);
-          return;
-        }
-      }
-
       setSchemaChanges(changes);
     } catch (error) {
       console.error('Failed to load schema change status:', error);
     }
-  }, [sessionId, columns]);
+  }, [sessionId]);
 
   // Update local columns when props change
   useEffect(() => {
@@ -653,11 +635,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     }
   };
 
-  const handleRevertColumn = async (columnName: string, baseline: { definition?: string; rationale?: string; allowed_values?: string[] }) => {
+  const handleRevertColumn = async (columnName: string, baseline: { definition?: string; rationale?: string; allowed_values?: string[]; old_name?: string }) => {
     setLoading(true);
     try {
       const response = await schemaAPI.editColumn(sessionId, {
         old_name: columnName,
+        new_name: baseline.old_name,  // Revert rename if applicable
         definition: baseline.definition,
         rationale: baseline.rationale,
         allowed_values: baseline.allowed_values,
@@ -1755,6 +1738,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                                       definition: cd.old_definition ?? undefined,
                                                       rationale: cd.old_rationale ?? undefined,
                                                       allowed_values: cd.old_allowed_values ?? undefined,
+                                                      old_name: cd.old_name ?? undefined,
                                                     });
                                                   }
                                                 }}
@@ -2033,6 +2017,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                       definition: cd.old_definition ?? undefined,
                                       rationale: cd.old_rationale ?? undefined,
                                       allowed_values: cd.old_allowed_values ?? undefined,
+                                      old_name: cd.old_name ?? undefined,
                                     });
                                   }
                                 }}

@@ -594,13 +594,14 @@ export interface SchemaEditingState {
 // Re-extraction types
 export interface ColumnChangeDetail {
   column_name: string;
-  change_type: 'definition' | 'rationale' | 'allowed_values' | 'new';
+  change_type: 'definition' | 'rationale' | 'allowed_values' | 'new' | 'renamed';
   old_value?: string;
   new_value?: string;
   row_count_affected: number;
   old_definition?: string;
   old_rationale?: string;
   old_allowed_values?: string[];
+  old_name?: string;
 }
 
 export interface SchemaChangeStatus {

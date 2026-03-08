@@ -13,7 +13,7 @@ interface SchemaColumnDetailPanelProps {
   onClose: () => void;
   onEdit: (column: ColumnInfo) => void;
   onDelete: (columnName: string) => void;
-  onRevert?: (columnName: string, baseline: { definition?: string; rationale?: string; allowed_values?: string[] }) => void;
+  onRevert?: (columnName: string, baseline: { definition?: string; rationale?: string; allowed_values?: string[]; old_name?: string }) => void;
   readonly: boolean;
   schemaChanges?: SchemaChangeStatus | null;
   processingColumns?: Set<string>;
@@ -227,6 +227,7 @@ const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({
                     definition: changeDetail.old_definition ?? undefined,
                     rationale: changeDetail.old_rationale ?? undefined,
                     allowed_values: changeDetail.old_allowed_values ?? undefined,
+                    old_name: changeDetail.old_name ?? undefined,
                   })}
                 >
                   <Undo2 className="h-4 w-4" />
