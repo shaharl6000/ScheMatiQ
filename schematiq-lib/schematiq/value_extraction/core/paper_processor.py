@@ -23,8 +23,11 @@ from ..config.constants import (
 from ..config.prompts import (
     SYSTEM_PROMPT_UNIT_IDENTIFICATION,
     USER_PROMPT_TMPL_UNIT_IDENTIFICATION,
-    SYSTEM_PROMPT_VAL_WITH_UNIT
+    SYSTEM_PROMPT_VAL_WITH_UNIT,
+    SYSTEM_PROMPT_VAL_REEXTRACT,
 )
+from ..utils.schema_builder import build_extraction_response_schema
+from ..utils.excerpt_grounder import ExcerptGrounder
 
 
 # Type alias for warning callback: (paper_title, warning_type, message) -> None
@@ -44,6 +47,10 @@ FALLBACK_BATCH_SIZE = 3
 # This effectively disables chunking/passage-selection so the entire
 # document is sent together with the schema.
 DISABLE_RETRIEVER = True
+
+# When True, use Gemini controlled generation (response_schema) for
+# value extraction. Only applies when the LLM backend is Gemini.
+ENABLE_CONTROLLED_GENERATION = True
 
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
 OnValueExtractedCallback = Callable[[str, str, Any], None]
@@ -78,12 +85,24 @@ class PaperProcessor:
         self.suggested_values: Dict[str, Dict[str, list]] = {}
         # Cache for fallback retriever (created on-demand, reused across papers)
         self._cached_fallback_retriever = None
+        # Excerpt grounding for hallucination detection
+        self.excerpt_grounder = ExcerptGrounder()
 
     def _check_stop_requested(self) -> bool:
         """Check if stop was requested. Returns True if should stop."""
         if self.should_stop and self.should_stop():
             return True
         return False
+
+    def _is_gemini_backend(self) -> bool:
+        """Check if the LLM backend supports controlled generation."""
+        return getattr(self.llm, '_provider', '') == 'gemini'
+
+    def _build_response_schema(self, columns):
+        """Build response_schema for Gemini controlled generation, or None."""
+        if not ENABLE_CONTROLLED_GENERATION or not self._is_gemini_backend():
+            return None
+        return build_extraction_response_schema(columns)
 
     def _track_unmatched_values(self, unmatched: Dict[str, list], document_name: str = None):
         """Track unmatched values for schema evolution suggestions."""
@@ -330,7 +349,10 @@ class PaperProcessor:
         trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=512,
                                  safety_margins=SAFETY_MARGIN_ALL_MODE,
                                  context_window_size=max_ctx)
-        raw = self.llm.generate(trimmed)
+        raw = self.llm.generate(
+            trimmed,
+            response_schema=self._build_response_schema(columns),
+        )
         # Check stop immediately after LLM call returns
         if self._check_stop_requested():
             print(f"🛑 Stop requested after batch LLM call, returning empty")
@@ -426,7 +448,10 @@ class PaperProcessor:
             trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens,
                                      safety_margins=SAFETY_MARGIN_SINGLE_MODE,
                                      context_window_size=max_ctx)
-            raw = self.llm.generate(trimmed)
+            raw = self.llm.generate(
+                trimmed,
+                response_schema=self._build_response_schema([col]),
+            )
             # Check stop immediately after LLM call returns
             if self._check_stop_requested():
                 print(f"🛑 Stop requested after single-column LLM call, returning empty")
@@ -461,7 +486,10 @@ class PaperProcessor:
             trimmed = utils.fit_prompt(msgs, truncate=should_truncate, max_new=max_new_tokens,
                                      safety_margins=SAFETY_MARGIN_ALL_MODE,
                                      context_window_size=max_ctx)
-            raw = self.llm.generate(trimmed)
+            raw = self.llm.generate(
+                trimmed,
+                response_schema=self._build_response_schema(list(schema.columns)),
+            )
             # Check stop immediately after LLM call returns
             if self._check_stop_requested():
                 print(f"🛑 Stop requested after all-mode LLM call, returning partial results")
@@ -491,6 +519,52 @@ class PaperProcessor:
             if row_name:
                 for col_name, col_value in cleaned.items():
                     self._notify_value_extracted(row_name, col_name, col_value)
+
+            # Column-reordered second pass: re-extract missing columns in reversed
+            # order to counteract LLM positional attention bias.
+            missing = [c for c in schema.columns if c.name not in cleaned]
+            if len(missing) >= 2:
+                if self._check_stop_requested():
+                    print(f"🛑 Stop requested before reordered pass, returning partial results")
+                    return cleaned
+
+                print(f"↻ Reordered second pass for {len(missing)} missing: {[c.name for c in missing]}")
+                reordered = list(reversed(missing))
+                reorder_msgs = self.prompt_builder.build_val_messages(
+                    schema.query, paper_title, eff, [c.to_dict() for c in reordered],
+                    mode="all", strict=True
+                )
+                # Replace system prompt with re-extraction prompt
+                reorder_msgs[0]["content"] = SYSTEM_PROMPT_VAL_REEXTRACT
+                should_truncate_re = not self._should_skip_truncation()
+                trimmed_re = utils.fit_prompt(
+                    reorder_msgs, truncate=should_truncate_re,
+                    max_new=max_new_tokens, safety_margins=SAFETY_MARGIN_ALL_MODE,
+                    context_window_size=max_ctx,
+                )
+                raw_re = self.llm.generate(
+                    trimmed_re,
+                    response_schema=self._build_response_schema(reordered),
+                )
+                if not self._check_stop_requested():
+                    try:
+                        parsed_re = self.json_parser.parse_response(raw_re)
+                        reorder_allowed = {
+                            c.name: c.allowed_values for c in reordered if c.allowed_values
+                        }
+                        cleaned_re, unmatched_re = self.json_parser.postprocess(
+                            parsed_re, [c.name for c in reordered], reorder_allowed,
+                        )
+                        self._track_unmatched_values(unmatched_re, paper_title)
+                        cleaned_re = self._attach_source_to_excerpts(cleaned_re, paper_title)
+                        # Merge: only add columns not already present
+                        for col_name, col_val in cleaned_re.items():
+                            if col_name not in cleaned:
+                                cleaned[col_name] = col_val
+                                if row_name:
+                                    self._notify_value_extracted(row_name, col_name, col_val)
+                    except Exception as e:
+                        print(f"⚠️  Reordered pass parse failure: {e}")
 
             # Fallback for missing columns: retry per-column, stricter + expanded retrieval
             missing = [c for c in schema.columns if c.name not in cleaned]
@@ -566,6 +640,17 @@ class PaperProcessor:
                                 cleaned[col.name] = col_res
                                 if row_name:
                                     self._notify_value_extracted(row_name, col.name, col_res)
+
+            # Excerpt grounding: verify excerpts against source text
+            grounding_stats = self.excerpt_grounder.ground_all_excerpts(cleaned, paper_text)
+            if grounding_stats.get("not_found", 0) > 0:
+                print(
+                    f"📍 Excerpt grounding for {paper_title}: "
+                    f"{grounding_stats['exact']} exact, "
+                    f"{grounding_stats.get('case_insensitive', 0)} case_insensitive, "
+                    f"{grounding_stats['fuzzy']} fuzzy, "
+                    f"{grounding_stats['not_found']} not found"
+                )
 
             return cleaned
 
@@ -998,7 +1083,11 @@ class PaperProcessor:
                                    safety_margins=SAFETY_MARGIN_ALL_MODE,
                                    context_window_size=max_ctx)
 
-        raw = self.llm.generate(trimmed, max_output_tokens=effective_max)
+        raw = self.llm.generate(
+            trimmed,
+            max_output_tokens=effective_max,
+            response_schema=self._build_response_schema(list(schema.columns)),
+        )
 
         if self._check_stop_requested():
             return {}

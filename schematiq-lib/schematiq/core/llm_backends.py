@@ -604,11 +604,16 @@ class GeminiLLM(LLMInterface):
         prompt_text = f"{scientific_context}\n\n{prompt_text}"
 
         # Build generation config using new SDK types
-        config = self.types.GenerateContentConfig(
-            max_output_tokens=kwargs.get("max_output_tokens", self.max_output_tokens),
-            temperature=kwargs.get("temperature", self.temperature),
-            safety_settings=self.safety_settings,
-        )
+        config_kwargs = {
+            "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
+            "temperature": kwargs.get("temperature", self.temperature),
+            "safety_settings": self.safety_settings,
+        }
+        # Add controlled generation if response_schema provided
+        if kwargs.get("response_schema") is not None:
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_schema"] = kwargs["response_schema"]
+        config = self.types.GenerateContentConfig(**config_kwargs)
 
         # Retry logic (3 retries like OpenAI/Together)
         max_retries = 3

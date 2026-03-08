@@ -77,6 +77,14 @@ class JSONResponseParser:
         • If the model returned just a string for a column, it is wrapped
           into the {"answer": "..."} structure for consistency.
         """
+        # Fast path: try direct JSON parse (works with controlled generation)
+        try:
+            data = json.loads(text.strip())
+            if isinstance(data, dict):
+                return self._normalize_parsed(data)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
         raw_json = self.extract_json_str(text)
 
         # First pass – try as‑is
@@ -90,26 +98,30 @@ class JSONResponseParser:
         if not isinstance(data, dict):
             raise ValueError("Top‑level JSON is not an object.")
 
-        # Normalise each column entry
+        return self._normalize_parsed(data)
+    
+    def _normalize_parsed(self, data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Normalise a parsed JSON dict into the standard column format.
+
+        Each column entry is guaranteed to have "answer" (str) and "excerpts" (list).
+        """
         norm: Dict[str, Dict[str, Any]] = {}
         for col, val in data.items():
-            # Case 1: already the expected dict but possibly missing keys
             if isinstance(val, dict):
                 answer = val.get("answer", "")
                 excerpts = val.get("excerpts", [])
-                # Guarantee correct types
                 if not isinstance(answer, str):
                     answer = _flatten_answer(answer)
                 if not isinstance(excerpts, list):
                     excerpts = [str(excerpts)]
-                norm[col] = {"answer": answer, "excerpts": excerpts}
-
-            # Case 2: the model emitted a bare string / number
+                entry = {"answer": answer, "excerpts": excerpts}
+                if val.get("suggested_for_allowed_values"):
+                    entry["suggested_for_allowed_values"] = True
+                norm[col] = entry
             else:
                 norm[col] = {"answer": str(val), "excerpts": []}
-
         return norm
-    
+
     def _is_placeholder(self, answer: str, excerpts: List[str]) -> bool:
         """Check if answer appears to be a placeholder/non-answer."""
         if not isinstance(answer, str):
