@@ -910,7 +910,14 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={modalContent.title}
-        content={modalContent.content}
+        content={(() => {
+          // Derive content from live unitData so undo/refetch updates the modal
+          if (modalContent.rowName && modalContent.column) {
+            const row = unitData?.rows?.find(r => r.row_name === modalContent.rowName || r._unit_name === modalContent.rowName);
+            if (row?.data?.[modalContent.column] !== undefined) return row.data[modalContent.column];
+          }
+          return modalContent.content;
+        })()}
         onSave={modalContent.rowName && modalContent.column
           ? async (value: string) => {
               await handleCellUpdate(modalContent.rowName!, modalContent.column!, value);

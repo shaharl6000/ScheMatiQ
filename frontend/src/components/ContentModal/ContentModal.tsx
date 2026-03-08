@@ -137,6 +137,11 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
     }
   }, [open]);
 
+  // Clear local override when content prop changes externally (e.g., after undo + refetch)
+  useEffect(() => {
+    setLocalOverride(null);
+  }, [content]);
+
   // Focus textarea when entering edit mode
   useEffect(() => {
     if (isEditing && textareaRef.current) {

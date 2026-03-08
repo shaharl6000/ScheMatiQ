@@ -1628,7 +1628,15 @@ const DataTable: React.FC<DataTableProps> = ({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={modalContent.title}
-        content={modalContent.content}
+        content={(() => {
+          // Derive content from live data so undo/refetch updates the modal
+          if (modalContent.rowName && modalContent.column) {
+            const currentRows = (fetchedData ?? initialData ?? EMPTY_DATA).rows;
+            const row = currentRows.find(r => r.row_name === modalContent.rowName || r._unit_name === modalContent.rowName);
+            if (row?.data?.[modalContent.column] !== undefined) return row.data[modalContent.column];
+          }
+          return modalContent.content;
+        })()}
         onSave={!readonly && modalContent.rowName && modalContent.column
           ? async (value: string) => {
               await handleCellUpdate(modalContent.rowName!, modalContent.column!, value);
