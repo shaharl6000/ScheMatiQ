@@ -268,12 +268,9 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   }, []);
 
   const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string) => {
-    // Capture old value before the update
-    const row = unitData?.rows?.find(r => r.row_name === rowName || r._unit_name === rowName);
-    const oldValue = row ? getEditableValue(row.data[column]) : '';
-
     try {
-      await schematiqAPI.updateCell(sessionId, rowName, column, value);
+      const result = await schematiqAPI.updateCell(sessionId, rowName, column, value);
+      const previousValue = result.previous_value;
       refetchData();
 
       toast({
@@ -283,7 +280,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         action: (
           <ToastAction altText="Undo" onClick={async () => {
             try {
-              await schematiqAPI.updateCell(sessionId, rowName, column, oldValue);
+              await schematiqAPI.restoreCell(sessionId, rowName, column, previousValue);
               refetchData();
             } catch {
               toast({ title: 'Undo failed', description: 'Could not revert the cell edit.', variant: 'destructive' });
@@ -297,7 +294,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
       toast({ title: 'Update failed', description: 'Could not save the cell edit.', variant: 'destructive' });
       throw error;  // Re-throw so EditableCell keeps edit mode open
     }
-  }, [sessionId, refetchData, unitData, toast]);
+  }, [sessionId, refetchData, toast]);
 
   // Filter suggestions by dismissed
   const visibleSuggestions = useMemo(() => {

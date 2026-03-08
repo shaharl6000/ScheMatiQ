@@ -3,6 +3,7 @@ Service for editing individual cells in data tables.
 Handles updates to JSONL data files for both load and ScheMatiQ sessions.
 """
 
+import copy
 import json
 from pathlib import Path
 from typing import Any, Optional
@@ -34,7 +35,8 @@ class DataEditor:
         return None
 
     async def update_cell(
-        self, session_id: str, row_name: str, column: str, value: Any
+        self, session_id: str, row_name: str, column: str, value: Any,
+        restore: Any = None
     ) -> dict:
         """
         Update a specific cell value in the session's data file.
@@ -65,13 +67,19 @@ class DataEditor:
 
         # Find and update the target row
         updated = False
+        previous_value = None
         for row in rows:
             current_row_name = row.get("row_name") or row.get("_row_name")
             if current_row_name == row_name:
                 # Update the cell value
                 if "data" in row and isinstance(row["data"], dict):
-                    # New format with nested 'data' key
-                    if column in row["data"]:
+                    # Capture previous value for undo support
+                    previous_value = copy.deepcopy(row["data"].get(column))
+
+                    if restore is not None:
+                        # Full restore (undo): replace entire cell object
+                        row["data"][column] = restore
+                    elif column in row["data"]:
                         cell_value = row["data"][column]
                         # Handle ScheMatiQ answer format
                         if isinstance(cell_value, dict) and "answer" in cell_value:
@@ -92,7 +100,8 @@ class DataEditor:
                         }
                 else:
                     # Old flat format
-                    row[column] = value
+                    previous_value = copy.deepcopy(row.get(column))
+                    row[column] = value if restore is None else restore
                 updated = True
                 break
 
@@ -110,6 +119,7 @@ class DataEditor:
             "row_name": row_name,
             "column": column,
             "value": value,
+            "previous_value": previous_value,
         }
 
     async def rename_column(
