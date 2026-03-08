@@ -7,6 +7,7 @@ import {
   GitMerge,
   ShieldCheck,
   RefreshCw,
+  Undo2,
   AlertTriangle,
   CheckCircle2,
   AlertCircle,
@@ -60,11 +61,13 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 
 import {
   ColumnInfo,
   ColumnDialogState,
+  EditColumnRequest,
   ReprocessingStatus,
   SchemaValidationResult as SchemaValidationResultType,
   WebSocketMessageExtended,
@@ -632,6 +635,38 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     }
   };
 
+  const handleRevertColumn = async (columnName: string, baseline: { definition?: string; rationale?: string; allowed_values?: string[] }) => {
+    setLoading(true);
+    try {
+      const response = await schemaAPI.editColumn(sessionId, {
+        old_name: columnName,
+        definition: baseline.definition,
+        rationale: baseline.rationale,
+        allowed_values: baseline.allowed_values,
+        reprocess: false,
+      });
+      if (response.columns) {
+        setLocalColumns(response.columns);
+        if (onColumnsChange) {
+          onColumnsChange(response.columns);
+        }
+      }
+      await loadSchemaChangeStatus();
+      toast({
+        title: 'Column Reverted',
+        description: `"${columnName}" reverted to baseline`,
+      });
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: extractErrorMessage(error, 'Failed to revert column'),
+        variant: 'destructive',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleMergeColumns = () => {
     if (selectedColumns.length < 2) {
       toast({
@@ -664,7 +699,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   };
 
   const handleDialogSuccess = (message: string, updatedColumns?: ColumnInfo[], selectedClusterId?: string | null) => {
-    toast({ title: 'Success', description: message });
+    // Capture dialog state before clearing
+    const savedMode = dialogState.mode;
+    const savedColumn = dialogState.column;
+
     setSelectedColumns([]);
     setDialogState({ open: false, mode: 'add' });
     setMergeDialogOpen(false);
@@ -677,7 +715,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       }
 
       // Handle cluster assignment for new columns
-      if (dialogState.mode === 'add') {
+      if (savedMode === 'add') {
         // Find the newly added column (last one added)
         const newColumnName = updatedColumns.find(
           col => !localColumns.some(lc => lc.name === col.name)
@@ -702,6 +740,51 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           }
         }
       }
+    }
+
+    // Show undo toast for edit mode only
+    if (savedMode === 'edit' && savedColumn && updatedColumns) {
+      // Find the post-edit column name (may have been renamed)
+      const postEditName = updatedColumns.find(
+        col => !localColumns.some(lc => lc.name === col.name)
+      )?.name || savedColumn.name;
+
+      toast({
+        title: 'Column updated',
+        description: message,
+        duration: 8000,
+        action: (
+          <ToastAction altText="Undo" onClick={async () => {
+            try {
+              const revertRequest: EditColumnRequest = {
+                old_name: postEditName,
+                definition: savedColumn.definition,
+                rationale: savedColumn.rationale,
+                allowed_values: savedColumn.allowed_values,
+                reprocess: false,
+              };
+              // If column was renamed, revert the name
+              if (postEditName !== savedColumn.name) {
+                revertRequest.new_name = savedColumn.name;
+              }
+              const response = await schemaAPI.editColumn(sessionId, revertRequest);
+              if (response.columns) {
+                setLocalColumns(response.columns);
+                if (onColumnsChange) {
+                  onColumnsChange(response.columns);
+                }
+              }
+              toast({ title: 'Reverted', description: 'Column edit has been undone.' });
+            } catch {
+              toast({ title: 'Undo failed', description: 'Could not revert the column edit.', variant: 'destructive' });
+            }
+          }}>
+            Undo
+          </ToastAction>
+        ),
+      });
+    } else {
+      toast({ title: 'Success', description: message });
     }
 
     // Reload schema change status after any schema operation
@@ -988,7 +1071,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     <div className="space-y-6">
       {/* Observation Unit Info Card */}
       {observationUnit && (
-        <Card className="bg-purple-50 border-purple-200 max-w-xl">
+        <Card className="bg-purple-50 border-purple-200">
           <CardContent className="py-2 px-5">
             <div className="flex items-center justify-between mb-1">
               <div className="flex items-start gap-2">
@@ -1619,6 +1702,33 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                           </TooltipTrigger>
                                           <TooltipContent>Edit column</TooltipContent>
                                         </Tooltip>
+                                        {isModified && !isNew && (() => {
+                                          const cd = schemaChanges?.column_changes?.[column.name];
+                                          return cd && (cd.old_definition != null || cd.old_rationale != null || cd.old_allowed_values != null);
+                                        })() && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-amber-600"
+                                                onClick={() => {
+                                                  const cd = schemaChanges?.column_changes?.[column.name];
+                                                  if (cd) {
+                                                    handleRevertColumn(column.name, {
+                                                      definition: cd.old_definition ?? undefined,
+                                                      rationale: cd.old_rationale ?? undefined,
+                                                      allowed_values: cd.old_allowed_values ?? undefined,
+                                                    });
+                                                  }
+                                                }}
+                                              >
+                                                <Undo2 className="h-4 w-4" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Revert to baseline</TooltipContent>
+                                          </Tooltip>
+                                        )}
                                         {clusters.length > 1 && (
                                           <DropdownMenu>
                                             <Tooltip>
@@ -1904,6 +2014,34 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                           </TooltipTrigger>
                           <TooltipContent>Edit column definition</TooltipContent>
                         </Tooltip>
+                        {isModified && !isNew && (() => {
+                          const cd = schemaChanges?.column_changes?.[column.name];
+                          return cd && (cd.old_definition != null || cd.old_rationale != null || cd.old_allowed_values != null);
+                        })() && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-amber-600"
+                                onClick={() => {
+                                  const cd = schemaChanges?.column_changes?.[column.name];
+                                  if (cd) {
+                                    handleRevertColumn(column.name, {
+                                      definition: cd.old_definition ?? undefined,
+                                      rationale: cd.old_rationale ?? undefined,
+                                      allowed_values: cd.old_allowed_values ?? undefined,
+                                    });
+                                  }
+                                }}
+                                aria-label="Revert column"
+                              >
+                                <Undo2 className="h-4 w-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Revert to baseline</TooltipContent>
+                          </Tooltip>
+                        )}
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
@@ -2217,6 +2355,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         onDelete={(columnName) => {
           setSelectedDetailColumn(null);
           handleDeleteColumn(columnName);
+        }}
+        onRevert={(columnName, baseline) => {
+          setSelectedDetailColumn(null);
+          handleRevertColumn(columnName, baseline);
         }}
         readonly={readonly}
         schemaChanges={schemaChanges}

@@ -796,6 +796,9 @@ class ColumnChangeDetail(BaseModel):
     old_value: Optional[str] = None
     new_value: Optional[str] = None
     row_count_affected: int = 0
+    old_definition: Optional[str] = None
+    old_rationale: Optional[str] = None
+    old_allowed_values: Optional[List[str]] = None
 
 
 class SchemaChangeStatusResponse(BaseModel):

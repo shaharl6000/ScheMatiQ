@@ -32,6 +32,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+} from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
@@ -46,7 +53,7 @@ import {
   SheetDescription,
 } from '@/components/ui/sheet';
 
-import { schematiqAPI, loadAPI, configAPI } from '../services/api';
+import { schematiqAPI, cloudAPI, loadAPI, configAPI } from '../services/api';
 import { useFileUpload } from '../hooks/useFileUpload';
 import { formatFileSize } from '../utils/apiHelpers';
 import { ScheMatiQConfig, LLMConfig, RetrieverConfig, InitialSchemaColumn, InitialObservationUnit, CostEstimate } from '../types';
@@ -110,9 +117,11 @@ const ScheMatiQConfigPage = () => {
   const [observationUnitDefinition, setObservationUnitDefinition] = useState('');
 
   // Dataset state (for Document Paths dropdown)
+  const [datasets, setDatasets] = useState<{ name: string; path: string; file_count: number }[]>([]);
+  const [datasetsLoading, setDatasetsLoading] = useState(true);
 
-  // Document source state (upload only - cloud temporarily disabled)
-  const [documentSource, setDocumentSource] = useState<'upload'>('upload');
+  // Document source state (upload vs cloud)
+  const [documentSource, setDocumentSource] = useState<'upload' | 'cloud'>('upload');
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -239,6 +248,29 @@ const ScheMatiQConfigPage = () => {
     checkProviders();
   }, [navigate]);
 
+  // Fetch available datasets on mount
+  useEffect(() => {
+    const fetchDatasets = async () => {
+      try {
+        setDatasetsLoading(true);
+        const data = await cloudAPI.getDatasets();
+        const datasetsArray = Array.isArray(data) ? data : [];
+        setDatasets(datasetsArray);
+        if (datasetsArray.length > 0) {
+          setConfig(prev => {
+            const currentPaths = Array.isArray(prev.docs_path) ? prev.docs_path : [prev.docs_path];
+            const validPaths = currentPaths.filter((path): path is string => path != null && datasetsArray.some(d => d.name === path));
+            return { ...prev, docs_path: validPaths };
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch datasets:', err);
+      } finally {
+        setDatasetsLoading(false);
+      }
+    };
+    fetchDatasets();
+  }, []);
 
   // Fetch document limit config on mount
   useEffect(() => {
@@ -300,6 +332,11 @@ const ScheMatiQConfigPage = () => {
     if (restoredConfig.upload_pending || (state.uploadedFileNames && state.uploadedFileNames.length > 0)) {
       setDocumentSource('upload');
       setPreviousUploadedFiles(state.uploadedFileNames || []);
+    } else if (restoredConfig.docs_path && (
+      (typeof restoredConfig.docs_path === 'string' && restoredConfig.docs_path) ||
+      (Array.isArray(restoredConfig.docs_path) && restoredConfig.docs_path.length > 0)
+    )) {
+      setDocumentSource('cloud');
     }
 
     // Restore Observation Unit state
@@ -360,6 +397,15 @@ const ScheMatiQConfigPage = () => {
   const effectiveMaxDocs = (developerMode && limitBypassEnabled) ? Infinity : maxDocuments;
   const isOverLimit = uploadedFiles.length > effectiveMaxDocs;
 
+  // Cloud file count calculation
+  const cloudFileCount = useMemo(() => {
+    const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path : [];
+    return selectedPaths.reduce((total, name) => {
+      const ds = datasets.find(d => d.name === name);
+      return total + (ds?.file_count || 0);
+    }, 0);
+  }, [config.docs_path, datasets]);
+  const isCloudOverLimit = cloudFileCount > effectiveMaxDocs;
 
   const handleConfigChange = (field: string, value: any) => {
     setConfig(prev => ({
@@ -422,9 +468,11 @@ const ScheMatiQConfigPage = () => {
 
     if (!config.schema_creation_backend.provider || !config.schema_creation_backend.model) return;
 
+    const hasCloudDocs = documentSource === 'cloud' && config.docs_path &&
+      (Array.isArray(config.docs_path) ? config.docs_path.length > 0 : !!config.docs_path);
     const hasUploadedDocs = documentSource === 'upload' && uploadedFiles.length > 0;
 
-    if (!hasUploadedDocs) {
+    if (!hasCloudDocs && !hasUploadedDocs) {
       setCostEstimate(null);
       return;
     }
@@ -585,9 +633,11 @@ const ScheMatiQConfigPage = () => {
     handleSubmit(optOut);
   };
 
+  const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path.filter(Boolean) : [config.docs_path].filter(Boolean);
   const hasQuery = config.query.trim() !== '';
+  const hasCloudDocuments = documentSource === 'cloud' && selectedPaths.length > 0;
   const hasUploadedFiles = documentSource === 'upload' && (uploadedFiles.length > 0 || previousUploadedFiles.length > 0);
-  const hasDocuments = hasUploadedFiles;
+  const hasDocuments = hasCloudDocuments || hasUploadedFiles;
   const isFormValid = hasQuery || hasDocuments;
 
   // Track whether form has been modified from defaults
@@ -606,11 +656,12 @@ const ScheMatiQConfigPage = () => {
     if (config.retriever) return true;
     if (uploadedFiles.length > 0) return true;
     if (previousUploadedFiles.length > 0) return true;
+    if (selectedPaths.length > 0) return true;
     if (observationUnitMode !== 'auto') return true;
     if (initialSchemaPath || initialSchemaData) return true;
     if (limitBypassEnabled) return true;
     return false;
-  }, [config, uploadedFiles.length, previousUploadedFiles.length, observationUnitMode, initialSchemaPath, initialSchemaData, limitBypassEnabled]);
+  }, [config, uploadedFiles.length, previousUploadedFiles.length, selectedPaths.length, observationUnitMode, initialSchemaPath, initialSchemaData, limitBypassEnabled]);
 
   // Block navigation when form has unsaved changes (not during submission)
   const blocker = useNavigationGuard(isDirty && !loading);
@@ -705,7 +756,7 @@ const ScheMatiQConfigPage = () => {
               </div>
               <h2 className="text-xl font-semibold">Ask a Question</h2>
             </div>
-            <div className="max-w-xs-[50px]">
+            <div className="ml-10">
               <Textarea
                 id="query"
                 rows={3}
@@ -734,12 +785,16 @@ const ScheMatiQConfigPage = () => {
             <div className="ml-10 space-y-3">
             <RadioGroup
               value={documentSource}
-              onValueChange={(v) => setDocumentSource(v as 'upload')}
+              onValueChange={(v) => setDocumentSource(v as 'upload' | 'cloud')}
               className="flex items-center gap-4"
             >
               <div className="flex items-center gap-2">
                 <RadioGroupItem value="upload" id="doc-upload" />
                 <Label htmlFor="doc-upload" className="cursor-pointer font-normal">Upload files</Label>
+              </div>
+              <div className="flex items-center gap-2">
+                <RadioGroupItem value="cloud" id="doc-cloud" />
+                <Label htmlFor="doc-cloud" className="cursor-pointer font-normal">Cloud datasets</Label>
               </div>
             </RadioGroup>
 
@@ -777,42 +832,35 @@ const ScheMatiQConfigPage = () => {
                 )}
 
                 {uploadedFiles.length > 0 && (
-                  <div className="space-y-2 max-w-xs">
+                  <div className="space-y-2">
                     <div className="text-sm text-muted-foreground">
                       {uploadedFiles.length} file{uploadedFiles.length > 1 ? 's' : ''} ({formatFileSize(totalUploadSize)})
                     </div>
 
-                    {uploadedFiles.length <= 10 ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {uploadedFiles.map((file, index) => {
-                          const lastDotIndex = file.name.lastIndexOf('.');
-                          const base = lastDotIndex !== -1 ? file.name.slice(0, lastDotIndex) : file.name;
-                          const ext = lastDotIndex !== -1 ? file.name.slice(lastDotIndex) : '';
-                          const displayName = base.length > 5 ? `${base.slice(0, 5)}${ext}` : file.name;
-                          
-                          return (
-                            <div
-                              key={`${file.name}-${index}`}
-                              className="flex items-center justify-between p-1 bg-muted/50 rounded-md"
-                            >
-                              <div className="flex items-center gap-1 min-w-0">
-                                <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                                <span className="text-xs truncate" title={file.name}>{displayName}</span>
-                                <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                                  ({formatFileSize(file.size)})
-                                </span>
-                              </div>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeUploadedFile(file)}
-                                className="h-6 w-6 p-0 flex-shrink-0"
-                              >
-                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                              </Button>
+                    {uploadedFiles.length <= 5 ? (
+                      <div className="space-y-1">
+                        {uploadedFiles.map((file, index) => (
+                          <div
+                            key={`${file.name}-${index}`}
+                            className="flex items-center justify-between p-2 bg-muted/50 rounded-md"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                              <span className="text-sm truncate">{file.name}</span>
+                              <span className="text-xs text-muted-foreground flex-shrink-0">
+                                ({formatFileSize(file.size)})
+                              </span>
                             </div>
-                          );
-                        })}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeUploadedFile(file)}
+                              className="h-7 w-7 p-0 flex-shrink-0"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        ))}
                       </div>
                     ) : (
                       <Collapsible>
@@ -820,36 +868,29 @@ const ScheMatiQConfigPage = () => {
                           <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
                           <span>Show all files</span>
                         </CollapsibleTrigger>
-                        <CollapsibleContent className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                          {uploadedFiles.map((file, index) => {
-                            const lastDotIndex = file.name.lastIndexOf('.');
-                            const base = lastDotIndex !== -1 ? file.name.slice(0, lastDotIndex) : file.name;
-                            const ext = lastDotIndex !== -1 ? file.name.slice(lastDotIndex) : '';
-                            const displayName = base.length > 5 ? `${base.slice(0, 5)}${ext}` : file.name;
-
-                            return (
-                              <div
-                                key={`${file.name}-${index}`}
-                                className="flex items-center justify-between p-1 bg-muted/50 rounded-md"
-                              >
-                                <div className="flex items-center gap-1 min-w-0">
-                                  <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
-                                  <span className="text-xs truncate" title={file.name}>{displayName}</span>
-                                  <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                                    ({formatFileSize(file.size)})
-                                  </span>
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => removeUploadedFile(file)}
-                                  className="h-6 w-6 p-0 flex-shrink-0"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                                </Button>
+                        <CollapsibleContent className="space-y-1 mt-2">
+                          {uploadedFiles.map((file, index) => (
+                            <div
+                              key={`${file.name}-${index}`}
+                              className="flex items-center justify-between p-2 bg-muted/50 rounded-md"
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                                <span className="text-sm truncate">{file.name}</span>
+                                <span className="text-xs text-muted-foreground flex-shrink-0">
+                                  ({formatFileSize(file.size)})
+                                </span>
                               </div>
-                            );
-                          })}
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeUploadedFile(file)}
+                                className="h-7 w-7 p-0 flex-shrink-0"
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            </div>
+                          ))}
                         </CollapsibleContent>
                       </Collapsible>
                     )}
@@ -868,6 +909,73 @@ const ScheMatiQConfigPage = () => {
               </div>
             )}
 
+            {/* Cloud Datasets */}
+            {documentSource === 'cloud' && (
+              <div className="space-y-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="w-full justify-between"
+                      disabled={datasetsLoading}
+                    >
+                      {datasetsLoading ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Loading datasets...
+                        </>
+                      ) : selectedPaths.length === 0 ? (
+                        'Select datasets...'
+                      ) : (
+                        selectedPaths.length <= 3
+                          ? selectedPaths.join(', ')
+                          : `${selectedPaths.slice(0, 2).join(', ')} +${selectedPaths.length - 2} more`
+                      )}
+                      <ChevronDown className="ml-2 h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent className="w-full min-w-[300px] max-h-[300px] overflow-y-auto">
+                    <DropdownMenuLabel>Select Datasets</DropdownMenuLabel>
+                    {datasets.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No datasets available
+                      </div>
+                    ) : (
+                      datasets.map((dataset) => (
+                        <DropdownMenuCheckboxItem
+                          key={dataset.name}
+                          checked={selectedPaths.includes(dataset.name)}
+                          onSelect={(e) => e.preventDefault()}
+                          onCheckedChange={(checked) => {
+                            const newPaths = checked
+                              ? [...selectedPaths, dataset.name]
+                              : selectedPaths.filter(p => p !== dataset.name);
+                            handleConfigChange('docs_path', newPaths);
+                          }}
+                        >
+                          <span className="flex items-center justify-between w-full">
+                            <span>{dataset.name}</span>
+                            <Badge variant="secondary" className="ml-2 text-xs">
+                              {dataset.file_count} files
+                            </Badge>
+                          </span>
+                        </DropdownMenuCheckboxItem>
+                      ))
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                {/* Cloud dataset document limit warning */}
+                {!limitBypassEnabled && isCloudOverLimit && (
+                  <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <AlertDescription className="text-amber-700 dark:text-amber-400">
+                      Your selection contains {cloudFileCount} documents, but analysis is limited to {maxDocuments} to ensure fast results and reasonable costs. A representative sample will be used.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
             </div>
           </section>
 
@@ -877,7 +985,7 @@ const ScheMatiQConfigPage = () => {
               size="lg"
               className="w-full max-w-xs"
               onClick={handleStartClick}
-              disabled={!isFormValid || loading || providersLoading}
+              disabled={!isFormValid || loading || providersLoading || datasetsLoading}
             >
               {(loading || isUploading) ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />

@@ -598,6 +598,9 @@ export interface ColumnChangeDetail {
   old_value?: string;
   new_value?: string;
   row_count_affected: number;
+  old_definition?: string;
+  old_rationale?: string;
+  old_allowed_values?: string[];
 }
 
 export interface SchemaChangeStatus {

@@ -46,6 +46,8 @@ import ContentModal from '../ContentModal/ContentModal';
 import { DataRow, CellValue, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
+import { ToastAction } from '@/components/ui/toast';
+import { getEditableValue } from './EditableCell';
 import { formatColumnName } from '../../utils/formatting';
 import { buildColumnMetadata, applyFilters, applySort, parsePythonString, extractDisplayValue, getDefaultColumnOrder } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
@@ -266,9 +268,31 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   }, []);
 
   const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string) => {
+    // Capture old value before the update
+    const row = unitData?.rows?.find(r => r.row_name === rowName || r._unit_name === rowName);
+    const oldValue = row ? getEditableValue(row.data[column]) : '';
+
     await schematiqAPI.updateCell(sessionId, rowName, column, value);
     refetchData();
-  }, [sessionId, refetchData]);
+
+    toast({
+      title: 'Cell updated',
+      description: `Updated "${column}" for "${rowName}"`,
+      duration: 8000,
+      action: (
+        <ToastAction altText="Undo" onClick={async () => {
+          try {
+            await schematiqAPI.updateCell(sessionId, rowName, column, oldValue);
+            refetchData();
+          } catch {
+            toast({ title: 'Undo failed', description: 'Could not revert the cell edit.', variant: 'destructive' });
+          }
+        }}>
+          Undo
+        </ToastAction>
+      ),
+    });
+  }, [sessionId, refetchData, unitData, toast]);
 
   // Filter suggestions by dismissed
   const visibleSuggestions = useMemo(() => {

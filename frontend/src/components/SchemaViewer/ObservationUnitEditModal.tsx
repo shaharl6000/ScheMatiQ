@@ -20,6 +20,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { useToast } from '@/components/ui/use-toast';
+import { ToastAction } from '@/components/ui/toast';
 
 import { ObservationUnitInfo } from '../../types';
 import { observationUnitAPI } from '../../services/api';
@@ -138,6 +139,11 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
   const handleSave = async () => {
     if (!validateForm()) return;
 
+    // Capture original values before the update
+    const originalName = observationUnit.name;
+    const originalDefinition = observationUnit.definition;
+    const originalExampleNames = observationUnit.example_names ? [...observationUnit.example_names] : undefined;
+
     setLoadingAction('save');
     try {
       const response = await observationUnitAPI.updateDefinition(sessionId, {
@@ -155,19 +161,39 @@ const ObservationUnitEditModal: React.FC<ObservationUnitEditModalProps> = ({
         discovery_iteration: response.observation_unit.discovery_iteration,
       });
 
-      toast({
-        title: 'Success',
-        description: response.message,
-      });
+      // Build description, including warning if present
+      const description = response.warning
+        ? `${response.message} Note: ${response.warning}`
+        : response.message;
 
-      // Show warning if present
-      if (response.warning) {
-        toast({
-          title: 'Note',
-          description: response.warning,
-          variant: 'default',
-        });
-      }
+      toast({
+        title: 'Observation unit updated',
+        description,
+        duration: 8000,
+        action: (
+          <ToastAction altText="Undo" onClick={async () => {
+            try {
+              const revertResponse = await observationUnitAPI.updateDefinition(sessionId, {
+                name: originalName,
+                definition: originalDefinition,
+                example_names: originalExampleNames,
+              });
+              onUpdate({
+                name: revertResponse.observation_unit.name,
+                definition: revertResponse.observation_unit.definition,
+                example_names: revertResponse.observation_unit.example_names,
+                source_document: revertResponse.observation_unit.source_document,
+                discovery_iteration: revertResponse.observation_unit.discovery_iteration,
+              });
+              toast({ title: 'Reverted', description: 'Observation unit edit has been undone.' });
+            } catch {
+              toast({ title: 'Undo failed', description: 'Could not revert the observation unit edit.', variant: 'destructive' });
+            }
+          }}>
+            Undo
+          </ToastAction>
+        ),
+      });
 
       onOpenChange(false);
     } catch (error: any) {

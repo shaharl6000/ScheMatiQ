@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Pencil, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
+import { X, Pencil, Trash2, AlertTriangle, Loader2, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -13,6 +13,7 @@ interface SchemaColumnDetailPanelProps {
   onClose: () => void;
   onEdit: (column: ColumnInfo) => void;
   onDelete: (columnName: string) => void;
+  onRevert?: (columnName: string, baseline: { definition?: string; rationale?: string; allowed_values?: string[] }) => void;
   readonly: boolean;
   schemaChanges?: SchemaChangeStatus | null;
   processingColumns?: Set<string>;
@@ -25,6 +26,7 @@ const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({
   onClose,
   onEdit,
   onDelete,
+  onRevert,
   readonly,
   schemaChanges,
   processingColumns,
@@ -218,6 +220,18 @@ const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({
                 <Pencil className="h-4 w-4 mr-2" />
                 Edit
               </Button>
+              {isModified && !isNew && onRevert && changeDetail && (changeDetail.old_definition != null || changeDetail.old_rationale != null || changeDetail.old_allowed_values != null) && (
+                <Button
+                  variant="outline"
+                  onClick={() => onRevert(column.name, {
+                    definition: changeDetail.old_definition ?? undefined,
+                    rationale: changeDetail.old_rationale ?? undefined,
+                    allowed_values: changeDetail.old_allowed_values ?? undefined,
+                  })}
+                >
+                  <Undo2 className="h-4 w-4" />
+                </Button>
+              )}
               <Button
                 variant="destructive"
                 onClick={() => onDelete(column.name)}

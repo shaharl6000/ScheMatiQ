@@ -39,7 +39,8 @@ import {
 import { PaginatedData, CellValue, DataRow, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
 import { sessionAPI, schematiqAPI, observationUnitAPI } from '../../services/api';
 import { DocumentSummary } from '../../types/unit';
-import EditableCell from './EditableCell';
+import EditableCell, { getEditableValue } from './EditableCell';
+import { ToastAction } from '@/components/ui/toast';
 import {
   formatColumnName,
   isExcerptContent,
@@ -381,9 +382,32 @@ const DataTable: React.FC<DataTableProps> = ({
 
   // Cell edit handler
   const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string) => {
+    // Capture old value before the update
+    const currentRows = (fetchedData ?? initialData ?? EMPTY_DATA).rows;
+    const row = currentRows.find(r => r.row_name === rowName || r._unit_name === rowName);
+    const oldValue = row ? getEditableValue(row.data[column]) : '';
+
     await schematiqAPI.updateCell(sessionId, rowName, column, value);
     refetchData();
-  }, [sessionId, refetchData]);
+
+    toast({
+      title: 'Cell updated',
+      description: `Updated "${column}" for "${rowName}"`,
+      duration: 8000,
+      action: (
+        <ToastAction altText="Undo" onClick={async () => {
+          try {
+            await schematiqAPI.updateCell(sessionId, rowName, column, oldValue);
+            refetchData();
+          } catch {
+            toast({ title: 'Undo failed', description: 'Could not revert the cell edit.', variant: 'destructive' });
+          }
+        }}>
+          Undo
+        </ToastAction>
+      ),
+    });
+  }, [sessionId, refetchData, fetchedData, initialData, toast]);
 
   // Row add handler
   const handleAddRow = useCallback(async () => {

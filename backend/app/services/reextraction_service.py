@@ -347,7 +347,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         "change_type": change_type,
                         "old_value": self._get_change_old_value(change_type, baseline),
                         "new_value": self._get_change_new_value(change_type, col),
-                        "row_count_affected": 0
+                        "row_count_affected": 0,
+                        "old_definition": baseline.definition,
+                        "old_rationale": baseline.rationale,
+                        "old_allowed_values": baseline.allowed_values,
                     }
 
         result["has_changes"] = bool(result["changed_columns"] or result["new_columns"])
