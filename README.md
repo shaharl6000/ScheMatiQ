@@ -13,8 +13,8 @@
  <a href="https://www.schematiq-ai.com/">
     <img src="https://img.shields.io/badge/🌐-website-blue">
  </a>
- <a href="https://www.apache.org/licenses/LICENSE-2.0">
-    <img src="https://img.shields.io/badge/Apache-2.0-D22128?logo=apache&logoColor=white">
+ <a href="LICENSE">
+    <img src="https://img.shields.io/badge/MIT-License-green?logo=opensourceinitiative&logoColor=white">
  </a>
 </p>
 
