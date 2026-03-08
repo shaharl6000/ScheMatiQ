@@ -7,7 +7,6 @@ import {
   GitMerge,
   ShieldCheck,
   RefreshCw,
-  Undo2,
   AlertTriangle,
   CheckCircle2,
   AlertCircle,
@@ -26,6 +25,7 @@ import {
   Layers,
   HelpCircle,
   Columns3,
+  Undo2,
 } from 'lucide-react';
 
 import { Card, CardContent } from '@/components/ui/card';
@@ -67,14 +67,14 @@ import { cn } from '@/lib/utils';
 import {
   ColumnInfo,
   ColumnDialogState,
-  EditColumnRequest,
   ReprocessingStatus,
   SchemaValidationResult as SchemaValidationResultType,
   WebSocketMessageExtended,
   SchemaChangeStatus,
   ColumnCluster,
   ObservationUnitInfo,
-  ReextractionRequest
+  ReextractionRequest,
+  EditColumnRequest,
 } from '../../types';
 import { formatColumnName } from '../../utils/formatting';
 import { schemaAPI, configAPI } from '../../services/api';
@@ -973,23 +973,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     );
   }, [displayColumns, searchQuery]);
 
-  // TEMP HACK: fixed column order — court level first, decision date second
-  const tempColumnOrder = (name: string): number => {
-    const cleanName = name.trim().toLowerCase().replace(/[_-]/g, ' ');
-    if (cleanName === 'court level') return 0;
-    if (cleanName === 'decision date') return 1;
-    return 2;
-  };
-
   // Sort columns
   const sortedColumns = useMemo(() => {
     const cols = [...filteredColumns];
     cols.sort((a, b) => {
-      // TEMP HACK: court level first, decision date second
-      const aOrder = tempColumnOrder(a.name);
-      const bOrder = tempColumnOrder(b.name);
-      if (aOrder !== bOrder) return aOrder - bOrder;
-
       let comparison = 0;
       switch (sortBy) {
         case 'name':
@@ -1072,15 +1059,15 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
       {/* Observation Unit Info Card */}
       {observationUnit && (
         <Card className="bg-purple-50 border-purple-200">
-          <CardContent className="py-2 px-5">
-            <div className="flex items-center justify-between mb-1">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
               <div className="flex items-start gap-2">
                 <Layers className="h-4 w-4 text-purple-600 mt-0.5" />
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm text-purple-600 font-medium leading-none">
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-xs text-purple-600 font-medium">
                     Observation Unit
                   </span>
-                  <span className="text-xl font-bold text-purple-900 leading-tight">
+                  <span className="text-base font-semibold text-purple-900">
                     {observationUnit.name}
                   </span>
                 </div>
@@ -1091,50 +1078,45 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-purple-600 hover:text-purple-800 hover:bg-purple-100"
+                      className="h-7 w-7 text-purple-600 hover:text-purple-800 hover:bg-purple-100"
                       onClick={() => setObservationUnitEditModalOpen(true)}
                     >
-                      <Pencil className="h-4 w-4" />
+                      <Pencil className="h-3.5 w-3.5" />
                     </Button>
                   </TooltipTrigger>
                   <TooltipContent>Edit observation unit definition</TooltipContent>
                 </Tooltip>
               )}
             </div>
-            <div className="flex flex-col gap-3">
-              <p className="text-xl text-purple-700 leading-relaxed font-medium">
-                {observationUnit.definition}
-              </p>
-              
-              {observationUnit.example_names && observationUnit.example_names.length > 0 && (
-                <div className="flex items-center gap-3 pt-2 border-t border-purple-100">
-                  <span className="text-lg text-purple-600 font-bold whitespace-nowrap">Examples:</span>
-                  <div className="flex flex-wrap gap-2">
-                    {(showAllExamples ? observationUnit.example_names : observationUnit.example_names.slice(0, 3)).map((name, i) => (
-                      <Badge key={i} variant="secondary" className="text-lg px-4 py-1 font-medium">
-                        {name}
-                      </Badge>
-                    ))}
-                    {observationUnit.example_names.length > 3 && !showAllExamples && (
-                      <span
-                        className="text-lg text-purple-600 font-semibold cursor-pointer hover:text-purple-800 hover:underline"
-                        onClick={() => setShowAllExamples(true)}
-                      >
-                        +{observationUnit.example_names.length - 3} more
-                      </span>
-                    )}
-                    {observationUnit.example_names.length > 3 && showAllExamples && (
-                      <span
-                        className="text-lg text-purple-600 font-semibold cursor-pointer hover:text-purple-800 hover:underline"
-                        onClick={() => setShowAllExamples(false)}
-                      >
-                        show less
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
+            <p className="text-sm text-purple-700 mb-2">
+              {observationUnit.definition}
+            </p>
+            {observationUnit.example_names && observationUnit.example_names.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                <span className="text-xs text-purple-600">Examples:</span>
+                {(showAllExamples ? observationUnit.example_names : observationUnit.example_names.slice(0, 3)).map((name, i) => (
+                  <Badge key={i} variant="secondary" className="text-xs">
+                    {name}
+                  </Badge>
+                ))}
+                {observationUnit.example_names.length > 3 && !showAllExamples && (
+                  <span
+                    className="text-xs text-purple-600 cursor-pointer hover:text-purple-800 hover:underline"
+                    onClick={() => setShowAllExamples(true)}
+                  >
+                    +{observationUnit.example_names.length - 3} more
+                  </span>
+                )}
+                {observationUnit.example_names.length > 3 && showAllExamples && (
+                  <span
+                    className="text-xs text-purple-600 cursor-pointer hover:text-purple-800 hover:underline"
+                    onClick={() => setShowAllExamples(false)}
+                  >
+                    show less
+                  </span>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1413,27 +1395,30 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           )}>
             {/* Sidebar - Column List (Detailed View Only) */}
             {viewMode === 'detailed' && (
-              <div className="w-24 flex-shrink-0">
+              <div className="w-56 flex-shrink-0">
                 <div className="sticky top-4">
-                  <h4 className="text-[8px] font-bold text-muted-foreground/60 mb-1 uppercase tracking-tighter">
-                    Cols ({sortedColumns.length})
+                  <h4 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wide">
+                    Columns ({sortedColumns.length})
                   </h4>
                   <ScrollArea className="h-[calc(100vh-300px)]">
-                    <div className="space-y-1 pr-0.5">
+                    <div className="space-y-3 pr-2">
                       {groupedColumns.map(({ cluster, columns: groupCols }) => (
                         <div key={cluster?.id || 'all'}>
                           {cluster && clusteringEnabled && (
-                            <div className="flex items-center gap-1 mb-0 px-0.5">
+                            <div className="flex items-center gap-2 mb-1 px-2">
                               <span
-                                className="w-1 h-1 rounded-full flex-shrink-0"
+                                className="w-2 h-2 rounded-full flex-shrink-0"
                                 style={{ backgroundColor: cluster.color }}
                               />
-                              <span className="text-[8px] font-bold text-muted-foreground/70 truncate">
+                              <span className="text-xs font-medium text-muted-foreground truncate">
                                 {cluster.name}
                               </span>
+                              <Badge variant="outline" className="text-[10px] h-4 px-1 ml-auto">
+                                {groupCols.length}
+                              </Badge>
                             </div>
                           )}
-                          <div className="space-y-0">
+                          <div className="space-y-0.5">
                             {groupCols.map((column) => {
                               const isModified = schemaChanges?.changed_columns?.includes(column.name);
                               const isNew = schemaChanges?.new_columns?.includes(column.name) && !schemaChanges?.missing_baseline;
@@ -1446,15 +1431,15 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                     element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
                                   }}
                                   className={cn(
-                                    "w-full text-left px-1 py-0 rounded-[2px] text-[10px] transition-colors overflow-x-auto no-scrollbar",
+                                    "w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors",
                                     "hover:bg-muted",
-                                    cluster && clusteringEnabled && "pl-1.5",
-                                    isSelected && "bg-primary/10 font-semibold",
+                                    cluster && clusteringEnabled && "pl-4",
+                                    isSelected && "bg-primary/10 font-medium",
                                     isModified && "text-amber-600 dark:text-amber-400",
                                     isNew && "text-green-600 dark:text-green-400"
                                   )}
                                 >
-                                  <span className="whitespace-nowrap block leading-none py-0.5">{formatColumnName(column.name)}</span>
+                                  <span className="truncate block">{formatColumnName(column.name)}</span>
                                 </button>
                               );
                             })}
@@ -1548,10 +1533,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                       </AccordionTrigger>
                       <AccordionContent>
                         <div className={cn(
-                          "grid gap-1 pt-2",
+                          "grid gap-3 pt-2",
                           viewMode === 'compact'
-                            ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9"
-                            : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5"
+                            ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+                            : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
                         )}>
                           {groupCols.map((column) => {
                             const isModified = schemaChanges?.changed_columns?.includes(column.name);
@@ -1572,7 +1557,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                   )}
                                   onClick={() => setSelectedDetailColumn(column)}
                                 >
-                                  <CardContent className="p-1.5">
+                                  <CardContent className="pt-3 pb-2 px-3">
                                     <div className="flex items-center gap-1.5 mb-1">
                                       {!readonly && (
                                         <Checkbox
@@ -1702,33 +1687,6 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                           </TooltipTrigger>
                                           <TooltipContent>Edit column</TooltipContent>
                                         </Tooltip>
-                                        {isModified && !isNew && (() => {
-                                          const cd = schemaChanges?.column_changes?.[column.name];
-                                          return cd && (cd.old_definition != null || cd.old_rationale != null || cd.old_allowed_values != null);
-                                        })() && (
-                                          <Tooltip>
-                                            <TooltipTrigger asChild>
-                                              <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 text-amber-600"
-                                                onClick={() => {
-                                                  const cd = schemaChanges?.column_changes?.[column.name];
-                                                  if (cd) {
-                                                    handleRevertColumn(column.name, {
-                                                      definition: cd.old_definition ?? undefined,
-                                                      rationale: cd.old_rationale ?? undefined,
-                                                      allowed_values: cd.old_allowed_values ?? undefined,
-                                                    });
-                                                  }
-                                                }}
-                                              >
-                                                <Undo2 className="h-4 w-4" />
-                                              </Button>
-                                            </TooltipTrigger>
-                                            <TooltipContent>Revert to baseline</TooltipContent>
-                                          </Tooltip>
-                                        )}
                                         {clusters.length > 1 && (
                                           <DropdownMenu>
                                             <Tooltip>
@@ -1761,6 +1719,33 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                               </DropdownMenuItem>
                                             </DropdownMenuContent>
                                           </DropdownMenu>
+                                        )}
+                                        {isModified && !isNew && (() => {
+                                          const cd = schemaChanges?.column_changes?.[column.name];
+                                          return cd && (cd.old_definition != null || cd.old_rationale != null || cd.old_allowed_values != null);
+                                        })() && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-amber-600"
+                                                onClick={() => {
+                                                  const cd = schemaChanges?.column_changes?.[column.name];
+                                                  if (cd) {
+                                                    handleRevertColumn(column.name, {
+                                                      definition: cd.old_definition ?? undefined,
+                                                      rationale: cd.old_rationale ?? undefined,
+                                                      allowed_values: cd.old_allowed_values ?? undefined,
+                                                    });
+                                                  }
+                                                }}
+                                              >
+                                                <Undo2 className="h-4 w-4" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            <TooltipContent>Revert to baseline</TooltipContent>
+                                          </Tooltip>
                                         )}
                                         <Tooltip>
                                           <TooltipTrigger asChild>
@@ -1856,10 +1841,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
               ) : (
                 // No clustering - flat grid
                 <div className={cn(
-                  "grid gap-1",
+                  "grid gap-3",
                   viewMode === 'compact'
-                    ? "grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-7 xl:grid-cols-9"
-                    : "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-1.5"
+                    ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
+                    : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
                 )}>
                   {sortedColumns.map((column) => {
               const isModified = schemaChanges?.changed_columns?.includes(column.name);
@@ -1938,19 +1923,18 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   isProcessing && "border-blue-400 dark:border-blue-600 border-2 animate-pulse"
                 )}
               >
-                <CardContent className="p-1.5">
-                  <div className="flex justify-between items-start mb-1.5">
-                    <div className="flex items-center gap-1.5 flex-wrap">
+                <CardContent className="pt-4">
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       {!readonly && (
                         <Checkbox
-                          className="h-3.5 w-3.5"
                           checked={selectedColumns.includes(column.name)}
                           onCheckedChange={(checked) =>
                             handleColumnSelection(column.name, checked as boolean)
                           }
                         />
                       )}
-                      <h4 className="font-semibold text-xs truncate max-w-[150px]">
+                      <h4 className="font-semibold text-sm">
                         {formatColumnName(column.name)}
                       </h4>
                       {isModified && (
@@ -2061,31 +2045,31 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   </div>
 
                   {column.data_type && (
-                    <Badge variant="secondary" className="mb-1.5 text-[10px] h-4 px-1.5">{column.data_type}</Badge>
+                    <Badge className="mb-2">{column.data_type}</Badge>
                   )}
 
                   {column.definition && (
-                    <div className="mb-1.5 p-1 bg-muted rounded-md">
-                      <p className="text-[10px] font-semibold text-primary mb-0.5">Definition</p>
-                      <p className="text-xs leading-tight">{column.definition}</p>
+                    <div className="mb-3 p-3 bg-muted rounded-md">
+                      <p className="text-xs font-semibold text-primary mb-1">Definition</p>
+                      <p className="text-sm">{column.definition}</p>
                     </div>
                   )}
 
                   {column.rationale && (
-                    <details className="mb-1.5">
-                      <summary className="text-[10px] text-blue-600 dark:text-blue-400 cursor-pointer hover:underline">
+                    <details className="mb-3">
+                      <summary className="text-xs text-blue-600 dark:text-blue-400 cursor-pointer hover:underline">
                         Why this column?
                       </summary>
-                      <div className="mt-0.5 p-1 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
-                        <p className="text-xs leading-tight">{column.rationale}</p>
+                      <div className="mt-1 p-3 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
+                        <p className="text-sm">{column.rationale}</p>
                       </div>
                     </details>
                   )}
 
                   {/* Allowed Values (Closed Set) */}
                   {column.allowed_values && column.allowed_values.length > 0 && (
-                    <div className="mb-1.5 p-1 bg-purple-50 dark:bg-purple-950 rounded-md border border-purple-200 dark:border-purple-800">
-                      <p className="text-[10px] font-semibold text-purple-700 dark:text-purple-300 mb-1">
+                    <div className="mb-3 p-3 bg-purple-50 dark:bg-purple-950 rounded-md border border-purple-200 dark:border-purple-800">
+                      <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-2">
                         {/* Detect constraint type for better labeling */}
                         {column.allowed_values.length === 1 && column.allowed_values[0].toLowerCase() === 'number'
                           ? 'Numeric Constraint'
@@ -2094,18 +2078,18 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                             : 'Allowed Values'}
                       </p>
                       {column.allowed_values.length <= 3 ? (
-                        <div className="flex flex-wrap gap-1 items-center">
+                        <div className="flex flex-wrap gap-1">
                           {column.allowed_values.length === 1 && column.allowed_values[0].toLowerCase() === 'number' ? (
-                            <Badge variant="outline" className="text-[10px] h-3.5 px-1 bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                            <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
                               Any Number (int/float)
                             </Badge>
                           ) : column.allowed_values.length === 1 && /^(-?\d+(\.\d+)?)-(-?\d+(\.\d+)?)$/.test(column.allowed_values[0]) ? (
-                            <Badge variant="outline" className="text-[10px] h-3.5 px-1 bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                            <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
                               Range: {column.allowed_values[0]}
                             </Badge>
                           ) : (
-                            [...column.allowed_values].sort((a, b) => a.length - b.length).map((value, idx) => (
-                              <Badge key={idx} variant="outline" className="text-[10px] h-3.5 px-1 bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700 whitespace-nowrap">
+                            column.allowed_values.map((value, idx) => (
+                              <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
                                 {value}
                               </Badge>
                             ))
@@ -2113,12 +2097,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                         </div>
                       ) : (
                         <details>
-                          <summary className="text-[10px] text-purple-600 dark:text-purple-400 cursor-pointer hover:underline">
+                          <summary className="text-xs text-purple-600 dark:text-purple-400 cursor-pointer hover:underline">
                             {column.allowed_values.length} values
                           </summary>
-                          <div className="flex flex-wrap gap-1 items-center">
-                            {[...column.allowed_values].sort((a, b) => a.length - b.length).map((value, idx) => (
-                              <Badge key={idx} variant="outline" className="text-[10px] h-3.5 px-1 bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700 whitespace-nowrap">
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {column.allowed_values.map((value, idx) => (
+                              <Badge key={idx} variant="outline" className="text-xs bg-purple-100 dark:bg-purple-900 border-purple-300 dark:border-purple-700">
                                 {value}
                               </Badge>
                             ))}
@@ -2356,14 +2340,14 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           setSelectedDetailColumn(null);
           handleDeleteColumn(columnName);
         }}
-        onRevert={(columnName, baseline) => {
-          setSelectedDetailColumn(null);
-          handleRevertColumn(columnName, baseline);
-        }}
         readonly={readonly}
         schemaChanges={schemaChanges}
         processingColumns={processingColumns}
         sessionType={sessionType}
+        onRevert={(columnName, baseline) => {
+          setSelectedDetailColumn(null);
+          handleRevertColumn(columnName, baseline);
+        }}
       />
 
       {/* Observation Unit Edit Modal */}
