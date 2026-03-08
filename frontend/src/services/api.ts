@@ -359,9 +359,22 @@ export const schematiqAPI = {
     rowName: string,
     column: string,
     value: string
-  ): Promise<{ status: string; session_id: string; row_name: string; column: string; value: string }> => {
+  ): Promise<{ status: string; session_id: string; row_name: string; column: string; value: string; previous_value?: any }> => {
     const response = await api.put(`/schematiq/cell/${sessionId}`, null, {
       params: { row_name: rowName, column, value }
+    });
+    return response.data;
+  },
+
+  /** Restore a cell to its previous full value (undo). */
+  restoreCell: async (
+    sessionId: string,
+    rowName: string,
+    column: string,
+    previousValue: any
+  ): Promise<{ status: string }> => {
+    const response = await api.put(`/schematiq/cell/${sessionId}`, { restore: previousValue }, {
+      params: { row_name: rowName, column, value: '' }
     });
     return response.data;
   },

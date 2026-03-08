@@ -17,7 +17,7 @@ interface EditableCellProps {
  * Extracts the editable string value from a CellValue.
  * Handles ScheMatiQ objects with 'answer' field, arrays, etc.
  */
-function getEditableValue(value: CellValue): string {
+export function getEditableValue(value: CellValue): string {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);

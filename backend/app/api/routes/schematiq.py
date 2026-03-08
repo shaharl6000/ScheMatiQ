@@ -7,8 +7,9 @@ import io
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from app.models.session import VisualizationSession, SessionType, SessionStatus, SessionMetadata, FilterSortRequest
@@ -442,15 +443,20 @@ async def get_schematiq_data(
     return await get_schematiq_data_with_filters(session_id, page, page_size, documents, None)
 
 
+class CellRestoreBody(BaseModel):
+    """Optional body for restoring a full cell object (undo)."""
+    restore: Any = None
+
 @router.put("/cell/{session_id}")
-async def update_cell(session_id: str, row_name: str, column: str, value: str):
+async def update_cell(session_id: str, row_name: str, column: str, value: str, body: Optional[CellRestoreBody] = None):
     """Update a single cell value in the data table."""
     try:
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
-        result = await data_editor.update_cell(session_id, row_name, column, value)
+        restore = body.restore if body else None
+        result = await data_editor.update_cell(session_id, row_name, column, value, restore=restore)
         return result
 
     except FileNotFoundError as e:

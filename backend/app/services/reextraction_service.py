@@ -298,22 +298,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "missing_baseline": False
         }
 
-        # Check if baseline exists
+        # If no baseline exists, auto-create one from current state so future edits are tracked
         if not session.schema_baseline:
-            result["missing_baseline"] = True
-            # If no baseline, all columns are considered "new"
-            for col in session.columns:
-                if col.name and not col.name.lower().endswith('_excerpt'):
-                    result["new_columns"].append(col.name)
-                    result["column_changes"][col.name] = {
-                        "column_name": col.name,
-                        "change_type": "new",
-                        "old_value": None,
-                        "new_value": col.definition or "",
-                        "row_count_affected": 0  # Will be filled by caller
-                    }
-            if result["new_columns"]:
-                result["has_changes"] = True
+            baseline = self.capture_baseline(session)
+            session.schema_baseline = baseline
+            # Only persist if session has extracted data to avoid writes on every poll
+            if any((c.non_null_count or 0) > 0 for c in session.columns):
+                self.session_manager.update_session(session)
+            # Return no changes — baseline just captured from current state
             return result
 
         baseline_columns = session.schema_baseline.columns
@@ -337,18 +329,56 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # Check for changes
                 baseline = baseline_columns[col.name]
                 current_checksum = self.calculate_column_checksum(col)
+                # Detect rename: baseline entry was moved to new key but name field still has old name
+                was_renamed = col.name != baseline.name
 
-                if current_checksum != baseline.checksum:
+                if current_checksum != baseline.checksum or was_renamed:
                     # Determine what changed
-                    change_type = self._determine_change_type(col, baseline)
+                    change_type = "renamed" if was_renamed else self._determine_change_type(col, baseline)
                     result["changed_columns"].append(col.name)
-                    result["column_changes"][col.name] = {
+                    change_detail = {
                         "column_name": col.name,
                         "change_type": change_type,
-                        "old_value": self._get_change_old_value(change_type, baseline),
-                        "new_value": self._get_change_new_value(change_type, col),
-                        "row_count_affected": 0
+                        "old_value": baseline.name if was_renamed else self._get_change_old_value(change_type, baseline),
+                        "new_value": col.name if was_renamed else self._get_change_new_value(change_type, col),
+                        "row_count_affected": 0,
+                        "old_definition": baseline.definition,
+                        "old_rationale": baseline.rationale,
+                        "old_allowed_values": baseline.allowed_values,
                     }
+                    if was_renamed:
+                        change_detail["old_name"] = baseline.name
+                    result["column_changes"][col.name] = change_detail
+
+        # Auto-heal stale baselines: if "new" columns already have extracted data,
+        # the baseline is outdated (e.g., continue discovery added columns).
+        # Recapture baseline and re-detect so they show as unchanged, not "new".
+        if result["new_columns"] and session.schema_baseline:
+            stale_cols = [
+                name for name in result["new_columns"]
+                if any(c.name == name and (c.non_null_count or 0) > 0 for c in session.columns)
+            ]
+            if stale_cols:
+                # Only add the stale columns to the existing baseline —
+                # do NOT recapture the whole baseline, or we'd erase real edits.
+                for col_name in stale_cols:
+                    col = next(c for c in session.columns if c.name == col_name)
+                    session.schema_baseline.columns[col_name] = ColumnBaseline(
+                        name=col.name,
+                        definition=col.definition or "",
+                        rationale=col.rationale or "",
+                        allowed_values=col.allowed_values,
+                        checksum=self.calculate_column_checksum(col),
+                    )
+                self.session_manager.update_session(session)
+                # Inline re-detection: remove the now-patched stale columns from
+                # the result so they are no longer reported as new or changed,
+                # then fall through to recalculate has_changes. This avoids the
+                # infinite recursion that a recursive self.detect_schema_changes()
+                # call would cause if stale_cols were somehow repopulated.
+                for col_name in stale_cols:
+                    result["new_columns"] = [n for n in result["new_columns"] if n != col_name]
+                    result["column_changes"].pop(col_name, None)
 
         result["has_changes"] = bool(result["changed_columns"] or result["new_columns"])
         return result

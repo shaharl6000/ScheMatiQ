@@ -46,6 +46,8 @@ import ContentModal from '../ContentModal/ContentModal';
 import { DataRow, CellValue, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
+import { ToastAction } from '@/components/ui/toast';
+import { getEditableValue } from './EditableCell';
 import { formatColumnName } from '../../utils/formatting';
 import { buildColumnMetadata, applyFilters, applySort, parsePythonString, extractDisplayValue, getDefaultColumnOrder } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
@@ -266,9 +268,33 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   }, []);
 
   const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string) => {
-    await schematiqAPI.updateCell(sessionId, rowName, column, value);
-    refetchData();
-  }, [sessionId, refetchData]);
+    try {
+      const result = await schematiqAPI.updateCell(sessionId, rowName, column, value);
+      const previousValue = result.previous_value;
+      refetchData();
+
+      toast({
+        title: 'Cell updated',
+        description: `Updated "${column}" for "${rowName}"`,
+        duration: 8000,
+        action: (
+          <ToastAction altText="Undo" onClick={async () => {
+            try {
+              await schematiqAPI.restoreCell(sessionId, rowName, column, previousValue);
+              refetchData();
+            } catch {
+              toast({ title: 'Undo failed', description: 'Could not revert the cell edit.', variant: 'destructive' });
+            }
+          }}>
+            Undo
+          </ToastAction>
+        ),
+      });
+    } catch (error) {
+      toast({ title: 'Update failed', description: 'Could not save the cell edit.', variant: 'destructive' });
+      throw error;  // Re-throw so EditableCell keeps edit mode open
+    }
+  }, [sessionId, refetchData, toast]);
 
   // Filter suggestions by dismissed
   const visibleSuggestions = useMemo(() => {
@@ -881,7 +907,14 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={modalContent.title}
-        content={modalContent.content}
+        content={(() => {
+          // Derive content from live unitData so undo/refetch updates the modal
+          if (modalContent.rowName && modalContent.column) {
+            const row = unitData?.rows?.find(r => r.row_name === modalContent.rowName || r._unit_name === modalContent.rowName);
+            if (row?.data?.[modalContent.column] !== undefined) return row.data[modalContent.column];
+          }
+          return modalContent.content;
+        })()}
         onSave={modalContent.rowName && modalContent.column
           ? async (value: string) => {
               await handleCellUpdate(modalContent.rowName!, modalContent.column!, value);

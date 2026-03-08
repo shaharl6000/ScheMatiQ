@@ -1209,6 +1209,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             self._recompute_statistics(operation.session_id, preserve_evolution=True)
             logger.info(f"Statistics recomputed after discovery phase")
 
+            # Recapture schema baseline so new columns are tracked for change detection
+            self.session_manager.capture_schema_baseline(operation.session_id)
+            logger.info(f"Schema baseline recaptured after continue discovery")
+
             # Complete discovery phase
             operation.status = "completed"
             operation.phase = "discovery"
@@ -1582,6 +1586,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Recompute statistics with proper column stats (non_null_count, unique_count, etc.)
             self._recompute_statistics(operation.session_id, preserve_evolution=True)
             logger.info(f"Statistics recomputed after extraction phase")
+
+            # Recapture schema baseline so new columns are tracked for change detection
+            self.session_manager.capture_schema_baseline(operation.session_id)
+            logger.info(f"Schema baseline recaptured after incremental extraction")
 
             # Cleanup
             schema_file.unlink(missing_ok=True)

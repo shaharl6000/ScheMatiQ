@@ -1,11 +1,11 @@
 import React from 'react';
-import { X, Pencil, Trash2, AlertTriangle, Loader2 } from 'lucide-react';
+import { X, Pencil, Trash2, AlertTriangle, Loader2, Undo2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { ColumnInfo, SchemaChangeStatus } from '../../types';
-import { formatColumnName } from '../../utils/formatting';
+import { formatColumnName, RANGE_CONSTRAINT_REGEX } from '../../utils/formatting';
 
 interface SchemaColumnDetailPanelProps {
   column: ColumnInfo | null;
@@ -13,6 +13,7 @@ interface SchemaColumnDetailPanelProps {
   onClose: () => void;
   onEdit: (column: ColumnInfo) => void;
   onDelete: (columnName: string) => void;
+  onRevert?: (columnName: string, baseline: { definition?: string; rationale?: string; allowed_values?: string[]; old_name?: string }) => void;
   readonly: boolean;
   schemaChanges?: SchemaChangeStatus | null;
   processingColumns?: Set<string>;
@@ -25,6 +26,7 @@ const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({
   onClose,
   onEdit,
   onDelete,
+  onRevert,
   readonly,
   schemaChanges,
   processingColumns,
@@ -126,7 +128,7 @@ const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({
                       <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
                         Any Number (int/float)
                       </Badge>
-                    ) : column.allowed_values.length === 1 && /^(-?\d+(\.\d+)?)-(-?\d+(\.\d+)?)$/.test(column.allowed_values[0]) ? (
+                    ) : column.allowed_values.length === 1 && RANGE_CONSTRAINT_REGEX.test(column.allowed_values[0]) ? (
                       <Badge variant="outline" className="text-xs bg-blue-100 dark:bg-blue-900 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300">
                         Range: {column.allowed_values[0]}
                       </Badge>
@@ -204,6 +206,7 @@ const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({
                     {changeDetail.change_type === 'definition' && 'Definition was changed'}
                     {changeDetail.change_type === 'rationale' && 'Rationale was changed'}
                     {changeDetail.change_type === 'allowed_values' && 'Allowed values were changed'}
+                    {changeDetail.change_type === 'renamed' && 'Column was renamed'}
                     {!changeDetail.change_type && 'Column modified since last extraction'}
                   </p>
                 </div>
@@ -218,6 +221,19 @@ const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({
                 <Pencil className="h-4 w-4 mr-2" />
                 Edit
               </Button>
+              {isModified && !isNew && onRevert && changeDetail && (changeDetail.old_definition != null || changeDetail.old_rationale != null || changeDetail.old_allowed_values != null) && (
+                <Button
+                  variant="outline"
+                  onClick={() => onRevert(column.name, {
+                    definition: changeDetail.old_definition ?? undefined,
+                    rationale: changeDetail.old_rationale ?? undefined,
+                    allowed_values: changeDetail.old_allowed_values ?? undefined,
+                    old_name: changeDetail.old_name ?? undefined,
+                  })}
+                >
+                  <Undo2 className="h-4 w-4" />
+                </Button>
+              )}
               <Button
                 variant="destructive"
                 onClick={() => onDelete(column.name)}

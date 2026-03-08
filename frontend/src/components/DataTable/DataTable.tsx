@@ -39,7 +39,8 @@ import {
 import { PaginatedData, CellValue, DataRow, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
 import { sessionAPI, schematiqAPI, observationUnitAPI } from '../../services/api';
 import { DocumentSummary } from '../../types/unit';
-import EditableCell from './EditableCell';
+import EditableCell, { getEditableValue } from './EditableCell';
+import { ToastAction } from '@/components/ui/toast';
 import {
   formatColumnName,
   isExcerptContent,
@@ -381,9 +382,33 @@ const DataTable: React.FC<DataTableProps> = ({
 
   // Cell edit handler
   const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string) => {
-    await schematiqAPI.updateCell(sessionId, rowName, column, value);
-    refetchData();
-  }, [sessionId, refetchData]);
+    try {
+      const result = await schematiqAPI.updateCell(sessionId, rowName, column, value);
+      const previousValue = result.previous_value;
+      refetchData();
+
+      toast({
+        title: 'Cell updated',
+        description: `Updated "${column}" for "${rowName}"`,
+        duration: 8000,
+        action: (
+          <ToastAction altText="Undo" onClick={async () => {
+            try {
+              await schematiqAPI.restoreCell(sessionId, rowName, column, previousValue);
+              refetchData();
+            } catch {
+              toast({ title: 'Undo failed', description: 'Could not revert the cell edit.', variant: 'destructive' });
+            }
+          }}>
+            Undo
+          </ToastAction>
+        ),
+      });
+    } catch (error) {
+      toast({ title: 'Update failed', description: 'Could not save the cell edit.', variant: 'destructive' });
+      throw error;  // Re-throw so EditableCell keeps edit mode open
+    }
+  }, [sessionId, refetchData, toast]);
 
   // Row add handler
   const handleAddRow = useCallback(async () => {
@@ -1599,7 +1624,15 @@ const DataTable: React.FC<DataTableProps> = ({
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title={modalContent.title}
-        content={modalContent.content}
+        content={(() => {
+          // Derive content from live data so undo/refetch updates the modal
+          if (modalContent.rowName && modalContent.column) {
+            const currentRows = (fetchedData ?? initialData ?? EMPTY_DATA).rows;
+            const row = currentRows.find(r => r.row_name === modalContent.rowName || r._unit_name === modalContent.rowName);
+            if (row?.data?.[modalContent.column] !== undefined) return row.data[modalContent.column];
+          }
+          return modalContent.content;
+        })()}
         onSave={!readonly && modalContent.rowName && modalContent.column
           ? async (value: string) => {
               await handleCellUpdate(modalContent.rowName!, modalContent.column!, value);
