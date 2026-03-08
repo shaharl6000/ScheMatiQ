@@ -130,7 +130,7 @@ const Landing = () => {
             <span>arXiv</span>
           </a>
           <a
-            href="https://github.com/shaharl6000/"
+            href="https://github.com/shaharl6000/ScheMatiQ"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-[1.1rem] transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1 relative overflow-hidden video-button-shine"

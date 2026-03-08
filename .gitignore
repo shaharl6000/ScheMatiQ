@@ -123,6 +123,16 @@ schematiq-lib/*.egg-info/
 schematiq-lib/build/
 schematiq-lib/dist/
 
+# Root-level data/research files
+*.txt
+!requirements.txt
+Immigration_ground_truth.csv
+different Presidents ScheMatiQ meeting results_*.csv
+missing_from_SM/
+
+# Test scripts at root
+test_*.py
+
 # Railway deployment
 .railway-config
 *.bak

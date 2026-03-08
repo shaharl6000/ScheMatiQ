@@ -3,6 +3,7 @@
   "version": "1.0.1",
   "description": "Interactive visualization interface for ScheMatiQ",
   "private": true,
+  "license": "MIT",
   "overrides": {
     "rollup": "2.79.2"
   },

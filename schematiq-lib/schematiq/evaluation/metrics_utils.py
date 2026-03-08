@@ -29,7 +29,7 @@ punctuation = "()[]{},.?!/''\"``"
 ps = PorterStemmer()
 
 # Moving to Together AI API to query mistral for decontextualization
-TOGETHER_API_KEY = "tgp_v1_CsXuE0uRINMbtPadckRykLY-c5F5JWK_ZG1m1fi1e9s"
+TOGETHER_API_KEY = os.environ.get("TOGETHER_API_KEY", "")
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
