@@ -498,11 +498,29 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
   const loadSchemaChangeStatus = useCallback(async () => {
     try {
       const changes = await schemaAPI.getSchemaChangeStatus(sessionId);
+
+      // Auto-heal stale baselines: if columns marked "new" already have extracted
+      // data, the baseline is outdated (e.g., continue discovery didn't recapture).
+      // Recapture once and reload.
+      if (!changes.missing_baseline && changes.new_columns.length > 0) {
+        const cols = columns || [];
+        const newColsWithData = changes.new_columns.filter(name => {
+          const col = cols.find(c => c.name === name);
+          return col && (col.non_null_count ?? 0) > 0;
+        });
+        if (newColsWithData.length > 0) {
+          await schemaAPI.captureBaseline(sessionId);
+          const refreshed = await schemaAPI.getSchemaChangeStatus(sessionId);
+          setSchemaChanges(refreshed);
+          return;
+        }
+      }
+
       setSchemaChanges(changes);
     } catch (error) {
       console.error('Failed to load schema change status:', error);
     }
-  }, [sessionId]);
+  }, [sessionId, columns]);
 
   // Update local columns when props change
   useEffect(() => {
