@@ -139,3 +139,6 @@ test_*.py
 
 # AI tooling config
 .claude/agents/
+
+# Local evaluation scripts
+evaluate_schematiq.py
