@@ -83,18 +83,14 @@ class ExcerptGrounder:
                 best_pos = i
 
         if best_ratio >= self.fuzzy_threshold and best_pos is not None:
-            matched_text = " ".join(
-                source_words[best_pos : best_pos + window_size]
-            )
+            matched_text = " ".join(source_words[best_pos : best_pos + window_size])
             char_start = source_text.find(matched_text)
             if char_start >= 0:
                 return char_start, char_start + len(matched_text), "fuzzy"
 
         return None, None, "not_found"
 
-    def ground_all_excerpts(
-        self, extraction_result: dict, source_text: str
-    ) -> dict:
+    def ground_all_excerpts(self, extraction_result: dict, source_text: str) -> dict:
         """Add grounding info to all excerpts in an extraction result.
 
         Modifies extraction_result in-place, converting string excerpts

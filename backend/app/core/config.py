@@ -100,7 +100,7 @@ RELEASE_CONFIG = {
     "max_documents": 40,           # release mode cap
     # LLM configuration for release mode (locked to Gemini)
     "schema_creation_model": "gemini-2.5-flash",
-    "value_extraction_model": "gemini-2.5-flash-lite",
+    "value_extraction_model": "gemini-3.1-flash-lite-preview",
     "llm_provider": "gemini",
     "llm_temperature": 0,
 }

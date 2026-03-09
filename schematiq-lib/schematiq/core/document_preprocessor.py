@@ -6,12 +6,14 @@ token usage by removing non-relevant sections from academic papers.
 
 import re
 from dataclasses import dataclass
-from typing import List
+
+from schematiq.core.table_detector import TableDetector
 
 
 @dataclass
 class PreprocessorConfig:
     """Configuration for document preprocessing."""
+
     remove_references: bool = True
     remove_acknowledgments: bool = True
     min_text_length: int = 1000  # Don't process very short documents
@@ -50,6 +52,7 @@ class DocumentPreprocessor:
             config: Optional configuration. Uses defaults if not provided.
         """
         self.config = config or PreprocessorConfig()
+        self.table_detector = TableDetector()
 
     def preprocess(self, text: str) -> str:
         """Detect document type and remove non-relevant sections.
@@ -65,7 +68,11 @@ class DocumentPreprocessor:
             return text
 
         if self._is_academic_paper(text):
-            return self._preprocess_paper(text)
+            text = self._preprocess_paper(text)
+
+        # Format detected tables as Markdown for better LLM parsing
+        text = self._format_tables(text)
+
         return text
 
     def _is_academic_paper(self, text: str) -> bool:
@@ -84,27 +91,27 @@ class DocumentPreprocessor:
         text_lower = text.lower()
 
         # Check for abstract near the beginning (strong indicator)
-        if re.search(r'\babstract\b', text_lower[:2000]):
+        if re.search(r"\babstract\b", text_lower[:2000]):
             indicators += 2
 
         # Check for introduction near the beginning
-        if re.search(r'\bintroduction\b', text_lower[:5000]):
+        if re.search(r"\bintroduction\b", text_lower[:5000]):
             indicators += 1
 
         # Check for references/bibliography near the end (strong indicator)
-        if re.search(r'\breferences?\b|\bbibliography\b', text_lower[-5000:]):
+        if re.search(r"\breferences?\b|\bbibliography\b", text_lower[-5000:]):
             indicators += 2
 
         # Check for conclusion anywhere
-        if re.search(r'\bconclusion\b', text_lower):
+        if re.search(r"\bconclusion\b", text_lower):
             indicators += 1
 
         # Check for method/methodology section
-        if re.search(r'\bmethod(s|ology)?\b', text_lower):
+        if re.search(r"\bmethod(s|ology)?\b", text_lower):
             indicators += 1
 
         # Check for experiments/results section
-        if re.search(r'\bexperiment(s|al)?\b|\bresults?\b', text_lower):
+        if re.search(r"\bexperiment(s|al)?\b|\bresults?\b", text_lower):
             indicators += 1
 
         return indicators >= 4
@@ -141,7 +148,7 @@ class DocumentPreprocessor:
             if match:
                 # Only remove if this is near the end (last 30% of document)
                 if match.start() > len(text) * 0.7:
-                    return text[:match.start()].strip()
+                    return text[: match.start()].strip()
         return text
 
     def _remove_acknowledgments(self, text: str) -> str:
@@ -162,16 +169,29 @@ class DocumentPreprocessor:
             if match:
                 # Find the next section heading or end
                 next_section = re.search(
-                    r'(?im)^\s*(?:\d+\.?\s+)?[A-Z][a-z]+',
-                    text[match.end():]
+                    r"(?im)^\s*(?:\d+\.?\s+)?[A-Z][a-z]+", text[match.end() :]
                 )
                 if next_section:
                     end_pos = match.end() + next_section.start()
-                    text = text[:match.start()] + text[end_pos:]
+                    text = text[: match.start()] + text[end_pos:]
                 elif match.start() > len(text) * 0.8:
                     # Acknowledgments near end with no following section
-                    text = text[:match.start()]
+                    text = text[: match.start()]
         return text
+
+    def _format_tables(self, text: str) -> str:
+        """Detect plain-text tables and replace them with Markdown formatting."""
+        tables = self.table_detector.detect_tables(text)
+        if not tables:
+            return text
+
+        lines = text.split("\n")
+        # Process in reverse so earlier line numbers stay valid
+        for table in reversed(tables):
+            md = self.table_detector.format_as_markdown(table)
+            lines[table.start_line : table.end_line] = md.split("\n")
+
+        return "\n".join(lines)
 
     def get_stats(self, original: str, preprocessed: str) -> dict:
         """Get preprocessing statistics for debugging/monitoring.
@@ -186,7 +206,11 @@ class DocumentPreprocessor:
         """
         original_len = len(original)
         preprocessed_len = len(preprocessed)
-        reduction = (original_len - preprocessed_len) / original_len * 100 if original_len > 0 else 0
+        reduction = (
+            (original_len - preprocessed_len) / original_len * 100
+            if original_len > 0
+            else 0
+        )
 
         return {
             "original_length": original_len,

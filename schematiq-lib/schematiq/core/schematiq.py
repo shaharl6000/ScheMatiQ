@@ -37,6 +37,69 @@ from schematiq.core.prompts import (
 
 
 ##############################################################################
+# Controlled generation response schemas (Gemini only)                     #
+##############################################################################
+
+SCHEMA_DISCOVERY_RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "document_helpful": {"type": "BOOLEAN"},
+        "columns": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "name": {"type": "STRING"},
+                    "definition": {"type": "STRING"},
+                    "rationale": {"type": "STRING"},
+                    "allowed_values": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                    },
+                },
+                "required": ["name", "definition"],
+            },
+        },
+        "suggested_value_additions": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "column_name": {"type": "STRING"},
+                    "new_values": {
+                        "type": "ARRAY",
+                        "items": {"type": "STRING"},
+                    },
+                    "reason": {"type": "STRING"},
+                },
+                "required": ["column_name", "new_values"],
+            },
+        },
+    },
+    "required": ["columns"],
+}
+
+OBSERVATION_UNIT_RESPONSE_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+        "observation_unit": {
+            "type": "OBJECT",
+            "properties": {
+                "name": {"type": "STRING"},
+                "definition": {"type": "STRING"},
+                "example_names": {
+                    "type": "ARRAY",
+                    "items": {"type": "STRING"},
+                },
+            },
+            "required": ["name", "definition"],
+        },
+    },
+    "required": ["observation_unit"],
+}
+
+
+##############################################################################
 # Exceptions                                                               #
 ##############################################################################
 
@@ -318,7 +381,11 @@ def _discover_observation_unit(
     try:
         LLMCallTracker.get_instance().set_stage("observation_unit_discovery")
         task_tokens = llm.max_tokens_for_task("observation_unit_discovery")
-        llm_response = llm.generate(trimmed, max_output_tokens=task_tokens)
+        generate_kwargs = {"max_output_tokens": task_tokens}
+        if getattr(llm, '_provider', '') == 'gemini':
+            generate_kwargs["thinking_budget"] = 1024
+            generate_kwargs["response_schema"] = OBSERVATION_UNIT_RESPONSE_SCHEMA
+        llm_response = llm.generate(trimmed, **generate_kwargs)
         observation_unit = _parse_observation_unit_from_llm(llm_response)
 
         # Add source tracking
@@ -440,7 +507,11 @@ def generate_schema(
     trimmed = utils.fit_prompt(messages, truncate=True, context_window_size=context_window_size)
     LLMCallTracker.get_instance().set_stage("schema_discovery")
     task_tokens = llm.max_tokens_for_task("schema_discovery")
-    llm_response = llm.generate(trimmed, max_output_tokens=task_tokens)
+    generate_kwargs = {"max_output_tokens": task_tokens}
+    if getattr(llm, '_provider', '') == 'gemini':
+        generate_kwargs["thinking_budget"] = 2048
+        generate_kwargs["response_schema"] = SCHEMA_DISCOVERY_RESPONSE_SCHEMA
+    llm_response = llm.generate(trimmed, **generate_kwargs)
 
     # For query-only mode, document_helpful doesn't apply
     schema, document_helpful, suggested_value_additions = _parse_schema_from_llm(
