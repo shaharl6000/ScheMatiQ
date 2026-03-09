@@ -118,6 +118,24 @@ export const LLM_MODELS: LLMModelDefinition[] = [
     speed: 'moderate',
     contextWindow: 1000000,
   },
+  {
+    id: 'gemini-3.1-flash-lite-preview',
+    provider: 'gemini',
+    label: 'Gemini 3.1 Flash Lite (Preview)',
+    description: '2.5x faster than 2.5 Flash, best value',
+    cost: 'low',
+    speed: 'very_fast',
+    contextWindow: 1000000,
+  },
+  {
+    id: 'gemini-3.1-pro-preview',
+    provider: 'gemini',
+    label: 'Gemini 3.1 Pro (Preview)',
+    description: 'Most capable reasoning model',
+    cost: 'high',
+    speed: 'moderate',
+    contextWindow: 1000000,
+  },
   // Together AI Models
   // Add models here when available
 ];

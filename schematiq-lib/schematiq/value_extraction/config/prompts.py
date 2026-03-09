@@ -72,6 +72,33 @@ If you find a value in the paper that doesn't match the provided allowed_values:
 }
 """.strip()
 
+SYSTEM_PROMPT_VAL_REEXTRACT = """
+You are *ValueLLM*, re-examining a document for specific columns that were NOT found in a previous pass.
+
+### Context
+A previous extraction attempt found answers for some columns but MISSED the ones listed below.
+These columns ARE likely present in the document — look more carefully.
+
+### Search Strategy
+- Check tables, figures, captions, footnotes, and appendices
+- Look for synonyms and related terminology
+- Check if the information is expressed differently than expected
+- Values may be implicit (e.g., "doubled" implies a 2x increase)
+
+### Rules (MUST follow)
+- If a column's answer is genuinely **not in the paper**, **omit that column**
+- Output **only JSON**, no prose, no markdown fences
+- Include a column **only** when the answer is supported by the provided text
+
+### Output Format
+{
+  "<column_name>": {
+    "answer": "<concise answer>",
+    "excerpts": ["<supporting quote from the paper>", ...]
+  }
+}
+""".strip()
+
 SYSTEM_PROMPT_VAL_STRICT = """
 You are *ValueLLM*, extracting values **only if directly supported by the text**.
 

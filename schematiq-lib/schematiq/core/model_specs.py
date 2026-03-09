@@ -32,6 +32,8 @@ MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
         "gemini-2.5-pro": ModelSpec(1_048_576, 65_535),
         "gemini-3-flash-preview": ModelSpec(1_000_000, 64_000),
         "gemini-3-pro-preview": ModelSpec(1_000_000, 64_000),
+        "gemini-3.1-flash-lite-preview": ModelSpec(1_000_000, 64_000),
+        "gemini-3.1-pro-preview": ModelSpec(1_000_000, 64_000),
         "_default": ModelSpec(1_000_000, 32_000),
     },
     "openai": {

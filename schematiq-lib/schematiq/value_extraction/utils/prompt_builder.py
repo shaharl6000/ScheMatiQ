@@ -8,17 +8,20 @@ from ..config.prompts import SYSTEM_PROMPT_VAL, SYSTEM_PROMPT_VAL_STRICT
 
 class PromptBuilder:
     """Builds prompts for value extraction LLM calls."""
-    
+
     def __init__(self):
         pass
-    
-    def build_val_messages(self, query: str,
-                          paper_title: str,
-                          paper_text: str,
-                          columns: List[Column],
-                          mode: str = "all",
-                          *,
-                          strict: bool = False) -> List[Dict[str, str]]:
+
+    def build_val_messages(
+        self,
+        query: str,
+        paper_title: str,
+        paper_text: str,
+        columns: List[Column],
+        mode: str = "all",
+        *,
+        strict: bool = False,
+    ) -> List[Dict[str, str]]:
         """
         Build messages for value extraction LLM calls.
 
@@ -31,7 +34,7 @@ class PromptBuilder:
             col = columns[0]
             # Build allowed_values line if present
             allowed_values_line = ""
-            if col.get('allowed_values'):
+            if col.get("allowed_values"):
                 allowed_values_line = f"\nallowed_values: {col['allowed_values']}"
             col_block = f"""
             <REQUESTED_COLUMN>
@@ -43,7 +46,7 @@ class PromptBuilder:
             col_specs = []
             for c in columns:
                 spec = f"- **{c['column']}**: {c['definition']}"
-                if c.get('allowed_values'):
+                if c.get("allowed_values"):
                     spec += f" (allowed values: {', '.join(c['allowed_values'])})"
                 col_specs.append(spec)
             col_block = f"""
@@ -69,7 +72,17 @@ class PromptBuilder:
             """.strip()
 
         system = SYSTEM_PROMPT_VAL_STRICT if strict else SYSTEM_PROMPT_VAL
+
+        # Table-aware prompting: if the document contains Markdown tables,
+        # add a hint so the LLM parses them correctly.
+        if "|---" in paper_text or "| ---" in paper_text:
+            system += (
+                "\n\nNote: Tables in the document are formatted as Markdown "
+                "tables with | delimiters. Pay close attention to table "
+                "headers and cell values when extracting data."
+            )
+
         return [
             {"role": "system", "content": system},
-            {"role": "user",   "content": user_prompt},
+            {"role": "user", "content": user_prompt},
         ]

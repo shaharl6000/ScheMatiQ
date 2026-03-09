@@ -481,11 +481,13 @@ class GeminiLLM(LLMInterface):
         max_output_tokens: Optional[int] = None,
         temperature: float = 0.3,
         context_window_size: Optional[int] = None,
+        system_prefix: str | None = None,
         **backend_kwargs,
     ):
         super().__init__(**backend_kwargs)
         self.model = model
         self.temperature = temperature
+        self.system_prefix = system_prefix
 
         # Auto-detect token limits from model specs
         spec = get_model_spec("gemini", model)
@@ -584,31 +586,59 @@ class GeminiLLM(LLMInterface):
         ----
         prompt : str | list[dict]
             • str  – plain prompt
-            • list – chat-style messages (converted to plain prompt)
+            • list – chat-style messages with role/content pairs.
+              System messages are extracted as system_instruction,
+              user/assistant messages become the prompt content.
+        **kwargs:
+            thinking_budget : int | None – Gemini thinking budget (0 = no thinking)
+            response_schema : dict | None – Gemini controlled generation schema
+            max_output_tokens : int | None – override max output tokens
+            temperature : float | None – override temperature
         """
         # Calculate prompt length for tracking
         prompt_len = sum(len(m.get("content", "")) for m in (prompt if isinstance(prompt, list) else [{"content": prompt}]))
 
-        # Convert chat messages to plain text if needed
+        # Separate system instructions from user content when messages are provided
+        system_instruction = None
         if isinstance(prompt, list):
-            prompt_text = "\n".join([f"{m['role']}: {m['content']}" for m in prompt])
+            system_parts = [m["content"] for m in prompt if m["role"] == "system"]
+            user_parts = [m["content"] for m in prompt if m["role"] != "system"]
+            if system_parts:
+                system_instruction = "\n\n".join(system_parts)
+            prompt_text = "\n\n".join(user_parts)
         else:
             prompt_text = prompt
+
+        # Prepend system_prefix if configured
+        if self.system_prefix:
+            if system_instruction:
+                system_instruction = f"{self.system_prefix}\n\n{system_instruction}"
+            else:
+                system_instruction = self.system_prefix
 
         # Log prompt size for performance correlation
         print(f"🚀 Starting Gemini API call (model: {self.model}, prompt: ~{len(prompt_text):,} chars)")
         start_time = time.time()
 
-        # Add scientific context to help with safety filtering
-        scientific_context = "Context: This is a scientific research task about cellular biology and protein sequences. Terms like 'nuclear' refer to cell nuclei (the cellular organelle), not weapons or harmful content."
-        prompt_text = f"{scientific_context}\n\n{prompt_text}"
-
         # Build generation config using new SDK types
-        config = self.types.GenerateContentConfig(
-            max_output_tokens=kwargs.get("max_output_tokens", self.max_output_tokens),
-            temperature=kwargs.get("temperature", self.temperature),
-            safety_settings=self.safety_settings,
-        )
+        config_kwargs = {
+            "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
+            "temperature": kwargs.get("temperature", self.temperature),
+            "safety_settings": self.safety_settings,
+        }
+        # Add system instruction
+        if system_instruction:
+            config_kwargs["system_instruction"] = system_instruction
+        # Add controlled generation if response_schema provided
+        if kwargs.get("response_schema") is not None:
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_schema"] = kwargs["response_schema"]
+        # Add thinking budget if specified
+        if kwargs.get("thinking_budget") is not None:
+            config_kwargs["thinking_config"] = self.types.ThinkingConfig(
+                thinking_budget=kwargs["thinking_budget"]
+            )
+        config = self.types.GenerateContentConfig(**config_kwargs)
 
         # Retry logic (3 retries like OpenAI/Together)
         max_retries = 3
@@ -696,5 +726,128 @@ class GeminiLLM(LLMInterface):
                     # Not a retryable error, don't retry
                     break
 
-        # Re-raise the last exception
+        # Re-raise the last exception (GeminiLLM.generate)
+        raise last_exception
+
+    # ── Context Caching ──────────────────────────────────────────────
+
+    def create_context_cache(self, system_instruction: str, document_text: str, ttl_seconds: int = 1800):
+        """Create a context cache for system prompt + document.
+
+        Returns cache object or None on failure.
+        Requires minimum ~1,024 tokens of cached content for Flash models.
+        """
+        try:
+            cache = self._client.caches.create(
+                model=self.model,
+                config=self.types.CreateCachedContentConfig(
+                    system_instruction=system_instruction,
+                    contents=[document_text],
+                    ttl=f"{ttl_seconds}s",
+                )
+            )
+            return cache
+        except Exception as e:
+            print(f"Context cache creation failed: {e}. Proceeding without cache.")
+            return None
+
+    def delete_context_cache(self, cache):
+        """Delete a context cache. Best-effort cleanup."""
+        try:
+            if cache:
+                self._client.caches.delete(name=cache.name)
+        except Exception:
+            pass
+
+    def generate_with_cache(self, prompt: str, cache, **kwargs) -> str:
+        """Generate using a cached context. Falls back to regular generate if cache is None."""
+        if cache is None:
+            return self.generate(prompt, **kwargs)
+
+        prompt_len = len(prompt) if isinstance(prompt, str) else sum(
+            len(m.get("content", "")) for m in prompt
+        )
+
+        # When using cache, prompt should be plain text (user query part only)
+        if isinstance(prompt, list):
+            prompt_text = "\n\n".join(
+                m["content"] for m in prompt if m["role"] != "system"
+            )
+        else:
+            prompt_text = prompt
+
+        print(f"🚀 Starting Gemini cached API call (model: {self.model}, prompt: ~{len(prompt_text):,} chars)")
+        start_time = time.time()
+
+        config_kwargs = {
+            "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
+            "temperature": kwargs.get("temperature", self.temperature),
+            "safety_settings": self.safety_settings,
+            "cached_content": cache.name,
+        }
+        if kwargs.get("response_schema") is not None:
+            config_kwargs["response_mime_type"] = "application/json"
+            config_kwargs["response_schema"] = kwargs["response_schema"]
+        if kwargs.get("thinking_budget") is not None:
+            config_kwargs["thinking_config"] = self.types.ThinkingConfig(
+                thinking_budget=kwargs["thinking_budget"]
+            )
+        config = self.types.GenerateContentConfig(**config_kwargs)
+
+        max_retries = 3
+        last_exception = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                response = self._client.models.generate_content(
+                    model=self.model,
+                    contents=prompt_text,
+                    config=config,
+                )
+
+                elapsed = time.time() - start_time
+                print(f"⏱️  Gemini cached API call completed in {elapsed:.1f}s")
+
+                if not response.candidates:
+                    return "No response generated due to safety filters or other restrictions."
+
+                candidate = response.candidates[0]
+                if not candidate.content or not candidate.content.parts:
+                    return "Empty response from Gemini."
+
+                content = response.text.strip()
+
+                LLMCallTracker.get_instance().increment(
+                    model=self.model,
+                    prompt_length=prompt_len,
+                    completion_length=len(content)
+                )
+                return content
+
+            except Exception as e:
+                error_str = str(e)
+                last_exception = e
+                elapsed = time.time() - start_time
+                print(f"⚠️  Gemini cached call failed after {elapsed:.1f}s: {str(e)[:100]}")
+
+                if "Invalid operation" in error_str and "finish_reason" in error_str:
+                    return "Response blocked by Gemini safety filters."
+                if _is_invalid_api_key_error(error_str):
+                    raise
+                if _is_rate_limit_error(error_str):
+                    if attempt < max_retries:
+                        wait_time = _extract_wait_time(error_str)
+                        print(f"Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                elif _is_server_overloaded_error(error_str):
+                    if attempt < max_retries:
+                        wait_time = 10 + random.randint(5, 15)
+                        print(f"Server overloaded (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
+                else:
+                    break
+
+        # Re-raise the last exception (GeminiLLM.generate_with_cache)
         raise last_exception
