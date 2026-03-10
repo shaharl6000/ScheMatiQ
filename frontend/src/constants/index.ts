@@ -49,6 +49,7 @@ export const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB in bytes
 export const DEFAULT_MAX_KEYS_SCHEMA = 25;
 export const DEFAULT_DOCUMENTS_BATCH_SIZE = 1;
 export const DEFAULT_DOCUMENT_RANDOMIZATION_SEED = 42;
+export const DEFAULT_CONVERGENCE_THRESHOLD = 5;
 
 // Document Upload Limits (Public Release)
 export const DEFAULT_MAX_DOCUMENTS = 40;

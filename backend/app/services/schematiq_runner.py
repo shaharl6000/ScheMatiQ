@@ -323,6 +323,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             "output_path": str(session_dir / "discovered_schema.json"),
             "document_randomization_seed": config.document_randomization_seed,
             "skip_value_extraction": config.skip_value_extraction,
+            "convergence_threshold": config.convergence_threshold,
             "schema_creation_backend": {
                 "provider": config.schema_creation_backend.provider,
                 "model": config.schema_creation_backend.model,
@@ -1349,7 +1350,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         # Calculate iterations based on document batching
         batch_size = schematiq_config.get("documents_batch_size", 1)
         max_iterations = math.ceil(len(documents) / batch_size) if documents else 1
-        convergence_threshold = 5  # Stop if schema doesn't change for 5 consecutive batches
+        convergence_threshold = schematiq_config.get("convergence_threshold") or 5
         unchanged_count = 0
 
         # Create document batches
