@@ -62,6 +62,7 @@ import {
   DEFAULT_MAX_KEYS_SCHEMA,
   DEFAULT_DOCUMENTS_BATCH_SIZE,
   DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
+  DEFAULT_CONVERGENCE_THRESHOLD,
 } from '../constants';
 
 const DEFAULT_CONFIG: ScheMatiQConfig = {
@@ -76,7 +77,7 @@ const DEFAULT_CONFIG: ScheMatiQConfig = {
   },
   value_extraction_backend: {
     provider: 'gemini',
-    model: 'gemini-2.5-flash-lite',
+    model: 'gemini-3.1-flash-lite-preview',
     temperature: 0,
   },
   output_path: 'outputs/visualization_output.json',
@@ -325,6 +326,7 @@ const ScheMatiQConfigPage = () => {
       max_keys_schema: restoredConfig.max_keys_schema ?? DEFAULT_MAX_KEYS_SCHEMA,
       documents_batch_size: restoredConfig.documents_batch_size ?? DEFAULT_DOCUMENTS_BATCH_SIZE,
       document_randomization_seed: restoredConfig.document_randomization_seed ?? DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
+      convergence_threshold: restoredConfig.convergence_threshold,
       skip_value_extraction: restoredConfig.skip_value_extraction ?? false,
       schema_creation_backend: restoredConfig.schema_creation_backend || prev.schema_creation_backend,
       value_extraction_backend: restoredConfig.value_extraction_backend || prev.value_extraction_backend,
@@ -361,6 +363,7 @@ const ScheMatiQConfigPage = () => {
       (restoredConfig.max_keys_schema ?? DEFAULT_MAX_KEYS_SCHEMA) !== DEFAULT_MAX_KEYS_SCHEMA ||
       (restoredConfig.documents_batch_size ?? DEFAULT_DOCUMENTS_BATCH_SIZE) !== DEFAULT_DOCUMENTS_BATCH_SIZE ||
       (restoredConfig.document_randomization_seed ?? DEFAULT_DOCUMENT_RANDOMIZATION_SEED) !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED ||
+      (restoredConfig.convergence_threshold != null && restoredConfig.convergence_threshold !== DEFAULT_CONVERGENCE_THRESHOLD) ||
       restoredConfig.initial_observation_unit ||
       (restoredConfig.schema_creation_backend &&
         ((restoredConfig.schema_creation_backend.provider ?? DEFAULT_CONFIG.schema_creation_backend.provider) !== DEFAULT_CONFIG.schema_creation_backend.provider ||
@@ -650,6 +653,7 @@ const ScheMatiQConfigPage = () => {
     if (config.max_keys_schema !== DEFAULT_MAX_KEYS_SCHEMA) return true;
     if (config.documents_batch_size !== DEFAULT_DOCUMENTS_BATCH_SIZE) return true;
     if (config.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED) return true;
+    if (config.convergence_threshold != null && config.convergence_threshold !== DEFAULT_CONVERGENCE_THRESHOLD) return true;
     if (config.skip_value_extraction) return true;
     if (config.schema_creation_backend.provider !== DEFAULT_CONFIG.schema_creation_backend.provider ||
         config.schema_creation_backend.model !== DEFAULT_CONFIG.schema_creation_backend.model ||
@@ -684,7 +688,8 @@ const ScheMatiQConfigPage = () => {
     if (observationUnitMode !== 'auto') parts.push('Custom unit');
     if (config.max_keys_schema !== DEFAULT_MAX_KEYS_SCHEMA ||
         config.documents_batch_size !== DEFAULT_DOCUMENTS_BATCH_SIZE ||
-        config.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED) {
+        config.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED ||
+        (config.convergence_threshold != null && config.convergence_threshold !== DEFAULT_CONVERGENCE_THRESHOLD)) {
       parts.push('Custom params');
     }
     if (allowLlmConfig && (
@@ -694,7 +699,7 @@ const ScheMatiQConfigPage = () => {
     if (config.retriever) parts.push('Custom retriever');
     if (limitBypassEnabled) parts.push('Bypass enabled');
     return parts;
-  }, [initialSchemaData, initialSchemaPath, observationUnitMode, config.max_keys_schema, config.documents_batch_size, config.document_randomization_seed, config.schema_creation_backend.provider, config.schema_creation_backend.model, config.retriever, allowLlmConfig, limitBypassEnabled]);
+  }, [initialSchemaData, initialSchemaPath, observationUnitMode, config.max_keys_schema, config.documents_batch_size, config.document_randomization_seed, config.convergence_threshold, config.schema_creation_backend.provider, config.schema_creation_backend.model, config.retriever, allowLlmConfig, limitBypassEnabled]);
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -1066,15 +1071,31 @@ const ScheMatiQConfigPage = () => {
                       />
                     </div>
                     {developerMode && (
-                      <div className="space-y-1">
-                        <Label htmlFor="seed" className="text-xs text-muted-foreground">Seed</Label>
-                        <Input
-                          id="seed"
-                          type="number"
-                          value={config.document_randomization_seed}
-                          onChange={(e) => handleConfigChange('document_randomization_seed', parseInt(e.target.value))}
-                        />
-                      </div>
+                      <>
+                        <div className="space-y-1">
+                          <Label htmlFor="seed" className="text-xs text-muted-foreground">Seed</Label>
+                          <Input
+                            id="seed"
+                            type="number"
+                            value={config.document_randomization_seed}
+                            onChange={(e) => handleConfigChange('document_randomization_seed', parseInt(e.target.value))}
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <Label htmlFor="convergence_threshold" className="text-xs text-muted-foreground inline-flex items-center gap-1">
+                            Convergence Threshold
+                            <InfoTooltip text="Number of consecutive batches without schema change needed to stop discovery." />
+                          </Label>
+                          <Input
+                            id="convergence_threshold"
+                            type="number"
+                            value={config.convergence_threshold ?? 5}
+                            onChange={(e) => handleConfigChange('convergence_threshold', parseInt(e.target.value))}
+                            min={1}
+                            max={20}
+                          />
+                        </div>
+                      </>
                     )}
                   </div>
                 </div>
