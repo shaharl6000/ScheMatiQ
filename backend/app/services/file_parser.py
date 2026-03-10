@@ -802,7 +802,7 @@ class FileParser:
             result["observation_unit"] = observation_unit
 
         # Include extracted_metadata for complete export format (same structure as CSV path)
-        if metadata_info.get("query") or metadata_info.get("llm_config"):
+        if metadata_info.get("query") or metadata_info.get("llm_config") or metadata_info.get("cloud_dataset"):
             result["extracted_metadata"] = {
                 "query": metadata_info.get("query"),
                 "llm_config": metadata_info.get("llm_config"),

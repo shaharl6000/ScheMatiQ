@@ -229,8 +229,21 @@ class SupabaseStorageBackend(StorageInterface):
         """
         try:
             storage_folder = self._get_storage_path(bucket, folder)
-            files = self.client.storage.from_(bucket).list(storage_folder or None)
-            return {f["name"] for f in files if f.get("name")}
+            result = set()
+            offset = 0
+            page_size = 1000
+            while True:
+                files = self.client.storage.from_(bucket).list(
+                    storage_folder or None,
+                    {"limit": page_size, "offset": offset},
+                )
+                if not files:
+                    break
+                result.update(f["name"] for f in files if f.get("name"))
+                if len(files) < page_size:
+                    break
+                offset += page_size
+            return result
         except Exception as e:
             print(f"Error listing folder {bucket}/{folder}: {e}")
             return set()
@@ -240,11 +253,24 @@ class SupabaseStorageBackend(StorageInterface):
         try:
             storage_prefix = self._get_storage_path(bucket, prefix)
 
-            # List files in the prefix directory
-            files = self.client.storage.from_(bucket).list(storage_prefix or None)
+            # Paginate to get all files (default limit is 100)
+            all_entries = []
+            offset = 0
+            page_size = 1000
+            while True:
+                files = self.client.storage.from_(bucket).list(
+                    storage_prefix or None,
+                    {"limit": page_size, "offset": offset},
+                )
+                if not files:
+                    break
+                all_entries.extend(files)
+                if len(files) < page_size:
+                    break
+                offset += page_size
 
             result = []
-            for f in files:
+            for f in all_entries:
                 if f.get("id"):  # It's a file, not a folder
                     file_path = f"{storage_prefix}/{f['name']}" if storage_prefix else f["name"]
                     result.append(file_path)

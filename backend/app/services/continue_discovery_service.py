@@ -187,6 +187,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             'D:\\',            # Windows paths
             './',              # Relative paths
             '../',             # Relative paths
+            'schematiq_work/', # Local ScheMatiQ working directory
+            'qbsd_work/',      # Legacy QBSD working directory
         ]
 
         for indicator in local_indicators:
