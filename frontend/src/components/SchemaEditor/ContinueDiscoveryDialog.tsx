@@ -45,7 +45,13 @@ import {
   getAvailableProviders,
   LLM_PROVIDER_NAMES,
 } from '@/constants/llmModels';
-import { DEFAULT_MAX_DOCUMENTS } from '@/constants';
+import {
+  DEFAULT_MAX_DOCUMENTS,
+  DEFAULT_MAX_KEYS_SCHEMA,
+  DEFAULT_DOCUMENTS_BATCH_SIZE,
+  DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
+  DEFAULT_CONVERGENCE_THRESHOLD,
+} from '@/constants';
 
 type DialogStep = 'documents' | 'llm_config' | 'discovery' | 'review' | 'extraction' | 'no_new_columns';
 
@@ -94,7 +100,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [configuredProviders, setConfiguredProviders] = useState<LLMProviderKey[]>([]);
   const [extractionProvider, setExtractionProvider] = useState<LLMProviderKey>('gemini');
-  const [extractionModel, setExtractionModel] = useState('gemini-2.5-flash-lite');
+  const [extractionModel, setExtractionModel] = useState('gemini-3.1-flash-lite-preview');
   const [allowLlmConfig, setAllowLlmConfig] = useState(false);
 
   // Server API key state
@@ -115,6 +121,14 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     dynamic_k_threshold: '',
     dynamic_k_minimum: ''
   });
+
+  // Advanced settings state
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [maxKeysSchema, setMaxKeysSchema] = useState(DEFAULT_MAX_KEYS_SCHEMA);
+  const [documentsBatchSize, setDocumentsBatchSize] = useState(DEFAULT_DOCUMENTS_BATCH_SIZE);
+  const [convergenceThreshold, setConvergenceThreshold] = useState(DEFAULT_CONVERGENCE_THRESHOLD);
+  const [documentRandomizationSeed, setDocumentRandomizationSeed] = useState(DEFAULT_DOCUMENT_RANDOMIZATION_SEED);
+  const [skipValueExtraction, setSkipValueExtraction] = useState(false);
 
   // Discovery state
   const [operationId, setOperationId] = useState<string | null>(null);
@@ -237,7 +251,13 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       });
       setShowModelSettings(false);
       setExtractionProvider('gemini');
-      setExtractionModel('gemini-2.5-flash-lite');
+      setExtractionModel('gemini-3.1-flash-lite-preview');
+      setShowAdvancedSettings(false);
+      setMaxKeysSchema(DEFAULT_MAX_KEYS_SCHEMA);
+      setDocumentsBatchSize(DEFAULT_DOCUMENTS_BATCH_SIZE);
+      setConvergenceThreshold(DEFAULT_CONVERGENCE_THRESHOLD);
+      setDocumentRandomizationSeed(DEFAULT_DOCUMENT_RANDOMIZATION_SEED);
+      setSkipValueExtraction(false);
       setDocumentAvailability(null);
       setCheckingAvailability(false);
       setLimitBypassEnabled(false);
@@ -356,8 +376,11 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           dynamic_k_threshold: retrieverConfig.dynamic_k_threshold ? parseFloat(retrieverConfig.dynamic_k_threshold) : undefined,
           dynamic_k_minimum: retrieverConfig.dynamic_k_minimum ? parseInt(retrieverConfig.dynamic_k_minimum) : undefined
         } : undefined,
-        max_keys_schema: 25,
-        documents_batch_size: 1,
+        max_keys_schema: maxKeysSchema,
+        documents_batch_size: documentsBatchSize,
+        convergence_threshold: convergenceThreshold !== DEFAULT_CONVERGENCE_THRESHOLD ? convergenceThreshold : undefined,
+        document_randomization_seed: documentRandomizationSeed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED ? documentRandomizationSeed : undefined,
+        skip_value_extraction: skipValueExtraction,
         bypass_limit: limitBypassEnabled
       });
 
@@ -528,6 +551,27 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
     // Note: isStopping is cleared when poll detects 'stopped' status and closes dialog
   };
 
+  const handleAddColumnsOnly = () => {
+    if (selectedNewColumns.size === 0) {
+      onError('Please select at least one column');
+      return;
+    }
+
+    const addedColumns: ColumnInfo[] = newColumns
+      .filter(nc => selectedNewColumns.has(nc.name))
+      .map(nc => ({
+        name: nc.name,
+        definition: nc.definition,
+        rationale: nc.rationale,
+        allowed_values: nc.allowed_values,
+        source_document: nc.source_document,
+        discovery_iteration: nc.discovery_iteration
+      }));
+
+    onSuccess(`Added ${addedColumns.length} new column${addedColumns.length !== 1 ? 's' : ''} (without extraction).`, addedColumns);
+    onClose();
+  };
+
   const handleColumnToggle = (columnName: string, checked: boolean) => {
     const newSet = new Set(selectedNewColumns);
     if (checked) {
@@ -656,6 +700,82 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
               <Switch checked={limitBypassEnabled} onCheckedChange={setLimitBypassEnabled} />
             </div>
           )}
+
+          {/* Advanced Settings */}
+          <Collapsible open={showAdvancedSettings} onOpenChange={setShowAdvancedSettings}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" className="w-full justify-start p-0 h-auto hover:bg-transparent">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {showAdvancedSettings ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                  <Settings className="h-4 w-4" />
+                  <span>Advanced Settings</span>
+                </div>
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-3 space-y-3">
+              {/* Schema Only Mode */}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="cd-schema-only"
+                  checked={skipValueExtraction}
+                  onCheckedChange={(checked) => setSkipValueExtraction(checked as boolean)}
+                />
+                <Label htmlFor="cd-schema-only" className="text-sm cursor-pointer">
+                  Discover columns only (skip data extraction)
+                </Label>
+              </div>
+
+              {/* Schema Parameters */}
+              <div className="grid grid-cols-2 gap-3 p-3 border rounded-lg bg-muted/30">
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Max Columns</Label>
+                  <Input
+                    type="number"
+                    value={maxKeysSchema}
+                    onChange={(e) => setMaxKeysSchema(parseInt(e.target.value) || DEFAULT_MAX_KEYS_SCHEMA)}
+                    min={1}
+                    max={500}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs text-muted-foreground">Batch Size</Label>
+                  <Input
+                    type="number"
+                    value={documentsBatchSize}
+                    onChange={(e) => setDocumentsBatchSize(parseInt(e.target.value) || DEFAULT_DOCUMENTS_BATCH_SIZE)}
+                    min={1}
+                    max={20}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                {developerMode && (
+                  <>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Seed</Label>
+                      <Input
+                        type="number"
+                        value={documentRandomizationSeed}
+                        onChange={(e) => setDocumentRandomizationSeed(parseInt(e.target.value) || DEFAULT_DOCUMENT_RANDOMIZATION_SEED)}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Convergence Threshold</Label>
+                      <Input
+                        type="number"
+                        value={convergenceThreshold}
+                        onChange={(e) => setConvergenceThreshold(parseInt(e.target.value) || DEFAULT_CONVERGENCE_THRESHOLD)}
+                        min={1}
+                        max={20}
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       )}
 
@@ -1024,16 +1144,19 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
           <Info className="h-4 w-4" />
           <AlertDescription>
             <strong>{selectedNewColumns.size} column{selectedNewColumns.size !== 1 ? 's' : ''}</strong> will be added
-            and values will be extracted for all rows.
+            {skipValueExtraction ? ' without extracting values.' : ' and values will be extracted for all rows.'}
           </AlertDescription>
         </Alert>
       </div>
 
       <DialogFooter>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
-        <Button onClick={handleConfirmColumns} disabled={selectedNewColumns.size === 0 || loading}>
+        <Button
+          onClick={skipValueExtraction ? handleAddColumnsOnly : handleConfirmColumns}
+          disabled={selectedNewColumns.size === 0 || loading}
+        >
           {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-          Start Extraction
+          {skipValueExtraction ? 'Add Columns' : 'Start Extraction'}
         </Button>
       </DialogFooter>
     </>

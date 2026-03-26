@@ -590,7 +590,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         document_source: str,
         cloud_dataset: Optional[str] = None,
         uploaded_files: Optional[List[str]] = None,
-        bypass_limit: bool = False
+        bypass_limit: bool = False,
+        document_randomization_seed: int = 42
     ) -> tuple[Path, List[str], List[str]]:
         """
         Prepare documents for schema discovery.
@@ -649,22 +650,21 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             storage = get_storage()
             try:
                 files = await storage.list_files('datasets', cloud_dataset)
-                for file_info in files:
-                    if not file_info.get('is_folder', False):
-                        file_path = f"{cloud_dataset}/{file_info['name']}"
-                        content = await storage.download_file('datasets', file_path)
-                        if content:
-                            # Save locally
-                            local_path = docs_dir / file_info['name']
-                            local_path.write_bytes(content)
+                for file_path in files:
+                    filename = file_path.rsplit('/', 1)[-1]
+                    content = await storage.download_file('datasets', file_path)
+                    if content:
+                        # Save locally
+                        local_path = docs_dir / filename
+                        local_path.write_bytes(content)
 
-                            # Add to documents list
-                            try:
-                                text_content = content.decode('utf-8')
-                                documents.append(text_content)
-                                filenames.append(file_info['name'])
-                            except UnicodeDecodeError:
-                                logger.debug(f"Could not decode {file_info['name']} as UTF-8")
+                        # Add to documents list
+                        try:
+                            text_content = content.decode('utf-8')
+                            documents.append(text_content)
+                            filenames.append(filename)
+                        except UnicodeDecodeError:
+                            logger.debug(f"Could not decode {filename} as UTF-8")
             except Exception as e:
                 logger.error(f"Error downloading cloud documents: {e}")
                 raise
@@ -721,7 +721,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             import random
             original_count = len(documents)
             combined = list(zip(documents, filenames))
-            rng = random.Random(42)  # deterministic sampling for reproducibility
+            rng = random.Random(document_randomization_seed)  # deterministic sampling for reproducibility
             rng.shuffle(combined)
             combined = combined[:MAX_DOCUMENTS]
             documents, filenames = zip(*combined) if combined else ([], [])
@@ -785,6 +785,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         retriever_config: Optional[Dict[str, Any]] = None,
         max_keys_schema: int = 100,
         documents_batch_size: int = 1,
+        convergence_threshold: Optional[int] = None,
+        document_randomization_seed: Optional[int] = None,
+        skip_value_extraction: bool = False,
         bypass_limit: bool = False
     ) -> Dict[str, Any]:
         """
@@ -798,6 +801,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             retriever_config: Retriever configuration (None = use defaults)
             max_keys_schema: Maximum schema columns
             documents_batch_size: Documents per batch
+            convergence_threshold: Batches without change to stop (None = default 2)
+            document_randomization_seed: Seed for document sampling (None = default 42)
+            skip_value_extraction: If True, discover columns only without extraction
             bypass_limit: Developer mode flag to bypass document limit
 
         Returns:
@@ -838,6 +844,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             "retriever_config": retriever_config,
             "max_keys_schema": max_keys_schema,
             "documents_batch_size": documents_batch_size,
+            "convergence_threshold": convergence_threshold,
+            "document_randomization_seed": document_randomization_seed,
+            "skip_value_extraction": skip_value_extraction,
             "query": session.schema_query or "",
             "bypass_limit": bypass_limit
         }
@@ -909,7 +918,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 config["document_source"],
                 config.get("cloud_dataset"),
                 uploaded_files=config.get("uploaded_files"),
-                bypass_limit=config.get("bypass_limit", False)
+                bypass_limit=config.get("bypass_limit", False),
+                document_randomization_seed=config.get("document_randomization_seed") or 42
             )
 
             operation.total_documents = len(documents)
@@ -975,7 +985,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Initialize tracking
             current_schema = initial_schema
             context_window_size = llm_config.get("context_window_size") or getattr(llm, 'context_window_size', 8192)
-            convergence_threshold = 2
+            convergence_threshold = config.get("convergence_threshold") or 2
             unchanged_count = 0
             evolution = SchemaEvolution()
             cumulative_docs = 0

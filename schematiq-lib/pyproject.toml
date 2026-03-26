@@ -43,6 +43,13 @@ dev = [
     "black",
     "ruff",
 ]
+scripts = [
+    "pymupdf4llm",
+    "playwright",
+    "aiofiles",
+    "beautifulsoup4",
+    "tqdm",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

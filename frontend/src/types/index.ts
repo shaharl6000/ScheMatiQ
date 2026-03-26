@@ -720,6 +720,9 @@ export interface ContinueDiscoveryRequest {
   };
   max_keys_schema?: number;
   documents_batch_size?: number;
+  convergence_threshold?: number;
+  document_randomization_seed?: number;
+  skip_value_extraction?: boolean;
   bypass_limit?: boolean;
 }
 

@@ -522,10 +522,11 @@ export const cloudAPI = {
     added_files: string[];
     errors?: string[];
   }> => {
+    const timeoutMs = Math.max(30000, files.length * 1000);
     const response = await api.post(`/load/add-cloud-documents/${sessionId}`, {
       dataset,
       files
-    });
+    }, { timeout: timeoutMs });
     return response.data;
   },
 
