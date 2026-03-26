@@ -1283,6 +1283,22 @@ function formatCellValue(
     }
   }
 
+  // Render URL values as clickable links directly in the cell
+  if (/^https?:\/\/\S+$/.test(displayStr)) {
+    return (
+      <a
+        href={displayStr}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300 break-all leading-relaxed"
+        title={displayStr}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {displayStr.length > 50 ? displayStr.slice(0, 50) + '...' : displayStr}
+      </a>
+    );
+  }
+
   // Handle string values - check for excerpt column or long text
   if (hasExcerptColumn || displayStr.length > 100) {
     const modalExcerpts = hasExcerptColumn ? getExcerptsFromColumn() : [];

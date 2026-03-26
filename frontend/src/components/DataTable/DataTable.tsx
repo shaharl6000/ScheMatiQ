@@ -849,9 +849,21 @@ const DataTable: React.FC<DataTableProps> = ({
   };
 
   const handleViewContent = (columnName: string, content: CellValue, row?: DataRow) => {
+    // For external_source cells without excerpts, add source attribution
+    let enrichedContent = content;
+    if (row?._cell_status?.[columnName] === 'external_source') {
+      const hasExcerpts = typeof content === 'object' && content !== null && 'excerpts' in content;
+      if (!hasExcerpts) {
+        enrichedContent = {
+          answer: content,
+          excerpts: [{ text: `Value retrieved from UniProt database.`, source: 'UniProt' }],
+        } as CellValue;
+      }
+    }
+
     setModalContent({
       title: `${formatColumnName(columnName)} - Full Content`,
-      content: content,
+      content: enrichedContent,
       rowName: row?.row_name || row?._unit_name,
       column: columnName,
     });
@@ -1183,6 +1195,22 @@ const DataTable: React.FC<DataTableProps> = ({
     const stringValue = String(processedValue);
     const hasExcerpts = rowData && excerptMapping[columnName] && rowData.data[excerptMapping[columnName]];
     const isExplicitExcerpt = isExcerptContent(columnName, stringValue);
+
+    // Render URL values as clickable links directly in the cell
+    if (/^https?:\/\/\S+$/.test(stringValue)) {
+      return (
+        <a
+          href={stringValue}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300 break-all leading-relaxed"
+          title={stringValue}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {stringValue.length > 50 ? stringValue.slice(0, 50) + '...' : stringValue}
+        </a>
+      );
+    }
 
     const needsExpansion = hasExcerpts || isExplicitExcerpt || stringValue.length > 40;
 
