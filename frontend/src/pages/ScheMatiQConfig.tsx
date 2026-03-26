@@ -1072,11 +1072,7 @@ const ScheMatiQConfigPage = () => {
               )}
               {isUploading ? 'Uploading files...' : loading ? 'Starting...' : 'Get Your Table'}
             </Button>
-            {!isFormValid && (
-              <p className="text-sm text-muted-foreground">
-                Add a query or documents to continue
-              </p>
-            )}
+
             {developerMode && costEstimate && !costEstimateLoading && (
               <span className="text-sm text-muted-foreground">
                 Estimated: ~${costEstimate.total_cost_usd.toFixed(4)}
