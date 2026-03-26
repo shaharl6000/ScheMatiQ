@@ -162,11 +162,12 @@ export function useUnitSuggestions(sessionId: string | undefined): UseUnitSugges
     }
   }, [sessionId]);
 
-  // Auto-fetch on mount with autoMerge=true
+  // Defer auto-fetch so the table renders first (suggestions are non-blocking UI)
   useEffect(() => {
     if (sessionId && !initialFetchDone.current) {
       initialFetchDone.current = true;
-      fetchSuggestions(0.8, true);
+      const timer = setTimeout(() => fetchSuggestions(0.8, true), 2000);
+      return () => clearTimeout(timer);
     }
   }, [sessionId, fetchSuggestions]);
 
