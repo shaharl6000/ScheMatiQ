@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from collections import defaultdict
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -24,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 class UnitViewService:
     """Service for managing observation unit views and merges."""
+
+    # In-memory row cache: session_id -> (rows, file_mtimes, cached_at)
+    _row_cache: Dict[str, Tuple[List[Dict], Dict[str, float], float]] = {}
+    _CACHE_TTL = 30  # seconds
 
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = Path(data_dir)
@@ -65,18 +70,39 @@ class UnitViewService:
         files = self._get_all_data_files(session_id)
         return files[0] if files else None
 
-    def _load_all_rows(self, session_id: str) -> List[Dict]:
-        """Load all data rows from all session data files.
+    def _invalidate_cache(self, session_id: str) -> None:
+        """Invalidate the row cache for a session (call after mutations)."""
+        self._row_cache.pop(session_id, None)
 
-        Deduplicates rows by row_name only across files (not within a single file)
-        to prevent duplicates when data exists in multiple locations
-        (e.g., both schematiq_work/ and data/ directories). Within a single file,
-        multiple rows can legitimately share the same row_name.
+    def _load_all_rows(self, session_id: str) -> List[Dict]:
+        """Load all data rows from all session data files (cached).
+
+        Uses an in-memory cache keyed by session_id. Cache is invalidated when:
+        - Any data file's mtime changes (file was modified)
+        - TTL expires (30s)
+        - Explicitly invalidated after mutations (merge, add, delete)
+
+        Deduplicates rows by row_name only across files (not within a single file).
         """
         data_files = self._get_all_data_files(session_id)
         if not data_files:
             return []
 
+        # Check cache validity
+        now = time.monotonic()
+        current_mtimes = {}
+        for f in data_files:
+            try:
+                current_mtimes[str(f)] = f.stat().st_mtime
+            except OSError:
+                pass
+
+        if session_id in self._row_cache:
+            cached_rows, cached_mtimes, cached_at = self._row_cache[session_id]
+            if (now - cached_at) < self._CACHE_TTL and cached_mtimes == current_mtimes:
+                return cached_rows
+
+        # Cache miss — read from disk
         rows = []
         seen_row_names: set = set()
         for data_file in data_files:
@@ -86,7 +112,6 @@ class UnitViewService:
                     for line in f:
                         if line.strip():
                             row = json.loads(line)
-                            # Only skip if this row_name was in a PREVIOUS file
                             row_name = row.get('_row_name') or row.get('row_name')
                             if row_name and row_name in seen_row_names:
                                 continue
@@ -96,6 +121,8 @@ class UnitViewService:
             except Exception as e:
                 logger.warning(f"Error reading {data_file}: {e}")
             seen_row_names.update(file_row_names)
+
+        self._row_cache[session_id] = (rows, current_mtimes, now)
         return rows
 
     def _save_all_rows(self, session_id: str, rows: List[Dict]) -> None:
@@ -109,6 +136,9 @@ class UnitViewService:
         with open(data_file, 'w', encoding='utf-8') as f:
             for row in rows:
                 f.write(json.dumps(row, ensure_ascii=False) + '\n')
+
+        # Invalidate cache since data changed
+        self._invalidate_cache(session_id)
 
     def _get_unit_name(self, row: Dict) -> Optional[str]:
         """Extract unit name from a row, checking multiple possible fields."""

@@ -90,15 +90,54 @@ class DataLoader:
 
 
 class RowMatcher:
-    """Handles matching rows between GT and prediction data."""
+    """Handles matching rows between GT and prediction data.
 
-    def __init__(self):
+    Supports three tiers of matching:
+      1. UniProt synonym overlap (if resolver provided) — highest confidence
+      2. Word-boundary and safe substring matching — medium confidence
+      3. Basic substring containment — fallback
+    """
+
+    def __init__(self, resolver=None):
+        """
+        Args:
+            resolver: Optional UniProtNameResolver for synonym-aware matching.
+        """
         self.fuzzy_threshold = 0.8
+        self.resolver = resolver
+
+    @staticmethod
+    def _word_boundary_match(a: str, b: str) -> bool:
+        """Check if a appears as a whole word in b."""
+        if not a or not b:
+            return False
+        pattern = r"(?<![a-zA-Z0-9])" + re.escape(a) + r"(?![a-zA-Z0-9])"
+        return bool(re.search(pattern, b))
+
+    @staticmethod
+    def _safe_substring_match(a: str, b: str) -> bool:
+        """Substring match guarded against short-string false positives."""
+        if not a or not b:
+            return False
+        if a == b:
+            return True
+        if len(a) < 4 or len(b) < 4:
+            return False
+        shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+        if shorter not in longer:
+            return False
+        if len(shorter) / len(longer) < 0.35:
+            return False
+        return True
 
     def match_rows(self, gt_df: pd.DataFrame, pred_df: pd.DataFrame) -> List[RowAlignment]:
         """
-        Match prediction rows to GT rows based on protein name containment.
-        Logic: pred row_name should be contained in GT ID string.
+        Match prediction rows to GT rows using synonym-aware matching.
+
+        Matching tiers:
+          1. UniProt synonym set overlap (confidence 1.0)
+          2. Word-boundary / safe substring match (confidence 0.85)
+          3. Basic substring containment (confidence = length ratio)
         """
         alignments = []
 
@@ -106,12 +145,18 @@ class RowMatcher:
         gt_proteins = {}
         for idx, row in gt_df.iterrows():
             gt_id = str(row.get('ID', ''))
-            # Extract main protein name before parentheses
             clean_name = re.sub(r'\s*\([^)]*\)', '', gt_id).strip().lower()
             gt_proteins[clean_name] = (gt_id, row)
 
         print(f"GT proteins extracted: {len(gt_proteins)}")
         print(f"Sample GT names: {list(gt_proteins.keys())[:3]}")
+
+        # Pre-resolve GT protein synonyms if resolver is available
+        gt_synonyms: Dict[str, set] = {}
+        if self.resolver:
+            print("Resolving GT protein names via UniProt...")
+            for gt_name in gt_proteins:
+                gt_synonyms[gt_name] = self.resolver.resolve(gt_name)
 
         # Match prediction rows
         matched_count = 0
@@ -124,17 +169,36 @@ class RowMatcher:
             best_match = None
             best_confidence = 0.0
 
-            # Check if pred_name is contained in any GT protein name
+            # Resolve pred synonyms once
+            pred_synonyms = self.resolver.resolve(pred_name) if self.resolver else set()
+
             for gt_clean_name, (gt_id, gt_row) in gt_proteins.items():
-                if pred_name in gt_clean_name or gt_clean_name in pred_name:
-                    # Calculate simple similarity as confidence
-                    confidence = min(len(pred_name), len(gt_clean_name)) / max(len(pred_name), len(gt_clean_name))
+                confidence = 0.0
 
-                    if confidence > best_confidence:
-                        best_confidence = confidence
-                        best_match = (gt_id, gt_row)
+                # Tier 1: UniProt synonym overlap
+                if pred_synonyms and gt_clean_name in gt_synonyms:
+                    if pred_synonyms & gt_synonyms[gt_clean_name]:
+                        confidence = 1.0
 
-            if best_match and best_confidence > 0.3:  # Minimum threshold
+                # Tier 2: Word-boundary or safe substring match
+                if confidence == 0.0:
+                    if self._word_boundary_match(pred_name, gt_clean_name):
+                        confidence = 0.85
+                    elif self._word_boundary_match(gt_clean_name, pred_name):
+                        confidence = 0.85
+                    elif self._safe_substring_match(pred_name, gt_clean_name):
+                        confidence = 0.85
+
+                # Tier 3: Basic substring containment (original logic)
+                if confidence == 0.0:
+                    if pred_name in gt_clean_name or gt_clean_name in pred_name:
+                        confidence = min(len(pred_name), len(gt_clean_name)) / max(len(pred_name), len(gt_clean_name))
+
+                if confidence > best_confidence:
+                    best_confidence = confidence
+                    best_match = (gt_id, gt_row)
+
+            if best_match and best_confidence > 0.3:
                 gt_id, gt_row = best_match
                 alignments.append(RowAlignment(
                     gt_row=gt_row,
@@ -552,9 +616,14 @@ class ValueEvaluator:
 class DataQualityEvaluator:
     """Main evaluator orchestrating the complete evaluation pipeline."""
 
-    def __init__(self, use_llm_judge: bool = False, llm_model: str = "gemini-1.5-flash"):
+    def __init__(self, use_llm_judge: bool = False, llm_model: str = "gemini-1.5-flash",
+                 resolver=None):
+        """
+        Args:
+            resolver: Optional UniProtNameResolver for synonym-aware row matching.
+        """
         self.data_loader = DataLoader()
-        self.row_matcher = RowMatcher()
+        self.row_matcher = RowMatcher(resolver=resolver)
         self.field_aligner = FieldAligner()
         self.value_evaluator = ValueEvaluator(use_llm_judge=use_llm_judge, llm_model=llm_model)
 
@@ -722,13 +791,25 @@ def main():
     parser.add_argument("--output", default="data_quality_evaluation.json", help="Output file path")
     parser.add_argument("--llm_judge", action="store_true", help="Enable LLM-as-Judge evaluation")
     parser.add_argument("--llm_model", default="gemini-1.5-flash", help="LLM model for judge evaluation")
+    parser.add_argument("--uniprot", action="store_true", help="Enable UniProt synonym resolution for row matching")
 
     args = parser.parse_args()
+
+    # Initialize UniProt resolver if requested
+    resolver = None
+    if args.uniprot:
+        try:
+            from research.data.uniprot import UniProtNameResolver
+            resolver = UniProtNameResolver()
+            print("UniProt name resolver: enabled")
+        except ImportError:
+            print("UniProt name resolver: unavailable (import failed), continuing without it")
 
     # Initialize evaluator
     evaluator = DataQualityEvaluator(
         use_llm_judge=args.llm_judge,
-        llm_model=args.llm_model
+        llm_model=args.llm_model,
+        resolver=resolver,
     )
 
     # Run evaluation

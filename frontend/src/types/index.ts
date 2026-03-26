@@ -121,6 +121,8 @@ export interface VisualizationSession {
   observation_unit?: ObservationUnitInfo;  // What constitutes a single row
 }
 
+export type CellStatus = 'no_change' | 'novel_nes' | 'enriched' | 'inferred' | 'external_source';
+
 export interface DataRow {
   row_name?: string;
   papers?: string[];
@@ -131,6 +133,8 @@ export interface DataRow {
   _parent_document?: string;
   _observation_unit?: string;
   _unit_confidence?: string;
+  // Per-cell enrichment provenance (optional, for enriched datasets)
+  _cell_status?: Record<string, CellStatus>;
 }
 
 export interface PaginatedData {
@@ -720,6 +724,9 @@ export interface ContinueDiscoveryRequest {
   };
   max_keys_schema?: number;
   documents_batch_size?: number;
+  convergence_threshold?: number;
+  document_randomization_seed?: number;
+  skip_value_extraction?: boolean;
   bypass_limit?: boolean;
 }
 

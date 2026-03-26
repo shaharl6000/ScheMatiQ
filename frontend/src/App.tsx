@@ -1,7 +1,6 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { Mail } from 'lucide-react';
 
-import Landing from './pages/Landing';
 import Load from './pages/Load';
 import ScheMatiQConfig from './pages/ScheMatiQConfig';
 import Visualize from './pages/Visualize';
@@ -44,9 +43,9 @@ function App() {
         {/* Main Content */}
         <main className="container py-6 flex-1">
           <Routes>
-            <Route path="/" element={<Landing />} />
+            <Route path="/" element={<ScheMatiQConfig />} />
             <Route path="/load" element={<Load />} />
-            <Route path="/schematiq" element={<ScheMatiQConfig />} />
+            <Route path="/schematiq" element={<Navigate to="/" replace />} />
             <Route path="/visualize/:sessionId" element={<Visualize />} />
           </Routes>
         </main>

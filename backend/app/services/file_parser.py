@@ -762,7 +762,8 @@ class FileParser:
                         row_name=row_data.get('_row_name'),
                         papers=row_data.get('_papers', []),
                         data={k: v for k, v in row_data.items() if not k.startswith('_')},
-                        unit_name=row_data.get('_unit_name')  # Preserve actual unit_name from extraction
+                        unit_name=row_data.get('_unit_name'),  # Preserve actual unit_name from extraction
+                        cell_status=row_data.get('_cell_status'),
                     )
                 elif 'data' in row_data and isinstance(row_data.get('data'), dict):
                     # Already in DataRow format - preserve unit metadata if present
@@ -773,6 +774,7 @@ class FileParser:
                         unit_name=row_data.get('unit_name') or row_data.get('_unit_name'),
                         source_document=row_data.get('source_document') or row_data.get('_source_document'),
                         parent_document=row_data.get('parent_document') or row_data.get('_parent_document'),
+                        cell_status=row_data.get('cell_status') or row_data.get('_cell_status'),
                     )
                 else:
                     # Regular format - extract papers field if present

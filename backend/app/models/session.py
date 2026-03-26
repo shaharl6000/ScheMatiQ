@@ -170,6 +170,8 @@ class DataRow(BaseModel):
     # Source document information (preserved from extraction)
     source_document: Optional[str] = Field(default=None, alias="_source_document")
     parent_document: Optional[str] = Field(default=None, alias="_parent_document")
+    # Per-cell enrichment provenance (optional, for enriched datasets)
+    cell_status: Optional[Dict[str, str]] = Field(default=None, alias="_cell_status")
 
 class PaginatedData(BaseModel):
     """Paginated data response."""

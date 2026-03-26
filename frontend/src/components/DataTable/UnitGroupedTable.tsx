@@ -43,7 +43,7 @@ import { UnitMergePickerDialog } from './UnitMergePickerDialog';
 import BulkActionToolbar from './BulkActionToolbar';
 import { useRowSelection } from './hooks/useRowSelection';
 import ContentModal from '../ContentModal/ContentModal';
-import { DataRow, CellValue, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
+import { DataRow, CellValue, CellStatus, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/components/ui/use-toast';
 import { ToastAction } from '@/components/ui/toast';
@@ -61,6 +61,21 @@ import TableOptionsMenu from './TableOptionsMenu';
 import { AVAILABLE_PAGE_SIZES } from '../../constants';
 import ExtractionProgressBar from './ExtractionProgressBar';
 import { useColumnResize, MIN_COLUMN_WIDTH, DEFAULT_COLUMN_WIDTH } from './hooks/useColumnResize';
+
+// Cell status background colors for enrichment provenance tracking
+const CELL_STATUS_STYLES: Record<CellStatus, string> = {
+  no_change: '',
+  novel_nes: 'border-l-2 border-l-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20',
+  enriched: 'border-l-2 border-l-blue-400 bg-blue-50/40 dark:bg-blue-950/20',
+  inferred: 'border-l-2 border-l-amber-400 bg-amber-50/40 dark:bg-amber-950/20',
+  external_source: 'border-l-2 border-l-purple-400 bg-purple-50/40 dark:bg-purple-950/20',
+};
+
+function getCellStatusClass(row: DataRow, column: string): string {
+  const status = row._cell_status?.[column];
+  if (!status) return '';
+  return CELL_STATUS_STYLES[status] || '';
+}
 
 interface UnitGroupedTableProps {
   /** Session ID */
@@ -387,6 +402,11 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     return unitData?.rows?.some(row => row._source_document != null) ?? false;
   }, [unitData?.rows]);
 
+  // Check if any row has cell status provenance data
+  const hasCellStatus = useMemo(() => {
+    return unitData?.rows?.some(row => row._cell_status != null) ?? false;
+  }, [unitData?.rows]);
+
   // All toggleable columns with consistent ordering (matching DataTable's priority-based order)
   const allColumns = useMemo(() => {
     const defaultOrder = getDefaultColumnOrder(unitData?.rows || [], columnInfo);
@@ -527,7 +547,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             <h3 className="font-semibold text-lg flex items-center gap-2">
               Observation Units
               <span className="text-muted-foreground font-normal">
-                ({unitListResponse?.totalRows} rows)
+                ({unitData?.total_count ?? unitListResponse?.totalRows} rows)
               </span>
             </h3>
           </div>
@@ -580,6 +600,29 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
 
           </div>
         </div>
+
+        {/* Cell status legend — only when enrichment provenance data is present */}
+        {hasCellStatus && (
+          <div className="flex items-center gap-4 mb-3 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground/70">Cell provenance:</span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-400" />
+              Novel NES
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-blue-400" />
+              Enriched
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-400" />
+              Inferred
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-purple-400" />
+              External
+            </span>
+          </div>
+        )}
 
         {/* Filter toolbar — only render when filters are active */}
         {filterState.rules.length > 0 && (
@@ -807,7 +850,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     {visibleColumns.map(column => (
                       <td
                         key={column}
-                        className={cn("px-2 py-1", !getColumnWidth(column) && "min-w-[80px] sm:min-w-[100px]")}
+                        className={cn("px-2 py-1", !getColumnWidth(column) && "min-w-[80px] sm:min-w-[100px]", getCellStatusClass(row, column))}
                         style={{
                           verticalAlign: 'top',
                           ...(getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }),
@@ -1238,6 +1281,22 @@ function formatCellValue(
         </div>
       );
     }
+  }
+
+  // Render URL values as clickable links directly in the cell
+  if (/^https?:\/\/\S+$/.test(displayStr)) {
+    return (
+      <a
+        href={displayStr}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300 break-all leading-relaxed"
+        title={displayStr}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {displayStr.length > 50 ? displayStr.slice(0, 50) + '...' : displayStr}
+      </a>
+    );
   }
 
   // Handle string values - check for excerpt column or long text

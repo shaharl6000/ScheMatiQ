@@ -89,7 +89,19 @@ export function getDefaultColumnOrder(
   // Combine all columns
   const allCols = [...priorityColumns, ...regularColumns, ...schemaColumns];
 
-  // Move "Document Directory" (and similar patterns) to the end
+  // Move enrichment/external columns to the end (right side of table)
+  const isEnrichmentColumn = (col: string) => {
+    const colLower = col.toLowerCase().replace(/[_-]/g, ' ');
+    return colLower.startsWith('uniprot') ||
+           colLower.startsWith('alphafold') ||
+           colLower.startsWith('gene symbol') ||
+           colLower.startsWith('go ') ||
+           colLower === 'pdb ids' ||
+           colLower.includes('subcellular localization') ||
+           colLower === 'protein length';
+  };
+
+  // Move "Document Directory" (and similar patterns) to the very end
   const isDocDirectoryColumn = (col: string) => {
     const colLower = col.toLowerCase().replace(/[_-]/g, ' ');
     return colLower.includes('document directory') ||
@@ -97,8 +109,9 @@ export function getDefaultColumnOrder(
            colLower === 'directory';
   };
 
+  const enrichmentCols = allCols.filter(col => isEnrichmentColumn(col) && !isDocDirectoryColumn(col));
   const docDirectoryCols = allCols.filter(isDocDirectoryColumn);
-  const otherCols = allCols.filter(col => !isDocDirectoryColumn(col));
+  const coreCols = allCols.filter(col => !isEnrichmentColumn(col) && !isDocDirectoryColumn(col));
 
-  return [...otherCols, ...docDirectoryCols];
+  return [...coreCols, ...enrichmentCols, ...docDirectoryCols];
 }

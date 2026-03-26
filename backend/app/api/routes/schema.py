@@ -1137,6 +1137,9 @@ class ContinueDiscoveryRequest(BaseModel):
     retriever_config: Optional[Dict[str, Any]] = None  # Retriever settings (empty = defaults)
     max_keys_schema: int = 100
     documents_batch_size: int = 1
+    convergence_threshold: Optional[int] = None  # None = use default (2)
+    document_randomization_seed: Optional[int] = None  # None = use default (42)
+    skip_value_extraction: bool = False
     bypass_limit: bool = False  # Developer mode: bypass document limit
 
 
@@ -1232,6 +1235,9 @@ async def start_continue_discovery(
                 retriever_config=request.retriever_config,
                 max_keys_schema=request.max_keys_schema,
                 documents_batch_size=request.documents_batch_size,
+                convergence_threshold=request.convergence_threshold,
+                document_randomization_seed=request.document_randomization_seed,
+                skip_value_extraction=request.skip_value_extraction,
                 bypass_limit=request.bypass_limit
             )
         except Exception:

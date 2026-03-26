@@ -36,7 +36,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { PaginatedData, CellValue, DataRow, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
+import { PaginatedData, CellValue, CellStatus, DataRow, ModalContent, ScheMatiQAnswerWithExcerpts } from '../../types';
 import { sessionAPI, schematiqAPI, observationUnitAPI } from '../../services/api';
 import { DocumentSummary } from '../../types/unit';
 import EditableCell, { getEditableValue } from './EditableCell';
@@ -135,6 +135,22 @@ interface DataTableProps {
   onDocumentChange?: (documents: string[]) => void;
   /** Whether document list is loading */
   documentDataLoading?: boolean;
+}
+
+// Cell status background colors for enrichment provenance tracking
+// Maps _cell_status values to Tailwind background classes (subtle left border indicator)
+const CELL_STATUS_STYLES: Record<CellStatus, string> = {
+  no_change: '',
+  novel_nes: 'border-l-2 border-l-emerald-400 bg-emerald-50/40 dark:bg-emerald-950/20',
+  enriched: 'border-l-2 border-l-blue-400 bg-blue-50/40 dark:bg-blue-950/20',
+  inferred: 'border-l-2 border-l-amber-400 bg-amber-50/40 dark:bg-amber-950/20',
+  external_source: 'border-l-2 border-l-purple-400 bg-purple-50/40 dark:bg-purple-950/20',
+};
+
+function getCellStatusClass(row: DataRow, column: string): string {
+  const status = row._cell_status?.[column];
+  if (!status) return '';
+  return CELL_STATUS_STYLES[status] || '';
 }
 
 // Sortable Header Cell Component
@@ -572,6 +588,11 @@ const DataTable: React.FC<DataTableProps> = ({
     return data.rows.some(row => row._unit_name != null);
   }, [data.rows]);
 
+  // Check if any row has cell status provenance data
+  const hasCellStatus = useMemo(() => {
+    return data.rows.some(row => row._cell_status != null);
+  }, [data.rows]);
+
   // Helper to normalize document names for comparison (handles case/whitespace differences)
   const normalizeDocName = useCallback((doc: string | undefined): string => {
     return (doc || '').trim().toLowerCase();
@@ -828,9 +849,21 @@ const DataTable: React.FC<DataTableProps> = ({
   };
 
   const handleViewContent = (columnName: string, content: CellValue, row?: DataRow) => {
+    // For external_source cells without excerpts, add source attribution
+    let enrichedContent = content;
+    if (row?._cell_status?.[columnName] === 'external_source') {
+      const hasExcerpts = typeof content === 'object' && content !== null && 'excerpts' in content;
+      if (!hasExcerpts) {
+        enrichedContent = {
+          answer: content,
+          excerpts: [{ text: `Value retrieved from UniProt database.`, source: 'UniProt' }],
+        } as CellValue;
+      }
+    }
+
     setModalContent({
       title: `${formatColumnName(columnName)} - Full Content`,
-      content: content,
+      content: enrichedContent,
       rowName: row?.row_name || row?._unit_name,
       column: columnName,
     });
@@ -1163,6 +1196,22 @@ const DataTable: React.FC<DataTableProps> = ({
     const hasExcerpts = rowData && excerptMapping[columnName] && rowData.data[excerptMapping[columnName]];
     const isExplicitExcerpt = isExcerptContent(columnName, stringValue);
 
+    // Render URL values as clickable links directly in the cell
+    if (/^https?:\/\/\S+$/.test(stringValue)) {
+      return (
+        <a
+          href={stringValue}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300 break-all leading-relaxed"
+          title={stringValue}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {stringValue.length > 50 ? stringValue.slice(0, 50) + '...' : stringValue}
+        </a>
+      );
+    }
+
     const needsExpansion = hasExcerpts || isExplicitExcerpt || stringValue.length > 40;
 
     if (needsExpansion) {
@@ -1292,6 +1341,29 @@ const DataTable: React.FC<DataTableProps> = ({
             />
           </div>
         </div>
+
+        {/* Cell status legend — only when enrichment provenance data is present */}
+        {hasCellStatus && (
+          <div className="flex items-center gap-4 mb-3 text-xs text-muted-foreground">
+            <span className="font-medium text-foreground/70">Cell provenance:</span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-400" />
+              Novel NES
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-blue-400" />
+              Enriched
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-400" />
+              Inferred
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-purple-400" />
+              External
+            </span>
+          </div>
+        )}
 
         {/* Filter toolbar — only render when filters are active */}
         {filterState.rules.length > 0 && (
@@ -1541,7 +1613,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         return (
                           <td
                             key={column}
-                            className={cn("px-2 py-2", !getColumnWidth(column) && "min-w-[30px] sm:min-w-[50px]")}
+                            className={cn("px-2 py-2", !getColumnWidth(column) && "min-w-[30px] sm:min-w-[50px]", getCellStatusClass(row, column))}
                             style={{ verticalAlign: 'top', ...(getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : {}) }}
                           >
                             {isEditable ? (

@@ -112,6 +112,24 @@ const parseAllExcerpts = (excerpts: Excerpt[]): ExcerptWithSource[] => {
   return result;
 };
 
+/** Render text with URLs converted to clickable links. */
+const renderTextWithLinks = (text: string): React.ReactNode => {
+  const urlRegex = /(https?:\/\/[^\s,;)}\]]+)/g;
+  const parts = text.split(urlRegex);
+  if (parts.length <= 1) return text;
+
+  return parts.map((part, i) =>
+    urlRegex.test(part) ? (
+      <a key={i} href={part} target="_blank" rel="noopener noreferrer"
+         className="text-blue-600 dark:text-blue-400 underline hover:text-blue-800 dark:hover:text-blue-300 break-all">
+        {part}
+      </a>
+    ) : (
+      <React.Fragment key={i}>{part}</React.Fragment>
+    )
+  );
+};
+
 const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, content, onSave }) => {
   const [copied, setCopied] = React.useState(false);
   const [isEditing, setIsEditing] = React.useState(false);
@@ -344,8 +362,8 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
             <div>
               <h4 className="font-semibold text-primary mb-2">Content:</h4>
               <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-md border border-blue-200 dark:border-blue-800">
-                <p className="text-base font-medium leading-relaxed">
-                  {extractDisplayValue(answer)}
+                <p className="text-base font-medium leading-relaxed break-all">
+                  {renderTextWithLinks(extractDisplayValue(answer))}
                 </p>
               </div>
             </div>
@@ -390,8 +408,8 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
           <h4 className="font-semibold text-primary mb-2">Content:</h4>
           <ScrollArea className="max-h-[400px]">
             <div className="p-4 bg-muted/50 rounded-md border-l-4 border-primary">
-              <p className="whitespace-pre-wrap break-words leading-relaxed">
-                {textValue}
+              <p className="whitespace-pre-wrap break-all leading-relaxed">
+                {renderTextWithLinks(textValue)}
               </p>
             </div>
           </ScrollArea>
@@ -401,8 +419,8 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
 
     // Regular text content
     return (
-      <p className="whitespace-pre-wrap break-words leading-relaxed">
-        {textValue}
+      <p className="whitespace-pre-wrap break-all leading-relaxed">
+        {renderTextWithLinks(textValue)}
       </p>
     );
   };

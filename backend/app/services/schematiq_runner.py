@@ -2272,6 +2272,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                     'unit_name': row_data.get('_unit_name'),
                     'source_document': row_data.get('_source_document'),
                     'parent_document': row_data.get('_parent_document'),
+                    '_cell_status': row_data.get('_cell_status'),
                 }
             return row_data
 

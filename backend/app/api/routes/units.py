@@ -84,7 +84,7 @@ async def get_unit_data(
     session_id: str,
     units: Optional[str] = Query(None, description="Comma-separated unit names to filter by"),
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
-    page_size: int = Query(50, ge=1, le=500, description="Items per page")
+    page_size: int = Query(50, ge=1, le=1000, description="Items per page")
 ):
     """
     Get paginated data optionally filtered by observation unit(s).
@@ -118,7 +118,8 @@ async def get_unit_data(
                     data=row_data.get('data', {}),
                     unit_name=row_data.get('_unit_name') or row_data.get('unit_name'),
                     source_document=row_data.get('_source_document') or row_data.get('source_document'),
-                    parent_document=row_data.get('_parent_document')
+                    parent_document=row_data.get('_parent_document'),
+                    cell_status=row_data.get('_cell_status'),
                 )
             else:
                 # Flat format - extract special fields
@@ -128,6 +129,7 @@ async def get_unit_data(
                 unit_name = flat_data.pop('_unit_name', None) or flat_data.pop('unit_name', None)
                 source_document = flat_data.pop('_source_document', None) or flat_data.pop('source_document', None)
                 parent_document = flat_data.pop('_parent_document', None)
+                cell_status = flat_data.pop('_cell_status', None)
                 flat_data.pop('_original_units', None)  # Remove internal merge tracking
 
                 data_row = DataRow(
@@ -136,7 +138,8 @@ async def get_unit_data(
                     data=flat_data,
                     unit_name=unit_name,
                     source_document=source_document,
-                    parent_document=parent_document
+                    parent_document=parent_document,
+                    cell_status=cell_status,
                 )
             data_rows.append(data_row)
 
