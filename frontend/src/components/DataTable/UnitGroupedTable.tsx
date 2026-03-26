@@ -527,7 +527,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             <h3 className="font-semibold text-lg flex items-center gap-2">
               Observation Units
               <span className="text-muted-foreground font-normal">
-                ({unitListResponse?.totalRows} rows)
+                ({unitData?.total_count ?? unitListResponse?.totalRows} rows)
               </span>
             </h3>
           </div>

@@ -84,7 +84,7 @@ async def get_unit_data(
     session_id: str,
     units: Optional[str] = Query(None, description="Comma-separated unit names to filter by"),
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
-    page_size: int = Query(50, ge=1, le=500, description="Items per page")
+    page_size: int = Query(50, ge=1, le=1000, description="Items per page")
 ):
     """
     Get paginated data optionally filtered by observation unit(s).
