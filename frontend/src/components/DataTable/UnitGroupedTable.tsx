@@ -4,7 +4,24 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Loader2, Lightbulb, FileText, AlertCircle, Search } from 'lucide-react';
+import { Loader2, Lightbulb, FileText, AlertCircle, Search, GripVertical } from 'lucide-react';
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  horizontalListSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useQuery } from 'react-query';
 
 import { Card } from '@/components/ui/card';
@@ -77,6 +94,66 @@ function getCellStatusClass(row: DataRow, column: string): string {
   return CELL_STATUS_STYLES[status] || '';
 }
 
+// Sortable column header for drag-and-drop reordering
+const SortableColumnHeader: React.FC<{
+  column: string;
+  columnWidth?: number;
+  onResizeStart: (e: React.MouseEvent, column: string, startWidth: number) => void;
+  headerRefs: React.MutableRefObject<Record<string, HTMLTableCellElement | null>>;
+  children: React.ReactNode;
+}> = ({ column, columnWidth, onResizeStart, headerRefs, children }) => {
+  const thRef = useRef<HTMLTableCellElement>(null);
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: column });
+
+  const setRefs = useCallback((node: HTMLTableCellElement | null) => {
+    setNodeRef(node);
+    (thRef as React.MutableRefObject<HTMLTableCellElement | null>).current = node;
+    headerRefs.current[column] = node;
+  }, [setNodeRef, column, headerRefs]);
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    position: 'relative' as const,
+    ...(columnWidth ? { width: columnWidth, minWidth: MIN_COLUMN_WIDTH } : { width: 100 }),
+  };
+
+  return (
+    <th
+      ref={setRefs}
+      style={style}
+      className={cn(
+        "group px-2 py-2 text-left font-semibold text-xs bg-background cursor-grab",
+        !columnWidth && "min-w-[80px] sm:min-w-[100px]",
+        isDragging && "bg-muted opacity-50",
+      )}
+      {...attributes}
+      {...listeners}
+    >
+      <div className="flex items-center gap-1">
+        <GripVertical className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-50" />
+        {children}
+      </div>
+      <div
+        className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          if (thRef.current) onResizeStart(e, column, thRef.current.offsetWidth);
+        }}
+      />
+    </th>
+  );
+};
+
 interface UnitGroupedTableProps {
   /** Session ID */
   sessionId: string;
@@ -106,6 +183,8 @@ interface UnitGroupedTableProps {
   isStoppingProcessing?: boolean;
   /** External column order (from drag-and-drop in DataTable) */
   columnOrder?: string[];
+  /** Callback when columns are reordered via drag-and-drop */
+  onColumnReorder?: (newOrder: string[]) => void;
 }
 
 export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
@@ -123,6 +202,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   onStopProcessing,
   isStoppingProcessing,
   columnOrder,
+  onColumnReorder,
 }) => {
   // Unit data hooks
   const { units: unitListResponse, loading: unitsLoading, error: unitsError, refresh: refreshUnits } = useUnits(sessionId);
@@ -135,6 +215,16 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     getColumnWidth,
     handleResizeStart,
   } = useColumnResize({ sessionId });
+
+  // Drag-and-drop sensors for column reordering
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Sort, filter, and visibility hooks (use unit_ prefix to avoid collisions with DataTable)
   const {
@@ -464,6 +554,18 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     return [...cols, ...visibleColumns];
   }, [hasSourceDocument, visibleColumns]);
 
+  // Handle column drag-and-drop reorder
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id && onColumnReorder) {
+      const oldIndex = visibleColumns.indexOf(active.id as string);
+      const newIndex = visibleColumns.indexOf(over.id as string);
+      const newVisibleOrder = arrayMove(visibleColumns, oldIndex, newIndex);
+      const newOrder = ['_unit_name', ...(hasSourceDocument ? ['_source_document'] : []), ...newVisibleOrder];
+      onColumnReorder(newOrder);
+    }
+  }, [visibleColumns, hasSourceDocument, onColumnReorder]);
+
   // Create mapping of main columns to their corresponding excerpt columns
   const excerptMapping = useMemo(() => {
     const mapping: Record<string, string> = {};
@@ -683,6 +785,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
         )}
 
         {/* Table */}
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <div className="overflow-auto max-h-[600px] border rounded-md">
           <table
             className="border-collapse"
@@ -749,45 +852,35 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                   </th>
                 )}
 
-                {/* Scrollable data columns */}
+                {/* Scrollable data columns (drag-and-drop reorderable) */}
+                <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>
                 {visibleColumns.map(column => {
                   const colDef = columnInfo?.find(c => c.name === column)?.definition;
                   return (
-                    <th
+                    <SortableColumnHeader
                       key={column}
-                      ref={(el) => { headerRefs.current[column] = el; }}
-                      className={cn(
-                        "px-2 py-1 text-left font-semibold text-sm bg-background relative",
-                        !getColumnWidth(column) && "min-w-[80px] sm:min-w-[100px]"
-                      )}
-                      style={getColumnWidth(column) ? { width: getColumnWidth(column), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }}
+                      column={column}
+                      columnWidth={getColumnWidth(column)}
+                      onResizeStart={(e, col, width) => handleResizeStart(e, col, width)}
+                      headerRefs={headerRefs}
                     >
-                      <div className="flex items-center gap-1">
-                        {colDef ? (
-                          <Tooltip delayDuration={300}>
-                            <TooltipTrigger asChild>
-                              <span className="cursor-help underline decoration-dashed decoration-muted-foreground/40 underline-offset-4">{formatColumnName(column)}</span>
-                            </TooltipTrigger>
-                            <TooltipContent side="bottom" align="start" className="max-w-xs px-3 py-2">
-                              <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 mb-1.5">Definition</p>
-                              <p className="text-[13px] font-normal leading-snug">{colDef}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          formatColumnName(column)
-                        )}
-                      </div>
-                      <div
-                        className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          const th = headerRefs.current[column];
-                          if (th) handleResizeStart(e, column, th.offsetWidth);
-                        }}
-                      />
-                    </th>
+                      {colDef ? (
+                        <Tooltip delayDuration={300}>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-help underline decoration-dashed decoration-muted-foreground/40 underline-offset-4">{formatColumnName(column)}</span>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" align="start" className="max-w-xs px-3 py-2">
+                            <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 mb-1.5">Definition</p>
+                            <p className="text-[13px] font-normal leading-snug">{colDef}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : (
+                        formatColumnName(column)
+                      )}
+                    </SortableColumnHeader>
                   );
                 })}
+                </SortableContext>
               </tr>
             </thead>
             <tbody>
@@ -810,7 +903,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     {/* Frozen _unit_name cell */}
                     <td
                       className={cn(
-                        "pl-1 pr-2 py-1 sticky border-r",
+                        "pl-1 pr-2 py-1 sticky border-r overflow-hidden",
                         !getColumnWidth('_unit_name') && "min-w-[80px] max-w-[150px]",
                         "left-0",
                         "bg-background"
@@ -821,7 +914,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                         ...(getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }),
                       }}
                     >
-                      <span className="text-sm font-medium">{row._unit_name || 'Unknown'}</span>
+                      <span className="text-sm font-medium break-words overflow-hidden" style={{ wordBreak: 'break-word' }}>{row._unit_name || 'Unknown'}</span>
                     </td>
 
                     {/* Source Document cell - always visible when present */}
@@ -876,6 +969,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             </tbody>
           </table>
         </div>
+        </DndContext>
 
         {/* Pagination */}
         {unitData && (

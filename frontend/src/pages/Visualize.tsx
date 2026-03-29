@@ -1346,6 +1346,7 @@ const Visualize = () => {
                   onStopProcessing={handleStopProcessing}
                   isStoppingProcessing={isStoppingProcessing}
                   columnOrder={columnOrder}
+                  onColumnReorder={handleColumnReorder}
                 />
               ) : (
                 <DataTable

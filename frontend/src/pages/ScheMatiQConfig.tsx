@@ -726,60 +726,13 @@ const ScheMatiQConfigPage = () => {
       />
 
       {/* Hero Section */}
-      <div className="text-center mb-6">
-        <h1 className="text-4xl font-bold tracking-tight mb-4 bg-gradient-to-r from-primary via-blue-500 to-blue-400 bg-clip-text text-transparent">
+      <div className="text-center mb-2">
+        <h1 className="text-4xl font-bold tracking-tight mb-2 bg-gradient-to-r from-primary via-blue-500 to-blue-400 bg-clip-text text-transparent">
           From Documents to Data
         </h1>
-        <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-6">
+        <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
           Turn a collection of documents into structured datasets — automatically.
         </p>
-        <div className="flex items-center justify-center gap-3 flex-wrap font-['Google_Sans',sans-serif]">
-          <a
-            href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full text-white text-sm transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1"
-            style={{ background: 'linear-gradient(135deg, #ff4444 0%, #cc0000 100%)' }}
-          >
-            <span className="flex items-center justify-center w-4 h-4">
-              <i className="fa-brands fa-youtube text-sm"></i>
-            </span>
-            <span>Demonstration Video</span>
-          </a>
-          <a
-            href="#"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-sm transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1"
-          >
-            <span className="flex items-center justify-center w-4 h-4">
-              <i className="ai ai-arxiv text-base"></i>
-            </span>
-            <span>arXiv</span>
-          </a>
-          <a
-            href="https://github.com/shaharl6000/ScheMatiQ"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-sm transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1"
-          >
-            <span className="flex items-center justify-center w-4 h-4">
-              <i className="fab fa-github text-base"></i>
-            </span>
-            <span>Code</span>
-          </a>
-          <a
-            href="https://x.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-sm transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1"
-          >
-            <span className="flex items-center justify-center w-4 h-4">
-              <i className="fa-brands fa-x-twitter text-xs"></i>
-            </span>
-            <span>Twitter</span>
-          </a>
-        </div>
       </div>
 
       {/* API Key Section — shown when no server keys or in developer mode */}
@@ -1090,6 +1043,55 @@ const ScheMatiQConfigPage = () => {
             </button>
           </p>
 
+          {/* Resource Links */}
+          <div className="flex items-center justify-center gap-3 flex-wrap font-['Google_Sans',sans-serif] mt-10">
+            <a
+              href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full text-white text-sm transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1"
+              style={{ background: 'linear-gradient(135deg, #ff4444 0%, #cc0000 100%)' }}
+            >
+              <span className="flex items-center justify-center w-4 h-4">
+                <i className="fa-brands fa-youtube text-sm"></i>
+              </span>
+              <span>Demonstration Video</span>
+            </a>
+            <a
+              href="#"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-sm transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1"
+            >
+              <span className="flex items-center justify-center w-4 h-4">
+                <i className="ai ai-arxiv text-base"></i>
+              </span>
+              <span>arXiv</span>
+            </a>
+            <a
+              href="https://github.com/shaharl6000/ScheMatiQ"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-sm transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1"
+            >
+              <span className="flex items-center justify-center w-4 h-4">
+                <i className="fab fa-github text-base"></i>
+              </span>
+              <span>Code</span>
+            </a>
+            <a
+              href="https://x.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-sm transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1"
+            >
+              <span className="flex items-center justify-center w-4 h-4">
+                <i className="fa-brands fa-x-twitter text-xs"></i>
+              </span>
+              <span>Twitter</span>
+            </a>
+          </div>
+
           {/* How It Works */}
           <div className="text-center mt-12">
             <h2 className="text-2xl font-semibold mb-8">How It Works</h2>
@@ -1123,6 +1125,7 @@ const ScheMatiQConfigPage = () => {
               </div>
             </div>
           </div>
+
         </div>
       </div>
 
