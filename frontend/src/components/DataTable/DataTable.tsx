@@ -204,28 +204,30 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
       ref={setRefs}
       style={style}
       className={cn(
-        "group px-2 py-2 text-left font-semibold text-xs bg-background",
+        "group px-2 py-2 text-left font-semibold text-xs bg-background cursor-grab",
         !columnWidth && "min-w-[30px] sm:min-w-[50px]",
-        isDragging && "bg-muted",
+        isDragging && "bg-muted opacity-50",
         className
       )}
       {...attributes}
+      {...listeners}
     >
       <div className="flex items-center gap-1">
+        <GripVertical className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-50" />
         <div
           className="flex items-center gap-1 flex-1 overflow-hidden"
         >
           {children}
         </div>
       </div>
-      {/* Grip icon - positioned in left padding area, not taking text space */}
-      <div {...listeners} className="absolute left-0.5 top-1/2 -translate-y-1/2 cursor-grab">
-        <GripVertical className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-50" />
-      </div>
       {/* Resize handle */}
       <div
         className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
-        onMouseDown={handleResizeMouseDown}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          handleResizeMouseDown(e);
+        }}
       />
     </th>
   );
