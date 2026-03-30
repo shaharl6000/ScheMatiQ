@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Search, GripVertical, Loader2, AlertCircle } from 'lucide-react';
+import { Search, GripVertical, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -135,6 +135,8 @@ interface DataTableProps {
   onDocumentChange?: (documents: string[]) => void;
   /** Whether document list is loading */
   documentDataLoading?: boolean;
+  /** Map of document name to external URL (e.g., DOI link) */
+  documentUrlMap?: Map<string, string>;
 }
 
 // Cell status background colors for enrichment provenance tracking
@@ -145,6 +147,8 @@ const CELL_STATUS_STYLES: Record<CellStatus, string> = {
   enriched: 'border-l-2 border-l-blue-400 bg-blue-50/40 dark:bg-blue-950/20',
   inferred: 'border-l-2 border-l-amber-400 bg-amber-50/40 dark:bg-amber-950/20',
   external_source: 'border-l-2 border-l-purple-400 bg-purple-50/40 dark:bg-purple-950/20',
+  schematiq_original: '',
+  schematiq_expanded: 'border-l-2 border-l-cyan-400 bg-cyan-50/40 dark:bg-cyan-950/20',
 };
 
 function getCellStatusClass(row: DataRow, column: string): string {
@@ -204,28 +208,30 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
       ref={setRefs}
       style={style}
       className={cn(
-        "group px-2 py-2 text-left font-semibold text-xs bg-background",
+        "group px-2 py-2 text-left font-semibold text-xs bg-background cursor-grab",
         !columnWidth && "min-w-[30px] sm:min-w-[50px]",
-        isDragging && "bg-muted",
+        isDragging && "bg-muted opacity-50",
         className
       )}
       {...attributes}
+      {...listeners}
     >
       <div className="flex items-center gap-1">
+        <GripVertical className="h-3.5 w-3.5 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-50" />
         <div
           className="flex items-center gap-1 flex-1 overflow-hidden"
         >
           {children}
         </div>
       </div>
-      {/* Grip icon - positioned in left padding area, not taking text space */}
-      <div {...listeners} className="absolute left-0.5 top-1/2 -translate-y-1/2 cursor-grab">
-        <GripVertical className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-50" />
-      </div>
       {/* Resize handle */}
       <div
         className="absolute right-0 top-0 bottom-0 w-[6px] cursor-col-resize hover:bg-primary/40 z-10"
-        onMouseDown={handleResizeMouseDown}
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          handleResizeMouseDown(e);
+        }}
       />
     </th>
   );
@@ -288,6 +294,7 @@ const DataTable: React.FC<DataTableProps> = ({
   selectedDocuments,
   onDocumentChange,
   documentDataLoading,
+  documentUrlMap,
 }) => {
   const { toast } = useToast();
   const [page, setPage] = useState(0);
@@ -1362,6 +1369,10 @@ const DataTable: React.FC<DataTableProps> = ({
               <span className="inline-block w-2.5 h-2.5 rounded-sm bg-purple-400" />
               External
             </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-cyan-400" />
+              Expanded
+            </span>
           </div>
         )}
 
@@ -1519,7 +1530,23 @@ const DataTable: React.FC<DataTableProps> = ({
                             {shouldRenderDocNameCell(rowIndex) ? (
                               // First row of group: show full doc name and observation count
                               <div className="flex flex-col gap-1">
-                                {formatCellValue(row._source_document, '_source_document', row)}
+                                {(() => {
+                                  const docUrl = documentUrlMap?.get(row._source_document || '');
+                                  return docUrl ? (
+                                    <a
+                                      href={docUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {formatCellValue(row._source_document, '_source_document', row)}
+                                      <ExternalLink className="h-3 w-3 shrink-0" />
+                                    </a>
+                                  ) : (
+                                    formatCellValue(row._source_document, '_source_document', row)
+                                  );
+                                })()}
                                 <Badge variant="secondary" className="text-xs w-fit">
                                   {getDocNameRowSpan(rowIndex)} observation{getDocNameRowSpan(rowIndex) !== 1 ? 's' : ''}
                                 </Badge>
@@ -1594,7 +1621,23 @@ const DataTable: React.FC<DataTableProps> = ({
                               {shouldRenderDocNameCell(rowIndex) ? (
                                 // First row of group: show full doc name and observation count
                                 <div className="flex flex-col gap-1">
-                                  {formatCellValue(cellValue, column, row)}
+                                  {(() => {
+                                    const docUrl = documentUrlMap?.get(row._source_document || '');
+                                    return docUrl ? (
+                                      <a
+                                        href={docUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        {formatCellValue(cellValue, column, row)}
+                                        <ExternalLink className="h-3 w-3 shrink-0" />
+                                      </a>
+                                    ) : (
+                                      formatCellValue(cellValue, column, row)
+                                    );
+                                  })()}
                                   <Badge variant="secondary" className="text-xs w-fit">
                                     {getDocNameRowSpan(rowIndex)} observation{getDocNameRowSpan(rowIndex) !== 1 ? 's' : ''}
                                   </Badge>

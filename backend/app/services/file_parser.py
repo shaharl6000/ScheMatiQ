@@ -577,6 +577,10 @@ class FileParser:
                         documents_batch_size = data["metadata"].get("documents_batch_size")
                         if documents_batch_size is not None:
                             logger.debug("Imported documents_batch_size: %s", documents_batch_size)
+                        # Extract document_metadata and cloud_dataset from any export format
+                        for field in ("cloud_dataset", "document_metadata"):
+                            if data["metadata"].get(field):
+                                metadata_info[field] = data["metadata"][field]
 
                     # Extract metadata from complete ScheMatiQ export (.schematiq.json format)
                     if "query" in data and "schema" in data and isinstance(data["schema"], dict) and "columns" in data["schema"]:
@@ -584,7 +588,7 @@ class FileParser:
                         if data.get("llm_configuration"):
                             metadata_info["llm_config"] = data["llm_configuration"]
                         export_meta = data.get("metadata", {})
-                        for field in ("total_documents", "skipped_documents", "session_id", "generated_timestamp", "cloud_dataset"):
+                        for field in ("total_documents", "skipped_documents", "session_id", "generated_timestamp", "cloud_dataset", "document_metadata"):
                             if export_meta.get(field):
                                 metadata_info[field] = export_meta[field]
                         # Pre-populate schema column definitions from the export
@@ -804,7 +808,7 @@ class FileParser:
             result["observation_unit"] = observation_unit
 
         # Include extracted_metadata for complete export format (same structure as CSV path)
-        if metadata_info.get("query") or metadata_info.get("llm_config") or metadata_info.get("cloud_dataset"):
+        if metadata_info.get("query") or metadata_info.get("llm_config") or metadata_info.get("cloud_dataset") or metadata_info.get("document_metadata"):
             result["extracted_metadata"] = {
                 "query": metadata_info.get("query"),
                 "llm_config": metadata_info.get("llm_config"),
@@ -813,6 +817,7 @@ class FileParser:
                 "column_count_with_metadata": len(schema_metadata_from_export),
                 "observation_unit": observation_unit,
                 "cloud_dataset": metadata_info.get("cloud_dataset"),
+                "document_metadata": metadata_info.get("document_metadata"),
             }
 
         return result

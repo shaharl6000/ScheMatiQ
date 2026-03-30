@@ -3,6 +3,19 @@
  */
 
 /**
+ * Check if a URL is safe to use as an href (only http/https protocols).
+ * Prevents javascript:, data:, and other dangerous URI schemes.
+ */
+export function isSafeUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Convert snake_case string to Title Case
  * Examples: 
  * - "snake_case" -> "Snake Case"

@@ -907,6 +907,7 @@ export const unitsAPI = {
       documents: data.documents.map((d: any) => ({
         name: d.name,
         rowCount: d.row_count,
+        url: d.url || undefined,
       })),
       totalDocuments: data.total_documents,
       totalRows: data.total_rows,

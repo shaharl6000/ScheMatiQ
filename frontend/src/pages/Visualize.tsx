@@ -4,6 +4,7 @@ import { useViewHistory } from '../hooks/useViewHistory';
 import { useNavigationGuardContext } from '../contexts/NavigationGuardContext';
 import { NavigationConfirmDialog } from '@/components/ui/NavigationConfirmDialog';
 import { debug } from '@/utils/debug';
+import { isSafeUrl } from '@/utils/formatting';
 import {
   ArrowLeft,
   Download,
@@ -101,6 +102,15 @@ const Visualize = () => {
 
   // Document filter state
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
+
+  // Build document URL lookup map (document name -> safe external URL)
+  const documentUrlMap = useMemo(() => {
+    const map = new Map<string, string>();
+    documentListResponse?.documents.forEach(d => {
+      if (d.url && isSafeUrl(d.url)) map.set(d.name, d.url);
+    });
+    return map;
+  }, [documentListResponse?.documents]);
 
   // Enhanced upload document management state
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
@@ -1331,6 +1341,7 @@ const Visualize = () => {
                   sessionType={mode}
                   columns={session?.columns?.map(col => col.name) || []}
                   columnInfo={session?.columns?.map(col => ({ name: col.name, definition: col.definition, allowed_values: col.allowed_values ?? undefined }))}
+                  documentUrlMap={documentUrlMap}
                   onDataChange={() => {
                     queryClient.invalidateQueries(['session', sessionId, mode]);
                     queryClient.invalidateQueries(['data', sessionId, mode]);
@@ -1346,6 +1357,7 @@ const Visualize = () => {
                   onStopProcessing={handleStopProcessing}
                   isStoppingProcessing={isStoppingProcessing}
                   columnOrder={columnOrder}
+                  onColumnReorder={handleColumnReorder}
                 />
               ) : (
                 <DataTable
@@ -1354,6 +1366,7 @@ const Visualize = () => {
                   newlyAddedRows={newlyAddedRows}
                   columnOrder={columnOrder}
                   onColumnReorder={handleColumnReorder}
+                  documentUrlMap={documentUrlMap}
                   streamingCells={streamingCells}
                   processingColumns={processingColumns}
                   currentColumn={currentColumn}
