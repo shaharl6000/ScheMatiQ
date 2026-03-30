@@ -121,7 +121,7 @@ export interface VisualizationSession {
   observation_unit?: ObservationUnitInfo;  // What constitutes a single row
 }
 
-export type CellStatus = 'no_change' | 'novel_nes' | 'enriched' | 'inferred' | 'external_source';
+export type CellStatus = 'no_change' | 'novel_nes' | 'enriched' | 'inferred' | 'external_source' | 'schematiq_original' | 'schematiq_expanded';
 
 export interface DataRow {
   row_name?: string;

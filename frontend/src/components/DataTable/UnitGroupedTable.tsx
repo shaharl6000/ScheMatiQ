@@ -86,6 +86,8 @@ const CELL_STATUS_STYLES: Record<CellStatus, string> = {
   enriched: 'border-l-2 border-l-blue-400 bg-blue-50/40 dark:bg-blue-950/20',
   inferred: 'border-l-2 border-l-amber-400 bg-amber-50/40 dark:bg-amber-950/20',
   external_source: 'border-l-2 border-l-purple-400 bg-purple-50/40 dark:bg-purple-950/20',
+  schematiq_original: '',
+  schematiq_expanded: 'border-l-2 border-l-cyan-400 bg-cyan-50/40 dark:bg-cyan-950/20',
 };
 
 function getCellStatusClass(row: DataRow, column: string): string {
@@ -725,6 +727,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
             <span className="flex items-center gap-1.5">
               <span className="inline-block w-2.5 h-2.5 rounded-sm bg-purple-400" />
               External
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-cyan-400" />
+              Expanded
             </span>
           </div>
         )}
