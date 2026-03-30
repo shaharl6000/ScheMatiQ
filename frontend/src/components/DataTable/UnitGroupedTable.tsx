@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { Loader2, Lightbulb, FileText, AlertCircle, Search, GripVertical } from 'lucide-react';
+import { Loader2, Lightbulb, FileText, AlertCircle, Search, GripVertical, ExternalLink } from 'lucide-react';
 import {
   DndContext,
   closestCenter,
@@ -185,6 +185,8 @@ interface UnitGroupedTableProps {
   columnOrder?: string[];
   /** Callback when columns are reordered via drag-and-drop */
   onColumnReorder?: (newOrder: string[]) => void;
+  /** Map of document name to external URL (e.g., DOI link) */
+  documentUrlMap?: Map<string, string>;
 }
 
 export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
@@ -203,6 +205,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   isStoppingProcessing,
   columnOrder,
   onColumnReorder,
+  documentUrlMap,
 }) => {
   // Unit data hooks
   const { units: unitListResponse, loading: unitsLoading, error: unitsError, refresh: refreshUnits } = useUnits(sessionId);
@@ -831,9 +834,9 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     ref={(el) => { headerRefs.current['_source_document'] = el; }}
                     className={cn(
                       "px-2 py-1 text-left font-semibold text-sm bg-background border-r relative",
-                      !getColumnWidth('_source_document') && "min-w-[80px] max-w-[150px]"
+                      !getColumnWidth('_source_document') && "min-w-[150px] max-w-[300px]"
                     )}
-                    style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }}
+                    style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: 200 }}
                   >
                     <div className="flex items-center gap-1">
                       <div className="flex items-center gap-1.5">
@@ -921,21 +924,40 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                     {hasSourceDocument && (
                       <td
                         className="pl-1 pr-2 py-1 text-sm border-r bg-muted/20"
-                        style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }}
+                        style={getColumnWidth('_source_document') ? { width: getColumnWidth('_source_document'), minWidth: MIN_COLUMN_WIDTH } : { width: 200 }}
                       >
-                        <div className="flex items-center gap-1.5">
-                          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="truncate max-w-[160px] font-medium text-foreground/80 cursor-help">
-                                {formatSourceDocument(row._source_document)}
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="max-w-[400px]">
-                              <p className="break-all">{row._source_document || 'Unknown'}</p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
+                        {(() => {
+                          const docUrl = documentUrlMap?.get(row._source_document || '');
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  {docUrl ? (
+                                    <a
+                                      href={docUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="truncate max-w-[260px] font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline cursor-pointer"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {formatSourceDocument(row._source_document)}
+                                    </a>
+                                  ) : (
+                                    <span className="truncate max-w-[260px] font-medium text-foreground/80 cursor-help">
+                                      {formatSourceDocument(row._source_document)}
+                                    </span>
+                                  )}
+                                </TooltipTrigger>
+                                <TooltipContent side="right" className="max-w-[400px]">
+                                  <p className="break-all">{row._source_document || 'Unknown'}</p>
+                                  {docUrl && <p className="text-xs text-muted-foreground mt-1">{docUrl}</p>}
+                                </TooltipContent>
+                              </Tooltip>
+                              {docUrl && <ExternalLink className="h-3 w-3 text-blue-500 shrink-0" />}
+                            </div>
+                          );
+                        })()}
                       </td>
                     )}
 

@@ -42,6 +42,7 @@ class DocumentSummary(BaseModel):
     """Summary information for a source document."""
     name: str
     row_count: int
+    url: Optional[str] = None  # External URL for this document (e.g., DOI link)
 
 
 class DocumentListResponse(BaseModel):

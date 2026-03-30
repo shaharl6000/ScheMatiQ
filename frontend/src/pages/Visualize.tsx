@@ -102,6 +102,15 @@ const Visualize = () => {
   // Document filter state
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
 
+  // Build document URL lookup map (document name -> external URL)
+  const documentUrlMap = useMemo(() => {
+    const map = new Map<string, string>();
+    documentListResponse?.documents.forEach(d => {
+      if (d.url) map.set(d.name, d.url);
+    });
+    return map;
+  }, [documentListResponse?.documents]);
+
   // Enhanced upload document management state
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
   const [documentUploadLoading, setDocumentUploadLoading] = useState(false);
@@ -1331,6 +1340,7 @@ const Visualize = () => {
                   sessionType={mode}
                   columns={session?.columns?.map(col => col.name) || []}
                   columnInfo={session?.columns?.map(col => ({ name: col.name, definition: col.definition, allowed_values: col.allowed_values ?? undefined }))}
+                  documentUrlMap={documentUrlMap}
                   onDataChange={() => {
                     queryClient.invalidateQueries(['session', sessionId, mode]);
                     queryClient.invalidateQueries(['data', sessionId, mode]);
@@ -1355,6 +1365,7 @@ const Visualize = () => {
                   newlyAddedRows={newlyAddedRows}
                   columnOrder={columnOrder}
                   onColumnReorder={handleColumnReorder}
+                  documentUrlMap={documentUrlMap}
                   streamingCells={streamingCells}
                   processingColumns={processingColumns}
                   currentColumn={currentColumn}

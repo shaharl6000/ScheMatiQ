@@ -117,6 +117,13 @@ async def load_template(template_name: str):
                 from app.models.session import ObservationUnitInfo
                 session.observation_unit = ObservationUnitInfo(**metadata['observation_unit'])
                 logger.debug(f"Restored observation unit from template CSV: {session.observation_unit.name}")
+            # Restore cloud_dataset if present
+            if metadata.get('cloud_dataset'):
+                session.metadata.cloud_dataset = metadata['cloud_dataset']
+            # Restore document_metadata (external URLs for source documents) if present
+            if metadata.get('document_metadata'):
+                session.metadata.document_metadata = metadata['document_metadata']
+                logger.debug(f"Restored document_metadata from template: {len(session.metadata.document_metadata)} documents with URLs")
 
         # Restore observation_unit from JSON parse result if present (and not already set)
         if result.get("observation_unit") and not session.observation_unit:
@@ -242,6 +249,11 @@ async def parse_file(session_id: str, mapping: Optional[ColumnMappingRequest] = 
             if metadata.get('cloud_dataset'):
                 session.metadata.cloud_dataset = metadata['cloud_dataset']
                 logger.debug(f"Restored cloud_dataset: {session.metadata.cloud_dataset}")
+
+            # Restore document_metadata (external URLs for source documents) if present
+            if metadata.get('document_metadata'):
+                session.metadata.document_metadata = metadata['document_metadata']
+                logger.debug(f"Restored document_metadata: {len(session.metadata.document_metadata)} documents with URLs")
 
             # Create a parsed schema file with the extracted LLM configuration
             if metadata.get('llm_config'):
@@ -1423,6 +1435,7 @@ async def export_complete_data(session_id: str, format: str = "json"):
                 "source": session.metadata.source,
                 "file_size": session.metadata.file_size,
                 "cloud_dataset": session.metadata.cloud_dataset,
+                "document_metadata": session.metadata.document_metadata or {},
             },
             "data": []
         }

@@ -65,8 +65,20 @@ async def list_source_documents(session_id: str):
     try:
         documents = unit_view_service.get_source_documents(session_id)
         total_rows = sum(d["row_count"] for d in documents)
+
+        # Enrich with URLs from session document_metadata
+        doc_metadata = getattr(session.metadata, 'document_metadata', {}) or {}
+        doc_summaries = []
+        for d in documents:
+            meta = doc_metadata.get(d["name"], {})
+            doc_summaries.append(DocumentSummary(
+                name=d["name"],
+                row_count=d["row_count"],
+                url=meta.get("url"),
+            ))
+
         return DocumentListResponse(
-            documents=[DocumentSummary(**d) for d in documents],
+            documents=doc_summaries,
             total_documents=len(documents),
             total_rows=total_rows,
         )

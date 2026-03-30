@@ -70,6 +70,7 @@ export interface UnitGroupState {
 export interface DocumentSummary {
   name: string;
   rowCount: number;
+  url?: string;
 }
 
 /** Response from the documents endpoint */

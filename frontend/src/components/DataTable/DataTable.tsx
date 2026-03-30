@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Search, GripVertical, Loader2, AlertCircle } from 'lucide-react';
+import { Search, GripVertical, Loader2, AlertCircle, ExternalLink } from 'lucide-react';
 import { useQuery } from 'react-query';
 import {
   DndContext,
@@ -135,6 +135,8 @@ interface DataTableProps {
   onDocumentChange?: (documents: string[]) => void;
   /** Whether document list is loading */
   documentDataLoading?: boolean;
+  /** Map of document name to external URL (e.g., DOI link) */
+  documentUrlMap?: Map<string, string>;
 }
 
 // Cell status background colors for enrichment provenance tracking
@@ -290,6 +292,7 @@ const DataTable: React.FC<DataTableProps> = ({
   selectedDocuments,
   onDocumentChange,
   documentDataLoading,
+  documentUrlMap,
 }) => {
   const { toast } = useToast();
   const [page, setPage] = useState(0);
@@ -1521,7 +1524,23 @@ const DataTable: React.FC<DataTableProps> = ({
                             {shouldRenderDocNameCell(rowIndex) ? (
                               // First row of group: show full doc name and observation count
                               <div className="flex flex-col gap-1">
-                                {formatCellValue(row._source_document, '_source_document', row)}
+                                {(() => {
+                                  const docUrl = documentUrlMap?.get(row._source_document || '');
+                                  return docUrl ? (
+                                    <a
+                                      href={docUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {formatCellValue(row._source_document, '_source_document', row)}
+                                      <ExternalLink className="h-3 w-3 shrink-0" />
+                                    </a>
+                                  ) : (
+                                    formatCellValue(row._source_document, '_source_document', row)
+                                  );
+                                })()}
                                 <Badge variant="secondary" className="text-xs w-fit">
                                   {getDocNameRowSpan(rowIndex)} observation{getDocNameRowSpan(rowIndex) !== 1 ? 's' : ''}
                                 </Badge>
@@ -1596,7 +1615,23 @@ const DataTable: React.FC<DataTableProps> = ({
                               {shouldRenderDocNameCell(rowIndex) ? (
                                 // First row of group: show full doc name and observation count
                                 <div className="flex flex-col gap-1">
-                                  {formatCellValue(cellValue, column, row)}
+                                  {(() => {
+                                    const docUrl = documentUrlMap?.get(row._source_document || '');
+                                    return docUrl ? (
+                                      <a
+                                        href={docUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        {formatCellValue(cellValue, column, row)}
+                                        <ExternalLink className="h-3 w-3 shrink-0" />
+                                      </a>
+                                    ) : (
+                                      formatCellValue(cellValue, column, row)
+                                    );
+                                  })()}
                                   <Badge variant="secondary" className="text-xs w-fit">
                                     {getDocNameRowSpan(rowIndex)} observation{getDocNameRowSpan(rowIndex) !== 1 ? 's' : ''}
                                   </Badge>
