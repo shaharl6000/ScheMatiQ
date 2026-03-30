@@ -4,6 +4,7 @@ import { useViewHistory } from '../hooks/useViewHistory';
 import { useNavigationGuardContext } from '../contexts/NavigationGuardContext';
 import { NavigationConfirmDialog } from '@/components/ui/NavigationConfirmDialog';
 import { debug } from '@/utils/debug';
+import { isSafeUrl } from '@/utils/formatting';
 import {
   ArrowLeft,
   Download,
@@ -102,11 +103,11 @@ const Visualize = () => {
   // Document filter state
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
 
-  // Build document URL lookup map (document name -> external URL)
+  // Build document URL lookup map (document name -> safe external URL)
   const documentUrlMap = useMemo(() => {
     const map = new Map<string, string>();
     documentListResponse?.documents.forEach(d => {
-      if (d.url) map.set(d.name, d.url);
+      if (d.url && isSafeUrl(d.url)) map.set(d.name, d.url);
     });
     return map;
   }, [documentListResponse?.documents]);

@@ -538,6 +538,15 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
             session.observation_unit = ObservationUnitInfo(**result["observation_unit"])
             logger.debug(f"Restored observation unit from data file: {session.observation_unit.name}")
 
+        # Restore metadata from parsed result (cloud_dataset, document_metadata, etc.)
+        if "extracted_metadata" in result:
+            ext_meta = result["extracted_metadata"]
+            if ext_meta.get('cloud_dataset'):
+                session.metadata.cloud_dataset = ext_meta['cloud_dataset']
+            if ext_meta.get('document_metadata'):
+                session.metadata.document_metadata = ext_meta['document_metadata']
+                logger.debug(f"Restored document_metadata from dual files: {len(session.metadata.document_metadata)} documents with URLs")
+
         session.statistics = result["statistics"]
         session.status = SessionStatus.COMPLETED
         session_manager.update_session(session)
