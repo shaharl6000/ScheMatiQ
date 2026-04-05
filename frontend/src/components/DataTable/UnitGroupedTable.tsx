@@ -444,6 +444,16 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     // Apply sorting
     rows = applySort(rows, sortState);
 
+    // Stable-sort by unit name to ensure contiguous groups for visual merging
+    const indexMap = new Map(rows.map((r, i) => [r, i]));
+    rows = [...rows].sort((a, b) => {
+      const unitA = (a._unit_name || '').toLowerCase();
+      const unitB = (b._unit_name || '').toLowerCase();
+      const cmp = unitA.localeCompare(unitB);
+      if (cmp !== 0) return cmp;
+      return (indexMap.get(a) ?? 0) - (indexMap.get(b) ?? 0);
+    });
+
     return rows;
   }, [unitData?.rows, searchTerm, filterState, sortState]);
 
@@ -491,6 +501,41 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   useEffect(() => {
     clearSelection();
   }, [page, pageSize, selectedUnits, searchTerm, filterState.rules, sortState.columns, clearSelection]);
+
+  // Unit grouping helpers — show unit name only on first row of each group
+  const shouldRenderUnitCell = useCallback((rowIndex: number): boolean => {
+    if (rowIndex === 0) return true;
+    const current = (processedRows[rowIndex]?._unit_name || '').toLowerCase();
+    const prev = (processedRows[rowIndex - 1]?._unit_name || '').toLowerCase();
+    return current !== prev;
+  }, [processedRows]);
+
+  const getUnitRowSpan = useCallback((rowIndex: number): number => {
+    const current = (processedRows[rowIndex]?._unit_name || '').toLowerCase();
+    let span = 1;
+    for (let i = rowIndex + 1; i < processedRows.length; i++) {
+      if ((processedRows[i]?._unit_name || '').toLowerCase() === current) span++;
+      else break;
+    }
+    return span;
+  }, [processedRows]);
+
+  const unitGroups = useMemo(() => {
+    const groups: { startIndex: number; rowCount: number; unitName: string }[] = [];
+    processedRows.forEach((row, index) => {
+      if (shouldRenderUnitCell(index)) {
+        groups.push({ startIndex: index, rowCount: getUnitRowSpan(index), unitName: row._unit_name || '' });
+      }
+    });
+    return groups;
+  }, [processedRows, shouldRenderUnitCell, getUnitRowSpan]);
+
+  const getUnitGroupIndex = useCallback((rowIndex: number): number => {
+    for (let i = unitGroups.length - 1; i >= 0; i--) {
+      if (rowIndex >= unitGroups[i].startIndex) return i;
+    }
+    return 0;
+  }, [unitGroups]);
 
   // Check if any row has _source_document
   const hasSourceDocument = useMemo(() => {
@@ -889,37 +934,56 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
               </tr>
             </thead>
             <tbody>
-              {/* Flat row rendering */}
+              {/* Row rendering with unit grouping */}
               {processedRows.map((row, rowIndex) => {
                 const rowId = row._unit_name || row.row_name || '';
                 const rowSelected = isSelected(rowId);
                 const showCheckbox = hoveredRowId === rowId || selectedCount > 0;
+                const isFirstOfGroup = shouldRenderUnitCell(rowIndex);
+                const isGroupBoundary = isFirstOfGroup && rowIndex > 0;
+                const groupIndex = getUnitGroupIndex(rowIndex);
+                const isOddGroup = groupIndex % 2 === 1;
 
                 return (
                   <tr
                     key={rowIndex}
                     className={cn(
                       "border-b hover:bg-muted/50 transition-colors",
-                      rowSelected && "bg-blue-50 dark:bg-blue-950/50"
+                      rowSelected && "bg-blue-50 dark:bg-blue-950/50",
+                      isGroupBoundary && "border-t-2 border-t-foreground/20",
+                      isOddGroup && !rowSelected && "bg-muted/30"
                     )}
                     onMouseEnter={() => setHoveredRowId(rowId)}
                     onMouseLeave={() => setHoveredRowId(null)}
                   >
-                    {/* Frozen _unit_name cell */}
+                    {/* Frozen _unit_name cell — grouped: show name only on first row */}
                     <td
                       className={cn(
                         "pl-1 pr-2 py-1 sticky border-r overflow-hidden",
                         !getColumnWidth('_unit_name') && "min-w-[80px] max-w-[150px]",
                         "left-0",
-                        "bg-background"
+                        isOddGroup ? "bg-muted/30" : "bg-background",
+                        isGroupBoundary && "border-t-2 border-t-foreground/20",
+                        !isFirstOfGroup && "border-l-4 border-l-primary/20"
                       )}
                       style={{
                         zIndex: 5,
-                        verticalAlign: 'top',
+                        verticalAlign: isFirstOfGroup ? 'top' : 'middle',
                         ...(getColumnWidth('_unit_name') ? { width: getColumnWidth('_unit_name'), minWidth: MIN_COLUMN_WIDTH } : { width: 100 }),
                       }}
                     >
-                      <span className="text-sm font-medium break-words overflow-hidden" style={{ wordBreak: 'break-word' }}>{row._unit_name || 'Unknown'}</span>
+                      {isFirstOfGroup ? (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-sm font-medium break-words overflow-hidden" style={{ wordBreak: 'break-word' }}>{row._unit_name || 'Unknown'}</span>
+                          {getUnitRowSpan(rowIndex) > 1 && (
+                            <Badge variant="secondary" className="text-xs w-fit">
+                              {getUnitRowSpan(rowIndex)} documents
+                            </Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/50 break-words overflow-hidden" style={{ wordBreak: 'break-word' }}>{row._unit_name || 'Unknown'}</span>
+                      )}
                     </td>
 
                     {/* Source Document cell - always visible when present */}
