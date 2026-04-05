@@ -613,6 +613,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 local_papers.append(paper)
             elif paper in paper_doc_dirs:
                 papers_to_check_cloud.append(paper)
+            elif session_cloud_dataset:
+                # Fallback: use session's cloud_dataset for papers without explicit directory
+                paper_doc_dirs[paper] = f"datasets/{session_cloud_dataset}"
+                papers_to_check_cloud.append(paper)
             else:
                 missing.append(paper)
 
