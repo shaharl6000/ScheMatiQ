@@ -1508,7 +1508,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         hasObservationUnits ? (
                           <td
                             className={cn(
-                              "px-2 py-2",
+                              "px-2 py-2 overflow-hidden",
                               !getColumnWidth(frozenColumn) && "min-w-[30px] max-w-[120px]",
                               "sticky border-r",
                               "left-0",
@@ -1525,7 +1525,7 @@ const DataTable: React.FC<DataTableProps> = ({
                           >
                             {shouldRenderDocNameCell(rowIndex) ? (
                               // First row of group: show full doc name and observation count
-                              <div className="flex flex-col gap-1">
+                              <div className="flex flex-col gap-1 overflow-hidden" style={{ wordBreak: 'break-word' }}>
                                 {(() => {
                                   const docUrl = documentUrlMap?.get(row._source_document || '');
                                   return docUrl ? (
@@ -1533,7 +1533,7 @@ const DataTable: React.FC<DataTableProps> = ({
                                       href={docUrl}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1"
+                                      className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1 break-words"
                                       onClick={(e) => e.stopPropagation()}
                                     >
                                       {formatCellValue(row._source_document, '_source_document', row)}
@@ -1556,7 +1556,7 @@ const DataTable: React.FC<DataTableProps> = ({
                           // Regular frozen column (no grouping)
                           <td
                             className={cn(
-                              "px-2 py-2 sticky border-r",
+                              "px-2 py-2 sticky border-r overflow-hidden",
                               !getColumnWidth(frozenColumn) && "min-w-[30px] max-w-[120px]",
                               "left-0",
                               "bg-background"
@@ -1602,7 +1602,7 @@ const DataTable: React.FC<DataTableProps> = ({
                             <td
                               key={column}
                               className={cn(
-                                "px-4 py-3",
+                                "px-4 py-3 overflow-hidden",
                                 !getColumnWidth(column) && "min-w-[120px] sm:min-w-[150px]",
                                 isOddGroup ? "bg-muted/30" : "bg-background",
                                 isGroupBoundary && "border-t-4 border-t-foreground/40",
@@ -1616,7 +1616,7 @@ const DataTable: React.FC<DataTableProps> = ({
                             >
                               {shouldRenderDocNameCell(rowIndex) ? (
                                 // First row of group: show full doc name and observation count
-                                <div className="flex flex-col gap-1">
+                                <div className="flex flex-col gap-1 overflow-hidden" style={{ wordBreak: 'break-word' }}>
                                   {(() => {
                                     const docUrl = documentUrlMap?.get(row._source_document || '');
                                     return docUrl ? (
@@ -1624,7 +1624,7 @@ const DataTable: React.FC<DataTableProps> = ({
                                         href={docUrl}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1"
+                                        className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 hover:underline inline-flex items-center gap-1 break-words"
                                         onClick={(e) => e.stopPropagation()}
                                       >
                                         {formatCellValue(cellValue, column, row)}
