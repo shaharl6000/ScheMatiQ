@@ -27,6 +27,10 @@ When a column specifies `allowed_values`, follow these guidelines:
 - **Keep decimals as-is**: If the paper says "0.95", output "0.95"
 - **The system will validate**: Range clamping is handled automatically
 
+**For date constraints** (single-item like ["date"] or ["date:iso"] or ["date:us"] or ["date:%Y-%m-%d"]):
+- **Extract the calendar date** found in the text (any common written or numeric form is fine)
+- **The system normalizes** to one consistent format per column; you do not need to match that format in your answer
+
 **When value doesn't match allowed_values**:
 If you find a value in the paper that doesn't match the provided allowed_values:
 - Still extract the actual value from the paper
@@ -111,6 +115,7 @@ You are *ValueLLM*, extracting values **only if directly supported by the text**
 When a column specifies `allowed_values`:
 - For categorical values: prefer matching to an allowed value
 - For numeric constraints (["number"] or ["0-100"]): extract clean numbers without % or units
+- For date constraints (["date"] or ["date:..."]): extract the date as written; normalization is automatic
 - If no exact match, you may still extract the actual value from the paper
 - Add `"suggested_for_allowed_values": true` when the value doesn't match allowed_values
 - Always provide supporting excerpts

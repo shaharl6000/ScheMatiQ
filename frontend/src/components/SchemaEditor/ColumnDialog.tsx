@@ -37,6 +37,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  DATE_PRESET_BUTTONS,
+  formatConstraintBadgeDisplay,
+} from '@/utils/columnConstraintLabels';
 interface ColumnDialogProps {
   open: boolean;
   mode: 'add' | 'edit';
@@ -250,17 +254,24 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
   const submitText = mode === 'add' ? 'Add Column' : 'Save Changes';
 
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && !loading && onClose()}>
-      <DialogContent className="sm:max-w-lg max-h-[90vh] flex flex-col">
+      <Dialog open={open} onOpenChange={(isOpen) => !isOpen && !loading && onClose()}>
+      <DialogContent className="sm:max-w-2xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {submitIcon}
             {dialogTitle}
           </DialogTitle>
-          <DialogDescription>
-            {mode === 'add'
-              ? 'Add a new column to the schema'
-              : 'Edit column properties'}
+          <DialogDescription className="space-y-2 text-left">
+            <span className="block">
+              {mode === 'add'
+                ? 'Add a new column to the schema.'
+                : 'Edit column properties.'}
+            </span>
+            <span className="block text-muted-foreground">
+              Schema changes do not update the table by themselves. When you are ready, use{' '}
+              <span className="font-medium text-foreground">Re-extract Data</span> in the schema toolbar
+              so values are pulled from your documents into the new or edited columns.
+            </span>
           </DialogDescription>
         </DialogHeader>
 
@@ -311,7 +322,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
               value={formData.definition}
               onChange={(e) => handleChange('definition', e.target.value)}
               placeholder="Describe what this column represents and what information it should contain"
-              rows={3}
+              rows={8}
+              className="min-h-[168px] resize-y"
               disabled={loading}
               aria-required="true"
               aria-invalid={!!errors.definition}
@@ -330,7 +342,8 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
               value={formData.rationale}
               onChange={(e) => handleChange('rationale', e.target.value)}
               placeholder="Why is this column important for answering the research query?"
-              rows={2}
+              rows={4}
+              className="min-h-[88px] resize-y"
               disabled={loading}
               aria-required="false"
             />
@@ -340,6 +353,10 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
           {mode === 'add' && clusters.length > 0 && (
             <div className="space-y-2">
               <Label htmlFor="cluster" className="text-muted-foreground">Assign to Cluster</Label>
+              <p className="text-xs text-muted-foreground">
+                This row only appears when your schema already has column clusters (e.g. after grouping).
+                Choose Auto if you are not using clusters.
+              </p>
               <Select
                 value={selectedClusterId || 'auto'}
                 onValueChange={(value) => setSelectedClusterId(value === 'auto' ? null : value)}
@@ -381,7 +398,10 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
                   <Info className="h-3.5 w-3.5 text-muted-foreground cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-xs">
-                  <p>Define constraints for this column: categorical values, numeric types, or ranges. Leave empty for free-form text columns.</p>
+                  <p>
+                    Optional limits: categories (yes/no), numbers, ranges, or one saved date style per column.
+                    Leave empty for plain text. Date buttons pick how dates are written in the table (examples on each button).
+                  </p>
                 </TooltipContent>
               </Tooltip>
               {!constraintsOpen && formData.allowed_values.length > 0 && (
@@ -435,6 +455,20 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
                   >
                     0-1 (Prob)
                   </Button>
+                  {DATE_PRESET_BUTTONS.map(({ token, label, title }) => (
+                    <Button
+                      key={token}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setFormData(prev => ({ ...prev, allowed_values: [token] }))}
+                      disabled={loading}
+                      className="text-xs"
+                      title={title}
+                    >
+                      {label}
+                    </Button>
+                  ))}
                   <Button
                     type="button"
                     variant="outline"
@@ -452,7 +486,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
                   <div className="flex flex-wrap gap-2 p-2 bg-muted/50 rounded-md">
                     {formData.allowed_values.map((value, index) => (
                       <Badge key={index} variant="secondary" className="gap-1 pr-1">
-                        {value}
+                        {formatConstraintBadgeDisplay(value)}
                         <button
                           type="button"
                           onClick={() => handleRemoveAllowedValue(index)}
@@ -471,7 +505,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
                 <div className="flex gap-2">
                   <Input
                     id="allowed_values"
-                    placeholder="Add custom value (e.g., &quot;1-10&quot;)..."
+                    placeholder='Add category or range (e.g. "1-10")...'
                     value={newAllowedValue}
                     onChange={(e) => setNewAllowedValue(e.target.value)}
                     onKeyPress={handleAllowedValueKeyPress}

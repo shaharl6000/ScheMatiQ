@@ -3,7 +3,10 @@
 import difflib
 import json
 import re
+from datetime import datetime
 from typing import Dict, Any, List, Tuple, Optional
+
+from dateutil import parser as date_parser
 
 
 def _flatten_answer(answer: Any) -> str:
@@ -159,6 +162,43 @@ class JSONResponseParser:
 
         return None
 
+    def _strftime_format_from_date_constraint(self, raw_constraint: str) -> Optional[str]:
+        """
+        Single-item allowed_values like 'date', 'date:iso', 'date:%m/%d/%Y', 'date:us', 'date:eu', 'date:long'.
+        Returns a strftime format string for output, or None if not a date constraint.
+        """
+        c = raw_constraint.strip()
+        low = c.lower()
+        if low == "date":
+            return "%Y-%m-%d"
+        if not low.startswith("date:"):
+            return None
+        spec = c[5:].strip()
+        if not spec or spec.lower() == "iso":
+            return "%Y-%m-%d"
+        shortcuts = {
+            "us": "%m/%d/%Y",
+            "eu": "%d/%m/%Y",
+            "long": "%B %d, %Y",
+        }
+        return shortcuts.get(spec.lower(), spec)
+
+    def _dayfirst_for_date_constraint(self, raw_constraint: str) -> bool:
+        return raw_constraint.strip().lower() == "date:eu"
+
+    def _parse_answer_to_datetime(self, answer: str, dayfirst: bool) -> Optional[datetime]:
+        s = answer.strip()
+        if not s:
+            return None
+        try:
+            return date_parser.parse(s, dayfirst=dayfirst, fuzzy=False)
+        except (ValueError, OverflowError):
+            pass
+        try:
+            return date_parser.parse(s, dayfirst=dayfirst, fuzzy=True)
+        except (ValueError, OverflowError):
+            return None
+
     def _normalize_to_allowed_values(
         self,
         answer: str,
@@ -172,17 +212,31 @@ class JSONResponseParser:
         - unmatched_original: Set to the original answer when it didn't match (for schema evolution tracking)
 
         Soft enforcement strategy:
-        1. Check for numeric constraints (single-item list with "number" or range)
-        2. Case-insensitive exact match -> return allowed value
-        3. Fuzzy match above threshold -> return allowed value
-        4. No match -> keep original answer and flag for schema evolution
+        1. Date constraints (single-item "date" / "date:...") -> parse and format
+        2. Numeric constraints (single-item "number" or min-max range)
+        3. Case-insensitive exact match -> return allowed value
+        4. Fuzzy match above threshold -> return allowed value
+        5. No match -> keep original answer and flag for schema evolution
         """
         if not allowed_values or not answer:
             return answer, False, None
 
         # Check for numeric constraints (single-item list)
         if len(allowed_values) == 1:
-            constraint = allowed_values[0].lower().strip()
+            raw_constraint = allowed_values[0].strip()
+            constraint = raw_constraint.lower()
+
+            out_fmt = self._strftime_format_from_date_constraint(raw_constraint)
+            if out_fmt is not None:
+                dayfirst = self._dayfirst_for_date_constraint(raw_constraint)
+                dt = self._parse_answer_to_datetime(answer, dayfirst=dayfirst)
+                if dt is not None:
+                    try:
+                        formatted = dt.strftime(out_fmt)
+                        return formatted, True, None
+                    except (ValueError, OSError):
+                        return answer, False, answer
+                return answer, False, answer
 
             # Type constraint: "number" - accepts any numeric value
             if constraint == "number":

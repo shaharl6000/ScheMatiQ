@@ -33,6 +33,10 @@ import {
 
 import { InitialSchemaColumn } from '../../types';
 import { schematiqAPI, cloudAPI } from '../../services/api';
+import {
+  DATE_PRESET_BUTTONS,
+  formatConstraintBadgeDisplay,
+} from '@/utils/columnConstraintLabels';
 
 type SchemaSource = 'none' | 'file' | 'manual';
 
@@ -587,14 +591,18 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
 
       {/* Column Editor Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {editingIndex !== null ? <Pencil className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
               {editingIndex !== null ? 'Edit Column' : 'Add Column'}
             </DialogTitle>
-            <DialogDescription>
-              Define a column for the initial schema
+            <DialogDescription className="space-y-2 text-left">
+              <span className="block">Define a column for the initial schema.</span>
+              <span className="block text-muted-foreground">
+                After discovery runs, use <span className="font-medium text-foreground">Re-extract Data</span> on the
+                Visualize page whenever you add or change columns so the table is filled from your documents.
+              </span>
             </DialogDescription>
           </DialogHeader>
 
@@ -622,7 +630,8 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
                 value={formData.definition}
                 onChange={(e) => setFormData(prev => ({ ...prev, definition: e.target.value }))}
                 placeholder="What this column represents..."
-                rows={2}
+                rows={8}
+                className="min-h-[168px] resize-y"
               />
             </div>
 
@@ -636,7 +645,8 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
                 value={formData.rationale}
                 onChange={(e) => setFormData(prev => ({ ...prev, rationale: e.target.value }))}
                 placeholder="Why this column is important..."
-                rows={2}
+                rows={4}
+                className="min-h-[88px] resize-y"
               />
             </div>
 
@@ -649,7 +659,10 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
                     <Info className="h-4 w-4 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent side="right" className="max-w-xs">
-                    <p>Define allowed values for categorical columns or constraints like "number" or "0-100".</p>
+                    <p>
+                      Optional: categories, numbers, ranges, or one date style (use the date buttons for examples).
+                      Leave empty for plain text.
+                    </p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -683,6 +696,19 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
                 >
                   0-100 (%)
                 </Button>
+                {DATE_PRESET_BUTTONS.map(({ token, label, title }) => (
+                  <Button
+                    key={token}
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setFormData(prev => ({ ...prev, allowed_values: [token] }))}
+                    className="text-xs"
+                    title={title}
+                  >
+                    {label}
+                  </Button>
+                ))}
                 <Button
                   type="button"
                   variant="outline"
@@ -699,7 +725,7 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
                 <div className="flex flex-wrap gap-2 p-2 bg-muted/50 rounded-md">
                   {formData.allowed_values.map((value, index) => (
                     <Badge key={index} variant="secondary" className="gap-1 pr-1">
-                      {value}
+                      {formatConstraintBadgeDisplay(value)}
                       <button
                         type="button"
                         onClick={() => handleRemoveAllowedValue(index)}
@@ -716,7 +742,7 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
               <div className="flex gap-2">
                 <Input
                   id="col-allowed"
-                  placeholder="Add allowed value..."
+                  placeholder='Add category or range (e.g. "1-10")...'
                   value={newAllowedValue}
                   onChange={(e) => setNewAllowedValue(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddAllowedValue())}
