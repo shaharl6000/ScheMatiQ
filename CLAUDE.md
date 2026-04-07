@@ -103,7 +103,7 @@ Release mode (default) restricts features for public use. Set `DEVELOPER_MODE=tr
 
 | Setting                  | Release Mode           | Developer Mode          |
 |--------------------------|------------------------|-------------------------|
-| Document limit           | 40                     | 10,000                  |
+| Document limit           | 100                    | 10,000                  |
 | Bypass UI toggle         | Hidden                 | Visible                 |
 | LLM configuration        | Locked (Gemini only)   | User-configurable       |
 | Schema creation model    | gemini-2.5-flash       | User's choice           |

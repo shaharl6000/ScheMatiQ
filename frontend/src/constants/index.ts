@@ -52,7 +52,7 @@ export const DEFAULT_DOCUMENT_RANDOMIZATION_SEED = 42;
 export const DEFAULT_CONVERGENCE_THRESHOLD = 5;
 
 // Document Upload Limits (Public Release)
-export const DEFAULT_MAX_DOCUMENTS = 40;
+export const DEFAULT_MAX_DOCUMENTS = 100;
 export const ALLOWED_FILE_TYPES = {
   'text/csv': ['.csv'],
   'application/json': ['.json'],
