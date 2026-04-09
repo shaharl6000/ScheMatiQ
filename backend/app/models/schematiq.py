@@ -88,6 +88,7 @@ class ScheMatiQStatus(BaseModel):
     total_documents: int = 0
     processed_documents: int = 0
     llm_stats: Optional[Dict[str, Any]] = None
+    schema_only: bool = False  # True when value extraction was deliberately skipped
 
 class ScheMatiQProgress(BaseModel):
     """Detailed progress information."""

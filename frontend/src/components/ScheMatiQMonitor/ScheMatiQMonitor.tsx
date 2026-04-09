@@ -128,6 +128,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
   // LLM Stats state
   const [llmStats, setLlmStats] = useState<LlmStats | null>(cachedLlmStats || null);
 
+  // Whether value extraction was deliberately skipped (schema-only mode)
+  const [schemaOnly, setSchemaOnly] = useState<boolean>(cachedStatus?.schema_only ?? false);
+
   // Track ScheMatiQ start time for elapsed display
   const startTimeRef = useRef<number | null>(null);
 
@@ -149,6 +152,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
 
   // Sync processingState with backend status (for page refreshes and tab switch remounts)
   useEffect(() => {
+    if (status?.schema_only !== undefined) {
+      setSchemaOnly(status.schema_only);
+    }
     if (status?.status === 'processing' && processingState === 'idle') {
       setProcessingState('starting');
     } else if (status?.status === 'completed' && processingState !== 'completed') {
@@ -280,7 +286,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
           }
         } else if (lower.includes('finaliz')) {
           setProcessingState('completed');
-          setExtractionProgress(prev => ({ ...prev, isComplete: true }));
+          if (!schemaOnly) {
+            setExtractionProgress(prev => ({ ...prev, isComplete: true }));
+          }
         }
 
         queryClient.invalidateQueries(['schematiq-status', sessionId]);
@@ -323,15 +331,19 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
         }
         const elapsed = data?.elapsed_seconds;
         const elapsedStr = elapsed ? ` Finished in ${formatElapsed(elapsed)}.` : '';
+        const isSchemaOnly = !!data?.schema_only;
+        if (isSchemaOnly) setSchemaOnly(true);
         addLog('success', `All done!${elapsedStr}`, message.data);
         setProcessingState('completed');
         setSchemaProgress(prev => ({ ...prev, isComplete: true }));
-        setExtractionProgress(prev => ({
-          ...prev,
-          isComplete: true,
-          totalDocs: data?.total_documents || prev.totalDocs,
-          processedDocs: data?.total_documents || prev.processedDocs,
-        }));
+        if (!isSchemaOnly) {
+          setExtractionProgress(prev => ({
+            ...prev,
+            isComplete: true,
+            totalDocs: data?.total_documents || prev.totalDocs,
+            processedDocs: data?.total_documents || prev.processedDocs,
+          }));
+        }
         queryClient.invalidateQueries(['schematiq-status', sessionId]);
       } else if (message.type === 'schema_completed') {
         const schemaData = message.data as SchemaCompletionData;
@@ -342,7 +354,11 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
           columnsDiscovered: schemaData?.total_columns || prev.columnsDiscovered,
           isComplete: true
         }));
-        setProcessingState('extraction');
+        // Don't advance to extraction phase if this is a schema-only run;
+        // the completed event will arrive shortly and set processingState to 'completed'.
+        if (!schemaOnly) {
+          setProcessingState('extraction');
+        }
 
         queryClient.invalidateQueries(['schematiq-status', sessionId]);
         queryClient.invalidateQueries(['session', sessionId, 'schematiq']);
@@ -971,15 +987,18 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
         })()}
 
         {/* Phase 2: Value Extraction */}
-        {/* Extraction is complete if explicitly marked OR if overall process completed */}
         {(() => {
-          const extractionIsComplete = extractionProgress.isComplete || processingState === 'completed';
+          const extractionIsComplete = !schemaOnly && (extractionProgress.isComplete || processingState === 'completed');
           return (
-            <Card className={`transition-all ${processingState === 'extraction' ? 'border-primary border-2 shadow-md' : ''}`}>
+            <Card className={`transition-all ${!schemaOnly && processingState === 'extraction' ? 'border-primary border-2 shadow-md' : ''} ${schemaOnly ? 'opacity-60' : ''}`}>
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-medium flex items-center gap-2">
-                    {extractionIsComplete ? (
+                    {schemaOnly ? (
+                      <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30 flex items-center justify-center">
+                        <div className="h-0.5 w-2.5 bg-muted-foreground/50 rounded" />
+                      </div>
+                    ) : extractionIsComplete ? (
                       <CheckCircle2 className="h-5 w-5 text-green-500" />
                     ) : processingState === 'extraction' ? (
                       <Loader2 className="h-5 w-5 animate-spin text-primary" />
@@ -988,30 +1007,36 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
                     )}
                     Phase 2: Extraction
                   </span>
-                  <Badge variant={extractionIsComplete ? 'success' : processingState === 'extraction' ? 'default' : 'secondary'}>
-                    {extractionIsComplete
-                      ? 'Complete'
-                      : processingState === 'extraction'
-                        ? 'In Progress'
-                        : 'Pending'}
+                  <Badge variant={schemaOnly ? 'secondary' : extractionIsComplete ? 'success' : processingState === 'extraction' ? 'default' : 'secondary'}>
+                    {schemaOnly
+                      ? 'Skipped'
+                      : extractionIsComplete
+                        ? 'Complete'
+                        : processingState === 'extraction'
+                          ? 'In Progress'
+                          : 'Pending'}
                   </Badge>
                 </div>
                 <Progress
-                  value={extractionIsComplete
-                    ? 100
-                    : extractionProgress.totalDocs > 0
-                      ? (extractionProgress.processedDocs / extractionProgress.totalDocs) * 100
-                      : processingState === 'extraction' ? 10 : 0}
-                  className={`h-2 ${processingState === 'extraction' && !extractionIsComplete ? 'animate-pulse' : ''}`}
+                  value={schemaOnly
+                    ? 0
+                    : extractionIsComplete
+                      ? 100
+                      : extractionProgress.totalDocs > 0
+                        ? (extractionProgress.processedDocs / extractionProgress.totalDocs) * 100
+                        : processingState === 'extraction' ? 10 : 0}
+                  className={`h-2 ${!schemaOnly && processingState === 'extraction' && !extractionIsComplete ? 'animate-pulse' : ''}`}
                 />
                 <p className="text-xs text-muted-foreground mt-2">
-                  {extractionIsComplete
-                    ? `${extractionProgress.totalDocs} documents processed`
-                    : processingState === 'extraction' && extractionProgress.totalDocs > 0
-                      ? `${extractionProgress.processedDocs}/${extractionProgress.totalDocs} documents`
-                      : processingState === 'extraction'
-                        ? 'Starting extraction...'
-                        : 'Waiting for schema'}
+                  {schemaOnly
+                    ? 'Extraction was skipped'
+                    : extractionIsComplete
+                      ? `${extractionProgress.totalDocs} documents processed`
+                      : processingState === 'extraction' && extractionProgress.totalDocs > 0
+                        ? `${extractionProgress.processedDocs}/${extractionProgress.totalDocs} documents`
+                        : processingState === 'extraction'
+                          ? 'Starting extraction...'
+                          : 'Waiting for schema'}
                 </p>
               </CardContent>
             </Card>
