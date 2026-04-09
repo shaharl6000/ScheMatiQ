@@ -228,6 +228,7 @@ export interface ScheMatiQStatus {
   columns_discovered?: number;
   total_documents?: number;
   processed_documents?: number;
+  schema_only?: boolean;  // True when value extraction was deliberately skipped
   llm_stats?: {
     total_calls: number;
     current_cost_usd: number;

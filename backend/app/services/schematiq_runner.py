@@ -2181,6 +2181,17 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 status = "idle"
                 progress = 0.0
 
+        # Read schema_only flag from persisted session config
+        config_path = self.work_dir / session_id / "config.json"
+        schema_only = False
+        try:
+            if config_path.exists():
+                import json as _json
+                cfg = _json.loads(config_path.read_text())
+                schema_only = cfg.get("skip_value_extraction", False)
+        except Exception:
+            pass
+
         return ScheMatiQStatus(
             session_id=session_id,
             status=status,
@@ -2193,6 +2204,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             total_documents=session.metadata.total_documents or 0,
             processed_documents=session.metadata.processed_documents or 0,
             llm_stats=session.metadata.processing_stats.get("llm_stats"),
+            schema_only=schema_only,
         )
     
     async def get_schema(self, session_id: str) -> Dict[str, Any]:
