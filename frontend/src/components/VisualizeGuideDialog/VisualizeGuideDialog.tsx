@@ -27,7 +27,8 @@ const steps = [
   {
     number: 2,
     title: 'Edit, Refine, and Expand',
-    description: 'Click any cell to edit it, modify the schema and re-extract, or add more documents to grow your table.',
+    description:
+      'Click any cell to edit it. After you add or change columns, use Re-extract Data so the table is filled from your documents. You can also add more documents to grow your table.',
   },
   {
     number: 3,

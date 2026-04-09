@@ -786,6 +786,12 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
           </ToastAction>
         ),
       });
+    } else if (savedMode === 'add') {
+      toast({
+        title: 'Column added',
+        description: `${message} Use Re-extract Data in the toolbar when you are ready to fill this column from your documents.`,
+        duration: 10000,
+      });
     } else {
       toast({ title: 'Success', description: message });
     }
@@ -1381,7 +1387,10 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                   </div>
                   <div className="p-3 rounded-lg border bg-muted/30">
                     <p className="font-medium mb-1">Re-extract Data</p>
-                    <p className="text-muted-foreground text-xs">After editing column definitions, re-run extraction to get better results.</p>
+                    <p className="text-muted-foreground text-xs">
+                      Adding or editing columns does not update cells by itself. Re-extract pulls values from your
+                      documents into the table using the current schema.
+                    </p>
                   </div>
                   <div className="p-3 rounded-lg border bg-muted/30">
                     <p className="font-medium mb-1">Add New Documents</p>
