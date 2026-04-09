@@ -1669,22 +1669,26 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             logger.debug(f"Data file not found: {data_file}")
             return
 
-        # Read extracted values indexed by row_name
-        extracted_by_row: Dict[str, Dict[str, Any]] = {}
+        # Read extracted values indexed by composite key (row_name, source_document)
+        from app.services.data_utils import row_dedup_key, _resolve_source_document
+
+        extracted_by_key: Dict[tuple, Dict[str, Any]] = {}
+        extracted_by_row_name: Dict[str, List[Dict[str, Any]]] = {}
         with open(extraction_file, 'r') as f:
             for line in f:
                 if line.strip():
                     row_data = json.loads(line)
-                    row_name = row_data.get('_row_name') or row_data.get('row_name')
-                    if row_name:
-                        extracted_by_row[row_name] = row_data
+                    key = row_dedup_key(row_data)
+                    if key[0]:
+                        extracted_by_key[key] = row_data
+                        extracted_by_row_name.setdefault(key[0], []).append(row_data)
 
-        logger.debug(f"Extracted data for {len(extracted_by_row)} rows")
+        logger.debug(f"Extracted data for {len(extracted_by_key)} rows (composite keys)")
 
         # Build paper stem mapping for fallback matching
-        extracted_by_paper_stem: Dict[str, Dict[str, Any]] = {}
-        for row_name, row_data in extracted_by_row.items():
-            extracted_by_paper_stem[row_name.lower()] = row_data
+        extracted_by_paper_stem: Dict[str, List[Dict[str, Any]]] = {}
+        for key, row_data in extracted_by_key.items():
+            extracted_by_paper_stem.setdefault(key[0].lower(), []).append(row_data)
 
         # Backup existing data
         import shutil
@@ -1702,18 +1706,34 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
                 row = json.loads(line)
                 row_name = row.get('row_name') or row.get('_row_name')
+                row_src = _resolve_source_document(row)
                 papers = row.get('papers') or []
 
-                # Try direct row name match first
+                # Try composite key match first (row_name + source_document)
                 extracted = None
-                if row_name and row_name in extracted_by_row:
-                    extracted = extracted_by_row[row_name]
-                else:
-                    # Fallback: try to match by paper name stem
+                row_key = (row_name, row_src) if row_name else None
+                if row_key and row_key in extracted_by_key:
+                    extracted = extracted_by_key[row_key]
+                elif row_name and row_name in extracted_by_row_name:
+                    candidates = extracted_by_row_name[row_name]
+                    if len(candidates) == 1:
+                        extracted = candidates[0]
+                    else:
+                        for paper in papers:
+                            paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
+                            for cand in candidates:
+                                if _resolve_source_document(cand).lower() == paper_stem:
+                                    extracted = cand
+                                    break
+                            if extracted:
+                                break
+                if not extracted:
                     for paper in papers:
                         paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
                         if paper_stem in extracted_by_paper_stem:
-                            extracted = extracted_by_paper_stem[paper_stem]
+                            candidates = extracted_by_paper_stem[paper_stem]
+                            if len(candidates) == 1:
+                                extracted = candidates[0]
                             break
 
                 if extracted:

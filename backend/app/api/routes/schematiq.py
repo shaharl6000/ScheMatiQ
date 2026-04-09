@@ -448,7 +448,9 @@ class CellRestoreBody(BaseModel):
     restore: Any = None
 
 @router.put("/cell/{session_id}")
-async def update_cell(session_id: str, row_name: str, column: str, value: str, body: Optional[CellRestoreBody] = None):
+async def update_cell(session_id: str, row_name: str, column: str, value: str,
+                      source_document: Optional[str] = None,
+                      body: Optional[CellRestoreBody] = None):
     """Update a single cell value in the data table."""
     try:
         session = session_manager.get_session(session_id)
@@ -456,7 +458,10 @@ async def update_cell(session_id: str, row_name: str, column: str, value: str, b
             raise HTTPException(status_code=404, detail="Session not found")
 
         restore = body.restore if body else None
-        result = await data_editor.update_cell(session_id, row_name, column, value, restore=restore)
+        result = await data_editor.update_cell(
+            session_id, row_name, column, value,
+            restore=restore, source_document=source_document,
+        )
         return result
 
     except FileNotFoundError as e:

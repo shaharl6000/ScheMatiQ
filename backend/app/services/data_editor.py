@@ -36,7 +36,7 @@ class DataEditor:
 
     async def update_cell(
         self, session_id: str, row_name: str, column: str, value: Any,
-        restore: Any = None
+        restore: Any = None, source_document: str = None
     ) -> dict:
         """
         Update a specific cell value in the session's data file.
@@ -46,6 +46,7 @@ class DataEditor:
             row_name: The row_name field to identify the row
             column: The column name to update
             value: The new value for the cell
+            source_document: Optional source document to disambiguate rows with the same name
 
         Returns:
             dict with status and details
@@ -66,11 +67,19 @@ class DataEditor:
                     rows.append(json.loads(line))
 
         # Find and update the target row
+        from app.services.data_utils import _resolve_source_document
+
         updated = False
         previous_value = None
         for row in rows:
             current_row_name = row.get("row_name") or row.get("_row_name")
-            if current_row_name == row_name:
+            if current_row_name != row_name:
+                continue
+            if source_document:
+                current_src = _resolve_source_document(row)
+                if current_src and current_src != source_document:
+                    continue
+            # Matched row:
                 # Update the cell value
                 if "data" in row and isinstance(row["data"], dict):
                     # Capture previous value for undo support

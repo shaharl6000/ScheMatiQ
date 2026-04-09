@@ -474,8 +474,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                      f"schematiq_session_dir exists={schematiq_session_dir.exists()}")
 
         # Collect paper references and document directories from all rows
+        from app.services.data_utils import _resolve_source_document
+
         paper_refs: Set[str] = set()
-        row_paper_mapping: Dict[str, List[str]] = {}  # row_name -> [papers]
+        row_paper_mapping: Dict[tuple, List[str]] = {}  # (row_name, source_doc) -> [papers]
         paper_doc_dirs: Dict[str, str] = {}  # paper_name -> document_directory
         total_rows = 0
 
@@ -544,7 +546,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     doc_dir = None
 
                             paper_refs.update(papers)
-                            row_paper_mapping[row_name] = papers
+                            row_src = _resolve_source_document(row)
+                            row_paper_mapping[(row_name, row_src)] = papers
 
                             # Track document directory for each paper
                             for paper in papers:
@@ -662,12 +665,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
         # Combine local and cloud papers for available list
         available = local_papers + list(cloud_papers.keys())
 
-        # Build paper to rows mapping
+        # Build paper to rows mapping (extract display name from tuple key)
         paper_to_rows: Dict[str, List[str]] = {}
         for paper in available:
             paper_to_rows[paper] = [
-                row_name for row_name, papers in row_paper_mapping.items()
-                if paper in papers
+                rk[0] for rk, rk_papers in row_paper_mapping.items()
+                if paper in rk_papers
             ]
 
         rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
@@ -691,11 +694,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     try:
                                         row = json.loads(line)
                                         row_name = row.get('row_name') or row.get('_row_name') or f"row_{row_idx}"
+                                        row_src = _resolve_source_document(row)
                                         papers_raw = row.get('papers') or row.get('_papers') or []
                                         if isinstance(papers_raw, list):
-                                            row_paper_mapping[row_name] = papers_raw
+                                            row_paper_mapping[(row_name, row_src)] = papers_raw
                                         else:
-                                            row_paper_mapping[row_name] = [papers_raw] if papers_raw else []
+                                            row_paper_mapping[(row_name, row_src)] = [papers_raw] if papers_raw else []
                                     except json.JSONDecodeError:
                                         continue
                 rows_with_papers = sum(1 for papers in row_paper_mapping.values() if papers)
@@ -1301,8 +1305,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
             logger.warning(f"No data files found for merge in session {session_id}")
             return
 
-        # Read extracted values indexed by row_name
-        extracted_by_row: Dict[str, Dict[str, Any]] = {}
+        # Read extracted values indexed by composite key (row_name, source_document)
+        # to avoid collisions when the same observation unit appears in multiple docs
+        from app.services.data_utils import row_dedup_key, _resolve_source_document
+
+        extracted_by_key: Dict[tuple, Dict[str, Any]] = {}
+        extracted_by_row_name: Dict[str, List[Dict[str, Any]]] = {}
         with open(extraction_file, 'r') as f:
             for line in f:
                 if not line.strip():
@@ -1312,23 +1320,24 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 except json.JSONDecodeError:
                     logger.warning(f"Skipping malformed line in extraction output: {line[:100]}")
                     continue
-                row_name = row_data.get('_row_name') or row_data.get('row_name')
-                if row_name:
-                    extracted_by_row[row_name] = row_data
+                key = row_dedup_key(row_data)
+                if key[0]:
+                    extracted_by_key[key] = row_data
+                    extracted_by_row_name.setdefault(key[0], []).append(row_data)
 
-        logger.debug(f"Extracted row names from extraction file: {list(extracted_by_row.keys())}")
+        logger.debug(f"Extracted composite keys from extraction file: {list(extracted_by_key.keys())}")
 
-        # Build a mapping from paper name stem to extracted data for fallback matching
-        extracted_by_paper_stem: Dict[str, Dict[str, Any]] = {}
-        for row_name, row_data in extracted_by_row.items():
-            extracted_by_paper_stem[row_name.lower()] = row_data
+        # Build a fallback mapping from paper name stem to extracted data list
+        extracted_by_paper_stem: Dict[str, List[Dict[str, Any]]] = {}
+        for key, row_data in extracted_by_key.items():
+            extracted_by_paper_stem.setdefault(key[0].lower(), []).append(row_data)
 
         # Process each data file
         import shutil
         total_rows_updated = 0
         total_new_rows = 0
         all_updated_rows = []
-        matched_extracted_rows = set()  # Track which extracted rows were matched
+        matched_extracted_keys: set = set()
         primary_data_file = data_files[0]
 
         for data_file in data_files:
@@ -1346,28 +1355,43 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
                     row = json.loads(line)
                     row_name = row.get('row_name') or row.get('_row_name')
+                    row_src = _resolve_source_document(row)
                     papers = row.get('papers') or []
 
-                    # Try direct row name match first
+                    # Try composite key match first (row_name + source_document)
                     extracted = None
-                    if row_name and row_name in extracted_by_row:
-                        extracted = extracted_by_row[row_name]
-                    else:
-                        # Fallback: try to match by paper name stem
+                    row_key = (row_name, row_src) if row_name else None
+                    if row_key and row_key in extracted_by_key:
+                        extracted = extracted_by_key[row_key]
+                    elif row_name and row_name in extracted_by_row_name:
+                        # Fallback: match by row_name alone only if there's exactly one candidate
+                        candidates = extracted_by_row_name[row_name]
+                        if len(candidates) == 1:
+                            extracted = candidates[0]
+                        else:
+                            # Multiple candidates — try to match by paper
+                            for paper in papers:
+                                paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
+                                for cand in candidates:
+                                    cand_src = _resolve_source_document(cand).lower()
+                                    if cand_src == paper_stem:
+                                        extracted = cand
+                                        break
+                                if extracted:
+                                    break
+                    if not extracted:
+                        # Last resort fallback: try to match by paper name stem
                         for paper in papers:
                             paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
                             if paper_stem in extracted_by_paper_stem:
-                                extracted = extracted_by_paper_stem[paper_stem]
+                                candidates = extracted_by_paper_stem[paper_stem]
+                                if len(candidates) == 1:
+                                    extracted = candidates[0]
                                 break
 
                     if extracted:
                         rows_updated += 1
-                        # Track matched rows
-                        if row_name:
-                            matched_extracted_rows.add(row_name)
-                        ext_rn = extracted.get('_row_name') or extracted.get('row_name')
-                        if ext_rn:
-                            matched_extracted_rows.add(ext_rn)
+                        matched_extracted_keys.add(row_dedup_key(extracted))
                         
                         for col_name in columns:
                             if col_name in extracted:
@@ -1376,19 +1400,18 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 else:
                                     row[col_name] = extracted[col_name]
                     else:
-                        logger.debug(f"No extracted match for row '{row_name}' in {data_file.name} (papers: {papers[:3]})")
+                        logger.debug(f"No extracted match for row '{row_name}' (src={row_src}) in {data_file.name} (papers: {papers[:3]})")
 
                     updated_rows.append(row)
 
             # Append new rows (only to the primary data file to avoid duplicates)
             new_rows_added = 0
             if data_file.resolve() == primary_data_file.resolve():
-                for ext_row_name, ext_row_data in extracted_by_row.items():
-                    # Skip if this row was already matched to an existing row
-                    if ext_row_name in matched_extracted_rows or ext_row_name.lower() in matched_extracted_rows:
+                for ext_key, ext_row_data in extracted_by_key.items():
+                    if ext_key in matched_extracted_keys:
                         continue
 
-                    # Convert extraction format to data file format
+                    ext_row_name = ext_key[0]
                     new_row = {
                         "row_name": ext_row_name,
                         "papers": ext_row_data.get("_papers", []),

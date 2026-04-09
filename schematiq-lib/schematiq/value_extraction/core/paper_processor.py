@@ -135,8 +135,30 @@ class PaperProcessor:
             self._active_context_cache = None
 
     def _generate(self, prompt, **kwargs) -> str:
-        """Generate using context cache if available, otherwise regular generate."""
+        """Generate using context cache if available, otherwise regular generate.
+
+        When context caching is active the LLM backend strips system messages
+        (they are baked into the cache).  However, per-unit extraction uses a
+        unit-specific system prompt that differs from the cached one.  We
+        therefore prepend any system message content to the first user message
+        so the unit-level instructions still reach the model.
+        """
         if self._active_context_cache and hasattr(self.llm, 'generate_with_cache'):
+            if isinstance(prompt, list):
+                system_parts = [m["content"] for m in prompt if m.get("role") == "system"]
+                if system_parts:
+                    system_text = "\n\n".join(system_parts)
+                    new_prompt = []
+                    injected = False
+                    for m in prompt:
+                        if m.get("role") == "system":
+                            continue
+                        if not injected and m.get("role") == "user":
+                            new_prompt.append({**m, "content": f"{system_text}\n\n{m['content']}"})
+                            injected = True
+                        else:
+                            new_prompt.append(m)
+                    prompt = new_prompt
             return self.llm.generate_with_cache(prompt, self._active_context_cache, **kwargs)
         return self.llm.generate(prompt, **kwargs)
 
@@ -1441,6 +1463,8 @@ class PaperProcessor:
         )
 
         # Create context cache for this document (Gemini only, reused across units)
+        # We use a generic observation unit name in the system prompt for the cache
+        # to make it reusable across all units in this document.
         cache_system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=observation_unit.name)
         self._active_context_cache = self._create_document_cache(cache_system_prompt, paper_text)
         if self._active_context_cache:
@@ -1461,9 +1485,15 @@ class PaperProcessor:
             confidence = unit.get("confidence", "medium")
 
             # When DISABLE_RETRIEVER is on, always use the full document text
-            # instead of the (possibly truncated) relevant_passages from unit identification
+            # instead of the (possibly truncated) relevant_passages from unit identification.
+            # This ensures the LLM has the full context of the CURRENT document and
+            # doesn't hallucinate from other documents if the cache was somehow contaminated.
             if DISABLE_RETRIEVER:
                 relevant_passages = [paper_text]
+            else:
+                # Ensure we have at least some text for the unit
+                if not relevant_passages:
+                    relevant_passages = [paper_text]
 
             print(
                 f"  → Extracting values for unit {i}/{len(units)}: {unit_name} (confidence: {confidence})"

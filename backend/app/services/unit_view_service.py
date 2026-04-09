@@ -103,24 +103,26 @@ class UnitViewService:
                 return cached_rows
 
         # Cache miss — read from disk
+        from app.services.data_utils import row_dedup_key
+
         rows = []
-        seen_row_names: set = set()
+        seen_keys: set = set()
         for data_file in data_files:
-            file_row_names: set = set()
+            file_keys: set = set()
             try:
                 with open(data_file, 'r', encoding='utf-8') as f:
                     for line in f:
                         if line.strip():
                             row = json.loads(line)
-                            row_name = row.get('_row_name') or row.get('row_name')
-                            if row_name and row_name in seen_row_names:
+                            key = row_dedup_key(row)
+                            if key[0] and key in seen_keys:
                                 continue
-                            if row_name:
-                                file_row_names.add(row_name)
+                            if key[0]:
+                                file_keys.add(key)
                             rows.append(row)
             except Exception as e:
                 logger.warning(f"Error reading {data_file}: {e}")
-            seen_row_names.update(file_row_names)
+            seen_keys.update(file_keys)
 
         self._row_cache[session_id] = (rows, current_mtimes, now)
         return rows
