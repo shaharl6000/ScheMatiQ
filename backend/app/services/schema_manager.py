@@ -650,18 +650,22 @@ class SchemaManager(WebSocketBroadcasterMixin):
         if not extraction_file.exists():
             return
 
-        # Read extracted values indexed by row_name
-        extracted_by_row: Dict[str, Any] = {}
-        extracted_by_paper_stem: Dict[str, Any] = {}
+        # Read extracted values indexed by composite key (row_name, source_document)
+        from app.services.data_utils import row_dedup_key, _resolve_source_document
+
+        extracted_by_key: Dict[tuple, Any] = {}
+        extracted_by_row_name: Dict[str, List[tuple]] = {}
+        extracted_by_paper_stem: Dict[str, List[tuple]] = {}
         with open(extraction_file, 'r') as f:
             for line in f:
                 if line.strip():
                     row_data = json.loads(line)
-                    row_name = row_data.get('_row_name') or row_data.get('row_name')
+                    key = row_dedup_key(row_data)
                     value = row_data.get(column_name)
-                    if row_name and value is not None:
-                        extracted_by_row[row_name] = value
-                        extracted_by_paper_stem[row_name.lower()] = value
+                    if key[0] and value is not None:
+                        extracted_by_key[key] = value
+                        extracted_by_row_name.setdefault(key[0], []).append((key, value))
+                        extracted_by_paper_stem.setdefault(key[0].lower(), []).append((key, value))
 
         # Find ALL data files (same pattern as unit_view_service._get_all_data_files)
         data_files = []
@@ -682,11 +686,12 @@ class SchemaManager(WebSocketBroadcasterMixin):
             session_dir.mkdir(parents=True, exist_ok=True)
             data_file = session_dir / "data.jsonl"
             with open(data_file, 'w') as f:
-                for idx, (row_name, value) in enumerate(extracted_by_row.items()):
+                for (row_name, src_doc), value in extracted_by_key.items():
                     row_data = {
                         "row_name": row_name,
                         "data": {column_name: value},
-                        "papers": []
+                        "papers": [],
+                        "_source_document": src_doc,
                     }
                     f.write(json.dumps(row_data) + '\n')
             return
@@ -699,18 +704,34 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     if line.strip():
                         row_data = json.loads(line)
                         row_name = row_data.get('row_name') or row_data.get('_row_name')
+                        row_src = _resolve_source_document(row_data)
                         papers = row_data.get('papers') or []
 
-                        # Try direct row name match
+                        # Try composite key match first
                         value = None
-                        if row_name and row_name in extracted_by_row:
-                            value = extracted_by_row[row_name]
-                        else:
-                            # Fallback: match by paper name stem
+                        row_key = (row_name, row_src) if row_name else None
+                        if row_key and row_key in extracted_by_key:
+                            value = extracted_by_key[row_key]
+                        elif row_name and row_name in extracted_by_row_name:
+                            candidates = extracted_by_row_name[row_name]
+                            if len(candidates) == 1:
+                                value = candidates[0][1]
+                            else:
+                                for paper in papers:
+                                    paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
+                                    for cand_key, cand_val in candidates:
+                                        if cand_key[1].lower() == paper_stem:
+                                            value = cand_val
+                                            break
+                                    if value is not None:
+                                        break
+                        if value is None:
                             for paper in papers:
                                 paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
                                 if paper_stem in extracted_by_paper_stem:
-                                    value = extracted_by_paper_stem[paper_stem]
+                                    candidates = extracted_by_paper_stem[paper_stem]
+                                    if len(candidates) == 1:
+                                        value = candidates[0][1]
                                     break
 
                         if value is not None:

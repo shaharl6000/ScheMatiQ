@@ -358,11 +358,12 @@ export const schematiqAPI = {
     sessionId: string,
     rowName: string,
     column: string,
-    value: string
+    value: string,
+    sourceDocument?: string
   ): Promise<{ status: string; session_id: string; row_name: string; column: string; value: string; previous_value?: any }> => {
-    const response = await api.put(`/schematiq/cell/${sessionId}`, null, {
-      params: { row_name: rowName, column, value }
-    });
+    const params: Record<string, string> = { row_name: rowName, column, value };
+    if (sourceDocument) params.source_document = sourceDocument;
+    const response = await api.put(`/schematiq/cell/${sessionId}`, null, { params });
     return response.data;
   },
 
@@ -371,11 +372,12 @@ export const schematiqAPI = {
     sessionId: string,
     rowName: string,
     column: string,
-    previousValue: any
+    previousValue: any,
+    sourceDocument?: string
   ): Promise<{ status: string }> => {
-    const response = await api.put(`/schematiq/cell/${sessionId}`, { restore: previousValue }, {
-      params: { row_name: rowName, column, value: '' }
-    });
+    const params: Record<string, string> = { row_name: rowName, column, value: '' };
+    if (sourceDocument) params.source_document = sourceDocument;
+    const response = await api.put(`/schematiq/cell/${sessionId}`, { restore: previousValue }, { params });
     return response.data;
   },
 

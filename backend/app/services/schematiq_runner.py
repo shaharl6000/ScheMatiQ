@@ -2274,6 +2274,8 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         if not data_files:
             return PaginatedData(rows=[], total_count=0, filtered_count=None, page=page, page_size=page_size, has_more=False)
 
+        from app.services.data_utils import row_dedup_key
+
         # Helper function to normalize row data
         def normalize_row(row_data: dict) -> dict:
             if '_row_name' in row_data:
@@ -2292,27 +2294,25 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         needs_processing = bool(filters or sort or search or document_filter)
 
         if needs_processing:
-            # Load all rows from all data files (deduplicated by _row_name across files only)
+            # Load all rows from all data files (deduplicated by composite key across files only)
             all_rows = []
-            seen_row_names: set = set()
+            seen_keys: set = set()
             for data_file in data_files:
-                file_row_names: set = set()
+                file_keys: set = set()
                 with open(data_file, 'r', encoding='utf-8') as f:
                     for line in f:
                         if line.strip():
                             try:
                                 row_data = json.loads(line.strip())
-                                # Only skip if this row_name was in a PREVIOUS file
-                                row_name = row_data.get('_row_name') or row_data.get('row_name')
-                                if row_name and row_name in seen_row_names:
+                                key = row_dedup_key(row_data)
+                                if key[0] and key in seen_keys:
                                     continue
-                                if row_name:
-                                    file_row_names.add(row_name)
+                                if key[0]:
+                                    file_keys.add(key)
                                 all_rows.append(normalize_row(row_data))
                             except (json.JSONDecodeError, TypeError):
                                 pass
-                # After processing each file, add its row names for cross-file dedup
-                seen_row_names.update(file_row_names)
+                seen_keys.update(file_keys)
 
             # Apply document filter before counting total
             if document_filter:
@@ -2362,37 +2362,37 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             # Efficient pagination (no filtering/sorting)
             # First pass: count valid rows (dedup only across files, not within)
             total_count = 0
-            seen_row_names: set = set()
+            seen_keys: set = set()
             for data_file in data_files:
-                file_row_names: set = set()
+                file_keys: set = set()
                 with open(data_file, 'r', encoding='utf-8') as f:
                     for line in f:
                         if not line.strip():
                             continue
                         try:
                             row_data = json.loads(line.strip())
-                            row_name = row_data.get('_row_name') or row_data.get('row_name')
-                            if row_name and row_name in seen_row_names:
+                            key = row_dedup_key(row_data)
+                            if key[0] and key in seen_keys:
                                 continue
-                            if row_name:
-                                file_row_names.add(row_name)
+                            if key[0]:
+                                file_keys.add(key)
                             total_count += 1
                         except (json.JSONDecodeError, TypeError):
                             pass
-                seen_row_names.update(file_row_names)
+                seen_keys.update(file_keys)
 
             rows = []
             start_line = page * page_size
             end_line = start_line + page_size
             global_line = 0
-            seen_row_names_page: set = set()
+            seen_keys_page: set = set()
 
             # Second pass: read paginated rows (dedup only across files, not within)
             for data_file in data_files:
                 if global_line >= end_line:
                     break  # Already have enough rows
 
-                file_row_names: set = set()
+                file_keys: set = set()
                 with open(data_file, 'r', encoding='utf-8') as f:
                     for line in f:
                         if not line.strip():
@@ -2401,12 +2401,11 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                             row_data = json.loads(line.strip())
                         except (json.JSONDecodeError, TypeError):
                             continue
-                        # Only skip if this row_name was in a PREVIOUS file
-                        row_name = row_data.get('_row_name') or row_data.get('row_name')
-                        if row_name and row_name in seen_row_names_page:
+                        key = row_dedup_key(row_data)
+                        if key[0] and key in seen_keys_page:
                             continue
-                        if row_name:
-                            file_row_names.add(row_name)
+                        if key[0]:
+                            file_keys.add(key)
 
                         if global_line >= end_line:
                             break
@@ -2415,7 +2414,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                             data_row = DataRow(**normalized)
                             rows.append(data_row)
                         global_line += 1
-                seen_row_names_page.update(file_row_names)
+                seen_keys_page.update(file_keys)
 
             return PaginatedData(
                 rows=rows,

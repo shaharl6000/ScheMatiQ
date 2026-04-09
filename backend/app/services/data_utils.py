@@ -3,9 +3,38 @@
 import json
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def row_dedup_key(row: dict) -> Tuple[str, str]:
+    """Build a composite dedup key from a data row.
+
+    The same observation-unit name (e.g. "Chief Justice Roberts") can appear in
+    multiple source documents. Using only ``_row_name`` as a unique identifier
+    causes one document's data to silently overwrite another's.  This helper
+    returns ``(row_name, source_document)`` so that callers can disambiguate.
+
+    *source_document* is resolved in priority order:
+      ``_source_document`` > ``source_document`` > first entry of
+      ``_papers``/``papers`` (stem only) > ``""``.
+    """
+    row_name: str = row.get('_row_name') or row.get('row_name') or ''
+    src = _resolve_source_document(row)
+    return (row_name, src)
+
+
+def _resolve_source_document(row: dict) -> str:
+    """Extract the source-document identifier from *row* regardless of format."""
+    src = row.get('_source_document') or row.get('source_document') or ''
+    if not src:
+        papers = row.get('_papers') or row.get('papers') or []
+        if isinstance(papers, str):
+            papers = [papers]
+        if papers:
+            src = Path(papers[0]).stem
+    return src
 
 # Resolve directory paths relative to the module location for reliability
 # across Docker/Railway and local dev environments.
@@ -46,8 +75,9 @@ def collect_all_data_rows(session_id: str, work_dir: Path = None, data_dir: Path
     - data_dir/{session_id}/data.jsonl            (document processing, continue discovery, reextraction)
 
     Deduplication: rows from earlier files take priority. Rows are identified by
-    '_row_name' or 'row_name' fields. Within a single file, duplicates are kept
-    (matching get_data() behavior); only cross-file duplicates are removed.
+    the composite key (row_name, source_document) via ``row_dedup_key``. Within a
+    single file, duplicates are kept (matching get_data() behavior); only
+    cross-file duplicates are removed.
 
     Args:
         session_id: The session ID
@@ -84,10 +114,10 @@ def collect_all_data_rows(session_id: str, work_dir: Path = None, data_dir: Path
         return []
 
     all_rows = []
-    seen_row_names: set = set()
+    seen_keys: set = set()
 
     for data_file in data_files:
-        file_row_names: set = set()
+        file_keys: set = set()
         try:
             with open(data_file, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -95,19 +125,17 @@ def collect_all_data_rows(session_id: str, work_dir: Path = None, data_dir: Path
                         continue
                     try:
                         row_data = json.loads(line.strip())
-                        # Cross-file dedup: skip if row_name was in a previous file
-                        row_name = row_data.get('_row_name') or row_data.get('row_name')
-                        if row_name and row_name in seen_row_names:
+                        key = row_dedup_key(row_data)
+                        if key[0] and key in seen_keys:
                             continue
-                        if row_name:
-                            file_row_names.add(row_name)
+                        if key[0]:
+                            file_keys.add(key)
                         all_rows.append(row_data)
                     except (json.JSONDecodeError, TypeError):
                         pass
         except Exception as e:
             logger.warning("Error reading data file %s: %s", data_file, e)
-        # After each file, register its row names for cross-file dedup
-        seen_row_names.update(file_row_names)
+        seen_keys.update(file_keys)
 
     return all_rows
 

@@ -394,6 +394,7 @@ export interface ModalContent {
   content: CellValue;
   rowName?: string;
   column?: string;
+  sourceDocument?: string;
 }
 
 export interface ApiError {

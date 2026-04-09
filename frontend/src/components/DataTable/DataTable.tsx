@@ -404,9 +404,9 @@ const DataTable: React.FC<DataTableProps> = ({
   );
 
   // Cell edit handler
-  const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string) => {
+  const handleCellUpdate = useCallback(async (rowName: string, column: string, value: string, sourceDocument?: string) => {
     try {
-      const result = await schematiqAPI.updateCell(sessionId, rowName, column, value);
+      const result = await schematiqAPI.updateCell(sessionId, rowName, column, value, sourceDocument);
       const previousValue = result.previous_value;
       refetchData();
 
@@ -417,7 +417,7 @@ const DataTable: React.FC<DataTableProps> = ({
         action: (
           <ToastAction altText="Undo" onClick={async () => {
             try {
-              await schematiqAPI.restoreCell(sessionId, rowName, column, previousValue);
+              await schematiqAPI.restoreCell(sessionId, rowName, column, previousValue, sourceDocument);
               refetchData();
             } catch {
               toast({ title: 'Undo failed', description: 'Could not revert the cell edit.', variant: 'destructive' });
@@ -873,6 +873,7 @@ const DataTable: React.FC<DataTableProps> = ({
       content: enrichedContent,
       rowName: row?.row_name || row?._unit_name,
       column: columnName,
+      sourceDocument: row?._source_document,
     });
     setModalOpen(true);
   };
@@ -1568,7 +1569,7 @@ const DataTable: React.FC<DataTableProps> = ({
                                 value={getFrozenCellValue()}
                                 rowName={row.row_name}
                                 column={frozenColumn}
-                                onSave={handleCellUpdate}
+                                onSave={(rn, col, val) => handleCellUpdate(rn, col, val, row._source_document)}
                               >
                                 {formatCellValue(getFrozenCellValue(), frozenColumn, row)}
                               </EditableCell>
@@ -1660,7 +1661,7 @@ const DataTable: React.FC<DataTableProps> = ({
                                 value={cellValue}
                                 rowName={row.row_name || ''}
                                 column={column}
-                                onSave={handleCellUpdate}
+                                onSave={(rn, col, val) => handleCellUpdate(rn, col, val, row._source_document)}
                               >
                                 {formatCellValue(cellValue, column, row)}
                               </EditableCell>
@@ -1746,7 +1747,7 @@ const DataTable: React.FC<DataTableProps> = ({
         })()}
         onSave={!readonly && modalContent.rowName && modalContent.column
           ? async (value: string) => {
-              await handleCellUpdate(modalContent.rowName!, modalContent.column!, value);
+              await handleCellUpdate(modalContent.rowName!, modalContent.column!, value, modalContent.sourceDocument);
             }
           : undefined
         }
