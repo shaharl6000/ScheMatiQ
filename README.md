@@ -5,28 +5,14 @@
 # ScheMatiQ
 
 **A framework for query-driven schema discovery and structured data extraction from document collections.**
-
-<p align="center">
-  <a href="https://arxiv.org/pdf/2604.09237" target="_blank" rel="noopener noreferrer" style="text-decoration: none;">
-    <img src="https://img.shields.io/badge/ArXiv-2604.09237-B31B1B?logo=arxiv&logoColor=white">
-  </a>
-  <a href="https://www.schematiq-ai.com/" target="_blank" rel="noopener noreferrer" style="text-decoration: none;">
-    <img src="https://img.shields.io/badge/🌐-website-blue">
-  </a>
-  <a href="LICENSE" style="text-decoration: none;">
-    <img src="https://img.shields.io/badge/MIT-License-green?logo=opensourceinitiative&logoColor=white">
-  </a>
-</p>
-<p align="center">
-  <a href="https://www.python.org/downloads/">
-    <img src="https://img.shields.io/badge/python-3.10+-blue.svg">
-  </a>
-  <a href="https://reactjs.org/">
-    <img src="https://img.shields.io/badge/react-18-61dafb.svg">
-  </a>
-  <a href="https://fastapi.tiangolo.com/">
-    <img src="https://img.shields.io/badge/FastAPI-0.104-009688.svg">
-  </a>
+<p align="center" style="font-size: 0;">
+  <a href="https://arxiv.org/pdf/2604.09237" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/ArXiv-2604.09237-B31B1B?logo=arxiv&logoColor=white"></a>
+  <a href="https://www.schematiq-ai.com/" target="_blank" rel="noopener noreferrer"><img src="https://img.shields.io/badge/🌐-website-blue"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/MIT-License-green?logo=opensourceinitiative&logoColor=white"></a>
+<p align="center" style="font-size: 0;">
+  <a href="https://www.python.org/downloads/" style="display: inline-block; margin: 0 4px;"><img src="https://img.shields.io/badge/python-3.10+-blue.svg"></a>
+  <a href="https://reactjs.org/" style="display: inline-block; margin: 0 4px;"><img src="https://img.shields.io/badge/react-18-61dafb.svg"></a>
+  <a href="https://fastapi.tiangolo.com/" style="display: inline-block; margin: 0 4px;"><img src="https://img.shields.io/badge/FastAPI-0.104-009688.svg"></a>
 </p>
 
 </div>
