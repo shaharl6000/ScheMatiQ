@@ -17,12 +17,20 @@
     <img src="https://img.shields.io/badge/MIT-License-green?logo=opensourceinitiative&logoColor=white">
   </a>
 </p>
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![React 18](https://img.shields.io/badge/react-18-61dafb.svg)](https://reactjs.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688.svg)](https://fastapi.tiangolo.com/)
+
+<p align="center">
+  <a href="https://www.python.org/downloads/">
+    <img src="https://img.shields.io/badge/python-3.10+-blue.svg">
+  </a>
+  <a href="https://reactjs.org/">
+    <img src="https://img.shields.io/badge/react-18-61dafb.svg">
+  </a>
+  <a href="https://fastapi.tiangolo.com/">
+    <img src="https://img.shields.io/badge/FastAPI-0.104-009688.svg">
+  </a>
+</p>
 
 </div>
-
 ScheMatiQ helps domain experts turn a research question and a document collection into a structured table — no predefined schema needed. The system uses a backbone LLM to iteratively discover an annotation schema, then extracts structured data grounded in the source documents. A web interface at [schematiq-ai.com](https://www.schematiq-ai.com/) supports human–AI collaboration, letting users inspect, revise, and refine results at every stage.
 
 <div align="center">
