@@ -7,17 +7,16 @@
 **A framework for query-driven schema discovery and structured data extraction from document collections.**
 
 <p align="center">
- <a href="">
-    <img src="https://img.shields.io/badge/ArXiv-2509.11106-B31B1B?logo=arxiv&logoColor=white">
- </a>
- <a href="https://www.schematiq-ai.com/">
+  <a href="https://arxiv.org/pdf/2604.09237" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.shields.io/badge/ArXiv-2604.09237-B31B1B?logo=arxiv&logoColor=white">
+  </a>
+  <a href="https://www.schematiq-ai.com/" target="_blank" rel="noopener noreferrer">
     <img src="https://img.shields.io/badge/🌐-website-blue">
- </a>
- <a href="LICENSE">
+  </a>
+  <a href="LICENSE">
     <img src="https://img.shields.io/badge/MIT-License-green?logo=opensourceinitiative&logoColor=white">
- </a>
+  </a>
 </p>
-
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![React 18](https://img.shields.io/badge/react-18-61dafb.svg)](https://reactjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104-009688.svg)](https://fastapi.tiangolo.com/)
