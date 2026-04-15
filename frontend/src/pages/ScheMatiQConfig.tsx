@@ -1080,7 +1080,7 @@ const ScheMatiQConfigPage = () => {
               <span>Code</span>
             </a>
             <a
-              href="https://x.com/"
+              href="https://x.com/EliyaHabba/status/2043690798257250662"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-sm transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-1"
