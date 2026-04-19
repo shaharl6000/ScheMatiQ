@@ -11,7 +11,7 @@ from app.models.unit import (
     MergeUnitsResponse,
     UnitSuggestionsResponse,
 )
-from app.models.session import PaginatedData, DataRow
+from app.models.session import PaginatedData, DataRow, FilterSortRequest
 from app.services.unit_view_service import unit_view_service
 from app.services import session_manager
 
@@ -86,37 +86,49 @@ async def list_source_documents(session_id: str):
         raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
 
 
-@router.get(
+@router.post(
     "/data/{session_id}",
     response_model=PaginatedData,
     summary="Get data by unit",
-    description="Get paginated data optionally filtered by observation unit"
+    description="Get paginated data optionally filtered/searched/sorted, grouped by observation unit"
 )
 async def get_unit_data(
     session_id: str,
     units: Optional[str] = Query(None, description="Comma-separated unit names to filter by"),
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
-    page_size: int = Query(50, ge=1, le=1000, description="Items per page")
+    page_size: int = Query(50, ge=1, le=1000, description="Units per page"),
+    request: Optional[FilterSortRequest] = None,
 ):
     """
-    Get paginated data optionally filtered by observation unit(s).
+    Get paginated data grouped by observation unit.
 
-    When a units filter is provided, only rows belonging to those units are returned.
-    Rows are sorted by unit name for consistent grouping.
+    Search/filters/sort are applied at the row level across the full session
+    (so a match on any page surfaces in the result). Pagination is by unit;
+    units with zero matching rows drop out of the view.
     """
     session = session_manager.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Parse comma-separated unit names
     unit_filter = [u.strip() for u in units.split(',') if u.strip()] if units else None
 
+    filters = None
+    sort = None
+    search = None
+    if request:
+        filters = [f.dict() for f in request.filters] if request.filters else None
+        sort = [s.dict() for s in request.sort] if request.sort else None
+        search = request.search
+
     try:
-        rows, total_unit_count, total_row_count = unit_view_service.get_unit_grouped_data(
+        rows, total_unit_count, filtered_unit_count, total_row_count = unit_view_service.get_unit_grouped_data(
             session_id=session_id,
             unit_filter=unit_filter,
             page=page,
-            page_size=page_size
+            page_size=page_size,
+            search=search,
+            filters=filters,
+            sort=sort,
         )
 
         # Convert to DataRow objects
@@ -155,13 +167,15 @@ async def get_unit_data(
                 )
             data_rows.append(data_row)
 
-        # Pagination is unit-based: total_count = number of units
-        has_more = (page + 1) * page_size < total_unit_count
+        # Pagination is unit-based: counts reflect units, not rows
+        any_filter_active = bool(unit_filter or search or filters)
+        effective_count = filtered_unit_count if any_filter_active else total_unit_count
+        has_more = (page + 1) * page_size < effective_count
 
         return PaginatedData(
             rows=data_rows,
             total_count=total_unit_count,
-            filtered_count=len(unit_filter) if unit_filter else None,
+            filtered_count=filtered_unit_count if any_filter_active else None,
             page=page,
             page_size=page_size,
             has_more=has_more
