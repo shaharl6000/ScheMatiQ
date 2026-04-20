@@ -19,6 +19,7 @@ from app.models.unit import (
 )
 from app.models.session import DataRow
 from app.core.config import DEFAULT_DATA_DIR
+from app.services import row_filtering
 
 logger = logging.getLogger(__name__)
 
@@ -268,53 +269,78 @@ class UnitViewService:
         session_id: str,
         unit_filter: Optional[List[str]] = None,
         page: int = 0,
-        page_size: int = 50
-    ) -> Tuple[List[Dict], int, int]:
+        page_size: int = 50,
+        search: Optional[str] = None,
+        filters: Optional[List[Dict]] = None,
+        sort: Optional[List[Dict]] = None,
+    ) -> Tuple[List[Dict], int, int, int]:
         """
         Get data grouped by observation unit with pagination applied per unit.
 
-        Pagination is applied to units (not individual rows), so expanding any
-        unit on the current page will always show all of its rows.
+        Search and filters run at the row level across the full dataset; units
+        with zero surviving rows drop out of the view. Sort runs at the row
+        level too, then rows are regrouped under their unit so each unit's
+        rows remain contiguous.
 
         Args:
             session_id: The session ID
-            unit_filter: Optional list of unit names to filter by
+            unit_filter: Optional list of unit names to restrict to
             page: Page number (0-indexed)
             page_size: Number of units per page
+            search: Optional global search term (case-insensitive substring)
+            filters: Optional list of filter rules (AND logic)
+            sort: Optional list of sort columns
 
         Returns:
-            Tuple of (rows, total_unit_count, total_row_count)
+            Tuple of (rows, total_unit_count, filtered_unit_count, total_row_count)
         """
         rows = self._load_all_rows(session_id)
         total_row_count = len(rows)
 
-        # Filter by units if specified
+        # Total units in the session (before any filtering) — stable across searches
+        total_unit_count = len({self._get_unit_name(r) or '' for r in rows})
+
         if unit_filter:
             unit_filter_set = set(unit_filter)
             rows = [r for r in rows if self._get_unit_name(r) in unit_filter_set]
 
-        # Group rows by unit name
+        if search and search.strip():
+            rows = row_filtering.apply_search(
+                rows,
+                search.strip(),
+                extra_top_level_fields=('_unit_name', 'unit_name', '_source_document', 'source_document'),
+            )
+
+        if filters:
+            rows = row_filtering.apply_filters(rows, filters)
+
+        if sort:
+            rows = row_filtering.apply_sort(rows, sort)
+
+        # Group (preserve row order from sort so within-unit sort is honored)
         unit_groups: Dict[str, List[Dict]] = defaultdict(list)
         for row in rows:
             unit_name = self._get_unit_name(row) or ''
             unit_groups[unit_name].append(row)
 
-        # Sort unit names alphabetically
         sorted_unit_names = sorted(unit_groups.keys(), key=str.lower)
-        total_unit_count = len(sorted_unit_names)
+        filtered_unit_count = len(sorted_unit_names)
 
-        # Paginate by units
         start_idx = page * page_size
         end_idx = start_idx + page_size
         paginated_unit_names = sorted_unit_names[start_idx:end_idx]
 
-        # Collect all rows for the paginated units, sorted within each unit
-        paginated_rows = []
+        paginated_rows: List[Dict] = []
         for unit_name in paginated_unit_names:
-            unit_rows = sorted(unit_groups[unit_name], key=lambda r: r.get('row_name', ''))
-            paginated_rows.extend(unit_rows)
+            # When no sort is provided, fall back to row_name for stable ordering
+            if sort:
+                paginated_rows.extend(unit_groups[unit_name])
+            else:
+                paginated_rows.extend(
+                    sorted(unit_groups[unit_name], key=lambda r: r.get('row_name', ''))
+                )
 
-        return paginated_rows, total_unit_count, total_row_count
+        return paginated_rows, total_unit_count, filtered_unit_count, total_row_count
 
     def merge_units(self, session_id: str, request: MergeUnitsRequest) -> MergeUnitsResponse:
         """

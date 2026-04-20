@@ -50,6 +50,7 @@ class DocumentListResponse(BaseModel):
     documents: List[DocumentSummary]
     total_documents: int
     total_rows: int
+    enrichment_pending: bool = False  # True while background PubMed lookup is running
 
 
 class UnitSimilarity(BaseModel):

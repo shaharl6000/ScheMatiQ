@@ -66,7 +66,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { getEditableValue } from './EditableCell';
 import { formatColumnName } from '../../utils/formatting';
-import { buildColumnMetadata, applyFilters, applySort, parsePythonString, extractDisplayValue, getDefaultColumnOrder } from './utils';
+import { buildColumnMetadata, parsePythonString, extractDisplayValue, getDefaultColumnOrder } from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import { useTableSort } from './hooks/useTableSort';
 import { useTableFilter } from './hooks/useTableFilter';
@@ -288,11 +288,23 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   }, [selectedUnits]);
 
   const { data: unitData, isLoading: dataLoading, refetch: refetchData } = useQuery(
-    ['unitData', sessionId, selectedUnits, page, pageSize],
+    [
+      'unitData',
+      sessionId,
+      selectedUnits,
+      page,
+      pageSize,
+      searchTerm,
+      JSON.stringify(filterState.rules),
+      JSON.stringify(sortState.columns),
+    ],
     () => unitsAPI.getData(sessionId, {
       units: effectiveUnitFilter,
       page,
       pageSize,
+      search: searchTerm.trim() || undefined,
+      filters: filterState.rules.length > 0 ? filterState.rules : undefined,
+      sort: sortState.columns.length > 0 ? sortState.columns : undefined,
     }),
     {
       enabled: !!sessionId && unitListResponse !== null,
@@ -310,10 +322,11 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     setPage(0);
   }, []);
 
-  // Reset to first page when unit filter changes
+  // Reset to first page when any server-side filter/search/sort changes,
+  // otherwise we may land on an empty page outside the new filtered range.
   useEffect(() => {
     setPage(0);
-  }, [selectedUnits]);
+  }, [selectedUnits, searchTerm, filterState.rules, sortState.columns]);
 
   // Total pages calculation — use filtered_count when a unit filter is active
   const displayedRowCount = unitData?.filtered_count ?? unitData?.total_count ?? 0;
@@ -416,47 +429,22 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     });
   }, [suggestions, dismissedSuggestions]);
 
-  // Apply client-side search, filters, and sorting
+  // Server applies search/filters/sort across the full dataset before paginating
+  // by unit. We only re-stable-sort by unit name so visual grouping survives
+  // any per-row sort the server applied within a unit.
   const processedRows = useMemo(() => {
     if (!unitData?.rows) return [];
 
-    let rows = unitData.rows;
-
-    // Apply search filter across all column values
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      rows = rows.filter(row => {
-        // Check unit name
-        if (row._unit_name?.toLowerCase().includes(term)) return true;
-        if (row.row_name?.toLowerCase().includes(term)) return true;
-        if (row._source_document?.toLowerCase().includes(term)) return true;
-        // Check all data columns
-        return Object.values(row.data).some(val => {
-          if (val === null || val === undefined) return false;
-          const str = typeof val === 'string' ? val : JSON.stringify(val);
-          return str.toLowerCase().includes(term);
-        });
-      });
-    }
-
-    // Apply column filters
-    rows = applyFilters(rows, filterState);
-
-    // Apply sorting
-    rows = applySort(rows, sortState);
-
-    // Stable-sort by unit name to ensure contiguous groups for visual merging
+    const rows = unitData.rows;
     const indexMap = new Map(rows.map((r, i) => [r, i]));
-    rows = [...rows].sort((a, b) => {
+    return [...rows].sort((a, b) => {
       const unitA = (a._unit_name || '').toLowerCase();
       const unitB = (b._unit_name || '').toLowerCase();
       const cmp = unitA.localeCompare(unitB);
       if (cmp !== 0) return cmp;
       return (indexMap.get(a) ?? 0) - (indexMap.get(b) ?? 0);
     });
-
-    return rows;
-  }, [unitData?.rows, searchTerm, filterState, sortState]);
+  }, [unitData?.rows]);
 
   // Row selection - compute pageRowIds from filtered/sorted rows
   const pageRowIds = useMemo(() => {

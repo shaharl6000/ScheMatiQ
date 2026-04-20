@@ -78,4 +78,5 @@ export interface DocumentListResponse {
   documents: DocumentSummary[];
   totalDocuments: number;
   totalRows: number;
+  enrichmentPending: boolean;
 }

@@ -880,7 +880,8 @@ export const unitsAPI = {
   },
 
   /**
-   * Get paginated data optionally filtered by observation unit(s).
+   * Get paginated data grouped by observation unit, with optional
+   * search/filters/sort applied at the row level across the full session.
    */
   getData: async (
     sessionId: string,
@@ -888,14 +889,25 @@ export const unitsAPI = {
       units?: string[];
       page?: number;
       pageSize?: number;
+      filters?: FilterRule[];
+      sort?: SortColumn[];
+      search?: string;
     }
   ): Promise<PaginatedData> => {
-    const params = new URLSearchParams();
-    if (options?.units && options.units.length > 0) params.append('units', options.units.join(','));
-    if (options?.page !== undefined) params.append('page', options.page.toString());
-    if (options?.pageSize !== undefined) params.append('page_size', options.pageSize.toString());
+    const params: Record<string, any> = {};
+    if (options?.units && options.units.length > 0) params.units = options.units.join(',');
+    if (options?.page !== undefined) params.page = options.page;
+    if (options?.pageSize !== undefined) params.page_size = options.pageSize;
 
-    const response = await api.get(`/units/data/${sessionId}?${params.toString()}`);
+    const response = await api.post(
+      `/units/data/${sessionId}`,
+      {
+        filters: options?.filters && options.filters.length > 0 ? options.filters : null,
+        sort: options?.sort && options.sort.length > 0 ? options.sort : null,
+        search: options?.search || null,
+      },
+      { params }
+    );
     return response.data;
   },
 
@@ -913,6 +925,7 @@ export const unitsAPI = {
       })),
       totalDocuments: data.total_documents,
       totalRows: data.total_rows,
+      enrichmentPending: data.enrichment_pending ?? false,
     };
   },
 

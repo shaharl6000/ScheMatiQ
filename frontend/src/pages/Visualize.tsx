@@ -100,6 +100,15 @@ const Visualize = () => {
     { enabled: !!sessionId }
   );
 
+  // Poll for document URL enrichment until all links are resolved
+  useEffect(() => {
+    if (!documentListResponse?.enrichmentPending) return;
+    const timer = setInterval(() => {
+      queryClient.invalidateQueries(['documentList', sessionId]);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [documentListResponse?.enrichmentPending, sessionId, queryClient]);
+
   // Document filter state
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
 
