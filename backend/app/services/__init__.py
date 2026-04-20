@@ -145,3 +145,8 @@ else:
     if not (GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE or GOOGLE_OAUTH_CREDENTIALS_JSON):
         _reasons.append("no Google credentials set (need GOOGLE_OAUTH_CREDENTIALS_JSON or GOOGLE_SERVICE_ACCOUNT_JSON)")
     logger.info("[data-collection] Disabled — %s", "; ".join(_reasons) if _reasons else "DATA_COLLECTION_ENABLED=False")
+
+# ── PubMed document enrichment (DOI link lookup) ──────────────────
+from app.services.pubmed_enrichment_service import PubMedEnrichmentService
+pubmed_enrichment_service = PubMedEnrichmentService(session_manager=session_manager)
+logger.info("[pubmed-enrichment] Service initialized")

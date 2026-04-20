@@ -925,6 +925,7 @@ export const unitsAPI = {
       })),
       totalDocuments: data.total_documents,
       totalRows: data.total_rows,
+      enrichmentPending: data.enrichment_pending ?? false,
     };
   },
 

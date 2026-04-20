@@ -13,7 +13,7 @@ from app.models.unit import (
 )
 from app.models.session import PaginatedData, DataRow, FilterSortRequest
 from app.services.unit_view_service import unit_view_service
-from app.services import session_manager
+from app.services import session_manager, pubmed_enrichment_service
 
 router = APIRouter()
 
@@ -77,10 +77,16 @@ async def list_source_documents(session_id: str):
                 url=meta.get("url"),
             ))
 
+        # Trigger background PubMed enrichment for documents missing URLs
+        doc_names = [d["name"] for d in documents]
+        enrichment_triggered = await pubmed_enrichment_service.enrich_missing(session_id, doc_names)
+        enrichment_active = enrichment_triggered or pubmed_enrichment_service.is_active(session_id)
+
         return DocumentListResponse(
             documents=doc_summaries,
             total_documents=len(documents),
             total_rows=total_rows,
+            enrichment_pending=enrichment_active,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
