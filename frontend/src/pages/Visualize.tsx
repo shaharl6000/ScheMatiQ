@@ -97,14 +97,14 @@ const Visualize = () => {
   const { data: documentListResponse } = useQuery(
     ['documentList', sessionId],
     () => unitsAPI.getDocuments(sessionId!),
-    { enabled: !!sessionId }
+    { enabled: !!sessionId, structuralSharing: false }
   );
 
   // Poll for document URL enrichment until all links are resolved
   useEffect(() => {
     if (!documentListResponse?.enrichmentPending) return;
     const timer = setInterval(() => {
-      queryClient.invalidateQueries(['documentList', sessionId]);
+      queryClient.refetchQueries(['documentList', sessionId]);
     }, 3000);
     return () => clearInterval(timer);
   }, [documentListResponse?.enrichmentPending, sessionId, queryClient]);
@@ -113,13 +113,15 @@ const Visualize = () => {
   const [selectedDocuments, setSelectedDocuments] = useState<string[]>([]);
 
   // Build document URL lookup map (document name -> safe external URL)
-  const documentUrlMap = useMemo(() => {
+  // Uses useState (not useMemo) to guarantee re-render propagation to child components.
+  const [documentUrlMap, setDocumentUrlMap] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
     const map = new Map<string, string>();
     documentListResponse?.documents.forEach(d => {
       if (d.url && isSafeUrl(d.url)) map.set(d.name, d.url);
     });
-    return map;
-  }, [documentListResponse?.documents]);
+    setDocumentUrlMap(map);
+  }, [documentListResponse]);
 
   // Enhanced upload document management state
   const [uploadedDocuments, setUploadedDocuments] = useState<File[]>([]);
@@ -263,6 +265,7 @@ const Visualize = () => {
               queryClient.invalidateQueries(['data', sessionId]);
               queryClient.invalidateQueries(['session', sessionId]);
               queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              queryClient.invalidateQueries(['documentList', sessionId]);
               setTimeout(() => {
                 setNewlyAddedRows(prev => {
                   const newSet = new Set(Array.from(prev));
@@ -332,6 +335,7 @@ const Visualize = () => {
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
               queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              queryClient.invalidateQueries(['documentList', sessionId]);
               refreshUnits();
               break;
             case 'reextraction_stopped':
@@ -427,6 +431,7 @@ const Visualize = () => {
               queryClient.invalidateQueries(['session', sessionId, mode]);
               queryClient.invalidateQueries(['data', sessionId, mode]);
               queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              queryClient.invalidateQueries(['documentList', sessionId]);
               refreshUnits();
               break;
           }
@@ -603,6 +608,7 @@ const Visualize = () => {
                 queryClient.invalidateQueries(['data', sessionId]);
                 queryClient.invalidateQueries(['session', sessionId]);
                 queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              queryClient.invalidateQueries(['documentList', sessionId]);
                 setTimeout(() => {
                   setNewlyAddedRows(prev => {
                     const newSet = new Set(Array.from(prev));
@@ -779,6 +785,7 @@ const Visualize = () => {
                 queryClient.invalidateQueries(['session', sessionId, mode]);
                 queryClient.invalidateQueries(['data', sessionId, mode]);
                 queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              queryClient.invalidateQueries(['documentList', sessionId]);
                 refreshUnits();
                 break;
             }
@@ -1355,6 +1362,7 @@ const Visualize = () => {
                     queryClient.invalidateQueries(['session', sessionId, mode]);
                     queryClient.invalidateQueries(['data', sessionId, mode]);
                     queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              queryClient.invalidateQueries(['documentList', sessionId]);
                     refreshUnits();
                   }}
                   processingColumns={processingColumns}
@@ -1389,6 +1397,7 @@ const Visualize = () => {
                     queryClient.invalidateQueries(['session', sessionId, mode]);
                     queryClient.invalidateQueries(['data', sessionId, mode]);
                     queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+              queryClient.invalidateQueries(['documentList', sessionId]);
                     refreshUnits();
                   }}
                   columnInfo={session?.columns?.map(col => ({ name: col.name, definition: col.definition, allowed_values: col.allowed_values ?? undefined }))}

@@ -34,9 +34,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # Module-level singleton (same pattern as schematiq_runner, reextraction_service, etc.)
+from app.services import pubmed_enrichment_service
 upload_processor = UploadDocumentProcessor(
     websocket_manager=websocket_manager,
-    session_manager=session_manager
+    session_manager=session_manager,
+    pubmed_enrichment_service=pubmed_enrichment_service,
 )
 
 

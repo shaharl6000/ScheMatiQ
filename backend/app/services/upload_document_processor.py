@@ -36,9 +36,11 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
     # Metadata columns that should not be sent to LLM for extraction
     METADATA_COLUMNS = {'papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata'}
 
-    def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager):
+    def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager,
+                 pubmed_enrichment_service=None):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
+        self._pubmed_enrichment_service = pubmed_enrichment_service
         self.running_sessions: Dict[str, bool] = {}
         self._state_lock = threading.Lock()
 
@@ -384,7 +386,11 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 "Document processing completed successfully", completion_data)
 
             logger.info(f"Document processing completed and broadcast sent for session {session_id}")
-            
+
+            # Enrich source documents with PubMed/DOI links (fire-and-forget)
+            if self._pubmed_enrichment_service:
+                await self._pubmed_enrichment_service.enrich_session(session_id)
+
         except Exception as e:
             # Update session with error
             session = self.session_manager.get_session(session_id)

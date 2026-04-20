@@ -117,6 +117,20 @@ class PubMedEnrichmentService:
         """Check if enrichment is currently running for a session."""
         return session_id in self._in_progress
 
+    async def enrich_session(self, session_id: str) -> None:
+        """Enrich all source documents in a session. Called at pipeline completion."""
+        from app.services.unit_view_service import unit_view_service
+        try:
+            documents = unit_view_service.get_source_documents(session_id)
+            doc_names = [d["name"] for d in documents]
+            if doc_names:
+                await self.enrich_missing(session_id, doc_names)
+        except Exception:
+            logger.warning(
+                "[pubmed-enrichment] Failed to enrich session %s",
+                session_id[:8], exc_info=True,
+            )
+
     async def enrich_missing(self, session_id: str, doc_names: List[str]) -> bool:
         """Enrich documents that don't have URLs yet. Non-blocking, deduped.
 
