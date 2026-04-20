@@ -25,8 +25,10 @@ from schematiq.core.cost_estimator import estimate_from_config
 
 router = APIRouter()
 # Create shared ScheMatiQ runner instance with shared managers
+from app.services import pubmed_enrichment_service
 schematiq_runner = ScheMatiQRunner(websocket_manager=websocket_manager, session_manager=session_manager,
-                         data_collection_service=data_collection_service)
+                         data_collection_service=data_collection_service,
+                         pubmed_enrichment_service=pubmed_enrichment_service)
 # Create data editor instance
 data_editor = DataEditor()
 

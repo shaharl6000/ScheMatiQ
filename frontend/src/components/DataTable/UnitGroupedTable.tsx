@@ -209,6 +209,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
   onColumnReorder,
   documentUrlMap,
 }) => {
+
   // Unit data hooks
   const { units: unitListResponse, loading: unitsLoading, error: unitsError, refresh: refreshUnits } = useUnits(sessionId);
   const { merge, loading: mergeLoading, error: mergeError, clearError: clearMergeError } = useMergeUnits(sessionId);

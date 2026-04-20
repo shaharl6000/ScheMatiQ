@@ -99,7 +99,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
     """Handles continued schema discovery operations."""
 
     def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager,
-                 data_collection_service=None):
+                 data_collection_service=None, pubmed_enrichment_service=None):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
         self.active_operations: Dict[str, ContinueDiscoveryOperation] = {}
@@ -107,6 +107,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         self._tasks: Dict[str, asyncio.Task] = {}
         self._state_lock = threading.Lock()
         self._data_collection_service = data_collection_service
+        self._pubmed_enrichment_service = pubmed_enrichment_service
 
     def is_stop_requested(self, operation_id: str) -> bool:
         """Check if stop was requested for an operation."""
@@ -1250,6 +1251,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     operation.session_id, "continue_discovery_completion"
                 )
 
+            # Enrich source documents with PubMed/DOI links (fire-and-forget)
+            if self._pubmed_enrichment_service:
+                await self._pubmed_enrichment_service.enrich_session(operation.session_id)
+
             # Cleanup config files
             config_file.unlink(missing_ok=True)
             llm_config_file.unlink(missing_ok=True)
@@ -1628,6 +1633,10 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 await self._data_collection_service.trigger_archive(
                     operation.session_id, "continue_discovery_extraction"
                 )
+
+            # Enrich source documents with PubMed/DOI links (fire-and-forget)
+            if self._pubmed_enrichment_service:
+                await self._pubmed_enrichment_service.enrich_session(operation.session_id)
 
         except Exception as e:
             logger.error(f"Incremental extraction FAILED: {e}", exc_info=True)
