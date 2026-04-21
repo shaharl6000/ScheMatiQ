@@ -287,6 +287,7 @@ const Visualize = () => {
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              queryClient.invalidateQueries(['documentList', sessionId]);
               refreshUnits();
               setTimeout(() => {
                 if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -372,6 +373,7 @@ const Visualize = () => {
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              queryClient.invalidateQueries(['documentList', sessionId]);
               refreshUnits();
               break;
 
@@ -394,6 +396,7 @@ const Visualize = () => {
               queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+              queryClient.invalidateQueries(['documentList', sessionId]);
               refreshUnits();
               break;
             case 'continue_discovery_stopped':
@@ -630,6 +633,7 @@ const Visualize = () => {
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                queryClient.invalidateQueries(['documentList', sessionId]);
                 refreshUnits();
                 setTimeout(() => {
                   if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -724,6 +728,7 @@ const Visualize = () => {
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                queryClient.invalidateQueries(['documentList', sessionId]);
                 refreshUnits();
                 break;
 
@@ -746,6 +751,7 @@ const Visualize = () => {
                 queryClient.refetchQueries({ queryKey: ['session', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+                queryClient.invalidateQueries(['documentList', sessionId]);
                 refreshUnits();
                 // Note: don't clear continueDiscoveryActive yet — extraction may follow
                 break;
