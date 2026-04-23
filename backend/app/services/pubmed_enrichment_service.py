@@ -10,6 +10,7 @@ import asyncio
 import functools
 import logging
 import re
+import unicodedata
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 
@@ -22,6 +23,29 @@ logger = logging.getLogger(__name__)
 
 EUROPEPMC_SEARCH_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
 PUBMED_DIRECT_URL = "https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
+
+# Typographic → ASCII: EuropePMC's TITLE:"..." is character-exact, so curly
+# quotes and special dashes extracted from PDF markdown miss their indexed
+# ASCII equivalents. Maps cover the characters observed across ~500 real
+# research titles in this repo (see research/data/{NES_new,NPC_hyp,novel_nes}).
+_TYPOGRAPHIC_MAP = str.maketrans({
+    "‘": "'", "’": "'", "‚": "'", "‛": "'",
+    "“": '"', "”": '"', "„": '"', "‟": '"',
+    "‐": "-", "‑": "-", "‒": "-",
+    "–": "-", "—": "-", "―": "-", "−": "-",
+    " ": " ", " ": " ", " ": " ",
+})
+
+# Footnote glyphs and missing-glyph placeholders — content noise, not title.
+_NOISE_CHARS = frozenset("†‡§¶•□�")
+
+
+def _normalize_for_search(text: str) -> str:
+    """Fold typographic characters to ASCII for exact-match title lookup."""
+    text = unicodedata.normalize("NFKC", text)
+    text = text.translate(_TYPOGRAPHIC_MAP)
+    text = "".join(" " if c in _NOISE_CHARS else c for c in text)
+    return " ".join(text.split())
 
 
 def _clean_source_doc_to_title(source_doc: str) -> Optional[str]:
@@ -86,18 +110,19 @@ def _search_europepmc(title: str) -> Optional[Dict[str, str]]:
         queries.append(words[0])
 
     for query_title in queries:
+        normalized = _normalize_for_search(query_title)
         try:
-            params = {"query": f'TITLE:"{query_title}"', "format": "json", "pageSize": 3}
+            params = {"query": f'TITLE:"{normalized}"', "format": "json", "pageSize": 3}
             resp = requests.get(EUROPEPMC_SEARCH_URL, params=params, timeout=15)
             resp.raise_for_status()
             results = resp.json().get("resultList", {}).get("result", [])
 
             for result in results:
                 doi = result.get("doi")
-                if doi and _title_matches(query_title, result.get("title", "")):
+                if doi and _title_matches(normalized, result.get("title", "")):
                     return {"url": f"https://doi.org/{doi}", "doi": doi}
         except Exception:
-            logger.warning("[pubmed-enrichment] Lookup failed for: %s", query_title[:60], exc_info=True)
+            logger.warning("[pubmed-enrichment] Lookup failed for: %s", normalized[:60], exc_info=True)
 
     return None
 

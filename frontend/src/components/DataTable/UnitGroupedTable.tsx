@@ -532,9 +532,18 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     return unitData?.rows?.some(row => row._source_document != null) ?? false;
   }, [unitData?.rows]);
 
-  // Check if any row has cell status provenance data
-  const hasCellStatus = useMemo(() => {
-    return unitData?.rows?.some(row => row._cell_status != null) ?? false;
+  // Set of cell-status values actually present — drives which legend pills
+  // render. Per-status (instead of a single boolean) means e.g. a UniProt-only
+  // session shows just the "External" pill, not Novel NES / Enriched / Inferred.
+  const presentCellStatuses = useMemo(() => {
+    const set = new Set<CellStatus>();
+    for (const row of unitData?.rows ?? []) {
+      if (!row._cell_status) continue;
+      for (const status of Object.values(row._cell_status)) {
+        if (status) set.add(status);
+      }
+    }
+    return set;
   }, [unitData?.rows]);
 
   // All toggleable columns with consistent ordering (matching DataTable's priority-based order)
@@ -743,26 +752,37 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
           </div>
         </div>
 
-        {/* Cell status legend — only when enrichment provenance data is present */}
-        {hasCellStatus && (
+        {/* Cell status legend — each pill only when that status is present */}
+        {(presentCellStatuses.has('novel_nes') ||
+          presentCellStatuses.has('enriched') ||
+          presentCellStatuses.has('inferred') ||
+          presentCellStatuses.has('external_source')) && (
           <div className="flex items-center gap-4 mb-3 text-xs text-muted-foreground">
             <span className="font-medium text-foreground/70">Cell provenance:</span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-400" />
-              Novel NES
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-blue-400" />
-              Enriched
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-400" />
-              Inferred
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-purple-400" />
-              External
-            </span>
+            {presentCellStatuses.has('novel_nes') && (
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-emerald-400" />
+                Novel NES
+              </span>
+            )}
+            {presentCellStatuses.has('enriched') && (
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-blue-400" />
+                Enriched
+              </span>
+            )}
+            {presentCellStatuses.has('inferred') && (
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-400" />
+                Inferred
+              </span>
+            )}
+            {presentCellStatuses.has('external_source') && (
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-2.5 h-2.5 rounded-sm bg-purple-400" />
+                External
+              </span>
+            )}
           </div>
         )}
 
