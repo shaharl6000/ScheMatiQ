@@ -31,15 +31,17 @@ router = APIRouter(tags=["schema"])
 schema_manager = SchemaManager(websocket_manager, session_manager)
 
 # Create reextraction service instance
-from app.services import pubmed_enrichment_service
+from app.services import pubmed_enrichment_service, uniprot_enrichment_service
 reextraction_service = ReextractionService(websocket_manager, session_manager,
                                            data_collection_service=data_collection_service,
-                                           pubmed_enrichment_service=pubmed_enrichment_service)
+                                           pubmed_enrichment_service=pubmed_enrichment_service,
+                                           uniprot_enrichment_service=uniprot_enrichment_service)
 
 # Create continue discovery service instance
 continue_discovery_service = ContinueDiscoveryService(websocket_manager, session_manager,
                                                       data_collection_service=data_collection_service,
-                                                      pubmed_enrichment_service=pubmed_enrichment_service)
+                                                      pubmed_enrichment_service=pubmed_enrichment_service,
+                                                      uniprot_enrichment_service=uniprot_enrichment_service)
 
 # Create data editor instance
 data_editor = DataEditor()

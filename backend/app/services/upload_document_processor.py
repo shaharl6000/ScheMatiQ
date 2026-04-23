@@ -37,10 +37,11 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
     METADATA_COLUMNS = {'papers', 'document_directory', 'row_name', '_row_name', '_papers', '_metadata'}
 
     def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager,
-                 pubmed_enrichment_service=None):
+                 pubmed_enrichment_service=None, uniprot_enrichment_service=None):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
         self._pubmed_enrichment_service = pubmed_enrichment_service
+        self._uniprot_enrichment_service = uniprot_enrichment_service
         self.running_sessions: Dict[str, bool] = {}
         self._state_lock = threading.Lock()
 
@@ -390,6 +391,12 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # Enrich source documents with PubMed/DOI links (fire-and-forget)
             if self._pubmed_enrichment_service:
                 await self._pubmed_enrichment_service.enrich_session(session_id)
+
+            # Enrich protein rows with UniProt data (fire-and-forget, protein units only).
+            # This is the "new rows after upload" hook — only rows without a uniprot_accession
+            # are processed, so existing enriched rows stay untouched.
+            if self._uniprot_enrichment_service:
+                await self._uniprot_enrichment_service.enrich_session(session_id)
 
         except Exception as e:
             # Update session with error

@@ -126,7 +126,8 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
     """Handles ScheMatiQ execution and integration."""
     
     def __init__(self, work_dir: str = "./schematiq_work", websocket_manager=None, session_manager=None,
-                 data_collection_service=None, pubmed_enrichment_service=None):
+                 data_collection_service=None, pubmed_enrichment_service=None,
+                 uniprot_enrichment_service=None):
         # Use provided managers or create new ones
         if websocket_manager is not None:
             self.websocket_manager = websocket_manager
@@ -146,6 +147,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         self.running_sessions: Dict[str, asyncio.Task] = {}
         self._data_collection_service = data_collection_service
         self._pubmed_enrichment_service = pubmed_enrichment_service
+        self._uniprot_enrichment_service = uniprot_enrichment_service
         self.stop_flags: Dict[str, bool] = {}  # Track stop requests per session
         self._state_lock = threading.Lock()
         self._global_usage = GlobalLLMUsageTracker(self.work_dir / "global_llm_usage.json")
@@ -1176,6 +1178,8 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                     await self._data_collection_service.trigger_archive(session_id, "schematiq_stopped_partial")
                 if self._pubmed_enrichment_service and rows_saved > 0:
                     await self._pubmed_enrichment_service.enrich_session(session_id)
+                if self._uniprot_enrichment_service and rows_saved > 0:
+                    await self._uniprot_enrichment_service.enrich_session(session_id)
                 return
 
             # Step 7: Finalize
@@ -1248,6 +1252,10 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             # Enrich source documents with PubMed/DOI links (fire-and-forget)
             if self._pubmed_enrichment_service:
                 await self._pubmed_enrichment_service.enrich_session(session_id)
+
+            # Enrich protein rows with UniProt data (fire-and-forget, protein units only)
+            if self._uniprot_enrichment_service:
+                await self._uniprot_enrichment_service.enrich_session(session_id)
 
             # Move processed documents from pending_documents/ to documents/
             # Prevents stale files from being re-picked up by continue discovery

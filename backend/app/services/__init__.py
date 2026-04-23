@@ -150,3 +150,8 @@ else:
 from app.services.pubmed_enrichment_service import PubMedEnrichmentService
 pubmed_enrichment_service = PubMedEnrichmentService(session_manager=session_manager)
 logger.info("[pubmed-enrichment] Service initialized")
+
+# ── UniProt row enrichment (protein data lookup) ───────────────────
+from app.services.uniprot_enrichment_service import UniProtEnrichmentService
+uniprot_enrichment_service = UniProtEnrichmentService(session_manager=session_manager)
+logger.info("[uniprot-enrichment] Service initialized")
