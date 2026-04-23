@@ -15,9 +15,13 @@ from typing import Dict, List, Optional, Set
 
 import requests
 
+from app.core.config import DEFAULT_DATA_DIR
 from app.services.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
+
+EUROPEPMC_SEARCH_URL = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
+PUBMED_DIRECT_URL = "https://pubmed.ncbi.nlm.nih.gov/{pmid}/"
 
 
 def _clean_source_doc_to_title(source_doc: str) -> Optional[str]:
@@ -75,8 +79,6 @@ def _search_europepmc(title: str) -> Optional[Dict[str, str]]:
     If the full title yields no results, retries with the last word
     dropped (source document names often truncate mid-word).
     """
-    url = "https://www.ebi.ac.uk/europepmc/webservices/rest/search"
-
     # Try full title first, then drop last word as fallback
     queries = [title]
     words = title.rsplit(" ", 1)
@@ -86,7 +88,7 @@ def _search_europepmc(title: str) -> Optional[Dict[str, str]]:
     for query_title in queries:
         try:
             params = {"query": f'TITLE:"{query_title}"', "format": "json", "pageSize": 3}
-            resp = requests.get(url, params=params, timeout=15)
+            resp = requests.get(EUROPEPMC_SEARCH_URL, params=params, timeout=15)
             resp.raise_for_status()
             results = resp.json().get("resultList", {}).get("result", [])
 
@@ -100,6 +102,74 @@ def _search_europepmc(title: str) -> Optional[Dict[str, str]]:
     return None
 
 
+def _extract_pmid_from_filename(source_doc: str) -> Optional[str]:
+    """Extract a PubMed ID from a source document name if present.
+
+    Matches patterns like ``Bach1_15175654_full`` or ``CALM_24397609.txt`` —
+    a trailing 6-9 digit number after an underscore, optionally followed
+    by ``_full`` and a file extension. Rejects 4-digit runs (likely years).
+    """
+    name = re.sub(r"^[a-z]{2,5}-", "", source_doc)
+    name = re.sub(r"\.(txt|pdf|doc|docx|md|rtf)$", "", name, flags=re.IGNORECASE)
+    name = re.sub(r"_full$", "", name, flags=re.IGNORECASE)
+
+    m = re.search(r"(?:^|_)(\d{6,9})$", name)
+    return m.group(1) if m else None
+
+
+def _lookup_by_pmid(pmid: str) -> Optional[Dict[str, str]]:
+    """Look up a paper by its PubMed ID via EuropePMC.
+
+    Prefers the DOI URL; falls back to a direct PubMed link if the record
+    lacks a DOI. Returns None only on network error or no results.
+    """
+    try:
+        params = {
+            "query": f"EXT_ID:{pmid} AND SRC:MED",
+            "format": "json",
+            "pageSize": 1,
+        }
+        resp = requests.get(EUROPEPMC_SEARCH_URL, params=params, timeout=15)
+        resp.raise_for_status()
+        results = resp.json().get("resultList", {}).get("result", [])
+        if not results:
+            return None
+
+        doi = results[0].get("doi")
+        if doi:
+            return {"url": f"https://doi.org/{doi}", "doi": doi}
+        return {"url": PUBMED_DIRECT_URL.format(pmid=pmid), "doi": None}
+    except Exception:
+        logger.warning("[pubmed-enrichment] PMID lookup failed for: %s", pmid, exc_info=True)
+        return None
+
+
+def _extract_title_from_file(file_path: Path) -> Optional[str]:
+    """Extract a paper title from the first markdown heading in a file.
+
+    Reads the first ~3 KB and returns the first ``#``-prefixed line,
+    stripped of hashes and bold markers. Returns None if nothing
+    title-shaped (15-250 chars) is found.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+            content = f.read(3000)
+    except Exception:
+        logger.warning("[pubmed-enrichment] Could not read %s", file_path, exc_info=True)
+        return None
+
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("#"):
+            continue
+        title = re.sub(r"^#+\s*", "", line)
+        title = re.sub(r"\*+", "", title)
+        title = re.sub(r"\s+", " ", title).strip()
+        if 15 <= len(title) <= 250:
+            return title
+    return None
+
+
 class PubMedEnrichmentService:
     """Fire-and-forget service that enriches documents with DOI links.
 
@@ -107,11 +177,63 @@ class PubMedEnrichmentService:
     documents that don't already have URLs in session metadata.
     """
 
-    def __init__(self, session_manager: SessionManager):
+    def __init__(self, session_manager: SessionManager, data_dir: str = DEFAULT_DATA_DIR):
         self._session_manager = session_manager
+        self._data_dir = Path(data_dir)
         self._active_tasks: Set[asyncio.Task] = set()
         # Track sessions currently being enriched to avoid duplicate work
         self._in_progress: Set[str] = set()
+
+    def _resolve_doc_path(self, session_id: str, doc_name: str) -> Optional[Path]:
+        """Locate the source document on disk for a given session.
+
+        The source_document field in extracted rows typically omits the file
+        extension (e.g. ``BMAL1_16980631_full``), so we probe common extensions.
+        """
+        docs_dir = self._data_dir / session_id / "documents"
+        if not docs_dir.exists():
+            return None
+
+        direct = docs_dir / doc_name
+        if direct.exists():
+            return direct
+
+        for ext in (".txt", ".pdf", ".md", ".docx", ".doc", ".rtf"):
+            candidate = docs_dir / f"{doc_name}{ext}"
+            if candidate.exists():
+                return candidate
+        return None
+
+    def _resolve_doc(self, session_id: str, doc_name: str) -> Optional[Dict[str, str]]:
+        """Run lookup strategies for a single document, strongest signal first.
+
+        Order:
+          1. PMID extracted from the filename (deterministic, no false positives).
+          2. Title extracted from the file's first markdown heading.
+          3. Title derived from the filename (legacy heuristic).
+
+        Each step is skipped silently if it doesn't apply. Returns the first
+        successful {"url": ..., "doi": ...} dict, or None if all strategies fail.
+        """
+        pmid = _extract_pmid_from_filename(doc_name)
+        if pmid:
+            result = _lookup_by_pmid(pmid)
+            if result:
+                return result
+
+        file_path = self._resolve_doc_path(session_id, doc_name)
+        if file_path:
+            title = _extract_title_from_file(file_path)
+            if title:
+                result = _search_europepmc(title)
+                if result:
+                    return result
+
+        title = _clean_source_doc_to_title(doc_name)
+        if title:
+            return _search_europepmc(title)
+
+        return None
 
     def is_active(self, session_id: str) -> bool:
         """Check if enrichment is currently running for a session."""
@@ -173,20 +295,18 @@ class PubMedEnrichmentService:
 
         try:
             for doc_name in doc_names:
-                title = _clean_source_doc_to_title(doc_name)
-                if not title:
-                    continue
-
                 result = await loop.run_in_executor(
                     schematiq_thread_pool,
-                    functools.partial(_search_europepmc, title),
+                    functools.partial(self._resolve_doc, session_id, doc_name),
                 )
 
                 if result:
                     self._store_url(session_id, doc_name, result["url"])
                     found += 1
 
-                # Rate limit: EuropePMC recommends max ~3 req/sec
+                # Rate limit: EuropePMC recommends max ~3 req/sec.
+                # _resolve_doc may have made up to 2 requests; 0.4s keeps the
+                # burst rate safe regardless of which strategy fired.
                 await asyncio.sleep(0.4)
 
             logger.info(
