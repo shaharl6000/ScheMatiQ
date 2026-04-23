@@ -72,7 +72,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
     }
 
     def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager,
-                 data_collection_service=None, pubmed_enrichment_service=None):
+                 data_collection_service=None, pubmed_enrichment_service=None,
+                 uniprot_enrichment_service=None):
         super().__init__(websocket_manager)
         self.session_manager = session_manager
         self.active_operations: Dict[str, ReextractionOperation] = {}
@@ -81,6 +82,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         self._state_lock = threading.Lock()
         self._data_collection_service = data_collection_service
         self._pubmed_enrichment_service = pubmed_enrichment_service
+        self._uniprot_enrichment_service = uniprot_enrichment_service
 
     @classmethod
     def get_cached_retriever(cls):
@@ -1263,6 +1265,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
             # Enrich source documents with PubMed/DOI links (fire-and-forget)
             if self._pubmed_enrichment_service:
                 await self._pubmed_enrichment_service.enrich_session(operation.session_id)
+
+            # Enrich protein rows with UniProt data (fire-and-forget, protein units only)
+            if self._uniprot_enrichment_service:
+                await self._uniprot_enrichment_service.enrich_session(operation.session_id)
 
         except Exception as e:
             logger.error(f"Re-extraction FAILED for operation {operation_id}: {e}", exc_info=True)
