@@ -130,7 +130,7 @@ DATA_COLLECTION_ENABLED = (
 # Global limit on cumulative LLM API calls across all sessions.
 # Always enforced in release mode. In developer mode the quota is bypassed.
 # Set to 0 to allow unlimited calls (no quota enforced).
-LLM_CALL_GLOBAL_LIMIT = int(os.environ.get("LLM_CALL_GLOBAL_LIMIT", "20"))
+LLM_CALL_GLOBAL_LIMIT = int(os.environ.get("LLM_CALL_GLOBAL_LIMIT", "1000"))
 
 # ── Quota Alert Email ────────────────────────────────────────────
 # Send an email when the LLM quota is exceeded.
