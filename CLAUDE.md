@@ -47,6 +47,8 @@ ScheMatiQ/
 - **Continue Discovery**: Extends schema after initial convergence by processing more documents. Managed by `ContinueDiscoveryService`.
 - **Reextraction**: Re-runs value extraction with current/edited schema. Managed by `ReextractionService`.
 - **Cost Estimation**: Estimates API costs before expensive LLM ops. `schematiq.core.cost_estimator` → `/api/schematiq/cost-estimate` endpoint.
+- **Runtime row format**: `schematiq_work/{id}/extracted_data.jsonl` stores rows **flat** — cells at top level (`row[col_name]`), metadata under `_`-prefixed keys (`_unit_name`, `_source_document`, `_cell_status`, `_papers`). Cell values are often dict-wrapped as `{"answer": ..., "excerpts": [...], "normalized_to_allowed": ...}`; use an `extract_value()`-style helper when reading. Do **not** assume a nested `row["data"]` wrapper — that shape appears only in offline/research JSON artifacts.
+- **Enrichment**: Fire-and-forget post-completion augmentation via services like `PubMedEnrichmentService` (doc DOI links) and `UniProtEnrichmentService` (protein rows). Pattern: `enrich_session(session_id)` on a DI-injected singleton, hooked into all four runners (`schematiq_runner`, `continue_discovery_service`, `reextraction_service`, `upload_document_processor`) right after each completion broadcast. Row-level enrichments mark cells with `_cell_status: "external_source"` — the frontend DataTable styles these with a blue border.
 
 ## Development Commands
 
