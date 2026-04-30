@@ -1396,7 +1396,10 @@ class PaperProcessor:
             return cleaned
 
         except Exception as e:
-            logging.warning(f"Error extracting values for unit {unit_name}: {e}")
+            logging.warning(
+                "[%s] Error extracting values for unit '%s': %s\nRaw response was:\n%s",
+                paper_title, unit_name, e, raw,
+            )
             return {}
 
     def extract_values_for_paper_with_units(

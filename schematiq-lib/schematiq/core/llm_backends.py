@@ -7,6 +7,7 @@ The API keys are pulled from standard environment variables by default:
 """
 
 from __future__ import annotations
+import logging
 import os
 import time
 import random
@@ -16,6 +17,8 @@ import re
 
 from schematiq.core.model_specs import get_model_spec, get_max_output_tokens
 from schematiq.core.llm_call_tracker import LLMCallTracker
+
+logger = logging.getLogger(__name__)
 
 
 ##############################################################################
@@ -489,10 +492,13 @@ class GeminiLLM(LLMInterface):
         self.temperature = temperature
         self.system_prefix = system_prefix
 
-        # Auto-detect token limits from model specs
+        # Auto-detect token limits and capabilities from model specs
         spec = get_model_spec("gemini", model)
         self.max_output_tokens = max_output_tokens if max_output_tokens is not None else spec.max_output_tokens
         self.context_window_size = context_window_size if context_window_size is not None else spec.context_window
+        # Whether this model accepts thinking_config. Lite models reject it when
+        # combined with response_schema, causing 400 INVALID_ARGUMENT.
+        self.supports_thinking = spec.supports_thinking
 
         # Load single API key
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -625,6 +631,9 @@ class GeminiLLM(LLMInterface):
             "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
             "safety_settings": self.safety_settings,
+            "automatic_function_calling": self.types.AutomaticFunctionCallingConfig(
+                disable=True
+            ),
         }
         # Add system instruction
         if system_instruction:
@@ -633,8 +642,10 @@ class GeminiLLM(LLMInterface):
         if kwargs.get("response_schema") is not None:
             config_kwargs["response_mime_type"] = "application/json"
             config_kwargs["response_schema"] = kwargs["response_schema"]
-        # Add thinking budget if specified
-        if kwargs.get("thinking_budget") is not None:
+        # Add thinking budget only for models that support it.
+        # Lite models reject thinking_config with 400 INVALID_ARGUMENT, especially
+        # when combined with response_schema.
+        if kwargs.get("thinking_budget") is not None and self.supports_thinking:
             config_kwargs["thinking_config"] = self.types.ThinkingConfig(
                 thinking_budget=kwargs["thinking_budget"]
             )
@@ -669,9 +680,18 @@ class GeminiLLM(LLMInterface):
                 # Log non-STOP finish reasons (including MAX_TOKENS) but continue
                 if finish_reason and finish_reason_name != "STOP":
                     if finish_reason_name == "MAX_TOKENS":
-                        print(f"Response truncated (MAX_TOKENS). Output may be incomplete.")
+                        logger.warning(
+                            "⚠️  Gemini output TRUNCATED (finish_reason=MAX_TOKENS, model=%s, "
+                            "max_output_tokens=%s). Response is likely incomplete — consider "
+                            "increasing max_output_tokens.",
+                            self.model,
+                            kwargs.get("max_output_tokens", self.max_output_tokens),
+                        )
                     else:
-                        print(f"Response finish reason: {finish_reason_name}")
+                        logger.warning(
+                            "Gemini finish_reason=%s (model=%s)",
+                            finish_reason_name, self.model,
+                        )
 
                 # Check for empty content
                 if not candidate.content or not candidate.content.parts:
@@ -693,7 +713,13 @@ class GeminiLLM(LLMInterface):
                 error_str = str(e)
                 last_exception = e
                 elapsed = time.time() - start_time
-                print(f"⚠️  Gemini API call failed after {elapsed:.1f}s: {str(e)[:100]}")
+                logger.exception(
+                    "Gemini API call failed after %.1fs (model=%s, prompt_chars=%d)",
+                    elapsed,
+                    self.model,
+                    len(prompt_text),
+                )
+                print(repr(e))
 
                 # Handle safety filter errors specifically - don't retry
                 if "Invalid operation" in error_str and "finish_reason" in error_str:
@@ -784,11 +810,14 @@ class GeminiLLM(LLMInterface):
             "temperature": kwargs.get("temperature", self.temperature),
             "safety_settings": self.safety_settings,
             "cached_content": cache.name,
+            "automatic_function_calling": self.types.AutomaticFunctionCallingConfig(
+                disable=True
+            ),
         }
         if kwargs.get("response_schema") is not None:
             config_kwargs["response_mime_type"] = "application/json"
             config_kwargs["response_schema"] = kwargs["response_schema"]
-        if kwargs.get("thinking_budget") is not None:
+        if kwargs.get("thinking_budget") is not None and self.supports_thinking:
             config_kwargs["thinking_config"] = self.types.ThinkingConfig(
                 thinking_budget=kwargs["thinking_budget"]
             )
@@ -812,6 +841,23 @@ class GeminiLLM(LLMInterface):
                     return "No response generated due to safety filters or other restrictions."
 
                 candidate = response.candidates[0]
+                finish_reason = getattr(candidate, 'finish_reason', None)
+                finish_reason_name = finish_reason.name if hasattr(finish_reason, 'name') else str(finish_reason)
+                if finish_reason and finish_reason_name != "STOP":
+                    if finish_reason_name == "MAX_TOKENS":
+                        logger.warning(
+                            "⚠️  Gemini cached output TRUNCATED (finish_reason=MAX_TOKENS, "
+                            "model=%s, max_output_tokens=%s). Response is likely incomplete — "
+                            "consider increasing max_output_tokens.",
+                            self.model,
+                            kwargs.get("max_output_tokens", self.max_output_tokens),
+                        )
+                    else:
+                        logger.warning(
+                            "Gemini cached call finish_reason=%s (model=%s)",
+                            finish_reason_name, self.model,
+                        )
+
                 if not candidate.content or not candidate.content.parts:
                     return "Empty response from Gemini."
 
@@ -828,7 +874,13 @@ class GeminiLLM(LLMInterface):
                 error_str = str(e)
                 last_exception = e
                 elapsed = time.time() - start_time
-                print(f"⚠️  Gemini cached call failed after {elapsed:.1f}s: {str(e)[:100]}")
+                logger.exception(
+                    "Gemini cached API call failed after %.1fs (model=%s, prompt_chars=%d)",
+                    elapsed,
+                    self.model,
+                    len(prompt_text),
+                )
+                print(repr(e))
 
                 if "Invalid operation" in error_str and "finish_reason" in error_str:
                     return "Response blocked by Gemini safety filters."
