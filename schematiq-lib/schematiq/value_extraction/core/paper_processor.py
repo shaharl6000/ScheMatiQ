@@ -75,6 +75,7 @@ class PaperProcessor:
         on_value_extracted: Optional[OnValueExtractedCallback] = None,
         should_stop: Optional[ShouldStopCallback] = None,
         on_warning: Optional[OnWarningCallback] = None,
+        on_document_started: Optional[Callable[[str], None]] = None,
     ):
         self.llm = llm
         self.cache = cache or LLMCache()
@@ -86,6 +87,7 @@ class PaperProcessor:
         self.on_value_extracted = on_value_extracted
         self.should_stop = should_stop
         self.on_warning = on_warning
+        self.on_document_started = on_document_started
         # Schema evolution tracking: {column_name: {value: [list of documents]}}
         self.suggested_values: Dict[str, Dict[str, list]] = {}
         # Cache for fallback retriever (created on-demand, reused across papers)
@@ -112,8 +114,15 @@ class PaperProcessor:
         return build_extraction_response_schema(columns)
 
     def _gemini_kwargs(self, thinking_budget: int = 0) -> dict:
-        """Build Gemini-specific kwargs (thinking_budget). Returns empty dict for non-Gemini."""
+        """Build Gemini-specific kwargs (thinking_budget). Returns empty dict for non-Gemini.
+
+        Omits thinking_budget entirely for models that don't support thinking_config
+        (e.g. lite models), since sending it alongside response_schema causes a
+        400 INVALID_ARGUMENT error from the Gemini API.
+        """
         if not self._is_gemini_backend():
+            return {}
+        if not getattr(self.llm, "supports_thinking", False):
             return {}
         return {"thinking_budget": thinking_budget}
 
@@ -1131,7 +1140,7 @@ class PaperProcessor:
         )
 
         raw_response = self.llm.generate(
-            trimmed, max_output_tokens=task_tokens, **self._gemini_kwargs(thinking_budget=1024)
+            trimmed, max_output_tokens=task_tokens, **self._gemini_kwargs(thinking_budget=512)
         )
 
         # Log raw response for diagnostics (truncated for readability)

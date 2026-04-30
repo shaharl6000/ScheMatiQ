@@ -45,36 +45,36 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         self.running_sessions: Dict[str, bool] = {}
         self._state_lock = threading.Lock()
 
-    def _create_value_extracted_callback(self, session_id: str, loop: asyncio.AbstractEventLoop, total_documents: int):
-        """Create a callback that streams extracted cell values via WebSocket.
+    def _create_callbacks(self, session_id: str, loop: asyncio.AbstractEventLoop, total_documents: int):
+        """Create callbacks that stream extraction progress via WebSocket.
 
-        The callback bridges sync extraction code to async WebSocket broadcasting.
+        Returns (on_value_extracted, on_document_started).
+        on_document_started fires once per source *file* — used for accurate doc-level counter.
+        on_value_extracted fires once per cell — used for live table updates.
         """
-        current_document = [None]
-        document_index = [0]
+        doc_index = [0]  # counts source files, incremented by on_document_started
+
+        def on_document_started(paper_title: str):
+            """Called once per source document file before extraction begins."""
+            doc_index[0] += 1
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self.websocket_manager.broadcast_to_session(session_id, {
+                        "type": "document_started",
+                        "data": {
+                            "document_name": paper_title,
+                            "document_index": doc_index[0],
+                            "total_documents": total_documents,
+                        },
+                        "timestamp": datetime.now().isoformat()
+                    }),
+                    loop
+                )
+            except Exception as e:
+                logger.warning(f"Document started broadcast error: {e}")
 
         def on_value_extracted(row_name: str, column_name: str, value: Any):
             """Called for each cell value as it's extracted."""
-            # Broadcast document_started when we start processing a new document
-            if row_name != current_document[0]:
-                current_document[0] = row_name
-                document_index[0] += 1
-                try:
-                    asyncio.run_coroutine_threadsafe(
-                        self.websocket_manager.broadcast_to_session(session_id, {
-                            "type": "document_started",
-                            "data": {
-                                "document_name": row_name,
-                                "document_index": document_index[0],
-                                "total_documents": total_documents
-                            },
-                            "timestamp": datetime.now().isoformat()
-                        }),
-                        loop
-                    )
-                except Exception as e:
-                    logger.warning(f"Document started broadcast error: {e}")
-
             logger.debug(f"CELL EXTRACTED: {row_name} / {column_name} = {str(value)[:50]}...")
             try:
                 future = asyncio.run_coroutine_threadsafe(
@@ -85,18 +85,17 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                     }),
                     loop
                 )
-                # Check if future completed (with short timeout to not block extraction)
                 try:
                     future.result(timeout=0.1)
                     logger.debug(f"CELL BROADCAST SUCCESS: {row_name}/{column_name}")
                 except TimeoutError:
-                    pass  # Still running, that's fine - async broadcast in progress
+                    pass
                 except Exception as e:
                     logger.warning(f"CELL BROADCAST FAILED: {row_name}/{column_name}: {e}")
             except Exception as e:
                 logger.warning(f"Failed to schedule broadcast for {column_name}: {e}")
 
-        return on_value_extracted
+        return on_value_extracted, on_document_started
     
     async def process_documents(self, session_id: str):
         """Process uploaded documents using ScheMatiQ pipeline."""
@@ -188,8 +187,9 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             loop = asyncio.get_running_loop()
             total_docs = len(session.metadata.uploaded_documents)
 
-            # Create callback to stream cell values as they're extracted
-            on_value_extracted = self._create_value_extracted_callback(session_id, loop, total_docs)
+            # Create callbacks: on_document_started drives the "X of Y docs" counter,
+            # on_value_extracted streams individual cell values for live table updates.
+            on_value_extracted, on_document_started = self._create_callbacks(session_id, loop, total_docs)
 
             # Create should_stop callback that checks for stop requests
             def should_stop():
@@ -212,7 +212,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         mode="all",  # Process all columns together
                         retrieval_k=DEFAULT_RETRIEVAL_K,
                         max_workers=1,  # Single worker to avoid overwhelming API
-                        on_value_extracted=on_value_extracted,  # Stream values as extracted
+                        on_value_extracted=on_value_extracted,
+                        on_document_started=on_document_started,
                         should_stop=should_stop  # Allow graceful stop
                     )
                     logger.info(f"EXTRACTION COMPLETED for session {session_id}")
