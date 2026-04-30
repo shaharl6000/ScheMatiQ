@@ -147,6 +147,10 @@ If multiple things in the document would give the SAME answer, consolidate them 
 The user is investigating: **{query}**
 Use this query to decide which entities are relevant observation units and which are not.
 Only identify units whose properties would help answer this query.
+The query is answered LATER by aggregating units across the
+whole corpus. This document is one of many. An entity qualifies as a
+unit if it APPEARS in the document as an instance of the target type —
+it does NOT need to be studied, measured, or analyzed by the document.
 
 ### Observation Unit Definition
 - **Name**: {unit_name}
@@ -157,12 +161,12 @@ Only identify units whose properties would help answer this query.
 #                    THE SUBJECT TEST (APPLY FIRST)                          #
 ##############################################################################
 
-Before listing ANY unit, ask: "Is this entity the SUBJECT being studied, or a TOOL/CONTROL used to study something?"
+Before listing ANY unit, ask: "Is this entity an INSTANCE of the target type whose properties the query asks about, or is it a TOOL/CONTROL/BASELINE used only to study or measure something else?"
 
 **SUBJECT (= valid unit):**
 - The entity's properties are what the query asks about
-- Results describe characteristics OF this entity
 - Would appear as a ROW in the final table
+- This includes: subjects of study, named participants, record subjects, named parties, or any named instance of the target type that appears in the document — even if the document itself is not a study or evaluation of that entity
 
 **TOOL/METHOD/CONTROL (= NOT a unit):**
 - Used to detect, measure, or probe the actual subject
@@ -218,16 +222,16 @@ Before listing ANY unit, ask: "Is this entity the SUBJECT being studied, or a TO
 **Include units that:**
 - Are the SUBJECT of investigation (not tools/controls)
 - Have properties being characterized (not characterizing others)
-- Have substantial discussion (multiple paragraphs or dedicated section)
-- Have explicit evaluation (quantitative data, tables, figures, metrics)
 - Would be a ROW in the output table
+- **For study/evaluation documents** (papers, benchmarks, experiments): also require substantial discussion or explicit evaluation (quantitative data, tables, figures, metrics)
+- **For non-study documents** (records, decisions, reports, filings, transcripts, and similar): presence and naming as an instance of the target type is sufficient — no evaluation or analysis of the entity is required
 
 **Exclude units that:**
 - Are methods/tools used to study the actual subject
 - Are controls or comparisons (not being characterized themselves)
 - Are mentioned only as prior work or context
-- Have no specific data or evaluation in the document
-- Are merely referenced or cited without detailed analysis
+- In study/evaluation documents: have no specific data or evaluation in the document, or are merely referenced without detailed analysis
+- Note: the above two criteria apply to study documents only; in non-study documents, a named instance of the target type is NOT excluded merely because no evaluation of it appears
 
 ### Consolidation Rules (MANDATORY)
 
@@ -327,7 +331,7 @@ WRONG - Including tools/controls as units:
 - [ ] Applied Subject Test to each candidate unit
 - [ ] Excluded tools, methods, and controls
 - [ ] Consolidated variants appropriately
-- [ ] Only included units with substantial analysis
+- [ ] Only included units that pass the Include criteria (study docs: substantial analysis; non-study docs: named instance of target type present in document)
 - [ ] Used correct JSON format (not answer/excerpts)
 """.strip()
 
@@ -349,14 +353,16 @@ Examples: {example_names}
 Identify the PRIMARY instances of the observation unit in this document that are relevant to the query above.
 
 **APPLY THE SUBJECT TEST FIRST:**
-For each candidate, ask: "Is this the SUBJECT being studied, or a TOOL/CONTROL used to study something?"
-- SUBJECT (properties being characterized) → Include as unit
-- TOOL/METHOD/CONTROL (used to measure/detect) → Exclude
+For each candidate, ask: "Is this a named instance of the target type whose properties the query asks about, or a TOOL/CONTROL/BASELINE used only to study or measure something else?"
+- Named instance of target type (properties being characterized, or simply present in a non-study document) → Include as unit
+- TOOL/METHOD/CONTROL/BASELINE (used to measure/detect, or purely peripheral) → Exclude
 
 **RULES:**
-- Include only units with substantial analysis, results, or evaluation
+- Include units that pass the Subject Test: named instances of the target type whose properties the query asks about
+- For study/evaluation documents: also require substantial analysis, results, or evaluation
+- For non-study documents (records, decisions, reports, filings, transcripts): presence as a named instance of the target type is sufficient
 - Consolidate related variants into single units
-- Exclude peripheral mentions, baselines, and controls
+- Exclude tools, baselines, controls, and entities that are purely peripheral mentions
 - Each unit = one answer to the query
 
 **FORMAT:** Return JSON with "unit_name", "relevant_passages", "confidence" - NOT "answer"/"excerpts".
