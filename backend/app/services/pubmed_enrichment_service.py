@@ -198,8 +198,10 @@ def _extract_title_from_file(file_path: Path) -> Optional[str]:
 class PubMedEnrichmentService:
     """Fire-and-forget service that enriches documents with DOI links.
 
-    Triggered lazily when source documents are listed. Only searches for
-    documents that don't already have URLs in session metadata.
+    Triggered lazily when source documents are listed. Only starts lookups for
+    document names with no entry yet in ``document_metadata`` (a missing entry
+    means "never tried"; ``{"url": None}`` means "tried, no link" and stops
+    repeat polling).
     """
 
     def __init__(self, session_manager: SessionManager, data_dir: str = DEFAULT_DATA_DIR):
@@ -291,6 +293,9 @@ class PubMedEnrichmentService:
             return False
 
         existing_metadata = getattr(session.metadata, "document_metadata", {}) or {}
+        # Treat any per-document metadata entry as "already handled" — including
+        # {"url": None} after a failed lookup — so polling GET /units/documents
+        # does not restart enrichment forever when EuropePMC finds no match.
         missing = [name for name in doc_names if name not in existing_metadata]
 
         if not missing:
@@ -317,6 +322,7 @@ class PubMedEnrichmentService:
 
         loop = asyncio.get_running_loop()
         found = 0
+        resolved_names: Set[str] = set()  # docs that got a real URL
 
         try:
             for doc_name in doc_names:
@@ -327,6 +333,7 @@ class PubMedEnrichmentService:
 
                 if result:
                     self._store_url(session_id, doc_name, result["url"])
+                    resolved_names.add(doc_name)
                     found += 1
 
                 # Rate limit: EuropePMC recommends max ~3 req/sec.
@@ -343,6 +350,19 @@ class PubMedEnrichmentService:
                 "[pubmed-enrichment] Error enriching session %s",
                 session_id[:8], exc_info=True,
             )
+        finally:
+            # Write url=null for every doc without a real URL — including docs
+            # skipped because an exception aborted the loop early.  This makes
+            # ``name not in document_metadata`` false for the full doc list, so
+            # the next GET /units/documents poll won't re-trigger enrichment.
+            all_misses = [n for n in doc_names if n not in resolved_names]
+            self._store_enrichment_misses_batch(session_id, all_misses)
+            if all_misses:
+                logger.info(
+                    "[pubmed-enrichment] Stored url=null for %d/%d document(s) "
+                    "in session %s (polling will stop)",
+                    len(all_misses), len(doc_names), session_id[:8],
+                )
 
     def _store_url(self, session_id: str, doc_name: str, url: str) -> None:
         """Persist a DOI URL into session metadata."""
@@ -352,4 +372,17 @@ class PubMedEnrichmentService:
         if not session.metadata.document_metadata:
             session.metadata.document_metadata = {}
         session.metadata.document_metadata[doc_name] = {"url": url}
+        self._session_manager.update_session(session)
+
+    def _store_enrichment_misses_batch(self, session_id: str, doc_names: List[str]) -> None:
+        """Record failed lookups in one persist (avoids N disk writes when nothing matched)."""
+        if not doc_names:
+            return
+        session = self._session_manager.get_session(session_id)
+        if not session:
+            return
+        if not session.metadata.document_metadata:
+            session.metadata.document_metadata = {}
+        for doc_name in doc_names:
+            session.metadata.document_metadata[doc_name] = {"url": None}
         self._session_manager.update_session(session)
