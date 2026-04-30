@@ -1,50 +1,46 @@
 """Build Gemini response_schema for controlled generation during value extraction."""
 
-import logging
 import re
-from typing import Optional
-
-logger = logging.getLogger(__name__)
+from typing import Dict, Optional, Tuple
 
 # Gemini response_schema property names must match this pattern.
 # Names with hyphens, spaces, or other special characters cause a 400 INVALID_ARGUMENT.
 _GEMINI_PROP_NAME_RE = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
-
-def _all_names_valid(columns) -> bool:
-    """Return True if every column name is a valid Gemini response_schema property name."""
-    return all(_GEMINI_PROP_NAME_RE.match(col.name) for col in columns)
+# Characters not allowed in Gemini property names, replaced with underscore.
+_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9_]")
 
 
-def build_extraction_response_schema(columns) -> Optional[dict]:
+def _sanitize_name(name: str) -> str:
+    """Replace characters invalid for Gemini response_schema property names with '_'."""
+    return _SANITIZE_RE.sub("_", name)
+
+
+def build_extraction_response_schema(
+    columns,
+) -> Tuple[dict, Dict[str, str]]:
     """Build Gemini response_schema for value extraction output.
 
-    Creates a JSON Schema-compatible dict where each column is an optional
-    top-level property containing answer (STRING) and excerpts (ARRAY).
-
-    Returns None if any column name contains characters that Gemini rejects as
-    response_schema property keys (e.g. hyphens like "IssueCourt-1"), which
-    would cause a 400 INVALID_ARGUMENT error. Callers should skip controlled
-    generation when None is returned and let the model output free-form JSON.
+    Sanitizes column names that contain characters Gemini rejects as property
+    keys (e.g. hyphens in "IssueCourt-1" → "IssueCourt_1") so controlled
+    generation always works.  Returns the schema together with a reverse mapping
+    from sanitized name → original name so callers can restore the original keys
+    after parsing the response.
 
     Args:
         columns: List of Column objects with .name attribute.
 
     Returns:
-        Dict suitable for Gemini's response_schema parameter, or None if any
-        column name is invalid for use as a Gemini schema property.
+        (schema_dict, key_map) where:
+          - schema_dict is suitable for Gemini's response_schema parameter.
+          - key_map maps each sanitized property name back to the original
+            column name.  Empty when no sanitization was needed.
     """
-    if not _all_names_valid(columns):
-        invalid = [col.name for col in columns if not _GEMINI_PROP_NAME_RE.match(col.name)]
-        # Column names with hyphens or other special characters (e.g. "IssueCourt-1")
-        # cause Gemini to return 400 INVALID_ARGUMENT. Fall back to free-form JSON output.
-        logger.warning(
-            "⚠️  Controlled generation disabled: %d column name(s) contain characters "
-            "not allowed in Gemini response_schema properties: %s. "
-            "Falling back to free-form JSON output.",
-            len(invalid), invalid,
-        )
-        return None
+    key_map: Dict[str, str] = {}
+    for col in columns:
+        sanitized = _sanitize_name(col.name)
+        if sanitized != col.name:
+            key_map[sanitized] = col.name
 
     column_schema = {
         "type": "OBJECT",
@@ -58,10 +54,11 @@ def build_extraction_response_schema(columns) -> Optional[dict]:
 
     properties = {}
     for col in columns:
-        properties[col.name] = column_schema
+        properties[_sanitize_name(col.name)] = column_schema
 
-    return {
+    schema = {
         "type": "OBJECT",
         "properties": properties,
         # No "required" key — all columns are optional so the model can omit unfound ones
     }
+    return schema, key_map

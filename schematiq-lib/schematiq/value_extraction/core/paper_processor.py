@@ -75,7 +75,6 @@ class PaperProcessor:
         on_value_extracted: Optional[OnValueExtractedCallback] = None,
         should_stop: Optional[ShouldStopCallback] = None,
         on_warning: Optional[OnWarningCallback] = None,
-        on_document_started: Optional[Callable[[str], None]] = None,
     ):
         self.llm = llm
         self.cache = cache or LLMCache()
@@ -87,7 +86,6 @@ class PaperProcessor:
         self.on_value_extracted = on_value_extracted
         self.should_stop = should_stop
         self.on_warning = on_warning
-        self.on_document_started = on_document_started
         # Schema evolution tracking: {column_name: {value: [list of documents]}}
         self.suggested_values: Dict[str, Dict[str, list]] = {}
         # Cache for fallback retriever (created on-demand, reused across papers)
@@ -108,21 +106,32 @@ class PaperProcessor:
         return getattr(self.llm, "_provider", "") == "gemini"
 
     def _build_response_schema(self, columns):
-        """Build response_schema for Gemini controlled generation, or None."""
+        """Build (response_schema, key_map) for Gemini controlled generation.
+
+        Returns (None, {}) when controlled generation is disabled or unavailable.
+        key_map maps sanitized property names back to original column names and
+        is non-empty only when column names required sanitization (e.g. hyphens).
+        """
         if not ENABLE_CONTROLLED_GENERATION or not self._is_gemini_backend():
-            return None
-        return build_extraction_response_schema(columns)
+            return None, {}
+        schema, key_map = build_extraction_response_schema(columns)
+        return schema, key_map
+
+    @staticmethod
+    def _remap_response_keys(parsed: dict, key_map: dict) -> dict:
+        """Restore original column names in a parsed response dict.
+
+        When controlled generation sanitized column names (e.g. "IssueCourt-1"
+        → "IssueCourt_1"), the model returns sanitized keys.  This swaps them
+        back to the originals before postprocessing, which expects original names.
+        """
+        if not key_map:
+            return parsed
+        return {key_map.get(k, k): v for k, v in parsed.items()}
 
     def _gemini_kwargs(self, thinking_budget: int = 0) -> dict:
-        """Build Gemini-specific kwargs (thinking_budget). Returns empty dict for non-Gemini.
-
-        Omits thinking_budget entirely for models that don't support thinking_config
-        (e.g. lite models), since sending it alongside response_schema causes a
-        400 INVALID_ARGUMENT error from the Gemini API.
-        """
+        """Build Gemini-specific kwargs (thinking_budget). Returns empty dict for non-Gemini."""
         if not self._is_gemini_backend():
-            return {}
-        if not getattr(self.llm, "supports_thinking", False):
             return {}
         return {"thinking_budget": thinking_budget}
 
@@ -460,9 +469,10 @@ class PaperProcessor:
             safety_margins=SAFETY_MARGIN_ALL_MODE,
             context_window_size=max_ctx,
         )
+        resp_schema, key_map = self._build_response_schema(columns)
         raw = self._generate(
             trimmed,
-            response_schema=self._build_response_schema(columns),
+            response_schema=resp_schema,
             **self._gemini_kwargs(thinking_budget=0),
         )
         # Check stop immediately after LLM call returns
@@ -471,7 +481,7 @@ class PaperProcessor:
             return {}
 
         try:
-            parsed = self.json_parser.parse_response(raw)
+            parsed = self._remap_response_keys(self.json_parser.parse_response(raw), key_map)
             requested = [c.name for c in columns]
             # Build allowed_values dict for postprocessing
             column_allowed_values = {
@@ -584,9 +594,10 @@ class PaperProcessor:
                 safety_margins=SAFETY_MARGIN_SINGLE_MODE,
                 context_window_size=max_ctx,
             )
+            resp_schema, key_map = self._build_response_schema([col])
             raw = self._generate(
                 trimmed,
-                response_schema=self._build_response_schema([col]),
+                response_schema=resp_schema,
                 **self._gemini_kwargs(thinking_budget=0),
             )
             # Check stop immediately after LLM call returns
@@ -596,7 +607,7 @@ class PaperProcessor:
                 )
                 return {}
             try:
-                parsed = self.json_parser.parse_response(raw)
+                parsed = self._remap_response_keys(self.json_parser.parse_response(raw), key_map)
                 # Build allowed_values dict for postprocessing
                 column_allowed_values = (
                     {col.name: col.allowed_values} if col.allowed_values else {}
@@ -637,9 +648,10 @@ class PaperProcessor:
                 safety_margins=SAFETY_MARGIN_ALL_MODE,
                 context_window_size=max_ctx,
             )
+            resp_schema, key_map = self._build_response_schema(list(schema.columns))
             raw = self._generate(
                 trimmed,
-                response_schema=self._build_response_schema(list(schema.columns)),
+                response_schema=resp_schema,
                 **self._gemini_kwargs(thinking_budget=0),
             )
             # Check stop immediately after LLM call returns
@@ -649,7 +661,7 @@ class PaperProcessor:
                 )
                 return cleaned  # Return what we have so far
             try:
-                parsed = self.json_parser.parse_response(raw)
+                parsed = self._remap_response_keys(self.json_parser.parse_response(raw), key_map)
             except Exception as e:
                 print(f"⚠️  parse failure for {paper_title}: {e}")
                 parsed = {}
@@ -706,14 +718,17 @@ class PaperProcessor:
                     safety_margins=SAFETY_MARGIN_ALL_MODE,
                     context_window_size=max_ctx,
                 )
+                resp_schema_re, key_map_re = self._build_response_schema(reordered)
                 raw_re = self._generate(
                     trimmed_re,
-                    response_schema=self._build_response_schema(reordered),
+                    response_schema=resp_schema_re,
                     **self._gemini_kwargs(thinking_budget=0),
                 )
                 if not self._check_stop_requested():
                     try:
-                        parsed_re = self.json_parser.parse_response(raw_re)
+                        parsed_re = self._remap_response_keys(
+                            self.json_parser.parse_response(raw_re), key_map_re
+                        )
                         reorder_allowed = {
                             c.name: c.allowed_values
                             for c in reordered
@@ -1140,7 +1155,7 @@ class PaperProcessor:
         )
 
         raw_response = self.llm.generate(
-            trimmed, max_output_tokens=task_tokens, **self._gemini_kwargs(thinking_budget=512)
+            trimmed, max_output_tokens=task_tokens, **self._gemini_kwargs(thinking_budget=1024)
         )
 
         # Log raw response for diagnostics (truncated for readability)
@@ -1367,10 +1382,11 @@ class PaperProcessor:
             context_window_size=max_ctx,
         )
 
+        resp_schema, key_map = self._build_response_schema(list(schema.columns))
         raw = self._generate(
             trimmed,
             max_output_tokens=effective_max,
-            response_schema=self._build_response_schema(list(schema.columns)),
+            response_schema=resp_schema,
             **self._gemini_kwargs(thinking_budget=0),
         )
 
@@ -1378,7 +1394,7 @@ class PaperProcessor:
             return {}
 
         try:
-            parsed = self.json_parser.parse_response(raw)
+            parsed = self._remap_response_keys(self.json_parser.parse_response(raw), key_map)
             requested = [c.name for c in schema.columns]
             column_allowed_values = {
                 c.name: c.allowed_values for c in schema.columns if c.allowed_values
