@@ -22,19 +22,23 @@ class ModelSpec:
     """Immutable specification for an LLM model."""
     context_window: int
     max_output_tokens: int
+    # Whether the model supports thinking_config (extended thinking / budgeted reasoning).
+    # Lite models and non-thinking variants reject thinking_config with 400 INVALID_ARGUMENT
+    # when response_schema is also present.
+    supports_thinking: bool = False
 
 
 # ── Model specifications ────────────────────────────────────────────
 MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
     "gemini": {
-        "gemini-2.5-flash": ModelSpec(1_048_576, 65_535),
-        "gemini-2.5-flash-lite": ModelSpec(1_048_576, 65_535),
-        "gemini-2.5-pro": ModelSpec(1_048_576, 65_535),
-        "gemini-3-flash-preview": ModelSpec(1_000_000, 64_000),
-        "gemini-3-pro-preview": ModelSpec(1_000_000, 64_000),
-        "gemini-3.1-flash-lite-preview": ModelSpec(1_000_000, 64_000),
-        "gemini-3.1-pro-preview": ModelSpec(1_000_000, 64_000),
-        "_default": ModelSpec(1_000_000, 32_000),
+        "gemini-2.5-flash": ModelSpec(1_048_576, 65_535, supports_thinking=True),
+        "gemini-2.5-flash-lite": ModelSpec(1_048_576, 65_535, supports_thinking=True),
+        "gemini-2.5-pro": ModelSpec(1_048_576, 65_535, supports_thinking=True),
+        "gemini-3-flash-preview": ModelSpec(1_000_000, 64_000, supports_thinking=True),
+        "gemini-3-pro-preview": ModelSpec(1_000_000, 64_000, supports_thinking=True),
+        "gemini-3.1-flash-lite-preview": ModelSpec(1_048_576, 65_536, supports_thinking=True),
+        "gemini-3.1-pro-preview": ModelSpec(1_000_000, 64_000, supports_thinking=True),
+        "_default": ModelSpec(1_000_000, 32_000, supports_thinking=False),
     },
     "openai": {
         "gpt-4.1": ModelSpec(1_000_000, 32_768),
