@@ -1051,36 +1051,34 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
             # Track progress via callback
             processed_count = [0]
-            current_document = [None]  # Track current document for document_started broadcasts
-            document_index = [0]
+            doc_index = [0]  # counts source files, incremented by on_document_started
 
             # Capture event loop before entering thread pool
             loop = asyncio.get_running_loop()
 
+            def on_document_started(paper_title: str):
+                """Fired once per source document file — drives the 'X of Y docs' counter."""
+                doc_index[0] += 1
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        self.broadcast_event(
+                            operation.session_id,
+                            "document_started",
+                            {
+                                "document_name": paper_title,
+                                "document_index": doc_index[0],
+                                "total_documents": operation.total_documents,
+                                "columns": operation.columns,
+                            }
+                        ),
+                        loop
+                    )
+                except Exception as e:
+                    logger.warning(f"Document started broadcast error: {e}")
+
             def on_value_extracted(row_name: str, column_name: str, value: Any):
                 processed_count[0] += 1
                 operation.processed_documents = processed_count[0]
-
-                # Broadcast document_started when we start processing a new document
-                if current_document[0] != row_name:
-                    current_document[0] = row_name
-                    document_index[0] += 1
-                    try:
-                        asyncio.run_coroutine_threadsafe(
-                            self.broadcast_event(
-                                operation.session_id,
-                                "document_started",
-                                {
-                                    "document_name": row_name,
-                                    "document_index": document_index[0],
-                                    "total_documents": operation.total_documents,
-                                    "columns": operation.columns
-                                }
-                            ),
-                            loop
-                        )
-                    except Exception as e:
-                        logger.warning(f"Document started broadcast error: {e}")
 
                 # Schedule broadcasts on main event loop from thread (fire and forget)
                 try:
@@ -1216,6 +1214,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         retrieval_k=10,
                         max_workers=1,
                         on_value_extracted=on_value_extracted,
+                        on_document_started=on_document_started,
                         should_stop=should_stop,  # Allow graceful stop
                         known_units=known_units if known_units else None,
                     )

@@ -32,6 +32,7 @@ def build_table_jsonl(
     should_stop: Optional[ShouldStopCallback] = None,
     on_warning: Optional[OnWarningCallback] = None,
     known_units: Optional[Dict[str, List[str]]] = None,
+    on_document_started: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, Any]:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
@@ -47,6 +48,10 @@ def build_table_jsonl(
         on_warning: Optional callback called when warnings occur during extraction.
             Signature: (paper_title: str, warning_type: str, message: str) -> None
             Used to surface issues like observation unit parsing failures to the UI.
+        on_document_started: Optional callback fired once per source document file,
+            before any extraction begins for that document.
+            Signature: (paper_title: str) -> None
+            Used for accurate document-level progress tracking in the UI.
 
     Returns:
         Dict containing:
@@ -61,7 +66,8 @@ def build_table_jsonl(
         llm, retriever,
         on_value_extracted=on_value_extracted,
         should_stop=should_stop,
-        on_warning=on_warning
+        on_warning=on_warning,
+        on_document_started=on_document_started,
     )
     table_builder.build_table_jsonl_multi_dirs(
         schema_path,

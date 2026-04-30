@@ -4,7 +4,7 @@ import json
 import time
 import shutil
 from pathlib import Path
-from typing import Dict, Any, List, Set, Callable, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
@@ -28,13 +28,15 @@ class TableBuilder:
     def __init__(self, llm: LLMInterface, retriever=None, cache: LLMCache = None,
                  on_value_extracted: Optional[OnValueExtractedCallback] = None,
                  should_stop: Optional[ShouldStopCallback] = None,
-                 on_warning: Optional[OnWarningCallback] = None):
+                 on_warning: Optional[OnWarningCallback] = None,
+                 on_document_started: Optional[Callable[[str], None]] = None):
         self.llm = llm
         self.retriever = retriever
         self.cache = cache or LLMCache()
         self.on_value_extracted = on_value_extracted
         self.should_stop = should_stop
         self.on_warning = on_warning
+        self.on_document_started = on_document_started
         # Pass should_stop and on_warning to PaperProcessor for fine-grained stop checking and warning reporting
         self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted, should_stop, on_warning)
         self.row_manager = RowDataManager()
@@ -389,6 +391,12 @@ class TableBuilder:
                 paper_text = paper.read_text(encoding="utf-8", errors="ignore")
                 paper_title = paper.stem
                 source_dir = doc_to_source.get(paper, paper.parent)
+
+                if self.on_document_started:
+                    try:
+                        self.on_document_started(paper_title)
+                    except Exception:
+                        pass
 
                 print(f"🔍 Processing {paper_title} for observation units ({observation_unit.name})...")
 
