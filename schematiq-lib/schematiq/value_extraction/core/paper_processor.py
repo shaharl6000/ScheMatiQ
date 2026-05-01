@@ -28,6 +28,7 @@ from ..config.prompts import (
 )
 from ..utils.schema_builder import build_extraction_response_schema
 from ..utils.excerpt_grounder import ExcerptGrounder
+from ..utils.column_clustering import cluster_columns_for_extraction
 
 # Type alias for warning callback: (paper_title, warning_type, message) -> None
 OnWarningCallback = Callable[[str, str, str], None]
@@ -838,12 +839,12 @@ class PaperProcessor:
             max_ctx = getattr(self.llm, "context_window_size", None) or 8192
 
             all_columns = list(schema.columns)
-            col_batches = list(
-                _chunk_list(all_columns, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION)
+            col_batches = cluster_columns_for_extraction(
+                all_columns, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION
             )
             if len(col_batches) > 1:
                 logging.info(
-                    "[extract_values_for_paper] %d columns → %d batches of ≤%d for %r",
+                    "[extract_values_for_paper] %d columns → %d semantic clusters of ≤%d for %r",
                     len(all_columns),
                     len(col_batches),
                     _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
@@ -856,6 +857,15 @@ class PaperProcessor:
                         "🛑 Stop requested during all-mode batches, returning partial results"
                     )
                     return cleaned
+
+                logging.info(
+                    "[extract_values_for_paper] cluster %d/%d: %d columns [%s] for %r",
+                    batch_idx + 1,
+                    len(col_batches),
+                    len(col_batch),
+                    ", ".join(c.name for c in col_batch),
+                    paper_title,
+                )
 
                 msgs = self.prompt_builder.build_val_messages(
                     schema.query,
@@ -906,6 +916,16 @@ class PaperProcessor:
                     batch_cleaned, paper_title
                 )
                 cleaned.update(batch_cleaned)
+
+                filled = sum(1 for v in batch_cleaned.values() if v)
+                logging.info(
+                    "[extract_values_for_paper] cluster %d/%d done: %d/%d columns filled for %r",
+                    batch_idx + 1,
+                    len(col_batches),
+                    filled,
+                    len(col_batch),
+                    paper_title,
+                )
 
                 if row_name:
                     for col_name, col_value in batch_cleaned.items():
@@ -1429,21 +1449,32 @@ class PaperProcessor:
 
         all_cleaned: Dict[str, Any] = {}
 
-        batches = list(
-            _chunk_list(columns, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION)
+        batches = cluster_columns_for_extraction(
+            columns, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION
         )
         if len(batches) > 1:
             logging.info(
-                "[extract_values_for_unit] %d columns → %d batches of ≤%d for unit %r",
+                "[extract_values_for_unit] %d columns → %d semantic clusters of ≤%d for unit %r in %r",
                 len(columns),
                 len(batches),
                 _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
                 unit_name,
+                paper_title,
             )
 
         for batch_idx, col_batch in enumerate(batches):
             if self._check_stop_requested():
                 return all_cleaned
+
+            logging.info(
+                "[extract_values_for_unit] cluster %d/%d: %d columns [%s] for unit %r in %r",
+                batch_idx + 1,
+                len(batches),
+                len(col_batch),
+                ", ".join(c.name for c in col_batch),
+                unit_name,
+                paper_title,
+            )
 
             msgs = self.prompt_builder.build_val_messages(
                 schema.query,
@@ -1492,9 +1523,20 @@ class PaperProcessor:
                 cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
                 all_cleaned.update(cleaned)
 
+                filled = sum(1 for v in cleaned.values() if v)
+                logging.info(
+                    "[extract_values_for_unit] cluster %d/%d done: %d/%d columns filled for unit %r in %r",
+                    batch_idx + 1,
+                    len(batches),
+                    filled,
+                    len(col_batch),
+                    unit_name,
+                    paper_title,
+                )
+
             except Exception as e:
                 logging.warning(
-                    "[%s] Error extracting values for unit '%s' (batch %d/%d): %s\n"
+                    "[%s] Error extracting values for unit '%s' (cluster %d/%d): %s\n"
                     "Raw response was:\n%s",
                     paper_title,
                     unit_name,
