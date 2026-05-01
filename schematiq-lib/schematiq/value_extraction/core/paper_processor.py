@@ -370,7 +370,7 @@ class PaperProcessor:
             safety_margins=SAFETY_MARGIN_SINGLE_MODE,
             context_window_size=max_ctx,
         )
-        raw = self._generate(trimmed, **self._gemini_kwargs(thinking_budget=0))
+        raw = self._generate(trimmed, temperature=0, **self._gemini_kwargs(thinking_budget=0))
         # Check stop immediately after LLM call returns
         if self._check_stop_requested():
             print(f"🛑 Stop requested after LLM call, returning empty")
@@ -472,6 +472,7 @@ class PaperProcessor:
         resp_schema, key_map = self._build_response_schema(columns)
         raw = self._generate(
             trimmed,
+            temperature=0,
             response_schema=resp_schema,
             **self._gemini_kwargs(thinking_budget=0),
         )
@@ -597,6 +598,7 @@ class PaperProcessor:
             resp_schema, key_map = self._build_response_schema([col])
             raw = self._generate(
                 trimmed,
+                temperature=0,
                 response_schema=resp_schema,
                 **self._gemini_kwargs(thinking_budget=0),
             )
@@ -651,6 +653,7 @@ class PaperProcessor:
             resp_schema, key_map = self._build_response_schema(list(schema.columns))
             raw = self._generate(
                 trimmed,
+                temperature=0,
                 response_schema=resp_schema,
                 **self._gemini_kwargs(thinking_budget=0),
             )
@@ -721,6 +724,7 @@ class PaperProcessor:
                 resp_schema_re, key_map_re = self._build_response_schema(reordered)
                 raw_re = self._generate(
                     trimmed_re,
+                    temperature=0,
                     response_schema=resp_schema_re,
                     **self._gemini_kwargs(thinking_budget=0),
                 )
@@ -1386,6 +1390,7 @@ class PaperProcessor:
         raw = self._generate(
             trimmed,
             max_output_tokens=effective_max,
+            temperature=0,
             response_schema=resp_schema,
             **self._gemini_kwargs(thinking_budget=0),
         )
