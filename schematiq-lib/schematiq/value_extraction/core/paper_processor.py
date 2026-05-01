@@ -113,8 +113,18 @@ class PaperProcessor:
         is non-empty only when column names required sanitization (e.g. hyphens).
         """
         if not ENABLE_CONTROLLED_GENERATION or not self._is_gemini_backend():
+            logging.debug("[controlled-gen] disabled (flag=False or non-Gemini backend)")
             return None, {}
         schema, key_map = build_extraction_response_schema(columns)
+        if schema is None:
+            logging.warning("[controlled-gen] FALLBACK to free-form JSON (schema_builder returned None)")
+        else:
+            logging.info(
+                "[controlled-gen] ACTIVE — %d columns, %d sanitized key(s): %s",
+                len(columns),
+                len(key_map),
+                list(key_map.items()) if key_map else "none",
+            )
         return schema, key_map
 
     @staticmethod
@@ -628,63 +638,88 @@ class PaperProcessor:
                 return {}
 
         if mode == "all":
-            # joint retrieval + one call
-            eff = _retrieve_effective_text(list(schema.columns))
-            msgs = self.prompt_builder.build_val_messages(
-                schema.query,
-                paper_title,
-                eff,
-                [c.to_dict() for c in schema.columns],
-                mode="all",
-                strict=False,
+            from schematiq.value_extraction.utils.schema_builder import (
+                _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
             )
-            # Skip truncation for long context models
+
+            eff = _retrieve_effective_text(list(schema.columns))
             should_truncate = not self._should_skip_truncation()
             max_ctx = getattr(self.llm, "context_window_size", None) or 8192
-            trimmed = utils.fit_prompt(
-                msgs,
-                truncate=should_truncate,
-                max_new=max_new_tokens,
-                safety_margins=SAFETY_MARGIN_ALL_MODE,
-                context_window_size=max_ctx,
+
+            all_columns = list(schema.columns)
+            col_batches = list(
+                _chunk_list(all_columns, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION)
             )
-            resp_schema, key_map = self._build_response_schema(list(schema.columns))
-            raw = self._generate(
-                trimmed,
-                response_schema=resp_schema,
-                **self._gemini_kwargs(thinking_budget=0),
-            )
-            # Check stop immediately after LLM call returns
-            if self._check_stop_requested():
-                print(
-                    f"🛑 Stop requested after all-mode LLM call, returning partial results"
+            if len(col_batches) > 1:
+                logging.info(
+                    "[extract_values_for_paper] %d columns → %d batches of ≤%d for %r",
+                    len(all_columns),
+                    len(col_batches),
+                    _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
+                    paper_title,
                 )
-                return cleaned  # Return what we have so far
-            try:
-                parsed = self._remap_response_keys(self.json_parser.parse_response(raw), key_map)
-            except Exception as e:
-                print(f"⚠️  parse failure for {paper_title}: {e}")
-                parsed = {}
 
-            requested = [c.name for c in schema.columns]
-            # Build allowed_values dict for postprocessing
-            column_allowed_values = {
-                c.name: c.allowed_values for c in schema.columns if c.allowed_values
-            }
-            cleaned, unmatched = self.json_parser.postprocess(
-                parsed, requested, column_allowed_values
-            )
+            for batch_idx, col_batch in enumerate(col_batches):
+                if self._check_stop_requested():
+                    print(
+                        f"🛑 Stop requested during all-mode batches, returning partial results"
+                    )
+                    return cleaned
 
-            # Track unmatched values for schema evolution
-            self._track_unmatched_values(unmatched, paper_title)
+                msgs = self.prompt_builder.build_val_messages(
+                    schema.query,
+                    paper_title,
+                    eff,
+                    [c.to_dict() for c in col_batch],
+                    mode="all",
+                    strict=False,
+                )
+                trimmed = utils.fit_prompt(
+                    msgs,
+                    truncate=should_truncate,
+                    max_new=max_new_tokens,
+                    safety_margins=SAFETY_MARGIN_ALL_MODE,
+                    context_window_size=max_ctx,
+                )
+                resp_schema, key_map = self._build_response_schema(col_batch)
+                raw = self._generate(
+                    trimmed,
+                    response_schema=resp_schema,
+                    **self._gemini_kwargs(thinking_budget=0),
+                )
+                if self._check_stop_requested():
+                    print(
+                        f"🛑 Stop requested after all-mode LLM call, returning partial results"
+                    )
+                    return cleaned
+                try:
+                    parsed = self._remap_response_keys(
+                        self.json_parser.parse_response(raw), key_map
+                    )
+                except Exception as e:
+                    print(
+                        f"⚠️  parse failure for {paper_title} (batch {batch_idx + 1}/{len(col_batches)}): {e}"
+                    )
+                    parsed = {}
 
-            # Attach source filename to excerpts
-            cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
+                requested = [c.name for c in col_batch]
+                column_allowed_values = {
+                    c.name: c.allowed_values
+                    for c in col_batch
+                    if c.allowed_values
+                }
+                batch_cleaned, unmatched = self.json_parser.postprocess(
+                    parsed, requested, column_allowed_values
+                )
+                self._track_unmatched_values(unmatched, paper_title)
+                batch_cleaned = self._attach_source_to_excerpts(
+                    batch_cleaned, paper_title
+                )
+                cleaned.update(batch_cleaned)
 
-            # Notify callback for each extracted column (streaming to UI)
-            if row_name:
-                for col_name, col_value in cleaned.items():
-                    self._notify_value_extracted(row_name, col_name, col_value)
+                if row_name:
+                    for col_name, col_value in batch_cleaned.items():
+                        self._notify_value_extracted(row_name, col_name, col_value)
 
             # Column-reordered second pass: re-extract missing columns in reversed
             # order to counteract LLM positional attention bias.
@@ -1339,84 +1374,102 @@ class PaperProcessor:
         """
         Extract values for a single observation unit using its relevant passages.
 
-        Args:
-            unit_name: Name of the observation unit (e.g., "GPT-4 on MMLU")
-            relevant_passages: Passages specific to this unit
-            schema: Schema with columns to extract
-            max_new_tokens: Max tokens for LLM response
-            paper_title: Source document title
-
-        Returns:
-            Dict of column values for this unit
+        When the schema has more columns than Gemini's controlled-generation
+        limit, the columns are split into batches so each call still gets a
+        valid response_schema.  Results are merged across batches.
         """
-        # Combine relevant passages
-        eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(relevant_passages)
-
-        # Build prompt with unit context
-        system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=unit_name)
-
-        msgs = self.prompt_builder.build_val_messages(
-            schema.query,
-            f"{paper_title} - {unit_name}",
-            eff,
-            [c.to_dict() for c in schema.columns],
-            mode="all",
-            strict=False,
+        from schematiq.value_extraction.utils.schema_builder import (
+            _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
         )
 
-        # Replace the system prompt with unit-aware version
-        msgs[0]["content"] = system_prompt
+        columns = list(schema.columns)
+        eff = "\n\n--- RELEVANT PASSAGE ---\n\n".join(relevant_passages)
+        system_prompt = SYSTEM_PROMPT_VAL_WITH_UNIT.format(unit_name=unit_name)
 
-        # Fit to context and generate, using task-specific token budget
         should_truncate = not self._should_skip_truncation()
         max_ctx = getattr(self.llm, "context_window_size", None) or 8192
         task_tokens = self.llm.max_tokens_for_task("value_extraction")
         effective_max = (
             min(max_new_tokens, task_tokens) if max_new_tokens else task_tokens
         )
-        trimmed = utils.fit_prompt(
-            msgs,
-            truncate=should_truncate,
-            max_new=effective_max,
-            safety_margins=SAFETY_MARGIN_ALL_MODE,
-            context_window_size=max_ctx,
+
+        all_cleaned: Dict[str, Any] = {}
+
+        batches = list(
+            _chunk_list(columns, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION)
         )
-
-        resp_schema, key_map = self._build_response_schema(list(schema.columns))
-        raw = self._generate(
-            trimmed,
-            max_output_tokens=effective_max,
-            response_schema=resp_schema,
-            **self._gemini_kwargs(thinking_budget=0),
-        )
-
-        if self._check_stop_requested():
-            return {}
-
-        try:
-            parsed = self._remap_response_keys(self.json_parser.parse_response(raw), key_map)
-            requested = [c.name for c in schema.columns]
-            column_allowed_values = {
-                c.name: c.allowed_values for c in schema.columns if c.allowed_values
-            }
-            cleaned, unmatched = self.json_parser.postprocess(
-                parsed, requested, column_allowed_values
+        if len(batches) > 1:
+            logging.info(
+                "[extract_values_for_unit] %d columns → %d batches of ≤%d for unit %r",
+                len(columns),
+                len(batches),
+                _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
+                unit_name,
             )
 
-            # Track unmatched values
-            self._track_unmatched_values(unmatched, paper_title)
+        for batch_idx, col_batch in enumerate(batches):
+            if self._check_stop_requested():
+                return all_cleaned
 
-            # Attach source to excerpts
-            cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
-
-            return cleaned
-
-        except Exception as e:
-            logging.warning(
-                "[%s] Error extracting values for unit '%s': %s\nRaw response was:\n%s",
-                paper_title, unit_name, e, raw,
+            msgs = self.prompt_builder.build_val_messages(
+                schema.query,
+                f"{paper_title} - {unit_name}",
+                eff,
+                [c.to_dict() for c in col_batch],
+                mode="all",
+                strict=False,
             )
-            return {}
+            msgs[0]["content"] = system_prompt
+
+            trimmed = utils.fit_prompt(
+                msgs,
+                truncate=should_truncate,
+                max_new=effective_max,
+                safety_margins=SAFETY_MARGIN_ALL_MODE,
+                context_window_size=max_ctx,
+            )
+
+            resp_schema, key_map = self._build_response_schema(col_batch)
+            raw = self._generate(
+                trimmed,
+                max_output_tokens=effective_max,
+                response_schema=resp_schema,
+                **self._gemini_kwargs(thinking_budget=0),
+            )
+
+            if self._check_stop_requested():
+                return all_cleaned
+
+            try:
+                parsed = self._remap_response_keys(
+                    self.json_parser.parse_response(raw), key_map
+                )
+                requested = [c.name for c in col_batch]
+                column_allowed_values = {
+                    c.name: c.allowed_values
+                    for c in col_batch
+                    if c.allowed_values
+                }
+                cleaned, unmatched = self.json_parser.postprocess(
+                    parsed, requested, column_allowed_values
+                )
+                self._track_unmatched_values(unmatched, paper_title)
+                cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
+                all_cleaned.update(cleaned)
+
+            except Exception as e:
+                logging.warning(
+                    "[%s] Error extracting values for unit '%s' (batch %d/%d): %s\n"
+                    "Raw response was:\n%s",
+                    paper_title,
+                    unit_name,
+                    batch_idx + 1,
+                    len(batches),
+                    e,
+                    raw,
+                )
+
+        return all_cleaned
 
     def extract_values_for_paper_with_units(
         self,

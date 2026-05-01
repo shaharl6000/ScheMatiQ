@@ -627,6 +627,7 @@ class GeminiLLM(LLMInterface):
         start_time = time.time()
 
         # Build generation config using new SDK types
+        _diag_config_keys: list[str] = []
         config_kwargs = {
             "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
@@ -649,6 +650,7 @@ class GeminiLLM(LLMInterface):
             config_kwargs["thinking_config"] = self.types.ThinkingConfig(
                 thinking_budget=kwargs["thinking_budget"]
             )
+        _diag_config_keys = [k for k in config_kwargs if k not in ("safety_settings",)]
         config = self.types.GenerateContentConfig(**config_kwargs)
 
         # Retry logic (3 retries like OpenAI/Together)
@@ -714,10 +716,13 @@ class GeminiLLM(LLMInterface):
                 last_exception = e
                 elapsed = time.time() - start_time
                 logger.exception(
-                    "Gemini API call failed after %.1fs (model=%s, prompt_chars=%d)",
+                    "Gemini API call failed after %.1fs (model=%s, prompt_chars=%d, "
+                    "config_keys=%s, supports_thinking=%s)",
                     elapsed,
                     self.model,
                     len(prompt_text),
+                    _diag_config_keys,
+                    self.supports_thinking,
                 )
                 print(repr(e))
 
