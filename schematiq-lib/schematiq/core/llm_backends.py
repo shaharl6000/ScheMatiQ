@@ -631,9 +631,6 @@ class GeminiLLM(LLMInterface):
             "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
             "safety_settings": self.safety_settings,
-            "automatic_function_calling": self.types.AutomaticFunctionCallingConfig(
-                disable=True
-            ),
         }
         # Add system instruction
         if system_instruction:
@@ -810,9 +807,6 @@ class GeminiLLM(LLMInterface):
             "temperature": kwargs.get("temperature", self.temperature),
             "safety_settings": self.safety_settings,
             "cached_content": cache.name,
-            "automatic_function_calling": self.types.AutomaticFunctionCallingConfig(
-                disable=True
-            ),
         }
         if kwargs.get("response_schema") is not None:
             config_kwargs["response_mime_type"] = "application/json"
