@@ -509,197 +509,6 @@ class PaperProcessor:
             )
             return {}
 
-    def _retry_missing_columns(
-        self,
-        cleaned: Dict[str, Any],
-        schema: Schema,
-        paper_title: str,
-        paper_text: str,
-        effective_text: str,
-        max_new_tokens: int,
-        retrieval_k: int = 8,
-        row_name: Optional[str] = None,
-        system_prompt_override: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Shared retry logic for passes 2-4 (reordered → batch fallback → snippet).
-
-        Mutates and returns *cleaned* in-place.
-
-        Args:
-            cleaned: Results collected so far (pass-1 output). Updated in-place.
-            schema: Full schema with all columns.
-            paper_title: Document title for logging.
-            paper_text: Full document text (needed for retriever / snippet passes).
-            effective_text: The text used in pass 1 (retrieved passages or full doc).
-            max_new_tokens: Token budget for LLM calls.
-            retrieval_k: Base retrieval k for fallback.
-            row_name: Optional row id for streaming callbacks.
-            system_prompt_override: If given, used as system prompt for the reordered
-                pass instead of the default SYSTEM_PROMPT_VAL_REEXTRACT.
-        """
-        should_truncate = not self._should_skip_truncation()
-        max_ctx = getattr(self.llm, "context_window_size", None) or 8192
-
-        # ── Pass 2: reordered (reversed missing columns) ──
-        missing = [c for c in schema.columns if c.name not in cleaned]
-        if len(missing) >= 2:
-            if self._check_stop_requested():
-                return cleaned
-
-            print(
-                f"↻ Reordered second pass for {len(missing)} missing: "
-                f"{[c.name for c in missing]}"
-            )
-            reordered = list(reversed(missing))
-            reorder_msgs = self.prompt_builder.build_val_messages(
-                schema.query,
-                paper_title,
-                effective_text,
-                [c.to_dict() for c in reordered],
-                mode="all",
-                strict=True,
-            )
-            reorder_msgs[0]["content"] = (
-                system_prompt_override or SYSTEM_PROMPT_VAL_REEXTRACT
-            )
-            trimmed_re = utils.fit_prompt(
-                reorder_msgs,
-                truncate=should_truncate,
-                max_new=max_new_tokens,
-                safety_margins=SAFETY_MARGIN_ALL_MODE,
-                context_window_size=max_ctx,
-            )
-            resp_schema_re, key_map_re = self._build_response_schema(reordered)
-            raw_re = self._generate(
-                trimmed_re,
-                temperature=0,
-                response_schema=resp_schema_re,
-                **self._gemini_kwargs(thinking_budget=0),
-            )
-            if not self._check_stop_requested():
-                try:
-                    parsed_re = self._remap_response_keys(
-                        self.json_parser.parse_response(raw_re), key_map_re
-                    )
-                    reorder_allowed = {
-                        c.name: c.allowed_values
-                        for c in reordered
-                        if c.allowed_values
-                    }
-                    cleaned_re, unmatched_re = self.json_parser.postprocess(
-                        parsed_re,
-                        [c.name for c in reordered],
-                        reorder_allowed,
-                    )
-                    self._track_unmatched_values(unmatched_re, paper_title)
-                    cleaned_re = self._attach_source_to_excerpts(
-                        cleaned_re, paper_title
-                    )
-                    new_fills = 0
-                    for col_name, col_val in cleaned_re.items():
-                        if col_name not in cleaned:
-                            cleaned[col_name] = col_val
-                            new_fills += 1
-                            if row_name:
-                                self._notify_value_extracted(
-                                    row_name, col_name, col_val
-                                )
-                    if new_fills:
-                        logging.info(
-                            "[%s] Reordered pass filled %d more columns",
-                            paper_title, new_fills,
-                        )
-                except Exception as e:
-                    print(f"⚠️  Reordered pass parse failure: {e}")
-
-        # ── Pass 3: batch fallback with retriever (expanded k) ──
-        missing = [c for c in schema.columns if c.name not in cleaned]
-        if missing:
-            if self._check_stop_requested():
-                return cleaned
-
-            print(
-                f"↻ Fallback per-column for {len(missing)} missing: "
-                f"{[c.name for c in missing]}"
-            )
-
-            fallback_retriever = self.retriever
-            if self.retriever is None:
-                if self._cached_fallback_retriever is None:
-                    print("📡 Creating fallback retriever (will be cached)")
-                    self._cached_fallback_retriever = (
-                        self._create_fallback_retriever()
-                    )
-                fallback_retriever = self._cached_fallback_retriever
-
-            expanded_k = self.text_processor.expand_k(retrieval_k)
-            still_missing = []
-
-            if fallback_retriever is not None:
-                for batch in _chunk_list(missing, FALLBACK_BATCH_SIZE):
-                    if self._check_stop_requested():
-                        return cleaned
-                    print(
-                        f"  📦 Batch fallback ({len(batch)} columns): "
-                        f"{[c.name for c in batch]}"
-                    )
-                    batch_results = self._batch_column_attempt(
-                        batch,
-                        retriever=fallback_retriever,
-                        paper_text=paper_text,
-                        schema=schema,
-                        paper_title=paper_title,
-                        base_k=expanded_k,
-                    )
-                    for col in batch:
-                        col_res = batch_results.get(col.name)
-                        if col_res:
-                            col_res = self._attach_source_to_excerpts(
-                                {col.name: col_res}, paper_title
-                            ).get(col.name, col_res)
-                            cleaned[col.name] = col_res
-                            if row_name:
-                                self._notify_value_extracted(
-                                    row_name, col.name, col_res
-                                )
-                        else:
-                            still_missing.append(col)
-            else:
-                still_missing = missing
-
-            # ── Pass 4: snippet fallback ──
-            if still_missing:
-                if self._check_stop_requested():
-                    return cleaned
-                print(
-                    f"  📦 Snippet fallback for {len(still_missing)} remaining: "
-                    f"{[c.name for c in still_missing]}"
-                )
-                for batch in _chunk_list(still_missing, FALLBACK_BATCH_SIZE):
-                    if self._check_stop_requested():
-                        return cleaned
-                    batch_results = self._batch_column_attempt(
-                        batch,
-                        retriever=None,
-                        paper_text=paper_text,
-                        schema=schema,
-                        paper_title=paper_title,
-                        base_k=expanded_k,
-                    )
-                    for col in batch:
-                        col_res = batch_results.get(col.name)
-                        if col_res:
-                            col_res = self._attach_source_to_excerpts(
-                                {col.name: col_res}, paper_title
-                            ).get(col.name, col_res)
-                            cleaned[col.name] = col_res
-                            if row_name:
-                                self._notify_value_extracted(
-                                    row_name, col.name, col_res
-                                )
-
-        return cleaned
-
     def extract_values_for_paper(
         self,
         paper_title: str,
@@ -832,7 +641,6 @@ class PaperProcessor:
                 _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
             )
 
-            cleaned: Dict[str, Any] = {}
             eff = _retrieve_effective_text(list(schema.columns))
             should_truncate = not self._should_skip_truncation()
             max_ctx = getattr(self.llm, "context_window_size", None) or 8192
@@ -911,17 +719,181 @@ class PaperProcessor:
                     for col_name, col_value in batch_cleaned.items():
                         self._notify_value_extracted(row_name, col_name, col_value)
 
-            # Passes 2-4: reordered → batch fallback → snippet fallback
-            self._retry_missing_columns(
-                cleaned,
-                schema=schema,
-                paper_title=paper_title,
-                paper_text=paper_text,
-                effective_text=eff,
-                max_new_tokens=max_new_tokens,
-                retrieval_k=retrieval_k,
-                row_name=row_name,
-            )
+            # Column-reordered second pass: re-extract missing columns in reversed
+            # order to counteract LLM positional attention bias.
+            missing = [c for c in schema.columns if c.name not in cleaned]
+            if len(missing) >= 2:
+                if self._check_stop_requested():
+                    print(
+                        f"🛑 Stop requested before reordered pass, returning partial results"
+                    )
+                    return cleaned
+
+                print(
+                    f"↻ Reordered second pass for {len(missing)} missing: {[c.name for c in missing]}"
+                )
+                reordered = list(reversed(missing))
+                reorder_msgs = self.prompt_builder.build_val_messages(
+                    schema.query,
+                    paper_title,
+                    eff,
+                    [c.to_dict() for c in reordered],
+                    mode="all",
+                    strict=True,
+                )
+                # Replace system prompt with re-extraction prompt
+                reorder_msgs[0]["content"] = SYSTEM_PROMPT_VAL_REEXTRACT
+                should_truncate_re = not self._should_skip_truncation()
+                trimmed_re = utils.fit_prompt(
+                    reorder_msgs,
+                    truncate=should_truncate_re,
+                    max_new=max_new_tokens,
+                    safety_margins=SAFETY_MARGIN_ALL_MODE,
+                    context_window_size=max_ctx,
+                )
+                resp_schema_re, key_map_re = self._build_response_schema(reordered)
+                raw_re = self._generate(
+                    trimmed_re,
+                    temperature=0,
+                    response_schema=resp_schema_re,
+                    **self._gemini_kwargs(thinking_budget=0),
+                )
+                if not self._check_stop_requested():
+                    try:
+                        parsed_re = self._remap_response_keys(
+                            self.json_parser.parse_response(raw_re), key_map_re
+                        )
+                        reorder_allowed = {
+                            c.name: c.allowed_values
+                            for c in reordered
+                            if c.allowed_values
+                        }
+                        cleaned_re, unmatched_re = self.json_parser.postprocess(
+                            parsed_re,
+                            [c.name for c in reordered],
+                            reorder_allowed,
+                        )
+                        self._track_unmatched_values(unmatched_re, paper_title)
+                        cleaned_re = self._attach_source_to_excerpts(
+                            cleaned_re, paper_title
+                        )
+                        # Merge: only add columns not already present
+                        for col_name, col_val in cleaned_re.items():
+                            if col_name not in cleaned:
+                                cleaned[col_name] = col_val
+                                if row_name:
+                                    self._notify_value_extracted(
+                                        row_name, col_name, col_val
+                                    )
+                    except Exception as e:
+                        print(f"⚠️  Reordered pass parse failure: {e}")
+
+            # Fallback for missing columns: retry per-column, stricter + expanded retrieval
+            missing = [c for c in schema.columns if c.name not in cleaned]
+            if missing:
+                # Check for stop request before fallback processing
+                if self._check_stop_requested():
+                    print(
+                        f"🛑 Stop requested before fallback, returning partial results"
+                    )
+                    return cleaned
+
+                print(
+                    f"↻ Fallback per-column for {len(missing)} missing: {[c.name for c in missing]}"
+                )
+
+                # Use cached fallback retriever if we don't have one (long context mode)
+                fallback_retriever = self.retriever
+                if self.retriever is None:
+                    if self._cached_fallback_retriever is None:
+                        print(
+                            f"📡 Creating fallback retriever (will be cached for future use)"
+                        )
+                        self._cached_fallback_retriever = (
+                            self._create_fallback_retriever()
+                        )
+                    fallback_retriever = self._cached_fallback_retriever
+
+                # First fallback: batched extraction with retriever
+                expanded_k = self.text_processor.expand_k(retrieval_k)
+                still_missing = []
+
+                if fallback_retriever is not None:
+                    for batch in _chunk_list(missing, FALLBACK_BATCH_SIZE):
+                        # Check for stop request before each batch
+                        if self._check_stop_requested():
+                            print(
+                                f"🛑 Stop requested during batch fallback, returning partial results"
+                            )
+                            return cleaned
+
+                        print(
+                            f"  📦 Batch fallback ({len(batch)} columns): {[c.name for c in batch]}"
+                        )
+                        batch_results = self._batch_column_attempt(
+                            batch,
+                            retriever=fallback_retriever,
+                            paper_text=paper_text,
+                            schema=schema,
+                            paper_title=paper_title,
+                            base_k=expanded_k,
+                        )
+                        # Process batch results
+                        for col in batch:
+                            col_res = batch_results.get(col.name)
+                            if col_res:
+                                col_res = self._attach_source_to_excerpts(
+                                    {col.name: col_res}, paper_title
+                                ).get(col.name, col_res)
+                                cleaned[col.name] = col_res
+                                if row_name:
+                                    self._notify_value_extracted(
+                                        row_name, col.name, col_res
+                                    )
+                            else:
+                                still_missing.append(col)
+                else:
+                    still_missing = missing
+
+                # Second fallback: heuristic snippets for columns that still failed
+                if still_missing:
+                    # Check for stop request before snippet fallback
+                    if self._check_stop_requested():
+                        print(
+                            f"🛑 Stop requested before snippet fallback, returning partial results"
+                        )
+                        return cleaned
+
+                    print(
+                        f"  📦 Snippet fallback for {len(still_missing)} remaining: {[c.name for c in still_missing]}"
+                    )
+                    for batch in _chunk_list(still_missing, FALLBACK_BATCH_SIZE):
+                        # Check for stop request before each snippet batch
+                        if self._check_stop_requested():
+                            print(
+                                f"🛑 Stop requested during snippet fallback, returning partial results"
+                            )
+                            return cleaned
+
+                        batch_results = self._batch_column_attempt(
+                            batch,
+                            retriever=None,
+                            paper_text=paper_text,
+                            schema=schema,
+                            paper_title=paper_title,
+                            base_k=expanded_k,
+                        )
+                        for col in batch:
+                            col_res = batch_results.get(col.name)
+                            if col_res:
+                                col_res = self._attach_source_to_excerpts(
+                                    {col.name: col_res}, paper_title
+                                ).get(col.name, col_res)
+                                cleaned[col.name] = col_res
+                                if row_name:
+                                    self._notify_value_extracted(
+                                        row_name, col.name, col_res
+                                    )
 
             # Excerpt grounding: verify excerpts against source text
             grounding_stats = self.excerpt_grounder.ground_all_excerpts(
@@ -1397,20 +1369,13 @@ class PaperProcessor:
         schema: Schema,
         max_new_tokens: int,
         paper_title: str,
-        paper_text: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Extract values for a single observation unit using its relevant passages.
 
-        Has the same 4 retry passes as extract_values_for_paper:
-        1. All-at-once (batched by controlled-gen column limit)
-        2. Reordered (reversed missing columns)
-        3. Batch fallback with retriever
-        4. Snippet fallback
-
-        Args:
-            paper_text: Full document text, needed for fallback retrieval passes.
-                Falls back to the joined relevant_passages if not provided.
+        When the schema has more columns than Gemini's controlled-generation
+        limit, the columns are split into batches so each call still gets a
+        valid response_schema.  Results are merged across batches.
         """
         from schematiq.value_extraction.utils.schema_builder import (
             _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
@@ -1503,17 +1468,6 @@ class PaperProcessor:
                     e,
                     raw,
                 )
-
-        # Passes 2-4: reordered → batch fallback → snippet fallback
-        fallback_text = paper_text or eff
-        self._retry_missing_columns(
-            all_cleaned,
-            schema=schema,
-            paper_title=f"{paper_title} - {unit_name}",
-            paper_text=fallback_text,
-            effective_text=eff,
-            max_new_tokens=effective_max,
-        )
 
         return all_cleaned
 
@@ -1634,7 +1588,6 @@ class PaperProcessor:
                 schema=schema,
                 max_new_tokens=max_new_tokens,
                 paper_title=paper_title,
-                paper_text=paper_text,
             )
 
             unit_elapsed = time_module.time() - unit_start
