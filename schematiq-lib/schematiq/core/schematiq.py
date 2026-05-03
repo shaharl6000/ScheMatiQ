@@ -145,13 +145,25 @@ def _extract_json(text: str) -> str:
     """
     Return the JSON payload inside a Markdown code-block if one exists,
     otherwise return the original string (stripped of leading/trailing space).
-    Also normalizes double braces ({{ }}) to single braces ({ }).
     """
     match = _CODE_FENCE.search(text)
-    result = match.group(1) if match else text.strip()
-    # Normalize double braces (LLM may copy from prompt examples which use {{ }} for Python escaping)
-    result = result.replace('{{', '{').replace('}}', '}')
-    return result
+    return match.group(1) if match else text.strip()
+
+
+def _safe_json_loads(text: str) -> Any:
+    """
+    Parse JSON, falling back to brace normalization if strict parsing fails.
+
+    Compact nested JSON ends in adjacent closing braces (`}}`), which the
+    legacy normalization step used to mangle. Strict-first preserves valid
+    output; the fallback still rescues responses where an LLM literally
+    copied `{{ }}` from prompt examples (Python f-string escapes).
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        normalized = text.replace('{{', '{').replace('}}', '}')
+        return json.loads(normalized)
 
 
 def _clean_column_name(name: str) -> str:
@@ -201,7 +213,7 @@ def _parse_schema_from_llm(raw_text: str,
     suggested_value_additions = []
 
     try:
-        payload = json.loads(cleaned)
+        payload = _safe_json_loads(cleaned)
 
         # Handle new format with document_helpful field
         if isinstance(payload, dict) and "columns" in payload:
@@ -283,7 +295,7 @@ def _parse_observation_unit_from_llm(raw_text: str) -> ObservationUnit:
     cleaned = _extract_json(raw_text)
 
     try:
-        payload = json.loads(cleaned)
+        payload = _safe_json_loads(cleaned)
 
         if isinstance(payload, dict) and "observation_unit" in payload:
             unit_data = payload["observation_unit"]
