@@ -310,7 +310,7 @@ export interface ObservationUnitReadyData {
 }
 
 export interface WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready';
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'reextraction_started' | 'reextraction_progress' | 'reextraction_completed' | 'reextraction_stopped' | 'reextraction_failed' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready' | 'observation_unit_definition_updated';
   timestamp?: string;
   session_id?: string;
   message?: string;
@@ -470,9 +470,11 @@ export interface MergeColumnsRequest {
 }
 
 export interface ReprocessRequest {
+  columns?: string[]; // Specific columns, null = all
   column_names?: string[]; // Specific columns, null = all
   document_paths?: string[]; // Specific documents, null = all
   incremental?: boolean; // Only process changed columns
+  force_reprocess?: boolean;
 }
 
 export interface SchemaEditResponse {

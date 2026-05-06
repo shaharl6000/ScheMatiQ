@@ -15,6 +15,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  RotateCw,
   Sparkles,
   Table2,
   X,
@@ -66,8 +67,9 @@ import './Workspace.css';
 
 registerAllModules();
 
-type SheetId = 'data' | 'schema' | 'unit' | 'documents' | 'runs' | 'settings';
+type SheetId = 'data' | 'unit' | 'schema';
 type WorkspaceSessionMode = 'schematiq' | 'load';
+type PendingRerunKind = 'schema' | 'unit';
 
 type SheetColumn = {
   key: string;
@@ -99,9 +101,6 @@ const SHEETS: Array<{ id: SheetId; label: string }> = [
   { id: 'data', label: 'Data' },
   { id: 'unit', label: 'Observation Unit' },
   { id: 'schema', label: 'Schema' },
-  { id: 'documents', label: 'Documents' },
-  { id: 'runs', label: 'Runs' },
-  { id: 'settings', label: 'Settings' },
 ];
 
 const DEFAULT_PROVIDER = 'gemini';
@@ -392,24 +391,130 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
   );
 }
 
+function ProjectDetailsDialog({
+  open,
+  onOpenChange,
+  sessionId,
+  sessionMode,
+  status,
+  schema,
+  documents,
+  config,
+  costEstimate,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  sessionId?: string;
+  sessionMode: WorkspaceSessionMode;
+  status: ScheMatiQStatus | null;
+  schema: SchemaData | null;
+  documents: DocumentListResponse | null;
+  config: ScheMatiQConfig | null;
+  costEstimate: CostEstimate | null;
+}) {
+  const runRows = [
+    { label: 'Session ID', value: sessionId || '' },
+    { label: 'Mode', value: sessionMode },
+    { label: 'Status', value: status?.status || '' },
+    { label: 'Current step', value: status?.current_step || '' },
+    { label: 'Progress', value: `${Math.round((status?.progress || 0) * 100)}%` },
+    { label: 'Documents', value: `${status?.processed_documents || 0}/${status?.total_documents || 0}` },
+    { label: 'Columns discovered', value: status?.columns_discovered ?? schema?.schema.length ?? '' },
+    { label: 'Cost estimate', value: formatCost(costEstimate) },
+  ];
+
+  const settingsRows = [
+    { label: 'Research question', value: schema?.query || config?.query || '' },
+    { label: 'Schema provider', value: config?.schema_creation_backend?.provider || '' },
+    { label: 'Schema model', value: config?.schema_creation_backend?.model || '' },
+    { label: 'Value provider', value: config?.value_extraction_backend?.provider || '' },
+    { label: 'Value model', value: config?.value_extraction_backend?.model || '' },
+    { label: 'Documents batch size', value: config?.documents_batch_size ?? '' },
+    { label: 'Max schema columns', value: config?.max_keys_schema ?? '' },
+  ];
+
+  const provenanceRows = [
+    { label: 'Observation source document', value: schema?.observation_unit?.source_document || '' },
+    { label: 'Observation discovery iteration', value: schema?.observation_unit?.discovery_iteration ?? '' },
+    { label: 'Original session', value: schema?.metadata?.original_session_id || '' },
+    { label: 'Generated at', value: schema?.metadata?.generated_timestamp || '' },
+    { label: 'Imported at', value: schema?.metadata?.import_timestamp || '' },
+  ];
+
+  const documentRows = documents?.documents || [];
+
+  const renderRows = (rows: Array<{ label: string; value: unknown }>) => (
+    <div className="workspace-detail-grid">
+      {rows.map((row) => (
+        <div key={row.label} className="contents">
+          <div className="workspace-detail-label">{row.label}</div>
+          <div className="workspace-detail-value">{String(row.value ?? '') || '-'}</div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Project Details</DialogTitle>
+          <DialogDescription>
+            Read-only context kept out of the editable workbook.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="workspace-detail-scroll">
+          <section className="workspace-detail-section">
+            <h3>Run</h3>
+            {renderRows(runRows)}
+          </section>
+
+          <section className="workspace-detail-section">
+            <h3>Settings</h3>
+            {renderRows(settingsRows)}
+          </section>
+
+          <section className="workspace-detail-section">
+            <h3>Provenance</h3>
+            {renderRows(provenanceRows)}
+          </section>
+
+          <section className="workspace-detail-section">
+            <h3>Documents</h3>
+            {documentRows.length > 0 ? (
+              <div className="workspace-detail-docs">
+                {documentRows.map((document) => (
+                  <div key={document.name} className="workspace-detail-doc">
+                    <div className="workspace-detail-doc-name">{document.name}</div>
+                    <div className="workspace-detail-doc-meta">
+                      {document.rowCount} rows{document.url ? ` / ${document.url}` : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-sm text-muted-foreground">No document details available.</div>
+            )}
+          </section>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function SpreadsheetSurface({
   activeSheet,
   data,
   schema,
-  documents,
-  status,
-  costEstimate,
-  config,
   onRefresh,
+  onRerunNeeded,
 }: {
   activeSheet: SheetId;
   data: PaginatedData;
   schema: SchemaData | null;
-  documents: DocumentListResponse | null;
-  status: ScheMatiQStatus | null;
-  costEstimate: CostEstimate | null;
-  config: ScheMatiQConfig | null;
   onRefresh: () => void;
+  onRerunNeeded: (kind: PendingRerunKind, columns?: string[]) => void;
 }) {
   const { sessionId } = useParams();
   const { toast } = useToast();
@@ -458,8 +563,6 @@ function SpreadsheetSurface({
     return data.rows.map((row) => {
       const sheetRow: Record<string, string> = {
         _row_name: row.row_name || row._unit_name || '',
-        _source_document: row._source_document || row._parent_document || '',
-        _papers: row.papers?.join(', ') || '',
       };
       dataColumnNames.forEach((column) => {
         sheetRow[column] = extractDisplayValue(row.data?.[column]);
@@ -474,47 +577,9 @@ function SpreadsheetSurface({
       definition: column.definition || '',
       rationale: column.rationale || '',
       allowed_values: Array.isArray(column.allowed_values) ? column.allowed_values.join(', ') : '',
-      data_type: column.data_type || '',
-      source_document: column.source_document || '',
-      discovery_iteration: column.discovery_iteration ?? '',
       auto_expand_threshold: column.auto_expand_threshold ?? '',
-      pending_values: Array.isArray(column.pending_values)
-        ? column.pending_values.map((value) => value.value).join(', ')
-        : '',
     }));
   }, [schemaColumns]);
-
-  const documentRows = useMemo(() => {
-    return (documents?.documents || []).map((document) => ({
-      name: document.name,
-      row_count: document.rowCount,
-      url: document.url || '',
-    }));
-  }, [documents]);
-
-  const runRows = useMemo(() => {
-    return [
-      { property: 'Session ID', value: sessionId || '' },
-      { property: 'Status', value: status?.status || '' },
-      { property: 'Current step', value: status?.current_step || '' },
-      { property: 'Progress', value: `${Math.round((status?.progress || 0) * 100)}%` },
-      { property: 'Documents', value: `${status?.processed_documents || 0}/${status?.total_documents || 0}` },
-      { property: 'Columns discovered', value: status?.columns_discovered ?? schemaColumns.length },
-      { property: 'Cost estimate', value: formatCost(costEstimate) },
-    ];
-  }, [costEstimate, schemaColumns.length, sessionId, status]);
-
-  const settingsRows = useMemo(() => {
-    return [
-      { setting: 'Research question', value: schema?.query || config?.query || '' },
-      { setting: 'Schema provider', value: config?.schema_creation_backend?.provider || '' },
-      { setting: 'Schema model', value: config?.schema_creation_backend?.model || '' },
-      { setting: 'Value provider', value: config?.value_extraction_backend?.provider || '' },
-      { setting: 'Value model', value: config?.value_extraction_backend?.model || '' },
-      { setting: 'Documents batch size', value: config?.documents_batch_size ?? '' },
-      { setting: 'Max schema columns', value: config?.max_keys_schema ?? '' },
-    ];
-  }, [config, schema]);
 
   const observationUnitRows = useMemo(() => {
     const unit = schema?.observation_unit;
@@ -524,11 +589,8 @@ function SpreadsheetSurface({
       { field: 'name', value: unit?.name || '' },
       { field: 'definition', value: unit?.definition || '' },
       { field: 'example_names', value: exampleNames },
-      { field: 'source_document', value: unit?.source_document || '' },
-      { field: 'discovery_iteration', value: unit?.discovery_iteration ?? '' },
-      { field: 'loaded_rows', value: data.total_count || 0 },
     ];
-  }, [data.total_count, schema?.observation_unit]);
+  }, [schema?.observation_unit]);
 
   const sheet = useMemo((): { rows: Record<string, any>[]; columns: SheetColumn[]; minSpareRows?: number } => {
     if (activeSheet === 'schema') {
@@ -540,22 +602,7 @@ function SpreadsheetSurface({
           { key: 'definition', label: 'definition', width: 360 },
           { key: 'rationale', label: 'rationale', width: 320 },
           { key: 'allowed_values', label: 'allowed_values', width: 260 },
-          { key: 'data_type', label: 'data_type', width: 120, readOnly: true },
-          { key: 'source_document', label: 'source_document', width: 190, readOnly: true },
-          { key: 'discovery_iteration', label: 'discovery_iteration', width: 120, readOnly: true },
           { key: 'auto_expand_threshold', label: 'auto_expand_threshold', width: 150 },
-          { key: 'pending_values', label: 'pending_values', width: 260, readOnly: true },
-        ],
-      };
-    }
-
-    if (activeSheet === 'documents') {
-      return {
-        rows: documentRows,
-        columns: [
-          { key: 'name', label: 'name', width: 300, readOnly: true },
-          { key: 'row_count', label: 'row_count', width: 120, readOnly: true },
-          { key: 'url', label: 'url', width: 360, readOnly: true },
         ],
       };
     }
@@ -565,27 +612,7 @@ function SpreadsheetSurface({
         rows: observationUnitRows,
         columns: [
           { key: 'field', label: 'field', width: 190, readOnly: true },
-          { key: 'value', label: 'value', width: 680, readOnly: true },
-        ],
-      };
-    }
-
-    if (activeSheet === 'runs') {
-      return {
-        rows: runRows,
-        columns: [
-          { key: 'property', label: 'property', width: 180, readOnly: true },
-          { key: 'value', label: 'value', width: 520, readOnly: true },
-        ],
-      };
-    }
-
-    if (activeSheet === 'settings') {
-      return {
-        rows: settingsRows,
-        columns: [
-          { key: 'setting', label: 'setting', width: 220, readOnly: true },
-          { key: 'value', label: 'value', width: 580, readOnly: true },
+          { key: 'value', label: 'value', width: 680 },
         ],
       };
     }
@@ -593,13 +620,11 @@ function SpreadsheetSurface({
     return {
       rows: dataRows,
       columns: [
-        { key: '_row_name', label: 'row_name', width: 220, readOnly: true },
-        { key: '_source_document', label: 'source_document', width: 180, readOnly: true },
-        { key: '_papers', label: 'papers', width: 240, readOnly: true },
+        { key: '_row_name', label: 'unit_name', width: 220, readOnly: true },
         ...dataColumnNames.map((name) => ({ key: name, label: name, width: 190 })),
       ],
     };
-  }, [activeSheet, dataColumnNames, dataRows, documentRows, observationUnitRows, runRows, schemaRows, settingsRows]);
+  }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows]);
 
   const handleChanges = useCallback((changes: any[] | null, source: string) => {
     if (!changes || source === 'loadData' || !sessionId) return;
@@ -649,6 +674,7 @@ function SpreadsheetSurface({
           })
             .then(() => {
               toast({ title: 'Schema column added' });
+              onRerunNeeded('schema', [String(newValue).trim()]);
               onRefresh();
             })
             .catch((err: any) => {
@@ -668,6 +694,7 @@ function SpreadsheetSurface({
           schemaAPI.setAutoExpandThreshold(sessionId, existing.name, Number(newValue) || 0)
             .then(() => {
               toast({ title: 'Schema threshold updated', description: existing.name });
+              onRerunNeeded('schema', [existing.name]);
               onRefresh();
             })
             .catch((err: any) => {
@@ -687,9 +714,12 @@ function SpreadsheetSurface({
         if (key === 'rationale') request.rationale = String(newValue || '');
         if (key === 'allowed_values') request.allowed_values = parseAllowedValues(newValue);
 
+        const affectedColumn = key === 'name' ? String(newValue || '').trim() : existing.name;
+
         schemaAPI.editColumn(sessionId, request)
           .then(() => {
             toast({ title: 'Schema updated', description: existing.name });
+            if (affectedColumn) onRerunNeeded('schema', [affectedColumn]);
             onRefresh();
           })
           .catch((err: any) => {
@@ -735,6 +765,7 @@ function SpreadsheetSurface({
               title: 'Observation unit updated',
               description: result.warning || `${name} saved`,
             });
+            onRerunNeeded('unit');
             onRefresh();
           })
           .catch((err: any) => {
@@ -747,7 +778,7 @@ function SpreadsheetSurface({
           });
       }
     }
-  }, [activeSheet, data.rows, observationUnitRows, onRefresh, schemaColumns, sessionId, toast]);
+  }, [activeSheet, data.rows, observationUnitRows, onRefresh, onRerunNeeded, schemaColumns, sessionId, toast]);
 
   if (!sessionId) {
     return (
@@ -1010,7 +1041,7 @@ function ChatPanel({
         <Textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask about status, schema, data, or cost..."
+          placeholder="Ask ScheMatiQ"
           rows={3}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
@@ -1033,6 +1064,10 @@ function Workspace() {
   const [activeSheet, setActiveSheet] = useState<SheetId>('data');
   const [sessionMode, setSessionMode] = useState<WorkspaceSessionMode>(requestedMode);
   const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
+  const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [pendingRerunKind, setPendingRerunKind] = useState<PendingRerunKind | null>(null);
+  const [pendingSchemaColumns, setPendingSchemaColumns] = useState<string[]>([]);
+  const [rerunStarting, setRerunStarting] = useState(false);
   const [status, setStatus] = useState<ScheMatiQStatus | null>(null);
   const [schema, setSchema] = useState<SchemaData | null>(null);
   const [data, setData] = useState<PaginatedData>(emptyData);
@@ -1103,6 +1138,12 @@ function Workspace() {
   }, [requestedMode, sessionId]);
 
   useEffect(() => {
+    setPendingRerunKind(null);
+    setPendingSchemaColumns([]);
+    setRerunStarting(false);
+  }, [sessionId]);
+
+  useEffect(() => {
     refresh();
     if (!sessionId) return undefined;
     const interval = window.setInterval(refresh, 5000);
@@ -1126,7 +1167,14 @@ function Workspace() {
         message.type === 'schema_completed' ||
         message.type === 'schema_updated' ||
         message.type === 'cell_extracted' ||
-        message.type === 'row_completed'
+        message.type === 'row_completed' ||
+        message.type === 'schema_progress' ||
+        message.type === 'reprocessing_progress' ||
+        message.type === 'reprocessing_completed' ||
+        message.type === 'reextraction_started' ||
+        message.type === 'reextraction_progress' ||
+        message.type === 'reextraction_completed' ||
+        message.type === 'observation_unit_definition_updated'
       ) {
         refresh();
       }
@@ -1178,8 +1226,83 @@ function Workspace() {
     }
   }, [navigate, toast]);
 
+  const markRerunNeeded = useCallback((kind: PendingRerunKind, columns: string[] = []) => {
+    if (kind === 'unit') {
+      setPendingRerunKind('unit');
+      setPendingSchemaColumns([]);
+      return;
+    }
+
+    setPendingRerunKind((current) => current === 'unit' ? 'unit' : 'schema');
+    setPendingSchemaColumns((current) => {
+      const merged = new Set(current);
+      columns
+        .map((column) => column.trim())
+        .filter(Boolean)
+        .forEach((column) => merged.add(column));
+      return Array.from(merged);
+    });
+  }, []);
+
+  const runPendingEdits = useCallback(async () => {
+    if (!sessionId || !pendingRerunKind || rerunStarting) return;
+
+    setRerunStarting(true);
+    try {
+      if (pendingRerunKind === 'unit') {
+        if (sessionMode !== 'schematiq') {
+          toast({
+            title: 'Rediscovery needs a ScheMatiQ run',
+            description: 'Imported static projects can edit the observation unit, but rediscovering schema requires a ScheMatiQ project with source documents.',
+            variant: 'destructive',
+          });
+          return;
+        }
+
+        await schematiqAPI.resume(sessionId);
+        toast({
+          title: 'Rerun started',
+          description: 'Schema rediscovery started from the updated observation unit.',
+        });
+      } else {
+        const columns = pendingSchemaColumns.length > 0
+          ? pendingSchemaColumns
+          : (schema?.schema || []).map((column) => column.name).filter(Boolean);
+
+        await schemaAPI.reprocessDocuments(sessionId, {
+          columns,
+          incremental: true,
+          force_reprocess: true,
+        });
+        toast({
+          title: 'Rerun started',
+          description: columns.length > 0
+            ? `Repopulating data for ${columns.length} schema column(s).`
+            : 'Repopulating data from the current schema.',
+        });
+      }
+
+      setPendingRerunKind(null);
+      setPendingSchemaColumns([]);
+      await refresh();
+    } catch (err: any) {
+      toast({
+        title: 'Rerun failed to start',
+        description: err?.response?.data?.detail || err?.message || 'Could not start the rerun',
+        variant: 'destructive',
+      });
+    } finally {
+      setRerunStarting(false);
+    }
+  }, [pendingRerunKind, pendingSchemaColumns, refresh, rerunStarting, schema?.schema, sessionId, sessionMode, toast]);
+
   const progressPercent = Math.round((status?.progress || 0) * 100);
   const topbarQuestion = schema?.query || config?.query || '';
+  const rerunTitle = pendingRerunKind === 'unit'
+    ? 'Rediscover schema and repopulate data'
+    : pendingRerunKind === 'schema'
+      ? 'Repopulate data from schema edits'
+      : 'No rerun needed';
   const isSheetHidden = chatWidth >= window.innerWidth - 80;
   const isChatHidden = chatWidth <= 24;
   const bodyGridColumns = isSheetHidden
@@ -1224,11 +1347,8 @@ function Workspace() {
               activeSheet={activeSheet}
               data={data}
               schema={schema}
-              documents={documents}
-              status={status}
-              costEstimate={costEstimate}
-              config={config}
               onRefresh={refresh}
+              onRerunNeeded={markRerunNeeded}
             />
           </div>
         </section>
@@ -1294,6 +1414,20 @@ function Workspace() {
           )}
         </div>
 
+        <Button
+          size="icon"
+          variant="ghost"
+          className="workspace-rerun-button"
+          data-pending={Boolean(pendingRerunKind)}
+          data-kind={pendingRerunKind || 'none'}
+          onClick={runPendingEdits}
+          disabled={!sessionId || !pendingRerunKind || rerunStarting}
+          title={rerunTitle}
+          aria-label={rerunTitle}
+        >
+          {rerunStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
+        </Button>
+
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button size="icon" variant="ghost" aria-label="Workspace menu">
@@ -1323,6 +1457,10 @@ function Workspace() {
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => setDetailsDialogOpen(true)} disabled={!sessionId}>
+              <Table2 className="h-4 w-4" />
+              Project Details
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={refresh} disabled={!sessionId || loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Refresh
@@ -1371,6 +1509,18 @@ function Workspace() {
           setActiveSheet('data');
           refresh();
         }}
+      />
+
+      <ProjectDetailsDialog
+        open={detailsDialogOpen}
+        onOpenChange={setDetailsDialogOpen}
+        sessionId={sessionId}
+        sessionMode={sessionMode}
+        status={status}
+        schema={schema}
+        documents={documents}
+        config={config}
+        costEstimate={costEstimate}
       />
     </div>
   );
