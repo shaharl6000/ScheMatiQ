@@ -1,0 +1,250 @@
+.workspace-root {
+  min-height: 100vh;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.workspace-bottombar {
+  height: 40px;
+  display: grid;
+  grid-template-columns: minmax(220px, 34vw) minmax(0, 1fr) clamp(96px, 12vw, 160px) 32px;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  padding: 0 12px;
+}
+
+.workspace-bottombar-tabs {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.workspace-bottombar-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.workspace-topbar-question {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1;
+}
+
+.workspace-topbar-question:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
+  border-radius: 3px;
+}
+
+.workspace-topbar-question-tooltip {
+  z-index: 10000;
+  max-width: min(760px, calc(100vw - 32px));
+  white-space: normal;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.workspace-topbar-status {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.workspace-topbar-percent {
+  width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-topbar-status-empty {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workspace-body {
+  height: calc(100vh - 40px);
+  display: grid;
+  overflow: hidden;
+  user-select: auto;
+}
+
+.workspace-body[data-dragging="true"] {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.workspace-sheet-pane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #f7fbf7;
+}
+
+.workspace-sheet-pane[data-hidden="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.workspace-grid-wrap {
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.workspace-sheet-tab {
+  height: 28px;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 0 12px;
+  font-size: 12px;
+  color: hsl(var(--muted-foreground));
+}
+
+.workspace-sheet-tab[data-active="true"] {
+  border-color: #188038;
+  background: #e6f4ea;
+  color: #137333;
+  font-weight: 600;
+}
+
+.workspace-chat {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: hsl(var(--background));
+}
+
+.workspace-chat-pane {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.workspace-chat-pane[data-hidden="true"] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.workspace-resizer {
+  width: 8px;
+  min-width: 8px;
+  cursor: col-resize;
+  background:
+    linear-gradient(
+      to right,
+      transparent 0,
+      transparent 3px,
+      rgba(24, 128, 56, 0.35) 3px,
+      rgba(24, 128, 56, 0.35) 4px,
+      transparent 4px
+    );
+  transition: background-color 120ms ease;
+}
+
+.workspace-resizer:hover,
+.workspace-resizer[data-dragging="true"] {
+  background-color: rgba(24, 128, 56, 0.08);
+}
+
+.workspace-chat-header {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid hsl(var(--border));
+  padding: 0 12px;
+}
+
+.workspace-chat-messages {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.workspace-chat-message {
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.workspace-chat-message[data-role="user"] {
+  margin-left: 28px;
+  background: hsl(var(--primary) / 0.08);
+}
+
+.workspace-chat-message[data-role="assistant"] {
+  margin-right: 28px;
+  background: hsl(var(--muted) / 0.35);
+}
+
+.workspace-chat-input {
+  border-top: 1px solid hsl(var(--border));
+  padding: 8px;
+}
+
+.workspace-chat-input textarea {
+  min-height: 74px;
+  resize: vertical;
+}
+
+.workspace-hot {
+  font-size: 12px;
+}
+
+.workspace-hot .handsontable th {
+  background: #e6f4ea;
+  color: #137333;
+  font-weight: 500;
+}
+
+.workspace-hot .handsontable td {
+  color: #202124;
+}
+
+.dark .workspace-hot .handsontable th {
+  background: hsl(142 35% 16%);
+  color: hsl(142 55% 78%);
+}
+
+.dark .workspace-hot .handsontable td {
+  color: hsl(var(--foreground));
+  background: hsl(var(--background));
+}
+
+@media (max-width: 900px) {
+  .workspace-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) 340px;
+  }
+
+  .workspace-sheet-pane {
+    border-right: 0;
+    border-bottom: 1px solid hsl(var(--border));
+  }
+
+  .workspace-resizer {
+    display: none;
+  }
+}

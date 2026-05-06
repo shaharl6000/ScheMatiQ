@@ -80,27 +80,21 @@ class DataEditor:
                 if current_src and current_src != source_document:
                     continue
             # Matched row:
-                # Update the cell value
-                if "data" in row and isinstance(row["data"], dict):
-                    # Capture previous value for undo support
-                    previous_value = copy.deepcopy(row["data"].get(column))
+            # Update the cell value
+            if "data" in row and isinstance(row["data"], dict):
+                # Capture previous value for undo support
+                previous_value = copy.deepcopy(row["data"].get(column))
 
-                    if restore is not None:
-                        # Full restore (undo): replace entire cell object
-                        row["data"][column] = restore
-                    elif column in row["data"]:
-                        cell_value = row["data"][column]
-                        # Handle ScheMatiQ answer format
-                        if isinstance(cell_value, dict) and "answer" in cell_value:
-                            cell_value["answer"] = value
-                            cell_value["excerpts"] = []
-                            cell_value["manually_edited"] = True
-                        else:
-                            row["data"][column] = {
-                                "answer": value,
-                                "excerpts": [],
-                                "manually_edited": True,
-                            }
+                if restore is not None:
+                    # Full restore (undo): replace entire cell object
+                    row["data"][column] = restore
+                elif column in row["data"]:
+                    cell_value = row["data"][column]
+                    # Handle ScheMatiQ answer format
+                    if isinstance(cell_value, dict) and "answer" in cell_value:
+                        cell_value["answer"] = value
+                        cell_value["excerpts"] = []
+                        cell_value["manually_edited"] = True
                     else:
                         row["data"][column] = {
                             "answer": value,
@@ -108,11 +102,17 @@ class DataEditor:
                             "manually_edited": True,
                         }
                 else:
-                    # Old flat format
-                    previous_value = copy.deepcopy(row.get(column))
-                    row[column] = value if restore is None else restore
-                updated = True
-                break
+                    row["data"][column] = {
+                        "answer": value,
+                        "excerpts": [],
+                        "manually_edited": True,
+                    }
+            else:
+                # Old flat format
+                previous_value = copy.deepcopy(row.get(column))
+                row[column] = value if restore is None else restore
+            updated = True
+            break
 
         if not updated:
             raise ValueError(f"Row with row_name '{row_name}' not found")
@@ -184,4 +184,3 @@ class DataEditor:
             "new_name": new_name,
             "rows_updated": updated_count,
         }
-
