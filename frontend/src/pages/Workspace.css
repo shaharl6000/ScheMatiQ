@@ -9,7 +9,7 @@
   display: grid;
   grid-template-columns: minmax(220px, 30vw) minmax(0, 1fr) clamp(96px, 12vw, 160px) 32px 32px;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   border-top: 1px solid hsl(var(--border));
   background: hsl(var(--background));
   padding: 0 12px;
@@ -31,6 +31,11 @@
 
 .workspace-topbar-question {
   min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 clamp(16px, 2vw, 28px);
+  text-align: center;
+  justify-self: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -139,7 +144,7 @@
   height: 100%;
   display: flex;
   flex-direction: column;
-  background: hsl(var(--background));
+  background: hsl(var(--muted) / 0.22);
 }
 
 .workspace-chat-pane {
@@ -156,6 +161,8 @@
   width: 8px;
   min-width: 8px;
   cursor: col-resize;
+  border-left: 1px solid hsl(var(--border));
+  border-right: 1px solid hsl(var(--border));
   background:
     linear-gradient(
       to right,
@@ -179,10 +186,12 @@
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background) / 0.72);
   padding: 0 12px;
 }
 
 .workspace-chat-messages {
+  min-width: 0;
   min-height: 0;
   flex: 1;
   overflow-y: auto;
@@ -190,27 +199,37 @@
 }
 
 .workspace-chat-message {
+  box-sizing: border-box;
+  width: fit-content;
+  max-width: calc(100% - 28px);
   margin-bottom: 10px;
   padding: 9px 10px;
   border: 1px solid hsl(var(--border));
   border-radius: 8px;
+  box-shadow: 0 1px 2px hsl(var(--foreground) / 0.04);
   font-size: 13px;
   line-height: 1.45;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .workspace-chat-message[data-role="user"] {
-  margin-left: 28px;
-  background: hsl(var(--primary) / 0.08);
+  margin-left: auto;
+  margin-right: 0;
+  border-color: hsl(144 30% 78%);
+  background: #eef7f1;
 }
 
 .workspace-chat-message[data-role="assistant"] {
-  margin-right: 28px;
-  background: hsl(var(--muted) / 0.35);
+  margin-left: 0;
+  margin-right: auto;
+  background: hsl(var(--background));
 }
 
 .workspace-chat-input {
   border-top: 1px solid hsl(var(--border));
+  background: hsl(var(--background) / 0.78);
   padding: 8px;
 }
 
@@ -227,14 +246,40 @@
   font-size: 12px;
 }
 
-.workspace-hot .handsontable th {
-  background: #e6f4ea;
-  color: #137333;
-  font-weight: 500;
+.workspace-hot .handsontable .htCore thead th {
+  background: #dfeee5;
+  border-color: #b7d4c1;
+  color: #0f5132;
+  font-weight: 700;
+}
+
+.workspace-hot .handsontable .htCore tbody th {
+  background: #eef5f0;
+  border-color: #d8e4dc;
+  color: #42614f;
+  font-weight: 600;
 }
 
 .workspace-hot .handsontable td {
   color: #202124;
+  background: #ffffff;
+  border-color: #e2e8e4;
+}
+
+.workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(even) > td:not(.current):not(.area):not(.highlight) {
+  background: #f6faf7;
+}
+
+.workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(odd) > td:not(.current):not(.area):not(.highlight) {
+  background: #ffffff;
+}
+
+.workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(even) > th {
+  background: #e8f2ec;
+}
+
+.workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(odd) > th {
+  background: #f2f7f4;
 }
 
 .workspace-detail-scroll {
@@ -298,14 +343,60 @@
   overflow-wrap: anywhere;
 }
 
-.dark .workspace-hot .handsontable th {
-  background: hsl(142 35% 16%);
-  color: hsl(142 55% 78%);
+.dark .workspace-hot .handsontable .htCore thead th {
+  background: hsl(146 24% 18%);
+  border-color: hsl(146 18% 28%);
+  color: hsl(142 48% 80%);
+}
+
+.dark .workspace-chat {
+  background: hsl(150 8% 11%);
+}
+
+.dark .workspace-chat-header,
+.dark .workspace-chat-input {
+  background: hsl(150 8% 8% / 0.82);
+}
+
+.dark .workspace-chat-message {
+  box-shadow: none;
+}
+
+.dark .workspace-chat-message[data-role="user"] {
+  border-color: hsl(144 22% 28%);
+  background: hsl(145 18% 16%);
+}
+
+.dark .workspace-chat-message[data-role="assistant"] {
+  background: hsl(150 7% 9%);
+}
+
+.dark .workspace-hot .handsontable .htCore tbody th {
+  background: hsl(145 14% 16%);
+  border-color: hsl(145 12% 24%);
+  color: hsl(142 24% 72%);
 }
 
 .dark .workspace-hot .handsontable td {
   color: hsl(var(--foreground));
-  background: hsl(var(--background));
+  background: hsl(150 8% 9%);
+  border-color: hsl(150 7% 18%);
+}
+
+.dark .workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(even) > td:not(.current):not(.area):not(.highlight) {
+  background: hsl(150 10% 12%);
+}
+
+.dark .workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(odd) > td:not(.current):not(.area):not(.highlight) {
+  background: hsl(150 8% 9%);
+}
+
+.dark .workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(even) > th {
+  background: hsl(145 16% 18%);
+}
+
+.dark .workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(odd) > th {
+  background: hsl(145 14% 15%);
 }
 
 @media (max-width: 900px) {
