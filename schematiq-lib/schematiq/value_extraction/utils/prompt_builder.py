@@ -21,6 +21,7 @@ class PromptBuilder:
         mode: str = "all",
         *,
         strict: bool = False,
+        already_extracted: Dict[str, str] | None = None,
     ) -> List[Dict[str, str]]:
         """
         Build messages for value extraction LLM calls.
@@ -29,6 +30,11 @@ class PromptBuilder:
           - "all"         – ask for all columns at once
           - "one"         – (deprecated) alias of "one_by_one"
           - "one_by_one"  – single-column prompt, called per column by the caller
+
+        already_extracted:
+          Optional dict mapping column names to their already-extracted answers.
+          When provided, injected as context so the LLM knows what was already
+          found (e.g., Justice1-3 filled → don't hallucinate Justice4-9).
         """
         if mode in {"one", "one_by_one"}:
             col = columns[0]
@@ -55,12 +61,27 @@ class PromptBuilder:
             </REQUESTED_COLUMNS>
             """.strip()
 
+        extracted_block = ""
+        if already_extracted:
+            lines = [f"- {name}: {value}" for name, value in already_extracted.items()]
+            extracted_block = f"""
+            <ALREADY_EXTRACTED_VALUES>
+            The following columns have already been extracted for this document.
+            Use them as context — for example, if numbered columns (Judge1, Judge2, …)
+            are already filled and a count column indicates the total, do NOT fill
+            higher-numbered slots beyond that count.
+            {chr(10).join(lines)}
+            </ALREADY_EXTRACTED_VALUES>
+            """.strip()
+
         user_prompt = f"""
             <QUESTION>
             {query}
             </QUESTION>
 
             {col_block}
+
+            {extracted_block}
 
             <PAPER_TITLE>
             {paper_title}

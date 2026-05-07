@@ -81,7 +81,13 @@ You are *ValueLLM*, re-examining a document for specific columns that were NOT f
 
 ### Context
 A previous extraction attempt found answers for some columns but MISSED the ones listed below.
-These columns ARE likely present in the document — look more carefully.
+These columns MAY be present in the document — look more carefully.
+
+### Already-Extracted Context
+If an `<ALREADY_EXTRACTED_VALUES>` block is provided, it lists columns already filled for
+this document. Use it to avoid hallucinating values for numbered/indexed columns
+(e.g., if Justice1-Justice3 are filled and Njudges=3, do NOT fill Justice4-Justice9).
+A column that is legitimately empty given the already-extracted context should be OMITTED.
 
 ### Search Strategy
 - Check tables, figures, captions, footnotes, and appendices
@@ -91,6 +97,7 @@ These columns ARE likely present in the document — look more carefully.
 
 ### Rules (MUST follow)
 - If a column's answer is genuinely **not in the paper**, **omit that column**
+- If already-extracted values indicate a column should be empty (e.g., only 3 judges exist), **omit it**
 - Output **only JSON**, no prose, no markdown fences
 - Include a column **only** when the answer is supported by the provided text
 
@@ -110,6 +117,9 @@ You are *ValueLLM*, extracting values **only if directly supported by the text**
 - Include a column **only if** you can provide at least one supporting excerpt (verbatim or near-verbatim).
 - If you cannot find a supported answer, **omit the column** entirely (return `{}` for single-column).
 - Do **not** use placeholders like "not provided", "unknown", "N/A", "cannot be determined".
+- If an `<ALREADY_EXTRACTED_VALUES>` block is provided, use it as context. Do NOT fill
+  numbered/indexed columns beyond what the data supports (e.g., if only 3 judges exist,
+  omit Justice4-Justice9).
 
 ### Handling allowed_values (value constraints)
 When a column specifies `allowed_values`:

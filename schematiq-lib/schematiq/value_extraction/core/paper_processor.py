@@ -95,6 +95,21 @@ class PaperProcessor:
         # Active context cache for current document (Gemini only)
         self._active_context_cache = None
 
+    @staticmethod
+    def _flatten_extracted(cleaned: Dict[str, Any]) -> Dict[str, str]:
+        """Convert extracted {col: {answer, excerpts}} to {col: answer_str} for prompt context."""
+        flat: Dict[str, str] = {}
+        for col_name, col_val in cleaned.items():
+            if col_name.startswith("_"):
+                continue
+            if isinstance(col_val, dict):
+                ans = col_val.get("answer", "")
+            else:
+                ans = str(col_val)
+            if ans:
+                flat[col_name] = str(ans)
+        return flat
+
     def _check_stop_requested(self) -> bool:
         """Check if stop was requested. Returns True if should stop."""
         if self.should_stop and self.should_stop():
@@ -411,6 +426,7 @@ class PaperProcessor:
         schema: Schema,
         paper_title: str,
         base_k: int = 8,
+        already_extracted: Dict[str, str] | None = None,
     ) -> Dict[str, Any]:
         """Extract multiple columns in a single LLM call with combined retrieval.
 
@@ -421,6 +437,8 @@ class PaperProcessor:
             schema: Schema containing query
             paper_title: Paper title for logging
             base_k: Base retrieval k, will be scaled by batch size
+            already_extracted: Flat {col_name: answer} of values already filled,
+                passed as context to prevent hallucinating dependent columns.
 
         Returns:
             Dict mapping column names to their extracted values
@@ -464,6 +482,7 @@ class PaperProcessor:
             [col.to_dict() for col in columns],
             mode="all",
             strict=True,  # strict for fallback
+            already_extracted=already_extracted,
         )
 
         # Skip truncation for long context models
@@ -551,6 +570,7 @@ class PaperProcessor:
                 f"{[c.name for c in missing]}"
             )
             reordered = list(reversed(missing))
+            already_flat = self._flatten_extracted(cleaned)
             reorder_msgs = self.prompt_builder.build_val_messages(
                 schema.query,
                 paper_title,
@@ -558,6 +578,7 @@ class PaperProcessor:
                 [c.to_dict() for c in reordered],
                 mode="all",
                 strict=True,
+                already_extracted=already_flat,
             )
             reorder_msgs[0]["content"] = (
                 system_prompt_override or SYSTEM_PROMPT_VAL_REEXTRACT
@@ -635,6 +656,7 @@ class PaperProcessor:
             expanded_k = self.text_processor.expand_k(retrieval_k)
             still_missing = []
 
+            already_flat = self._flatten_extracted(cleaned)
             if fallback_retriever is not None:
                 for batch in _chunk_list(missing, FALLBACK_BATCH_SIZE):
                     if self._check_stop_requested():
@@ -650,6 +672,7 @@ class PaperProcessor:
                         schema=schema,
                         paper_title=paper_title,
                         base_k=expanded_k,
+                        already_extracted=already_flat,
                     )
                     for col in batch:
                         col_res = batch_results.get(col.name)
@@ -675,6 +698,7 @@ class PaperProcessor:
                     f"  📦 Snippet fallback for {len(still_missing)} remaining: "
                     f"{[c.name for c in still_missing]}"
                 )
+                already_flat = self._flatten_extracted(cleaned)
                 for batch in _chunk_list(still_missing, FALLBACK_BATCH_SIZE):
                     if self._check_stop_requested():
                         return cleaned
@@ -685,6 +709,7 @@ class PaperProcessor:
                         schema=schema,
                         paper_title=paper_title,
                         base_k=expanded_k,
+                        already_extracted=already_flat,
                     )
                     for col in batch:
                         col_res = batch_results.get(col.name)
