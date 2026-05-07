@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HotTable } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
@@ -6,18 +6,28 @@ import 'handsontable/styles/handsontable.min.css';
 import 'handsontable/styles/ht-theme-main.min.css';
 
 import {
+  AlignLeft,
+  Bold,
   Bot,
   Check,
   ChevronDown,
+  Download,
   FileUp,
   FolderOpen,
+  Italic,
   Loader2,
   Play,
   Plus,
+  Printer,
   RefreshCw,
   RotateCw,
+  Search,
   Sparkles,
+  Strikethrough,
+  Sigma,
   Table2,
+  Type,
+  Underline,
   X,
   MoreVertical,
 } from 'lucide-react';
@@ -91,6 +101,19 @@ type PendingChatAction = {
   run: () => Promise<void>;
 };
 
+type TableFontFamily = 'Inter' | 'Arial' | 'Georgia' | 'Mono';
+type TableTextAlign = 'left' | 'center' | 'right';
+
+type TableDisplayOptions = {
+  fontFamily: TableFontFamily;
+  fontSize: number;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strikethrough: boolean;
+  align: TableTextAlign;
+};
+
 type NewProjectDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -103,10 +126,47 @@ const SHEETS: Array<{ id: SheetId; label: string }> = [
   { id: 'schema', label: 'Schema' },
 ];
 
+const WORKSPACE_MENUS = [
+  {
+    label: 'File',
+    items: ['New project', 'Import project', 'Open classic visualizer', 'Export table'],
+  },
+  {
+    label: 'Edit',
+    items: ['Undo', 'Redo', 'Find and replace', 'Delete values'],
+  },
+  {
+    label: 'View',
+    items: ['Show sheet full screen', 'Show chat full screen', 'Split view', 'Project details'],
+  },
+  {
+    label: 'Insert',
+    items: ['Column', 'Observation unit', 'Schema field', 'Comment'],
+  },
+  {
+    label: 'Format',
+    items: ['Text wrapping', 'Bold headers', 'Alternating colors', 'Clear formatting'],
+  },
+  {
+    label: 'Data',
+    items: ['Sort range', 'Create filter', 'Repopulate edited fields', 'Validate schema'],
+  },
+  {
+    label: 'Tools',
+    items: ['Estimate cost', 'Refresh project', 'Schema suggestions', 'Merge units'],
+  },
+  {
+    label: 'Help',
+    items: ['Keyboard shortcuts', 'About ScheMatiQ workspace'],
+  },
+];
+
 const DEFAULT_PROVIDER = 'gemini';
 const DEFAULT_SCHEMA_MODEL = 'gemini-2.5-flash';
 const DEFAULT_VALUE_MODEL = 'gemini-3.1-flash-lite-preview';
 const EDITABLE_OBSERVATION_UNIT_FIELDS = new Set(['name', 'definition', 'example_names']);
+const TABLE_FONT_OPTIONS: TableFontFamily[] = ['Inter', 'Arial', 'Georgia', 'Mono'];
+const TABLE_FONT_SIZE_OPTIONS = [10, 11, 12, 13, 14, 16, 18];
 
 const emptyData: PaginatedData = {
   rows: [],
@@ -507,12 +567,14 @@ function SpreadsheetSurface({
   activeSheet,
   data,
   schema,
+  displayOptions,
   onRefresh,
   onRerunNeeded,
 }: {
   activeSheet: SheetId;
   data: PaginatedData;
   schema: SchemaData | null;
+  displayOptions: TableDisplayOptions;
   onRefresh: () => void;
   onRerunNeeded: (kind: PendingRerunKind, columns?: string[]) => void;
 }) {
@@ -789,7 +851,23 @@ function SpreadsheetSurface({
   }
 
   return (
-    <div ref={gridContainerRef} className="h-full w-full min-h-0 min-w-0">
+    <div
+      ref={gridContainerRef}
+      className="h-full w-full min-h-0 min-w-0"
+      style={{
+        '--workspace-table-font': displayOptions.fontFamily === 'Mono'
+          ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+          : displayOptions.fontFamily,
+        '--workspace-table-font-size': `${displayOptions.fontSize}px`,
+        '--workspace-table-font-weight': displayOptions.bold ? 600 : 400,
+        '--workspace-table-font-style': displayOptions.italic ? 'italic' : 'normal',
+        '--workspace-table-text-decoration': [
+          displayOptions.underline ? 'underline' : '',
+          displayOptions.strikethrough ? 'line-through' : '',
+        ].filter(Boolean).join(' ') || 'none',
+        '--workspace-table-text-align': displayOptions.align,
+      } as CSSProperties}
+    >
       <HotTable
         key={`${activeSheet}-${sheet.columns.length}`}
         className="workspace-hot"
@@ -1054,6 +1132,217 @@ function ChatPanel({
   );
 }
 
+function SpreadsheetChrome({
+  projectTitle,
+  sessionStatus,
+  loading,
+  canUseProjectActions,
+  displayOptions,
+  onNewProject,
+  onImportProject,
+  onOpenClassic,
+  onProjectDetails,
+  onRefresh,
+  onPrint,
+  onExport,
+  onSearch,
+  onEstimateCost,
+  onShowSheet,
+  onShowChat,
+  onSplitView,
+  onRunPendingEdits,
+  onDisplayOptionsChange,
+  rerunDisabled,
+}: {
+  projectTitle: string;
+  sessionStatus: string;
+  loading: boolean;
+  canUseProjectActions: boolean;
+  displayOptions: TableDisplayOptions;
+  onNewProject: () => void;
+  onImportProject: () => void;
+  onOpenClassic: () => void;
+  onProjectDetails: () => void;
+  onRefresh: () => void;
+  onPrint: () => void;
+  onExport: () => void;
+  onSearch: () => void;
+  onEstimateCost: () => void;
+  onShowSheet: () => void;
+  onShowChat: () => void;
+  onSplitView: () => void;
+  onRunPendingEdits: () => void;
+  onDisplayOptionsChange: (next: TableDisplayOptions) => void;
+  rerunDisabled: boolean;
+}) {
+  const updateDisplay = (patch: Partial<TableDisplayOptions>) => {
+    onDisplayOptionsChange({ ...displayOptions, ...patch });
+  };
+
+  const runMenuItem = (label: string) => {
+    if (label === 'New project') onNewProject();
+    if (label === 'Import project') onImportProject();
+    if (label === 'Open classic visualizer') onOpenClassic();
+    if (label === 'Export table') onExport();
+    if (label === 'Project details') onProjectDetails();
+    if (label === 'Refresh project') onRefresh();
+    if (label === 'Estimate cost') onEstimateCost();
+    if (label === 'Show sheet full screen') onShowSheet();
+    if (label === 'Show chat full screen') onShowChat();
+    if (label === 'Split view') onSplitView();
+    if (label === 'Repopulate edited fields') onRunPendingEdits();
+  };
+
+  const isDisabled = (label: string) => {
+    if (label === 'New project' || label === 'Import project') return false;
+    if (label === 'Repopulate edited fields') return rerunDisabled;
+    return !canUseProjectActions && [
+      'Open classic visualizer',
+      'Export table',
+      'Project details',
+      'Refresh project',
+      'Estimate cost',
+      'Show sheet full screen',
+      'Show chat full screen',
+      'Split view',
+      'Repopulate edited fields',
+    ].includes(label);
+  };
+
+  return (
+    <div className="workspace-chrome" role="toolbar" aria-label="Spreadsheet menu and formatting toolbar">
+      <div className="workspace-chrome-titlebar">
+        <div className="workspace-file-mark">
+          <Table2 className="h-4 w-4" />
+        </div>
+        <div className="workspace-file-title">
+          <div className="workspace-file-name">{projectTitle}</div>
+          <div className="workspace-file-status">{sessionStatus}</div>
+        </div>
+        <div className="workspace-menu-row">
+          {WORKSPACE_MENUS.map((menu) => (
+            <DropdownMenu key={menu.label}>
+              <DropdownMenuTrigger asChild>
+                <button className="workspace-menu-button" type="button">
+                  {menu.label}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="workspace-menu-content w-56">
+                {menu.items.map((item) => (
+                  <DropdownMenuItem
+                    key={item}
+                    disabled={isDisabled(item)}
+                    onClick={() => runMenuItem(item)}
+                  >
+                    {item}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ))}
+        </div>
+      </div>
+
+      <div className="workspace-toolbar-row">
+        <button className="workspace-toolbar-icon" type="button" onClick={onRefresh} disabled={!canUseProjectActions || loading} title="Refresh">
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+        </button>
+        <button className="workspace-toolbar-icon" type="button" onClick={onPrint} title="Print">
+          <Printer className="h-3.5 w-3.5" />
+        </button>
+        <button className="workspace-toolbar-icon" type="button" onClick={onExport} disabled={!canUseProjectActions} title="Export">
+          <Download className="h-3.5 w-3.5" />
+        </button>
+
+        <span className="workspace-toolbar-separator" />
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="workspace-toolbar-select workspace-toolbar-font" type="button">
+              {displayOptions.fontFamily}
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="workspace-menu-content w-40">
+            {TABLE_FONT_OPTIONS.map((font) => (
+              <DropdownMenuItem key={font} onClick={() => updateDisplay({ fontFamily: font })}>
+                {font}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="workspace-toolbar-select workspace-toolbar-size" type="button">
+              {displayOptions.fontSize}
+              <ChevronDown className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="workspace-menu-content w-28">
+            {TABLE_FONT_SIZE_OPTIONS.map((size) => (
+              <DropdownMenuItem key={size} onClick={() => updateDisplay({ fontSize: size })}>
+                {size}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <span className="workspace-toolbar-separator" />
+
+        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.bold} onClick={() => updateDisplay({ bold: !displayOptions.bold })} title="Bold">
+          <Bold className="h-3.5 w-3.5" />
+        </button>
+        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.italic} onClick={() => updateDisplay({ italic: !displayOptions.italic })} title="Italic">
+          <Italic className="h-3.5 w-3.5" />
+        </button>
+        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.underline} onClick={() => updateDisplay({ underline: !displayOptions.underline })} title="Underline">
+          <Underline className="h-3.5 w-3.5" />
+        </button>
+        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.strikethrough} onClick={() => updateDisplay({ strikethrough: !displayOptions.strikethrough })} title="Strikethrough">
+          <Strikethrough className="h-3.5 w-3.5" />
+        </button>
+
+        <span className="workspace-toolbar-separator" />
+
+        <button className="workspace-toolbar-icon" type="button" title="Text color">
+          <Type className="h-3.5 w-3.5" />
+        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="workspace-toolbar-icon" type="button" title="Align">
+              <AlignLeft className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="workspace-menu-content w-32">
+            {(['left', 'center', 'right'] as TableTextAlign[]).map((align) => (
+              <DropdownMenuItem key={align} onClick={() => updateDisplay({ align })}>
+                {align[0].toUpperCase() + align.slice(1)}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <button className="workspace-toolbar-icon" type="button" title="Functions">
+          <Sigma className="h-3.5 w-3.5" />
+        </button>
+        <button className="workspace-toolbar-icon" type="button" onClick={onSearch} title="Search">
+          <Search className="h-3.5 w-3.5" />
+        </button>
+
+        <span className="workspace-toolbar-spacer" />
+
+        <button className="workspace-toolbar-action" type="button" onClick={onEstimateCost} disabled={!canUseProjectActions}>
+          <Sparkles className="h-3.5 w-3.5" />
+          Estimate
+        </button>
+        <button className="workspace-toolbar-action" type="button" onClick={onRunPendingEdits} disabled={rerunDisabled}>
+          <RotateCw className="h-3.5 w-3.5" />
+          Repopulate
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Workspace() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -1076,6 +1365,23 @@ function Workspace() {
   const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
   const [loading, setLoading] = useState(false);
   const [importingProject, setImportingProject] = useState(false);
+  const [tableDisplay, setTableDisplay] = useState<TableDisplayOptions>(() => {
+    try {
+      const saved = localStorage.getItem('workspace.tableDisplay');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // Ignore malformed local display preferences.
+    }
+    return {
+      fontFamily: 'Inter',
+      fontSize: 12,
+      bold: false,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+      align: 'left',
+    };
+  });
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = Number(localStorage.getItem('workspace.chatWidth'));
     return Number.isFinite(saved) ? saved : 380;
@@ -1202,6 +1508,44 @@ function Workspace() {
     setCostEstimate(estimate);
   }, [sessionId, sessionMode, toast]);
 
+  const updateTableDisplay = useCallback((next: TableDisplayOptions) => {
+    setTableDisplay(next);
+    localStorage.setItem('workspace.tableDisplay', JSON.stringify(next));
+  }, []);
+
+  const printWorkspace = useCallback(() => {
+    window.print();
+  }, []);
+
+  const exportCurrentProject = useCallback(async () => {
+    if (!sessionId) return;
+    try {
+      if (sessionMode === 'schematiq') {
+        await schematiqAPI.export(sessionId);
+      } else {
+        const blob = await loadAPI.exportData(sessionId);
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `schematiq_import_${sessionId.slice(0, 8)}.csv`;
+        link.click();
+        window.URL.revokeObjectURL(url);
+      }
+    } catch (err: any) {
+      toast({
+        title: 'Export failed',
+        description: err?.response?.data?.detail || err?.message || 'Could not export this project',
+        variant: 'destructive',
+      });
+    }
+  }, [sessionId, sessionMode, toast]);
+
+  const searchPage = useCallback(() => {
+    const term = window.prompt('Find in visible workspace');
+    const findInPage = (window as Window & { find?: (text: string) => boolean }).find;
+    if (term && findInPage) findInPage(term);
+  }, []);
+
   const importExistingProject = useCallback(async (file: File) => {
     setImportingProject(true);
     try {
@@ -1298,6 +1642,10 @@ function Workspace() {
 
   const progressPercent = Math.round((status?.progress || 0) * 100);
   const topbarQuestion = schema?.query || config?.query || '';
+  const projectTitle = topbarQuestion || (sessionId ? `ScheMatiQ ${sessionId.slice(0, 8)}` : 'Untitled workspace');
+  const chromeStatus = sessionId
+    ? `${sessionMode} / ${status?.status || 'loading'}`
+    : 'No project open';
   const rerunTitle = pendingRerunKind === 'unit'
     ? 'Rediscover schema and repopulate data'
     : pendingRerunKind === 'schema'
@@ -1336,6 +1684,31 @@ function Workspace() {
 
   return (
     <div className="workspace-root">
+      <SpreadsheetChrome
+        projectTitle={projectTitle}
+        sessionStatus={chromeStatus}
+        loading={loading}
+        canUseProjectActions={Boolean(sessionId)}
+        displayOptions={tableDisplay}
+        onNewProject={() => setProjectDialogOpen(true)}
+        onImportProject={() => importInputRef.current?.click()}
+        onOpenClassic={() => {
+          if (sessionId) navigate(`/visualize/${sessionId}?mode=${sessionMode}`);
+        }}
+        onProjectDetails={() => setDetailsDialogOpen(true)}
+        onRefresh={refresh}
+        onPrint={printWorkspace}
+        onExport={exportCurrentProject}
+        onSearch={searchPage}
+        onEstimateCost={estimateCurrentCost}
+        onShowSheet={() => setChatWidth(0)}
+        onShowChat={() => setChatWidth(window.innerWidth)}
+        onSplitView={() => setChatWidth(380)}
+        onRunPendingEdits={runPendingEdits}
+        onDisplayOptionsChange={updateTableDisplay}
+        rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
+      />
+
       <div
         className="workspace-body"
         data-dragging={isDraggingDivider}
@@ -1347,6 +1720,7 @@ function Workspace() {
               activeSheet={activeSheet}
               data={data}
               schema={schema}
+              displayOptions={tableDisplay}
               onRefresh={refresh}
               onRerunNeeded={markRerunNeeded}
             />
