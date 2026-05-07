@@ -459,6 +459,104 @@
   text-decoration: var(--workspace-table-text-decoration, none);
 }
 
+.workspace-hot .handsontable td.workspace-cell-font-inter {
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.workspace-hot .handsontable td.workspace-cell-font-arial {
+  font-family: Arial, sans-serif;
+}
+
+.workspace-hot .handsontable td.workspace-cell-font-georgia {
+  font-family: Georgia, serif;
+}
+
+.workspace-hot .handsontable td.workspace-cell-font-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.workspace-hot .handsontable td.workspace-cell-size-10 {
+  font-size: 10px;
+}
+
+.workspace-hot .handsontable td.workspace-cell-size-11 {
+  font-size: 11px;
+}
+
+.workspace-hot .handsontable td.workspace-cell-size-12 {
+  font-size: 12px;
+}
+
+.workspace-hot .handsontable td.workspace-cell-size-13 {
+  font-size: 13px;
+}
+
+.workspace-hot .handsontable td.workspace-cell-size-14 {
+  font-size: 14px;
+}
+
+.workspace-hot .handsontable td.workspace-cell-size-16 {
+  font-size: 16px;
+}
+
+.workspace-hot .handsontable td.workspace-cell-size-18 {
+  font-size: 18px;
+}
+
+.workspace-hot .handsontable td.workspace-cell-bold {
+  font-weight: 600;
+}
+
+.workspace-hot .handsontable td.workspace-cell-weight-normal {
+  font-weight: 400;
+}
+
+.workspace-hot .handsontable td.workspace-cell-italic {
+  font-style: italic;
+}
+
+.workspace-hot .handsontable td.workspace-cell-style-normal {
+  font-style: normal;
+}
+
+.workspace-hot .handsontable td.workspace-cell-underline {
+  text-decoration-line: underline;
+}
+
+.workspace-hot .handsontable td.workspace-cell-strike {
+  text-decoration-line: line-through;
+}
+
+.workspace-hot .handsontable td.workspace-cell-underline.workspace-cell-strike {
+  text-decoration-line: underline line-through;
+}
+
+.workspace-hot .handsontable td.workspace-cell-underline-off.workspace-cell-strike-off,
+.workspace-hot .handsontable td.workspace-cell-underline-off:not(.workspace-cell-strike),
+.workspace-hot .handsontable td.workspace-cell-strike-off:not(.workspace-cell-underline) {
+  text-decoration-line: none;
+}
+
+.workspace-hot .handsontable td.workspace-cell-underline.workspace-cell-strike-off {
+  text-decoration-line: underline;
+}
+
+.workspace-hot .handsontable td.workspace-cell-strike.workspace-cell-underline-off {
+  text-decoration-line: line-through;
+}
+
+.workspace-hot .handsontable td.workspace-cell-align-left {
+  text-align: left;
+}
+
+.workspace-hot .handsontable td.workspace-cell-align-center {
+  text-align: center;
+}
+
+.workspace-hot .handsontable td.workspace-cell-align-right {
+  text-align: right;
+}
+
 .workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(even) > td:not(.current):not(.area):not(.highlight) {
   background: #f6faf7;
 }
