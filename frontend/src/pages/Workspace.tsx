@@ -1,6 +1,6 @@
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { HotTable } from '@handsontable/react';
+import { HotTable, type HotTableClass } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/styles/handsontable.min.css';
 import 'handsontable/styles/ht-theme-main.min.css';
@@ -112,6 +112,51 @@ type TableDisplayOptions = {
   underline: boolean;
   strikethrough: boolean;
   align: TableTextAlign;
+};
+
+type CellFormat = Partial<TableDisplayOptions>;
+type CellFormatMap = Record<string, CellFormat>;
+
+type SheetSelection = {
+  sheet: SheetId;
+  fromRow: number;
+  toRow: number;
+  fromCol: number;
+  toCol: number;
+} | null;
+
+const cellFormatKey = (sheet: SheetId, row: number, col: number) => `${sheet}:${row}:${col}`;
+
+const selectionsEqual = (a: SheetSelection, b: SheetSelection) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.sheet === b.sheet
+    && a.fromRow === b.fromRow
+    && a.toRow === b.toRow
+    && a.fromCol === b.fromCol
+    && a.toCol === b.toCol;
+};
+
+const selectionArea = (selection: SheetSelection) => {
+  if (!selection) return 0;
+  return (selection.toRow - selection.fromRow + 1) * (selection.toCol - selection.fromCol + 1);
+};
+
+const getCellFormatClasses = (format?: CellFormat) => {
+  if (!format) return '';
+  return [
+    format.fontFamily ? `workspace-cell-font-${format.fontFamily.toLowerCase()}` : '',
+    format.fontSize ? `workspace-cell-size-${format.fontSize}` : '',
+    format.bold === true ? 'workspace-cell-bold' : '',
+    format.bold === false ? 'workspace-cell-weight-normal' : '',
+    format.italic === true ? 'workspace-cell-italic' : '',
+    format.italic === false ? 'workspace-cell-style-normal' : '',
+    format.underline === true ? 'workspace-cell-underline' : '',
+    format.underline === false ? 'workspace-cell-underline-off' : '',
+    format.strikethrough === true ? 'workspace-cell-strike' : '',
+    format.strikethrough === false ? 'workspace-cell-strike-off' : '',
+    format.align ? `workspace-cell-align-${format.align}` : '',
+  ].filter(Boolean).join(' ');
 };
 
 type NewProjectDialogProps = {
@@ -568,6 +613,10 @@ function SpreadsheetSurface({
   data,
   schema,
   displayOptions,
+  cellFormats,
+  formatVersion,
+  hotTableRef,
+  onSelectionChange,
   onRefresh,
   onRerunNeeded,
 }: {
@@ -575,6 +624,10 @@ function SpreadsheetSurface({
   data: PaginatedData;
   schema: SchemaData | null;
   displayOptions: TableDisplayOptions;
+  cellFormats: CellFormatMap;
+  formatVersion: number;
+  hotTableRef: MutableRefObject<HotTableClass | null>;
+  onSelectionChange: (selection: SheetSelection) => void;
   onRefresh: () => void;
   onRerunNeeded: (kind: PendingRerunKind, columns?: string[]) => void;
 }) {
@@ -869,7 +922,8 @@ function SpreadsheetSurface({
       } as CSSProperties}
     >
       <HotTable
-        key={`${activeSheet}-${sheet.columns.length}`}
+        ref={hotTableRef}
+        key={`${activeSheet}-${sheet.columns.length}-${formatVersion}`}
         className="workspace-hot"
         theme="ht-theme-main"
         data={sheet.rows}
@@ -894,14 +948,29 @@ function SpreadsheetSurface({
         minSpareRows={sheet.minSpareRows || 0}
         licenseKey="non-commercial-and-evaluation"
         afterChange={handleChanges}
+        afterSelectionEnd={(row, col, row2, col2) => {
+          if (row < 0 || col < 0 || row2 < 0 || col2 < 0) {
+            onSelectionChange(null);
+            return;
+          }
+          onSelectionChange({
+            sheet: activeSheet,
+            fromRow: Math.min(row, row2),
+            toRow: Math.max(row, row2),
+            fromCol: Math.min(col, col2),
+            toCol: Math.max(col, col2),
+          });
+        }}
         cells={(row, col) => {
-          const props: { readOnly?: boolean } = {};
+          const props: { readOnly?: boolean; className?: string } = {};
           const column = sheet.columns[col];
           if (column?.readOnly) props.readOnly = true;
           if (activeSheet === 'unit' && column?.key === 'value') {
             const field = String(sheet.rows[row]?.field || '');
             props.readOnly = !EDITABLE_OBSERVATION_UNIT_FIELDS.has(field);
           }
+          const formatClasses = getCellFormatClasses(cellFormats[cellFormatKey(activeSheet, row, col)]);
+          if (formatClasses) props.className = formatClasses;
           return props;
         }}
       />
@@ -1151,7 +1220,7 @@ function SpreadsheetChrome({
   onShowChat,
   onSplitView,
   onRunPendingEdits,
-  onDisplayOptionsChange,
+  onApplyFormat,
   rerunDisabled,
 }: {
   projectTitle: string;
@@ -1172,13 +1241,9 @@ function SpreadsheetChrome({
   onShowChat: () => void;
   onSplitView: () => void;
   onRunPendingEdits: () => void;
-  onDisplayOptionsChange: (next: TableDisplayOptions) => void;
+  onApplyFormat: (patch: Partial<TableDisplayOptions>) => void;
   rerunDisabled: boolean;
 }) {
-  const updateDisplay = (patch: Partial<TableDisplayOptions>) => {
-    onDisplayOptionsChange({ ...displayOptions, ...patch });
-  };
-
   const runMenuItem = (label: string) => {
     if (label === 'New project') onNewProject();
     if (label === 'Import project') onImportProject();
@@ -1265,7 +1330,7 @@ function SpreadsheetChrome({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="workspace-menu-content w-40">
             {TABLE_FONT_OPTIONS.map((font) => (
-              <DropdownMenuItem key={font} onClick={() => updateDisplay({ fontFamily: font })}>
+              <DropdownMenuItem key={font} onClick={() => onApplyFormat({ fontFamily: font })}>
                 {font}
               </DropdownMenuItem>
             ))}
@@ -1280,7 +1345,7 @@ function SpreadsheetChrome({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="workspace-menu-content w-28">
             {TABLE_FONT_SIZE_OPTIONS.map((size) => (
-              <DropdownMenuItem key={size} onClick={() => updateDisplay({ fontSize: size })}>
+              <DropdownMenuItem key={size} onClick={() => onApplyFormat({ fontSize: size })}>
                 {size}
               </DropdownMenuItem>
             ))}
@@ -1289,16 +1354,16 @@ function SpreadsheetChrome({
 
         <span className="workspace-toolbar-separator" />
 
-        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.bold} onClick={() => updateDisplay({ bold: !displayOptions.bold })} title="Bold">
+        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.bold} onClick={() => onApplyFormat({ bold: !displayOptions.bold })} title="Bold">
           <Bold className="h-3.5 w-3.5" />
         </button>
-        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.italic} onClick={() => updateDisplay({ italic: !displayOptions.italic })} title="Italic">
+        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.italic} onClick={() => onApplyFormat({ italic: !displayOptions.italic })} title="Italic">
           <Italic className="h-3.5 w-3.5" />
         </button>
-        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.underline} onClick={() => updateDisplay({ underline: !displayOptions.underline })} title="Underline">
+        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.underline} onClick={() => onApplyFormat({ underline: !displayOptions.underline })} title="Underline">
           <Underline className="h-3.5 w-3.5" />
         </button>
-        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.strikethrough} onClick={() => updateDisplay({ strikethrough: !displayOptions.strikethrough })} title="Strikethrough">
+        <button className="workspace-toolbar-icon" type="button" data-active={displayOptions.strikethrough} onClick={() => onApplyFormat({ strikethrough: !displayOptions.strikethrough })} title="Strikethrough">
           <Strikethrough className="h-3.5 w-3.5" />
         </button>
 
@@ -1315,7 +1380,7 @@ function SpreadsheetChrome({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="workspace-menu-content w-32">
             {(['left', 'center', 'right'] as TableTextAlign[]).map((align) => (
-              <DropdownMenuItem key={align} onClick={() => updateDisplay({ align })}>
+              <DropdownMenuItem key={align} onClick={() => onApplyFormat({ align })}>
                 {align[0].toUpperCase() + align.slice(1)}
               </DropdownMenuItem>
             ))}
@@ -1350,6 +1415,7 @@ function Workspace() {
   const requestedMode: WorkspaceSessionMode = searchParams.get('mode') === 'load' ? 'load' : 'schematiq';
   const { toast } = useToast();
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const hotTableRef = useRef<HotTableClass | null>(null);
   const [activeSheet, setActiveSheet] = useState<SheetId>('data');
   const [sessionMode, setSessionMode] = useState<WorkspaceSessionMode>(requestedMode);
   const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
@@ -1382,6 +1448,17 @@ function Workspace() {
       align: 'left',
     };
   });
+  const [cellFormats, setCellFormats] = useState<CellFormatMap>(() => {
+    try {
+      const saved = localStorage.getItem('workspace.cellFormats');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // Ignore malformed local cell formatting preferences.
+    }
+    return {};
+  });
+  const [formatVersion, setFormatVersion] = useState(0);
+  const [sheetSelection, setSheetSelection] = useState<SheetSelection>(null);
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = Number(localStorage.getItem('workspace.chatWidth'));
     return Number.isFinite(saved) ? saved : 380;
@@ -1450,6 +1527,10 @@ function Workspace() {
   }, [sessionId]);
 
   useEffect(() => {
+    setSheetSelection(null);
+  }, [activeSheet, sessionId]);
+
+  useEffect(() => {
     refresh();
     if (!sessionId) return undefined;
     const interval = window.setInterval(refresh, 5000);
@@ -1512,6 +1593,53 @@ function Workspace() {
     setTableDisplay(next);
     localStorage.setItem('workspace.tableDisplay', JSON.stringify(next));
   }, []);
+
+  const updateSheetSelection = useCallback((nextSelection: SheetSelection) => {
+    setSheetSelection((current) => (
+      selectionsEqual(current, nextSelection) ? current : nextSelection
+    ));
+  }, []);
+
+  const applyTableFormat = useCallback((patch: Partial<TableDisplayOptions>) => {
+    const hotSelection = hotTableRef.current?.hotInstance?.getSelectedLast?.();
+    const liveSelection: SheetSelection = hotSelection
+      ? {
+        sheet: activeSheet,
+        fromRow: Math.min(hotSelection[0], hotSelection[2]),
+        toRow: Math.max(hotSelection[0], hotSelection[2]),
+        fromCol: Math.min(hotSelection[1], hotSelection[3]),
+        toCol: Math.max(hotSelection[1], hotSelection[3]),
+      }
+      : null;
+    const activeSelection = selectionArea(sheetSelection) > selectionArea(liveSelection)
+      ? sheetSelection
+      : liveSelection;
+
+    if (!activeSelection || activeSelection.sheet !== activeSheet) {
+      const nextDisplay = { ...tableDisplay, ...patch };
+      updateTableDisplay(nextDisplay);
+      return;
+    }
+
+    setCellFormats((current) => {
+      const next = { ...current };
+      for (let row = activeSelection.fromRow; row <= activeSelection.toRow; row += 1) {
+        for (let col = activeSelection.fromCol; col <= activeSelection.toCol; col += 1) {
+          const key = cellFormatKey(activeSheet, row, col);
+          next[key] = { ...next[key], ...patch };
+        }
+      }
+      localStorage.setItem('workspace.cellFormats', JSON.stringify(next));
+      return next;
+    });
+    setFormatVersion((current) => current + 1);
+  }, [activeSheet, sheetSelection, tableDisplay, updateTableDisplay]);
+
+  const selectedDisplayOptions = useMemo(() => {
+    if (!sheetSelection || sheetSelection.sheet !== activeSheet) return tableDisplay;
+    const selectedFormat = cellFormats[cellFormatKey(activeSheet, sheetSelection.fromRow, sheetSelection.fromCol)];
+    return { ...tableDisplay, ...selectedFormat };
+  }, [activeSheet, cellFormats, sheetSelection, tableDisplay]);
 
   const printWorkspace = useCallback(() => {
     window.print();
@@ -1689,7 +1817,7 @@ function Workspace() {
         sessionStatus={chromeStatus}
         loading={loading}
         canUseProjectActions={Boolean(sessionId)}
-        displayOptions={tableDisplay}
+        displayOptions={selectedDisplayOptions}
         onNewProject={() => setProjectDialogOpen(true)}
         onImportProject={() => importInputRef.current?.click()}
         onOpenClassic={() => {
@@ -1705,7 +1833,7 @@ function Workspace() {
         onShowChat={() => setChatWidth(window.innerWidth)}
         onSplitView={() => setChatWidth(380)}
         onRunPendingEdits={runPendingEdits}
-        onDisplayOptionsChange={updateTableDisplay}
+        onApplyFormat={applyTableFormat}
         rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
       />
 
@@ -1721,6 +1849,10 @@ function Workspace() {
               data={data}
               schema={schema}
               displayOptions={tableDisplay}
+              cellFormats={cellFormats}
+              formatVersion={formatVersion}
+              hotTableRef={hotTableRef}
+              onSelectionChange={updateSheetSelection}
               onRefresh={refresh}
               onRerunNeeded={markRerunNeeded}
             />
