@@ -193,7 +193,7 @@
 .workspace-bottombar {
   height: 40px;
   display: grid;
-  grid-template-columns: minmax(220px, 30vw) minmax(0, 1fr) clamp(96px, 12vw, 160px) 32px 32px;
+  grid-template-columns: minmax(220px, 30vw) minmax(0, 1fr) clamp(96px, 12vw, 160px) 32px;
   align-items: center;
   gap: 12px;
   border-top: 1px solid hsl(var(--border));
@@ -265,16 +265,6 @@
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.workspace-rerun-button[data-pending="true"] {
-  background: #e6f4ea;
-  color: #137333;
-}
-
-.workspace-rerun-button[data-pending="true"]:hover {
-  background: #d3ead9;
-  color: #0f6b2f;
 }
 
 .workspace-body {

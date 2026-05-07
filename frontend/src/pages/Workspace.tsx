@@ -19,7 +19,6 @@ import {
   Play,
   Plus,
   Printer,
-  RefreshCw,
   RotateCw,
   Search,
   Sparkles,
@@ -1204,7 +1203,6 @@ function ChatPanel({
 function SpreadsheetChrome({
   projectTitle,
   sessionStatus,
-  loading,
   canUseProjectActions,
   displayOptions,
   onNewProject,
@@ -1225,7 +1223,6 @@ function SpreadsheetChrome({
 }: {
   projectTitle: string;
   sessionStatus: string;
-  loading: boolean;
   canUseProjectActions: boolean;
   displayOptions: TableDisplayOptions;
   onNewProject: () => void;
@@ -1309,9 +1306,6 @@ function SpreadsheetChrome({
       </div>
 
       <div className="workspace-toolbar-row">
-        <button className="workspace-toolbar-icon" type="button" onClick={onRefresh} disabled={!canUseProjectActions || loading} title="Refresh">
-          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-        </button>
         <button className="workspace-toolbar-icon" type="button" onClick={onPrint} title="Print">
           <Printer className="h-3.5 w-3.5" />
         </button>
@@ -1772,13 +1766,8 @@ function Workspace() {
   const topbarQuestion = schema?.query || config?.query || '';
   const projectTitle = topbarQuestion || (sessionId ? `ScheMatiQ ${sessionId.slice(0, 8)}` : 'Untitled workspace');
   const chromeStatus = sessionId
-    ? `${sessionMode} / ${status?.status || 'loading'}`
+    ? `${sessionMode} / ${loading ? 'loading' : status?.status || 'loading'}`
     : 'No project open';
-  const rerunTitle = pendingRerunKind === 'unit'
-    ? 'Rediscover schema and repopulate data'
-    : pendingRerunKind === 'schema'
-      ? 'Repopulate data from schema edits'
-      : 'No rerun needed';
   const isSheetHidden = chatWidth >= window.innerWidth - 80;
   const isChatHidden = chatWidth <= 24;
   const bodyGridColumns = isSheetHidden
@@ -1815,7 +1804,6 @@ function Workspace() {
       <SpreadsheetChrome
         projectTitle={projectTitle}
         sessionStatus={chromeStatus}
-        loading={loading}
         canUseProjectActions={Boolean(sessionId)}
         displayOptions={selectedDisplayOptions}
         onNewProject={() => setProjectDialogOpen(true)}
@@ -1920,20 +1908,6 @@ function Workspace() {
           )}
         </div>
 
-        <Button
-          size="icon"
-          variant="ghost"
-          className="workspace-rerun-button"
-          data-pending={Boolean(pendingRerunKind)}
-          data-kind={pendingRerunKind || 'none'}
-          onClick={runPendingEdits}
-          disabled={!sessionId || !pendingRerunKind || rerunStarting}
-          title={rerunTitle}
-          aria-label={rerunTitle}
-        >
-          {rerunStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCw className="h-4 w-4" />}
-        </Button>
-
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button size="icon" variant="ghost" aria-label="Workspace menu">
@@ -1966,10 +1940,6 @@ function Workspace() {
             <DropdownMenuItem onClick={() => setDetailsDialogOpen(true)} disabled={!sessionId}>
               <Table2 className="h-4 w-4" />
               Project Details
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={refresh} disabled={!sessionId || loading}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-              Refresh
             </DropdownMenuItem>
             <DropdownMenuItem onClick={estimateCurrentCost} disabled={!sessionId}>
               <Sparkles className="h-4 w-4" />
