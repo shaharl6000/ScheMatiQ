@@ -262,7 +262,8 @@ const Visualize = () => {
                 });
               }
               setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
-              queryClient.invalidateQueries(['data', sessionId]);
+              queryClient.invalidateQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.invalidateQueries(['session', sessionId]);
               queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
               queryClient.invalidateQueries(['documentList', sessionId]);
@@ -514,15 +515,22 @@ const Visualize = () => {
         session?.status === 'completed' ||
         session?.status === 'stopped' ||
         session?.status === 'processing_documents' ||
-        session?.status === 'documents_uploaded'
+        session?.status === 'documents_uploaded' ||
+        // ScheMatiQ writes each finished document to extracted_data.jsonl; poll so the
+        // Data tab can show partial rows while extraction runs (and after stop).
+        (mode === 'schematiq' && session?.status === 'processing')
       ),
       refetchInterval: () => {
-        // Don't poll if WebSocket is connected - rely on real-time updates
+        // Don't poll if WebSocket is connected — row_completed / cell events drive refetch
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           return false;
         }
         // Fallback polling when WebSocket is not connected
-        return session?.status === 'processing_documents' ? PROCESSING_REFRESH_INTERVAL : false;
+        if (session?.status === 'processing_documents') return PROCESSING_REFRESH_INTERVAL;
+        if (mode === 'schematiq' && session?.status === 'processing') {
+          return PROCESSING_REFRESH_INTERVAL;
+        }
+        return false;
       },
       keepPreviousData: true,
     }
@@ -608,7 +616,8 @@ const Visualize = () => {
                   });
                 }
                 setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
-                queryClient.invalidateQueries(['data', sessionId]);
+                queryClient.invalidateQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.invalidateQueries(['session', sessionId]);
                 queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
               queryClient.invalidateQueries(['documentList', sessionId]);
@@ -1342,7 +1351,10 @@ const Visualize = () => {
 
         {/* Data Tab */}
         <TabsContent value="data" className="mt-4">
-          {(isCompleted || isEnhancedUploadProcessing || isScheMatiQRunning || isScheMatiQStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
+          {(isCompleted || isEnhancedUploadProcessing || isScheMatiQRunning || isScheMatiQStopped || session?.status === 'documents_uploaded') &&
+            (dataResponse ||
+              streamingCells.size > 0 ||
+              (mode === 'schematiq' && session?.status === 'processing' && dataLoading)) ? (
             <div className="relative" data-table-container>
               {/* View mode toggle (only when observation units exist) */}
               {((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) && (
@@ -1549,7 +1561,16 @@ const Visualize = () => {
           ) : (
             <Alert variant="info">
               <AlertDescription>
-                {isScheMatiQRunning ? 'Data will be available when ScheMatiQ processing completes' : 'No data available'}
+                {isScheMatiQStopped && dataLoading
+                  ? 'Loading extracted rows…'
+                  : isScheMatiQStopped &&
+                      dataResponse !== undefined &&
+                      (dataResponse.total_count ?? 0) === 0 &&
+                      streamingCells.size === 0
+                    ? 'No table rows were saved before you stopped. Run again and let at least one document finish, or stop after partial rows appear in the Data tab.'
+                    : isScheMatiQRunning
+                      ? 'Rows from each finished document appear here as they are written. Open this tab during a run to see partial results, or use the Monitor for live progress.'
+                      : 'No data available'}
               </AlertDescription>
             </Alert>
           )}
