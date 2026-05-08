@@ -95,6 +95,21 @@ class PaperProcessor:
         # Active context cache for current document (Gemini only)
         self._active_context_cache = None
 
+    @staticmethod
+    def _flatten_extracted(cleaned: Dict[str, Any]) -> Dict[str, str]:
+        """Convert extracted {col: {answer, excerpts}} to {col: answer_str} for prompt context."""
+        flat: Dict[str, str] = {}
+        for col_name, col_val in cleaned.items():
+            if col_name.startswith("_"):
+                continue
+            if isinstance(col_val, dict):
+                ans = col_val.get("answer", "")
+            else:
+                ans = str(col_val)
+            if ans:
+                flat[col_name] = str(ans)
+        return flat
+
     def _check_stop_requested(self) -> bool:
         """Check if stop was requested. Returns True if should stop."""
         if self.should_stop and self.should_stop():
@@ -411,6 +426,7 @@ class PaperProcessor:
         schema: Schema,
         paper_title: str,
         base_k: int = 8,
+        already_extracted: Dict[str, str] | None = None,
     ) -> Dict[str, Any]:
         """Extract multiple columns in a single LLM call with combined retrieval.
 
@@ -421,6 +437,8 @@ class PaperProcessor:
             schema: Schema containing query
             paper_title: Paper title for logging
             base_k: Base retrieval k, will be scaled by batch size
+            already_extracted: Flat {col_name: answer} of values already filled,
+                passed as context to prevent hallucinating dependent columns.
 
         Returns:
             Dict mapping column names to their extracted values
@@ -464,6 +482,7 @@ class PaperProcessor:
             [col.to_dict() for col in columns],
             mode="all",
             strict=True,  # strict for fallback
+            already_extracted=already_extracted,
         )
 
         # Skip truncation for long context models
@@ -525,6 +544,10 @@ class PaperProcessor:
 
         Mutates and returns *cleaned* in-place.
 
+        Columns the LLM explicitly marked as null (confirmed empty) are stored
+        in *cleaned* with ``_confirmed_empty=True`` so they are naturally
+        excluded from the missing-column list in subsequent passes.
+
         Args:
             cleaned: Results collected so far (pass-1 output). Updated in-place.
             schema: Full schema with all columns.
@@ -540,79 +563,97 @@ class PaperProcessor:
         should_truncate = not self._should_skip_truncation()
         max_ctx = getattr(self.llm, "context_window_size", None) or 8192
 
-        # ── Pass 2: reordered (reversed missing columns) ──
+        # ── Pass 2: reordered (reversed missing columns), batched ──
+        # Batched like pass 1 so controlled generation is always active.
+        # A single large uncontrolled call frequently produces malformed JSON,
+        # causing all columns to fall through to the expensive pass-3 loop.
         missing = [c for c in schema.columns if c.name not in cleaned]
         if len(missing) >= 2:
             if self._check_stop_requested():
                 return cleaned
 
-            print(
-                f"↻ Reordered second pass for {len(missing)} missing: "
-                f"{[c.name for c in missing]}"
+            from schematiq.value_extraction.utils.schema_builder import (
+                _MAX_COLUMNS_FOR_CONTROLLED_GENERATION,
             )
             reordered = list(reversed(missing))
-            reorder_msgs = self.prompt_builder.build_val_messages(
-                schema.query,
-                paper_title,
-                effective_text,
-                [c.to_dict() for c in reordered],
-                mode="all",
-                strict=True,
+            already_flat = self._flatten_extracted(cleaned)
+            p2_batches = list(_chunk_list(reordered, _MAX_COLUMNS_FOR_CONTROLLED_GENERATION))
+            print(
+                f"↻ Reordered second pass for {len(missing)} missing "
+                f"({len(p2_batches)} batch{'es' if len(p2_batches) > 1 else ''}): "
+                f"{[c.name for c in missing]}"
             )
-            reorder_msgs[0]["content"] = (
-                system_prompt_override or SYSTEM_PROMPT_VAL_REEXTRACT
-            )
-            trimmed_re = utils.fit_prompt(
-                reorder_msgs,
-                truncate=should_truncate,
-                max_new=max_new_tokens,
-                safety_margins=SAFETY_MARGIN_ALL_MODE,
-                context_window_size=max_ctx,
-            )
-            resp_schema_re, key_map_re = self._build_response_schema(reordered)
-            raw_re = self._generate(
-                trimmed_re,
-                temperature=0,
-                response_schema=resp_schema_re,
-                **self._gemini_kwargs(thinking_budget=0),
-            )
-            if not self._check_stop_requested():
+            p2_new_fills = 0
+            for p2_batch_idx, p2_batch in enumerate(p2_batches):
+                if self._check_stop_requested():
+                    return cleaned
+                reorder_msgs = self.prompt_builder.build_val_messages(
+                    schema.query,
+                    paper_title,
+                    effective_text,
+                    [c.to_dict() for c in p2_batch],
+                    mode="all",
+                    strict=True,
+                    already_extracted=already_flat,
+                )
+                reorder_msgs[0]["content"] = (
+                    system_prompt_override or SYSTEM_PROMPT_VAL_REEXTRACT
+                )
+                trimmed_re = utils.fit_prompt(
+                    reorder_msgs,
+                    truncate=should_truncate,
+                    max_new=max_new_tokens,
+                    safety_margins=SAFETY_MARGIN_ALL_MODE,
+                    context_window_size=max_ctx,
+                )
+                resp_schema_re, key_map_re = self._build_response_schema(p2_batch)
+                raw_re = self._generate(
+                    trimmed_re,
+                    temperature=0,
+                    response_schema=resp_schema_re,
+                    **self._gemini_kwargs(thinking_budget=0),
+                )
+                if self._check_stop_requested():
+                    return cleaned
                 try:
                     parsed_re = self._remap_response_keys(
                         self.json_parser.parse_response(raw_re), key_map_re
                     )
                     reorder_allowed = {
                         c.name: c.allowed_values
-                        for c in reordered
+                        for c in p2_batch
                         if c.allowed_values
                     }
                     cleaned_re, unmatched_re = self.json_parser.postprocess(
                         parsed_re,
-                        [c.name for c in reordered],
+                        [c.name for c in p2_batch],
                         reorder_allowed,
                     )
                     self._track_unmatched_values(unmatched_re, paper_title)
                     cleaned_re = self._attach_source_to_excerpts(
                         cleaned_re, paper_title
                     )
-                    new_fills = 0
+
                     for col_name, col_val in cleaned_re.items():
                         if col_name not in cleaned:
                             cleaned[col_name] = col_val
-                            new_fills += 1
+                            p2_new_fills += 1
                             if row_name:
                                 self._notify_value_extracted(
                                     row_name, col_name, col_val
                                 )
-                    if new_fills:
-                        logging.info(
-                            "[%s] Reordered pass filled %d more columns",
-                            paper_title, new_fills,
-                        )
                 except Exception as e:
-                    print(f"⚠️  Reordered pass parse failure: {e}")
+                    print(f"⚠️  Reordered pass batch {p2_batch_idx} parse failure: {e}")
+
+            if p2_new_fills:
+                logging.info(
+                    "[%s] Reordered pass filled %d more columns",
+                    paper_title, p2_new_fills,
+                )
 
         # ── Pass 3: batch fallback with retriever (expanded k) ──
+        # Columns the LLM explicitly marked as null (confirmed empty) are
+        # already in `cleaned`, so they naturally won't appear here.
         missing = [c for c in schema.columns if c.name not in cleaned]
         if missing:
             if self._check_stop_requested():
@@ -635,6 +676,7 @@ class PaperProcessor:
             expanded_k = self.text_processor.expand_k(retrieval_k)
             still_missing = []
 
+            already_flat = self._flatten_extracted(cleaned)
             if fallback_retriever is not None:
                 for batch in _chunk_list(missing, FALLBACK_BATCH_SIZE):
                     if self._check_stop_requested():
@@ -650,6 +692,7 @@ class PaperProcessor:
                         schema=schema,
                         paper_title=paper_title,
                         base_k=expanded_k,
+                        already_extracted=already_flat,
                     )
                     for col in batch:
                         col_res = batch_results.get(col.name)
@@ -675,6 +718,7 @@ class PaperProcessor:
                     f"  📦 Snippet fallback for {len(still_missing)} remaining: "
                     f"{[c.name for c in still_missing]}"
                 )
+                already_flat = self._flatten_extracted(cleaned)
                 for batch in _chunk_list(still_missing, FALLBACK_BATCH_SIZE):
                     if self._check_stop_requested():
                         return cleaned
@@ -685,6 +729,7 @@ class PaperProcessor:
                         schema=schema,
                         paper_title=paper_title,
                         base_k=expanded_k,
+                        already_extracted=already_flat,
                     )
                     for col in batch:
                         col_res = batch_results.get(col.name)
@@ -905,6 +950,7 @@ class PaperProcessor:
                 batch_cleaned = self._attach_source_to_excerpts(
                     batch_cleaned, paper_title
                 )
+
                 cleaned.update(batch_cleaned)
 
                 if row_name:
@@ -1490,6 +1536,7 @@ class PaperProcessor:
                 )
                 self._track_unmatched_values(unmatched, paper_title)
                 cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
+
                 all_cleaned.update(cleaned)
 
             except Exception as e:

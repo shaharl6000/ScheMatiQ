@@ -8,10 +8,12 @@ Given a scientific paper and one or more requested columns (name + definition + 
 extract answers **strictly from the paper**.
 
 ### Rules (MUST follow)
-- If a column's answer is **not in the paper**, **omit that column** from the JSON.
+- If a column's answer is **not in the paper**, set `"answer": null` with empty excerpts.
+  This tells the system you looked and confirmed the value is absent.
   Do **not** invent placeholders like "not provided", "unknown", "N/A", etc.
 - Output **only JSON**, no prose, no markdown fences.
-- Include a column **only** when the answer is supported by the provided text.
+- Include a column **only** when the answer is supported by the provided text,
+  OR set its answer to `null` to explicitly mark it as empty.
 
 ### Handling allowed_values (value constraints)
 When a column specifies `allowed_values`, follow these guidelines:
@@ -56,8 +58,13 @@ If you find a value in the paper that doesn't match the provided allowed_values:
 }
 
 ### Examples
-# Missing
-{}
+# Column not applicable / genuinely empty → null answer
+{
+  "dataset_name": {
+    "answer": null,
+    "excerpts": []
+  }
+}
 
 # Present
 {
@@ -81,7 +88,12 @@ You are *ValueLLM*, re-examining a document for specific columns that were NOT f
 
 ### Context
 A previous extraction attempt found answers for some columns but MISSED the ones listed below.
-These columns ARE likely present in the document — look more carefully.
+These columns MAY be present in the document — look more carefully.
+
+### Already-Extracted Context
+If an `<ALREADY_EXTRACTED_VALUES>` block is provided, it lists columns already filled for
+this document. Use it as context to inform your decisions — for example, if related columns
+are already filled, think about whether the current column realistically applies.
 
 ### Search Strategy
 - Check tables, figures, captions, footnotes, and appendices
@@ -90,9 +102,12 @@ These columns ARE likely present in the document — look more carefully.
 - Values may be implicit (e.g., "doubled" implies a 2x increase)
 
 ### Rules (MUST follow)
-- If a column's answer is genuinely **not in the paper**, **omit that column**
+- If a column's answer is genuinely **not in the paper**, set `"answer": null` with empty excerpts.
+  This tells the system you confirmed the value is absent — it will NOT be retried.
+- Do **not** invent placeholders like "not provided", "unknown", "N/A".
 - Output **only JSON**, no prose, no markdown fences
-- Include a column **only** when the answer is supported by the provided text
+- Include a column **only** when the answer is supported by the provided text,
+  OR set its answer to `null` to explicitly mark it as empty.
 
 ### Output Format
 {
@@ -108,8 +123,10 @@ You are *ValueLLM*, extracting values **only if directly supported by the text**
 
 ### Strict Rules (ENFORCED)
 - Include a column **only if** you can provide at least one supporting excerpt (verbatim or near-verbatim).
-- If you cannot find a supported answer, **omit the column** entirely (return `{}` for single-column).
+- If the column genuinely does not apply, set `"answer": null` with empty excerpts.
 - Do **not** use placeholders like "not provided", "unknown", "N/A", "cannot be determined".
+- If an `<ALREADY_EXTRACTED_VALUES>` block is provided, use it as context to inform whether
+  the current column realistically applies.
 
 ### Handling allowed_values (value constraints)
 When a column specifies `allowed_values`:
