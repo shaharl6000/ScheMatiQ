@@ -71,7 +71,7 @@ def build_extraction_response_schema(
     column_schema = {
         "type": "OBJECT",
         "properties": {
-            "answer": {"type": "STRING"},
+            "answer": {"type": "STRING", "nullable": True},
             "excerpts": {"type": "ARRAY", "items": {"type": "STRING"}},
             "suggested_for_allowed_values": {"type": "BOOLEAN"},
         },

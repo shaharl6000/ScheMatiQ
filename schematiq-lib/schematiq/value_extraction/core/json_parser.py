@@ -49,8 +49,9 @@ class JSONResponseParser:
         self.json_fence_re = re.compile(r"```json(.*?)```", re.S)
         self.last_js_re = re.compile(r"\{[\s\S]*\}\s*$", re.S)
         self.placeholder_re = re.compile(
-            r"\b(not\s+provided|not\s+specified|not\s+mentioned|no\s+(information|data)|"
-            r"cannot\s+be\s+determined|unknown|n/?a|no\s+answer|insufficient\s+information)\b",
+            r"^(not\s+provided|not\s+specified|not\s+mentioned|no\s+(information|data)|"
+            r"cannot\s+be\s+determined|unknown|n/?a|no\s+answer|insufficient\s+information|"
+            r"none|null|not\s+applicable|not\s+available|no\s+entry|empty)$",
             re.I,
         )
     
@@ -113,11 +114,13 @@ class JSONResponseParser:
             if isinstance(val, dict):
                 answer = val.get("answer", "")
                 excerpts = val.get("excerpts", [])
-                if not isinstance(answer, str):
+                # Preserve explicit null — do NOT convert to the string "None".
+                # postprocess() checks for None and treats it as confirmed-empty.
+                if answer is not None and not isinstance(answer, str):
                     answer = _flatten_answer(answer)
                 if not isinstance(excerpts, list):
                     excerpts = [str(excerpts)]
-                entry = {"answer": answer, "excerpts": excerpts}
+                entry: Dict[str, Any] = {"answer": answer, "excerpts": excerpts}
                 if val.get("suggested_for_allowed_values"):
                     entry["suggested_for_allowed_values"] = True
                 norm[col] = entry
@@ -317,11 +320,16 @@ class JSONResponseParser:
             ans = entry.get("answer", "")
             exs = entry.get("excerpts", [])
 
+            # Explicit null answer = LLM confirmed this column is empty/not applicable.
+            # Keep it in the output so it counts as "filled" and won't be retried.
+            if ans is None:
+                out[col] = {"answer": "", "excerpts": [], "_confirmed_empty": True}
+                continue
+
             # Check if LLM flagged this as a suggested new value
             suggested_for_allowed = entry.get("suggested_for_allowed_values", False)
 
             if self._is_placeholder(ans, exs) or (isinstance(ans, str) and not ans.strip()):
-                # treat as missing by omitting the column (conforms to prompt spec)
                 continue
             # normalize types
             if not isinstance(ans, str):
