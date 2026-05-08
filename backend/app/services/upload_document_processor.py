@@ -347,7 +347,40 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             
             # Wait for completion
             await extraction_task
-            
+
+            # If stop was requested while we were waiting for the last document to finish,
+            # the while loop may have exited because the task completed — not because we
+            # hit the explicit stop_requested branch above. Treat this as a stop.
+            with self._state_lock:
+                run_state_after = self.running_sessions.get(session_id)
+            if run_state_after is False:
+                session = self.session_manager.get_session(session_id)
+                session.status = SessionStatus.STOPPED
+                session.metadata.last_modified = datetime.now()
+                self.session_manager.update_session(session)
+
+                rows_merged = 0
+                if output_path.exists():
+                    try:
+                        current_session = self.session_manager.get_session(session_id)
+                        rows_merged = await self._merge_extracted_data(session_id, current_session)
+                        session = self.session_manager.get_session(session_id)
+                        session.metadata.additional_rows_added = rows_merged
+                        self.session_manager.update_session(session)
+                    except Exception as e:
+                        logger.warning("Failed to merge partial data after stop (post-task): %s", e)
+
+                session = self.session_manager.get_session(session_id)
+                await self.broadcast_stopped(
+                    session_id,
+                    {
+                        "schema_saved": True,
+                        "data_rows_saved": session.metadata.additional_rows_added or 0,
+                        "message": "Document processing stopped by user",
+                    },
+                )
+                return
+
             # Merge additional extracted data into main data file
             await self.broadcast_progress(session_id, "Merging extracted data", 0.95, "processing_documents")
             current_session = self.session_manager.get_session(session_id)
