@@ -280,14 +280,18 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                             logger.warning("Failed to merge partial data after stop: %s", e)
 
                     session = self.session_manager.get_session(session_id)
-                    await self.broadcast_stopped(
-                        session_id,
-                        {
-                            "schema_saved": True,
-                            "data_rows_saved": session.metadata.additional_rows_added or 0,
-                            "message": "Document processing stopped by user",
-                        },
-                    )
+                    try:
+                        await self.broadcast_stopped(
+                            session_id,
+                            {
+                                "schema_saved": True,
+                                "data_rows_saved": session.metadata.additional_rows_added or 0,
+                                "message": "Document processing stopped by user",
+                            },
+                        )
+                    except Exception as e:
+                        logger.warning("broadcast_stopped failed (WebSocket may have closed): %s", e)
+                    logger.info("Upload processing stopped for session %s (%d rows saved)", session_id, rows_merged)
                     return
 
                 # Check output file for progress tracking only
@@ -371,14 +375,18 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         logger.warning("Failed to merge partial data after stop (post-task): %s", e)
 
                 session = self.session_manager.get_session(session_id)
-                await self.broadcast_stopped(
-                    session_id,
-                    {
-                        "schema_saved": True,
-                        "data_rows_saved": session.metadata.additional_rows_added or 0,
-                        "message": "Document processing stopped by user",
-                    },
-                )
+                try:
+                    await self.broadcast_stopped(
+                        session_id,
+                        {
+                            "schema_saved": True,
+                            "data_rows_saved": session.metadata.additional_rows_added or 0,
+                            "message": "Document processing stopped by user",
+                        },
+                    )
+                except Exception as e:
+                    logger.warning("broadcast_stopped failed after task completion (WebSocket may have closed): %s", e)
+                logger.info("Upload processing stopped (post-task) for session %s (%d rows saved)", session_id, rows_merged)
                 return
 
             # Merge additional extracted data into main data file
