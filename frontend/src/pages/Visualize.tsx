@@ -1199,6 +1199,9 @@ const Visualize = () => {
 
   const isScheMatiQRunning = mode === 'schematiq' && session?.status === 'processing';
   const isScheMatiQStopped = mode === 'schematiq' && session?.status === 'stopped';
+  // isStopped covers both ScheMatiQ and upload (load) sessions that were stopped mid-run.
+  // isScheMatiQStopped is kept for backward compat; use isStopped for any mode-agnostic check.
+  const isStopped = session?.status === 'stopped';
   const isSchemaReady = ['schema_ready', 'schema_extracted', 'documents_uploaded', 'processing_documents', 'completed', 'stopped'].includes(session?.status || '') ||
     (mode === 'schematiq' && session?.status === 'processing' && (session?.columns?.length ?? 0) > 0);
   const isCompleted = session?.status === 'completed';
@@ -1212,7 +1215,7 @@ const Visualize = () => {
     isEnhancedUploadProcessing,
     isScheMatiQRunning,
     isScheMatiQStopped,
-    dataTabDisabled: !isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isScheMatiQStopped && session?.status !== 'documents_uploaded'
+    dataTabDisabled: !isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isStopped && session?.status !== 'documents_uploaded'
   });
 
   const getStatusBadge = () => {
@@ -1258,7 +1261,7 @@ const Visualize = () => {
 
           <div className="flex items-center gap-2">
             {getStatusBadge()}
-            {(isCompleted || isScheMatiQStopped) && (
+            {(isCompleted || isStopped) && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -1269,12 +1272,12 @@ const Visualize = () => {
                 <HelpCircle className="h-5 w-5" />
               </Button>
             )}
-            {(isCompleted || isEnhancedUploadProcessing || isScheMatiQStopped) && (
+            {(isCompleted || isEnhancedUploadProcessing || isStopped) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
                     <Download className="h-4 w-4 mr-2" />
-                    Export{isScheMatiQStopped ? ' Current Results' : ''}
+                    Export{isStopped && !isCompleted ? ' Current Results' : ''}
                     <ChevronDown className="h-3 w-3 ml-1" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -1335,8 +1338,8 @@ const Visualize = () => {
         <TabsList>
           <TabsTrigger
             value="data"
-            disabled={sessionLoading || (!isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isScheMatiQStopped && session?.status !== 'documents_uploaded')}
-            title={(!isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isScheMatiQStopped && session?.status !== 'documents_uploaded') ? 'Data will appear once processing starts' : undefined}
+            disabled={sessionLoading || (!isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isStopped && session?.status !== 'documents_uploaded')}
+            title={(!isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isStopped && session?.status !== 'documents_uploaded') ? 'Data will appear once processing starts' : undefined}
           >
             Data
           </TabsTrigger>
@@ -1349,8 +1352,8 @@ const Visualize = () => {
           </TabsTrigger>
           <TabsTrigger
             value="stats"
-            disabled={sessionLoading || (!isCompleted && !isScheMatiQStopped)}
-            title={(!isCompleted && !isScheMatiQStopped) ? 'Statistics will appear once processing completes' : undefined}
+            disabled={sessionLoading || (!isCompleted && !isStopped)}
+            title={(!isCompleted && !isStopped) ? 'Statistics will appear once processing completes' : undefined}
           >
             Statistics
           </TabsTrigger>
@@ -1372,7 +1375,7 @@ const Visualize = () => {
 
         {/* Data Tab */}
         <TabsContent value="data" className="mt-4">
-          {(isCompleted || isEnhancedUploadProcessing || isScheMatiQRunning || isScheMatiQStopped || session?.status === 'documents_uploaded') &&
+          {(isCompleted || isEnhancedUploadProcessing || isScheMatiQRunning || isStopped || session?.status === 'documents_uploaded') &&
             (dataResponse ||
               streamingCells.size > 0 ||
               (mode === 'schematiq' && session?.status === 'processing' && dataLoading)) ? (
@@ -1582,9 +1585,9 @@ const Visualize = () => {
           ) : (
             <Alert variant="info">
               <AlertDescription>
-                {isScheMatiQStopped && dataLoading
+                {isStopped && dataLoading
                   ? 'Loading extracted rows…'
-                  : isScheMatiQStopped &&
+                  : isStopped &&
                       dataResponse !== undefined &&
                       (dataResponse.total_count ?? 0) === 0 &&
                       streamingCells.size === 0
