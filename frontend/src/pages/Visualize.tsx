@@ -547,6 +547,27 @@ const Visualize = () => {
     }
   }, [mode, session?.status]);
 
+  // When session status transitions to a terminal state (stopped/completed) without a
+  // WebSocket event (e.g. WebSocket closed before "stopped" arrived), the data query may
+  // still hold a stale empty result from when status was "processing_documents".
+  // Explicitly refetch data and units whenever status settles into stopped/completed so
+  // merged rows from _merge_extracted_data are shown immediately.
+  const prevStatusRef = React.useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    const current = session?.status;
+    prevStatusRef.current = current;
+    if (
+      prev !== undefined &&
+      prev !== current &&
+      (current === 'stopped' || current === 'completed')
+    ) {
+      queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+      queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+      queryClient.invalidateQueries(['documentList', sessionId]);
+    }
+  }, [session?.status, sessionId, queryClient]);
+
   // Fallback check for observation units in table data
   // This allows showing the "By Unit" toggle even when the API doesn't detect unit names
   // Check for _unit_name metadata field OR columns with "unit"/"observation" in the name
