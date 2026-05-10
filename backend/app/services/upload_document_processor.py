@@ -222,7 +222,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         max_workers=1,  # Single worker to avoid overwhelming API
                         on_value_extracted=on_value_extracted,
                         on_document_started=on_document_started,
-                        should_stop=should_stop  # Allow graceful stop
+                        should_stop=should_stop,  # Allow graceful stop
+                        write_skip_rationale_artifact=DEVELOPER_MODE,
                     )
                     logger.info(f"EXTRACTION COMPLETED for session {session_id}")
                     return result

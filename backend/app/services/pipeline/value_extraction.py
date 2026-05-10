@@ -4,10 +4,11 @@ import asyncio
 import json
 import logging
 import time
-from typing import Dict, Any, List, Callable, Optional
+from typing import Dict, Any, List, Callable, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
 
+from app.core.config import DEVELOPER_MODE
 from app.services import schematiq_thread_pool
 from app.services.pipeline.callbacks import create_value_extracted_callback, create_warning_callback
 
@@ -30,11 +31,12 @@ async def run_value_extraction(
     ws_manager,
     session_manager,
     work_dir: Path,
-) -> List[str]:
+) -> Tuple[List[str], List[Dict[str, Any]]]:
     """Run real value extraction using the value extraction pipeline.
 
     Returns:
-        List of skipped document names (documents with no observation units found)
+        (skipped_document_names, skipped_documents_detail) where detail entries are
+        ``{"document": str, "reason": str}`` for each skip (often LLM ``notes``).
     """
     session_dir = work_dir / session_id
 
@@ -89,7 +91,8 @@ async def run_value_extraction(
             max_workers=1,
             on_value_extracted=on_value_extracted,
             should_stop=should_stop,
-            on_warning=on_warning
+            on_warning=on_warning,
+            write_skip_rationale_artifact=DEVELOPER_MODE,
         )
         return extraction_result
 
@@ -189,10 +192,11 @@ async def run_value_extraction(
 
     if stopped_early:
         logger.warning("Value extraction stopped early with %d rows extracted", final_line_count)
-        return []
+        return [], []
 
     suggested_values = extraction_result.get("suggested_values", {}) if extraction_result else {}
     skipped_documents = extraction_result.get("skipped_documents", []) if extraction_result else []
+    skipped_documents_detail = extraction_result.get("skipped_documents_detail", []) if extraction_result else []
 
     if skipped_documents:
         names = ', '.join(skipped_documents[:5])
@@ -213,10 +217,11 @@ async def run_value_extraction(
         "elapsed_time": int(time.time() - start_time),
         "suggested_values_count": sum(len(vals) for vals in suggested_values.values()) if suggested_values else 0,
         "skipped_documents": skipped_documents,
-        "skipped_documents_count": len(skipped_documents)
+        "skipped_documents_count": len(skipped_documents),
+        "skipped_documents_detail": skipped_documents_detail,
     })
 
-    return skipped_documents
+    return skipped_documents, skipped_documents_detail
 
 
 async def process_suggested_values(

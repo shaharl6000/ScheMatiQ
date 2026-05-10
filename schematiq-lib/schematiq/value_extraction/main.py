@@ -33,6 +33,7 @@ def build_table_jsonl(
     on_warning: Optional[OnWarningCallback] = None,
     known_units: Optional[Dict[str, List[str]]] = None,
     on_document_started: Optional[Callable[[str], None]] = None,
+    write_skip_rationale_artifact: bool = False,
 ) -> Dict[str, Any]:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
@@ -52,6 +53,8 @@ def build_table_jsonl(
             before any extraction begins for that document.
             Signature: (paper_title: str) -> None
             Used for accurate document-level progress tracking in the UI.
+        write_skip_rationale_artifact: When True, write ``skipped_no_observation_units.json``
+            beside the output JSONL (full skip reasons). Recommended for local/dev only.
 
     Returns:
         Dict containing:
@@ -59,6 +62,7 @@ def build_table_jsonl(
           {column_name: {value: {"count": N, "documents": [...]}}}
         - "skipped_documents": List of document names that were skipped
           (no observation units found)
+        - "skipped_documents_detail": Same skips with ``reason`` strings (often LLM notes)
 
     This is the main entry point that maintains backward compatibility with the original API.
     """
@@ -68,6 +72,7 @@ def build_table_jsonl(
         should_stop=should_stop,
         on_warning=on_warning,
         on_document_started=on_document_started,
+        write_skip_rationale_artifact=write_skip_rationale_artifact,
     )
     table_builder.build_table_jsonl_multi_dirs(
         schema_path,
@@ -84,6 +89,7 @@ def build_table_jsonl(
     return {
         "suggested_values": table_builder.get_all_suggested_values(),
         "skipped_documents": table_builder.get_skipped_documents(),
+        "skipped_documents_detail": table_builder.get_skipped_documents_with_reasons(),
     }
 
 

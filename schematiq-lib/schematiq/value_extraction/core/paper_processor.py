@@ -3,7 +3,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, Set, Callable, Optional, List, Iterator
+from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
 from schematiq.core.llm_backends import LLMInterface
 from sentence_transformers import util as st_util
@@ -1301,7 +1301,7 @@ class PaperProcessor:
         observation_unit: ObservationUnit,
         schema: Schema,
         max_retries: int = 2,
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         """
         Identify all observation units within a document with retry logic.
 
@@ -1313,10 +1313,10 @@ class PaperProcessor:
             max_retries: Maximum retry attempts on format errors (default: 2)
 
         Returns:
-            List of dicts, each containing:
-            - unit_name: Descriptive name for this instance (e.g., "GPT-4 on MMLU")
-            - relevant_passages: List of passages specific to this unit
-            - confidence: "high", "medium", or "low"
+            (units, skip_reason):
+            - units: list of dicts, each containing unit_name, relevant_passages, confidence
+            - skip_reason: when *units* is empty, a human-readable explanation (often the LLM's
+              ``notes`` field); ``None`` when units is non-empty.
         """
         last_error = None
         last_format = None
@@ -1354,7 +1354,13 @@ class PaperProcessor:
                         logging.info(
                             f"No observation units of type '{observation_unit.name}' found in {paper_title}"
                         )
-                        return []
+                        notes = (result.notes or "").strip()
+                        reason = (
+                            notes
+                            if notes
+                            else "No observation units matched the schema definition for this document."
+                        )
+                        return [], reason
 
                     # Ensure relevant_passages aren't empty - use full text as fallback
                     for unit in result.units:
@@ -1404,7 +1410,18 @@ class PaperProcessor:
                         f"[{paper_title}] Unit identification: {raw_count} raw → "
                         f"{raw_count - dropped_low} after confidence → {len(units)} final"
                     )
-                    return units
+                    if not units:
+                        notes = (result.notes or "").strip()
+                        reason = (
+                            notes
+                            if notes
+                            else (
+                                "All candidate observation units were filtered out "
+                                "(low confidence and/or deduplication)."
+                            )
+                        )
+                        return [], reason
+                    return units, None
 
                 # Parse failed - record error for retry
                 last_error = result.error
@@ -1434,7 +1451,11 @@ class PaperProcessor:
             f"Last error: {last_error}. Skipping document.",
         )
 
-        return []
+        fail_reason = (
+            f"Unit identification failed after {max_retries + 1} attempts. "
+            f"Last error: {last_error}"
+        )
+        return [], fail_reason
 
     def extract_values_for_unit(
         self,
@@ -1574,7 +1595,7 @@ class PaperProcessor:
         retrieval_k: int = 8,
         on_unit_extracted: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         known_units: Optional[List[str]] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         """
         Extract values from a paper, potentially producing multiple rows
         if the observation unit is sub-document-level.
@@ -1592,11 +1613,8 @@ class PaperProcessor:
                 these names directly with the full paper text as relevant passages.
 
         Returns:
-            List of row dicts, each containing:
-            - _unit_name: Descriptive name of the observation unit
-            - _source_document: Original document filename
-            - _observation_unit: The unit type name
-            - <column values>
+            (rows, skip_reason): ``skip_reason`` is set only when *rows* is empty because no
+            usable observation units were produced (often includes the LLM ``notes`` field).
 
         Note: Document preprocessing is handled by the retriever when configured,
         avoiding redundant preprocessing overhead.
@@ -1609,6 +1627,9 @@ class PaperProcessor:
             raise ValueError("observation_unit required in schema for value extraction")
 
         if known_units is not None:
+            if not known_units:
+                print(f"  ⚠️ No known units listed for {paper_title}, skipping document")
+                return [], "No known observation units provided for this document."
             # Skip LLM discovery — use provided unit names directly
             units = [
                 {
@@ -1624,13 +1645,15 @@ class PaperProcessor:
             print(
                 f"🔍 Identifying observation units ({observation_unit.name}) in {paper_title}..."
             )
-            units = self.identify_observation_units(
+            units, ident_skip_reason = self.identify_observation_units(
                 paper_title, paper_text, observation_unit, schema
             )
 
         if not units:
             print(f"  ⚠️ No units found, skipping document")
-            return []
+            if known_units is not None:
+                return [], "No observation units could be built from the known-units list."
+            return [], ident_skip_reason
 
         print(
             f"  📊 Found {len(units)} observation units: {[u['unit_name'] for u in units]}"
@@ -1715,4 +1738,4 @@ class PaperProcessor:
         print(
             f"  ✅ Completed {paper_title}: {len(results)} rows from {len(units)} units"
         )
-        return results
+        return results, None

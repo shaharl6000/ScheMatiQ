@@ -581,6 +581,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
             # Step 6b: Value extraction
             skipped_documents: List[str] = []
+            skipped_documents_detail: List[Dict[str, Any]] = []
             if schematiq_config.get("skip_value_extraction", False) or not has_documents:
                 logger.info("Skipping value extraction (schema-only mode)")
             else:
@@ -601,7 +602,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
                 heartbeat_task = await start_heartbeat(self.websocket_manager, session_id, interval=15.0)
                 try:
-                    skipped_documents = await run_value_extraction(
+                    skipped_documents, skipped_documents_detail = await run_value_extraction(
                         session_id, schematiq_config, discovered_schema, value_extraction_llm,
                         retriever, update_progress, self.is_stop_requested,
                         ws_mixin=self, ws_manager=self.websocket_manager,
@@ -627,7 +628,12 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             await update_progress("Finalizing results", 0.0)
 
             statistics = compute_statistics(
-                session_id, discovered_schema, schema_evolution, skipped_documents, self.work_dir
+                session_id,
+                discovered_schema,
+                schema_evolution,
+                skipped_documents,
+                self.work_dir,
+                skipped_documents_detail,
             )
 
             # Save LLM call tracking

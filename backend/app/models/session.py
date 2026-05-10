@@ -135,6 +135,8 @@ class DataStatistics(BaseModel):
     column_stats: List[ColumnInfo]
     schema_evolution: Optional[SchemaEvolution] = None  # How schema evolved during discovery
     skipped_documents: List[str] = Field(default_factory=list)  # Documents skipped during value extraction (no observation units found)
+    # Same skips as ``skipped_documents`` with per-document ``reason`` (e.g. LLM notes)
+    skipped_documents_detail: List[Dict[str, Any]] = Field(default_factory=list)
 
 class VisualizationSession(BaseModel):
     """Main session model for visualization."""

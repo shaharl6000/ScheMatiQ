@@ -101,6 +101,8 @@ export interface DataStatistics {
   column_stats: ColumnInfo[];
   schema_evolution?: SchemaEvolution;  // How schema evolved during discovery
   skipped_documents?: string[];  // Documents skipped during value extraction (no observation units found)
+  /** Same skips as skipped_documents with per-document reason (often LLM notes) */
+  skipped_documents_detail?: Array<{ document: string; reason: string }>;
 }
 
 export interface VisualizationSession {
