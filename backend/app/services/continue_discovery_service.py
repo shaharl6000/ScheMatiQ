@@ -30,6 +30,7 @@ from app.services import schematiq_thread_pool, concurrency_limiter
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG, MAX_DOCUMENTS
 from app.core.logging_utils import set_session_context
+from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
 
 # ScheMatiQ library imports
 from schematiq.core import schematiq as ScheMatiQ
@@ -42,28 +43,6 @@ from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.value_extraction.main import build_table_jsonl
 
 SCHEMATIQ_AVAILABLE = True
-
-
-def _enforce_release_llm_config(llm_config: dict, is_schema_creation: bool = False) -> dict:
-    """Override LLM config with release-mode defaults if not in developer mode.
-
-    Args:
-        llm_config: The original LLM configuration dict
-        is_schema_creation: True for schema creation LLM, False for value extraction
-
-    Returns:
-        The config dict, potentially with provider/model/temperature overridden
-    """
-    if DEVELOPER_MODE:
-        return llm_config  # No override in developer mode
-
-    # Force release-mode LLM settings
-    return {
-        **llm_config,
-        "provider": RELEASE_CONFIG["llm_provider"],
-        "model": RELEASE_CONFIG["schema_creation_model"] if is_schema_creation else RELEASE_CONFIG["value_extraction_model"],
-        "temperature": RELEASE_CONFIG["llm_temperature"],
-    }
 
 
 class ContinueDiscoveryOperation:
@@ -162,48 +141,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
     @staticmethod
     def _is_local_path(path: str) -> bool:
-        """
-        Check if a path looks like a local filesystem path rather than a cloud storage path.
-
-        Local paths typically look like:
-        - /app/backend/data/{uuid}/pending_documents
-        - ./data/{uuid}/pending_documents
-        - /Users/.../data/...
-
-        Cloud storage paths look like:
-        - NES_documents
-        - datasets/papers_CoT
-        - files
-        """
-        if not path:
-            return False
-
-        # Common indicators of local filesystem paths
-        local_indicators = [
-            '/app/',           # Docker/Railway container paths
-            '/data/',          # Generic data directory
-            '/backend/',       # Backend directory
-            'pending_documents',  # Upload staging directory
-            '/Users/',         # macOS user paths
-            '/home/',          # Linux home paths
-            'C:\\',            # Windows paths
-            'D:\\',            # Windows paths
-            './',              # Relative paths
-            '../',             # Relative paths
-            'schematiq_work/', # Local ScheMatiQ working directory
-            'qbsd_work/',      # Legacy QBSD working directory
-        ]
-
-        for indicator in local_indicators:
-            if indicator in path:
-                return True
-
-        # Also check if path starts with / and has multiple segments
-        # (cloud paths are typically simple folder names like "NES_documents")
-        if path.startswith('/') and path.count('/') > 2:
-            return True
-
-        return False
+        from app.services.data_utils import is_local_path
+        return is_local_path(path)
 
     # ==================== Statistics Computation ====================
 

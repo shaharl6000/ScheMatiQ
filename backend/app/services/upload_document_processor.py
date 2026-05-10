@@ -237,6 +237,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
             start_time = time.time()
             last_processed_line = 0
+            last_file_pos = 0
 
             while not extraction_task.done():
                 # Check for stop request
@@ -298,15 +299,16 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 if output_path.exists():
                     try:
                         current_new_rows = []
-                        current_line_count = 0
 
-                        # Read new rows since last check (for progress tracking and broadcasting)
+                        # Read only new lines since last check using file seek position
                         with open(output_path, 'r') as f:
-                            for line_num, line in enumerate(f):
-                                current_line_count += 1
-                                if line_num >= last_processed_line and line.strip():
+                            f.seek(last_file_pos)
+                            for line in f:
+                                if line.strip():
                                     row_data = json.loads(line)
                                     current_new_rows.append(row_data)
+                            last_file_pos = f.tell()
+                        current_line_count = last_processed_line + len(current_new_rows)
 
                         # If we have new rows, update progress (but DON'T write to data.jsonl - that happens in _merge_extracted_data)
                         if current_new_rows:
