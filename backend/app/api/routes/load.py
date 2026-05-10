@@ -878,20 +878,20 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
             
             # Save file to pending_documents/ (will be moved to documents/ after processing)
             try:
-                # Use original filename - handle potential duplicates by checking existence
                 safe_filename = file.filename
                 file_path = pending_dir / safe_filename
-
-                # If file already exists in pending or documents, add a numeric suffix
                 docs_file_path = docs_dir / safe_filename
-                if file_path.exists() or docs_file_path.exists():
-                    base_name = Path(file.filename).stem
-                    extension = Path(file.filename).suffix
-                    counter = 1
-                    while file_path.exists() or (docs_dir / safe_filename).exists():
-                        safe_filename = f"{base_name}_{counter}{extension}"
-                        file_path = pending_dir / safe_filename
-                        counter += 1
+
+                # Reject if the file was already processed (exists in documents/).
+                # Allow re-upload if it only exists in pending_documents/ (not yet run,
+                # e.g. a previous session was stopped before this doc was extracted) —
+                # in that case overwrite the pending copy so the fresh version is used.
+                if docs_file_path.exists():
+                    errors.append(
+                        f"'{file.filename}' was already processed in this session. "
+                        "Remove the existing rows first or use a different filename."
+                    )
+                    continue
 
                 with open(file_path, 'wb') as f:
                     content = await file.read()
@@ -924,9 +924,10 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         if errors:
             raise HTTPException(status_code=400, detail={"errors": errors, "warnings": warnings})
         
-        # Update session metadata
+        # Update session metadata — append new filenames to any already queued
+        existing_docs = session.metadata.uploaded_documents or []
+        session.metadata.uploaded_documents = existing_docs + uploaded_filenames
         session.status = SessionStatus.DOCUMENTS_UPLOADED
-        session.metadata.uploaded_documents = uploaded_filenames
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
 

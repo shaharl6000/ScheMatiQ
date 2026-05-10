@@ -1005,7 +1005,14 @@ const Visualize = () => {
       setUploadedDocuments([]);
       queryClient.invalidateQueries(['session', sessionId]);
     } catch (err: any) {
-      const errorMessage = err.response?.data?.detail || err.message || 'Failed to upload';
+      const detail = err.response?.data?.detail;
+      // Backend sends { errors: string[], warnings: string[] } for validation failures
+      const errorMessage =
+        detail && typeof detail === 'object' && Array.isArray(detail.errors)
+          ? detail.errors.join('\n')
+          : typeof detail === 'string'
+            ? detail
+            : err.message || 'Failed to upload';
       setDocumentUploadError(errorMessage);
     } finally {
       setDocumentUploadLoading(false);
@@ -1478,7 +1485,7 @@ const Visualize = () => {
 
                         {documentUploadError && (
                           <Alert variant="destructive">
-                            <AlertDescription>{documentUploadError}</AlertDescription>
+                            <AlertDescription className="whitespace-pre-line">{documentUploadError}</AlertDescription>
                           </Alert>
                         )}
 
