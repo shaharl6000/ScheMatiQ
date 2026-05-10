@@ -262,7 +262,8 @@ const Visualize = () => {
                 });
               }
               setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
-              queryClient.invalidateQueries(['data', sessionId]);
+              queryClient.invalidateQueries({ queryKey: ['data', sessionId], exact: false });
+              queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
               queryClient.invalidateQueries(['session', sessionId]);
               queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
               queryClient.invalidateQueries(['documentList', sessionId]);
@@ -514,15 +515,22 @@ const Visualize = () => {
         session?.status === 'completed' ||
         session?.status === 'stopped' ||
         session?.status === 'processing_documents' ||
-        session?.status === 'documents_uploaded'
+        session?.status === 'documents_uploaded' ||
+        // ScheMatiQ writes each finished document to extracted_data.jsonl; poll so the
+        // Data tab can show partial rows while extraction runs (and after stop).
+        (mode === 'schematiq' && session?.status === 'processing')
       ),
       refetchInterval: () => {
-        // Don't poll if WebSocket is connected - rely on real-time updates
+        // Don't poll if WebSocket is connected — row_completed / cell events drive refetch
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           return false;
         }
         // Fallback polling when WebSocket is not connected
-        return session?.status === 'processing_documents' ? PROCESSING_REFRESH_INTERVAL : false;
+        if (session?.status === 'processing_documents') return PROCESSING_REFRESH_INTERVAL;
+        if (mode === 'schematiq' && session?.status === 'processing') {
+          return PROCESSING_REFRESH_INTERVAL;
+        }
+        return false;
       },
       keepPreviousData: true,
     }
@@ -538,6 +546,27 @@ const Visualize = () => {
       requestAnimationFrame(() => setVisualizeGuideAutoOpen(true));
     }
   }, [mode, session?.status]);
+
+  // When session status transitions to a terminal state (stopped/completed) without a
+  // WebSocket event (e.g. WebSocket closed before "stopped" arrived), the data query may
+  // still hold a stale empty result from when status was "processing_documents".
+  // Explicitly refetch data and units whenever status settles into stopped/completed so
+  // merged rows from _merge_extracted_data are shown immediately.
+  const prevStatusRef = React.useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    const current = session?.status;
+    prevStatusRef.current = current;
+    if (
+      prev !== undefined &&
+      prev !== current &&
+      (current === 'stopped' || current === 'completed')
+    ) {
+      queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
+      queryClient.refetchQueries({ queryKey: ['unitData', sessionId], exact: false });
+      queryClient.invalidateQueries(['documentList', sessionId]);
+    }
+  }, [session?.status, sessionId, queryClient]);
 
   // Fallback check for observation units in table data
   // This allows showing the "By Unit" toggle even when the API doesn't detect unit names
@@ -608,7 +637,8 @@ const Visualize = () => {
                   });
                 }
                 setNewlyAddedRows(prev => new Set(Array.from(prev).concat(message.data.row_index)));
-                queryClient.invalidateQueries(['data', sessionId]);
+                queryClient.invalidateQueries({ queryKey: ['data', sessionId], exact: false });
+                queryClient.refetchQueries({ queryKey: ['data', sessionId], exact: false });
                 queryClient.invalidateQueries(['session', sessionId]);
                 queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
               queryClient.invalidateQueries(['documentList', sessionId]);
@@ -1176,6 +1206,9 @@ const Visualize = () => {
 
   const isScheMatiQRunning = mode === 'schematiq' && session?.status === 'processing';
   const isScheMatiQStopped = mode === 'schematiq' && session?.status === 'stopped';
+  // isStopped covers both ScheMatiQ and upload (load) sessions that were stopped mid-run.
+  // isScheMatiQStopped is kept for backward compat; use isStopped for any mode-agnostic check.
+  const isStopped = session?.status === 'stopped';
   const isSchemaReady = ['schema_ready', 'schema_extracted', 'documents_uploaded', 'processing_documents', 'completed', 'stopped'].includes(session?.status || '') ||
     (mode === 'schematiq' && session?.status === 'processing' && (session?.columns?.length ?? 0) > 0);
   const isCompleted = session?.status === 'completed';
@@ -1189,7 +1222,7 @@ const Visualize = () => {
     isEnhancedUploadProcessing,
     isScheMatiQRunning,
     isScheMatiQStopped,
-    dataTabDisabled: !isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isScheMatiQStopped && session?.status !== 'documents_uploaded'
+    dataTabDisabled: !isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isStopped && session?.status !== 'documents_uploaded'
   });
 
   const getStatusBadge = () => {
@@ -1235,7 +1268,7 @@ const Visualize = () => {
 
           <div className="flex items-center gap-2">
             {getStatusBadge()}
-            {(isCompleted || isScheMatiQStopped) && (
+            {(isCompleted || isStopped) && (
               <Button
                 variant="ghost"
                 size="icon"
@@ -1246,12 +1279,12 @@ const Visualize = () => {
                 <HelpCircle className="h-5 w-5" />
               </Button>
             )}
-            {(isCompleted || isEnhancedUploadProcessing || isScheMatiQStopped) && (
+            {(isCompleted || isEnhancedUploadProcessing || isStopped) && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm">
                     <Download className="h-4 w-4 mr-2" />
-                    Export{isScheMatiQStopped ? ' Current Results' : ''}
+                    Export{isStopped && !isCompleted ? ' Current Results' : ''}
                     <ChevronDown className="h-3 w-3 ml-1" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -1312,8 +1345,8 @@ const Visualize = () => {
         <TabsList>
           <TabsTrigger
             value="data"
-            disabled={sessionLoading || (!isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isScheMatiQStopped && session?.status !== 'documents_uploaded')}
-            title={(!isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isScheMatiQStopped && session?.status !== 'documents_uploaded') ? 'Data will appear once processing starts' : undefined}
+            disabled={sessionLoading || (!isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isStopped && session?.status !== 'documents_uploaded')}
+            title={(!isCompleted && !isEnhancedUploadProcessing && !isScheMatiQRunning && !isStopped && session?.status !== 'documents_uploaded') ? 'Data will appear once processing starts' : undefined}
           >
             Data
           </TabsTrigger>
@@ -1326,8 +1359,8 @@ const Visualize = () => {
           </TabsTrigger>
           <TabsTrigger
             value="stats"
-            disabled={sessionLoading || (!isCompleted && !isScheMatiQStopped)}
-            title={(!isCompleted && !isScheMatiQStopped) ? 'Statistics will appear once processing completes' : undefined}
+            disabled={sessionLoading || (!isCompleted && !isStopped)}
+            title={(!isCompleted && !isStopped) ? 'Statistics will appear once processing completes' : undefined}
           >
             Statistics
           </TabsTrigger>
@@ -1349,7 +1382,10 @@ const Visualize = () => {
 
         {/* Data Tab */}
         <TabsContent value="data" className="mt-4">
-          {(isCompleted || isEnhancedUploadProcessing || isScheMatiQRunning || isScheMatiQStopped || session?.status === 'documents_uploaded') && (dataResponse || streamingCells.size > 0) ? (
+          {(isCompleted || isEnhancedUploadProcessing || isScheMatiQRunning || isStopped || session?.status === 'documents_uploaded') &&
+            (dataResponse ||
+              streamingCells.size > 0 ||
+              (mode === 'schematiq' && session?.status === 'processing' && dataLoading)) ? (
             <div className="relative" data-table-container>
               {/* View mode toggle (only when observation units exist) */}
               {((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) && (
@@ -1556,7 +1592,16 @@ const Visualize = () => {
           ) : (
             <Alert variant="info">
               <AlertDescription>
-                {isScheMatiQRunning ? 'Data will be available when ScheMatiQ processing completes' : 'No data available'}
+                {isStopped && dataLoading
+                  ? 'Loading extracted rows…'
+                  : isStopped &&
+                      dataResponse !== undefined &&
+                      (dataResponse.total_count ?? 0) === 0 &&
+                      streamingCells.size === 0
+                    ? 'No table rows were saved before you stopped. Run again and let at least one document finish, or stop after partial rows appear in the Data tab.'
+                    : isScheMatiQRunning
+                      ? 'Rows from each finished document appear here as they are written. Open this tab during a run to see partial results, or use the Monitor for live progress.'
+                      : 'No data available'}
               </AlertDescription>
             </Alert>
           )}

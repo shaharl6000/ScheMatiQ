@@ -2170,25 +2170,29 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         schema_completed = session.metadata.schema_discovery_completed
         columns_discovered = len(session.columns) if session.columns else 0
 
-        if is_running:
+        # Terminal persisted states win over the in-memory running flag. The runner
+        # sets STOPPED/COMPLETED/ERROR on the session before the asyncio task leaves
+        # running_sessions; reporting "processing" until then cleared the Data tab
+        # (streaming cells cleared, data query still keyed off status).
+        if session.status == SessionStatus.COMPLETED:
+            status = "completed"
+            progress = 1.0
+        elif session.status == SessionStatus.ERROR:
+            status = "error"
+            progress = 0.0
+        elif session.status == SessionStatus.STOPPED:
+            status = "stopped"
+            progress = 1.0
+        elif is_running:
             status = "processing"
             progress = 0.5  # Mock progress
         else:
-            if session.status == SessionStatus.COMPLETED:
-                status = "completed"
-                progress = 1.0
-            elif session.status == SessionStatus.DOCUMENTS_UPLOADED:
+            if session.status == SessionStatus.DOCUMENTS_UPLOADED:
                 status = "documents_uploaded"
                 progress = 1.0
             elif session.status == SessionStatus.PROCESSING_DOCUMENTS:
                 status = "processing_documents"
                 progress = 0.5
-            elif session.status == SessionStatus.ERROR:
-                status = "error"
-                progress = 0.0
-            elif session.status == SessionStatus.STOPPED:
-                status = "stopped"
-                progress = 1.0  # Stopped is a final state
             elif session.status == SessionStatus.OBSERVATION_UNIT_REVIEW:
                 status = "observation_unit_review"
                 progress = 0.3  # Partway through the pipeline
