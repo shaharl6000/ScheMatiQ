@@ -275,6 +275,17 @@ class GlobalLLMUsageTracker:
             return  # quota disabled
         total = self.get_total()
         if total >= limit:
+            # Visible on the uvicorn terminal even when logging is minimal
+            print(
+                f"[LLM quota] blocked: cumulative_calls={total} quota_limit={limit} "
+                f"(set env LLM_CALL_GLOBAL_LIMIT higher than {total}, or LLM_CALL_GLOBAL_LIMIT=0 to disable)",
+                flush=True,
+            )
+            logger.warning(
+                "Global LLM quota exceeded: %s/%s calls — adjust LLM_CALL_GLOBAL_LIMIT or set to 0",
+                total,
+                limit,
+            )
             raise QuotaExceededError(used=total, limit=limit)
 
     def record_session(

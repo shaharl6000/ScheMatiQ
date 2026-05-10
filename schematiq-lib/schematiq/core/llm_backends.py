@@ -26,8 +26,18 @@ logger = logging.getLogger(__name__)
 ##############################################################################
 
 def _is_rate_limit_error(error_str: str) -> bool:
-    """Check if error is a rate limit error (429)."""
-    return "429" in error_str and ("rate limit" in error_str.lower() or "rate_limit" in error_str.lower())
+    """Check if error is a rate limit / quota error (provider-side)."""
+    el = error_str.lower()
+    if "429" in error_str and (
+        "rate" in el or "quota" in el or "limit" in el or "exhausted" in el
+    ):
+        return True
+    # Gemini / gRPC-style quota messages often omit the literal "429" substring
+    if "resource_exhausted" in el or "resource exhausted" in el:
+        return True
+    if "too many requests" in el:
+        return True
+    return False
 
 def _is_server_overloaded_error(error_str: str) -> bool:
     """Check if error is a server overloaded/unavailable error (503)."""
@@ -732,11 +742,23 @@ class GeminiLLM(LLMInterface):
                 if _is_rate_limit_error(error_str):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(error_str)
-                        print(f"Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s before retry...")
+                        snippet = error_str.replace("\n", " ")[:280]
+                        print(
+                            f"[Gemini rate limit] attempt {attempt + 1}/{max_retries + 1}, "
+                            f"retry in {wait_time}s — provider API quota/RPM (not ScheMatiQ LLM_CALL_GLOBAL_LIMIT). "
+                            f"error: {snippet}",
+                            flush=True,
+                        )
                         time.sleep(wait_time)
                         continue
                     else:
-                        print(f"Rate limit error after {max_retries} retries: {error_str}")
+                        snippet = error_str.replace("\n", " ")[:500]
+                        print(
+                            f"[Gemini rate limit] gave up after {max_retries} retries — "
+                            f"provider quota/RPM or burst limit (not app LLM_CALL_GLOBAL_LIMIT). "
+                            f"Last error: {snippet}",
+                            flush=True,
+                        )
                 elif _is_server_overloaded_error(error_str):
                     if attempt < max_retries:
                         wait_time = 10 + random.randint(5, 15)
@@ -883,9 +905,21 @@ class GeminiLLM(LLMInterface):
                 if _is_rate_limit_error(error_str):
                     if attempt < max_retries:
                         wait_time = _extract_wait_time(error_str)
-                        print(f"Rate limit hit (attempt {attempt + 1}/{max_retries + 1}). Waiting {wait_time}s...")
+                        snippet = error_str.replace("\n", " ")[:280]
+                        print(
+                            f"[Gemini rate limit/cached] attempt {attempt + 1}/{max_retries + 1}, "
+                            f"retry in {wait_time}s — provider API quota/RPM (not ScheMatiQ LLM_CALL_GLOBAL_LIMIT). "
+                            f"error: {snippet}",
+                            flush=True,
+                        )
                         time.sleep(wait_time)
                         continue
+                    snippet = error_str.replace("\n", " ")[:500]
+                    print(
+                        f"[Gemini rate limit/cached] gave up after {max_retries} retries — "
+                        f"provider quota/RPM (not app LLM_CALL_GLOBAL_LIMIT). Last error: {snippet}",
+                        flush=True,
+                    )
                 elif _is_server_overloaded_error(error_str):
                     if attempt < max_retries:
                         wait_time = 10 + random.randint(5, 15)
