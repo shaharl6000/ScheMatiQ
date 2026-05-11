@@ -149,3 +149,20 @@ def normalize_row_data(row: dict) -> dict:
     Returns the dict containing column->value mappings.
     """
     return row.get('data', row)
+
+
+def is_local_path(path: str) -> bool:
+    """Check if a path looks like a local filesystem path rather than a cloud storage path."""
+    if not path:
+        return False
+    local_indicators = [
+        '/app/', '/data/', '/backend/', 'pending_documents',
+        '/Users/', '/home/', 'C:\\', 'D:\\', './', '../',
+        'schematiq_work/',
+    ]
+    for indicator in local_indicators:
+        if indicator in path:
+            return True
+    if path.startswith('/') and path.count('/') > 2:
+        return True
+    return False

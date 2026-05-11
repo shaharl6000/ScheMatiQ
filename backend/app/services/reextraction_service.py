@@ -203,48 +203,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     @staticmethod
     def _is_local_path(path: str) -> bool:
-        """
-        Check if a path looks like a local filesystem path rather than a cloud storage path.
-
-        Local paths typically look like:
-        - /app/backend/data/{uuid}/pending_documents
-        - ./data/{uuid}/pending_documents
-        - /Users/.../data/...
-
-        Cloud storage paths look like:
-        - NES_documents
-        - datasets/papers_CoT
-        - files
-        """
-        if not path:
-            return False
-
-        # Common indicators of local filesystem paths
-        local_indicators = [
-            '/app/',           # Docker/Railway container paths
-            '/data/',          # Generic data directory
-            '/backend/',       # Backend directory
-            'pending_documents',  # Upload staging directory
-            '/Users/',         # macOS user paths
-            '/home/',          # Linux home paths
-            'C:\\',            # Windows paths
-            'D:\\',            # Windows paths
-            './',              # Relative paths
-            '../',             # Relative paths
-            'schematiq_work/', # Local ScheMatiQ working directory
-            'qbsd_work/',      # Legacy QBSD working directory
-        ]
-
-        for indicator in local_indicators:
-            if indicator in path:
-                return True
-
-        # Also check if path starts with / and has multiple segments
-        # (cloud paths are typically simple folder names like "NES_documents")
-        if path.startswith('/') and path.count('/') > 2:
-            return True
-
-        return False
+        from app.services.data_utils import is_local_path
+        return is_local_path(path)
 
     @staticmethod
     def calculate_column_checksum(column: ColumnInfo) -> str:
@@ -811,36 +771,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 logger.debug(f"Error downloading {paper_name} from Supabase: {e}")
 
         return downloaded
-
-    def _find_paper_path(self, session_dir: Path, paper_name: str) -> Optional[Path]:
-        """Find the actual file path for a paper name.
-
-        Checks both documents/ and pending_documents/ directories.
-        """
-        docs_dir = session_dir / "documents"
-        pending_dir = session_dir / "pending_documents"
-
-        # Check both directories
-        for search_dir in [docs_dir, pending_dir]:
-            if not search_dir.exists():
-                continue
-
-            # Try exact match
-            exact = search_dir / paper_name
-            if exact.exists():
-                return exact
-
-            # Try with .txt extension
-            with_ext = search_dir / f"{paper_name}.txt"
-            if with_ext.exists():
-                return with_ext
-
-            # Try matching stem
-            for f in search_dir.iterdir():
-                if f.is_file() and f.stem == paper_name:
-                    return f
-
-        return None
 
     # ==================== Re-extraction ====================
 
