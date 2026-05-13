@@ -364,6 +364,7 @@ class ObservationUnitManager:
         # Update session
         session.observation_unit = updated_observation_unit
         session.metadata.last_modified = datetime.now()
+        session.metadata.pending_observation_unit_rediscovery = True
         self.session_manager.update_session(session)
 
         # Update schema JSON file on disk
