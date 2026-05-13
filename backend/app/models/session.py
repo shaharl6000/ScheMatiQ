@@ -125,6 +125,8 @@ class SessionMetadata(BaseModel):
     additional_rows_added: int = 0  # Rows added through document processing
     cloud_dataset: Optional[str] = None  # Original cloud dataset name (e.g., "nes_full_text")
     document_metadata: Dict[str, Dict[str, Any]] = Field(default_factory=dict)  # Per-document metadata: filename -> { "url": str, ... }
+    # Filenames/stems from /add-documents — never attach PubMed/EuropePMC-resolved URLs to these
+    pubmed_link_suppressed_document_names: List[str] = Field(default_factory=list)
 
 class DataStatistics(BaseModel):
     """Statistics about the dataset."""

@@ -927,6 +927,15 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         # Update session metadata — append new filenames to any already queued
         existing_docs = session.metadata.uploaded_documents or []
         session.metadata.uploaded_documents = existing_docs + uploaded_filenames
+        # Never attach PubMed/EuropePMC-derived URLs to user-uploaded source documents
+        sup = session.metadata.pubmed_link_suppressed_document_names or []
+        sup_set = set(sup)
+        for fn in uploaded_filenames:
+            for label in (fn, Path(fn).stem):
+                if label not in sup_set:
+                    sup.append(label)
+                    sup_set.add(label)
+        session.metadata.pubmed_link_suppressed_document_names = sup
         session.status = SessionStatus.DOCUMENTS_UPLOADED
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
@@ -1008,6 +1017,12 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
 
         # Remove from metadata
         session.metadata.uploaded_documents.remove(request.filename)
+        _fn = request.filename
+        _stem = Path(_fn).stem
+        session.metadata.pubmed_link_suppressed_document_names = [
+            x for x in (session.metadata.pubmed_link_suppressed_document_names or [])
+            if x not in {_fn, _stem}
+        ]
 
         # Remove the actual file from pending_documents directory
         parser = FileParser()
