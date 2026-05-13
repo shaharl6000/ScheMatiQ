@@ -33,7 +33,7 @@ from schematiq.core.schema import Schema, ObservationUnit
 from schematiq.core.llm_backends import LLMInterface
 from schematiq.core.llm_call_tracker import LLMCallTracker, GlobalLLMUsageTracker, QuotaExceededError
 from schematiq.core.cost_estimator import estimate_from_config
-from schematiq.core.retrievers import EmbeddingRetriever
+
 
 from app.models.schematiq import ScheMatiQConfig, ScheMatiQStatus
 from app.models.session import (
@@ -513,22 +513,9 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
             retriever = None
             if "retriever" in schematiq_config:
-                logger.debug("Creating EmbeddingRetriever...")
-                retriever_config = schematiq_config["retriever"]
-                logger.debug("Retriever config: %s", retriever_config)
-                try:
-                    retriever = EmbeddingRetriever(
-                        model_name=retriever_config.get("model_name", "all-MiniLM-L6-v2"),
-                        max_words=retriever_config.get("passage_chars", 512),
-                        k=retriever_config.get("k", 15),
-                        enable_dynamic_k=retriever_config.get("enable_dynamic_k", True),
-                        dynamic_k_threshold=retriever_config.get("dynamic_k_threshold", 0.65),
-                        dynamic_k_minimum=retriever_config.get("dynamic_k_minimum", 3)
-                    )
-                    logger.debug("EmbeddingRetriever created successfully!")
-                except Exception as e:
-                    logger.error("ERROR creating EmbeddingRetriever: %s", e)
-                    raise
+                from app.services import get_shared_retriever
+                retriever = get_shared_retriever()
+                logger.debug("Retriever ready (shared singleton)")
             else:
                 logger.debug("No retriever config found, using None")
 

@@ -37,7 +37,7 @@ from schematiq.core import schematiq as ScheMatiQ
 from schematiq.core.schematiq import discover_schema
 from schematiq.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot
 from schematiq.core.llm_backends import GeminiLLM
-from schematiq.core.retrievers import EmbeddingRetriever
+
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.value_extraction.main import build_table_jsonl
@@ -879,19 +879,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=True)
             llm = schematiq_utils.build_llm(enforced_llm_config)
 
-            # Build retriever - use config if provided, otherwise use library defaults
+            # Build retriever - use shared singleton if config requests one
             retriever_cfg = config.get("retriever_config")
             if retriever_cfg:
-                retriever = EmbeddingRetriever(
-                    model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
-                    k=retriever_cfg.get("k", 15),
-                    max_words=retriever_cfg.get("passage_chars", 512),
-                    enable_dynamic_k=retriever_cfg.get("enable_dynamic_k", True),
-                    dynamic_k_threshold=retriever_cfg.get("dynamic_k_threshold", 0.65),
-                    dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
-                )
+                from app.services import get_shared_retriever
+                retriever = get_shared_retriever()
             else:
-                # No config provided - no retriever
                 retriever = None
 
             # Calculate batches
@@ -1402,16 +1395,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             enforced_llm_config = _enforce_release_llm_config(llm_config, is_schema_creation=False)
             llm = schematiq_utils.build_llm(enforced_llm_config)
             if retriever_cfg:
-                retriever = EmbeddingRetriever(
-                    model_name=retriever_cfg.get("model_name", "all-MiniLM-L6-v2"),
-                    k=retriever_cfg.get("k", 15),
-                    max_words=retriever_cfg.get("passage_chars", 512),
-                    enable_dynamic_k=retriever_cfg.get("enable_dynamic_k", True),
-                    dynamic_k_threshold=retriever_cfg.get("dynamic_k_threshold", 0.65),
-                    dynamic_k_minimum=retriever_cfg.get("dynamic_k_minimum", 3)
-                )
+                from app.services import get_shared_retriever
+                retriever = get_shared_retriever()
             else:
-                # No config provided - no retriever
                 retriever = None
 
             output_file = session_dir / f"incremental_output_{operation_id}.jsonl"
