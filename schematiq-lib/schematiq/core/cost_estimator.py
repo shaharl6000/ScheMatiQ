@@ -31,10 +31,11 @@ from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field, asdict
 import tiktoken
 from importlib import resources as importlib_resources
+from schematiq.core.model_specs import ModelNames
 
 # Load tiktoken encoder (use gpt-4o as baseline - close enough for all models)
 try:
-    _enc = tiktoken.encoding_for_model("gpt-4o")
+    _enc = tiktoken.encoding_for_model(ModelNames.TIKTOKEN_ENCODING_MODEL)
 except Exception:
     _enc = tiktoken.get_encoding("cl100k_base")
 
@@ -543,10 +544,10 @@ def estimate_schematiq_cost(
     batch_size: int = 1,
     retrieval_k: int = 15,
     schema_creation_provider: str = "gemini",
-    schema_creation_model: str = "gemini-2.5-flash",
+    schema_creation_model: str = ModelNames.DEFAULT_SCHEMA_CREATION,
     schema_creation_max_output_tokens: int = 8192,
     value_extraction_provider: str = "gemini",
-    value_extraction_model: str = "gemini-2.5-flash",
+    value_extraction_model: str = ModelNames.DEFAULT_SCHEMA_CREATION,
     value_extraction_max_output_tokens: int = 8192,
     initial_schema_columns: int = 0,
     estimated_columns: int = 10,
@@ -691,7 +692,7 @@ def estimate_from_config(
     # Extract schema creation backend config
     schema_backend = config.get("schema_creation_backend", {})
     schema_provider = schema_backend.get("provider", "gemini")
-    schema_model = schema_backend.get("model", "gemini-2.5-flash")
+    schema_model = schema_backend.get("model", ModelNames.DEFAULT_SCHEMA_CREATION)
     # Auto-detect max_output_tokens from model specs if not provided or None
     schema_max_tokens = schema_backend.get("max_output_tokens")
     if schema_max_tokens is None:

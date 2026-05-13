@@ -25,6 +25,7 @@ from schematiq.core.retrievers import EmbeddingRetriever
 from schematiq.core.prompts import SchemaMode
 from schematiq.core.model_specs import (
     ModelSpec,
+    ModelNames,
     get_model_spec,
     MODEL_SPECS,
     GLOBAL_FALLBACK,

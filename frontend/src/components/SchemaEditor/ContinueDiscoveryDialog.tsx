@@ -44,6 +44,8 @@ import {
   getDefaultModelForProvider,
   getAvailableProviders,
   LLM_PROVIDER_NAMES,
+  DEFAULT_SCHEMA_MODEL,
+  DEFAULT_RELEASE_EXTRACTION_MODEL,
 } from '@/constants/llmModels';
 import {
   DEFAULT_MAX_DOCUMENTS,
@@ -93,14 +95,14 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
 
   // LLM config state
   const [llmProvider, setLlmProvider] = useState<LLMProviderKey>('gemini');
-  const [llmModel, setLlmModel] = useState('gemini-2.5-flash');
+  const [llmModel, setLlmModel] = useState(DEFAULT_SCHEMA_MODEL);
   const [apiKey, setApiKey] = useState('');
 
   // Model settings for extraction (collapsible)
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [configuredProviders, setConfiguredProviders] = useState<LLMProviderKey[]>([]);
   const [extractionProvider, setExtractionProvider] = useState<LLMProviderKey>('gemini');
-  const [extractionModel, setExtractionModel] = useState('gemini-3.1-flash-lite-preview');
+  const [extractionModel, setExtractionModel] = useState(DEFAULT_RELEASE_EXTRACTION_MODEL);
   const [allowLlmConfig, setAllowLlmConfig] = useState(false);
 
   // Server API key state
@@ -251,7 +253,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
       });
       setShowModelSettings(false);
       setExtractionProvider('gemini');
-      setExtractionModel('gemini-3.1-flash-lite-preview');
+      setExtractionModel(DEFAULT_RELEASE_EXTRACTION_MODEL);
       setShowAdvancedSettings(false);
       setMaxKeysSchema(DEFAULT_MAX_KEYS_SCHEMA);
       setDocumentsBatchSize(DEFAULT_DOCUMENTS_BATCH_SIZE);

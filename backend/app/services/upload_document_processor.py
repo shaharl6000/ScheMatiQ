@@ -14,6 +14,7 @@ from datetime import datetime
 # ScheMatiQ library imports
 from schematiq.value_extraction.main import build_table_jsonl
 from schematiq.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
+from schematiq.core.model_specs import ModelNames
 from schematiq.core.retrievers import EmbeddingRetriever
 from schematiq.core import utils
 
@@ -1161,7 +1162,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         logger.debug(f"Using default LLM configuration for extraction in session {session_id}")
         return {
             "provider": "gemini",
-            "model": "gemini-2.5-flash-lite",  # Use lite model for extraction by default
+            "model": ModelNames.DEFAULT_VALUE_EXTRACTION,
             "temperature": DEFAULT_TEMPERATURE,
             # max_output_tokens auto-detected from model_specs
         }

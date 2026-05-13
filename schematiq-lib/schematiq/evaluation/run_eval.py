@@ -2,6 +2,7 @@ from argparse import ArgumentParser
 import json
 from tqdm import tqdm
 import os
+from schematiq.core.model_specs import ModelNames
 from metrics import SchemaRecallMetric
 from metrics_utils import (
     BaseFeaturizer,
@@ -84,7 +85,7 @@ def load_featurizer(featurizer_name):
     elif featurizer_name == "values":
         return ValueFeaturizer("values")
     elif featurizer_name == "decontext":
-        return DecontextFeaturizer("decontext", model="mistralai/Mixtral-8x7B-Instruct-v0.1")
+        return DecontextFeaturizer("decontext", model=ModelNames.MIXTRAL_8X7B)
     else:
         raise ValueError(f"Unknown featurizer name: {featurizer_name}.")
 

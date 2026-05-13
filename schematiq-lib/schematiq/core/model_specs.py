@@ -22,35 +22,65 @@ class ModelSpec:
     """Immutable specification for an LLM model."""
     context_window: int
     max_output_tokens: int
-    # Whether the model supports thinking_config (extended thinking / budgeted reasoning).
-    # Lite models and non-thinking variants reject thinking_config with 400 INVALID_ARGUMENT
-    # when response_schema is also present.
     supports_thinking: bool = False
+
+
+# ── Canonical model names ───────────────────────────────────────────
+class ModelNames:
+    # Gemini
+    GEMINI_25_FLASH = "gemini-2.5-flash"
+    GEMINI_25_FLASH_LITE = "gemini-2.5-flash-lite"
+    GEMINI_25_PRO = "gemini-2.5-pro"
+    GEMINI_31_FLASH_LITE = "gemini-3.1-flash-lite"
+    GEMINI_31_PRO_PREVIEW = "gemini-3.1-pro-preview"
+    GEMINI_15_FLASH = "gemini-1.5-flash"
+
+    # OpenAI
+    GPT_41 = "gpt-4.1"
+    GPT_41_MINI = "gpt-4.1-mini"
+    GPT_41_NANO = "gpt-4.1-nano"
+
+    # Together
+    LLAMA_33_70B_TURBO = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+
+    # Research / evaluation only
+    LLAMA_33_70B = "meta-llama/Llama-3.3-70B-Instruct"
+    LLAMA_32_3B = "meta-llama/Llama-3.2-3B-Instruct"
+    LLAMA_3_70B_CHAT = "meta-llama/Llama-3-70b-chat-hf"
+    MISTRAL_7B = "mistralai/Mistral-7B-Instruct-v0.2"
+    MIXTRAL_8X7B = "mistralai/Mixtral-8x7B-Instruct-v0.1"
+
+    # Tiktoken encoding reference (not used as LLM)
+    TIKTOKEN_ENCODING_MODEL = "gpt-4o"
+
+    # Role-based defaults
+    DEFAULT_SCHEMA_CREATION = GEMINI_25_FLASH
+    DEFAULT_VALUE_EXTRACTION = GEMINI_25_FLASH_LITE
+    DEFAULT_RELEASE_EXTRACTION = GEMINI_31_FLASH_LITE
+    DEFAULT_EVALUATION = GEMINI_15_FLASH
+    DEFAULT_TOGETHER = LLAMA_33_70B_TURBO
+    DEFAULT_OPENAI = GPT_41
+    DEFAULT_HF = LLAMA_33_70B
 
 
 # ── Model specifications ────────────────────────────────────────────
 MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
     "gemini": {
-        "gemini-2.5-flash": ModelSpec(1_048_576, 65_535, supports_thinking=True),
-        "gemini-2.5-flash-lite": ModelSpec(1_048_576, 65_535, supports_thinking=True),
-        "gemini-2.5-pro": ModelSpec(1_048_576, 65_535, supports_thinking=True),
-        "gemini-3-flash-preview": ModelSpec(1_000_000, 64_000, supports_thinking=True),
-        "gemini-3-pro-preview": ModelSpec(1_000_000, 64_000, supports_thinking=True),
-        "gemini-3.1-flash-lite-preview": ModelSpec(1_048_576, 65_536, supports_thinking=True),
-        "gemini-3.1-pro-preview": ModelSpec(1_000_000, 64_000, supports_thinking=True),
+        ModelNames.GEMINI_25_FLASH: ModelSpec(1_048_576, 65_535, supports_thinking=True),
+        ModelNames.GEMINI_25_FLASH_LITE: ModelSpec(1_048_576, 65_535, supports_thinking=True),
+        ModelNames.GEMINI_25_PRO: ModelSpec(1_048_576, 65_535, supports_thinking=True),
+        ModelNames.GEMINI_31_FLASH_LITE: ModelSpec(1_048_576, 65_536, supports_thinking=True),
+        ModelNames.GEMINI_31_PRO_PREVIEW: ModelSpec(1_000_000, 64_000, supports_thinking=True),
         "_default": ModelSpec(1_000_000, 32_000, supports_thinking=False),
     },
     "openai": {
-        "gpt-4.1": ModelSpec(1_000_000, 32_768),
-        "gpt-4.1-mini": ModelSpec(1_000_000, 32_768),
-        "gpt-4.1-nano": ModelSpec(1_000_000, 32_768),
-        "gpt-4o": ModelSpec(128_000, 32_768),
-        "gpt-4o-mini": ModelSpec(128_000, 16_000),
+        ModelNames.GPT_41: ModelSpec(1_000_000, 32_768),
+        ModelNames.GPT_41_MINI: ModelSpec(1_000_000, 32_768),
+        ModelNames.GPT_41_NANO: ModelSpec(1_000_000, 32_768),
         "_default": ModelSpec(128_000, 16_000),
     },
     "together": {
-        "meta-llama/Llama-3.3-70B-Instruct-Turbo": ModelSpec(128_000, 8_192),
-        "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free": ModelSpec(128_000, 8_192),
+        ModelNames.LLAMA_33_70B_TURBO: ModelSpec(128_000, 8_192),
         "_default": ModelSpec(128_000, 4_096),
     },
 }
