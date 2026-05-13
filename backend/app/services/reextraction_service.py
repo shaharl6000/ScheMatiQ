@@ -29,7 +29,7 @@ from schematiq.value_extraction.main import build_table_jsonl
 from schematiq.value_extraction.core.paper_processor import PaperProcessor
 from schematiq.core.schema import Schema, Column
 from schematiq.core.llm_backends import GeminiLLM
-
+from schematiq.core.retrievers import EmbeddingRetriever
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
 
@@ -63,7 +63,13 @@ class ReextractionOperation:
 class ReextractionService(WebSocketBroadcasterMixin):
     """Handles selective re-extraction of column values after schema changes."""
 
-    # Retriever is now shared across all services via get_shared_retriever()
+    # Class-level cached retriever to avoid reloading the model for each extraction
+    _cached_retriever = None
+    _retriever_config = {
+        "model_name": "all-MiniLM-L6-v2",
+        "k": 10,
+        "max_words": 768
+    }
 
     def __init__(self, websocket_manager: WebSocketManager, session_manager: SessionManager,
                  data_collection_service=None, pubmed_enrichment_service=None,
@@ -78,11 +84,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
         self._pubmed_enrichment_service = pubmed_enrichment_service
         self._uniprot_enrichment_service = uniprot_enrichment_service
 
-    @staticmethod
-    def get_cached_retriever():
-        """Return the shared EmbeddingRetriever singleton."""
-        from app.services import get_shared_retriever
-        return get_shared_retriever()
+    @classmethod
+    def get_cached_retriever(cls):
+        """Get or create the cached retriever instance."""
+        if cls._cached_retriever is None:
+            logger.info("Creating cached EmbeddingRetriever (will be reused for all re-extractions)")
+            cls._cached_retriever = EmbeddingRetriever(**cls._retriever_config)
+        return cls._cached_retriever
 
     def is_stop_requested(self, operation_id: str) -> bool:
         """Check if stop was requested for an operation."""

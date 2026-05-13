@@ -100,34 +100,6 @@ def find_session_data_file(session_id: str) -> Optional[Path]:
     return None
 
 
-# ── Shared EmbeddingRetriever singleton ────────────────────────────
-# The SentenceTransformer model load is expensive (~2s + HuggingFace
-# HEAD requests).  All services use the same model, so we share one
-# instance.  Per-query parameters (k) are overridden at call sites.
-_shared_retriever = None
-_shared_retriever_lock = __import__("threading").Lock()
-
-
-def get_shared_retriever():
-    """Return the process-wide EmbeddingRetriever, creating it on first call."""
-    global _shared_retriever
-    if _shared_retriever is None:
-        with _shared_retriever_lock:
-            if _shared_retriever is None:
-                from schematiq.core.retrievers import EmbeddingRetriever
-                logger.info("[retriever] Loading shared EmbeddingRetriever (all-MiniLM-L6-v2)")
-                _shared_retriever = EmbeddingRetriever(
-                    model_name="all-MiniLM-L6-v2",
-                    k=10,
-                    max_words=768,
-                    enable_dynamic_k=True,
-                    dynamic_k_threshold=0.65,
-                    dynamic_k_minimum=3,
-                )
-                logger.info("[retriever] Shared EmbeddingRetriever ready")
-    return _shared_retriever
-
-
 # Create singleton instances
 websocket_manager = WebSocketManager()
 session_manager = SessionManager()
