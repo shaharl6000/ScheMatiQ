@@ -1183,6 +1183,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 if sess and sess.metadata.pending_observation_unit_rediscovery:
                     sess.metadata.pending_observation_unit_rediscovery = False
                     self.session_manager.update_session(sess)
+                    logger.info("Cleared pending_observation_unit_rediscovery after successful re-extraction")
 
             # Cleanup
             schema_file.unlink(missing_ok=True)
