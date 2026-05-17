@@ -29,6 +29,7 @@ from schematiq.value_extraction.main import build_table_jsonl
 from schematiq.value_extraction.core.paper_processor import PaperProcessor
 from schematiq.core.schema import Schema, Column
 from schematiq.core.llm_backends import GeminiLLM
+from schematiq.core.model_specs import ModelNames
 from schematiq.core.retrievers import EmbeddingRetriever
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
@@ -1487,7 +1488,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
         logger.debug(f"Using default GeminiLLM - this will use GEMINI_API_KEY env var")
-        return GeminiLLM(model="gemini-2.5-flash-lite", temperature=0)
+        return GeminiLLM(model=ModelNames.DEFAULT_VALUE_EXTRACTION, temperature=0)
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):
         """Broadcast an event via WebSocket."""

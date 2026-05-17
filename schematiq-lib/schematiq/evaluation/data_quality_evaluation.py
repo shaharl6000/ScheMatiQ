@@ -18,6 +18,7 @@ Usage:
 """
 
 import json
+from schematiq.core.model_specs import ModelNames
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -295,7 +296,7 @@ class FieldAligner:
 class LLMJudge:
     """Uses Gemini 1.5 Flash to evaluate value similarity with domain expertise."""
 
-    def __init__(self, model: str = "gemini-1.5-flash", temperature: float = 0.1):
+    def __init__(self, model: str = ModelNames.DEFAULT_EVALUATION, temperature: float = 0.1):
         """Initialize LLM judge with Gemini model."""
         try:
             from ..core.llm_backends import GeminiLLM
@@ -470,7 +471,7 @@ Replace the values but keep the exact JSON structure. Do not include any other t
 class ValueEvaluator:
     """Evaluates similarity between GT and prediction values."""
 
-    def __init__(self, use_llm_judge: bool = False, llm_model: str = "gemini-1.5-flash"):
+    def __init__(self, use_llm_judge: bool = False, llm_model: str = ModelNames.DEFAULT_EVALUATION):
         self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
         self.use_llm_judge = use_llm_judge
         self.llm_judge = None
@@ -616,7 +617,7 @@ class ValueEvaluator:
 class DataQualityEvaluator:
     """Main evaluator orchestrating the complete evaluation pipeline."""
 
-    def __init__(self, use_llm_judge: bool = False, llm_model: str = "gemini-1.5-flash",
+    def __init__(self, use_llm_judge: bool = False, llm_model: str = ModelNames.DEFAULT_EVALUATION,
                  resolver=None):
         """
         Args:
@@ -790,7 +791,7 @@ def main():
     parser.add_argument("--pred_file", required=True, help="Path to prediction CSV file")
     parser.add_argument("--output", default="data_quality_evaluation.json", help="Output file path")
     parser.add_argument("--llm_judge", action="store_true", help="Enable LLM-as-Judge evaluation")
-    parser.add_argument("--llm_model", default="gemini-1.5-flash", help="LLM model for judge evaluation")
+    parser.add_argument("--llm_model", default=ModelNames.DEFAULT_EVALUATION, help="LLM model for judge evaluation")
     parser.add_argument("--uniprot", action="store_true", help="Enable UniProt synonym resolution for row matching")
 
     args = parser.parse_args()

@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # ScheMatiQ library imports
 from schematiq.value_extraction.main import build_table_jsonl
 from schematiq.core.llm_backends import GeminiLLM
+from schematiq.core.model_specs import ModelNames
 from schematiq.core.retrievers import EmbeddingRetriever
 from schematiq.core import utils
 
@@ -137,7 +138,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
         logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
-        return GeminiLLM(model="gemini-2.5-flash-lite", temperature=0)
+        return GeminiLLM(model=ModelNames.DEFAULT_VALUE_EXTRACTION, temperature=0)
     
     async def reprocess_column(self, session_id: str, column_name: str):
         """Reprocess documents for a specific column after editing."""

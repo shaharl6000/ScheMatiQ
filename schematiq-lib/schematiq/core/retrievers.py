@@ -20,7 +20,8 @@ from transformers import AutoTokenizer
 import torch
 import tiktoken
 
-_enc = tiktoken.encoding_for_model("gpt-4o")
+from schematiq.core.model_specs import ModelNames
+_enc = tiktoken.encoding_for_model(ModelNames.TIKTOKEN_ENCODING_MODEL)
 _SENT_SPLIT_RE = re.compile(r"(?<=[\.\?!])\s+")
 JSON_FENCE = re.compile(r"```json(.*?)```", re.S | re.I)
 FIRST_OBJ = re.compile(r"\{.*\}", re.S)

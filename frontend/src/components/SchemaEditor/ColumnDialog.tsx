@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DEFAULT_EXTRACTION_MODEL } from '@/constants/llmModels';
 import { Plus, Pencil, Loader2, X, Info, ChevronDown, ChevronRight } from 'lucide-react';
 
 import {
@@ -164,7 +165,7 @@ const ColumnDialog: React.FC<ColumnDialogProps> = ({
         if (apiKey) {
           request.llm_config = {
             provider: 'gemini',
-            model: 'gemini-2.5-flash-lite',
+            model: DEFAULT_EXTRACTION_MODEL,
             api_key: apiKey,
             temperature: 0
           };

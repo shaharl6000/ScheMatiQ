@@ -19,6 +19,7 @@ DEFAULT_MAX_NEW_TOKENS = 8192
 DEFAULT_MAX_WORKERS = 3
 
 # LLM Backend defaults
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash-lite"
+from schematiq.core.model_specs import ModelNames
+DEFAULT_GEMINI_MODEL = ModelNames.DEFAULT_VALUE_EXTRACTION
 DEFAULT_GEMINI_ROTATION_REQUESTS = 5
 EXHAUSTED_KEY_RESET_HOURS = 24  # RPD resets daily

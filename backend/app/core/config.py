@@ -1,5 +1,6 @@
 """Application constants."""
 import os
+from schematiq.core.model_specs import ModelNames
 
 # API Configuration
 API_TITLE = "ScheMatiQ API"
@@ -99,8 +100,8 @@ DEVELOPER_MODE = os.environ.get("DEVELOPER_MODE", "false").lower() == "true"
 RELEASE_CONFIG = {
     "max_documents": 150,          # release mode cap
     # LLM configuration for release mode (locked to Gemini)
-    "schema_creation_model": "gemini-2.5-flash",
-    "value_extraction_model": "gemini-3.1-flash-lite-preview",
+    "schema_creation_model": ModelNames.DEFAULT_SCHEMA_CREATION,
+    "value_extraction_model": ModelNames.DEFAULT_RELEASE_EXTRACTION,
     "llm_provider": "gemini",
     "llm_temperature": 0,
 }
