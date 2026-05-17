@@ -5,6 +5,8 @@ import logging
 import os
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
 from schematiq.core.llm_backends import LLMInterface
@@ -214,13 +216,14 @@ class PaperProcessor:
     def _create_document_cache(self, system_prompt: str, paper_text: str):
         """Create a Gemini context cache for a document. Returns cache or None."""
         if not self._is_gemini_backend():
+            logger.debug("Context cache skipped: non-Gemini backend")
             return None
-        # Only cache if document is large enough (~1024 tokens ≈ 4096 chars)
         if len(paper_text) < 4096:
+            logger.info("Context cache skipped: document too small (%d chars < 4096)", len(paper_text))
             return None
         if not hasattr(self.llm, 'create_context_cache'):
             return None
-        return self.llm.create_context_cache(system_prompt, paper_text)
+        return self.llm.create_context_cache(system_prompt, paper_text, ttl_seconds=300)
 
     def _delete_document_cache(self):
         """Delete the active context cache if one exists."""
@@ -1748,70 +1751,70 @@ class PaperProcessor:
         import time as time_module
 
         results = []
-        for i, unit in enumerate(units, 1):
-            if self._check_stop_requested():
-                print(f"🛑 Stop requested during unit extraction")
-                self._delete_document_cache()
-                break
+        try:
+            for i, unit in enumerate(units, 1):
+                if self._check_stop_requested():
+                    print(f"🛑 Stop requested during unit extraction")
+                    break
 
-            unit_name = unit.get("unit_name", f"Unit {i}")
-            relevant_passages = unit.get("relevant_passages", [paper_text])
-            confidence = unit.get("confidence", "medium")
+                unit_name = unit.get("unit_name", f"Unit {i}")
+                relevant_passages = unit.get("relevant_passages", [paper_text])
+                confidence = unit.get("confidence", "medium")
 
-            # When DISABLE_RETRIEVER is on, always use the full document text
-            # instead of the (possibly truncated) relevant_passages from unit identification.
-            # This ensures the LLM has the full context of the CURRENT document and
-            # doesn't hallucinate from other documents if the cache was somehow contaminated.
-            if DISABLE_RETRIEVER:
-                relevant_passages = [paper_text]
-            else:
-                # Ensure we have at least some text for the unit
-                if not relevant_passages:
+                # When DISABLE_RETRIEVER is on, always use the full document text
+                # instead of the (possibly truncated) relevant_passages from unit identification.
+                # This ensures the LLM has the full context of the CURRENT document and
+                # doesn't hallucinate from other documents if the cache was somehow contaminated.
+                if DISABLE_RETRIEVER:
                     relevant_passages = [paper_text]
+                else:
+                    # Ensure we have at least some text for the unit
+                    if not relevant_passages:
+                        relevant_passages = [paper_text]
 
-            print(
-                f"  → Extracting values for unit {i}/{len(units)}: {unit_name} (confidence: {confidence})"
-            )
-            unit_start = time_module.time()
-
-            # Extract values for this specific unit
-            unit_values = self.extract_values_for_unit(
-                unit_name=unit_name,
-                relevant_passages=relevant_passages,
-                schema=schema,
-                max_new_tokens=max_new_tokens,
-                paper_title=paper_title,
-                paper_text=paper_text,
-            )
-
-            unit_elapsed = time_module.time() - unit_start
-
-            if unit_values:
-                # Add metadata fields
-                unit_values["_unit_name"] = unit_name
-                unit_values["_source_document"] = paper_title
-                unit_values["_parent_document"] = paper_title
-                unit_values["_observation_unit"] = observation_unit.name
-                unit_values["_unit_confidence"] = confidence
-
-                results.append(unit_values)
-
-                # Callback for streaming
-                if on_unit_extracted:
-                    on_unit_extracted(unit_name, unit_values)
-
-                col_count = len([k for k in unit_values if not k.startswith("_")])
                 print(
-                    f"    ✓ Extracted {col_count} columns for {unit_name} ({unit_elapsed:.1f}s)"
+                    f"  → Extracting values for unit {i}/{len(units)}: {unit_name} (confidence: {confidence})"
                 )
-            else:
-                print(
-                    f"    ✗ No values extracted for {unit_name} ({unit_elapsed:.1f}s)"
+                unit_start = time_module.time()
+
+                # Extract values for this specific unit
+                unit_values = self.extract_values_for_unit(
+                    unit_name=unit_name,
+                    relevant_passages=relevant_passages,
+                    schema=schema,
+                    max_new_tokens=max_new_tokens,
+                    paper_title=paper_title,
+                    paper_text=paper_text,
                 )
 
-        # Clean up context cache for this document
-        self._delete_document_cache()
+                unit_elapsed = time_module.time() - unit_start
 
+                if unit_values:
+                    # Add metadata fields
+                    unit_values["_unit_name"] = unit_name
+                    unit_values["_source_document"] = paper_title
+                    unit_values["_parent_document"] = paper_title
+                    unit_values["_observation_unit"] = observation_unit.name
+                    unit_values["_unit_confidence"] = confidence
+
+                    results.append(unit_values)
+
+                    # Callback for streaming
+                    if on_unit_extracted:
+                        on_unit_extracted(unit_name, unit_values)
+
+                    col_count = len([k for k in unit_values if not k.startswith("_")])
+                    print(
+                        f"    ✓ Extracted {col_count} columns for {unit_name} ({unit_elapsed:.1f}s)"
+                    )
+                else:
+                    print(
+                        f"    ✗ No values extracted for {unit_name} ({unit_elapsed:.1f}s)"
+                    )
+        finally:
+            self._delete_document_cache()
+
+        self.cache.log_stats()
         print(
             f"  ✅ Completed {paper_title}: {len(results)} rows from {len(units)} units"
         )
