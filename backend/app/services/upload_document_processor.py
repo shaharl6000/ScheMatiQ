@@ -15,7 +15,6 @@ from datetime import datetime
 from schematiq.value_extraction.main import build_table_jsonl
 from schematiq.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
 from schematiq.core.model_specs import ModelNames
-from schematiq.core.retrievers import EmbeddingRetriever
 from schematiq.core import utils
 
 SCHEMATIQ_AVAILABLE = True
@@ -168,18 +167,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             llm = utils.build_llm(backend_config)
             logger.debug("LLM interface created successfully")
             
-            # Create retriever
-            retriever_config = {
-                "type": "embedding",
-                "model_name": "all-MiniLM-L6-v2",
-                "k": DEFAULT_RETRIEVAL_K,
-                "max_words": 512,
-                "enable_dynamic_k": True,
-                "dynamic_k_threshold": 0.65,
-                "dynamic_k_minimum": 3
-            }
-            retriever = utils.build_retriever(retriever_config)
-            logger.debug("Retriever created successfully")
+            # Use shared retriever singleton (avoids reloading model each time)
+            from app.services import get_shared_retriever
+            retriever = get_shared_retriever()
+            logger.debug("Retriever ready (shared singleton)")
             
             # Run value extraction
             await self.broadcast_progress(session_id, "Processing documents with AI", 0.3, "processing_documents")
