@@ -8,7 +8,7 @@ Supports three modes:
 """
 
 from enum import Enum
-from typing import Tuple
+from typing import Optional, Tuple
 
 # ============================================================================
 # Schema Mode Enum
@@ -666,7 +666,7 @@ Keep this in mind when proposing columns — each column should capture informat
 # MODE DETECTION AND PROMPT SELECTION
 # ============================================================================
 
-def get_prompts(query: str | None, has_passages: bool) -> Tuple[str, str, SchemaMode]:
+def get_prompts(query: Optional[str], has_passages: bool) -> Tuple[str, str, SchemaMode]:
     """
     Select the appropriate prompts based on available inputs.
 
@@ -692,7 +692,7 @@ def get_prompts(query: str | None, has_passages: bool) -> Tuple[str, str, Schema
         raise ValueError("At least one of query or documents must be provided")
 
 
-def get_observation_unit_prompts(query: str | None, has_passages: bool) -> Tuple[str, str, SchemaMode]:
+def get_observation_unit_prompts(query: Optional[str], has_passages: bool) -> Tuple[str, str, SchemaMode]:
     """
     Select the appropriate observation unit discovery prompts based on available inputs.
 

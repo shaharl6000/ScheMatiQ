@@ -12,6 +12,7 @@ full-text papers using a multi-strategy pipeline:
 Supports resume via JSON download log, retry of failed downloads,
 CAPTCHA detection, cookie dismissal, and PDF-to-text conversion.
 """
+from __future__ import annotations
 
 import argparse
 import asyncio
