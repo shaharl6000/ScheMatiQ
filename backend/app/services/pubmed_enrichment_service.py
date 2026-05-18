@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Set
 import requests
 
 from app.core.config import DEFAULT_DATA_DIR
+from app.models.session import SessionType, VisualizationSession
 from app.services.session_manager import SessionManager
 
 logger = logging.getLogger(__name__)
@@ -202,6 +203,10 @@ class PubMedEnrichmentService:
     document names with no entry yet in ``document_metadata`` (a missing entry
     means "never tried"; ``{"url": None}`` means "tried, no link" and stops
     repeat polling).
+
+    PubMed / EuropePMC URLs are only resolved for documents that plausibly came
+    from a PubMed-backed corpus (cloud dataset or ScheMatiQ local batch), not
+    for user-uploaded files tracked in ``pubmed_link_suppressed_stems``.
     """
 
     def __init__(self, session_manager: SessionManager, data_dir: str = DEFAULT_DATA_DIR):
@@ -210,6 +215,27 @@ class PubMedEnrichmentService:
         self._active_tasks: Set[asyncio.Task] = set()
         # Track sessions currently being enriched to avoid duplicate work
         self._in_progress: Set[str] = set()
+
+    @staticmethod
+    def document_qualifies_for_pubmed_link(
+        session: Optional[VisualizationSession], doc_name: Optional[str]
+    ) -> bool:
+        """Whether we may resolve or expose a PubMed/DOI URL for *doc_name*.
+
+        Returns False for upload-only sessions (no cloud dataset) and for
+        documents whose stem appears in the suppression list populated at
+        upload time.  The suppression list stores stems, which is the same
+        form used for _source_document in extracted rows, so the check is
+        an exact set membership test — no fuzzy matching needed.
+        """
+        if not session or not doc_name:
+            return False
+        meta = session.metadata
+        if session.type == SessionType.UPLOAD and not meta.cloud_dataset:
+            return False
+        if doc_name in set(meta.pubmed_link_suppressed_stems):
+            return False
+        return True
 
     def _resolve_doc_path(self, session_id: str, doc_name: str) -> Optional[Path]:
         """Locate the source document on disk for a given session.
@@ -301,8 +327,16 @@ class PubMedEnrichmentService:
         if not missing:
             return False
 
+        eligible, ineligible = [], []
+        for name in missing:
+            (eligible if self.document_qualifies_for_pubmed_link(session, name) else ineligible).append(name)
+        if ineligible:
+            self._store_enrichment_misses_batch(session_id, ineligible)
+        if not eligible:
+            return False
+
         self._in_progress.add(session_id)
-        task = asyncio.create_task(self._enrich_documents(session_id, missing))
+        task = asyncio.create_task(self._enrich_documents(session_id, eligible))
         self._active_tasks.add(task)
 
         def _on_done(t: asyncio.Task) -> None:
@@ -312,7 +346,7 @@ class PubMedEnrichmentService:
         task.add_done_callback(_on_done)
         logger.info(
             "[pubmed-enrichment] Started enrichment for %d/%d documents in session %s",
-            len(missing), len(doc_names), session_id[:8],
+            len(eligible), len(doc_names), session_id[:8],
         )
         return True
 

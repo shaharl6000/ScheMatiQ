@@ -933,6 +933,11 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         # Update session metadata — append new filenames to any already queued
         existing_docs = session.metadata.uploaded_documents or []
         session.metadata.uploaded_documents = existing_docs + uploaded_filenames
+        # Track stems so PubMed enrichment skips user-uploaded documents
+        existing_stems = set(session.metadata.pubmed_link_suppressed_stems)
+        for fn in uploaded_filenames:
+            existing_stems.add(Path(fn).stem)
+        session.metadata.pubmed_link_suppressed_stems = sorted(existing_stems)
         session.status = SessionStatus.DOCUMENTS_UPLOADED
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
@@ -1014,6 +1019,10 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
 
         # Remove from metadata
         session.metadata.uploaded_documents.remove(request.filename)
+        stem = Path(request.filename).stem
+        session.metadata.pubmed_link_suppressed_stems = [
+            s for s in session.metadata.pubmed_link_suppressed_stems if s != stem
+        ]
 
         # Remove the actual file from pending_documents directory
         parser = FileParser()
