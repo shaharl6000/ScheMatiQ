@@ -125,6 +125,10 @@ class SessionMetadata(BaseModel):
     additional_rows_added: int = 0  # Rows added through document processing
     cloud_dataset: Optional[str] = None  # Original cloud dataset name (e.g., "nes_full_text")
     document_metadata: Dict[str, Dict[str, Any]] = Field(default_factory=dict)  # Per-document metadata: filename -> { "url": str, ... }
+    # Set when the user edits the observation unit; cleared after a successful re-extraction run.
+    # While True, re-extraction must not reuse row names from existing data as known_units (that
+    # would skip LLM unit discovery and ignore the new definition).
+    pending_observation_unit_rediscovery: bool = False
 
 class SkippedDocumentInfo(BaseModel):
     """Metadata for a document that was skipped during extraction."""

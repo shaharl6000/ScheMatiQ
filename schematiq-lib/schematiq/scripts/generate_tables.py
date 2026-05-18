@@ -124,7 +124,8 @@ TEMPERATURE = 0.3
 STOP_SEQUENCE = None # keep None unless you need a custom stop token
 NUM_ATTRIBUTES = 6 # default attributes per aspect
 
-ENC = tiktoken.encoding_for_model("gpt-3.5-turbo")  # close enough
+from schematiq.core.model_specs import ModelNames
+ENC = tiktoken.encoding_for_model(ModelNames.TIKTOKEN_ENCODING_MODEL)
 
 MAX_CTX_TOKENS = 8192
 SAFETY_MARGIN   = 128

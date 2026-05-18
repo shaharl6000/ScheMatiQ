@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ScheMatiQ library imports
 from schematiq.value_extraction.main import build_table_jsonl
 from schematiq.core.llm_backends import GeminiLLM
-from schematiq.core.retrievers import EmbeddingRetriever
+from schematiq.core.model_specs import ModelNames
 from schematiq.core import utils
 
 SCHEMATIQ_AVAILABLE = True
@@ -137,7 +137,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
         logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
-        return GeminiLLM(model="gemini-2.5-flash-lite", temperature=0)
+        return GeminiLLM(model=ModelNames.DEFAULT_VALUE_EXTRACTION, temperature=0)
     
     async def reprocess_column(self, session_id: str, column_name: str):
         """Reprocess documents for a specific column after editing."""
@@ -199,11 +199,8 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
             # Setup LLM and retriever for extraction
             llm = self._get_value_extraction_llm_from_session(session_id)
-            retriever = EmbeddingRetriever(
-                model_name="all-MiniLM-L6-v2",
-                k=8,
-                max_words=512
-            )
+            from app.services import get_shared_retriever
+            retriever = get_shared_retriever()
 
             # Find documents directory
             docs_dir = session_dir / "documents"
@@ -428,11 +425,8 @@ class SchemaManager(WebSocketBroadcasterMixin):
 
             # Setup enhanced extraction components
             llm = self._get_value_extraction_llm_from_session(session_id)
-            retriever = EmbeddingRetriever(
-                model_name="all-MiniLM-L6-v2",
-                k=10,              # More retrieval for better context
-                max_words=768      # More text for understanding
-            )
+            from app.services import get_shared_retriever
+            retriever = get_shared_retriever()
 
             # Determine documents directories — check all possible locations
             # (same pattern as reextraction_service._run_reextraction)
@@ -928,12 +922,9 @@ class SchemaManager(WebSocketBroadcasterMixin):
             
             # Setup LLM with enhanced parameters for schema-aware extraction
             llm = self._get_value_extraction_llm_from_session(session_id)
-            retriever = EmbeddingRetriever(
-                model_name="all-MiniLM-L6-v2",
-                k=10,  # Increased retrieval for better context
-                max_words=768  # More text for better understanding
-            )
-            
+            from app.services import get_shared_retriever
+            retriever = get_shared_retriever()
+
             # Find documents directory
             docs_dir = session_dir / "documents"
             if docs_dir.exists():

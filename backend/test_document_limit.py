@@ -38,12 +38,12 @@ def test_upload_over_limit():
         "documents_batch_size": 1,
         "schema_creation_backend": {
             "provider": "openai",
-            "model": "gpt-4o-mini",
+            "model": "gpt-4.1-nano",
             "temperature": 0,
         },
         "value_extraction_backend": {
             "provider": "openai",
-            "model": "gpt-4o-mini",
+            "model": "gpt-4.1-nano",
             "temperature": 0,
         },
         "output_path": "test_output.json",
@@ -107,12 +107,12 @@ def test_bypass_without_dev_mode():
         "documents_batch_size": 1,
         "schema_creation_backend": {
             "provider": "openai",
-            "model": "gpt-4o-mini",
+            "model": "gpt-4.1-nano",
             "temperature": 0,
         },
         "value_extraction_backend": {
             "provider": "openai",
-            "model": "gpt-4o-mini",
+            "model": "gpt-4.1-nano",
             "temperature": 0,
         },
         "output_path": "test_output.json",

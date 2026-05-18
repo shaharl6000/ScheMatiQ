@@ -14,6 +14,8 @@ import {
   getAvailableProviders,
   LLM_PROVIDER_NAMES,
   LLMProviderKey,
+  DEFAULT_SCHEMA_MODEL,
+  DEFAULT_RELEASE_EXTRACTION_MODEL,
 } from '@/constants/llmModels';
 import { ModelSelector } from '@/components/ModelSelector';
 
@@ -73,12 +75,12 @@ const DEFAULT_CONFIG: ScheMatiQConfig = {
   documents_batch_size: DEFAULT_DOCUMENTS_BATCH_SIZE,
   schema_creation_backend: {
     provider: 'gemini',
-    model: 'gemini-2.5-flash',
+    model: DEFAULT_SCHEMA_MODEL,
     temperature: 0,
   },
   value_extraction_backend: {
     provider: 'gemini',
-    model: 'gemini-3.1-flash-lite-preview',
+    model: DEFAULT_RELEASE_EXTRACTION_MODEL,
     temperature: 0,
   },
   output_path: 'outputs/visualization_output.json',

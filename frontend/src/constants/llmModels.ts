@@ -62,15 +62,6 @@ export const LLM_MODELS: LLMModelDefinition[] = [
     cost: 'low',
     speed: 'very_fast',
   },
-  {
-    id: 'gpt-4o-mini',
-    provider: 'openai',
-    label: 'GPT-4o Mini',
-    description: 'Older but reliable option',
-    cost: 'low',
-    speed: 'fast',
-  },
-
   // Gemini Models
   {
     id: 'gemini-2.5-flash',
@@ -101,27 +92,9 @@ export const LLM_MODELS: LLMModelDefinition[] = [
     contextWindow: 1000000,
   },
   {
-    id: 'gemini-3-flash-preview',
+    id: 'gemini-3.1-flash-lite',
     provider: 'gemini',
-    label: 'Gemini 3 Flash (Preview)',
-    description: 'Fast frontier-class performance',
-    cost: 'medium',
-    speed: 'fast',
-    contextWindow: 1000000,
-  },
-  {
-    id: 'gemini-3-pro-preview',
-    provider: 'gemini',
-    label: 'Gemini 3 Pro (Preview)',
-    description: 'Most intelligent reasoning model',
-    cost: 'high',
-    speed: 'moderate',
-    contextWindow: 1000000,
-  },
-  {
-    id: 'gemini-3.1-flash-lite-preview',
-    provider: 'gemini',
-    label: 'Gemini 3.1 Flash Lite (Preview)',
+    label: 'Gemini 3.1 Flash Lite',
     description: '2.5x faster than 2.5 Flash, best value',
     cost: 'low',
     speed: 'very_fast',
@@ -139,6 +112,11 @@ export const LLM_MODELS: LLMModelDefinition[] = [
   // Together AI Models
   // Add models here when available
 ];
+
+// ── Default model constants ─────────────────────────────────────────
+export const DEFAULT_SCHEMA_MODEL = 'gemini-2.5-flash';
+export const DEFAULT_EXTRACTION_MODEL = 'gemini-2.5-flash-lite';
+export const DEFAULT_RELEASE_EXTRACTION_MODEL = 'gemini-3.1-flash-lite';
 
 // ============================================================================
 // Helper Functions

@@ -8,6 +8,8 @@ import re
 import time
 from typing import Any
 
+from schematiq.core.model_specs import ModelNames
+
 import numpy as np
 import pandas as pd
 import torch
@@ -106,7 +108,7 @@ class DecontextFeaturizer(BaseFeaturizer):
     name: str
     metadata: dict
 
-    def __init__(self, name, model="mistralai/Mistral-7B-Instruct-v0.2"):
+    def __init__(self, name, model=ModelNames.MISTRAL_7B):
         super().__init__(name)
         self.metadata["model_name"] = model
         self.load_model_and_tokenizer(model)
@@ -456,7 +458,7 @@ class Llama3AlignmentScorer(BaseAlignmentScorer):
 
     def query_llama(self, prompt, max_tokens=200):
         response = self.client.chat.completions.create(
-            model="meta-llama/Llama-3-70b-chat-hf",
+            model=ModelNames.LLAMA_3_70B_CHAT,
             messages=[
                 {
                     "role": "system",

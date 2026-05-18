@@ -46,6 +46,7 @@ import {
   getDefaultModelForProvider,
   getAvailableProviders,
   LLM_PROVIDER_NAMES,
+  DEFAULT_EXTRACTION_MODEL,
 } from '@/constants/llmModels';
 interface ReextractionDialogProps {
   open: boolean;
@@ -77,7 +78,7 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
   // LLM Model selection state
   const [configuredProviders, setConfiguredProviders] = useState<LLMProviderKey[]>([]);
   const [llmProvider, setLlmProvider] = useState<LLMProviderKey>('gemini');
-  const [llmModel, setLlmModel] = useState('gemini-2.5-flash-lite');
+  const [llmModel, setLlmModel] = useState(DEFAULT_EXTRACTION_MODEL);
   const [showModelSettings, setShowModelSettings] = useState(false);
   const [allowLlmConfig, setAllowLlmConfig] = useState(false);
 

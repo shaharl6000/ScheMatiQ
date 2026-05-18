@@ -18,6 +18,7 @@ from tqdm import tqdm
 import json
 import re
 import argparse
+from schematiq.core.model_specs import ModelNames
 import os
 import sys
 from pathlib import Path
@@ -115,7 +116,7 @@ def run_model(
         query,
         log_file,
         num_documents=1,  # Can be an integer or None
-        model_name="meta-llama/Llama-3.2-3B-Instruct",
+        model_name=ModelNames.LLAMA_32_3B,
         quantize=False
 ):
 
@@ -350,7 +351,7 @@ if __name__ == "__main__":
         "-model_name",
         dest="model_name",
         type=str,
-        default="meta-llama/Llama-3.2-3B-Instruct",
+        default=ModelNames.LLAMA_32_3B,
         help="HF name of LLM to run.",
     )
 

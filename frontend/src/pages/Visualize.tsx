@@ -4,6 +4,7 @@ import { useViewHistory } from '../hooks/useViewHistory';
 import { useNavigationGuardContext } from '../contexts/NavigationGuardContext';
 import { NavigationConfirmDialog } from '@/components/ui/NavigationConfirmDialog';
 import { debug } from '@/utils/debug';
+import { DEFAULT_EXTRACTION_MODEL } from '@/constants/llmModels';
 import { isSafeUrl } from '@/utils/formatting';
 import {
   ArrowLeft,
@@ -949,7 +950,7 @@ const Visualize = () => {
       }
       handleLLMSelection({
         provider: 'gemini',
-        model: 'gemini-2.5-flash-lite',
+        model: DEFAULT_EXTRACTION_MODEL,
         temperature: 0,
         ...(geminiKey ? { api_key: geminiKey } : {}),
       });
@@ -1753,7 +1754,7 @@ const Visualize = () => {
         description="Choose the AI model that will extract information from your uploaded documents."
         preservedConfig={session?.metadata?.extracted_schema?.llm_configuration?.value_extraction_backend || null}
         loading={documentUploadLoading}
-        defaultModel="gemini-2.5-flash-lite"
+        defaultModel={DEFAULT_EXTRACTION_MODEL}
       />
 
       {/* Visualize Guide Dialog */}
