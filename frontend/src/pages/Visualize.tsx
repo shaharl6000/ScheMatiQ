@@ -52,6 +52,7 @@ import StatsDashboard from '../components/StatsDashboard/StatsDashboard';
 import ScheMatiQMonitor from '../components/ScheMatiQMonitor/ScheMatiQMonitor';
 import UploadProcessingMonitor from '../components/UploadProcessingMonitor/UploadProcessingMonitor';
 import DocumentUpload from '../components/DocumentUpload/DocumentUpload';
+import SkippedDocumentsBanner from '../components/DataTable/SkippedDocumentsBanner';
 import LLMSelector from '../components/LLMSelector';
 import { useViewMode } from '../contexts/ViewModeContext';
 import ViewModeToggle from '../components/ViewMode/ViewModeToggle';
@@ -1399,6 +1400,15 @@ const Visualize = () => {
                   />
                 </div>
               )}
+              {/* Skipped documents banner (only after completion) */}
+              {(isCompleted || isStopped) && session?.statistics?.skipped_documents && session.statistics.skipped_documents.length > 0 && (
+                <SkippedDocumentsBanner
+                  skippedDocuments={session.statistics.skipped_documents}
+                  totalDocuments={(session.statistics.total_documents ?? session.statistics.total_rows) + session.statistics.skipped_documents.length}
+                  observationUnitName={session.observation_unit?.name}
+                />
+              )}
+
               {/* Render either standard DataTable or UnitGroupedTable based on view mode */}
               {viewMode === 'by_unit' && ((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) ? (
                 <UnitGroupedTable
