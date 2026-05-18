@@ -11,7 +11,6 @@ from app.models.session import (
     SchemaEvolution, VisualizationSession, SkippedDocumentInfo
 )
 from app.models.schematiq import ScheMatiQStatus
-from app.core.config import DEVELOPER_MODE
 
 from schematiq.core.schema import Schema
 

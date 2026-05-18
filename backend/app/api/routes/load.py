@@ -1181,7 +1181,7 @@ async def confirm_websocket_ready(session_id: str):
     is registered on the backend. This prevents race conditions where
     cell extraction starts before WebSocket is ready.
     """
-    from services import websocket_manager
+    from app.services import websocket_manager
 
     set_session_context(session_id)
     conn_count = websocket_manager.get_connection_count(session_id)

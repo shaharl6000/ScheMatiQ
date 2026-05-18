@@ -1,7 +1,7 @@
 
 from schematiq.core.retrievers import Retriever, EmbeddingRetriever, PromptingRetriever, test_retriever_stability
 from schematiq.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, HuggingFaceLLM, GeminiLLM
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 import io, difflib
 import numpy as np
@@ -288,7 +288,7 @@ def search_arxiv_by_title(title: str,
 def get_paper_from_title(title: str,
                          client: arxiv.Client,
                          *,
-                         exact: bool = True) -> str | None:
+                         exact: bool = True) -> Optional[str]:
     """
     • On Linux/macOS  → use the on‑disk cache under ``data/``.
     • On Windows      → skip all caching and always hit the arXiv API.
