@@ -31,28 +31,29 @@ const SkippedDocumentsBanner: React.FC<SkippedDocumentsBannerProps> = ({
     : skippedDocuments;
 
   return (
-    <div className="mb-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/40">
-      {/* Collapsed bar */}
-      <button
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-left group"
-      >
+    <div className="mt-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/40">
+      {/* Summary bar */}
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5">
         <AlertTriangle className="h-4 w-4 text-amber-500 dark:text-amber-400 flex-shrink-0" />
         <span className="text-sm text-amber-900 dark:text-amber-100 flex-1">
           <strong>{count}</strong> of {totalDocuments} document{totalDocuments !== 1 ? 's' : ''} skipped
           <span className="text-amber-600 dark:text-amber-400 ml-1.5">({percentage}%)</span>
-          {!isExpanded && (
-            <span className="ml-2 text-xs text-amber-500 dark:text-amber-500">
-              No matching {observationUnitName ? `"${observationUnitName}"` : 'observation units'} found
-            </span>
-          )}
+          <span className="ml-1.5 text-xs text-amber-500 dark:text-amber-500">
+            &mdash; no matching {observationUnitName ? `"${observationUnitName}"` : 'observation units'} found
+          </span>
         </span>
-        {isExpanded ? (
-          <ChevronUp className="h-4 w-4 text-amber-400 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors" />
-        ) : (
-          <ChevronDown className="h-4 w-4 text-amber-400 group-hover:text-amber-600 dark:group-hover:text-amber-300 transition-colors" />
-        )}
-      </button>
+        <button
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="text-xs font-medium text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline underline-offset-2 decoration-amber-300 dark:decoration-amber-600 hover:decoration-amber-500 transition-colors flex items-center gap-1 whitespace-nowrap"
+        >
+          {isExpanded ? 'Hide details' : 'Show details'}
+          {isExpanded ? (
+            <ChevronUp className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </div>
 
       {/* Expanded detail */}
       {isExpanded && (
@@ -87,7 +88,7 @@ const SkippedDocumentsBanner: React.FC<SkippedDocumentsBannerProps> = ({
                     Document
                   </th>
                   <th className="px-2.5 py-1.5 text-left font-semibold text-amber-900 dark:text-amber-100">
-                    Reason
+                    Reason <span className="font-normal text-amber-500 dark:text-amber-500">(LLM explanation)</span>
                   </th>
                 </tr>
               </thead>

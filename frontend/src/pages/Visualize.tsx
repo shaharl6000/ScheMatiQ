@@ -1400,15 +1400,6 @@ const Visualize = () => {
                   />
                 </div>
               )}
-              {/* Skipped documents banner (only after completion) */}
-              {(isCompleted || isStopped) && session?.statistics?.skipped_documents && session.statistics.skipped_documents.length > 0 && (
-                <SkippedDocumentsBanner
-                  skippedDocuments={session.statistics.skipped_documents}
-                  totalDocuments={(session.statistics.total_documents ?? session.statistics.total_rows) + session.statistics.skipped_documents.length}
-                  observationUnitName={session.observation_unit?.name}
-                />
-              )}
-
               {/* Render either standard DataTable or UnitGroupedTable based on view mode */}
               {viewMode === 'by_unit' && ((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) ? (
                 <UnitGroupedTable
@@ -1468,6 +1459,15 @@ const Visualize = () => {
                   selectedDocuments={selectedDocuments}
                   onDocumentChange={setSelectedDocuments}
                   documentDataLoading={!documentListResponse}
+                />
+              )}
+
+              {/* Skipped documents banner (only after completion, below the table) */}
+              {(isCompleted || isStopped) && session?.statistics?.skipped_documents && session.statistics.skipped_documents.length > 0 && (
+                <SkippedDocumentsBanner
+                  skippedDocuments={session.statistics.skipped_documents}
+                  totalDocuments={(session.statistics.total_documents ?? session.statistics.total_rows) + session.statistics.skipped_documents.length}
+                  observationUnitName={session.observation_unit?.name}
                 />
               )}
 
