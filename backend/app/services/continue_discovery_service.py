@@ -200,10 +200,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         # Preserve existing schema evolution and skipped_documents, but fix any corrupted data
         existing_evolution = None
         existing_skipped = []
-        existing_skipped_detail: List[Dict[str, Any]] = []
         if session.statistics:
             existing_skipped = session.statistics.skipped_documents or []
-            existing_skipped_detail = getattr(session.statistics, "skipped_documents_detail", None) or []
         if preserve_evolution and session.statistics and session.statistics.schema_evolution:
             existing_evolution = session.statistics.schema_evolution
             actual_total = actual_column_count  # Use deduplicated count
@@ -335,7 +333,6 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             column_stats=columns,
             schema_evolution=existing_evolution,  # Preserve existing evolution
             skipped_documents=existing_skipped,  # Preserve skipped documents
-            skipped_documents_detail=existing_skipped_detail,
         )
 
         self.session_manager.update_session(session)
@@ -1515,7 +1512,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         max_workers=1,
                         on_value_extracted=on_value_extracted,
                         should_stop=should_stop,
-                        write_skip_rationale_artifact=DEVELOPER_MODE,
+                        write_skip_rationale_artifact=session.write_artifacts,
                     )
 
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)

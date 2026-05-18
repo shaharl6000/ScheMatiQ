@@ -19,7 +19,7 @@ from schematiq.core import utils
 
 SCHEMATIQ_AVAILABLE = True
 
-from app.models.session import SessionStatus, DataRow, DataStatistics, ColumnInfo, VisualizationSession
+from app.models.session import SessionStatus, DataRow, DataStatistics, ColumnInfo, VisualizationSession, SkippedDocumentInfo
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
@@ -223,7 +223,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                         on_value_extracted=on_value_extracted,
                         on_document_started=on_document_started,
                         should_stop=should_stop,  # Allow graceful stop
-                        write_skip_rationale_artifact=DEVELOPER_MODE,
+                        write_skip_rationale_artifact=session.write_artifacts,
                     )
                     logger.info(f"EXTRACTION COMPLETED for session {session_id}")
                     return result
@@ -353,7 +353,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
                 await asyncio.sleep(PROGRESS_CHECK_INTERVAL)  # Check every few seconds for faster updates
             
             # Wait for completion
-            await extraction_task
+            extraction_result = await extraction_task
 
             # If stop was requested while we were waiting for the last document to finish,
             # the while loop may have exited because the task completed — not because we
@@ -416,7 +416,10 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
 
             # Recompute statistics from merged data
             try:
-                statistics = self._compute_statistics_from_data(session_id, session)
+                skipped_detail = extraction_result.get("skipped_documents", []) if extraction_result else []
+                skipped_documents = [SkippedDocumentInfo(**d) for d in skipped_detail]
+                
+                statistics = self._compute_statistics_from_data(session_id, session, skipped_documents)
                 if statistics:
                     session.statistics = statistics
                     self.session_manager.update_session(session)
@@ -1182,7 +1185,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             logger.debug(f"Removing hidden system file: {file_path}")
             file_path.unlink()
 
-    def _compute_statistics_from_data(self, session_id: str, session: VisualizationSession) -> Optional[DataStatistics]:
+    def _compute_statistics_from_data(self, session_id: str, session: VisualizationSession, skipped_documents: Optional[List[SkippedDocumentInfo]] = None) -> Optional[DataStatistics]:
         """Compute statistics from the merged data.jsonl file.
 
         NOTE: Similar to schematiq_runner._compute_statistics_from_extracted_data() but:
@@ -1193,6 +1196,7 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         Args:
             session_id: The session ID
             session: The session object with columns
+            skipped_documents: Optional list of skipped documents with reasons
 
         Returns:
             DataStatistics object or None if no data available
@@ -1287,7 +1291,8 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             total_documents=total_documents,
             completeness=completeness,
             column_stats=columns,
-            schema_evolution=None  # Upload sessions don't have schema evolution
+            schema_evolution=None,  # Upload sessions don't have schema evolution
+            skipped_documents=skipped_documents or [],
         )
 
         logger.info(f"Statistics computed: {len(data_rows)} rows, {total_documents} documents, {len(columns)} columns, {completeness:.1f}% complete")

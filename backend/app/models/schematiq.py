@@ -71,6 +71,7 @@ class ScheMatiQConfig(BaseModel):
     count_toward_quota: bool = True  # If False, this session's LLM calls won't count toward the global quota
     llm_call_limit: Optional[int] = None  # Developer-only: override the global quota limit for this session
     opt_out_data_collection: bool = False  # User opted out of research data archival
+    write_artifacts: Optional[bool] = None  # If True, write debug artifacts like skip rationales
 
 class ScheMatiQStatus(BaseModel):
     """Status of ScheMatiQ execution."""

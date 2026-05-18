@@ -33,7 +33,7 @@ def build_table_jsonl(
     on_warning: Optional[OnWarningCallback] = None,
     known_units: Optional[Dict[str, List[str]]] = None,
     on_document_started: Optional[Callable[[str], None]] = None,
-    write_skip_rationale_artifact: bool = False,
+    write_skip_rationale_artifact: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """
     Extract values from papers and write to JSONL, grouping by row names and merging intelligently.
@@ -88,8 +88,7 @@ def build_table_jsonl(
     # Return extraction results including suggested values and skipped documents
     return {
         "suggested_values": table_builder.get_all_suggested_values(),
-        "skipped_documents": table_builder.get_skipped_documents(),
-        "skipped_documents_detail": table_builder.get_skipped_documents_with_reasons(),
+        "skipped_documents": table_builder.get_skipped_documents_with_reasons(),
     }
 
 

@@ -235,7 +235,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         retrieval_k=8,
                         max_workers=1,
                         should_stop=should_stop,
-                        write_skip_rationale_artifact=DEVELOPER_MODE,
+                        write_skip_rationale_artifact=session.write_artifacts,
                     )
                 )
 
@@ -499,7 +499,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                     retrieval_k=10,
                     max_workers=1,
                     should_stop=should_stop,
-                    write_skip_rationale_artifact=DEVELOPER_MODE,
+                    write_skip_rationale_artifact=session.write_artifacts,
                 )
             )
 
@@ -958,7 +958,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         retrieval_k=10,
                         max_workers=1,
                         should_stop=should_stop,
-                        write_skip_rationale_artifact=DEVELOPER_MODE,
+                        write_skip_rationale_artifact=session.write_artifacts,
                     )
                 )
                 

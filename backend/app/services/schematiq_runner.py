@@ -39,6 +39,7 @@ from app.models.schematiq import ScheMatiQConfig, ScheMatiQStatus
 from app.models.session import (
     ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus,
     SchemaEvolution, SchemaSnapshot, VisualizationSession, ObservationUnitInfo,
+    SkippedDocumentInfo
 )
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
@@ -240,6 +241,14 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         try:
             session = self.session_manager.get_session(session_id)
             session.status = SessionStatus.PROCESSING
+            
+            # Initialize write_artifacts from config or DEVELOPER_MODE
+            config_file = self.work_dir / session_id / "config.json"
+            with open(config_file) as f:
+                config_data = json.load(f)
+            config = ScheMatiQConfig(**config_data)
+            session.write_artifacts = config.write_artifacts if config.write_artifacts is not None else DEVELOPER_MODE
+            
             self.session_manager.update_session(session)
 
             await self.broadcast_step_progress(
@@ -580,8 +589,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 return
 
             # Step 6b: Value extraction
-            skipped_documents: List[str] = []
-            skipped_documents_detail: List[Dict[str, Any]] = []
+            skipped_documents: List[SkippedDocumentInfo] = []
             if schematiq_config.get("skip_value_extraction", False) or not has_documents:
                 logger.info("Skipping value extraction (schema-only mode)")
             else:
@@ -602,11 +610,12 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
 
                 heartbeat_task = await start_heartbeat(self.websocket_manager, session_id, interval=15.0)
                 try:
-                    skipped_documents, skipped_documents_detail = await run_value_extraction(
+                    skipped_documents = await run_value_extraction(
                         session_id, schematiq_config, discovered_schema, value_extraction_llm,
                         retriever, update_progress, self.is_stop_requested,
                         ws_mixin=self, ws_manager=self.websocket_manager,
                         session_manager=self.session_manager, work_dir=self.work_dir,
+                        write_artifacts=session.write_artifacts,
                     )
                 finally:
                     heartbeat_task.cancel()
@@ -633,7 +642,6 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 schema_evolution,
                 skipped_documents,
                 self.work_dir,
-                skipped_documents_detail,
             )
 
             # Save LLM call tracking

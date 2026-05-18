@@ -8,9 +8,9 @@ from typing import Dict, Any, List, Callable, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
 
-from app.core.config import DEVELOPER_MODE
 from app.services import schematiq_thread_pool
 from app.services.pipeline.callbacks import create_value_extracted_callback, create_warning_callback
+from app.models.session import SkippedDocumentInfo
 
 from schematiq.core.schema import Schema
 from schematiq.core.llm_backends import LLMInterface
@@ -31,12 +31,12 @@ async def run_value_extraction(
     ws_manager,
     session_manager,
     work_dir: Path,
-) -> Tuple[List[str], List[Dict[str, Any]]]:
+    write_artifacts: bool = False,
+) -> List[SkippedDocumentInfo]:
     """Run real value extraction using the value extraction pipeline.
 
     Returns:
-        (skipped_document_names, skipped_documents_detail) where detail entries are
-        ``{"document": str, "reason": str}`` for each skip (often LLM ``notes``).
+        List[SkippedDocumentInfo] for each skip (often LLM ``notes``).
     """
     session_dir = work_dir / session_id
 
@@ -92,7 +92,7 @@ async def run_value_extraction(
             on_value_extracted=on_value_extracted,
             should_stop=should_stop,
             on_warning=on_warning,
-            write_skip_rationale_artifact=DEVELOPER_MODE,
+            write_skip_rationale_artifact=write_artifacts,
         )
         return extraction_result
 
@@ -192,14 +192,14 @@ async def run_value_extraction(
 
     if stopped_early:
         logger.warning("Value extraction stopped early with %d rows extracted", final_line_count)
-        return [], []
+        return []
 
     suggested_values = extraction_result.get("suggested_values", {}) if extraction_result else {}
-    skipped_documents = extraction_result.get("skipped_documents", []) if extraction_result else []
-    skipped_documents_detail = extraction_result.get("skipped_documents_detail", []) if extraction_result else []
+    skipped_detail = extraction_result.get("skipped_documents", []) if extraction_result else []
+    skipped_documents = [SkippedDocumentInfo(**d) for d in skipped_detail]
 
     if skipped_documents:
-        names = ', '.join(skipped_documents[:5])
+        names = ', '.join([d.document for d in skipped_documents[:5]])
         suffix = f' and {len(skipped_documents) - 5} more' if len(skipped_documents) > 5 else ''
         await ws_manager.broadcast_log(session_id, {
             "level": "warning",
@@ -216,12 +216,11 @@ async def run_value_extraction(
         "total_documents": total_documents,
         "elapsed_time": int(time.time() - start_time),
         "suggested_values_count": sum(len(vals) for vals in suggested_values.values()) if suggested_values else 0,
-        "skipped_documents": skipped_documents,
+        "skipped_documents": [d.model_dump() for d in skipped_documents],
         "skipped_documents_count": len(skipped_documents),
-        "skipped_documents_detail": skipped_documents_detail,
     })
 
-    return skipped_documents, skipped_documents_detail
+    return skipped_documents
 
 
 async def process_suggested_values(

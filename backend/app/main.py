@@ -49,7 +49,12 @@ from app.core.config import (
     ALLOWED_ORIGINS, DEFAULT_HOST, DEFAULT_PORT,
     HEALTH_CHECK_MESSAGE, API_ROOT_MESSAGE,
     MAX_CONCURRENT_SESSIONS, SCHEMATIQ_THREAD_POOL_SIZE,
+    DEVELOPER_MODE,
 )
+
+# Initialize schematiq-lib global config
+from schematiq.core.config import config as lib_config
+lib_config.write_artifacts = DEVELOPER_MODE
 
 app = FastAPI(
     title=API_TITLE,

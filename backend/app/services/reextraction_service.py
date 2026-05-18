@@ -1147,7 +1147,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         on_document_started=on_document_started,
                         should_stop=should_stop,  # Allow graceful stop
                         known_units=known_units if known_units else None,
-                        write_skip_rationale_artifact=DEVELOPER_MODE,
+                        write_skip_rationale_artifact=session.write_artifacts,
                     )
 
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)

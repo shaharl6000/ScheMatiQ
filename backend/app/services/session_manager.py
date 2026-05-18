@@ -228,6 +228,12 @@ class SessionManager:
             )
             modified = True
 
+        # Initialize write_artifacts if missing
+        if not hasattr(session, 'write_artifacts') or session.write_artifacts is None:
+            from app.core.config import DEVELOPER_MODE
+            session.write_artifacts = DEVELOPER_MODE
+            modified = True
+
         if modified:
             logger.debug(f"Migrated session {session.id} with new fields")
 

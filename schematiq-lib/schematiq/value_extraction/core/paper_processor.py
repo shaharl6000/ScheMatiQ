@@ -5,6 +5,10 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
+from schematiq.core.results import UnitIdentificationResult, ExtractionResult
+from schematiq.value_extraction.config.messages import (
+    NO_UNITS_FOUND, NO_KNOWN_UNITS, KNOWN_UNITS_EMPTY
+)
 from schematiq.core.llm_backends import LLMInterface
 from sentence_transformers import util as st_util
 from schematiq.core.llm_call_tracker import LLMCallTracker
@@ -1301,7 +1305,7 @@ class PaperProcessor:
         observation_unit: ObservationUnit,
         schema: Schema,
         max_retries: int = 2,
-    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    ) -> UnitIdentificationResult:
         """
         Identify all observation units within a document with retry logic.
 
@@ -1313,7 +1317,7 @@ class PaperProcessor:
             max_retries: Maximum retry attempts on format errors (default: 2)
 
         Returns:
-            (units, skip_reason):
+            UnitIdentificationResult:
             - units: list of dicts, each containing unit_name, relevant_passages, confidence
             - skip_reason: when *units* is empty, a human-readable explanation (often the LLM's
               ``notes`` field); ``None`` when units is non-empty.
@@ -1355,12 +1359,8 @@ class PaperProcessor:
                             f"No observation units of type '{observation_unit.name}' found in {paper_title}"
                         )
                         notes = (result.notes or "").strip()
-                        reason = (
-                            notes
-                            if notes
-                            else "No observation units matched the schema definition for this document."
-                        )
-                        return [], reason
+                        reason = notes if notes else NO_UNITS_FOUND
+                        return UnitIdentificationResult(units=[], skip_reason=reason)
 
                     # Ensure relevant_passages aren't empty - use full text as fallback
                     for unit in result.units:
@@ -1420,8 +1420,8 @@ class PaperProcessor:
                                 "(low confidence and/or deduplication)."
                             )
                         )
-                        return [], reason
-                    return units, None
+                        return UnitIdentificationResult(units=[], skip_reason=reason)
+                    return UnitIdentificationResult(units=units)
 
                 # Parse failed - record error for retry
                 last_error = result.error
@@ -1455,7 +1455,7 @@ class PaperProcessor:
             f"Unit identification failed after {max_retries + 1} attempts. "
             f"Last error: {last_error}"
         )
-        return [], fail_reason
+        return UnitIdentificationResult(units=[], skip_reason=fail_reason)
 
     def extract_values_for_unit(
         self,
@@ -1595,7 +1595,7 @@ class PaperProcessor:
         retrieval_k: int = 8,
         on_unit_extracted: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         known_units: Optional[List[str]] = None,
-    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    ) -> ExtractionResult:
         """
         Extract values from a paper, potentially producing multiple rows
         if the observation unit is sub-document-level.
@@ -1613,7 +1613,7 @@ class PaperProcessor:
                 these names directly with the full paper text as relevant passages.
 
         Returns:
-            (rows, skip_reason): ``skip_reason`` is set only when *rows* is empty because no
+            ExtractionResult: ``skip_reason`` is set only when *rows* is empty because no
             usable observation units were produced (often includes the LLM ``notes`` field).
 
         Note: Document preprocessing is handled by the retriever when configured,
@@ -1629,7 +1629,7 @@ class PaperProcessor:
         if known_units is not None:
             if not known_units:
                 print(f"  ⚠️ No known units listed for {paper_title}, skipping document")
-                return [], "No known observation units provided for this document."
+                return ExtractionResult(rows=[], skip_reason=NO_KNOWN_UNITS)
             # Skip LLM discovery — use provided unit names directly
             units = [
                 {
@@ -1645,15 +1645,17 @@ class PaperProcessor:
             print(
                 f"🔍 Identifying observation units ({observation_unit.name}) in {paper_title}..."
             )
-            units, ident_skip_reason = self.identify_observation_units(
+            ident_result = self.identify_observation_units(
                 paper_title, paper_text, observation_unit, schema
             )
+            units = ident_result.units
+            ident_skip_reason = ident_result.skip_reason
 
         if not units:
             print(f"  ⚠️ No units found, skipping document")
             if known_units is not None:
-                return [], "No observation units could be built from the known-units list."
-            return [], ident_skip_reason
+                return ExtractionResult(rows=[], skip_reason=KNOWN_UNITS_EMPTY)
+            return ExtractionResult(rows=[], skip_reason=ident_skip_reason)
 
         print(
             f"  📊 Found {len(units)} observation units: {[u['unit_name'] for u in units]}"
@@ -1738,4 +1740,4 @@ class PaperProcessor:
         print(
             f"  ✅ Completed {paper_title}: {len(results)} rows from {len(units)} units"
         )
-        return results, None
+        return ExtractionResult(rows=results)
