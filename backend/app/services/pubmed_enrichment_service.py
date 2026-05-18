@@ -206,7 +206,7 @@ class PubMedEnrichmentService:
 
     PubMed / EuropePMC URLs are only resolved for documents that plausibly came
     from a PubMed-backed corpus (cloud dataset or ScheMatiQ local batch), not
-    for user-uploaded files tracked in ``pubmed_link_suppressed_document_names``.
+    for user-uploaded files tracked in ``pubmed_link_suppressed_stems``.
     """
 
     def __init__(self, session_manager: SessionManager, data_dir: str = DEFAULT_DATA_DIR):
@@ -217,32 +217,23 @@ class PubMedEnrichmentService:
         self._in_progress: Set[str] = set()
 
     @staticmethod
-    def _document_name_matches_suppressed(doc_name: str, suppressed: List[str]) -> bool:
-        """Match row _source_document (often stem or unit-prefixed) to upload-tracked names."""
-        if not suppressed or not doc_name:
-            return False
-        sset = set(suppressed)
-        stripped = re.sub(r"^[a-z]{2,5}-", "", doc_name)
-        variants = {doc_name, stripped, Path(doc_name).stem, Path(stripped).stem}
-        if variants & sset:
-            return True
-        stem = Path(stripped).stem
-        for ext in (".txt", ".md", ".pdf", ".doc", ".docx", ".rtf"):
-            if f"{stem}{ext}" in sset:
-                return True
-        return False
-
     def document_qualifies_for_pubmed_link(
-        self, session: Optional[VisualizationSession], doc_name: Optional[str]
+        session: Optional[VisualizationSession], doc_name: Optional[str]
     ) -> bool:
-        """Whether we may resolve or expose an external PubMed/DOI URL for this source document."""
+        """Whether we may resolve or expose a PubMed/DOI URL for *doc_name*.
+
+        Returns False for upload-only sessions (no cloud dataset) and for
+        documents whose stem appears in the suppression list populated at
+        upload time.  The suppression list stores stems, which is the same
+        form used for _source_document in extracted rows, so the check is
+        an exact set membership test — no fuzzy matching needed.
+        """
         if not session or not doc_name:
             return False
         meta = session.metadata
         if session.type == SessionType.UPLOAD and not meta.cloud_dataset:
             return False
-        suppressed = getattr(meta, "pubmed_link_suppressed_document_names", None) or []
-        if self._document_name_matches_suppressed(doc_name, suppressed):
+        if doc_name in set(meta.pubmed_link_suppressed_stems):
             return False
         return True
 
@@ -336,16 +327,16 @@ class PubMedEnrichmentService:
         if not missing:
             return False
 
-        ineligible = [n for n in missing if not self.document_qualifies_for_pubmed_link(session, n)]
-        eligible_missing = [n for n in missing if self.document_qualifies_for_pubmed_link(session, n)]
+        eligible, ineligible = [], []
+        for name in missing:
+            (eligible if self.document_qualifies_for_pubmed_link(session, name) else ineligible).append(name)
         if ineligible:
             self._store_enrichment_misses_batch(session_id, ineligible)
-
-        if not eligible_missing:
+        if not eligible:
             return False
 
         self._in_progress.add(session_id)
-        task = asyncio.create_task(self._enrich_documents(session_id, eligible_missing))
+        task = asyncio.create_task(self._enrich_documents(session_id, eligible))
         self._active_tasks.add(task)
 
         def _on_done(t: asyncio.Task) -> None:
@@ -355,7 +346,7 @@ class PubMedEnrichmentService:
         task.add_done_callback(_on_done)
         logger.info(
             "[pubmed-enrichment] Started enrichment for %d/%d documents in session %s",
-            len(eligible_missing), len(doc_names), session_id[:8],
+            len(eligible), len(doc_names), session_id[:8],
         )
         return True
 

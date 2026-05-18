@@ -927,15 +927,11 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         # Update session metadata — append new filenames to any already queued
         existing_docs = session.metadata.uploaded_documents or []
         session.metadata.uploaded_documents = existing_docs + uploaded_filenames
-        # Never attach PubMed/EuropePMC-derived URLs to user-uploaded source documents
-        sup = session.metadata.pubmed_link_suppressed_document_names or []
-        sup_set = set(sup)
+        # Track stems so PubMed enrichment skips user-uploaded documents
+        existing_stems = set(session.metadata.pubmed_link_suppressed_stems)
         for fn in uploaded_filenames:
-            for label in (fn, Path(fn).stem):
-                if label not in sup_set:
-                    sup.append(label)
-                    sup_set.add(label)
-        session.metadata.pubmed_link_suppressed_document_names = sup
+            existing_stems.add(Path(fn).stem)
+        session.metadata.pubmed_link_suppressed_stems = sorted(existing_stems)
         session.status = SessionStatus.DOCUMENTS_UPLOADED
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
@@ -1017,11 +1013,9 @@ async def remove_uploaded_document(session_id: str, request: RemoveDocumentReque
 
         # Remove from metadata
         session.metadata.uploaded_documents.remove(request.filename)
-        _fn = request.filename
-        _stem = Path(_fn).stem
-        session.metadata.pubmed_link_suppressed_document_names = [
-            x for x in (session.metadata.pubmed_link_suppressed_document_names or [])
-            if x not in {_fn, _stem}
+        stem = Path(request.filename).stem
+        session.metadata.pubmed_link_suppressed_stems = [
+            s for s in session.metadata.pubmed_link_suppressed_stems if s != stem
         ]
 
         # Remove the actual file from pending_documents directory
@@ -1190,8 +1184,6 @@ async def confirm_websocket_ready(session_id: str):
     is registered on the backend. This prevents race conditions where
     cell extraction starts before WebSocket is ready.
     """
-    from services import websocket_manager
-
     set_session_context(session_id)
     conn_count = websocket_manager.get_connection_count(session_id)
     logger.info(f"WebSocket confirmation request for {session_id}: {conn_count} connections")

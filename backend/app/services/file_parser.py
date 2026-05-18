@@ -12,6 +12,8 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from fastapi import UploadFile
 
+from schematiq.core.model_specs import ModelNames
+
 logger = logging.getLogger(__name__)
 
 from app.models.upload import (
@@ -1624,7 +1626,7 @@ class FileParser:
             "document_randomization_seed": 42,
             "backend": {
                 "provider": "gemini",
-                "model": "gemini-2.5-flash-lite",
+                "model": ModelNames.DEFAULT_VALUE_EXTRACTION,
                 "temperature": 0
                 # max_output_tokens auto-detected from model_specs
             },

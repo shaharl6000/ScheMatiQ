@@ -38,6 +38,7 @@ import {
   formatCostLevel,
   formatSpeedLevel,
   LLM_PROVIDER_NAMES,
+  DEFAULT_EXTRACTION_MODEL,
 } from '@/constants/llmModels';
 import { configAPI } from '../../services/api';
 
@@ -55,7 +56,7 @@ interface LLMSelectorProps {
 
 const DEFAULT_CONFIG: LLMConfig = {
   provider: 'gemini',
-  model: 'gemini-2.5-flash-lite',
+  model: DEFAULT_EXTRACTION_MODEL,
   temperature: 0,
 };
 

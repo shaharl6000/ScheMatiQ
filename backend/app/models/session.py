@@ -125,8 +125,12 @@ class SessionMetadata(BaseModel):
     additional_rows_added: int = 0  # Rows added through document processing
     cloud_dataset: Optional[str] = None  # Original cloud dataset name (e.g., "nes_full_text")
     document_metadata: Dict[str, Dict[str, Any]] = Field(default_factory=dict)  # Per-document metadata: filename -> { "url": str, ... }
-    # Filenames/stems from /add-documents — never attach PubMed/EuropePMC-resolved URLs to these
-    pubmed_link_suppressed_document_names: List[str] = Field(default_factory=list)
+    # Stems of user-uploaded files — never attach PubMed/EuropePMC URLs to these
+    pubmed_link_suppressed_stems: List[str] = Field(default_factory=list)
+    # Set when the user edits the observation unit; cleared after a successful re-extraction run.
+    # While True, re-extraction must not reuse row names from existing data as known_units (that
+    # would skip LLM unit discovery and ignore the new definition).
+    pending_observation_unit_rediscovery: bool = False
 
 class DataStatistics(BaseModel):
     """Statistics about the dataset."""

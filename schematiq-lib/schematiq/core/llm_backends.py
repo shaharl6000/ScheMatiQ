@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Union, Optional
 import re
 
-from schematiq.core.model_specs import get_model_spec, get_max_output_tokens
+from schematiq.core.model_specs import get_model_spec, get_max_output_tokens, ModelNames
 from schematiq.core.llm_call_tracker import LLMCallTracker
 
 logger = logging.getLogger(__name__)
@@ -489,7 +489,7 @@ class GeminiLLM(LLMInterface):
 
     def __init__(
         self,
-        model: str = "gemini-2.5-flash-lite",
+        model: str = ModelNames.DEFAULT_VALUE_EXTRACTION,
         api_key: str | None = None,
         max_output_tokens: Optional[int] = None,
         temperature: float = 0.3,
@@ -791,9 +791,13 @@ class GeminiLLM(LLMInterface):
                     ttl=f"{ttl_seconds}s",
                 )
             )
+            logger.info(
+                "Gemini context cache CREATED (model=%s, doc_chars=%d, ttl=%ds, cache=%s)",
+                self.model, len(document_text), ttl_seconds, cache.name,
+            )
             return cache
         except Exception as e:
-            print(f"Context cache creation failed: {e}. Proceeding without cache.")
+            logger.warning("Gemini context cache creation FAILED (model=%s, doc_chars=%d): %s", self.model, len(document_text), e)
             return None
 
     def delete_context_cache(self, cache):
@@ -801,8 +805,9 @@ class GeminiLLM(LLMInterface):
         try:
             if cache:
                 self._client.caches.delete(name=cache.name)
-        except Exception:
-            pass
+                logger.info("Gemini context cache DELETED (cache=%s)", cache.name)
+        except Exception as e:
+            logger.debug("Gemini context cache delete failed (cache=%s): %s", cache.name, e)
 
     def generate_with_cache(self, prompt: str, cache, **kwargs) -> str:
         """Generate using a cached context. Falls back to regular generate if cache is None."""
@@ -821,6 +826,10 @@ class GeminiLLM(LLMInterface):
         else:
             prompt_text = prompt
 
+        logger.info(
+            "Gemini cached API call START (model=%s, cache=%s, prompt_chars=%d)",
+            self.model, cache.name, len(prompt_text),
+        )
         print(f"🚀 Starting Gemini cached API call (model: {self.model}, prompt: ~{len(prompt_text):,} chars)")
         start_time = time.time()
 

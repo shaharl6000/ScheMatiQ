@@ -85,5 +85,6 @@ def build_extraction_response_schema(
     schema = {
         "type": "OBJECT",
         "properties": properties,
+        "required": [_sanitize_name(col.name) for col in columns],
     }
     return schema, key_map

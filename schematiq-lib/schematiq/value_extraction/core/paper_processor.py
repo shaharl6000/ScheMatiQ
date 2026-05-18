@@ -2,13 +2,25 @@
 
 import json
 import logging
+import os
+import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
 from schematiq.core.llm_backends import LLMInterface
 from sentence_transformers import util as st_util
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.core import utils
+
+# Set SCHEMATIQ_DEBUG_DIR to a directory path to save LLM inputs/outputs per pass.
+_DEBUG_DIR: Optional[Path] = None
+_debug_env = os.environ.get("SCHEMATIQ_DEBUG_DIR")
+if _debug_env:
+    _DEBUG_DIR = Path(_debug_env)
+    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    logging.info("Debug dump enabled -> %s", _DEBUG_DIR)
 
 from .llm_cache import LLMCache
 from .json_parser import JSONResponseParser
@@ -110,6 +122,50 @@ class PaperProcessor:
                 flat[col_name] = str(ans)
         return flat
 
+    @staticmethod
+    def _debug_dump(
+        pass_name: str,
+        paper_title: str,
+        batch_idx: int,
+        columns_requested: List[str],
+        prompt_msgs: List[Dict[str, str]],
+        raw_response: str,
+        parsed: Dict[str, Any],
+        cleaned: Dict[str, Any],
+        already_extracted: Dict[str, str] | None = None,
+    ) -> None:
+        """Save a debug snapshot of one LLM call to SCHEMATIQ_DEBUG_DIR.
+
+        Set the SCHEMATIQ_DEBUG_DIR environment variable to a directory path
+        to enable. Each call writes a JSON file named:
+          <title>__<pass>__batch<n>__<timestamp_ms>.json
+        No-op when the env var is not set.
+        """
+        if _DEBUG_DIR is None:
+            return
+        safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in paper_title)[:60]
+        ts = int(time.time() * 1000)
+        fname = f"{safe_title}__{pass_name}__batch{batch_idx}__{ts}.json"
+        payload = {
+            "pass": pass_name,
+            "paper_title": paper_title,
+            "batch_idx": batch_idx,
+            "columns_requested": columns_requested,
+            "columns_filled": list(cleaned.keys()),
+            "columns_missing": [c for c in columns_requested if c not in cleaned],
+            "prompt_system": prompt_msgs[0]["content"][:500] + "..." if prompt_msgs else None,
+            "prompt_user_len": len(prompt_msgs[1]["content"]) if len(prompt_msgs) > 1 else 0,
+            "raw_response": raw_response[:5000] if raw_response else None,
+            "parsed": {k: v for k, v in (parsed or {}).items()},
+            "cleaned": {k: v for k, v in (cleaned or {}).items()},
+        }
+        if already_extracted:
+            payload["already_extracted_context"] = already_extracted
+        try:
+            (_DEBUG_DIR / fname).write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+        except Exception as e:
+            logging.warning("Debug dump failed: %s", e)
+
     def _check_stop_requested(self) -> bool:
         """Check if stop was requested. Returns True if should stop."""
         if self.should_stop and self.should_stop():
@@ -160,13 +216,14 @@ class PaperProcessor:
     def _create_document_cache(self, system_prompt: str, paper_text: str):
         """Create a Gemini context cache for a document. Returns cache or None."""
         if not self._is_gemini_backend():
+            logger.debug("Context cache skipped: non-Gemini backend")
             return None
-        # Only cache if document is large enough (~1024 tokens ≈ 4096 chars)
         if len(paper_text) < 4096:
+            logger.info("Context cache skipped: document too small (%d chars < 4096)", len(paper_text))
             return None
         if not hasattr(self.llm, 'create_context_cache'):
             return None
-        return self.llm.create_context_cache(system_prompt, paper_text)
+        return self.llm.create_context_cache(system_prompt, paper_text, ttl_seconds=300)
 
     def _delete_document_cache(self):
         """Delete the active context cache if one exists."""
@@ -521,6 +578,18 @@ class PaperProcessor:
             # Track unmatched values for schema evolution
             self._track_unmatched_values(unmatched, paper_title)
 
+            self._debug_dump(
+                pass_name="pass3_batch_fallback",
+                paper_title=paper_title,
+                batch_idx=0,
+                columns_requested=requested,
+                prompt_msgs=msgs,
+                raw_response=raw,
+                parsed=parsed,
+                cleaned=cleaned,
+                already_extracted=already_extracted,
+            )
+
             return cleaned
         except Exception as e:
             print(
@@ -632,6 +701,18 @@ class PaperProcessor:
                     self._track_unmatched_values(unmatched_re, paper_title)
                     cleaned_re = self._attach_source_to_excerpts(
                         cleaned_re, paper_title
+                    )
+
+                    self._debug_dump(
+                        pass_name="pass2_reordered",
+                        paper_title=paper_title,
+                        batch_idx=p2_batch_idx,
+                        columns_requested=[c.name for c in p2_batch],
+                        prompt_msgs=reorder_msgs,
+                        raw_response=raw_re,
+                        parsed=parsed_re,
+                        cleaned=cleaned_re,
+                        already_extracted=already_flat,
                     )
 
                     for col_name, col_val in cleaned_re.items():
@@ -949,6 +1030,17 @@ class PaperProcessor:
                 self._track_unmatched_values(unmatched, paper_title)
                 batch_cleaned = self._attach_source_to_excerpts(
                     batch_cleaned, paper_title
+                )
+
+                self._debug_dump(
+                    pass_name="pass1_paper",
+                    paper_title=paper_title,
+                    batch_idx=batch_idx,
+                    columns_requested=requested,
+                    prompt_msgs=msgs,
+                    raw_response=raw,
+                    parsed=parsed,
+                    cleaned=batch_cleaned,
                 )
 
                 cleaned.update(batch_cleaned)
@@ -1537,6 +1629,17 @@ class PaperProcessor:
                 self._track_unmatched_values(unmatched, paper_title)
                 cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
 
+                self._debug_dump(
+                    pass_name="pass1_unit",
+                    paper_title=f"{paper_title} - {unit_name}",
+                    batch_idx=batch_idx,
+                    columns_requested=requested,
+                    prompt_msgs=msgs,
+                    raw_response=raw,
+                    parsed=parsed,
+                    cleaned=cleaned,
+                )
+
                 all_cleaned.update(cleaned)
 
             except Exception as e:
@@ -1648,70 +1751,70 @@ class PaperProcessor:
         import time as time_module
 
         results = []
-        for i, unit in enumerate(units, 1):
-            if self._check_stop_requested():
-                print(f"🛑 Stop requested during unit extraction")
-                self._delete_document_cache()
-                break
+        try:
+            for i, unit in enumerate(units, 1):
+                if self._check_stop_requested():
+                    print(f"🛑 Stop requested during unit extraction")
+                    break
 
-            unit_name = unit.get("unit_name", f"Unit {i}")
-            relevant_passages = unit.get("relevant_passages", [paper_text])
-            confidence = unit.get("confidence", "medium")
+                unit_name = unit.get("unit_name", f"Unit {i}")
+                relevant_passages = unit.get("relevant_passages", [paper_text])
+                confidence = unit.get("confidence", "medium")
 
-            # When DISABLE_RETRIEVER is on, always use the full document text
-            # instead of the (possibly truncated) relevant_passages from unit identification.
-            # This ensures the LLM has the full context of the CURRENT document and
-            # doesn't hallucinate from other documents if the cache was somehow contaminated.
-            if DISABLE_RETRIEVER:
-                relevant_passages = [paper_text]
-            else:
-                # Ensure we have at least some text for the unit
-                if not relevant_passages:
+                # When DISABLE_RETRIEVER is on, always use the full document text
+                # instead of the (possibly truncated) relevant_passages from unit identification.
+                # This ensures the LLM has the full context of the CURRENT document and
+                # doesn't hallucinate from other documents if the cache was somehow contaminated.
+                if DISABLE_RETRIEVER:
                     relevant_passages = [paper_text]
+                else:
+                    # Ensure we have at least some text for the unit
+                    if not relevant_passages:
+                        relevant_passages = [paper_text]
 
-            print(
-                f"  → Extracting values for unit {i}/{len(units)}: {unit_name} (confidence: {confidence})"
-            )
-            unit_start = time_module.time()
-
-            # Extract values for this specific unit
-            unit_values = self.extract_values_for_unit(
-                unit_name=unit_name,
-                relevant_passages=relevant_passages,
-                schema=schema,
-                max_new_tokens=max_new_tokens,
-                paper_title=paper_title,
-                paper_text=paper_text,
-            )
-
-            unit_elapsed = time_module.time() - unit_start
-
-            if unit_values:
-                # Add metadata fields
-                unit_values["_unit_name"] = unit_name
-                unit_values["_source_document"] = paper_title
-                unit_values["_parent_document"] = paper_title
-                unit_values["_observation_unit"] = observation_unit.name
-                unit_values["_unit_confidence"] = confidence
-
-                results.append(unit_values)
-
-                # Callback for streaming
-                if on_unit_extracted:
-                    on_unit_extracted(unit_name, unit_values)
-
-                col_count = len([k for k in unit_values if not k.startswith("_")])
                 print(
-                    f"    ✓ Extracted {col_count} columns for {unit_name} ({unit_elapsed:.1f}s)"
+                    f"  → Extracting values for unit {i}/{len(units)}: {unit_name} (confidence: {confidence})"
                 )
-            else:
-                print(
-                    f"    ✗ No values extracted for {unit_name} ({unit_elapsed:.1f}s)"
+                unit_start = time_module.time()
+
+                # Extract values for this specific unit
+                unit_values = self.extract_values_for_unit(
+                    unit_name=unit_name,
+                    relevant_passages=relevant_passages,
+                    schema=schema,
+                    max_new_tokens=max_new_tokens,
+                    paper_title=paper_title,
+                    paper_text=paper_text,
                 )
 
-        # Clean up context cache for this document
-        self._delete_document_cache()
+                unit_elapsed = time_module.time() - unit_start
 
+                if unit_values:
+                    # Add metadata fields
+                    unit_values["_unit_name"] = unit_name
+                    unit_values["_source_document"] = paper_title
+                    unit_values["_parent_document"] = paper_title
+                    unit_values["_observation_unit"] = observation_unit.name
+                    unit_values["_unit_confidence"] = confidence
+
+                    results.append(unit_values)
+
+                    # Callback for streaming
+                    if on_unit_extracted:
+                        on_unit_extracted(unit_name, unit_values)
+
+                    col_count = len([k for k in unit_values if not k.startswith("_")])
+                    print(
+                        f"    ✓ Extracted {col_count} columns for {unit_name} ({unit_elapsed:.1f}s)"
+                    )
+                else:
+                    print(
+                        f"    ✗ No values extracted for {unit_name} ({unit_elapsed:.1f}s)"
+                    )
+        finally:
+            self._delete_document_cache()
+
+        self.cache.log_stats()
         print(
             f"  ✅ Completed {paper_title}: {len(results)} rows from {len(units)} units"
         )

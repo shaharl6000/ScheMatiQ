@@ -29,7 +29,8 @@ _RE_PUNCT      = re.compile(r"[^\w\s-]")
 MAX_CTX_TOKENS = 8192
 SAFETY_MARGIN   = 512
 DEFAULT_SENTENCE_LEVELS = (11, 9, 7, 5, 3, 1)
-ENC = tiktoken.encoding_for_model("gpt-4o")  # close enough
+from schematiq.core.model_specs import ModelNames
+ENC = tiktoken.encoding_for_model(ModelNames.TIKTOKEN_ENCODING_MODEL)
 MAX_NEW_TOKENS = 512
 
 def _canonical_title(t: str) -> str:
@@ -96,7 +97,7 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
 
     if provider == "together":
         return TogetherLLM(
-            model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"),
+            model=cfg.get("model", ModelNames.DEFAULT_TOGETHER),
             max_output_tokens=max_output_tokens,  # None = auto-detect
             temperature=cfg.get("temperature", 0.3),
             context_window_size=context_window_size,  # None = auto-detect
@@ -104,7 +105,7 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
         )
     elif provider == "openai":
         return OpenAILLM(
-            model=cfg.get("model", "gpt-4o"),
+            model=cfg.get("model", ModelNames.DEFAULT_OPENAI),
             max_output_tokens=max_output_tokens,  # None = auto-detect
             temperature=cfg.get("temperature", 0.3),
             context_window_size=context_window_size,  # None = auto-detect
@@ -112,12 +113,12 @@ def build_llm(cfg: Dict[str, Any]) -> LLMInterface:
         )
     elif provider == "hf":
         return HuggingFaceLLM(
-            model=cfg.get("model", "meta-llama/Llama-3.3-70B-Instruct"),
+            model=cfg.get("model", ModelNames.DEFAULT_HF),
             max_output_tokens=max_output_tokens or 1024,  # HF doesn't have auto-detect
             temperature=cfg.get("temperature", 0.3),
         )
     elif provider == "gemini":
-        model_name = cfg.get("model", "gemini-2.5-flash-lite")
+        model_name = cfg.get("model", ModelNames.DEFAULT_VALUE_EXTRACTION)
         llm = GeminiLLM(
             model=model_name,
             max_output_tokens=max_output_tokens,  # None = auto-detect
