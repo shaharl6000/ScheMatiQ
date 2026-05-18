@@ -38,13 +38,13 @@ const SkippedDocumentsBanner: React.FC<SkippedDocumentsBannerProps> = ({
         <span className="text-sm text-amber-900 dark:text-amber-100 flex-1">
           <strong>{count}</strong> of {totalDocuments} document{totalDocuments !== 1 ? 's' : ''} skipped
           <span className="text-amber-600 dark:text-amber-400 ml-1.5">({percentage}%)</span>
-          <span className="ml-1.5 text-xs text-amber-500 dark:text-amber-500">
+          <span className="ml-1.5 text-xs text-amber-700 dark:text-amber-300">
             &mdash; no matching {observationUnitName ? `"${observationUnitName}"` : 'observation units'} found
           </span>
         </span>
         <button
           onClick={() => setIsExpanded(!isExpanded)}
-          className="text-xs font-medium text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 underline underline-offset-2 decoration-amber-300 dark:decoration-amber-600 hover:decoration-amber-500 transition-colors flex items-center gap-1 whitespace-nowrap"
+          className="text-xs font-medium text-amber-800 dark:text-amber-200 hover:text-amber-950 dark:hover:text-amber-50 underline underline-offset-2 decoration-amber-400 dark:decoration-amber-500 hover:decoration-amber-600 transition-colors flex items-center gap-1 whitespace-nowrap"
         >
           {isExpanded ? 'Hide details' : 'Show details'}
           {isExpanded ? (
@@ -88,7 +88,7 @@ const SkippedDocumentsBanner: React.FC<SkippedDocumentsBannerProps> = ({
                     Document
                   </th>
                   <th className="px-2.5 py-1.5 text-left font-semibold text-amber-900 dark:text-amber-100">
-                    Reason <span className="font-normal text-amber-500 dark:text-amber-500">(LLM explanation)</span>
+                    Reason <span className="font-normal text-amber-800 dark:text-amber-200">(LLM explanation)</span>
                   </th>
                 </tr>
               </thead>
