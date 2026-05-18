@@ -71,10 +71,16 @@ async def list_source_documents(session_id: str):
         doc_summaries = []
         for d in documents:
             meta = doc_metadata.get(d["name"], {})
+            raw_url = meta.get("url")
+            url = (
+                raw_url
+                if pubmed_enrichment_service.document_qualifies_for_pubmed_link(session, d["name"])
+                else None
+            )
             doc_summaries.append(DocumentSummary(
                 name=d["name"],
                 row_count=d["row_count"],
-                url=meta.get("url"),
+                url=url,
             ))
 
         # Trigger background PubMed enrichment for documents missing URLs
