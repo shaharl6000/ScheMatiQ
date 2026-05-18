@@ -6,19 +6,20 @@ interface ColumnInfoLike {
 }
 
 /**
- * Returns data columns in a consistent priority-based order.
+ * Returns data columns in a consistent order.
  * Only handles schema/data columns — internal columns (prefixed with _) are excluded.
  *
- * Order: exact-match priority → fuzzy-match priority → regular → schema-only → "Document Directory" last
+ * When a schema (columnInfo) is provided, schema order is authoritative:
+ *   schema columns (in definition order) → extra data columns not in schema (alphabetical)
+ *
+ * When no schema is provided, falls back to heuristic priority ordering:
+ *   exact-match priority → fuzzy-match priority → regular → "Document Directory" last
  */
 export function getDefaultColumnOrder(
   rows: DataRow[],
   columnInfo?: ColumnInfoLike[]
 ): string[] {
-  const priorityColumns: string[] = [];
-  const regularColumns: string[] = [];
-
-  // Collect all non-internal data columns
+  // Collect all non-internal data columns present in any row
   const allDataColumns = new Set<string>();
   rows.forEach(row => {
     Object.keys(row.data).forEach(key => {
@@ -27,67 +28,58 @@ export function getDefaultColumnOrder(
       }
     });
   });
+  const dataColumnSet = new Set(
+    Array.from(allDataColumns).filter(col => !col.endsWith('_excerpt'))
+  );
 
-  let dataColumnArray = Array.from(allDataColumns).filter(col => !col.endsWith('_excerpt'));
+  let allCols: string[];
 
-  // Sort data columns by schema order upfront for deterministic results
-  // regardless of row data iteration order
   if (columnInfo && columnInfo.length > 0) {
-    const schemaOrder = new Map(columnInfo.map((col, idx) => [col.name, idx]));
-    dataColumnArray.sort((a, b) => {
-      const aIdx = schemaOrder.get(a) ?? Infinity;
-      const bIdx = schemaOrder.get(b) ?? Infinity;
-      return aIdx - bIdx;
-    });
-  }
+    // Schema order is authoritative: schema columns first (in definition order),
+    // then any extra data columns not in the schema (alphabetical).
+    const inSchema = new Set(columnInfo.map(c => c.name));
+    const schemaOrdered = columnInfo
+      .map(c => c.name)
+      .filter(name => !name.startsWith('_') && !name.endsWith('_excerpt'));
+    const extras = Array.from(dataColumnSet)
+      .filter(col => !inSchema.has(col))
+      .sort((a, b) => a.localeCompare(b));
+    allCols = [...schemaOrdered, ...extras];
+  } else {
+    // No schema — use heuristic priority ordering
+    const priorityColumns: string[] = [];
+    const regularColumns: string[] = [];
+    const dataColumnArray = Array.from(dataColumnSet);
 
-  // Exact-match priority columns
-  const exactMatches = ['row_name', 'name', 'id', 'title', 'row', 'identifier'];
-  exactMatches.forEach(exactName => {
-    const found = dataColumnArray.find(col => col.toLowerCase() === exactName);
-    if (found && !priorityColumns.includes(found)) {
-      priorityColumns.push(found);
-    }
-  });
-
-  // Fuzzy-match priority columns (contain name/id/title/label)
-  dataColumnArray.forEach(key => {
-    const keyLower = key.toLowerCase();
-    if (!priorityColumns.includes(key)) {
-      if (keyLower.includes('name') || keyLower.includes('id') ||
-          keyLower.includes('title') || keyLower.includes('label')) {
-        priorityColumns.push(key);
-      } else {
-        regularColumns.push(key);
+    const exactMatches = ['row_name', 'name', 'id', 'title', 'row', 'identifier'];
+    exactMatches.forEach(exactName => {
+      const found = dataColumnArray.find(col => col.toLowerCase() === exactName);
+      if (found && !priorityColumns.includes(found)) {
+        priorityColumns.push(found);
       }
-    }
-  });
+    });
 
-  // If no priority columns found, promote first regular column
-  if (priorityColumns.length === 0 && regularColumns.length > 0) {
-    const firstColumn = regularColumns.shift();
-    if (firstColumn) priorityColumns.push(firstColumn);
-  }
-
-  // Schema-only columns (in columnInfo but not in row data)
-  const schemaColumns: string[] = [];
-  if (columnInfo && columnInfo.length > 0) {
-    columnInfo.forEach(col => {
-      if (!col.name.startsWith('_') && !col.name.endsWith('_excerpt')) {
-        if (!priorityColumns.includes(col.name) && !regularColumns.includes(col.name)) {
-          schemaColumns.push(col.name);
+    dataColumnArray.forEach(key => {
+      const keyLower = key.toLowerCase();
+      if (!priorityColumns.includes(key)) {
+        if (keyLower.includes('name') || keyLower.includes('id') ||
+            keyLower.includes('title') || keyLower.includes('label')) {
+          priorityColumns.push(key);
+        } else {
+          regularColumns.push(key);
         }
       }
     });
+
+    if (priorityColumns.length === 0 && regularColumns.length > 0) {
+      const firstColumn = regularColumns.shift();
+      if (firstColumn) priorityColumns.push(firstColumn);
+    }
+
+    priorityColumns.sort((a, b) => a.localeCompare(b));
+    regularColumns.sort((a, b) => a.localeCompare(b));
+    allCols = [...priorityColumns, ...regularColumns];
   }
-
-  // TEMP HACK: Sort all data columns alphabetically
-  priorityColumns.sort((a, b) => a.localeCompare(b));
-  regularColumns.sort((a, b) => a.localeCompare(b));
-  schemaColumns.sort((a, b) => a.localeCompare(b));
-
-  // Combine all columns
-  const allCols = [...priorityColumns, ...regularColumns, ...schemaColumns];
 
   // Move enrichment/external columns to the end (right side of table)
   const isEnrichmentColumn = (col: string) => {
