@@ -615,7 +615,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                         retriever, update_progress, self.is_stop_requested,
                         ws_mixin=self, ws_manager=self.websocket_manager,
                         session_manager=self.session_manager, work_dir=self.work_dir,
-                        write_artifacts=session.write_artifacts,
+                        write_artifacts=config.write_artifacts if config.write_artifacts is not None else DEVELOPER_MODE,
                     )
                 finally:
                     heartbeat_task.cancel()
