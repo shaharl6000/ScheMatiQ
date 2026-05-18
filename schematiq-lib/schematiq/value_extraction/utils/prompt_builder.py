@@ -1,4 +1,5 @@
 """Prompt building utilities for LLM interactions."""
+from __future__ import annotations
 
 from typing import List, Dict
 from schematiq.core.schema import Column
