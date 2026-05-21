@@ -1,10 +1,9 @@
-"""Convert uploaded documents to plain text before ScheMatiQ pipeline."""
+"""Convert uploaded documents to plain text before the ScheMatiQ pipeline."""
 
 from __future__ import annotations
 
 import logging
-import shutil
-import tempfile
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +19,7 @@ logger = logging.getLogger(__name__)
 PLAIN_EXTENSIONS = {".txt", ".md"}
 CONVERT_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf"}
 
+_soffice_lock = threading.Lock()
 _soffice_path: Optional[str] = None
 _soffice_resolved = False
 
@@ -29,12 +29,15 @@ def _get_soffice_path() -> str:
     global _soffice_path, _soffice_resolved
     if _soffice_resolved:
         return _soffice_path or ""
-    _soffice_resolved = True
-    try:
-        _soffice_path = get_libreoffice_path()
-    except FileNotFoundError as e:
-        logger.warning("LibreOffice not available for document conversion: %s", e)
-        _soffice_path = ""
+    with _soffice_lock:
+        if _soffice_resolved:
+            return _soffice_path or ""
+        try:
+            _soffice_path = get_libreoffice_path()
+        except FileNotFoundError as e:
+            logger.warning("LibreOffice not available: %s", e)
+            _soffice_path = ""
+        _soffice_resolved = True
     return _soffice_path or ""
 
 
@@ -48,13 +51,21 @@ class ExtractionResult:
     original_filename: Optional[str] = None
 
 
+def _fail(source_path: Path, status: str, orig_name: str) -> ExtractionResult:
+    return ExtractionResult(
+        output_path=source_path,
+        display_name=source_path.name,
+        method="failed",
+        status=status,
+        success=False,
+        original_filename=orig_name,
+    )
+
+
 def _status_from_message(ext: str, success: bool, message: str) -> tuple[str, str]:
-    """Map conversion message to UI status and method label."""
+    """Map conversion message to (method, UI status)."""
     if not success:
-        detail = message
-        if not detail.lower().startswith("failed"):
-            detail = message
-        return "failed", f"failed: {detail}"
+        return "failed", f"failed: {message}"
 
     msg_lower = message.lower()
     if ext == ".pdf":
@@ -74,22 +85,14 @@ def _normalize_plain_text(source_path: Path, original_filename: str) -> Extracti
     """Normalize .txt/.md uploads to .txt in the same directory."""
     text = source_path.read_text(encoding="utf-8", errors="replace")
     if not text.strip():
-        return ExtractionResult(
-            output_path=source_path,
-            display_name=source_path.name,
-            method="failed",
-            status="failed: empty text file",
-            success=False,
-            original_filename=original_filename,
-        )
+        return _fail(source_path, "failed: empty text file", original_filename)
 
     if source_path.suffix.lower() == ".txt":
         output_path = source_path
     else:
         output_path = source_path.with_suffix(".txt")
         output_path.write_text(text, encoding="utf-8")
-        if source_path.exists():
-            source_path.unlink()
+        source_path.unlink(missing_ok=True)
 
     return ExtractionResult(
         output_path=output_path,
@@ -107,131 +110,74 @@ def preprocess_uploaded_file(
     worker_id: Optional[str] = None,
     original_filename: Optional[str] = None,
 ) -> ExtractionResult:
-    """
-    Convert an uploaded file in pending_documents/ to plain text.
+    """Convert an uploaded file to plain text in-place.
 
-    The source file may be deleted on success; output is always {stem}.txt
-    alongside other pending documents.
+    On success the original binary is replaced by ``{stem}.txt`` in the same
+    directory.  On failure the original is left untouched.
     """
+    orig_name = original_filename or source_path.name
+
     if not source_path.exists():
-        return ExtractionResult(
-            output_path=source_path,
-            display_name=source_path.name,
-            method="failed",
-            status="failed: file not found",
-            success=False,
-            original_filename=original_filename or source_path.name,
-        )
+        return _fail(source_path, "failed: file not found", orig_name)
 
     ext = source_path.suffix.lower()
-    orig_name = original_filename or source_path.name
 
     if ext in PLAIN_EXTENSIONS:
         try:
             return _normalize_plain_text(source_path, orig_name)
         except Exception as e:
-            return ExtractionResult(
-                output_path=source_path,
-                display_name=source_path.name,
-                method="failed",
-                status=f"failed: {e}",
-                success=False,
-                original_filename=orig_name,
-            )
+            return _fail(source_path, f"failed: {e}", orig_name)
 
     if ext not in CONVERT_EXTENSIONS:
-        return ExtractionResult(
-            output_path=source_path,
-            display_name=source_path.name,
-            method="failed",
-            status=f"failed: Unsupported file type: {ext}",
-            success=False,
-            original_filename=orig_name,
-        )
+        return _fail(source_path, f"failed: Unsupported file type: {ext}", orig_name)
 
     soffice_path = _get_soffice_path()
-    if ext in {".docx", ".doc", ".rtf"} and not soffice_path:
-        # DOCX may still work via python-docx; DOC/RTF need LibreOffice
-        if ext in {".doc", ".rtf"}:
-            return ExtractionResult(
-                output_path=source_path,
-                display_name=source_path.name,
-                method="failed",
-                status="failed: LibreOffice not found. Please install LibreOffice or provide the path manually.",
-                success=False,
-                original_filename=orig_name,
-            )
+    if ext in {".doc", ".rtf"} and not soffice_path:
+        return _fail(
+            source_path,
+            "failed: LibreOffice required for .doc/.rtf but not found",
+            orig_name,
+        )
 
-    wid = worker_id or f"{uuid.uuid4().hex[:8]}"
+    wid = worker_id or uuid.uuid4().hex[:8]
     pending_dir = source_path.parent
     final_output = pending_dir / f"{source_path.stem}.txt"
 
     try:
-        with tempfile.TemporaryDirectory(prefix="doc_convert_") as tmp:
-            tmp_dir = Path(tmp)
-            success, message = convert_file(
-                source_path,
-                tmp_dir,
-                soffice_path,
-                wid,
-            )
-            method_key, status = _status_from_message(ext, success, message)
+        success, message = convert_file(source_path, pending_dir, soffice_path, wid)
+        method_key, status = _status_from_message(ext, success, message)
 
-            if not success:
-                return ExtractionResult(
-                    output_path=source_path,
-                    display_name=source_path.name,
-                    method=method_key,
-                    status=status,
-                    success=False,
-                    original_filename=orig_name,
-                )
-
-            converted = tmp_dir / f"{source_path.stem}.txt"
-            if not converted.exists():
-                return ExtractionResult(
-                    output_path=source_path,
-                    display_name=source_path.name,
-                    method="failed",
-                    status="failed: conversion produced no output file",
-                    success=False,
-                    original_filename=orig_name,
-                )
-
-            text = converted.read_text(encoding="utf-8", errors="replace").strip()
-            if len(text) < 1:
-                return ExtractionResult(
-                    output_path=source_path,
-                    display_name=source_path.name,
-                    method="failed",
-                    status="failed: No text extracted from document",
-                    success=False,
-                    original_filename=orig_name,
-                )
-
-            if final_output.exists():
-                final_output.unlink()
-            shutil.copy2(converted, final_output)
-            if source_path.exists() and source_path != final_output:
-                source_path.unlink()
-
+        if not success:
             return ExtractionResult(
-                output_path=final_output,
-                display_name=final_output.name,
+                output_path=source_path,
+                display_name=source_path.name,
                 method=method_key,
                 status=status,
-                success=True,
+                success=False,
                 original_filename=orig_name,
             )
-    except Exception as e:
-        logger.exception("Document preprocessing failed for %s", source_path)
-        if final_output.exists() and final_output != source_path:
+
+        if not final_output.exists():
+            return _fail(source_path, "failed: conversion produced no output file", orig_name)
+
+        text = final_output.read_text(encoding="utf-8", errors="replace").strip()
+        if not text:
             final_output.unlink(missing_ok=True)
+            return _fail(source_path, "failed: No text extracted from document", orig_name)
+
+        if source_path != final_output:
+            source_path.unlink(missing_ok=True)
+
         return ExtractionResult(
-            output_path=source_path,
-            display_name=source_path.name,
-            method="failed",
-            status=f"failed: {e}",
-            success=False,
+            output_path=final_output,
+            display_name=final_output.name,
+            method=method_key,
+            status=status,
+            success=True,
             original_filename=orig_name,
         )
+    except Exception as e:
+        logger.exception("Document preprocessing failed for %s", source_path)
+        if final_output != source_path:
+            final_output.unlink(missing_ok=True)
+        return _fail(source_path, f"failed: {e}", orig_name)
