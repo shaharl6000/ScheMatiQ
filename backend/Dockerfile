@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     git \
     curl \
+    libreoffice-writer \
+    poppler-utils \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy schematiq-lib first (dependency for backend)

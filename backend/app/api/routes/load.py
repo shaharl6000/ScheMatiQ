@@ -841,6 +841,8 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         errors = []
         warnings = []
         uploaded_filenames = []
+        failed_files = []
+        document_extraction = {}
         
         # Create directories for this session
         # New documents go to pending_documents/ first, then moved to documents/ after processing
@@ -880,13 +882,15 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
             try:
                 safe_filename = file.filename
                 file_path = pending_dir / safe_filename
-                docs_file_path = docs_dir / safe_filename
+                txt_stem_name = Path(file.filename).stem + ".txt"
+                docs_file_path = docs_dir / txt_stem_name
+                docs_file_path_legacy = docs_dir / safe_filename
 
                 # Reject if the file was already processed (exists in documents/).
                 # Allow re-upload if it only exists in pending_documents/ (not yet run,
                 # e.g. a previous session was stopped before this doc was extracted) —
                 # in that case overwrite the pending copy so the fresh version is used.
-                if docs_file_path.exists():
+                if docs_file_path.exists() or docs_file_path_legacy.exists():
                     errors.append(
                         f"'{file.filename}' was already processed in this session. "
                         "Remove the existing rows first or use a different filename."
@@ -897,32 +901,46 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
                     content = await file.read()
                     f.write(content)
 
-                # If PDF, convert to text
-                if file_ext == '.pdf':
-                    from app.services.pdf_utils import convert_pdf_to_txt
-                    try:
-                        txt_path = convert_pdf_to_txt(file_path)
-                        # Remove original PDF after conversion
+                from app.services.document_preprocessor import preprocess_uploaded_file
+
+                result = preprocess_uploaded_file(
+                    file_path,
+                    original_filename=file.filename,
+                )
+                if not result.success:
+                    failed_files.append({
+                        "filename": file.filename,
+                        "status": result.status,
+                    })
+                    errors.append(f"{file.filename}: {result.status}")
+                    if file_path.exists():
                         file_path.unlink()
-                        file_path = txt_path
-                        safe_filename = txt_path.name
-                        logger.debug(f"Converted PDF to text: {txt_path}")
-                    except Exception as e:
-                        errors.append(f"Failed to convert PDF '{file.filename}': {str(e)}")
-                        continue
+                    continue
+
+                file_path = result.output_path
+                safe_filename = result.display_name
+                if not session.metadata.document_metadata:
+                    session.metadata.document_metadata = {}
+                session.metadata.document_metadata[safe_filename] = {
+                    "extraction_status": result.status,
+                    "extraction_method": result.method,
+                    "original_filename": result.original_filename or file.filename,
+                }
+                document_extraction[safe_filename] = session.metadata.document_metadata[safe_filename]
 
                 uploaded_filenames.append(safe_filename)
-                logger.debug(f"Saved file to pending: {file_path}")
+                logger.debug(f"Saved file to pending: {file_path} ({result.status})")
                 
             except Exception as e:
                 errors.append(f"Failed to save file '{file.filename}': {str(e)}")
+                failed_files.append({"filename": file.filename, "status": f"failed: {e}"})
         
         # Check total size limit (100MB total)
         if total_size > 100 * 1024 * 1024:
             errors.append("Total upload size exceeds 100MB limit")
         
-        if errors:
-            raise HTTPException(status_code=400, detail={"errors": errors, "warnings": warnings})
+        if not uploaded_filenames and errors:
+            raise HTTPException(status_code=400, detail={"errors": errors, "warnings": warnings, "failed_files": failed_files})
         
         # Update session metadata — append new filenames to any already queued
         existing_docs = session.metadata.uploaded_documents or []
@@ -944,6 +962,9 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
             "uploaded_files": uploaded_filenames,
             "warnings": warnings,
             "documents_directory": str(docs_dir),
+            "document_extraction": document_extraction,
+            "failed_files": failed_files if failed_files else None,
+            "errors": errors if failed_files else None,
         }
         if limit_applied:
             response["limit_applied"] = True
@@ -1123,25 +1144,58 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
         # Download requested files
         downloaded_files = []
         errors = []
+        failed_files = []
+        document_extraction = {}
+
+        from app.services.document_preprocessor import preprocess_uploaded_file
 
         for filename in request.files:
             try:
                 content = await storage.download_dataset_file(request.dataset, filename)
-                if content:
-                    file_path = pending_dir / filename
-                    with open(file_path, 'wb') as f:
-                        f.write(content)
-                    downloaded_files.append(filename)
-                    logger.debug(f"Downloaded cloud file: {filename}")
-                else:
+                if not content:
                     errors.append(f"Could not download file: {filename}")
+                    failed_files.append({"filename": filename, "status": "failed: could not download"})
+                    continue
+
+                file_path = pending_dir / filename
+                txt_stem_name = Path(filename).stem + ".txt"
+                if (docs_dir / txt_stem_name).exists() or (docs_dir / filename).exists():
+                    errors.append(
+                        f"'{filename}' was already processed in this session. "
+                        "Remove the existing rows first or use a different filename."
+                    )
+                    continue
+
+                with open(file_path, 'wb') as f:
+                    f.write(content)
+
+                result = preprocess_uploaded_file(file_path, original_filename=filename)
+                if not result.success:
+                    failed_files.append({"filename": filename, "status": result.status})
+                    errors.append(f"{filename}: {result.status}")
+                    if file_path.exists():
+                        file_path.unlink()
+                    continue
+
+                safe_filename = result.display_name
+                if not session.metadata.document_metadata:
+                    session.metadata.document_metadata = {}
+                session.metadata.document_metadata[safe_filename] = {
+                    "extraction_status": result.status,
+                    "extraction_method": result.method,
+                    "original_filename": result.original_filename or filename,
+                }
+                document_extraction[safe_filename] = session.metadata.document_metadata[safe_filename]
+                downloaded_files.append(safe_filename)
+                logger.debug(f"Downloaded and converted cloud file: {filename} -> {safe_filename}")
             except Exception as e:
                 errors.append(f"Error downloading {filename}: {str(e)}")
+                failed_files.append({"filename": filename, "status": f"failed: {e}"})
 
         if not downloaded_files:
             raise HTTPException(
                 status_code=400,
-                detail={"errors": errors, "message": "No files were downloaded"}
+                detail={"errors": errors, "message": "No files were downloaded", "failed_files": failed_files}
             )
 
         # Update session metadata
@@ -1158,7 +1212,9 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
             "status": "success",
             "message": f"Successfully added {len(downloaded_files)} documents from '{request.dataset}'",
             "added_files": downloaded_files,
-            "errors": errors if errors else None,
+            "errors": errors if failed_files else None,
+            "failed_files": failed_files if failed_files else None,
+            "document_extraction": document_extraction,
             "documents_directory": str(docs_dir)
         }
 

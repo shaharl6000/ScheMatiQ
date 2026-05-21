@@ -77,6 +77,33 @@ export interface SchemaEvolution {
   column_sources: Record<string, string>;  // column_name -> source_document
 }
 
+export interface DocumentExtractionInfo {
+  extraction_status: string;
+  extraction_method?: string;
+  original_filename?: string;
+  url?: string | null;
+}
+
+export interface DocumentUploadResult {
+  status: string;
+  message: string;
+  uploaded_files: string[];
+  warnings: string[];
+  document_extraction?: Record<string, DocumentExtractionInfo>;
+  failed_files?: Array<{ filename: string; status: string }>;
+  errors?: string[] | null;
+}
+
+export interface CloudDocumentAddResult {
+  status: string;
+  message: string;
+  added_files: string[];
+  errors?: string[];
+  failed_files?: Array<{ filename: string; status: string }>;
+  document_extraction?: Record<string, DocumentExtractionInfo>;
+  documents_directory?: string;
+}
+
 export interface SessionMetadata {
   source: string;
   created: string;
@@ -91,6 +118,7 @@ export interface SessionMetadata {
   original_row_count?: number;
   additional_rows_added?: number;
   cloud_dataset?: string;
+  document_metadata?: Record<string, DocumentExtractionInfo>;
 }
 
 export interface DataStatistics {

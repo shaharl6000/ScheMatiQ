@@ -7,6 +7,7 @@ import {
   ScheMatiQStatus,
   SchemaExtractionResult,
   DocumentUploadResult,
+  CloudDocumentAddResult,
   DocumentProcessingResult,
   ProcessingStatus,
   SchemaData,
@@ -518,12 +519,7 @@ export const cloudAPI = {
   },
 
   // Add cloud documents to a session
-  addCloudDocuments: async (sessionId: string, dataset: string, files: string[]): Promise<{
-    status: string;
-    message: string;
-    added_files: string[];
-    errors?: string[];
-  }> => {
+  addCloudDocuments: async (sessionId: string, dataset: string, files: string[]): Promise<CloudDocumentAddResult> => {
     const timeoutMs = Math.max(30000, files.length * 1000);
     const response = await api.post(`/load/add-cloud-documents/${sessionId}`, {
       dataset,

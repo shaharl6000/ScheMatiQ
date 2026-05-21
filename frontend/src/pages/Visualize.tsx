@@ -1491,15 +1491,25 @@ const Visualize = () => {
                           <div className="space-y-2">
                             <p className="text-sm font-medium">Uploaded documents ({session.metadata.uploaded_documents.length}):</p>
                             <div className="flex flex-wrap gap-2">
-                              {session.metadata.uploaded_documents.map((doc, index) => (
+                              {session.metadata.uploaded_documents.map((doc, index) => {
+                                const extraction = session.metadata.document_metadata?.[doc];
+                                const label = extraction?.original_filename || doc;
+                                const statusHint = extraction?.extraction_status;
+                                return (
                                 <div
                                   key={`${doc}-${index}`}
                                   className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full text-sm"
+                                  title={statusHint ? `${label} — ${statusHint}` : label}
                                 >
                                   <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
-                                  <span className="text-blue-700 dark:text-blue-300 max-w-[200px] truncate" title={doc}>
-                                    {doc}
+                                  <span className="text-blue-700 dark:text-blue-300 max-w-[200px] truncate">
+                                    {label}
                                   </span>
+                                  {statusHint && (
+                                    <span className="text-xs text-blue-500/80 dark:text-blue-400/80 truncate max-w-[120px]">
+                                      ({statusHint})
+                                    </span>
+                                  )}
                                   {session.status !== 'processing_documents' && (
                                     <button
                                       onClick={() => handleRemoveDocument(doc)}
@@ -1515,7 +1525,7 @@ const Visualize = () => {
                                     </button>
                                   )}
                                 </div>
-                              ))}
+                              );})}
                             </div>
                           </div>
                         )}
@@ -1544,7 +1554,9 @@ const Visualize = () => {
                                 status: 'success',
                                 message: `Added ${result.added_files.length} cloud documents`,
                                 uploaded_files: result.added_files,
-                                warnings: result.errors || []
+                                warnings: result.errors || [],
+                                document_extraction: result.document_extraction,
+                                failed_files: result.failed_files,
                               });
                             }
                             if (result.errors?.length) {

@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { useFileUpload } from '../../hooks/useFileUpload';
 import { formatFileSize } from '../../utils/apiHelpers';
 import { cloudAPI } from '../../services/api';
+import type { DocumentUploadResult } from '../../types';
 
 interface CloudDataset {
   dataset: string;
@@ -36,12 +37,7 @@ interface DocumentUploadProps {
   loading: boolean;
   onUpload: () => void;
   canUpload: boolean;
-  uploadResult?: {
-    status: string;
-    message: string;
-    uploaded_files: string[];
-    warnings: string[];
-  } | null;
+  uploadResult?: DocumentUploadResult | null;
   // New props for cloud document selection
   sessionId?: string;
   onCloudDocumentsAdd?: (dataset: string, files: string[]) => Promise<void>;
@@ -331,16 +327,39 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
                     Successfully uploaded:
                   </p>
                   <div className="flex flex-wrap gap-1">
-                    {uploadResult.uploaded_files.map((filename, index) => (
-                      <Badge key={index} variant="secondary">
-                        {filename}
-                      </Badge>
-                    ))}
+                    {uploadResult.uploaded_files.map((filename, index) => {
+                      const extraction = uploadResult.document_extraction?.[filename];
+                      return (
+                        <Badge
+                          key={index}
+                          variant="secondary"
+                          title={extraction?.extraction_status || filename}
+                        >
+                          {filename}
+                          {extraction?.extraction_status && (
+                            <span className="ml-1 opacity-75">({extraction.extraction_status})</span>
+                          )}
+                        </Badge>
+                      );
+                    })}
                   </div>
                 </div>
               )}
 
-              {uploadResult.warnings.length > 0 && (
+              {uploadResult.failed_files && uploadResult.failed_files.length > 0 && (
+                <Alert variant="destructive" className="mb-3">
+                  <AlertDescription>
+                    <p className="font-medium mb-1">Failed to extract text:</p>
+                    {uploadResult.failed_files.map((item, index) => (
+                      <p key={index} className="text-sm">
+                        • {item.filename}: {item.status}
+                      </p>
+                    ))}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {uploadResult.warnings && uploadResult.warnings.length > 0 && (
                 <Alert variant="warning">
                   <AlertDescription>
                     <p className="font-medium mb-1">Warnings:</p>
