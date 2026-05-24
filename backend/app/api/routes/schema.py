@@ -874,8 +874,12 @@ async def get_schema_change_status(session_id: str) -> SchemaChangeStatusRespons
         for col_name in changes["column_changes"]:
             changes["column_changes"][col_name]["row_count_affected"] = row_count
 
-        # can_reextract = session has data (frontend checks doc availability separately)
-        changes["can_reextract"] = row_count > 0
+        # Allow re-extraction when rows exist OR session still has source documents (schema-only mode)
+        paper_discovery = await reextraction_service.discover_papers(session_id)
+        has_session_documents = bool(paper_discovery.get("available_papers")) or bool(
+            paper_discovery.get("session_document_count")
+        )
+        changes["can_reextract"] = row_count > 0 or has_session_documents
 
         return SchemaChangeStatusResponse(
             has_changes=changes["has_changes"],

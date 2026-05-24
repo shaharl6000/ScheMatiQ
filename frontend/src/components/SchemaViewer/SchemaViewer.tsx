@@ -845,10 +845,11 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         request.llm_config = { provider, model, api_key: apiKey, temperature: 0 };
       }
       const response = await schemaAPI.startReextraction(sessionId, request);
-      if (response.rows_to_process === 0) {
+      const docCount = response.rows_to_process || response.estimated_papers || 0;
+      if (docCount === 0) {
         toast({
           title: 'No documents',
-          description: 'No source documents available to process. Upload documents and try again.',
+          description: 'No source documents available to process. Upload documents on the Data tab and try again.',
           variant: 'destructive',
         });
         return;

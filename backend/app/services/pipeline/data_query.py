@@ -192,6 +192,14 @@ async def get_status(
     except Exception:
         pass
 
+    # Deferred extraction completed — table data exists even if config still has skip flag
+    if schema_only:
+        extracted_file = work_dir / session_id / "extracted_data.jsonl"
+        if extracted_file.exists() and extracted_file.stat().st_size > 0:
+            schema_only = False
+        elif session.statistics and (session.statistics.total_rows or 0) > 0:
+            schema_only = False
+
     return ScheMatiQStatus(
         session_id=session_id,
         status=status,
