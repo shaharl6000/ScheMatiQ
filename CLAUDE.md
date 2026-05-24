@@ -116,7 +116,7 @@ All mode settings in `RELEASE_CONFIG` in `backend/app/core/config.py`. Frontend 
 
 ### Research Data Collection (Release Mode Only)
 
-In release mode, `DataCollectionService` bundles completed session data (metadata, schema, extracted table, documents, sanitized config) into a ZIP and uploads to Google Drive. Optionally logs a summary row to Google Sheets. Fire-and-forget — zero impact on user latency. Env vars for Google integrations are listed in the Environment Variables section above.
+In release mode, `DataCollectionService` bundles completed session data (metadata, schema, extracted table, documents, sanitized config, and `project.schematiq.json` for direct reload via Load Data) into a ZIP and uploads to Google Drive. Optionally logs a summary row to Google Sheets. Fire-and-forget — zero impact on user latency. Env vars for Google integrations are listed in the Environment Variables section above.
 
 **Code:** `DataCollectionService` in `app/services/data_collection_service.py`, `GoogleDriveUploader` in `app/storage/google_drive.py`, `GoogleSheetsLogger` in `app/storage/google_sheets.py`. Config: `DATA_COLLECTION_ENABLED` in `app/core/config.py`. Hooks in `schematiq_runner.py`, `reextraction_service.py`, `continue_discovery_service.py`.
 
