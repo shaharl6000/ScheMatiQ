@@ -21,7 +21,7 @@ from app.models.upload import (
     FileValidationResult, ColumnMappingRequest, DataPreviewRequest,
     SchemaValidationResult, DualFileUploadResult, CompatibilityCheck
 )
-from app.services.file_parser import FileParser, format_column_header
+from app.services.file_parser import FileParser, format_column_header, is_system_file
 from app.services.session_manager import SessionManager
 from app.services import session_manager, websocket_manager, concurrency_limiter
 from app.services.upload_document_processor import UploadDocumentProcessor
@@ -830,7 +830,7 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
             random.shuffle(valid_files)
             valid_files = valid_files[:MAX_DOCUMENTS]
             limit_applied = True
-            print(f"DEBUG: Document limit applied. Selected {len(valid_files)} of {new_count} files (max {MAX_DOCUMENTS}, existing {existing_count})")
+            logger.debug(f"Document limit applied. Selected {len(valid_files)} of {new_count} files (max {MAX_DOCUMENTS}, existing {existing_count})")
         elif enforce_limit and available_slots > 0 and new_count > available_slots:
             # There's room but not enough — sample to fit
             random.shuffle(valid_files)
@@ -847,6 +847,8 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
         errors = []
         warnings = []
         uploaded_filenames = []
+        failed_files = []
+        document_extraction = {}
         
         # Create directories for this session
         # New documents go to pending_documents/ first, then moved to documents/ after processing
@@ -882,53 +884,39 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
                 warnings.append(f"File '{file.filename}' has unsupported extension '{file_ext}'. Supported: {', '.join(allowed_extensions)}")
                 # Continue processing - might still be text content
             
-            # Save file to pending_documents/ (will be moved to documents/ after processing)
             try:
-                safe_filename = file.filename
-                file_path = pending_dir / safe_filename
-                docs_file_path = docs_dir / safe_filename
-
-                # Reject if the file was already processed (exists in documents/).
-                # Allow re-upload if it only exists in pending_documents/ (not yet run,
-                # e.g. a previous session was stopped before this doc was extracted) —
-                # in that case overwrite the pending copy so the fresh version is used.
-                if docs_file_path.exists():
-                    errors.append(
-                        f"'{file.filename}' was already processed in this session. "
-                        "Remove the existing rows first or use a different filename."
-                    )
-                    continue
-
+                file_path = pending_dir / file.filename
                 with open(file_path, 'wb') as f:
                     content = await file.read()
                     f.write(content)
 
-                # If PDF, convert to text
-                if file_ext == '.pdf':
-                    from app.services.pdf_utils import convert_pdf_to_txt
-                    try:
-                        txt_path = convert_pdf_to_txt(file_path)
-                        # Remove original PDF after conversion
-                        file_path.unlink()
-                        file_path = txt_path
-                        safe_filename = txt_path.name
-                        logger.debug(f"Converted PDF to text: {txt_path}")
-                    except Exception as e:
-                        errors.append(f"Failed to convert PDF '{file.filename}': {str(e)}")
-                        continue
+                loop = asyncio.get_event_loop()
+                display_name, error = await loop.run_in_executor(
+                    None,
+                    _preprocess_and_record,
+                    file_path, file.filename, docs_dir, session, document_extraction,
+                )
+                if error:
+                    if "already processed" in error:
+                        errors.append(error)
+                    else:
+                        failed_files.append({"filename": file.filename, "status": error})
+                        errors.append(error)
+                    continue
 
-                uploaded_filenames.append(safe_filename)
+                uploaded_filenames.append(display_name)
                 logger.debug(f"Saved file to pending: {file_path}")
-                
+
             except Exception as e:
                 errors.append(f"Failed to save file '{file.filename}': {str(e)}")
+                failed_files.append({"filename": file.filename, "status": f"failed: {e}"})
         
         # Check total size limit (100MB total)
         if total_size > 100 * 1024 * 1024:
             errors.append("Total upload size exceeds 100MB limit")
         
-        if errors:
-            raise HTTPException(status_code=400, detail={"errors": errors, "warnings": warnings})
+        if not uploaded_filenames and errors:
+            raise HTTPException(status_code=400, detail={"errors": errors, "warnings": warnings, "failed_files": failed_files})
         
         # Update session metadata — append new filenames to any already queued
         existing_docs = session.metadata.uploaded_documents or []
@@ -950,6 +938,9 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
             "uploaded_files": uploaded_filenames,
             "warnings": warnings,
             "documents_directory": str(docs_dir),
+            "document_extraction": document_extraction,
+            "failed_files": failed_files if failed_files else None,
+            "errors": errors if failed_files else None,
         }
         if limit_applied:
             response["limit_applied"] = True
@@ -1129,25 +1120,45 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
         # Download requested files
         downloaded_files = []
         errors = []
+        failed_files = []
+        document_extraction = {}
 
         for filename in request.files:
             try:
                 content = await storage.download_dataset_file(request.dataset, filename)
-                if content:
-                    file_path = pending_dir / filename
-                    with open(file_path, 'wb') as f:
-                        f.write(content)
-                    downloaded_files.append(filename)
-                    logger.debug(f"Downloaded cloud file: {filename}")
-                else:
+                if not content:
                     errors.append(f"Could not download file: {filename}")
+                    failed_files.append({"filename": filename, "status": "failed: could not download"})
+                    continue
+
+                file_path = pending_dir / filename
+                with open(file_path, 'wb') as f:
+                    f.write(content)
+
+                loop = asyncio.get_event_loop()
+                display_name, error = await loop.run_in_executor(
+                    None,
+                    _preprocess_and_record,
+                    file_path, filename, docs_dir, session, document_extraction,
+                )
+                if error:
+                    if "already processed" in error:
+                        errors.append(error)
+                    else:
+                        failed_files.append({"filename": filename, "status": error})
+                        errors.append(error)
+                    continue
+
+                downloaded_files.append(display_name)
+                logger.debug(f"Downloaded and converted cloud file: {filename} -> {display_name}")
             except Exception as e:
                 errors.append(f"Error downloading {filename}: {str(e)}")
+                failed_files.append({"filename": filename, "status": f"failed: {e}"})
 
         if not downloaded_files:
             raise HTTPException(
                 status_code=400,
-                detail={"errors": errors, "message": "No files were downloaded"}
+                detail={"errors": errors, "message": "No files were downloaded", "failed_files": failed_files}
             )
 
         # Update session metadata
@@ -1164,7 +1175,9 @@ async def add_cloud_documents(session_id: str, request: CloudDocumentRequest):
             "status": "success",
             "message": f"Successfully added {len(downloaded_files)} documents from '{request.dataset}'",
             "added_files": downloaded_files,
-            "errors": errors if errors else None,
+            "errors": errors if failed_files else None,
+            "failed_files": failed_files if failed_files else None,
+            "document_extraction": document_extraction,
             "documents_directory": str(docs_dir)
         }
 
@@ -1809,25 +1822,42 @@ async def export_schema_only(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _is_system_file(filename: str) -> bool:
-    """Check if a filename is a system file that should be ignored."""
-    if not filename:
-        return True
-        
-    system_files = {'.DS_Store', '._.DS_Store', 'Thumbs.db', '.gitkeep', '.gitignore'}
-    system_prefixes = ('._', '.tmp', '~$')
-    
-    # Check exact matches
-    if filename in system_files:
-        return True
-        
-    # Check prefixes
-    for prefix in system_prefixes:
-        if filename.startswith(prefix):
-            return True
-            
-    # Check for temporary Office files
-    if filename.startswith('~$') or filename.startswith('.~'):
-        return True
-        
-    return False
+def _preprocess_and_record(
+    file_path: Path,
+    filename: str,
+    docs_dir: Path,
+    session,
+    document_extraction: dict,
+) -> tuple[str | None, str | None]:
+    """Preprocess a saved file and record metadata on the session.
+
+    Returns (display_name, None) on success, or (None, error_message) on failure.
+    The caller is responsible for writing file_path to disk before calling this.
+    """
+    from app.services.document_preprocessor import preprocess_uploaded_file
+
+    txt_stem_name = Path(filename).stem + ".txt"
+    if (docs_dir / txt_stem_name).exists() or (docs_dir / filename).exists():
+        return None, (
+            f"'{filename}' was already processed in this session. "
+            "Remove the existing rows first or use a different filename."
+        )
+
+    result = preprocess_uploaded_file(file_path, original_filename=filename)
+    if not result.success:
+        file_path.unlink(missing_ok=True)
+        return None, f"{filename}: {result.status}"
+
+    safe_filename = result.display_name
+    if not session.metadata.document_metadata:
+        session.metadata.document_metadata = {}
+    session.metadata.document_metadata[safe_filename] = {
+        "extraction_status": result.status,
+        "extraction_method": result.method,
+        "original_filename": result.original_filename or filename,
+    }
+    document_extraction[safe_filename] = session.metadata.document_metadata[safe_filename]
+    return safe_filename, None
+
+
+_is_system_file = is_system_file
