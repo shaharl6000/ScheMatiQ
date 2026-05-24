@@ -79,7 +79,7 @@ See [Features > Core Library](#core-library-schematiq-lib) for the full API surf
 - **Continue Discovery** — Extend schema after initial convergence by processing more documents
 - **Reextraction** — Re-run structured data extraction with the current or edited schema
 - **Cost Estimation** — Preview estimated API costs before running expensive operations
-- **Document Upload** — PDF and TXT support with automatic preprocessing
+- **Document Upload** — TXT, MD, PDF, DOC, DOCX, and RTF; non-text formats are converted to plain text automatically before schema discovery and extraction
 - **Export** — Download results as CSV, JSON, or JSONL
 
 ### Core Library (schematiq-lib)

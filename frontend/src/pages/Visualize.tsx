@@ -1715,6 +1715,7 @@ const Visualize = () => {
               sessionId={sessionId}
               autoStarted={autoStartState.autoStarted}
               initialCapacityMessage={autoStartState.initialCapacityMessage}
+              onExtractionStarted={handleReextractionStarted}
             />
           </TabsContent>
         )}

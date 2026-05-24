@@ -257,8 +257,9 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
       }
 
       const response = await schemaAPI.startReextraction(sessionId, request);
+      const docCount = response.rows_to_process || response.estimated_papers || 0;
 
-      if (response.rows_to_process === 0) {
+      if (docCount === 0) {
         // No documents available — extraction will complete instantly
         onSuccess(
           `No source documents available to process. Upload the missing documents and try again.`,
@@ -275,7 +276,6 @@ const ReextractionDialog: React.FC<ReextractionDialogProps> = ({
 
       // Show success message and close dialog immediately so user can see the table
       const columnCount = response.columns.length;
-      const docCount = response.rows_to_process;
       onSuccess(
         `Re-extraction started for ${columnCount} column${columnCount !== 1 ? 's' : ''} across ${docCount} documents. View the Data tab for live progress.`,
         false // Don't refresh data yet - WebSocket will handle updates

@@ -16,6 +16,8 @@ import {
   Plus,
   X,
   Pencil,
+  RefreshCw,
+  Table,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
 
@@ -34,14 +36,22 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 
-import { schematiqAPI, observationUnitAPI, loadAPI } from '../../services/api';
+import { schematiqAPI, observationUnitAPI, loadAPI, schemaAPI, configAPI } from '../../services/api';
 import { webSocketService } from '../../services/websocket';
-import { ScheMatiQStatus, WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData, LogData, StoppedData, ObservationUnitReadyData } from '../../types';
+import { ScheMatiQStatus, WebSocketMessage, ProgressData, SchemaCompletionData, RowCompletionData, LogData, StoppedData, ObservationUnitReadyData, ReextractionRequest } from '../../types';
+import { getApiKeyForProvider, getConfiguredProviders } from '../../utils/apiKeyStorage';
+import {
+  LLMProviderKey,
+  getDefaultModelForProvider,
+  getAvailableProviders,
+} from '@/constants/llmModels';
 
 interface ScheMatiQMonitorProps {
   sessionId: string;
   autoStarted?: boolean;
   initialCapacityMessage?: string;
+  /** Notify parent when deferred extraction starts (schema-only → full table fill). */
+  onExtractionStarted?: (columns: string[], operationId?: string) => void;
 }
 
 interface LogEntry {
@@ -61,7 +71,12 @@ interface LlmStats {
   estimated_calls: number;
 }
 
-const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStarted = false, initialCapacityMessage = '' }) => {
+const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
+  sessionId,
+  autoStarted = false,
+  initialCapacityMessage = '',
+  onExtractionStarted,
+}) => {
   const queryClient = useQueryClient();
   const llmStatsCacheKey = ['schematiq-llm-stats', sessionId];
   const cachedStatus = queryClient.getQueryData<ScheMatiQStatus>(['schematiq-status', sessionId]);
@@ -130,6 +145,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
 
   // Whether value extraction was deliberately skipped (schema-only mode)
   const [schemaOnly, setSchemaOnly] = useState<boolean>(cachedStatus?.schema_only ?? false);
+  const [isDeferredExtracting, setIsDeferredExtracting] = useState(false);
+  const [deferredExtractError, setDeferredExtractError] = useState('');
+  const [activeReextractionId, setActiveReextractionId] = useState<string | null>(null);
 
   // Track ScheMatiQ start time for elapsed display
   const startTimeRef = useRef<number | null>(null);
@@ -399,6 +417,111 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
           setObsUnitEdited(false);
         }
         queryClient.invalidateQueries(['schematiq-status', sessionId]);
+      } else if (message.type === 'reextraction_started') {
+        const data = message.data as { operation_id?: string; columns?: string[]; total_documents?: number };
+        setSchemaOnly(false);
+        setProcessingState('extraction');
+        setDeferredExtractError('');
+        if (data?.operation_id) {
+          setActiveReextractionId(data.operation_id);
+        }
+        const total = data?.total_documents ?? 0;
+        if (total > 0) {
+          setExtractionProgress({
+            processedDocs: 0,
+            totalDocs: total,
+            isComplete: false,
+          });
+          setCurrentStepMessage(`Extracting values from ${total} document(s)...`);
+        }
+        addLog('info', 'Extracting table data from your uploaded documents...');
+      } else if (message.type === 'document_started') {
+        const data = message.data as {
+          document_name?: string;
+          document_index?: number;
+          total_documents?: number;
+        };
+        setProcessingState('extraction');
+        setSchemaOnly(false);
+        const total = data?.total_documents ?? 0;
+        const index = data?.document_index ?? 0;
+        if (total > 0) {
+          setExtractionProgress(prev => ({
+            ...prev,
+            totalDocs: total,
+            processedDocs: Math.max(prev.processedDocs, index - 1),
+            isComplete: false,
+          }));
+          setCurrentStepMessage(
+            `Processing ${data?.document_name || 'document'} (${index}/${total})...`,
+          );
+        }
+      } else if (message.type === 'reextraction_progress') {
+        const data = message.data as {
+          processed_documents?: number;
+          total_documents?: number;
+          current_row?: string;
+        };
+        setProcessingState('extraction');
+        setSchemaOnly(false);
+        const total = data?.total_documents ?? 0;
+        const processed = total > 0
+          ? Math.min(data?.processed_documents ?? 0, total)
+          : (data?.processed_documents ?? 0);
+        setExtractionProgress(prev => ({
+          ...prev,
+          processedDocs: processed || prev.processedDocs,
+          totalDocs: total || prev.totalDocs,
+          isComplete: false,
+        }));
+        if (total > 0) {
+          setCurrentStepMessage(
+            data?.current_row
+              ? `Extracting row "${data.current_row}" (document ${processed}/${total})...`
+              : `Extracting values (document ${processed}/${total})...`,
+          );
+        }
+      } else if (message.type === 'reextraction_completed') {
+        const data = message.data as { columns?: string[] };
+        setActiveReextractionId(null);
+        setSchemaOnly(false);
+        setIsStopping(false);
+        setProcessingState('completed');
+        setExtractionProgress(prev => ({
+          ...prev,
+          isComplete: true,
+          processedDocs: prev.totalDocs || prev.processedDocs,
+        }));
+        setCurrentStepMessage('Extraction complete.');
+        addLog('success', `Extraction complete${data?.columns?.length ? ` (${data.columns.length} columns)` : ''}.`);
+        queryClient.invalidateQueries(['schematiq-status', sessionId]);
+        queryClient.invalidateQueries(['session', sessionId, 'schematiq']);
+        queryClient.invalidateQueries(['data', sessionId]);
+      } else if (message.type === 'reextraction_failed') {
+        const data = message.data as { error?: string };
+        setActiveReextractionId(null);
+        setIsStopping(false);
+        setDeferredExtractError(data?.error || 'Extraction failed');
+        setSchemaOnly(true);
+        setProcessingState('completed');
+        setCurrentStepMessage('');
+        addLog('error', data?.error || 'Extraction failed');
+      } else if (message.type === 'reextraction_stopped') {
+        const data = message.data as { processed_documents?: number; total_documents?: number };
+        setActiveReextractionId(null);
+        setIsStopping(false);
+        setSchemaOnly(false);
+        setProcessingState('completed');
+        const processed = data?.processed_documents ?? 0;
+        setCurrentStepMessage(
+          processed > 0
+            ? `Extraction stopped (${processed} document(s) processed).`
+            : 'Extraction stopped.',
+        );
+        addLog('warning', 'Extraction stopped. Partial results may be available on the Data tab.');
+        queryClient.invalidateQueries(['schematiq-status', sessionId]);
+        queryClient.invalidateQueries(['session', sessionId, 'schematiq']);
+        queryClient.invalidateQueries(['data', sessionId]);
       } else if (message.type === 'stopped') {
         const stoppedData = message.data as StoppedData;
         const schemaSaved = stoppedData?.schema_saved || false;
@@ -437,6 +560,79 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
     };
   }, [sessionId, queryClient]);
 
+  // Poll re-extraction status when WebSocket updates are missed
+  useEffect(() => {
+    if (!activeReextractionId) return;
+
+    let cancelled = false;
+
+    const applyTerminalStatus = (status: string, error?: string) => {
+      setActiveReextractionId(null);
+      setIsStopping(false);
+      if (status === 'completed') {
+        setSchemaOnly(false);
+        setProcessingState('completed');
+        setExtractionProgress(prev => ({
+          ...prev,
+          isComplete: true,
+          processedDocs: prev.totalDocs || prev.processedDocs,
+        }));
+        setCurrentStepMessage('Extraction complete.');
+        queryClient.invalidateQueries(['schematiq-status', sessionId]);
+        queryClient.invalidateQueries(['session', sessionId, 'schematiq']);
+        queryClient.invalidateQueries(['data', sessionId]);
+      } else if (status === 'stopped') {
+        setSchemaOnly(false);
+        setProcessingState('completed');
+        setCurrentStepMessage('Extraction stopped.');
+        queryClient.invalidateQueries(['schematiq-status', sessionId]);
+        queryClient.invalidateQueries(['session', sessionId, 'schematiq']);
+        queryClient.invalidateQueries(['data', sessionId]);
+      } else if (status === 'failed') {
+        setSchemaOnly(true);
+        setProcessingState('completed');
+        setDeferredExtractError(error || 'Extraction failed');
+        setCurrentStepMessage('');
+      }
+    };
+
+    const poll = async () => {
+      try {
+        const st = await schemaAPI.getReextractionStatus(sessionId, activeReextractionId);
+        if (cancelled) return;
+
+        if (st.total_documents > 0) {
+          setProcessingState('extraction');
+          const total = st.total_documents;
+          const processed = Math.min(st.processed_documents, total);
+          setExtractionProgress({
+            processedDocs: processed,
+            totalDocs: total,
+            isComplete: st.status === 'completed',
+          });
+          if (st.status === 'running' || st.status === 'starting') {
+            setCurrentStepMessage(
+              `Extracting values (${st.processed_documents}/${st.total_documents})...`,
+            );
+          }
+        }
+
+        if (st.status === 'completed' || st.status === 'failed' || st.status === 'stopped') {
+          applyTerminalStatus(st.status, st.error);
+        }
+      } catch {
+        // Operation may have been cleaned up after completion
+      }
+    };
+
+    poll();
+    const intervalId = setInterval(poll, 2500);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [activeReextractionId, sessionId, queryClient]);
+
   // Auto-dismiss capacity message after 30 seconds
   useEffect(() => {
     if (!capacityMessage) return;
@@ -466,6 +662,90 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  };
+
+  const handleExtractTableData = async () => {
+    setIsDeferredExtracting(true);
+    setDeferredExtractError('');
+    try {
+      const session = await loadAPI.getSession(sessionId);
+      const columns = (session.columns || [])
+        .filter((c) => c.name && !c.name.toLowerCase().endsWith('_excerpt'))
+        .map((c) => c.name);
+      if (columns.length === 0) {
+        setDeferredExtractError('No schema columns found. Wait for schema discovery to finish or open the Schema tab.');
+        return;
+      }
+
+      const availability = await schemaAPI.precheckDocuments(sessionId, {
+        operation_type: 'reextraction',
+      });
+      if (!availability.can_proceed) {
+        setDeferredExtractError(
+          'No source documents found for this session. Your files should still be on the server from the initial upload — try refreshing, or add documents on the Data tab.',
+        );
+        return;
+      }
+
+      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
+      const configured = await getConfiguredProviders();
+      const available = getAvailableProviders(configured);
+      const provider: LLMProviderKey = !cfg.allow_llm_config ? 'gemini' : (available[0] ?? 'gemini');
+      const model = getDefaultModelForProvider(provider);
+      const apiKey = await getApiKeyForProvider(provider);
+
+      const request: ReextractionRequest = { columns };
+      if (apiKey) {
+        request.llm_config = { provider, model, api_key: apiKey, temperature: 0 };
+      }
+
+      const response = await schemaAPI.startReextraction(sessionId, request);
+      const docCount = response.rows_to_process || response.estimated_papers || 0;
+      if (docCount === 0) {
+        setDeferredExtractError(
+          'No source documents available to process. Upload documents on the Data tab and try again.',
+        );
+        return;
+      }
+
+      // Ensure progress WebSocket is connected before background work starts
+      if (!webSocketService.isConnected()) {
+        webSocketService.connect(sessionId, 'progress');
+      }
+
+      setSchemaOnly(false);
+      setActiveReextractionId(response.operation_id);
+      setProcessingState('extraction');
+      setCurrentStepMessage(`Extracting values from ${docCount} document(s)...`);
+      setExtractionProgress({
+        processedDocs: 0,
+        totalDocs: docCount,
+        isComplete: false,
+      });
+      if (onExtractionStarted) {
+        onExtractionStarted(response.columns, response.operation_id);
+      }
+      addLog(
+        'info',
+        `Extracting ${response.columns.length} column(s) across ${docCount} document(s). Open the Data tab for live rows.`,
+      );
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string }; status?: number }; message?: string };
+      const detail = axiosErr.response?.data?.detail;
+      setDeferredExtractError(
+        axiosErr.response?.status === 503
+          ? (detail || 'Server is busy. Try again in a few minutes.')
+          : (detail || axiosErr.message || 'Failed to start extraction'),
+      );
+      addLog(
+        'error',
+        axiosErr.response?.status === 503
+          ? (detail || 'Server is busy')
+          : (detail || axiosErr.message || 'Failed to start extraction'),
+      );
+    } finally {
+      setIsDeferredExtracting(false);
+    }
   };
 
   const handleStart = async () => {
@@ -528,13 +808,19 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
   const handleStop = async () => {
     setIsStopping(true);
     try {
-      await schematiqAPI.stop(sessionId);
-      // API returned — stop flag is set. Transition immediately.
-      setProcessingState('stopped');
-      setIsStopping(false);
-      addLog('warning', 'Stop requested — processing will stop at the next checkpoint.');
+      if (activeReextractionId) {
+        await schemaAPI.stopReextraction(sessionId, activeReextractionId);
+        addLog('warning', 'Stop requested — extraction will stop at the next checkpoint.');
+        // UI updates on reextraction_stopped WebSocket (or status poll fallback)
+      } else {
+        await schematiqAPI.stop(sessionId);
+        setProcessingState('stopped');
+        setIsStopping(false);
+        addLog('warning', 'Stop requested — processing will stop at the next checkpoint.');
+      }
     } catch (error: any) {
-      addLog('error', `Failed to stop ScheMatiQ: ${error.message}`);
+      const detail = error?.response?.data?.detail;
+      addLog('error', detail || error.message || 'Failed to stop');
       setIsStopping(false);
     }
   };
@@ -713,11 +999,15 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
               <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center mb-4">
                 <CheckCircle2 className="h-8 w-8 text-green-600" />
               </div>
-              <p className="text-xl font-semibold text-green-600 mb-1">Completed Successfully!</p>
+              <p className="text-xl font-semibold text-green-600 mb-1">
+                {schemaOnly ? 'Schema Discovery Complete' : 'Completed Successfully!'}
+              </p>
               <p className="text-muted-foreground text-center max-w-md">
-                {schemaProgress.columnsDiscovered > 0 && extractionProgress.totalDocs > 0
-                  ? `Discovered ${schemaProgress.columnsDiscovered} columns from ${extractionProgress.totalDocs} documents`
-                  : 'Schema discovery and value extraction finished'}
+                {schemaOnly
+                  ? `Discovered ${schemaProgress.columnsDiscovered || status?.columns_discovered || 0} columns. Value extraction was skipped — extract your table below when ready.`
+                  : schemaProgress.columnsDiscovered > 0 && extractionProgress.totalDocs > 0
+                    ? `Discovered ${schemaProgress.columnsDiscovered} columns from ${extractionProgress.totalDocs} documents`
+                    : 'Schema discovery and value extraction finished'}
               </p>
             </>
           )}
@@ -940,6 +1230,51 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
         </Card>
       )}
 
+      {/* Deferred extraction (schema-only mode) */}
+      {schemaOnly && processingState === 'completed' && (
+        <Card className="border-2 border-primary/20 bg-primary/5">
+          <CardContent className="pt-5 pb-5">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                  <Table className="h-5 w-5 text-primary" />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-foreground">Extract table data</p>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    Your documents are already uploaded for this session. Run value extraction to fill the table using the discovered schema — no need to start over.
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="lg"
+                className="shrink-0 w-full sm:w-auto"
+                onClick={handleExtractTableData}
+                disabled={isDeferredExtracting}
+              >
+                {isDeferredExtracting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Starting...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Extract Table Data
+                  </>
+                )}
+              </Button>
+            </div>
+            {deferredExtractError && (
+              <Alert variant="destructive" className="mt-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{deferredExtractError}</AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* Phase Progress Cards - Side by Side */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Phase 1: Schema Discovery */}
@@ -988,7 +1323,11 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({ sessionId, autoStar
 
         {/* Phase 2: Value Extraction */}
         {(() => {
-          const extractionIsComplete = !schemaOnly && (extractionProgress.isComplete || processingState === 'completed');
+          const extractionIsComplete =
+            extractionProgress.isComplete ||
+            (!schemaOnly &&
+              extractionProgress.totalDocs > 0 &&
+              extractionProgress.processedDocs >= extractionProgress.totalDocs);
           return (
             <Card className={`transition-all ${!schemaOnly && processingState === 'extraction' ? 'border-primary border-2 shadow-md' : ''} ${schemaOnly ? 'opacity-60' : ''}`}>
               <CardContent className="pt-4 pb-4">

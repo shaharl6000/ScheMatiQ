@@ -375,6 +375,55 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     # ==================== Paper Discovery ====================
 
+    def _get_session_document_dirs(self, session_id: str) -> List[Path]:
+        """Directories that may hold source documents for a session."""
+        data_session_dir = Path("./data") / session_id
+        schematiq_session_dir = Path("./schematiq_work") / session_id
+        docs_dir = data_session_dir / "documents"
+        pending_dir = data_session_dir / "pending_documents"
+
+        local_dirs_to_check: List[Path] = [docs_dir, pending_dir]
+
+        schematiq_datasets_dir = schematiq_session_dir / "datasets"
+        if schematiq_datasets_dir.exists():
+            for dataset_dir in schematiq_datasets_dir.iterdir():
+                if dataset_dir.is_dir():
+                    local_dirs_to_check.append(dataset_dir)
+
+        capped_dir = schematiq_session_dir / "capped_documents"
+        if capped_dir.exists():
+            local_dirs_to_check.append(capped_dir)
+
+        schematiq_config_file = schematiq_session_dir / "schematiq_config.json"
+        if schematiq_config_file.exists():
+            try:
+                with open(schematiq_config_file) as f:
+                    schematiq_config = json.load(f)
+                config_docs_path = schematiq_config.get("docs_path", [])
+                if isinstance(config_docs_path, str):
+                    config_docs_path = [config_docs_path]
+                for dp in config_docs_path:
+                    if dp:
+                        dp_path = Path(dp)
+                        if dp_path.is_dir() and dp_path not in local_dirs_to_check:
+                            local_dirs_to_check.append(dp_path)
+            except Exception as e:
+                logger.debug("Could not read ScheMatiQ config for docs_path: %s", e)
+
+        return [d for d in local_dirs_to_check if d.exists()]
+
+    def _collect_session_document_filenames(self, session_id: str) -> List[str]:
+        """List document filenames on disk (used when the table has no rows yet)."""
+        seen: Set[str] = set()
+        filenames: List[str] = []
+        for local_dir in self._get_session_document_dirs(session_id):
+            for f in sorted(local_dir.iterdir()):
+                if f.is_file() and not f.name.startswith("."):
+                    if f.name not in seen:
+                        seen.add(f.name)
+                        filenames.append(f.name)
+        return filenames
+
     async def discover_papers(self, session_id: str) -> Dict[str, Any]:
         """
         Discover papers associated with table rows in storage.
@@ -409,7 +458,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         data_session_dir = Path("./data") / session_id
         schematiq_session_dir = Path("./schematiq_work") / session_id
-        docs_dir = data_session_dir / "documents"
 
         # Find data files from all possible locations (same logic as schematiq_runner.get_extracted_data)
         data_files = []
@@ -513,38 +561,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             continue
 
         # Check which papers exist in local storage
-        # Check documents/, pending_documents/, schematiq_work datasets, and original docs_path
         local_files: Set[str] = set()
-        pending_dir = data_session_dir / "pending_documents"
-
-        local_dirs_to_check = [docs_dir, pending_dir]
-        # Also check schematiq_work datasets directories (Supabase datasets downloaded during ScheMatiQ creation)
-        schematiq_datasets_dir = schematiq_session_dir / "datasets"
-        if schematiq_datasets_dir.exists():
-            for dataset_dir in schematiq_datasets_dir.iterdir():
-                if dataset_dir.is_dir():
-                    local_dirs_to_check.append(dataset_dir)
-        # Also check schematiq_work capped_documents (if document limit was applied)
-        capped_dir = schematiq_session_dir / "capped_documents"
-        if capped_dir.exists():
-            local_dirs_to_check.append(capped_dir)
-        # Also check original docs_path from ScheMatiQ config (the directories used during creation)
-        schematiq_config_file = schematiq_session_dir / "schematiq_config.json"
-        if schematiq_config_file.exists():
-            try:
-                with open(schematiq_config_file) as f:
-                    schematiq_config = json.load(f)
-                config_docs_path = schematiq_config.get("docs_path", [])
-                if isinstance(config_docs_path, str):
-                    config_docs_path = [config_docs_path]
-                for dp in config_docs_path:
-                    if dp:
-                        dp_path = Path(dp)
-                        if dp_path.is_dir() and dp_path not in local_dirs_to_check:
-                            local_dirs_to_check.append(dp_path)
-                            logger.debug(f"Added docs_path from ScheMatiQ config: {dp_path}")
-            except Exception as e:
-                logger.debug(f"Could not read ScheMatiQ config for docs_path: {e}")
+        local_dirs_to_check = self._get_session_document_dirs(session_id)
 
         for local_dir in local_dirs_to_check:
             if local_dir.exists():
@@ -620,6 +638,20 @@ class ReextractionService(WebSocketBroadcasterMixin):
         # Combine local and cloud papers for available list
         available = local_papers + list(cloud_papers.keys())
 
+        # Schema-only / first extraction: no table rows yet, but documents were uploaded for discovery
+        session_document_filenames: List[str] = []
+        if not paper_refs:
+            session_document_filenames = self._collect_session_document_filenames(session_id)
+            if session_document_filenames:
+                for doc_name in session_document_filenames:
+                    if doc_name not in local_papers:
+                        local_papers.append(doc_name)
+                available = list(dict.fromkeys(local_papers + list(cloud_papers.keys())))
+                logger.info(
+                    "discover_papers: no row references; using %d on-disk session document(s)",
+                    len(session_document_filenames),
+                )
+
         # Build paper to rows mapping (extract display name from tuple key)
         paper_to_rows: Dict[str, List[str]] = {}
         for paper in available:
@@ -667,7 +699,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "missing_papers": missing,
             "paper_to_rows": paper_to_rows,
             "cloud_papers": cloud_papers,
-            "local_papers": local_papers
+            "local_papers": local_papers,
+            "session_document_count": len(self._collect_session_document_filenames(session_id)),
         }
 
     async def _backfill_papers_from_documents(
@@ -846,8 +879,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     "Cannot re-extract: session has no observation unit configured. "
                     "Please set the observation unit before re-extracting."
                 )
-        # Discover papers
+        # Discover papers (includes on-disk uploads when the table has no rows yet)
         paper_discovery = await self.discover_papers(session_id)
+        doc_count = len(paper_discovery.get("available_papers") or [])
+        if doc_count == 0:
+            doc_count = paper_discovery.get("session_document_count") or 0
 
         # Validate LLM config before starting background task (fail fast with HTTP error)
         try:
@@ -863,7 +899,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             columns=columns,
             status="starting"
         )
-        operation.total_documents = len(paper_discovery["available_papers"])
+        operation.total_documents = doc_count
         with self._state_lock:
             self.active_operations[operation_id] = operation
 
@@ -875,8 +911,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "status": "started",
             "operation_id": operation_id,
             "columns": columns,
-            "estimated_papers": len(paper_discovery["available_papers"]),
-            "rows_to_process": len(paper_discovery["available_papers"]),
+            "estimated_papers": doc_count,
+            "rows_to_process": doc_count,
             "missing_papers": paper_discovery["missing_papers"]
         }
 
@@ -981,6 +1017,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             def on_document_started(paper_title: str):
                 """Fired once per source document file — drives the 'X of Y docs' counter."""
                 doc_index[0] += 1
+                operation.processed_documents = doc_index[0]
                 try:
                     asyncio.run_coroutine_threadsafe(
                         self.broadcast_event(
@@ -1000,7 +1037,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
             def on_value_extracted(row_name: str, column_name: str, value: Any):
                 processed_count[0] += 1
-                operation.processed_documents = processed_count[0]
+                # processed_documents = source files; processed_count = cells (do not mix)
 
                 # Schedule broadcasts on main event loop from thread (fire and forget)
                 try:
@@ -1021,6 +1058,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     )
 
                     # 2. Broadcast progress for UI indicators
+                    docs_done = doc_index[0]
+                    total_docs = max(operation.total_documents, 1)
                     asyncio.run_coroutine_threadsafe(
                         self.broadcast_event(
                             operation.session_id,
@@ -1028,8 +1067,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                             {
                                 "operation_id": operation_id,
                                 "column": column_name,
-                                "progress": processed_count[0] / max(operation.total_documents * len(operation.columns), 1),
-                                "processed_documents": processed_count[0],
+                                "progress": min(1.0, docs_done / total_docs),
+                                "processed_documents": docs_done,
+                                "processed_cells": processed_count[0],
                                 "total_documents": operation.total_documents,
                                 "current_row": row_name
                             }
@@ -1039,37 +1079,19 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 except Exception as e:
                     logger.warning(f"Broadcast error: {e}")
 
-            # Run extraction - check documents/, pending_documents/, schematiq_work datasets, and original docs_path
-            candidate_dirs = [docs_dir, pending_dir]
-            # Also check schematiq_work datasets directories (Supabase datasets downloaded during ScheMatiQ creation)
-            schematiq_datasets_dir = schematiq_dir / "datasets"
-            if schematiq_datasets_dir.exists():
-                for dataset_subdir in schematiq_datasets_dir.iterdir():
-                    if dataset_subdir.is_dir():
-                        candidate_dirs.append(dataset_subdir)
-            # Also check schematiq_work capped_documents
-            capped_dir = schematiq_dir / "capped_documents"
-            if capped_dir.exists():
-                candidate_dirs.append(capped_dir)
-            # Also check original docs_path from ScheMatiQ config
-            schematiq_config_file = schematiq_dir / "schematiq_config.json"
-            if schematiq_config_file.exists():
-                try:
-                    with open(schematiq_config_file) as f:
-                        schematiq_cfg = json.load(f)
-                    config_docs_path = schematiq_cfg.get("docs_path", [])
-                    if isinstance(config_docs_path, str):
-                        config_docs_path = [config_docs_path]
-                    for dp in config_docs_path:
-                        if dp:
-                            dp_path = Path(dp)
-                            if dp_path.is_dir() and dp_path not in candidate_dirs:
-                                candidate_dirs.append(dp_path)
-                except Exception:
-                    pass
-            docs_directories = [d for d in candidate_dirs if d.exists()]
+            # Same directory resolution as discover_papers / precheck
+            docs_directories = self._get_session_document_dirs(operation.session_id)
             docs_had_directories = bool(docs_directories)
-            logger.info(f"Re-extraction docs_directories={[str(d) for d in docs_directories]}, count={len(docs_directories)}")
+            logger.info(
+                "Re-extraction docs_directories=%s, count=%d",
+                [str(d) for d in docs_directories],
+                len(docs_directories),
+            )
+            if operation.total_documents > 0 and not docs_directories:
+                raise RuntimeError(
+                    "No document directories found on disk for this session. "
+                    "Re-upload documents on the Data tab and try again."
+                )
 
             rediscover_observation_units = bool(
                 session.metadata.pending_observation_unit_rediscovery
@@ -1254,10 +1276,6 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if load_data_file.exists() and load_data_file.resolve() not in [f.resolve() for f in data_files]:
             data_files.append(load_data_file)
 
-        if not data_files:
-            logger.warning(f"No data files found for merge in session {session_id}")
-            return
-
         # Read extracted values indexed by composite key (row_name, source_document)
         # to avoid collisions when the same observation unit appears in multiple docs
         from app.services.data_utils import row_dedup_key, _resolve_source_document
@@ -1279,6 +1297,23 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     extracted_by_row_name.setdefault(key[0], []).append(row_data)
 
         logger.debug(f"Extracted composite keys from extraction file: {list(extracted_by_key.keys())}")
+
+        if not data_files:
+            schematiq_extracted_file.parent.mkdir(parents=True, exist_ok=True)
+            new_rows = [
+                self._storage_row_from_extraction(ext_row_data)
+                for ext_row_data in extracted_by_key.values()
+            ]
+            with open(schematiq_extracted_file, "w") as f:
+                for row in new_rows:
+                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            logger.info(
+                "Created %s with %d rows (first extraction after schema-only)",
+                schematiq_extracted_file,
+                len(new_rows),
+            )
+            self._update_session_stats_after_merge(session_id, columns, new_rows)
+            return
 
         # Build a fallback mapping from paper name stem to extracted data list
         extracted_by_paper_stem: Dict[str, List[Dict[str, Any]]] = {}
@@ -1364,21 +1399,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     if ext_key in matched_extracted_keys:
                         continue
 
-                    ext_row_name = ext_key[0]
-                    new_row = {
-                        "row_name": ext_row_name,
-                        "papers": ext_row_data.get("_papers", []),
-                        "data": {k: v for k, v in ext_row_data.items() 
-                                if not k.startswith('_') and k != "document_directory"}
-                    }
-                    if unit_name := ext_row_data.get("_unit_name"):
-                        new_row["_unit_name"] = unit_name
-                    metadata = ext_row_data.get("_metadata", {})
-                    if base_row_name := metadata.get("base_row_name"):
-                        new_row["_source_document"] = base_row_name
-                    elif papers_list := ext_row_data.get("_papers", []):
-                        new_row["_source_document"] = papers_list[0] if isinstance(papers_list, list) else str(papers_list)
-
+                    new_row = self._storage_row_from_extraction(ext_row_data)
                     updated_rows.append(new_row)
                     new_rows_added += 1
 
@@ -1397,28 +1418,77 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         logger.debug(f"Merged re-extracted data for {len(columns)} columns across {len(data_files)} files, {total_rows_updated} rows updated, {total_new_rows} new rows added")
 
-        # Update session statistics to reflect new data (including new rows)
-        session = self.session_manager.get_session(session_id)
-        if session and session.statistics:
-            if total_new_rows > 0:
-                old_total = session.statistics.total_rows
-                session.statistics.total_rows = len(all_updated_rows)
-                logger.info(f"Updated total_rows: {old_total} -> {session.statistics.total_rows} (+{total_new_rows} new rows)")
+        self._update_session_stats_after_merge(session_id, columns, all_updated_rows)
 
-            # Update non-null counts for re-extracted columns
+    def _storage_row_from_extraction(self, ext_row_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize build_table_jsonl output for extracted_data.jsonl (flat runtime format)."""
+        if ext_row_data.get("_row_name"):
+            return ext_row_data
+        row_name = ext_row_data.get("row_name")
+        storage: Dict[str, Any] = {}
+        if row_name:
+            storage["_row_name"] = row_name
+        papers = ext_row_data.get("_papers") or ext_row_data.get("papers") or []
+        if papers:
+            storage["_papers"] = papers
+        nested = ext_row_data.get("data")
+        if isinstance(nested, dict):
+            for k, v in nested.items():
+                if not k.startswith("_"):
+                    storage[k] = v
+        for k, v in ext_row_data.items():
+            if k.startswith("_") and k not in storage:
+                storage[k] = v
+            elif k not in ("row_name", "papers", "data", "document_directory"):
+                storage[k] = v
+        if ext_row_data.get("_unit_name"):
+            storage["_unit_name"] = ext_row_data["_unit_name"]
+        if ext_row_data.get("_source_document"):
+            storage["_source_document"] = ext_row_data["_source_document"]
+        return storage
+
+    def _cell_value_present(self, row: Dict[str, Any], col_name: str) -> bool:
+        val = row.get(col_name)
+        if val is None and isinstance(row.get("data"), dict):
+            val = row["data"].get(col_name)
+        if val is None:
+            return False
+        if isinstance(val, dict) and "answer" in val:
+            return val.get("answer") is not None and val.get("answer") != ""
+        return val != ""
+
+    def _update_session_stats_after_merge(
+        self,
+        session_id: str,
+        columns: List[str],
+        all_rows: List[Dict[str, Any]],
+    ) -> None:
+        """Update session statistics and column fill counts after a merge."""
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            return
+
+        if session.statistics:
+            session.statistics.total_rows = len(all_rows)
             for col_stat in session.statistics.column_stats:
                 if col_stat.name in columns:
-                    non_null_count = sum(
-                        1 for row in all_updated_rows
-                        if (row.get('data', {}).get(col_stat.name) is not None
-                            or row.get(col_stat.name) is not None)
+                    col_stat.non_null_count = sum(
+                        1 for row in all_rows if self._cell_value_present(row, col_stat.name)
                     )
-                    old_count = col_stat.non_null_count
-                    col_stat.non_null_count = non_null_count
-                    logger.debug(f"Updated stats for column '{col_stat.name}': non_null_count {old_count} -> {non_null_count}")
+        for col in session.columns:
+            if col.name in columns:
+                col.non_null_count = sum(
+                    1 for row in all_rows if self._cell_value_present(row, col.name)
+                )
 
-            self.session_manager.update_session(session)
-            logger.debug(f"Updated session statistics for {len(columns)} columns, {total_new_rows} new rows added")
+        session.metadata.processed_documents = session.metadata.total_documents or len(all_rows)
+        self.session_manager.update_session(session)
+        logger.info(
+            "Updated session %s after merge: %d rows, columns=%s",
+            session_id,
+            len(all_rows),
+            columns[:5],
+        )
 
     def _get_llm_from_session(self, session_id: str):
         """Get LLM configuration from session, including API key."""

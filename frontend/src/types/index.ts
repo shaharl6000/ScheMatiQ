@@ -343,11 +343,11 @@ export interface ObservationUnitReadyData {
 }
 
 export interface WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready';
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'reextraction_started' | 'reextraction_progress' | 'reextraction_completed' | 'reextraction_failed' | 'reextraction_stopped' | 'document_started' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready';
   timestamp?: string;
   session_id?: string;
   message?: string;
-  data?: ProgressData | LogData | ErrorData | CompletionData | SchemaCompletionData | RowCompletionData | SchemaUpdatedData | ReprocessingProgressData | ReprocessingCompletedData | CellExtractedData | StoppedData | ObservationUnitReadyData;
+  data?: ProgressData | LogData | ErrorData | CompletionData | SchemaCompletionData | RowCompletionData | SchemaUpdatedData | ReprocessingProgressData | ReprocessingCompletedData | ReextractionStartedData | ReextractionProgressData | ReextractionCompletedData | ReextractionFailedData | CellExtractedData | StoppedData | ObservationUnitReadyData;
 }
 
 // Schema types
@@ -710,6 +710,7 @@ export interface ReextractionProgressData {
   progress: number;
   processed_documents: number;
   total_documents: number;
+  processed_cells?: number;
   current_row?: string;
 }
 
