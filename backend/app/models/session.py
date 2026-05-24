@@ -132,6 +132,12 @@ class SessionMetadata(BaseModel):
     # would skip LLM unit discovery and ignore the new definition).
     pending_observation_unit_rediscovery: bool = False
 
+class SkippedDocumentInfo(BaseModel):
+    """Metadata for a document that was skipped during extraction."""
+    document: str
+    reason: Optional[str] = None
+
+
 class DataStatistics(BaseModel):
     """Statistics about the dataset."""
     total_rows: int
@@ -140,7 +146,12 @@ class DataStatistics(BaseModel):
     completeness: float  # Percentage of non-null values
     column_stats: List[ColumnInfo]
     schema_evolution: Optional[SchemaEvolution] = None  # How schema evolved during discovery
-    skipped_documents: List[str] = Field(default_factory=list)  # Documents skipped during value extraction (no observation units found)
+    skipped_documents: List[SkippedDocumentInfo] = Field(default_factory=list)
+
+    @property
+    def skipped_document_names(self) -> List[str]:
+        """Backward compatibility for code that expects a list of strings."""
+        return [s.document for s in self.skipped_documents]
 
 class VisualizationSession(BaseModel):
     """Main session model for visualization."""
@@ -161,6 +172,7 @@ class VisualizationSession(BaseModel):
     observation_unit: Optional[ObservationUnitInfo] = None  # What constitutes a single row
     # Privacy / data collection
     opt_out_data_collection: bool = False  # User opted out of research data archival
+    write_artifacts: Optional[bool] = None  # If True, write debug artifacts like skip rationales
 
 class DataRow(BaseModel):
     """A single row of data."""

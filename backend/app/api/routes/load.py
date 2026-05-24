@@ -88,10 +88,12 @@ async def load_template(template_name: str):
             file_size=len(template_content)
         )
 
+        from app.core.config import DEVELOPER_MODE
         session = VisualizationSession(
             id=session_id,
             type=SessionType.UPLOAD,
-            metadata=metadata
+            metadata=metadata,
+            write_artifacts=DEVELOPER_MODE,
         )
 
         # Save template content as uploaded file
@@ -187,10 +189,12 @@ async def upload_file(file: UploadFile = File(...)):
             file_size=file.size
         )
 
+        from app.core.config import DEVELOPER_MODE
         session = VisualizationSession(
             id=session_id,
             type=SessionType.UPLOAD,
-            metadata=metadata
+            metadata=metadata,
+            write_artifacts=DEVELOPER_MODE,
         )
 
         logger.debug(f"Created session: {session_id}")
@@ -428,10 +432,12 @@ async def upload_dual_files(
             source=f"Dual Upload: {schema_file.filename} + {data_file.filename}"
         )
 
+        from app.core.config import DEVELOPER_MODE
         session = VisualizationSession(
             id=session_id,
             type=SessionType.UPLOAD,
-            metadata=metadata
+            metadata=metadata,
+            write_artifacts=DEVELOPER_MODE,
         )
 
         logger.debug(f"Created session: {session_id}")
@@ -1184,6 +1190,8 @@ async def confirm_websocket_ready(session_id: str):
     is registered on the backend. This prevents race conditions where
     cell extraction starts before WebSocket is ready.
     """
+    from app.services import websocket_manager
+
     set_session_context(session_id)
     conn_count = websocket_manager.get_connection_count(session_id)
     logger.info(f"WebSocket confirmation request for {session_id}: {conn_count} connections")

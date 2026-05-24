@@ -110,6 +110,7 @@ def _convert_estimate_result(result) -> CostEstimate:
 @router.post("/configure", response_model=dict)
 async def configure_schematiq(config: ScheMatiQConfig):
     """Configure a new ScheMatiQ session."""
+    from app.core.config import DEVELOPER_MODE
     try:
         print(f"DEBUG: Received ScheMatiQ config: {config}")
         
@@ -131,6 +132,7 @@ async def configure_schematiq(config: ScheMatiQConfig):
             metadata=metadata,
             schema_query=config.query,
             opt_out_data_collection=config.opt_out_data_collection,
+            write_artifacts=config.write_artifacts if config.write_artifacts is not None else DEVELOPER_MODE,
         )
         
         # Store session and config

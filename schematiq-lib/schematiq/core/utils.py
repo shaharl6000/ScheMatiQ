@@ -1,7 +1,8 @@
+from __future__ import annotations
 
 from schematiq.core.retrievers import Retriever, EmbeddingRetriever, PromptingRetriever, test_retriever_stability
 from schematiq.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, HuggingFaceLLM, GeminiLLM
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from pathlib import Path
 import io, difflib
 import numpy as np

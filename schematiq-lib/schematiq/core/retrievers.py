@@ -7,9 +7,8 @@ Two retrieval strategies under a single interface:
       └─ PromptingRetriever   (LLM-extraction of relevant sentences)
 """
 
-from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import List, Sequence, Iterable, Any, Dict, Callable, Tuple
+from typing import List, Optional, Sequence, Iterable, Any, Dict, Callable, Tuple
 from dataclasses import dataclass
 import copy
 import random
@@ -31,7 +30,7 @@ TOGETHER_LIMIT = 8193
 SAFETY_MARGIN  = 512
 CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 
-def safe_parse_json(text: str, fallback_key: str | None = None) -> Dict[str, Any]:
+def safe_parse_json(text: str, fallback_key: Optional[str] = None) -> Dict[str, Any]:
     """
     Try hard to parse a JSON object. If it fails and `fallback_key` is given,
     salvage that list with regex.
@@ -234,7 +233,7 @@ class EmbeddingRetriever(Retriever):
     """
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2", max_words: int = 512, batch_size: int = 32, k: int = 3,
-                 device: str | None = None, enable_dynamic_k: bool = False,
+                 device: Optional[str] = None, enable_dynamic_k: bool = False,
                  dynamic_k_threshold: float = 0.65, dynamic_k_minimum: int = 2,
                  enable_embedding_cache: bool = True, max_cache_size: int = 1000,
                  enable_preprocessing: bool = True):
@@ -293,7 +292,7 @@ class EmbeddingRetriever(Retriever):
         """Compute a hash for the document to use as cache key."""
         return hashlib.md5(doc.encode('utf-8', errors='ignore')).hexdigest()
 
-    def _get_cached_embeddings(self, doc_hash: str) -> Dict[str, Any] | None:
+    def _get_cached_embeddings(self, doc_hash: str) -> Optional[Dict[str, Any]]:
         """Get cached passages and embeddings for a document hash."""
         return self._embedding_cache.get(doc_hash)
 
@@ -316,7 +315,7 @@ class EmbeddingRetriever(Retriever):
 
 
     # ---- Retriever API -------------------------------------------------- #
-    def _query_sentence_transformer(self, passages: list[str], question: str, k: int | None = None) -> list[str]:
+    def _query_sentence_transformer(self, passages: List[str], question: str, k: Optional[int] = None) -> List[str]:
         """Original method without caching - kept for backward compatibility."""
         q_emb = self.model.encode([_to_unicode(question)], show_progress_bar=False)[0]
         p_embs = self.model.encode(
@@ -343,12 +342,12 @@ class EmbeddingRetriever(Retriever):
 
     def _query_sentence_transformer_with_cache(
         self,
-        passages: list[str],
+        passages: List[str],
         question: str,
-        k: int | None = None,
+        k: Optional[int] = None,
         cached_embeddings: Any = None,
-        doc_hash: str | None = None
-    ) -> list[str]:
+        doc_hash: Optional[str] = None
+    ) -> List[str]:
         """
         Query with caching support.
 
@@ -389,12 +388,12 @@ class EmbeddingRetriever(Retriever):
         top = sims.argsort()[-chosen_k:][::-1]
         return [passages[i] for i in top]
 
-    def _rerank_passages(self, pairs: list[tuple[str, str]], chunk: int) -> np.ndarray:
+    def _rerank_passages(self, pairs: List[Tuple[str, str]], chunk: int) -> np.ndarray:
         """
         Call self.model.predict on <chunk>‑sized slices to avoid GPU OOM.
         Clears CUDA cache after each slice.
         """
-        scores: list[float] = []
+        scores: List[float] = []
         for i in range(0, len(pairs), chunk):
             sub = pairs[i: i + chunk]
             # len(sub) may be smaller than chunk for the last slice
@@ -414,10 +413,10 @@ class EmbeddingRetriever(Retriever):
     # --------------------------------------------------------------------- #
     def _query_cross_encoder(
             self,
-            passages: list[str],
+            passages: List[str],
             question: str,
-            k: int | None = None,
-    ) -> list[str]:
+            k: Optional[int] = None,
+    ) -> List[str]:
         pairs = [(question, p) for p in passages]
 
         scores = self._rerank_passages(pairs, self.batch_size)
@@ -427,7 +426,7 @@ class EmbeddingRetriever(Retriever):
         return [passages[i] for i in top_idx]
 
 
-    def query(self, docs: Sequence[str], question: str, k: int | None = None) -> list[str]:
+    def query(self, docs: Sequence[str], question: str, k: Optional[int] = None) -> List[str]:
         # ---- 0. Preprocess documents (remove references, etc.) -------------
         if self.preprocessor:
             docs = [self.preprocessor.preprocess(d) for d in docs]
@@ -450,7 +449,7 @@ class EmbeddingRetriever(Retriever):
         if cached_passages is not None:
             passages = cached_passages
         else:
-            passages: list[str] = []
+            passages: List[str] = []
             for d in docs:
                 d = _to_unicode(d)  # make sure the doc itself is clean
                 for chunk in self._improved_chunk(d):
@@ -525,7 +524,7 @@ class PromptingRetrieverConfig:
     k: int = 5
     max_new_tokens: int = 512
     temperature: float = 0.0
-    stop: List[str] | None = None
+    stop: Optional[List[str]] = None
     batch_size: int = 40          # how many passages to present per LLM call
     finalist_factor: float = 2.0  # keep top k*factor from each batch for final rerank
     mode: str = "sampled_rank"    # "rank" (single call) or "sampled_rank"
@@ -541,7 +540,7 @@ class PromptingRetriever(Retriever):
     `generate(messages, max_tokens, temperature, stop)` must be provided externally.
     """
 
-    def __init__(self, generate: Callable[..., str], config: PromptingRetrieverConfig | None = None):
+    def __init__(self, generate: Callable[..., str], config: Optional[PromptingRetrieverConfig] = None):
         super().__init__()
         self.generate = generate
         self.is_first_run = True
@@ -554,7 +553,7 @@ class PromptingRetriever(Retriever):
             setattr(self.cfg, attr, int(val))
 
     # ---- Public API ----------------------------------------------------- #
-    def query(self, docs: Sequence[str], question: str, k: int | None = None) -> List[str]:
+    def query(self, docs: Sequence[str], question: str, k: Optional[int] = None) -> List[str]:
         LLMCallTracker.get_instance().set_stage("retrieval")
         # 1. chunk
         passages: List[str] = []

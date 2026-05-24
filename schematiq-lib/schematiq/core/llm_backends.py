@@ -6,7 +6,6 @@ The API keys are pulled from standard environment variables by default:
     TOGETHER_API_KEY     – Together AI
 """
 
-from __future__ import annotations
 import logging
 import os
 import time
@@ -141,7 +140,7 @@ class TogetherLLM(LLMInterface):
     def __init__(
         self,
         model: str,
-        api_key: str | None = None,
+        api_key: Optional[str] = None,
         max_output_tokens: Optional[int] = None,
         temperature: float = 0.3,
         context_window_size: Optional[int] = None,
@@ -254,7 +253,7 @@ class OpenAILLM(LLMInterface):
     def __init__(
         self,
         model: str,
-        api_key: str | None = None,
+        api_key: Optional[str] = None,
         max_output_tokens: Optional[int] = None,
         temperature: float = 0.3,
         context_window_size: Optional[int] = None,
@@ -366,7 +365,7 @@ class HuggingFaceLLM(LLMInterface):
         model: str,
         max_output_tokens: int = 1024,
         temperature: float = 0.3,
-        device: str | None = None,
+        device: Optional[str] = None,
         **backend_kwargs,
     ):
         super().__init__(**backend_kwargs)
@@ -490,11 +489,11 @@ class GeminiLLM(LLMInterface):
     def __init__(
         self,
         model: str = ModelNames.DEFAULT_VALUE_EXTRACTION,
-        api_key: str | None = None,
+        api_key: Optional[str] = None,
         max_output_tokens: Optional[int] = None,
         temperature: float = 0.3,
         context_window_size: Optional[int] = None,
-        system_prefix: str | None = None,
+        system_prefix: Optional[str] = None,
         **backend_kwargs,
     ):
         super().__init__(**backend_kwargs)

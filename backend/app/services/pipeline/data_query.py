@@ -8,10 +8,9 @@ from pathlib import Path
 
 from app.models.session import (
     ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus,
-    SchemaEvolution, VisualizationSession
+    SchemaEvolution, VisualizationSession, SkippedDocumentInfo
 )
 from app.models.schematiq import ScheMatiQStatus
-from app.core.config import DEVELOPER_MODE
 
 from schematiq.core.schema import Schema
 
@@ -22,7 +21,7 @@ def compute_statistics(
     session_id: str,
     schema: Schema,
     schema_evolution: Optional[SchemaEvolution] = None,
-    skipped_documents: Optional[List[str]] = None,
+    skipped_documents: Optional[List[SkippedDocumentInfo]] = None,
     work_dir: Path = None,
 ) -> Optional[DataStatistics]:
     """Compute statistics from extracted JSONL data."""
@@ -54,7 +53,7 @@ def compute_statistics(
             completeness=0.0,
             column_stats=columns,
             schema_evolution=schema_evolution,
-            skipped_documents=skipped_documents or []
+            skipped_documents=skipped_documents or [],
         )
 
     # Count unique documents from papers field
@@ -128,7 +127,7 @@ def compute_statistics(
         completeness=completeness,
         column_stats=columns,
         schema_evolution=schema_evolution,
-        skipped_documents=skipped_documents or []
+        skipped_documents=skipped_documents or [],
     )
 
     logger.info("Statistics computed: %d rows, %d documents, %d columns, %.1f%% complete", len(data_rows), total_documents, len(columns), completeness)

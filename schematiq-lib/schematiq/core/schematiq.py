@@ -17,8 +17,9 @@ Replace the two stubs:
     • LLMInterface.generate(...)  (for prompt → completion)
 """
 
+from __future__ import annotations
+
 from schematiq.core import utils
-# from __future__ import annotations
 from typing import List, Dict, Sequence, Tuple, Any, Union, Optional
 import itertools
 import argparse
@@ -312,8 +313,8 @@ def _parse_observation_unit_from_llm(raw_text: str) -> ObservationUnit:
 
 
 def _discover_observation_unit(
-    query: str | None,
-    passages: List[str] | None,
+    query: Optional[str],
+    passages: Optional[List[str]],
     llm,
     context_window_size: int = 8192,
     source_document: str = None,
@@ -405,10 +406,10 @@ def _discover_observation_unit(
         raise ObservationUnitDiscoveryError(f"LLM generation failed during observation unit discovery: {e}") from e
 
 
-def build_messages(query: str | None,
-                   passages: list[str],
+def build_messages(query: Optional[str],
+                   passages: List[str],
                    draft_schema=None,
-                   observation_unit: ObservationUnit = None) -> tuple[list[dict], SchemaMode]:
+                   observation_unit: ObservationUnit = None) -> Tuple[List[Dict], SchemaMode]:
     """
     Build LLM messages for schema discovery with automatic mode detection.
 
@@ -480,9 +481,9 @@ def build_messages(query: str | None,
 
 def generate_schema(
     passages: List[str],
-    query: str | None,
+    query: Optional[str],
     max_keys_schema: int,
-    current_schema: Schema | None,
+    current_schema: Optional[Schema],
     llm,
     context_window_size: int = 8192,
     observation_unit: ObservationUnit = None,

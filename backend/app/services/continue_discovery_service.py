@@ -331,7 +331,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             completeness=completeness,
             column_stats=columns,
             schema_evolution=existing_evolution,  # Preserve existing evolution
-            skipped_documents=existing_skipped  # Preserve skipped documents
+            skipped_documents=existing_skipped,  # Preserve skipped documents
         )
 
         self.session_manager.update_session(session)
@@ -1496,7 +1496,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                         retrieval_k=10,
                         max_workers=1,
                         on_value_extracted=on_value_extracted,
-                        should_stop=should_stop
+                        should_stop=should_stop,
+                        write_skip_rationale_artifact=session.write_artifacts,
                     )
 
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)

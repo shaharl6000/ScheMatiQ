@@ -14,11 +14,12 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { TrendingUp, FileText, Info, Plus, Edit, Trash2, Brain, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
+import { TrendingUp, FileText, Info, Plus, Edit, Trash2, Brain, CheckCircle2, AlertTriangle, ChevronDown, ChevronUp, Search } from 'lucide-react';
 
-import { DataStatistics, SchemaEvolution, CreationMetadata, ModificationAction, VisualizationSession } from '../../types';
+import { DataStatistics, SchemaEvolution, CreationMetadata, ModificationAction, VisualizationSession, SkippedDocument } from '../../types';
 import { CollapsibleSection, InfoCard } from '../shared';
 import LLMConfigDisplay from '../LLMConfigDisplay';
+import { Input } from '@/components/ui/input';
 
 interface StatsDashboardProps {
   statistics: DataStatistics;
@@ -614,6 +615,7 @@ const DocumentProcessingSection: React.FC<DocumentProcessingSectionProps> = ({
   observationUnitName
 }) => {
   const [isExpanded, setIsExpanded] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState('');
 
   const skippedDocuments = statistics.skipped_documents || [];
   const skippedCount = skippedDocuments.length;
@@ -622,6 +624,12 @@ const DocumentProcessingSection: React.FC<DocumentProcessingSectionProps> = ({
   const totalDocuments = processedDocuments + skippedCount;
   const processedCount = processedDocuments;
   const skippedPercentage = totalDocuments > 0 ? Math.round((skippedCount / totalDocuments) * 100) : 0;
+
+  // Filter skipped documents based on search query
+  const filteredSkips = skippedDocuments.filter(doc => 
+    doc.document.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (doc.reason || '').toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   // Determine state: none skipped, few skipped (1-5), many skipped (>5 or >20%)
   const isManySkipped = skippedCount > 5 || skippedPercentage > 20;
@@ -660,9 +668,21 @@ const DocumentProcessingSection: React.FC<DocumentProcessingSectionProps> = ({
         <div className="flex items-start gap-3">
           <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
-            <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100 mb-1">
-              Document Processing
-            </h4>
+            <div className="flex items-center justify-between mb-1">
+              <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                Document Processing
+              </h4>
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="text-xs font-medium text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 flex items-center gap-1"
+              >
+                {isExpanded ? (
+                  <>Hide Details <ChevronUp className="h-3 w-3" /></>
+                ) : (
+                  <>View Details <ChevronDown className="h-3 w-3" /></>
+                )}
+              </button>
+            </div>
 
             {/* Summary stats */}
             <div className="flex items-center gap-3 text-sm text-amber-800 dark:text-amber-200 mb-2">
@@ -678,62 +698,66 @@ const DocumentProcessingSection: React.FC<DocumentProcessingSectionProps> = ({
               </p>
             )}
 
-            {/* Collapsible document list for many skipped, always visible for few */}
-            {isManySkipped ? (
-              <div>
-                <button
-                  onClick={() => setIsExpanded(!isExpanded)}
-                  aria-expanded={isExpanded}
-                  aria-label={isExpanded ? "Hide skipped documents list" : "Show skipped documents list"}
-                  className="flex items-center gap-1 text-sm font-medium text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 transition-colors"
-                >
-                  {isExpanded ? (
-                    <>
-                      <ChevronUp className="h-4 w-4" />
-                      Hide Skipped Documents
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown className="h-4 w-4" />
-                      View Skipped Documents ({skippedCount})
-                    </>
-                  )}
-                </button>
-                {isExpanded && (
-                  <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
-                    {skippedDocuments.map((doc, index) => (
-                      <div
-                        key={index}
-                        className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200 py-0.5"
-                      >
-                        <FileText className="h-3 w-3 flex-shrink-0 opacity-60" />
-                        <span className="truncate">{doc}</span>
-                      </div>
-                    ))}
+            {isExpanded && (
+              <div className="mt-4 space-y-3">
+                {/* Search box for many skips */}
+                {skippedCount > 5 && (
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-amber-600/50 dark:text-amber-400/50" />
+                    <Input
+                      placeholder="Search skipped documents or reasons..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-9 bg-white/50 dark:bg-amber-900/50 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-100 h-9 text-sm"
+                    />
                   </div>
                 )}
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {skippedDocuments.map((doc, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200 py-0.5"
-                  >
-                    <FileText className="h-3 w-3 flex-shrink-0 opacity-60" />
-                    <span className="truncate">{doc}</span>
-                  </div>
-                ))}
+
+                <div className="overflow-hidden rounded-md border border-amber-200 dark:border-amber-800 bg-white/30 dark:bg-amber-950/30">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-amber-100/50 dark:bg-amber-900/50 border-b border-amber-200 dark:border-amber-800">
+                        <th className="p-2 text-left font-semibold text-amber-900 dark:text-amber-100 w-1/3">Document</th>
+                        <th className="p-2 text-left font-semibold text-amber-900 dark:text-amber-100">Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-200/50 dark:divide-amber-800/50">
+                      {filteredSkips.length > 0 ? (
+                        filteredSkips.map((doc, index) => (
+                          <tr key={index} className="hover:bg-amber-100/30 dark:hover:bg-amber-900/30 transition-colors">
+                            <td className="p-2 font-medium text-amber-900 dark:text-amber-100 break-all">
+                              <div className="flex items-center gap-2">
+                                <FileText className="h-3.5 w-3.5 flex-shrink-0 opacity-60" />
+                                {doc.document}
+                              </div>
+                            </td>
+                            <td className="p-2 text-amber-800 dark:text-amber-200">
+                              {doc.reason || <span className="text-slate-400 italic">No reason provided</span>}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={2} className="p-4 text-center text-amber-600 dark:text-amber-400 italic">
+                            No documents match your search.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
 
             {/* Explanation with observation unit name */}
-            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1">
-              <Info className="h-3 w-3 flex-shrink-0 mt-0.5" />
-              <span>
-                These documents did not contain any "{observationUnitName || 'observation unit'}" instances.
-              </span>
-            </p>
+            {!isExpanded && (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1">
+                <Info className="h-3 w-3 flex-shrink-0 mt-0.5" />
+                <span>
+                  These documents did not contain any "{observationUnitName || 'observation unit'}" instances.
+                </span>
+              </p>
+            )}
           </div>
         </div>
       </CardContent>

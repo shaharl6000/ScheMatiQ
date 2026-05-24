@@ -1,4 +1,5 @@
 """Utility functions for computing metrics"""
+from __future__ import annotations
 
 import difflib
 import json

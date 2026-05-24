@@ -1,4 +1,5 @@
 """Table building orchestration for value extraction."""
+from __future__ import annotations
 
 import json
 import time
@@ -11,6 +12,9 @@ from tqdm import tqdm
 from schematiq.core.schema import Schema, Column
 from schematiq.core.llm_backends import LLMInterface
 from schematiq.core import utils
+from schematiq.core.results import SkippedDocument
+from schematiq.core.config import config as lib_config
+from schematiq.value_extraction.config.messages import skipped_summary, DEFAULT_SKIP_REASON
 
 from .paper_processor import PaperProcessor, OnValueExtractedCallback, OnWarningCallback
 from .row_manager import RowDataManager
@@ -29,7 +33,8 @@ class TableBuilder:
                  on_value_extracted: Optional[OnValueExtractedCallback] = None,
                  should_stop: Optional[ShouldStopCallback] = None,
                  on_warning: Optional[OnWarningCallback] = None,
-                 on_document_started: Optional[Callable[[str], None]] = None):
+                 on_document_started: Optional[Callable[[str], None]] = None,
+                 write_skip_rationale_artifact: Optional[bool] = None):
         self.llm = llm
         self.retriever = retriever
         self.cache = cache or LLMCache()
@@ -37,11 +42,16 @@ class TableBuilder:
         self.should_stop = should_stop
         self.on_warning = on_warning
         self.on_document_started = on_document_started
+        self._write_skip_rationale_artifact = (
+            write_skip_rationale_artifact
+            if write_skip_rationale_artifact is not None
+            else lib_config.write_artifacts
+        )
         # Pass should_stop and on_warning to PaperProcessor for fine-grained stop checking and warning reporting
         self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted, should_stop, on_warning)
         self.row_manager = RowDataManager()
         self._stopped = False  # Track if we stopped early
-        self._skipped_documents: List[str] = []  # Track documents with no observation units found
+        self._skipped_documents: List[SkippedDocument] = []
 
     def get_suggested_values(self, threshold: int = 2) -> Dict[str, Dict[str, Any]]:
         """Get suggested values that meet the threshold from PaperProcessor."""
@@ -52,14 +62,18 @@ class TableBuilder:
         return self.paper_processor.get_all_suggested_values()
 
     def get_skipped_documents(self) -> List[str]:
-        """Get list of documents that were skipped due to no observation units found."""
-        return self._skipped_documents.copy()
+        """Document stems skipped due to no observation units (names only, backward compatible)."""
+        return [entry.document for entry in self._skipped_documents]
+
+    def get_skipped_documents_with_reasons(self) -> List[Dict[str, str]]:
+        """Skipped documents with human-readable reasons (often LLM ``notes``)."""
+        return [entry.to_dict for entry in self._skipped_documents]
 
     def clear_skipped_documents(self) -> None:
         """Clear the list of skipped documents."""
         self._skipped_documents = []
 
-    def _report_skipped_documents_summary(self) -> None:
+    def _report_skipped_documents_summary(self, output_path: Optional[Path]) -> None:
         """Report summary of documents skipped due to no observation units found.
 
         Prints to console and sends via on_warning callback for UI display.
@@ -71,13 +85,33 @@ class TableBuilder:
 
         # Console summary
         print(f"\n⚠️  {count} document(s) skipped - no observation units found:")
-        for doc in self._skipped_documents:
+        for entry in self._skipped_documents:
+            doc = entry.document
+            reason = entry.reason or ""
             print(f"    • {doc}")
+            if reason:
+                # Indent rationale for readability (may be multi-sentence)
+                first_line = reason.replace("\n", " ").strip()
+                preview = first_line if len(first_line) <= 320 else first_line[:317] + "..."
+                print(f"      └─ {preview}")
+
+        names = [e.document for e in self._skipped_documents]
+
+        # Persist full reasons next to extracted JSONL (opt-in: e.g. developer mode in backend)
+        if self._write_skip_rationale_artifact and output_path is not None:
+            artifact = output_path.parent / "skipped_no_observation_units.json"
+            try:
+                artifact.write_text(
+                    json.dumps([e.to_dict for e in self._skipped_documents], indent=2, ensure_ascii=False),
+                    encoding="utf-8",
+                )
+                print(f"\n📄 Wrote skip rationale details → {artifact.resolve()}")
+            except OSError as exc:
+                print(f"⚠️  Could not write {artifact}: {exc}")
 
         # Send via callback for UI display
         if self.on_warning:
-            # Send a summary warning
-            summary_message = f"No observation units found in {count} document(s): {', '.join(self._skipped_documents)}"
+            summary_message = skipped_summary(count, names)
             try:
                 self.on_warning("_extraction_summary", "no_observation_units", summary_message)
             except Exception as e:
@@ -307,7 +341,7 @@ class TableBuilder:
         print(f"\n✅ Processing complete! Wrote {len(written_rows)} rows to {output_path}")
 
         # Print summary of skipped documents (no observation units found)
-        self._report_skipped_documents_summary()
+        self._report_skipped_documents_summary(output_path)
     
     def _process_row_multi_dirs(self,
                                row_name: str,
@@ -402,7 +436,7 @@ class TableBuilder:
 
                 # Extract values with observation units (may return multiple rows)
                 paper_known_units = known_units.get(paper_title) if known_units else None
-                unit_rows = self.paper_processor.extract_values_for_paper_with_units(
+                extraction_result = self.paper_processor.extract_values_for_paper_with_units(
                     paper_title=paper_title,
                     paper_text=paper_text,
                     schema=schema,
@@ -411,14 +445,21 @@ class TableBuilder:
                     retrieval_k=retrieval_k,
                     known_units=paper_known_units,
                 )
+                unit_rows = extraction_result.rows
+                skip_reason = extraction_result.skip_reason
 
                 if self.should_stop and self.should_stop():
                     self._stopped = True
                     return
 
-                # Track documents with no observation units found
-                if not unit_rows:
-                    self._skipped_documents.append(paper_title)
+                # Track documents with no observation units found (distinct from "units found but no cells extracted")
+                if not unit_rows and skip_reason:
+                    self._skipped_documents.append(
+                        SkippedDocument(
+                            document=paper_title,
+                            reason=skip_reason.strip() or DEFAULT_SKIP_REASON,
+                        )
+                    )
 
                 # Write each unit row
                 for unit_row in unit_rows:

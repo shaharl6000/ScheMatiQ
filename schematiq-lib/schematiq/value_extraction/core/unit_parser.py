@@ -20,6 +20,8 @@ class UnitParseResult:
     error: Optional[str] = None
     detected_format: str = "unknown"  # "correct", "value_extraction", "malformed", "empty"
     warnings: List[str] = field(default_factory=list)
+    # Top-level "notes" from the LLM JSON (rationale when observation_units is empty)
+    notes: Optional[str] = None
 
 
 class UnitIdentificationParser:
@@ -88,6 +90,11 @@ class UnitIdentificationParser:
             result.error = "Top-level JSON is not an object"
             result.detected_format = "malformed"
             return result
+
+        raw_notes = data.get("notes")
+        if raw_notes is not None and not isinstance(raw_notes, str):
+            raw_notes = str(raw_notes)
+        result.notes = raw_notes.strip() if raw_notes else None
 
         # Detect the format
         result.detected_format = self._detect_format(data)
