@@ -30,6 +30,7 @@ import random
 from pathlib import Path
 from schematiq.core.schema import Schema, Column, SchemaEvolution, ObservationUnit
 from schematiq.core.llm_call_tracker import LLMCallTracker
+from schematiq.core.llm_debug import dump_llm_call
 from schematiq.core.prompts import (
     get_prompts, get_observation_unit_prompts, SchemaMode, DRAFT_SCHEMA_TMPL,
     SYSTEM_PROMPT_OBSERVATION_UNIT, USER_PROMPT_TMPL_OBSERVATION_UNIT,
@@ -387,7 +388,30 @@ def _discover_observation_unit(
             generate_kwargs["thinking_budget"] = 1024
             generate_kwargs["response_schema"] = OBSERVATION_UNIT_RESPONSE_SCHEMA
         llm_response = llm.generate(trimmed, **generate_kwargs)
-        observation_unit = _parse_observation_unit_from_llm(llm_response)
+        try:
+            observation_unit = _parse_observation_unit_from_llm(llm_response)
+            dump_llm_call(
+                "observation_unit_discovery",
+                label=source_document or mode.value,
+                raw_response=llm_response,
+                parsed={
+                    "name": observation_unit.name,
+                    "definition": observation_unit.definition,
+                    "example_names": observation_unit.example_names,
+                },
+                prompt_messages=trimmed,
+                extra={"mode": mode.value},
+            )
+        except ObservationUnitDiscoveryError:
+            dump_llm_call(
+                "observation_unit_discovery",
+                label=source_document or mode.value,
+                raw_response=llm_response,
+                parsed={"parse_error": True},
+                prompt_messages=trimmed,
+                extra={"mode": mode.value},
+            )
+            raise
 
         # Add source tracking
         if source_document:
@@ -517,6 +541,26 @@ def generate_schema(
     # For query-only mode, document_helpful doesn't apply
     schema, document_helpful, suggested_value_additions = _parse_schema_from_llm(
         llm_response, query=query or "", max_keys_schema=max_keys_schema
+    )
+    dump_llm_call(
+        "schema_discovery",
+        label=mode.value,
+        raw_response=llm_response,
+        parsed={
+            "document_helpful": document_helpful,
+            "column_count": len(schema.columns),
+            "columns": [
+                {
+                    "name": c.name,
+                    "definition": c.definition,
+                    "has_rationale": bool(c.rationale),
+                }
+                for c in schema.columns
+            ],
+            "suggested_value_additions_count": len(suggested_value_additions),
+        },
+        prompt_messages=trimmed,
+        extra={"mode": mode.value},
     )
 
     # In QUERY_ONLY mode, there are no documents to assess helpfulness

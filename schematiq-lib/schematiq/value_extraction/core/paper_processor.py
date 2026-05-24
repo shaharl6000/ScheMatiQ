@@ -1,11 +1,7 @@
 """Paper processing for value extraction."""
 from __future__ import annotations
 
-import json
 import logging
-import os
-import time
-from pathlib import Path
 from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
 
 logger = logging.getLogger(__name__)
@@ -18,14 +14,7 @@ from schematiq.core.llm_backends import LLMInterface
 from sentence_transformers import util as st_util
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.core import utils
-
-# Set SCHEMATIQ_DEBUG_DIR to a directory path to save LLM inputs/outputs per pass.
-_DEBUG_DIR: Optional[Path] = None
-_debug_env = os.environ.get("SCHEMATIQ_DEBUG_DIR")
-if _debug_env:
-    _DEBUG_DIR = Path(_debug_env)
-    _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-    logging.info("Debug dump enabled -> %s", _DEBUG_DIR)
+from schematiq.core.llm_debug import dump_llm_call
 
 from .llm_cache import LLMCache
 from .json_parser import JSONResponseParser
@@ -128,7 +117,7 @@ class PaperProcessor:
         return flat
 
     @staticmethod
-    def _debug_dump(
+    def _dump_extraction_call(
         pass_name: str,
         paper_title: str,
         batch_idx: int,
@@ -139,37 +128,25 @@ class PaperProcessor:
         cleaned: Dict[str, Any],
         already_extracted: Dict[str, str] | None = None,
     ) -> None:
-        """Save a debug snapshot of one LLM call to SCHEMATIQ_DEBUG_DIR.
-
-        Set the SCHEMATIQ_DEBUG_DIR environment variable to a directory path
-        to enable. Each call writes a JSON file named:
-          <title>__<pass>__batch<n>__<timestamp_ms>.json
-        No-op when the env var is not set.
-        """
-        if _DEBUG_DIR is None:
-            return
-        safe_title = "".join(c if c.isalnum() or c in "-_ " else "_" for c in paper_title)[:60]
-        ts = int(time.time() * 1000)
-        fname = f"{safe_title}__{pass_name}__batch{batch_idx}__{ts}.json"
-        payload = {
+        extra = {
             "pass": pass_name,
             "paper_title": paper_title,
-            "batch_idx": batch_idx,
             "columns_requested": columns_requested,
             "columns_filled": list(cleaned.keys()),
             "columns_missing": [c for c in columns_requested if c not in cleaned],
-            "prompt_system": prompt_msgs[0]["content"][:500] + "..." if prompt_msgs else None,
-            "prompt_user_len": len(prompt_msgs[1]["content"]) if len(prompt_msgs) > 1 else 0,
-            "raw_response": raw_response[:5000] if raw_response else None,
             "parsed": {k: v for k, v in (parsed or {}).items()},
             "cleaned": {k: v for k, v in (cleaned or {}).items()},
         }
         if already_extracted:
-            payload["already_extracted_context"] = already_extracted
-        try:
-            (_DEBUG_DIR / fname).write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
-        except Exception as e:
-            logging.warning("Debug dump failed: %s", e)
+            extra["already_extracted_context"] = already_extracted
+        dump_llm_call(
+            pass_name,
+            label=paper_title,
+            raw_response=raw_response,
+            prompt_messages=prompt_msgs,
+            batch_idx=batch_idx,
+            extra=extra,
+        )
 
     def _check_stop_requested(self) -> bool:
         """Check if stop was requested. Returns True if should stop."""
@@ -583,7 +560,7 @@ class PaperProcessor:
             # Track unmatched values for schema evolution
             self._track_unmatched_values(unmatched, paper_title)
 
-            self._debug_dump(
+            self._dump_extraction_call(
                 pass_name="pass3_batch_fallback",
                 paper_title=paper_title,
                 batch_idx=0,
@@ -708,7 +685,7 @@ class PaperProcessor:
                         cleaned_re, paper_title
                     )
 
-                    self._debug_dump(
+                    self._dump_extraction_call(
                         pass_name="pass2_reordered",
                         paper_title=paper_title,
                         batch_idx=p2_batch_idx,
@@ -1037,7 +1014,7 @@ class PaperProcessor:
                     batch_cleaned, paper_title
                 )
 
-                self._debug_dump(
+                self._dump_extraction_call(
                     pass_name="pass1_paper",
                     paper_title=paper_title,
                     batch_idx=batch_idx,
@@ -1376,6 +1353,22 @@ class PaperProcessor:
         # Parse using dedicated unit parser
         result = self.unit_parser.parse_response(raw_response)
 
+        dump_llm_call(
+            "unit_identification",
+            label=paper_title,
+            raw_response=raw_response,
+            parsed={
+                "success": result.success,
+                "detected_format": result.detected_format,
+                "unit_count": len(result.units) if result.units else 0,
+                "unit_names": [u.get("unit_name", "?") for u in (result.units or [])],
+                "error": result.error,
+                "notes": result.notes,
+            },
+            prompt_messages=trimmed,
+            extra={"is_retry": is_retry},
+        )
+
         # Log parse result for diagnostics
         if result.success:
             unit_names = (
@@ -1651,7 +1644,7 @@ class PaperProcessor:
                 self._track_unmatched_values(unmatched, paper_title)
                 cleaned = self._attach_source_to_excerpts(cleaned, paper_title)
 
-                self._debug_dump(
+                self._dump_extraction_call(
                     pass_name="pass1_unit",
                     paper_title=f"{paper_title} - {unit_name}",
                     batch_idx=batch_idx,
