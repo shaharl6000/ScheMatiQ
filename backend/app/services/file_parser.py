@@ -1255,7 +1255,7 @@ class FileParser:
             return CompatibilityCheck(
                 is_compatible=False,
                 detailed_errors=["Cannot check compatibility: schema or data validation failed"],
-                schema_count=len(schema_validation.detected_columns) if schema_validation.schema else 0,
+                schema_count=len(schema_validation.detected_columns) if schema_validation.columns else 0,
                 data_count=len(data_columns)
             )
         
@@ -1358,10 +1358,10 @@ class FileParser:
             await f.write(content)
         
         # Save parsed schema for easy access
-        if validation.schema:
+        if validation.columns:
             parsed_schema = {
                 "query": validation.query,
-                "schema": [col.model_dump() for col in validation.schema]
+                "schema": [col.model_dump() for col in validation.columns]
             }
             
             # Include LLM configuration if available
