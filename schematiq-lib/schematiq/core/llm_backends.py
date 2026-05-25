@@ -559,6 +559,11 @@ class GeminiLLM(LLMInterface):
             ),
         ]
 
+        # ScheMatiQ uses plain text generation only — disable SDK default AFC.
+        self._disable_automatic_function_calling = (
+            types.AutomaticFunctionCallingConfig(disable=True)
+        )
+
     def _validate_api_key(self, key: str, key_source: str = "unknown") -> bool:
         """Validate that an API key doesn't have invalid characters.
 
@@ -640,6 +645,7 @@ class GeminiLLM(LLMInterface):
             "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
             "safety_settings": self.safety_settings,
+            "automatic_function_calling": self._disable_automatic_function_calling,
         }
         # Add system instruction
         if system_instruction:
@@ -836,6 +842,7 @@ class GeminiLLM(LLMInterface):
             "max_output_tokens": kwargs.get("max_output_tokens", self.max_output_tokens),
             "temperature": kwargs.get("temperature", self.temperature),
             "safety_settings": self.safety_settings,
+            "automatic_function_calling": self._disable_automatic_function_calling,
             "cached_content": cache.name,
         }
         if kwargs.get("response_schema") is not None:
