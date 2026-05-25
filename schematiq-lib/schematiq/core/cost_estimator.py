@@ -547,7 +547,7 @@ def estimate_schematiq_cost(
     schema_creation_model: str = ModelNames.DEFAULT_SCHEMA_CREATION,
     schema_creation_max_output_tokens: int = 8192,
     value_extraction_provider: str = "gemini",
-    value_extraction_model: str = ModelNames.DEFAULT_SCHEMA_CREATION,
+    value_extraction_model: str = ModelNames.DEFAULT_VALUE_EXTRACTION,
     value_extraction_max_output_tokens: int = 8192,
     initial_schema_columns: int = 0,
     estimated_columns: int = 10,

@@ -108,8 +108,8 @@ Release mode (default) restricts features for public use. Set `DEVELOPER_MODE=tr
 | Document limit           | 100                    | 10,000                  |
 | Bypass UI toggle         | Hidden                 | Visible                 |
 | LLM configuration        | Locked (Gemini only)   | User-configurable       |
-| Schema creation model    | gemini-2.5-flash       | User's choice           |
-| Value extraction model   | gemini-2.5-flash-lite  | User's choice           |
+| Schema creation model    | gemini-3.5-flash       | User's choice           |
+| Value extraction model   | gemini-3.1-flash-lite  | User's choice           |
 | Research data collection | Enabled (if configured)| Disabled                |
 
 All mode settings in `RELEASE_CONFIG` in `backend/app/core/config.py`. Frontend adapts via `/api/config`.
