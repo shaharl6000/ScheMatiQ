@@ -48,21 +48,27 @@ class LLMBackendConfig(BaseModel):
 
 class ScheMatiQSchemaFormat(BaseModel):
     """ScheMatiQ schema file format."""
+
+    model_config = {"populate_by_name": True, "serialize_by_alias": True}
+
     query: Optional[str] = None
     docs_path: Optional[str] = None
     backend: Optional[Dict[str, Any]] = None  # Legacy single backend support
     retriever: Optional[Dict[str, Any]] = None
-    schema: List[SchemaColumn]
+    columns: List[SchemaColumn] = Field(..., alias="schema")
     llm_configuration: Optional[Dict[str, Any]] = None  # New dual LLM config
 
 class SchemaValidationResult(BaseModel):
     """Result of schema file validation."""
+
+    model_config = {"populate_by_name": True, "serialize_by_alias": True}
+
     is_valid: bool
     errors: List[str] = []
     warnings: List[str] = []
     detected_columns: List[str] = []
     query: Optional[str] = None
-    schema: Optional[List[SchemaColumn]] = None
+    columns: Optional[List[SchemaColumn]] = Field(default=None, alias="schema")
 
 class CompatibilityCheck(BaseModel):
     """Result of schema-data compatibility check."""
