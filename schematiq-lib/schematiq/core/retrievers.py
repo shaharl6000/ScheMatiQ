@@ -279,7 +279,9 @@ class EmbeddingRetriever(Retriever):
             self.batch_size = 2
 
         else:
-            self.model = SentenceTransformer(model_name, device=device)
+            from schematiq.core.embedding_model import load_sentence_transformer
+
+            self.model = load_sentence_transformer(model_name, device=device)
         self.max_words = max_words
         self.max_words_chunk = max(int(max_words / self.k), 128)
 

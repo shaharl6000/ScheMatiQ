@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple, Any, Optional, Set
 import argparse
 from dataclasses import dataclass
-from sentence_transformers import SentenceTransformer
+from schematiq.core.embedding_model import load_sentence_transformer
 import torch
 import re
 
@@ -218,7 +218,7 @@ class FieldAligner:
     """Handles alignment between GT and prediction field names."""
 
     def __init__(self):
-        self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.sentence_model = load_sentence_transformer('all-MiniLM-L6-v2')
         self.similarity_threshold = 0.6
 
     def align_fields(self, gt_columns: List[str], pred_columns: List[str]) -> List[FieldAlignment]:
@@ -472,7 +472,7 @@ class ValueEvaluator:
     """Evaluates similarity between GT and prediction values."""
 
     def __init__(self, use_llm_judge: bool = False, llm_model: str = ModelNames.DEFAULT_EVALUATION):
-        self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.sentence_model = load_sentence_transformer('all-MiniLM-L6-v2')
         self.use_llm_judge = use_llm_judge
         self.llm_judge = None
 

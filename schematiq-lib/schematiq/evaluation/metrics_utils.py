@@ -17,7 +17,9 @@ from nltk import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import PorterStemmer
 from openai import OpenAI
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import util
+
+from schematiq.core.embedding_model import load_sentence_transformer
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from table import Table
@@ -405,7 +407,7 @@ class SentenceTransformerAlignmentScorer(BaseAlignmentScorer):
         """We can choose which sentence transformer model to use while initializing."""
         super().__init__("sentence_transformer")
         self.metadata["model"] = model
-        self.model = SentenceTransformer(model)
+        self.model = load_sentence_transformer(model)
 
     # For better efficiency, the pair similarity calculation function takes batches of strings
     def calculate_pair_similarity(self, predictions: list[str], targets: list[str]) -> float:

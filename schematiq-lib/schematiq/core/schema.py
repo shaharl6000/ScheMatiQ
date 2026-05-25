@@ -3,12 +3,14 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
 import json
 
-from sentence_transformers import SentenceTransformer, util
+from sentence_transformers import util
+
+from schematiq.core.embedding_model import load_sentence_transformer
 
 # -------------------------------------------------------------------- #
 # Globals                                                              #
 # -------------------------------------------------------------------- #
-EMB_MODEL = SentenceTransformer("all-MiniLM-L6-v2")
+EMB_MODEL = load_sentence_transformer("all-MiniLM-L6-v2")
 SIM_THRESHOLD = 0.9            # paraphrase deduplication
 MAX_KEYS_DEFAULT = None         # unlimited unless specified
 
