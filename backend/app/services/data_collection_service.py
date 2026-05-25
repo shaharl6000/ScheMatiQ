@@ -2,6 +2,9 @@
 
 After a ScheMatiQ session completes (creation, reextraction, or continue discovery),
 bundles all session data into a ZIP and uploads it to Google Drive.
+
+The ZIP includes ``project.schematiq.json`` — the same format as the web UI
+"Save Project" export — so archives can be re-loaded directly via Load Data.
 Optionally logs a summary row to a Google Sheet.
 
 This runs asynchronously in the background — zero impact on user latency.
@@ -115,12 +118,18 @@ class DataCollectionService:
         metadata_json = self._build_metadata(session, trigger_source, archived_doc_count=len(documents))
         config_json = self._read_and_sanitize_config(session_id)
         export_csv = self._build_export_csv(session, session_id, config_json)
+        project_export = self._build_project_export_json(session, session_id, config_json)
 
         # Build ZIP
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("metadata.json", json.dumps(metadata_json, indent=2, default=str))
             zf.writestr("schema.json", json.dumps(schema_json, indent=2, default=str))
+            if project_export:
+                zf.writestr(
+                    "project.schematiq.json",
+                    json.dumps(project_export, indent=2, ensure_ascii=False, default=str),
+                )
             if data_bytes:
                 zf.writestr("data.jsonl", data_bytes)
             if export_csv:
@@ -228,6 +237,114 @@ class DataCollectionService:
             }
 
         return result
+
+    # Row keys preserved on flat JSONL rows but not copied into export ``data`` cells
+    _FLAT_ROW_SKIP_KEYS = frozenset({
+        "document_directory",
+        "_metadata",
+        "_observation_unit",
+        "_unit_confidence",
+    })
+
+    def _build_project_export_json(
+        self,
+        session,
+        session_id: str,
+        config_json: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Build project.schematiq.json — matches /schematiq/export-complete JSON format."""
+        from app.services import find_session_data_file
+
+        data_path = find_session_data_file(session_id)
+        if not data_path or not data_path.exists():
+            return None
+
+        data_rows: List[Dict[str, Any]] = []
+        try:
+            for line in data_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                row = json.loads(line.strip())
+                if "data" in row and isinstance(row.get("data"), dict):
+                    data_rows.append({
+                        "row_name": row.get("row_name") or row.get("_row_name"),
+                        "papers": row.get("papers") or row.get("_papers", []),
+                        "data": row["data"],
+                        "_unit_name": row.get("unit_name") or row.get("_unit_name"),
+                        "_source_document": row.get("source_document") or row.get("_source_document"),
+                        "_parent_document": row.get("parent_document") or row.get("_parent_document"),
+                    })
+                else:
+                    cell_data = {
+                        k: v for k, v in row.items()
+                        if not k.startswith("_") and k not in self._FLAT_ROW_SKIP_KEYS
+                    }
+                    data_rows.append({
+                        "row_name": row.get("_row_name"),
+                        "papers": row.get("_papers", []),
+                        "data": cell_data,
+                        "_unit_name": row.get("_unit_name"),
+                        "_source_document": row.get("_source_document"),
+                        "_parent_document": row.get("_parent_document"),
+                    })
+        except Exception as e:
+            logger.warning("[data-collection] Could not build project export for %s: %s", session_id[:8], e)
+            return None
+
+        if not data_rows:
+            return None
+
+        stats = session.statistics
+        schema_columns = [
+            {
+                "name": col.name,
+                "definition": col.definition or "",
+                "rationale": col.rationale or "",
+                "data_type": col.data_type,
+                "source_document": col.source_document,
+                "discovery_iteration": col.discovery_iteration,
+                "allowed_values": col.allowed_values,
+            }
+            for col in session.columns
+            if col.name and not col.name.lower().endswith("_excerpt")
+        ]
+
+        export_data: Dict[str, Any] = {
+            "session_id": session_id,
+            "session_type": session.type.value if hasattr(session.type, "value") else str(session.type),
+            "created": session.metadata.created.isoformat(),
+            "last_modified": session.metadata.last_modified.isoformat(),
+            "query": session.schema_query,
+            "schema": {"columns": schema_columns},
+            "metadata": {
+                "total_rows": stats.total_rows if stats else len(data_rows),
+                "total_columns": len(schema_columns),
+                "source": session.metadata.source,
+                "schema_discovery_completed": session.metadata.schema_discovery_completed,
+                "total_documents": session.metadata.total_documents,
+                "processed_documents": session.metadata.processed_documents,
+            },
+            "data": data_rows,
+        }
+
+        if config_json and config_json.get("documents_batch_size") is not None:
+            export_data["metadata"]["documents_batch_size"] = config_json["documents_batch_size"]
+
+        if session.statistics and session.statistics.schema_evolution:
+            export_data["schema_evolution"] = session.statistics.schema_evolution.model_dump()
+
+        if session.observation_unit:
+            export_data["observation_unit"] = session.observation_unit.model_dump()
+
+        if config_json:
+            llm_configuration = {
+                "schema_creation_backend": config_json.get("schema_creation_backend"),
+                "value_extraction_backend": config_json.get("value_extraction_backend"),
+            }
+            if any(llm_configuration.values()):
+                export_data["llm_configuration"] = llm_configuration
+
+        return export_data
 
     def _build_metadata(self, session, trigger_source: str, archived_doc_count: int = 0) -> Dict[str, Any]:
         """Build metadata.json content."""
