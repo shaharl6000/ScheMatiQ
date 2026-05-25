@@ -12,7 +12,7 @@ _SANITIZE_RE = re.compile(r"[^a-zA-Z0-9_]")
 # Gemini rejects response_schema with 400 INVALID_ARGUMENT when total schema
 # complexity is too high.  Each column is an OBJECT with 3 sub-fields (answer,
 # excerpts, suggested_for_allowed_values), so N columns ≈ 4N schema properties.
-# Empirically on gemini-3.1-flash-lite-preview the limit is ~48 columns with
+# Empirically on gemini-3.1-flash-lite the limit is ~48 columns with
 # typical property names; 40 provides a safe margin for longer names.
 # Callers (extract_values_for_unit, extract_values_for_paper) pre-batch columns
 # into chunks of this size so every call gets controlled generation.  The check

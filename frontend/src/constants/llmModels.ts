@@ -70,7 +70,6 @@ export const LLM_MODELS: LLMModelDefinition[] = [
     description: 'Best price-performance ratio',
     cost: 'medium',
     speed: 'fast',
-    isDefault: true,
     contextWindow: 1000000,
   },
   {
@@ -101,6 +100,16 @@ export const LLM_MODELS: LLMModelDefinition[] = [
     contextWindow: 1000000,
   },
   {
+    id: 'gemini-3.5-flash',
+    provider: 'gemini',
+    label: 'Gemini 3.5 Flash',
+    description: 'Frontier intelligence for schema discovery and agentic tasks',
+    cost: 'medium',
+    speed: 'fast',
+    isDefault: true,
+    contextWindow: 1000000,
+  },
+  {
     id: 'gemini-3.1-pro-preview',
     provider: 'gemini',
     label: 'Gemini 3.1 Pro (Preview)',
@@ -114,8 +123,8 @@ export const LLM_MODELS: LLMModelDefinition[] = [
 ];
 
 // ── Default model constants ─────────────────────────────────────────
-export const DEFAULT_SCHEMA_MODEL = 'gemini-2.5-flash';
-export const DEFAULT_EXTRACTION_MODEL = 'gemini-2.5-flash-lite';
+export const DEFAULT_SCHEMA_MODEL = 'gemini-3.5-flash';
+export const DEFAULT_EXTRACTION_MODEL = 'gemini-3.1-flash-lite';
 export const DEFAULT_RELEASE_EXTRACTION_MODEL = 'gemini-3.1-flash-lite';
 
 // ============================================================================

@@ -10,7 +10,7 @@ class LLMConfig(BaseModel):
     from model specs when not provided. Explicit values override auto-detection.
     """
     provider: str  # "openai", "together", "gemini"
-    model: str = ""  # Empty string = use provider default (e.g., gemini-2.5-flash-lite for Gemini)
+    model: str = ""  # Empty string = use provider default (e.g., gemini-3.1-flash-lite for Gemini)
     max_output_tokens: Optional[int] = None  # Auto-detected from model specs if None
     temperature: float = 0
     context_window_size: Optional[int] = None  # Auto-detected from model specs if None

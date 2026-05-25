@@ -473,7 +473,7 @@ class GeminiLLM(LLMInterface):
     This implementation uses the new google-genai package with client-based architecture.
 
     Usage:
-        llm = GeminiLLM()  # Uses gemini-2.5-flash-lite by default
+        llm = GeminiLLM()  # Uses gemini-3.1-flash-lite by default
         answer = llm.generate("What is the capital of France?")
 
     API Key Loading:

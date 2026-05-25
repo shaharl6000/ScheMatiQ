@@ -61,7 +61,7 @@ cd schematiq-lib && pip install -e .
 ```python
 from schematiq import GeminiLLM, EmbeddingRetriever, discover_observation_unit
 
-llm = GeminiLLM(model="gemini-2.5-flash")
+llm = GeminiLLM(model="gemini-3.5-flash")
 retriever = EmbeddingRetriever(k=8)
 documents = [open(f).read() for f in your_files]
 
@@ -165,8 +165,8 @@ Release mode (default) restricts features for public use. Set `DEVELOPER_MODE=tr
 |---------|-------------|----------------|
 | Document limit | 20 | 10,000 |
 | LLM configuration | Locked (Gemini only) | User-configurable |
-| Schema creation model | gemini-2.5-flash | User's choice |
-| Extraction model | gemini-2.5-flash-lite | User's choice |
+| Schema creation model | gemini-3.5-flash | User's choice |
+| Extraction model | gemini-3.1-flash-lite | User's choice |
 | Research data collection | Enabled (if configured) | Disabled |
 
 ### Deployment (Railway)
