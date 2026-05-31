@@ -158,6 +158,7 @@ const ScheMatiQConfigPage = () => {
       'application/msword': ['.doc'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/rtf': ['.rtf'],
+      'application/json': ['.json'],
     },
     maxSize: 25 * 1024 * 1024, // 25MB per file
     onFilesSelected: setUploadedFiles,
@@ -847,7 +848,7 @@ const ScheMatiQConfigPage = () => {
                     {isDragActive ? 'Drop files here...' : 'Drag and drop files here, or click to browse'}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Supports: .txt, .md, .pdf, .doc, .docx, .rtf (max 25MB each)
+                    Supports: .txt, .md, .pdf, .doc, .docx, .rtf, .json (max 25MB each)
                   </p>
                 </div>
 

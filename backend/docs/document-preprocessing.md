@@ -13,7 +13,7 @@ Convert every upload to plain `.txt` at upload time—one entry point, same logi
 | DOCX | python-docx | LibreOffice headless |
 | PDF | pdfplumber | OCR (pdf2image + tesseract) |
 | DOC / RTF | LibreOffice | — |
-| TXT / MD | Normalize to `.txt` | — |
+| TXT / MD / JSON | Read as UTF-8 text; JSON is not parsed (rename to `.txt` for pipeline) | — |
 
 ## Code touchpoints
 

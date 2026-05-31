@@ -877,7 +877,7 @@ async def add_documents(session_id: str, files: List[UploadFile] = File(...), by
             total_size += file.size
             
             # Validate file type (text files, PDFs, docs, etc.)
-            allowed_extensions = {'.txt', '.md', '.pdf', '.doc', '.docx', '.rtf'}
+            allowed_extensions = {'.txt', '.md', '.pdf', '.doc', '.docx', '.rtf', '.json'}
             file_ext = Path(file.filename).suffix.lower()
             
             if file_ext not in allowed_extensions:
