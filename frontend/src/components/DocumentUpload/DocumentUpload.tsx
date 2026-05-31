@@ -81,6 +81,7 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
       'application/msword': ['.doc'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
       'application/rtf': ['.rtf'],
+      'application/json': ['.json'],
     },
     maxSize: 25 * 1024 * 1024, // 25MB per file
     onFilesSelected: onFilesChange,

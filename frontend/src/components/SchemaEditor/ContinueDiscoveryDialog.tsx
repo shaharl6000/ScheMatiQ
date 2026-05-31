@@ -662,7 +662,7 @@ const ContinueDiscoveryDialog: React.FC<ContinueDiscoveryDialogProps> = ({
                     <input
                       type="file"
                       multiple
-                      accept=".txt,.md,.pdf"
+                      accept=".txt,.md,.pdf,.doc,.docx,.rtf,.json"
                       onChange={(e) => {
                         const files = Array.from(e.target.files || []);
                         setUploadedFiles(files);

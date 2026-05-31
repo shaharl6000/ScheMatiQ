@@ -16,7 +16,7 @@ from app.services.document_conversion.convert_to_txt import (
 
 logger = logging.getLogger(__name__)
 
-PLAIN_EXTENSIONS = {".txt", ".md"}
+PLAIN_EXTENSIONS = {".txt", ".md", ".json"}
 CONVERT_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf"}
 
 _soffice_lock = threading.Lock()
@@ -82,23 +82,32 @@ def _status_from_message(ext: str, success: bool, message: str) -> tuple[str, st
 
 
 def _normalize_plain_text(source_path: Path, original_filename: str) -> ExtractionResult:
-    """Normalize .txt/.md uploads to .txt in the same directory."""
+    """Normalize .txt/.md/.json uploads to .txt in the same directory.
+
+    JSON is not parsed — the file bytes are used as-is so any schema works.
+    """
+    ext = source_path.suffix.lower()
     text = source_path.read_text(encoding="utf-8", errors="replace")
     if not text.strip():
-        return _fail(source_path, "failed: empty text file", original_filename)
+        return _fail(source_path, "failed: empty file", original_filename)
 
-    if source_path.suffix.lower() == ".txt":
+    if ext == ".txt":
         output_path = source_path
     else:
         output_path = source_path.with_suffix(".txt")
         output_path.write_text(text, encoding="utf-8")
         source_path.unlink(missing_ok=True)
 
+    if ext == ".json":
+        method, status = "json", "extracted from json"
+    else:
+        method, status = "plain", "extracted from text"
+
     return ExtractionResult(
         output_path=output_path,
         display_name=output_path.name,
-        method="plain",
-        status="extracted from text",
+        method=method,
+        status=status,
         success=True,
         original_filename=original_filename,
     )
