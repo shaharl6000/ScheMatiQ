@@ -108,9 +108,20 @@ class DataEditor:
                         "manually_edited": True,
                     }
             else:
-                # Old flat format
+                # Flat runtime JSONL format — preserve answer/excerpts dict shape
                 previous_value = copy.deepcopy(row.get(column))
-                row[column] = value if restore is None else restore
+                if restore is not None:
+                    row[column] = restore
+                elif column in row and isinstance(row[column], dict) and "answer" in row[column]:
+                    row[column]["answer"] = value
+                    row[column]["excerpts"] = []
+                    row[column]["manually_edited"] = True
+                else:
+                    row[column] = {
+                        "answer": value,
+                        "excerpts": [],
+                        "manually_edited": True,
+                    }
             updated = True
             break
 

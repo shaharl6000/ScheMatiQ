@@ -966,6 +966,39 @@ export interface DocumentStats {
 /**
  * Complete cost estimate for ScheMatiQ execution.
  */
+export type ChatToolStatus = 'running' | 'done' | 'error';
+
+export interface ChatToolInfo {
+  name: string;
+  description: string;
+  cost_class: 'cheap' | 'expensive';
+  available: boolean;
+  parameters: Record<string, unknown>;
+}
+
+export interface ChatTurnMessage {
+  id: string;
+  role: 'assistant' | 'user' | 'tool';
+  content: string;
+  kind?: 'text' | 'tool_log';
+  tool_name?: string;
+  tool_status?: ChatToolStatus;
+}
+
+export interface PendingChatToolAction {
+  tool_name: string;
+  label: string;
+  description: string;
+  args: Record<string, unknown>;
+}
+
+export interface ChatMessageResponse {
+  chat_id: string;
+  status: 'complete' | 'pending_confirmation';
+  messages: ChatTurnMessage[];
+  pending_action?: PendingChatToolAction;
+}
+
 export interface CostEstimate {
   /** Estimate for schema discovery phase */
   schema_discovery: PhaseEstimate;

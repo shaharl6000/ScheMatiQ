@@ -1,4 +1,4 @@
-import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HotTable, type HotTableClass } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
@@ -57,9 +57,11 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useToast } from '@/components/ui/use-toast';
 import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
 import { DEFAULT_DOCUMENT_RANDOMIZATION_SEED, DEFAULT_DOCUMENTS_BATCH_SIZE, DEFAULT_MAX_KEYS_SCHEMA } from '@/constants';
-import { configAPI, loadAPI, observationUnitAPI, schemaAPI, schematiqAPI, unitsAPI } from '@/services/api';
+import { chatAPI, configAPI, loadAPI, observationUnitAPI, schemaAPI, schematiqAPI, unitsAPI } from '@/services/api';
 import webSocketService from '@/services/websocket';
 import {
+  ChatToolInfo,
+  ChatTurnMessage,
   ColumnInfo,
   CostEstimate,
   DataRow,
@@ -89,15 +91,18 @@ type SheetColumn = {
 
 type WorkspaceMessage = {
   id: string;
-  role: 'assistant' | 'user';
+  role: 'assistant' | 'user' | 'tool';
   content: string;
+  kind?: 'text' | 'tool_log';
+  toolName?: string;
+  toolStatus?: 'running' | 'done' | 'error';
 };
 
 type PendingChatAction = {
   id: string;
   label: string;
   description: string;
-  run: () => Promise<void>;
+  chatId: string;
 };
 
 type TableFontFamily = 'Inter' | 'Arial' | 'Georgia' | 'Mono';
@@ -633,31 +638,45 @@ function SpreadsheetSurface({
   const { sessionId } = useParams();
   const { toast } = useToast();
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
-  const [gridSize, setGridSize] = useState({ width: 900, height: 520 });
+  const [gridSize, setGridSize] = useState({ width: 0, height: 0 });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = gridContainerRef.current;
     if (!element) return undefined;
 
+    const measureTarget = element.parentElement ?? element;
+
     const updateSize = () => {
-      const rect = element.getBoundingClientRect();
-      setGridSize({
-        width: Math.max(320, Math.floor(rect.width)),
-        height: Math.max(260, Math.floor(rect.height)),
-      });
+      const rect = measureTarget.getBoundingClientRect();
+      const nextWidth = Math.max(320, Math.floor(rect.width));
+      const nextHeight = Math.max(260, Math.floor(rect.height));
+      setGridSize((current) => (
+        current.width === nextWidth && current.height === nextHeight
+          ? current
+          : { width: nextWidth, height: nextHeight }
+      ));
     };
 
     updateSize();
+    const frame = window.requestAnimationFrame(updateSize);
 
     if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(updateSize);
-      observer.observe(element);
-      return () => observer.disconnect();
+      const observer = new ResizeObserver(() => {
+        window.requestAnimationFrame(updateSize);
+      });
+      observer.observe(measureTarget);
+      return () => {
+        window.cancelAnimationFrame(frame);
+        observer.disconnect();
+      };
     }
 
     window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, []);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', updateSize);
+    };
+  }, [activeSheet]);
 
   const schemaColumns = useMemo(() => {
     const cols = (schema?.schema || []) as Array<ColumnInfo & { allowed_values?: string[] }>;
@@ -902,10 +921,12 @@ function SpreadsheetSurface({
     );
   }
 
+  const tableReady = gridSize.width >= 1 && gridSize.height >= 1;
+
   return (
     <div
       ref={gridContainerRef}
-      className="h-full w-full min-h-0 min-w-0"
+      className="workspace-grid-surface"
       style={{
         '--workspace-table-font': displayOptions.fontFamily === 'Mono'
           ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
@@ -920,7 +941,7 @@ function SpreadsheetSurface({
         '--workspace-table-text-align': displayOptions.align,
       } as CSSProperties}
     >
-      <HotTable
+      {tableReady && <HotTable
         ref={hotTableRef}
         key={`${activeSheet}-${sheet.columns.length}-${formatVersion}`}
         className="workspace-hot"
@@ -947,7 +968,7 @@ function SpreadsheetSurface({
         minSpareRows={sheet.minSpareRows || 0}
         licenseKey="non-commercial-and-evaluation"
         afterChange={handleChanges}
-        afterSelectionEnd={(row, col, row2, col2) => {
+        afterSelectionEnd={(row: number, col: number, row2: number, col2: number) => {
           if (row < 0 || col < 0 || row2 < 0 || col2 < 0) {
             onSelectionChange(null);
             return;
@@ -960,7 +981,7 @@ function SpreadsheetSurface({
             toCol: Math.max(col, col2),
           });
         }}
-        cells={(row, col) => {
+        cells={(row: number, col: number) => {
           const props: { readOnly?: boolean; className?: string } = {};
           const column = sheet.columns[col];
           if (column?.readOnly) props.readOnly = true;
@@ -972,17 +993,38 @@ function SpreadsheetSurface({
           if (formatClasses) props.className = formatClasses;
           return props;
         }}
-      />
+      />}
     </div>
   );
+}
+
+function mapChatTurnMessage(message: ChatTurnMessage): WorkspaceMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    content: message.content,
+    kind: message.kind,
+    toolName: message.tool_name,
+    toolStatus: message.tool_status,
+  };
+}
+
+function formatToolsList(tools: ChatToolInfo[]): string {
+  if (!tools.length) {
+    return 'No tools are available in the current context.';
+  }
+  return tools
+    .map((tool) => {
+      const badge = tool.cost_class === 'expensive' ? ' [cost]' : '';
+      const status = tool.available ? '' : ' (planned)';
+      return `• ${tool.name}${badge}${status}: ${tool.description}`;
+    })
+    .join('\n');
 }
 
 function ChatPanel({
   sessionId,
   sessionMode,
-  status,
-  schema,
-  data,
   onRefresh,
 }: {
   sessionId?: string;
@@ -997,11 +1039,14 @@ function ChatPanel({
       id: 'hello',
       role: 'assistant',
       content:
-        'I can inspect this project, estimate expensive actions, and route simple workspace commands. The model-backed conversational agent is the next layer on top of this tool surface.',
+        'Ask me to inspect or edit this project. I use workspace tools to read schema and data before making changes. Type /tools to list available tools.',
     },
   ]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [chatId, setChatId] = useState<string | null>(null);
+  const [pinnedTool, setPinnedTool] = useState<string | null>(null);
+  const [availableTools, setAvailableTools] = useState<ChatToolInfo[]>([]);
   const [pendingAction, setPendingAction] = useState<PendingChatAction | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
 
@@ -1015,138 +1060,137 @@ function ChatPanel({
     });
   }, [messages, pendingAction]);
 
-  const addMessage = useCallback((role: WorkspaceMessage['role'], content: string) => {
-    setMessages((current) => [
-      ...current,
-      { id: `${Date.now()}-${Math.random()}`, role, content },
-    ]);
+  const loadTools = useCallback(async () => {
+    const tools = await chatAPI.getTools(sessionId, sessionMode);
+    setAvailableTools(tools.filter((tool) => tool.available));
+    return tools;
+  }, [sessionId, sessionMode]);
+
+  useEffect(() => {
+    loadTools().catch(() => {
+      setAvailableTools([]);
+    });
+  }, [loadTools]);
+
+  const appendMessages = useCallback((next: WorkspaceMessage[]) => {
+    setMessages((current) => [...current, ...next]);
   }, []);
+
+  const applyChatResponse = useCallback((response: Awaited<ReturnType<typeof chatAPI.sendMessage>>) => {
+    setChatId(response.chat_id);
+    appendMessages(response.messages.map(mapChatTurnMessage));
+    if (response.pending_action) {
+      setPendingAction({
+        id: response.pending_action.tool_name,
+        label: response.pending_action.label,
+        description: response.pending_action.description,
+        chatId: response.chat_id,
+      });
+    } else {
+      setPendingAction(null);
+    }
+    if (response.messages.some((message) => message.kind === 'tool_log' && message.tool_status === 'done')) {
+      onRefresh();
+    }
+  }, [appendMessages, onRefresh]);
+
+  const showToolsList = useCallback(async () => {
+    setBusy(true);
+    try {
+      const tools = await loadTools();
+      appendMessages([
+        {
+          id: `${Date.now()}-tools`,
+          role: 'assistant',
+          content: `Available tools:\n\n${formatToolsList(tools)}`,
+        },
+      ]);
+    } catch (err: any) {
+      appendMessages([
+        {
+          id: `${Date.now()}-tools-error`,
+          role: 'assistant',
+          content: err?.response?.data?.detail || err?.message || 'Could not load tools.',
+        },
+      ]);
+    } finally {
+      setBusy(false);
+    }
+  }, [appendMessages, loadTools]);
 
   const ask = useCallback(async () => {
     const text = input.trim();
-    if (!text) return;
+    if (!text || busy) return;
     setInput('');
-    setPendingAction(null);
-    addMessage('user', text);
+    appendMessages([{ id: `${Date.now()}-user`, role: 'user', content: text }]);
 
-    const normalized = text.toLowerCase();
+    if (text.toLowerCase().startsWith('/tools')) {
+      await showToolsList();
+      return;
+    }
+
     if (!sessionId) {
-      addMessage('assistant', 'Open > New Project is the starting point. Once a project exists I can inspect schema, data, status, and estimates.');
+      appendMessages([
+        {
+          id: `${Date.now()}-no-session`,
+          role: 'assistant',
+          content: 'Open > New Project or Import Project to get started. Once a project exists I can inspect and edit it.',
+        },
+      ]);
       return;
     }
 
     setBusy(true);
+    setPendingAction(null);
     try {
-      const mentionsObservationUnit = /\bobservation\b|\bunit\b/.test(normalized);
-
-      if (normalized.includes('status') || normalized.includes('progress')) {
-        const latest = sessionMode === 'schematiq'
-          ? await schematiqAPI.getStatus(sessionId)
-          : status;
-        addMessage('assistant', `Status: ${latest?.status || 'unknown'}\nStep: ${latest?.current_step || 'unknown'}\nProgress: ${Math.round((latest?.progress || 0) * 100)}%`);
-        onRefresh();
-        return;
-      }
-
-      if (mentionsObservationUnit) {
-        const latest = sessionMode === 'schematiq'
-          ? await schematiqAPI.getSchema(sessionId)
-          : schema;
-        const unit = latest?.observation_unit;
-        if (!unit?.name && !unit?.definition) {
-          addMessage('assistant', 'I could not find an observation unit for this project yet.');
-          return;
-        }
-        addMessage(
-          'assistant',
-          `Observation unit: ${unit.name || 'unnamed'}${unit.definition ? `\n\nDefinition: ${unit.definition}` : ''}`
-        );
-        onRefresh();
-        return;
-      }
-
-      if (normalized.includes('schema') || normalized.includes('columns')) {
-        const latest = sessionMode === 'schematiq'
-          ? await schematiqAPI.getSchema(sessionId)
-          : schema;
-        if (!latest) {
-          addMessage('assistant', 'I could not find schema information for this imported project yet.');
-          return;
-        }
-        const names = latest.schema.map((column) => column.name).slice(0, 16).join(', ');
-        addMessage('assistant', `The schema currently has ${latest.schema.length} columns.${names ? `\n\nColumns: ${names}` : ''}`);
-        onRefresh();
-        return;
-      }
-
-      if (normalized.includes('data') || normalized.includes('table') || normalized.includes('rows')) {
-        const latest = sessionMode === 'schematiq'
-          ? await schematiqAPI.getData(sessionId, 0, 10)
-          : await loadAPI.getData(sessionId, 0, 10);
-        addMessage('assistant', `The data sheet has ${latest.total_count} rows available. I loaded a preview of ${latest.rows.length} rows into the workbook.`);
-        onRefresh();
-        return;
-      }
-
-      if (normalized.includes('cost') || normalized.includes('estimate')) {
-        if (sessionMode === 'load') {
-          addMessage('assistant', 'This imported project is already loaded, so there is no pending extraction cost to estimate. Cost estimates apply when starting or re-running LLM-backed ScheMatiQ operations.');
-          return;
-        }
-        const estimate = await schematiqAPI.estimateCost(sessionId);
-        addMessage('assistant', `Estimated current full run cost:\n${formatCost(estimate)}`);
-        return;
-      }
-
-      if (normalized.includes('run') || normalized.includes('start extraction') || normalized.includes('start schematiq')) {
-        if (sessionMode === 'load') {
-          addMessage('assistant', 'This is an imported static project. Starting extraction from here needs a follow-up tool that connects imported data to source documents; for now, use New Project for a fresh ScheMatiQ run.');
-          return;
-        }
-        const estimate = await schematiqAPI.estimateCost(sessionId);
-        addMessage('assistant', `This is an expensive tool call. Estimated full run cost:\n${formatCost(estimate)}\n\nConfirm to start ScheMatiQ execution.`);
-        setPendingAction({
-          id: 'run-schematiq',
-          label: 'Start ScheMatiQ',
-          description: formatCost(estimate),
-          run: async () => {
-            await schematiqAPI.run(sessionId);
-            addMessage('assistant', 'Confirmed. ScheMatiQ execution has started, and workbook progress will update here.');
-            onRefresh();
-          },
-        });
-        return;
-      }
-
-      if (normalized.includes('web') || normalized.includes('internet')) {
-        addMessage('assistant', 'Web access is not wired into the app chat yet. I would add it as an explicit tool with a confirmation step before leaving local project context.');
-        return;
-      }
-
-      const columnCount = schema?.schema.length || 0;
-      addMessage(
-        'assistant',
-        `I can help through project tools right now. Try "status", "show schema", "estimate cost", or "show data".\n\nCurrent context: ${status?.status || 'unknown'} status, ${columnCount} schema columns, ${data.total_count || 0} data rows.`
-      );
+      const response = await chatAPI.sendMessage(sessionId, {
+        message: text,
+        chat_id: chatId || undefined,
+        session_mode: sessionMode,
+        pinned_tool: pinnedTool || undefined,
+      });
+      applyChatResponse(response);
     } catch (err: any) {
-      addMessage('assistant', err?.response?.data?.detail || err?.message || 'That workspace action failed.');
+      appendMessages([
+        {
+          id: `${Date.now()}-error`,
+          role: 'assistant',
+          content: err?.response?.data?.detail || err?.message || 'That workspace action failed.',
+        },
+      ]);
     } finally {
       setBusy(false);
     }
-  }, [addMessage, data.total_count, input, onRefresh, schema, sessionId, sessionMode, status]);
+  }, [
+    appendMessages,
+    applyChatResponse,
+    busy,
+    chatId,
+    input,
+    pinnedTool,
+    sessionId,
+    sessionMode,
+    showToolsList,
+  ]);
 
   const confirmPendingAction = useCallback(async () => {
-    if (!pendingAction) return;
+    if (!pendingAction || !sessionId) return;
     setBusy(true);
     try {
-      await pendingAction.run();
-      setPendingAction(null);
+      const response = await chatAPI.confirmAction(sessionId, pendingAction.chatId);
+      applyChatResponse(response);
     } catch (err: any) {
-      addMessage('assistant', err?.response?.data?.detail || err?.message || 'The confirmed action failed.');
+      appendMessages([
+        {
+          id: `${Date.now()}-confirm-error`,
+          role: 'assistant',
+          content: err?.response?.data?.detail || err?.message || 'The confirmed action failed.',
+        },
+      ]);
     } finally {
       setBusy(false);
     }
-  }, [addMessage, pendingAction]);
+  }, [appendMessages, applyChatResponse, pendingAction, sessionId]);
 
   return (
     <aside className="workspace-chat">
@@ -1155,12 +1199,40 @@ function ChatPanel({
           <Bot className="h-4 w-4" />
           Chat
         </div>
-        <Badge variant="outline">tool scaffold</Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant="outline">gemini-3.1-flash-lite</Badge>
+          <Button size="sm" variant="outline" onClick={showToolsList} disabled={busy}>
+            Tools
+          </Button>
+        </div>
       </div>
+
+      {availableTools.length > 0 && (
+        <div className="workspace-chat-tools px-3 pb-2">
+          <select
+            className="w-full rounded-md border bg-background px-2 py-1 text-xs"
+            value={pinnedTool || ''}
+            onChange={(event) => setPinnedTool(event.target.value || null)}
+          >
+            <option value="">Pin a tool (optional)</option>
+            {availableTools.map((tool) => (
+              <option key={tool.name} value={tool.name}>
+                {tool.name}
+                {tool.cost_class === 'expensive' ? ' [cost]' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="workspace-chat-messages" ref={messagesRef}>
         {messages.map((message) => (
-          <div key={message.id} className="workspace-chat-message" data-role={message.role}>
+          <div
+            key={message.id}
+            className={`workspace-chat-message${message.kind === 'tool_log' ? ' workspace-chat-tool-log' : ''}`}
+            data-role={message.role}
+            data-tool-status={message.toolStatus}
+          >
             {message.content}
           </div>
         ))}
@@ -1187,10 +1259,12 @@ function ChatPanel({
         <Textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask ScheMatiQ"
+          placeholder="Ask ScheMatiQ or type /tools"
           rows={3}
+          disabled={busy}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
               ask();
             }
           }}
