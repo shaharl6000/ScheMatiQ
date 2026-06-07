@@ -1,4 +1,4 @@
-import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HotTable, type HotTableClass } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
@@ -638,45 +638,31 @@ function SpreadsheetSurface({
   const { sessionId } = useParams();
   const { toast } = useToast();
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
-  const [gridSize, setGridSize] = useState({ width: 0, height: 0 });
+  const [gridSize, setGridSize] = useState({ width: 900, height: 520 });
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const element = gridContainerRef.current;
     if (!element) return undefined;
 
-    const measureTarget = element.parentElement ?? element;
-
     const updateSize = () => {
-      const rect = measureTarget.getBoundingClientRect();
-      const nextWidth = Math.max(320, Math.floor(rect.width));
-      const nextHeight = Math.max(260, Math.floor(rect.height));
-      setGridSize((current) => (
-        current.width === nextWidth && current.height === nextHeight
-          ? current
-          : { width: nextWidth, height: nextHeight }
-      ));
+      const rect = element.getBoundingClientRect();
+      setGridSize({
+        width: Math.max(320, Math.floor(rect.width)),
+        height: Math.max(260, Math.floor(rect.height)),
+      });
     };
 
     updateSize();
-    const frame = window.requestAnimationFrame(updateSize);
 
     if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(() => {
-        window.requestAnimationFrame(updateSize);
-      });
-      observer.observe(measureTarget);
-      return () => {
-        window.cancelAnimationFrame(frame);
-        observer.disconnect();
-      };
+      const observer = new ResizeObserver(updateSize);
+      observer.observe(element);
+      return () => observer.disconnect();
     }
 
     window.addEventListener('resize', updateSize);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      window.removeEventListener('resize', updateSize);
-    };
-  }, [activeSheet]);
+    return () => window.removeEventListener('resize', updateSize);
+  }, []);
 
   const schemaColumns = useMemo(() => {
     const cols = (schema?.schema || []) as Array<ColumnInfo & { allowed_values?: string[] }>;
@@ -782,6 +768,7 @@ function SpreadsheetSurface({
         )
           .then(() => {
             toast({ title: 'Cell updated', description: `${rowName} / ${key}` });
+            onRerunNeeded('schema', [key]);
             onRefresh();
           })
           .catch((err: any) => {
@@ -921,12 +908,10 @@ function SpreadsheetSurface({
     );
   }
 
-  const tableReady = gridSize.width >= 1 && gridSize.height >= 1;
-
   return (
     <div
       ref={gridContainerRef}
-      className="workspace-grid-surface"
+      className="workspace-grid-surface h-full w-full min-h-0 min-w-0"
       style={{
         '--workspace-table-font': displayOptions.fontFamily === 'Mono'
           ? 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
@@ -941,7 +926,7 @@ function SpreadsheetSurface({
         '--workspace-table-text-align': displayOptions.align,
       } as CSSProperties}
     >
-      {tableReady && <HotTable
+      <HotTable
         ref={hotTableRef}
         key={`${activeSheet}-${sheet.columns.length}-${formatVersion}`}
         className="workspace-hot"
@@ -993,10 +978,25 @@ function SpreadsheetSurface({
           if (formatClasses) props.className = formatClasses;
           return props;
         }}
-      />}
+      />
     </div>
   );
 }
+
+const CHAT_MUTATION_TOOLS = new Set([
+  'add_column',
+  'edit_column',
+  'delete_column',
+  'merge_columns',
+  'update_cell',
+  'add_unit',
+  'remove_unit',
+  'edit_observation_unit',
+  'run_schematiq',
+  'reextract',
+  'continue_discovery',
+  'reprocess',
+]);
 
 function mapChatTurnMessage(message: ChatTurnMessage): WorkspaceMessage {
   return {
@@ -1089,7 +1089,15 @@ function ChatPanel({
     } else {
       setPendingAction(null);
     }
-    if (response.messages.some((message) => message.kind === 'tool_log' && message.tool_status === 'done')) {
+    if (
+      response.messages.some(
+        (message) =>
+          message.kind === 'tool_log'
+          && message.tool_status === 'done'
+          && message.tool_name
+          && CHAT_MUTATION_TOOLS.has(message.tool_name),
+      )
+    ) {
       onRefresh();
     }
   }, [appendMessages, onRefresh]);

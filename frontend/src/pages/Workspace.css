@@ -447,15 +447,8 @@
 }
 
 .workspace-hot {
-  width: 100%;
-  height: 100%;
   font-size: var(--workspace-table-font-size, 12px);
   font-family: var(--workspace-table-font, Inter), system-ui, sans-serif;
-}
-
-.workspace-hot .handsontable {
-  width: 100% !important;
-  height: 100% !important;
 }
 
 .workspace-hot .handsontable .htCore thead th {
