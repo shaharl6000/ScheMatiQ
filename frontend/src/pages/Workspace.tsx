@@ -899,6 +899,7 @@ function SpreadsheetSurface({
           schemaAPI.setAutoExpandThreshold(sessionId, existing.name, Number(newValue) || 0)
             .then(() => {
               toast({ title: 'Schema threshold updated', description: existing.name });
+              onEditFollowUp('schema', [existing.name]);
               onRefresh();
             })
             .catch((err: any) => {
@@ -1200,7 +1201,14 @@ function ChatPanel({
     if (!alreadyFollowedUp && completedTools.some((message) => message.tool_name === 'edit_observation_unit')) {
       onEditFollowUp('unit');
     } else if (!alreadyFollowedUp && completedTools.some((message) => CHAT_SCHEMA_FOLLOWUP_TOOLS.has(message.tool_name!))) {
-      onEditFollowUp('schema');
+      const editedColumns = completedTools
+        .filter((message) => CHAT_SCHEMA_FOLLOWUP_TOOLS.has(message.tool_name!))
+        .flatMap((message) => message.columns ?? []);
+      // Only prompt a re-extract when a column was added/edited/merged; a
+      // delete-only change yields no columns and needs no re-extraction.
+      if (editedColumns.length > 0) {
+        onEditFollowUp('schema', editedColumns);
+      }
     }
   }, [appendMessages, onEditFollowUp, onRefresh]);
 

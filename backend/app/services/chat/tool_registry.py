@@ -247,17 +247,32 @@ def _all_tools() -> list[ToolSpec]:
         ),
         ToolSpec(
             name="reextract",
-            description="Re-run value extraction for schema columns (expensive).",
+            description=(
+                "Re-run value extraction for schema columns (expensive). Prefer passing the "
+                "specific `columns` you changed so only those are re-extracted; this must not "
+                "re-extract the whole table or touch the observation unit unless scope='all'."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
+                    "columns": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Specific column(s) to re-extract. Use this to target exactly the "
+                            "columns you edited. Omit only when scope is given."
+                        ),
+                    },
                     "scope": {
                         "type": "string",
                         "enum": ["all", "edited_only"],
-                        "description": "Re-extract all columns or only edited/new columns.",
+                        "description": (
+                            "Fallback when `columns` is omitted: 'edited_only' re-extracts the "
+                            "edited/new columns, 'all' re-extracts every column."
+                        ),
                     },
                 },
-                "required": ["scope"],
+                "required": [],
             },
             cost_class="expensive",
             handler="reextract",

@@ -463,17 +463,31 @@ class ToolExecutor:
   async def _handle_reextract(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
-      scope = args.get("scope", "edited_only")
       session = session_manager.get_session(session_id)
       if not session:
           raise ValueError("Session not found")
-      if scope == "edited_only":
+      valid_columns = {col.name for col in session.columns}
+      explicit = args.get("columns")
+      scope = args.get("scope", "edited_only")
+      if explicit:
+          columns = [c for c in explicit if c in valid_columns]
+          if not columns:
+              raise ValueError(
+                  "None of the requested columns exist in the schema. "
+                  "Call get_schema for exact column names."
+              )
+      elif scope == "all":
+          columns = [col.name for col in session.columns]
+      else:  # edited_only — do NOT silently widen to all columns
           changes = reextraction_service.detect_schema_changes(session)
           columns = changes.get("changed_columns") or changes.get("new_columns") or []
           if not columns:
-              columns = [col.name for col in session.columns]
-      else:
-          columns = [col.name for col in session.columns]
+              raise ValueError(
+                  "No edited or new columns to re-extract. Pass `columns=[...]` to "
+                  "re-extract specific columns, or scope='all' for the whole table."
+              )
+      # Excerpt/derived columns are never extraction targets.
+      columns = [c for c in columns if not c.lower().endswith("_excerpt")]
       if not columns:
           raise ValueError("No columns available for re-extraction")
       await concurrency_limiter.acquire(session_id, "reextraction")

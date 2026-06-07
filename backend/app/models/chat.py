@@ -23,6 +23,9 @@ class ChatTurnMessage(BaseModel):
     kind: Optional[Literal["text", "tool_log"]] = None
     tool_name: Optional[str] = None
     tool_status: Optional[Literal["running", "done", "error"]] = None
+    # Schema column(s) a successful edit touched, so the UI can scope the
+    # follow-up re-extract to exactly those columns.
+    columns: Optional[list[str]] = None
 
 
 class PendingChatAction(BaseModel):

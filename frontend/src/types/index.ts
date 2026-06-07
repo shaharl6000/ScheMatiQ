@@ -986,6 +986,9 @@ export interface ChatTurnMessage {
   kind?: 'text' | 'tool_log';
   tool_name?: string;
   tool_status?: ChatToolStatus;
+  // Schema column(s) a successful edit touched, so the follow-up re-extract
+  // can be scoped to exactly those columns.
+  columns?: string[];
 }
 
 export interface PendingChatToolAction {

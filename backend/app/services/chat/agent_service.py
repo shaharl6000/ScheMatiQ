@@ -235,6 +235,13 @@ class ChatAgentService:
                     if not tool:
                         raise ValueError(f"Unknown tool requested by model: {tool_name}")
 
+                    logger.info(
+                        "Chat tool selected: %s (cost=%s, session=%s)",
+                        tool_name,
+                        tool.cost_class,
+                        state.workspace_session_id,
+                    )
+
                     outbound_messages.append(
                         self._tool_log(tool_name, "running", f"...{tool_running_label(tool_name).lower()}")
                     )
@@ -279,6 +286,7 @@ class ChatAgentService:
                                 tool_name,
                                 "done",
                                 self._tool_done_message(tool_name, tool_result),
+                                columns=self._affected_columns(tool_name, args),
                             )
                         )
                     response = await self._send_function_response(
@@ -327,8 +335,14 @@ class ChatAgentService:
             "content": content,
         }
 
-    def _tool_log(self, tool_name: str, status: str, content: str) -> dict[str, Any]:
-        return {
+    def _tool_log(
+        self,
+        tool_name: str,
+        status: str,
+        content: str,
+        columns: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        message: dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "role": "tool",
             "kind": "tool_log",
@@ -336,6 +350,24 @@ class ChatAgentService:
             "tool_status": status,
             "content": content,
         }
+        if columns:
+            message["columns"] = columns
+        return message
+
+    @staticmethod
+    def _affected_columns(tool_name: str, args: dict[str, Any]) -> list[str]:
+        """Schema column(s) a successful edit touches, so the UI can scope the
+        follow-up re-extract to exactly those columns (mirrors a manual edit)."""
+        if tool_name == "add_column":
+            name = args.get("name")
+            return [name] if name else []
+        if tool_name == "edit_column":
+            name = args.get("new_name") or args.get("old_name")
+            return [name] if name else []
+        if tool_name == "merge_columns":
+            name = args.get("target_name") or args.get("column_a")
+            return [name] if name else []
+        return []
 
     @staticmethod
     def _tool_error_hint(tool_name: str) -> str:
