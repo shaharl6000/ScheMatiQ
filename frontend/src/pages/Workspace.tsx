@@ -75,7 +75,11 @@ import {
   DataRow,
   PaginatedData,
   SchemaData,
+  ReextractionCompletedData,
+  ReextractionFailedData,
+  ReextractionProgressData,
   ReextractionRequest,
+  ReextractionStartedData,
   ScheMatiQConfig,
   ScheMatiQStatus,
   VisualizationSession,
@@ -91,6 +95,15 @@ registerAllModules();
 type SheetId = 'data' | 'unit' | 'schema';
 type WorkspaceSessionMode = 'schematiq' | 'load';
 type PendingRerunKind = 'schema' | 'unit';
+
+type WorkspaceReextractionState = {
+  operationId: string;
+  columns: string[];
+  progress: number;
+  processedDocuments: number;
+  totalDocuments: number;
+  currentColumn?: string;
+};
 
 type SheetColumn = {
   key: string;
@@ -650,12 +663,14 @@ function SpreadsheetSurface({
   const { sessionId } = useParams();
   const { toast } = useToast();
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastGridSizeRef = useRef({ width: 0, height: 0 });
   const [gridSize, setGridSize] = useState({ width: 0, height: 0 });
 
   const applyGridSize = useCallback((width: number, height: number) => {
     const nextWidth = Math.max(320, Math.floor(width));
     const nextHeight = Math.max(260, Math.floor(height));
     if (nextWidth < 1 || nextHeight < 1) return;
+    lastGridSizeRef.current = { width: nextWidth, height: nextHeight };
     setGridSize((current) => (
       current.width === nextWidth && current.height === nextHeight
         ? current
@@ -689,6 +704,7 @@ function SpreadsheetSurface({
     const element = gridContainerRef.current;
     if (!element) return undefined;
 
+    lastGridSizeRef.current = { width: 0, height: 0 };
     measureGrid();
 
     const raf = window.requestAnimationFrame(() => {
@@ -872,7 +888,6 @@ function SpreadsheetSurface({
           schemaAPI.setAutoExpandThreshold(sessionId, existing.name, Number(newValue) || 0)
             .then(() => {
               toast({ title: 'Schema threshold updated', description: existing.name });
-              onEditFollowUp('schema', [existing.name]);
               onRefresh();
             })
             .catch((err: any) => {
@@ -1685,10 +1700,13 @@ function Workspace() {
     return Number.isFinite(saved) ? saved : 380;
   });
   const [isDraggingDivider, setIsDraggingDivider] = useState(false);
+  const [reextraction, setReextraction] = useState<WorkspaceReextractionState | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (!sessionId) return;
-    setLoading(true);
+    if (!options?.silent) {
+      setLoading(true);
+    }
     try {
       if (sessionMode === 'load') {
         const [loadSession, nextData, nextDocuments] = await Promise.all([
@@ -1732,9 +1750,13 @@ function Workspace() {
         setConfig(null);
       }
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   }, [sessionId, sessionMode]);
+
+  const refreshSilent = useCallback(() => refresh({ silent: true }), [refresh]);
 
   useEffect(() => {
     setProjectDialogOpen(!sessionId);
@@ -1745,6 +1767,7 @@ function Workspace() {
     setPendingRerunKind(null);
     setPendingSchemaColumns([]);
     setRerunStarting(false);
+    setReextraction(null);
   }, [sessionId]);
 
   useEffect(() => {
@@ -1754,7 +1777,7 @@ function Workspace() {
   useEffect(() => {
     refresh();
     if (!sessionId) return undefined;
-    const interval = window.setInterval(refresh, 5000);
+    const interval = window.setInterval(() => refresh({ silent: true }), 5000);
     return () => window.clearInterval(interval);
   }, [refresh, sessionId]);
 
@@ -1769,6 +1792,65 @@ function Workspace() {
       ) {
         return;
       }
+
+      if (message.type === 'reextraction_started' && message.data) {
+        const payload = message.data as ReextractionStartedData;
+        setReextraction({
+          operationId: payload.operation_id,
+          columns: payload.columns || [],
+          progress: 0,
+          processedDocuments: 0,
+          totalDocuments: payload.total_documents || 0,
+        });
+        setActiveSheet('data');
+        void refresh({ silent: true });
+        return;
+      }
+
+      if (message.type === 'reextraction_progress' && message.data) {
+        const payload = message.data as ReextractionProgressData;
+        setReextraction((current) => ({
+          operationId: payload.operation_id,
+          columns: current?.columns || (payload.column ? [payload.column] : []),
+          progress: payload.progress ?? current?.progress ?? 0,
+          processedDocuments: payload.processed_documents ?? current?.processedDocuments ?? 0,
+          totalDocuments: payload.total_documents ?? current?.totalDocuments ?? 0,
+          currentColumn: payload.column || current?.currentColumn,
+        }));
+        void refresh({ silent: true });
+        return;
+      }
+
+      if (message.type === 'reextraction_completed' && message.data) {
+        const payload = message.data as ReextractionCompletedData;
+        setReextraction(null);
+        void refresh({ silent: true });
+        toast({
+          title: 'Re-extraction completed',
+          description: payload.columns?.length
+            ? `Updated ${payload.columns.length} column(s) from source documents.`
+            : 'Table values were refreshed from source documents.',
+        });
+        return;
+      }
+
+      if (message.type === 'reextraction_failed' && message.data) {
+        const payload = message.data as ReextractionFailedData;
+        setReextraction(null);
+        toast({
+          title: 'Re-extraction failed',
+          description: payload.error || 'Could not re-extract values from source documents.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      if (message.type === 'reextraction_stopped') {
+        setReextraction(null);
+        void refresh({ silent: true });
+        return;
+      }
+
       if (
         message.type === 'progress' ||
         message.type === 'completed' ||
@@ -1779,12 +1861,9 @@ function Workspace() {
         message.type === 'schema_progress' ||
         message.type === 'reprocessing_progress' ||
         message.type === 'reprocessing_completed' ||
-        message.type === 'reextraction_started' ||
-        message.type === 'reextraction_progress' ||
-        message.type === 'reextraction_completed' ||
         message.type === 'observation_unit_definition_updated'
       ) {
-        refresh();
+        void refresh({ silent: true });
       }
     };
 
@@ -1795,7 +1874,7 @@ function Workspace() {
       webSocketService.removeMessageHandler(handler);
       webSocketService.disconnect();
     };
-  }, [refresh, sessionId]);
+  }, [refresh, sessionId, toast]);
 
   const estimateCurrentCost = useCallback(async () => {
     if (!sessionId) return;
@@ -1945,11 +2024,16 @@ function Workspace() {
   const startReextraction = useCallback(async (columns?: string[]) => {
     if (!sessionId || rerunStarting) return;
 
-    const defaultColumns = (schema?.schema || [])
-      .map((column) => column.name)
-      .filter((name): name is string => Boolean(name) && !name.toLowerCase().endsWith('_excerpt'));
-    const targetColumns = (columns && columns.length > 0 ? columns : pendingSchemaColumns.length > 0 ? pendingSchemaColumns : defaultColumns)
-      .filter((name) => !name.toLowerCase().endsWith('_excerpt'));
+    const schemaColumnNames = new Set(
+      (schema?.schema || [])
+        .map((column) => column.name)
+        .filter((name): name is string => Boolean(name)),
+    );
+    const requestedColumns = (columns && columns.length > 0 ? columns : pendingSchemaColumns)
+      .map((name) => name.trim())
+      .filter((name) => Boolean(name) && !name.toLowerCase().endsWith('_excerpt'));
+    const targetColumns = (requestedColumns.length > 0 ? requestedColumns : Array.from(schemaColumnNames))
+      .filter((name) => schemaColumnNames.has(name));
 
     if (targetColumns.length === 0) {
       toast({
@@ -1962,6 +2046,23 @@ function Workspace() {
 
     setRerunStarting(true);
     try {
+      await schemaAPI.captureBaseline(sessionId).catch(() => undefined);
+
+      const availability = await schemaAPI.precheckDocuments(sessionId, {
+        operation_type: 'reextraction',
+      }).catch(() => null);
+      if (availability?.can_proceed === false) {
+        const missingCount = availability.missing_documents?.length || 0;
+        toast({
+          title: 'Source documents unavailable',
+          description: missingCount > 0
+            ? `${missingCount} source document(s) are missing. Upload them in the Classic Visualizer and try again.`
+            : 'Upload the original source documents, then try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
       const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
       const configured = await getConfiguredProviders();
       const available = getAvailableProviders(configured);
@@ -1987,11 +2088,19 @@ function Workspace() {
       }
 
       clearPendingRerun();
+      setActiveSheet('data');
+      setReextraction({
+        operationId: response.operation_id,
+        columns: response.columns,
+        progress: 0,
+        processedDocuments: 0,
+        totalDocuments: docCount,
+        currentColumn: response.columns[0],
+      });
       toast({
         title: 'Re-extraction started',
-        description: `Re-extracting ${response.columns.length} column(s) across ${docCount} document(s).`,
+        description: `Re-extracting ${response.columns.join(', ')} across ${docCount} document(s). Other columns stay unchanged.`,
       });
-      await refresh();
     } catch (err: any) {
       toast({
         title: 'Re-extraction failed to start',
@@ -2001,7 +2110,7 @@ function Workspace() {
     } finally {
       setRerunStarting(false);
     }
-  }, [clearPendingRerun, pendingSchemaColumns, refresh, rerunStarting, schema?.schema, sessionId, toast]);
+  }, [clearPendingRerun, pendingSchemaColumns, rerunStarting, schema?.schema, sessionId, toast]);
 
   const startSchemaRediscovery = useCallback(async () => {
     if (!sessionId || rerunStarting) return;
@@ -2023,7 +2132,7 @@ function Workspace() {
         title: 'Schema rediscovery started',
         description: 'Rediscovering schema from the updated observation unit.',
       });
-      await refresh();
+      await refresh({ silent: true });
     } catch (err: any) {
       toast({
         title: 'Schema rediscovery failed',
@@ -2086,7 +2195,12 @@ function Workspace() {
     : isChatHidden
       ? 'minmax(0, 1fr) 8px 0px'
       : `minmax(0, 1fr) 8px ${chatWidth}px`;
-  const gridLayoutRevision = `${chatWidth}-${loading}-${pendingRerunKind ?? ''}-${data.rows.length}-${schema?.schema?.length ?? 0}`;
+  const gridLayoutRevision = String(chatWidth);
+  const reextractionPercent = Math.round((reextraction?.progress || 0) * 100);
+  const bottombarStatus = reextraction
+    ? `Re-extracting ${reextraction.columns.join(', ')} (${reextraction.processedDocuments}/${reextraction.totalDocuments || '?'} docs)`
+    : (status?.current_step || status?.status || 'No project status');
+  const bottombarProgress = reextraction ? reextractionPercent : progressPercent;
 
   const startDividerDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -2165,7 +2279,7 @@ function Workspace() {
               formatVersion={formatVersion}
               hotTableRef={hotTableRef}
               onSelectionChange={updateSheetSelection}
-              onRefresh={refresh}
+              onRefresh={refreshSilent}
               onEditFollowUp={notifyEditFollowUp}
               layoutRevision={gridLayoutRevision}
             />
@@ -2188,7 +2302,7 @@ function Workspace() {
             status={status}
             schema={schema}
             data={data}
-            onRefresh={refresh}
+            onRefresh={refreshSilent}
             onEditFollowUp={notifyEditFollowUp}
           />
         </div>
@@ -2223,11 +2337,11 @@ function Workspace() {
           </TooltipContent>
         </Tooltip>
 
-        <div className="workspace-topbar-status" title={status?.current_step || status?.status || 'No project status'}>
-          {status ? (
+        <div className="workspace-topbar-status" title={bottombarStatus}>
+          {status || reextraction ? (
             <>
-              <Progress value={progressPercent} className="h-1.5" />
-              <span className="workspace-topbar-percent">{progressPercent}%</span>
+              <Progress value={bottombarProgress} className="h-1.5" />
+              <span className="workspace-topbar-percent">{bottombarProgress}%</span>
             </>
           ) : (
             <span className="workspace-topbar-status-empty">No status</span>
