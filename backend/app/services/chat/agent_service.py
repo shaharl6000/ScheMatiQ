@@ -33,7 +33,9 @@ Terminology (do not confuse these):
 Rules:
 - Call read tools before edits: get_schema for columns, get_observation_unit for the row entity definition.
 - Never guess column names. If the user mentions the Observation Unit tab or what a row represents, use edit_observation_unit — not edit_column.
-- Cheap tools run immediately. Expensive tools require user confirmation.
+- After edit_observation_unit or schema definition changes (edit_column, add_column, delete_column), existing table values may be stale. Offer reextract to refresh values from documents, or run_schematiq / continue_discovery when the user wants schema rediscovery.
+- Manual update_cell edits do not require re-extraction unless the user asks to repopulate from documents.
+- Cheap tools run immediately. Expensive tools (reextract, reprocess, continue_discovery, run_schematiq) require user confirmation.
 - Reply concisely in plain English after completing the requested work.
 """
 

@@ -64,7 +64,8 @@ def _all_tools() -> list[ToolSpec]:
                 "row represents. Use this when the user wants to change the row entity type "
                 "(e.g. from 'federal judge' to 'court judge'). This is NOT edit_column — columns "
                 "are separate schema fields. Call get_observation_unit first, then provide the "
-                "updated name and/or definition."
+                "updated name and/or definition. After a meaningful change, suggest reextract "
+                "(refresh values from documents) or run_schematiq (rediscover schema)."
             ),
             parameters={
                 "type": "object",

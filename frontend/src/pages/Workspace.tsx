@@ -53,10 +53,18 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { ToastAction } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
 import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
-import { DEFAULT_DOCUMENT_RANDOMIZATION_SEED, DEFAULT_DOCUMENTS_BATCH_SIZE, DEFAULT_MAX_KEYS_SCHEMA } from '@/constants';
+import {
+  DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
+  DEFAULT_DOCUMENTS_BATCH_SIZE,
+  DEFAULT_MAX_KEYS_SCHEMA,
+  getAvailableProviders,
+  getDefaultModelForProvider,
+  type LLMProviderKey,
+} from '@/constants';
 import { chatAPI, configAPI, loadAPI, observationUnitAPI, schemaAPI, schematiqAPI, unitsAPI } from '@/services/api';
 import webSocketService from '@/services/websocket';
 import {
@@ -67,12 +75,14 @@ import {
   DataRow,
   PaginatedData,
   SchemaData,
+  ReextractionRequest,
   ScheMatiQConfig,
   ScheMatiQStatus,
   VisualizationSession,
   WebSocketMessage,
 } from '@/types';
 import { DocumentListResponse } from '@/types/unit';
+import { getApiKeyForProvider, getConfiguredProviders } from '@/utils/apiKeyStorage';
 
 import './Workspace.css';
 
@@ -198,7 +208,7 @@ const WORKSPACE_MENUS = [
   },
   {
     label: 'Data',
-    items: ['Sort range', 'Create filter', 'Repopulate edited fields', 'Validate schema'],
+    items: ['Sort range', 'Create filter', 'Re-extract table', 'Validate schema'],
   },
   {
     label: 'Tools',
@@ -622,7 +632,7 @@ function SpreadsheetSurface({
   hotTableRef,
   onSelectionChange,
   onRefresh,
-  onRerunNeeded,
+  onEditFollowUp,
 }: {
   activeSheet: SheetId;
   data: PaginatedData;
@@ -633,7 +643,7 @@ function SpreadsheetSurface({
   hotTableRef: MutableRefObject<HotTableClass | null>;
   onSelectionChange: (selection: SheetSelection) => void;
   onRefresh: () => void;
-  onRerunNeeded: (kind: PendingRerunKind, columns?: string[]) => void;
+  onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
 }) {
   const { sessionId } = useParams();
   const { toast } = useToast();
@@ -780,7 +790,6 @@ function SpreadsheetSurface({
         )
           .then(() => {
             toast({ title: 'Cell updated', description: `${rowName} / ${key}` });
-            onRerunNeeded('schema', [key]);
             onRefresh();
           })
           .catch((err: any) => {
@@ -806,7 +815,7 @@ function SpreadsheetSurface({
           })
             .then(() => {
               toast({ title: 'Schema column added' });
-              onRerunNeeded('schema', [String(newValue).trim()]);
+              onEditFollowUp('schema', [String(newValue).trim()]);
               onRefresh();
             })
             .catch((err: any) => {
@@ -826,7 +835,7 @@ function SpreadsheetSurface({
           schemaAPI.setAutoExpandThreshold(sessionId, existing.name, Number(newValue) || 0)
             .then(() => {
               toast({ title: 'Schema threshold updated', description: existing.name });
-              onRerunNeeded('schema', [existing.name]);
+              onEditFollowUp('schema', [existing.name]);
               onRefresh();
             })
             .catch((err: any) => {
@@ -851,7 +860,7 @@ function SpreadsheetSurface({
         schemaAPI.editColumn(sessionId, request)
           .then(() => {
             toast({ title: 'Schema updated', description: existing.name });
-            if (affectedColumn) onRerunNeeded('schema', [affectedColumn]);
+            if (affectedColumn) onEditFollowUp('schema', [affectedColumn]);
             onRefresh();
           })
           .catch((err: any) => {
@@ -893,11 +902,7 @@ function SpreadsheetSurface({
           example_names: parseAllowedValues(nextValues.example_names),
         })
           .then((result) => {
-            toast({
-              title: 'Observation unit updated',
-              description: result.warning || `${name} saved`,
-            });
-            onRerunNeeded('unit');
+            onEditFollowUp('unit');
             onRefresh();
           })
           .catch((err: any) => {
@@ -910,7 +915,7 @@ function SpreadsheetSurface({
           });
       }
     }
-  }, [activeSheet, data.rows, observationUnitRows, onRefresh, onRerunNeeded, schemaColumns, sessionId, toast]);
+  }, [activeSheet, data.rows, observationUnitRows, onEditFollowUp, onRefresh, schemaColumns, sessionId, toast]);
 
   if (!sessionId) {
     return (
@@ -1010,6 +1015,13 @@ const CHAT_MUTATION_TOOLS = new Set([
   'reprocess',
 ]);
 
+const CHAT_SCHEMA_FOLLOWUP_TOOLS = new Set([
+  'add_column',
+  'edit_column',
+  'delete_column',
+  'merge_columns',
+]);
+
 function mapChatTurnMessage(message: ChatTurnMessage): WorkspaceMessage {
   return {
     id: message.id,
@@ -1038,6 +1050,7 @@ function ChatPanel({
   sessionId,
   sessionMode,
   onRefresh,
+  onEditFollowUp,
 }: {
   sessionId?: string;
   sessionMode: WorkspaceSessionMode;
@@ -1045,6 +1058,7 @@ function ChatPanel({
   schema: SchemaData | null;
   data: PaginatedData;
   onRefresh: () => void;
+  onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
 }) {
   const [messages, setMessages] = useState<WorkspaceMessage[]>([
     {
@@ -1101,18 +1115,30 @@ function ChatPanel({
     } else {
       setPendingAction(null);
     }
-    if (
-      response.messages.some(
-        (message) =>
-          message.kind === 'tool_log'
-          && message.tool_status === 'done'
-          && message.tool_name
-          && CHAT_MUTATION_TOOLS.has(message.tool_name),
-      )
-    ) {
+    const completedTools = response.messages.filter(
+      (message) =>
+        message.kind === 'tool_log'
+        && message.tool_status === 'done'
+        && message.tool_name,
+    );
+
+    if (completedTools.some((message) => CHAT_MUTATION_TOOLS.has(message.tool_name!))) {
       onRefresh();
     }
-  }, [appendMessages, onRefresh]);
+
+    const alreadyFollowedUp = completedTools.some((message) =>
+      message.tool_name === 'reextract'
+      || message.tool_name === 'reprocess'
+      || message.tool_name === 'run_schematiq'
+      || message.tool_name === 'continue_discovery',
+    );
+
+    if (!alreadyFollowedUp && completedTools.some((message) => message.tool_name === 'edit_observation_unit')) {
+      onEditFollowUp('unit');
+    } else if (!alreadyFollowedUp && completedTools.some((message) => CHAT_SCHEMA_FOLLOWUP_TOOLS.has(message.tool_name!))) {
+      onEditFollowUp('schema');
+    }
+  }, [appendMessages, onEditFollowUp, onRefresh]);
 
   const showToolsList = useCallback(async () => {
     setBusy(true);
@@ -1294,6 +1320,69 @@ function ChatPanel({
   );
 }
 
+function PendingRerunBanner({
+  kind,
+  columns,
+  sessionMode,
+  busy,
+  onReextract,
+  onRediscover,
+  onDismiss,
+}: {
+  kind: PendingRerunKind;
+  columns: string[];
+  sessionMode: WorkspaceSessionMode;
+  busy: boolean;
+  onReextract: () => void;
+  onRediscover: () => void;
+  onDismiss: () => void;
+}) {
+  const columnSummary = columns.length > 0
+    ? columns.slice(0, 3).join(', ') + (columns.length > 3 ? ` +${columns.length - 3} more` : '')
+    : 'all columns';
+
+  return (
+    <div className="workspace-followup-banner" role="status">
+      <div className="workspace-followup-banner-copy">
+        <strong>
+          {kind === 'unit' ? 'Observation unit changed' : 'Schema changed'}
+        </strong>
+        <span>
+          {kind === 'unit'
+            ? 'Existing rows were extracted with the previous definition.'
+            : `Re-extract to refresh values from source documents (${columnSummary}).`}
+        </span>
+      </div>
+      <div className="workspace-followup-banner-actions">
+        <button
+          className="workspace-followup-action workspace-followup-action-primary"
+          type="button"
+          onClick={onReextract}
+          disabled={busy}
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
+          Re-extract table
+        </button>
+        {kind === 'unit' && (
+          <button
+            className="workspace-followup-action"
+            type="button"
+            onClick={onRediscover}
+            disabled={busy || sessionMode !== 'schematiq'}
+            title={sessionMode !== 'schematiq' ? 'Schema rediscovery requires a ScheMatiQ project with source documents' : undefined}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Rediscover schema
+          </button>
+        )}
+        <button className="workspace-followup-action workspace-followup-action-ghost" type="button" onClick={onDismiss} disabled={busy}>
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SpreadsheetChrome({
   projectTitle,
   sessionStatus,
@@ -1346,12 +1435,12 @@ function SpreadsheetChrome({
     if (label === 'Show sheet full screen') onShowSheet();
     if (label === 'Show chat full screen') onShowChat();
     if (label === 'Split view') onSplitView();
-    if (label === 'Repopulate edited fields') onRunPendingEdits();
+    if (label === 'Re-extract table') onRunPendingEdits();
   };
 
   const isDisabled = (label: string) => {
     if (label === 'New project' || label === 'Import project') return false;
-    if (label === 'Repopulate edited fields') return rerunDisabled;
+    if (label === 'Re-extract table') return rerunDisabled;
     return !canUseProjectActions && [
       'Open classic visualizer',
       'Export table',
@@ -1361,7 +1450,7 @@ function SpreadsheetChrome({
       'Show sheet full screen',
       'Show chat full screen',
       'Split view',
-      'Repopulate edited fields',
+      'Re-extract table',
     ].includes(label);
   };
 
@@ -1487,9 +1576,15 @@ function SpreadsheetChrome({
           <Sparkles className="h-3.5 w-3.5" />
           Estimate
         </button>
-        <button className="workspace-toolbar-action" type="button" onClick={onRunPendingEdits} disabled={rerunDisabled}>
+        <button
+          className="workspace-toolbar-action"
+          type="button"
+          onClick={onRunPendingEdits}
+          disabled={rerunDisabled}
+          title="Re-extract values from source documents after schema or observation-unit edits"
+        >
           <RotateCw className="h-3.5 w-3.5" />
-          Repopulate
+          Re-extract
         </button>
       </div>
     </div>
@@ -1786,6 +1881,11 @@ function Workspace() {
     }
   }, [navigate, toast]);
 
+  const clearPendingRerun = useCallback(() => {
+    setPendingRerunKind(null);
+    setPendingSchemaColumns([]);
+  }, []);
+
   const markRerunNeeded = useCallback((kind: PendingRerunKind, columns: string[] = []) => {
     if (kind === 'unit') {
       setPendingRerunKind('unit');
@@ -1804,57 +1904,136 @@ function Workspace() {
     });
   }, []);
 
-  const runPendingEdits = useCallback(async () => {
-    if (!sessionId || !pendingRerunKind || rerunStarting) return;
+  const startReextraction = useCallback(async (columns?: string[]) => {
+    if (!sessionId || rerunStarting) return;
+
+    const defaultColumns = (schema?.schema || [])
+      .map((column) => column.name)
+      .filter((name): name is string => Boolean(name) && !name.toLowerCase().endsWith('_excerpt'));
+    const targetColumns = (columns && columns.length > 0 ? columns : pendingSchemaColumns.length > 0 ? pendingSchemaColumns : defaultColumns)
+      .filter((name) => !name.toLowerCase().endsWith('_excerpt'));
+
+    if (targetColumns.length === 0) {
+      toast({
+        title: 'No columns to re-extract',
+        description: 'Add schema columns first, then try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
 
     setRerunStarting(true);
     try {
-      if (pendingRerunKind === 'unit') {
-        if (sessionMode !== 'schematiq') {
-          toast({
-            title: 'Rediscovery needs a ScheMatiQ run',
-            description: 'Imported static projects can edit the observation unit, but rediscovering schema requires a ScheMatiQ project with source documents.',
-            variant: 'destructive',
-          });
-          return;
-        }
-
-        await schematiqAPI.resume(sessionId);
-        toast({
-          title: 'Rerun started',
-          description: 'Schema rediscovery started from the updated observation unit.',
-        });
-      } else {
-        const columns = pendingSchemaColumns.length > 0
-          ? pendingSchemaColumns
-          : (schema?.schema || []).map((column) => column.name).filter(Boolean);
-
-        await schemaAPI.reprocessDocuments(sessionId, {
-          columns,
-          incremental: true,
-          force_reprocess: true,
-        });
-        toast({
-          title: 'Rerun started',
-          description: columns.length > 0
-            ? `Repopulating data for ${columns.length} schema column(s).`
-            : 'Repopulating data from the current schema.',
-        });
+      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
+      const configured = await getConfiguredProviders();
+      const available = getAvailableProviders(configured);
+      const provider: LLMProviderKey = !cfg.allow_llm_config
+        ? 'gemini'
+        : (available[0] ?? 'gemini');
+      const model = getDefaultModelForProvider(provider);
+      const apiKey = await getApiKeyForProvider(provider);
+      const request: ReextractionRequest = { columns: targetColumns };
+      if (apiKey) {
+        request.llm_config = { provider, model, api_key: apiKey, temperature: 0 };
       }
 
-      setPendingRerunKind(null);
-      setPendingSchemaColumns([]);
+      const response = await schemaAPI.startReextraction(sessionId, request);
+      const docCount = response.rows_to_process || response.estimated_papers || 0;
+      if (docCount === 0) {
+        toast({
+          title: 'No source documents',
+          description: 'Upload documents or open a ScheMatiQ project with source files, then try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      clearPendingRerun();
+      toast({
+        title: 'Re-extraction started',
+        description: `Re-extracting ${response.columns.length} column(s) across ${docCount} document(s).`,
+      });
       await refresh();
     } catch (err: any) {
       toast({
-        title: 'Rerun failed to start',
-        description: err?.response?.data?.detail || err?.message || 'Could not start the rerun',
+        title: 'Re-extraction failed to start',
+        description: err?.response?.data?.detail || err?.message || 'Could not start re-extraction',
         variant: 'destructive',
       });
     } finally {
       setRerunStarting(false);
     }
-  }, [pendingRerunKind, pendingSchemaColumns, refresh, rerunStarting, schema?.schema, sessionId, sessionMode, toast]);
+  }, [clearPendingRerun, pendingSchemaColumns, refresh, rerunStarting, schema?.schema, sessionId, toast]);
+
+  const startSchemaRediscovery = useCallback(async () => {
+    if (!sessionId || rerunStarting) return;
+
+    if (sessionMode !== 'schematiq') {
+      toast({
+        title: 'Rediscovery needs a ScheMatiQ run',
+        description: 'Imported static projects can edit the observation unit, but rediscovering schema requires a ScheMatiQ project with source documents.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setRerunStarting(true);
+    try {
+      await schematiqAPI.resume(sessionId);
+      clearPendingRerun();
+      toast({
+        title: 'Schema rediscovery started',
+        description: 'Rediscovering schema from the updated observation unit.',
+      });
+      await refresh();
+    } catch (err: any) {
+      toast({
+        title: 'Schema rediscovery failed',
+        description: err?.response?.data?.detail || err?.message || 'Could not start schema rediscovery',
+        variant: 'destructive',
+      });
+    } finally {
+      setRerunStarting(false);
+    }
+  }, [clearPendingRerun, refresh, rerunStarting, sessionId, sessionMode, toast]);
+
+  const notifyEditFollowUp = useCallback((kind: PendingRerunKind, columns: string[] = []) => {
+    markRerunNeeded(kind, columns);
+
+    if (kind === 'unit') {
+      toast({
+        title: 'Observation unit updated',
+        description: 'Existing data was extracted with the previous definition. Re-extract or rediscover schema if granularity changed.',
+        action: (
+          <ToastAction altText="Re-extract table" onClick={() => startReextraction()}>
+            Re-extract
+          </ToastAction>
+        ),
+      });
+      return;
+    }
+
+    toast({
+      title: 'Schema updated',
+      description: columns.length > 0
+        ? `Re-extract ${columns.join(', ')} to refresh values from source documents.`
+        : 'Re-extract to refresh values from source documents.',
+      action: (
+        <ToastAction altText="Re-extract columns" onClick={() => startReextraction(columns)}>
+          Re-extract
+        </ToastAction>
+      ),
+    });
+  }, [markRerunNeeded, sessionMode, startReextraction, startSchemaRediscovery, toast]);
+
+  const runPendingEdits = useCallback(async () => {
+    if (!sessionId || !pendingRerunKind || rerunStarting) return;
+    if (pendingRerunKind === 'unit') {
+      await startReextraction();
+      return;
+    }
+    await startReextraction(pendingSchemaColumns);
+  }, [pendingRerunKind, pendingSchemaColumns, rerunStarting, sessionId, startReextraction]);
 
   const progressPercent = Math.round((status?.progress || 0) * 100);
   const topbarQuestion = schema?.query || config?.query || '';
@@ -1919,6 +2098,18 @@ function Workspace() {
         rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
       />
 
+      {pendingRerunKind && (
+        <PendingRerunBanner
+          kind={pendingRerunKind}
+          columns={pendingSchemaColumns}
+          sessionMode={sessionMode}
+          busy={rerunStarting}
+          onReextract={() => startReextraction(pendingRerunKind === 'schema' ? pendingSchemaColumns : undefined)}
+          onRediscover={startSchemaRediscovery}
+          onDismiss={clearPendingRerun}
+        />
+      )}
+
       <div
         className="workspace-body"
         data-dragging={isDraggingDivider}
@@ -1936,7 +2127,7 @@ function Workspace() {
               hotTableRef={hotTableRef}
               onSelectionChange={updateSheetSelection}
               onRefresh={refresh}
-              onRerunNeeded={markRerunNeeded}
+              onEditFollowUp={notifyEditFollowUp}
             />
           </div>
         </section>
@@ -1958,6 +2149,7 @@ function Workspace() {
             schema={schema}
             data={data}
             onRefresh={refresh}
+            onEditFollowUp={notifyEditFollowUp}
           />
         </div>
       </div>
