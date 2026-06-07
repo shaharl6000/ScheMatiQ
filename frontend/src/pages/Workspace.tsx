@@ -633,6 +633,7 @@ function SpreadsheetSurface({
   onSelectionChange,
   onRefresh,
   onEditFollowUp,
+  layoutRevision,
 }: {
   activeSheet: SheetId;
   data: PaginatedData;
@@ -644,47 +645,83 @@ function SpreadsheetSurface({
   onSelectionChange: (selection: SheetSelection) => void;
   onRefresh: () => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
+  layoutRevision: string;
 }) {
   const { sessionId } = useParams();
   const { toast } = useToast();
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
-  const [gridSize, setGridSize] = useState({ width: 900, height: 520 });
+  const [gridSize, setGridSize] = useState({ width: 0, height: 0 });
+
+  const applyGridSize = useCallback((width: number, height: number) => {
+    const nextWidth = Math.max(320, Math.floor(width));
+    const nextHeight = Math.max(260, Math.floor(height));
+    if (nextWidth < 1 || nextHeight < 1) return;
+    setGridSize((current) => (
+      current.width === nextWidth && current.height === nextHeight
+        ? current
+        : { width: nextWidth, height: nextHeight }
+    ));
+  }, []);
+
+  const measureGrid = useCallback(() => {
+    const element = gridContainerRef.current;
+    if (!element) return;
+    const rect = element.getBoundingClientRect();
+    applyGridSize(rect.width, rect.height);
+  }, [applyGridSize]);
+
+  const syncHotTableDimensions = useCallback(() => {
+    const element = gridContainerRef.current;
+    const hot = hotTableRef.current?.hotInstance;
+    if (!element || !hot) return;
+
+    const rect = element.getBoundingClientRect();
+    const width = Math.max(320, Math.floor(rect.width));
+    const height = Math.max(260, Math.floor(rect.height));
+    if (width < 1 || height < 1) return;
+
+    hot.updateSettings({ width, height });
+    hot.refreshDimensions();
+    applyGridSize(width, height);
+  }, [applyGridSize, hotTableRef]);
 
   useLayoutEffect(() => {
     const element = gridContainerRef.current;
     if (!element) return undefined;
 
-    const updateSize = () => {
-      const rect = element.getBoundingClientRect();
-      const nextWidth = Math.max(320, Math.floor(rect.width));
-      const nextHeight = Math.max(260, Math.floor(rect.height));
-      setGridSize((current) => (
-        current.width === nextWidth && current.height === nextHeight
-          ? current
-          : { width: nextWidth, height: nextHeight }
-      ));
-    };
+    measureGrid();
 
-    updateSize();
+    const raf = window.requestAnimationFrame(() => {
+      measureGrid();
+      window.requestAnimationFrame(measureGrid);
+    });
+    const retryTimer = window.setTimeout(measureGrid, 120);
 
-    if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(() => {
-        window.requestAnimationFrame(updateSize);
-      });
-      observer.observe(element);
-      return () => observer.disconnect();
+    const observedTargets = new Set<Element>([element]);
+    if (element.parentElement) {
+      observedTargets.add(element.parentElement);
     }
 
-    window.addEventListener('resize', updateSize);
-    return () => window.removeEventListener('resize', updateSize);
-  }, [activeSheet]);
+    let observer: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        window.requestAnimationFrame(measureGrid);
+      });
+      observedTargets.forEach((target) => observer?.observe(target));
+    }
+
+    window.addEventListener('resize', measureGrid);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.clearTimeout(retryTimer);
+      observer?.disconnect();
+      window.removeEventListener('resize', measureGrid);
+    };
+  }, [activeSheet, layoutRevision, measureGrid]);
 
   useEffect(() => {
-    const hot = hotTableRef.current?.hotInstance;
-    if (!hot || gridSize.width < 1 || gridSize.height < 1) return;
-    hot.updateSettings({ width: gridSize.width, height: gridSize.height });
-    hot.refreshDimensions();
-  }, [gridSize, hotTableRef]);
+    syncHotTableDimensions();
+  }, [gridSize, syncHotTableDimensions]);
 
   const schemaColumns = useMemo(() => {
     const cols = (schema?.schema || []) as Array<ColumnInfo & { allowed_values?: string[] }>;
@@ -943,7 +980,7 @@ function SpreadsheetSurface({
         '--workspace-table-text-align': displayOptions.align,
       } as CSSProperties}
     >
-      <HotTable
+      {gridSize.width > 0 && gridSize.height > 0 && <HotTable
         ref={hotTableRef}
         key={`${activeSheet}-${sheet.columns.length}-${formatVersion}`}
         className="workspace-hot"
@@ -969,6 +1006,7 @@ function SpreadsheetSurface({
         undo
         minSpareRows={sheet.minSpareRows || 0}
         licenseKey="non-commercial-and-evaluation"
+        afterInit={syncHotTableDimensions}
         afterChange={handleChanges}
         afterSelectionEnd={(row: number, col: number, row2: number, col2: number) => {
           if (row < 0 || col < 0 || row2 < 0 || col2 < 0) {
@@ -995,7 +1033,7 @@ function SpreadsheetSurface({
           if (formatClasses) props.className = formatClasses;
           return props;
         }}
-      />
+      />}
     </div>
   );
 }
@@ -2048,6 +2086,7 @@ function Workspace() {
     : isChatHidden
       ? 'minmax(0, 1fr) 8px 0px'
       : `minmax(0, 1fr) 8px ${chatWidth}px`;
+  const gridLayoutRevision = `${chatWidth}-${loading}-${pendingRerunKind ?? ''}-${data.rows.length}-${schema?.schema?.length ?? 0}`;
 
   const startDividerDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -2128,6 +2167,7 @@ function Workspace() {
               onSelectionChange={updateSheetSelection}
               onRefresh={refresh}
               onEditFollowUp={notifyEditFollowUp}
+              layoutRevision={gridLayoutRevision}
             />
           </div>
         </section>
