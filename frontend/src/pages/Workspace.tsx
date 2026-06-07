@@ -1,4 +1,4 @@
-import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HotTable, type HotTableClass } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
@@ -640,29 +640,41 @@ function SpreadsheetSurface({
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
   const [gridSize, setGridSize] = useState({ width: 900, height: 520 });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const element = gridContainerRef.current;
     if (!element) return undefined;
 
     const updateSize = () => {
       const rect = element.getBoundingClientRect();
-      setGridSize({
-        width: Math.max(320, Math.floor(rect.width)),
-        height: Math.max(260, Math.floor(rect.height)),
-      });
+      const nextWidth = Math.max(320, Math.floor(rect.width));
+      const nextHeight = Math.max(260, Math.floor(rect.height));
+      setGridSize((current) => (
+        current.width === nextWidth && current.height === nextHeight
+          ? current
+          : { width: nextWidth, height: nextHeight }
+      ));
     };
 
     updateSize();
 
     if (typeof ResizeObserver !== 'undefined') {
-      const observer = new ResizeObserver(updateSize);
+      const observer = new ResizeObserver(() => {
+        window.requestAnimationFrame(updateSize);
+      });
       observer.observe(element);
       return () => observer.disconnect();
     }
 
     window.addEventListener('resize', updateSize);
     return () => window.removeEventListener('resize', updateSize);
-  }, []);
+  }, [activeSheet]);
+
+  useEffect(() => {
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot || gridSize.width < 1 || gridSize.height < 1) return;
+    hot.updateSettings({ width: gridSize.width, height: gridSize.height });
+    hot.refreshDimensions();
+  }, [gridSize, hotTableRef]);
 
   const schemaColumns = useMemo(() => {
     const cols = (schema?.schema || []) as Array<ColumnInfo & { allowed_values?: string[] }>;
@@ -1882,7 +1894,7 @@ function Workspace() {
   }, []);
 
   return (
-    <div className="workspace-root">
+    <div className="workspace-root h-full w-full">
       <SpreadsheetChrome
         projectTitle={projectTitle}
         sessionStatus={chromeStatus}

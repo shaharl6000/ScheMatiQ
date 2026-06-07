@@ -1,5 +1,9 @@
 .workspace-root {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
 }
@@ -7,6 +11,7 @@
 .workspace-chrome {
   position: relative;
   z-index: 120;
+  flex: 0 0 auto;
   height: 76px;
   display: flex;
   flex-direction: column;
@@ -191,6 +196,7 @@
 }
 
 .workspace-bottombar {
+  flex: 0 0 auto;
   height: 40px;
   display: grid;
   grid-template-columns: minmax(220px, 30vw) minmax(0, 1fr) clamp(96px, 12vw, 160px) 32px;
@@ -268,7 +274,8 @@
 }
 
 .workspace-body {
-  height: calc(100vh - 116px);
+  flex: 1 1 auto;
+  min-height: 0;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
@@ -770,7 +777,6 @@
   }
 
   .workspace-body {
-    height: calc(100vh - 136px);
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr) 340px;
   }

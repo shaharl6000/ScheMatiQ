@@ -41,11 +41,11 @@ function App() {
     <TooltipProvider>
     <NavigationGuardProvider>
     <ViewModeProvider>
-      <div className="min-h-screen flex flex-col bg-background">
+      <div className={isWorkspace ? 'h-screen overflow-hidden flex flex-col bg-background' : 'min-h-screen flex flex-col bg-background'}>
         {!isWorkspace && <AppHeader />}
 
         {/* Main Content */}
-        <main className={isWorkspace ? 'flex-1' : 'container py-6 flex-1'}>
+        <main className={isWorkspace ? 'flex-1 min-h-0 overflow-hidden' : 'container py-6 flex-1'}>
           <Routes>
             <Route path="/" element={<ScheMatiQConfig />} />
             <Route path="/load" element={<Load />} />
