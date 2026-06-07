@@ -36,7 +36,8 @@ class DataEditor:
 
     async def update_cell(
         self, session_id: str, row_name: str, column: str, value: Any,
-        restore: Any = None, source_document: str = None
+        restore: Any = None, source_document: str = None,
+        row_index: Optional[int] = None,
     ) -> dict:
         """
         Update a specific cell value in the session's data file.
@@ -47,6 +48,8 @@ class DataEditor:
             column: The column name to update
             value: The new value for the cell
             source_document: Optional source document to disambiguate rows with the same name
+            row_index: Optional absolute non-blank line position, used as a fallback
+                identity when row_name is absent (e.g. generic CSV/JSON imports)
 
         Returns:
             dict with status and details
@@ -69,16 +72,22 @@ class DataEditor:
         # Find and update the target row
         from app.services.data_utils import _resolve_source_document
 
+        match_by_index = (not row_name) and row_index is not None
+
         updated = False
         previous_value = None
-        for row in rows:
-            current_row_name = row.get("row_name") or row.get("_row_name")
-            if current_row_name != row_name:
-                continue
-            if source_document:
-                current_src = _resolve_source_document(row)
-                if current_src and current_src != source_document:
+        for idx, row in enumerate(rows):
+            if match_by_index:
+                if idx != row_index:
                     continue
+            else:
+                current_row_name = row.get("row_name") or row.get("_row_name")
+                if current_row_name != row_name:
+                    continue
+                if source_document:
+                    current_src = _resolve_source_document(row)
+                    if current_src and current_src != source_document:
+                        continue
             # Matched row:
             # Update the cell value
             if "data" in row and isinstance(row["data"], dict):
@@ -126,6 +135,8 @@ class DataEditor:
             break
 
         if not updated:
+            if match_by_index:
+                raise ValueError(f"Row at index {row_index} not found")
             raise ValueError(f"Row with row_name '{row_name}' not found")
 
         # Write back all rows

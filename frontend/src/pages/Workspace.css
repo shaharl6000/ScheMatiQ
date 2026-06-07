@@ -388,6 +388,30 @@
   min-height: 0;
 }
 
+.workspace-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(247, 251, 247, 0.72);
+  backdrop-filter: blur(1px);
+}
+
+.workspace-loading-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  border: 1px solid #d7e6d7;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  font-size: 0.9rem;
+  color: #2f3b2f;
+}
+
 .workspace-sheet-tab {
   height: 28px;
   flex: 0 0 auto;

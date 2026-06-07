@@ -168,6 +168,9 @@ export interface DataRow {
   _unit_confidence?: string;
   // Per-cell enrichment provenance (optional, for enriched datasets)
   _cell_status?: Record<string, CellStatus>;
+  // Absolute non-blank line position in the session data file; stable row
+  // identity for cell edits when row_name is absent (e.g. generic imports).
+  _row_index?: number;
 }
 
 export interface PaginatedData {

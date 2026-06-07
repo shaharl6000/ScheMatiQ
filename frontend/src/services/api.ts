@@ -362,10 +362,12 @@ export const schematiqAPI = {
     rowName: string,
     column: string,
     value: string,
-    sourceDocument?: string
+    sourceDocument?: string,
+    rowIndex?: number
   ): Promise<{ status: string; session_id: string; row_name: string; column: string; value: string; previous_value?: any }> => {
-    const params: Record<string, string> = { row_name: rowName, column, value };
+    const params: Record<string, string | number> = { row_name: rowName, column, value };
     if (sourceDocument) params.source_document = sourceDocument;
+    if (!rowName && rowIndex != null) params.row_index = rowIndex;
     const response = await api.put(`/schematiq/cell/${sessionId}`, null, { params });
     return response.data;
   },

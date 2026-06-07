@@ -1077,21 +1077,26 @@ class FileParser:
         else:
             # Original efficient pagination (no filtering/sorting)
             with open(data_file) as f:
-                total_count = sum(1 for _ in f)
+                total_count = sum(1 for line in f if line.strip())
 
             rows = []
             start_line = page * page_size
             end_line = start_line + page_size
 
             with open(data_file) as f:
-                for i, line in enumerate(f):
-                    if i >= start_line and i < end_line:
+                idx = 0
+                for line in f:
+                    if not line.strip():
+                        continue
+                    if idx >= start_line and idx < end_line:
                         row_data = json.loads(line)
+                        row_data['_row_index'] = idx
                         if 'data' in row_data:
                             row_data['data'] = self._sanitize_data_dict(row_data['data'])
                         rows.append(DataRow(**row_data))
-                    elif i >= end_line:
+                    elif idx >= end_line:
                         break
+                    idx += 1
 
             return PaginatedData(
                 rows=rows,
@@ -1103,12 +1108,21 @@ class FileParser:
             )
 
     def _load_all_rows(self, data_file: Path) -> List[Dict]:
-        """Load all rows from JSONL file."""
+        """Load all rows from JSONL file.
+
+        Each row is stamped with its absolute non-blank line position as
+        ``_row_index`` so it survives filtering/sorting and can serve as a
+        stable identity for cell edits when ``row_name`` is absent.
+        """
         rows = []
+        idx = 0
         with open(data_file) as f:
             for line in f:
                 if line.strip():
-                    rows.append(json.loads(line))
+                    row = json.loads(line)
+                    row['_row_index'] = idx
+                    rows.append(row)
+                    idx += 1
         return rows
 
     def _apply_search(self, rows: List[Dict], search: str) -> List[Dict]:

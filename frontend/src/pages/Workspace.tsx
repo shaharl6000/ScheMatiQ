@@ -831,18 +831,29 @@ function SpreadsheetSurface({
       if (activeSheet === 'data') {
         if (key.startsWith('_')) continue;
         const sourceRow: DataRow | undefined = data.rows[rowIndex];
-        const rowName = sourceRow?.row_name || sourceRow?._unit_name;
-        if (!rowName) continue;
+        const rowName = sourceRow?.row_name || sourceRow?._unit_name || '';
+        const rowIndexId = sourceRow?._row_index;
+        if (!rowName && rowIndexId == null) {
+          toast({
+            title: 'Cell update failed',
+            description: 'Could not identify which row to update.',
+            variant: 'destructive',
+          });
+          onRefresh();
+          continue;
+        }
 
         schematiqAPI.updateCell(
           sessionId,
           rowName,
           key,
           String(newValue ?? ''),
-          sourceRow?._source_document || sourceRow?._parent_document
+          sourceRow?._source_document || sourceRow?._parent_document,
+          rowIndexId
         )
           .then(() => {
-            toast({ title: 'Cell updated', description: `${rowName} / ${key}` });
+            const rowLabel = rowName || (rowIndexId != null ? `Row ${rowIndexId + 1}` : 'Row');
+            toast({ title: 'Cell updated', description: `${rowLabel} / ${key}` });
             onRefresh();
           })
           .catch((err: any) => {
@@ -1402,30 +1413,31 @@ function PendingRerunBanner({
         </strong>
         <span>
           {kind === 'unit'
-            ? 'Existing rows were extracted with the previous definition.'
+            ? 'Changing the unit changes row granularity: rediscover the schema, then re-extract all data.'
             : `Re-extract to refresh values from source documents (${columnSummary}).`}
         </span>
       </div>
       <div className="workspace-followup-banner-actions">
-        <button
-          className="workspace-followup-action workspace-followup-action-primary"
-          type="button"
-          onClick={onReextract}
-          disabled={busy}
-        >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
-          Re-extract table
-        </button>
-        {kind === 'unit' && (
+        {kind === 'unit' ? (
           <button
-            className="workspace-followup-action"
+            className="workspace-followup-action workspace-followup-action-primary"
             type="button"
             onClick={onRediscover}
             disabled={busy || sessionMode !== 'schematiq'}
             title={sessionMode !== 'schematiq' ? 'Schema rediscovery requires a ScheMatiQ project with source documents' : undefined}
           >
-            <Sparkles className="h-3.5 w-3.5" />
-            Rediscover schema
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            Rediscover schema &amp; re-extract
+          </button>
+        ) : (
+          <button
+            className="workspace-followup-action workspace-followup-action-primary"
+            type="button"
+            onClick={onReextract}
+            disabled={busy}
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
+            Re-extract table
           </button>
         )}
         <button className="workspace-followup-action workspace-followup-action-ghost" type="button" onClick={onDismiss} disabled={busy}>
@@ -2150,12 +2162,14 @@ function Workspace() {
     if (kind === 'unit') {
       toast({
         title: 'Observation unit updated',
-        description: 'Existing data was extracted with the previous definition. Re-extract or rediscover schema if granularity changed.',
-        action: (
-          <ToastAction altText="Re-extract table" onClick={() => startReextraction()}>
-            Re-extract
+        description: sessionMode === 'schematiq'
+          ? 'Changing the unit changes row granularity. Rediscover the schema, then re-extract all data.'
+          : 'Imported static projects can edit the unit, but rediscovery needs a ScheMatiQ project with source documents.',
+        action: sessionMode === 'schematiq' ? (
+          <ToastAction altText="Rediscover schema and re-extract" onClick={() => startSchemaRediscovery()}>
+            Rediscover &amp; re-extract
           </ToastAction>
-        ),
+        ) : undefined,
       });
       return;
     }
@@ -2176,11 +2190,11 @@ function Workspace() {
   const runPendingEdits = useCallback(async () => {
     if (!sessionId || !pendingRerunKind || rerunStarting) return;
     if (pendingRerunKind === 'unit') {
-      await startReextraction();
+      await startSchemaRediscovery();
       return;
     }
     await startReextraction(pendingSchemaColumns);
-  }, [pendingRerunKind, pendingSchemaColumns, rerunStarting, sessionId, startReextraction]);
+  }, [pendingRerunKind, pendingSchemaColumns, rerunStarting, sessionId, startReextraction, startSchemaRediscovery]);
 
   const progressPercent = Math.round((status?.progress || 0) * 100);
   const topbarQuestion = schema?.query || config?.query || '';
@@ -2283,6 +2297,14 @@ function Workspace() {
               onEditFollowUp={notifyEditFollowUp}
               layoutRevision={gridLayoutRevision}
             />
+            {loading && sessionId && (
+              <div className="workspace-loading-overlay" role="status" aria-live="polite">
+                <div className="workspace-loading-card">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  <span>Loading project…</span>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 

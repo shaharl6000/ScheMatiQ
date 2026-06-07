@@ -195,6 +195,9 @@ class DataRow(BaseModel):
     parent_document: Optional[str] = Field(default=None, alias="_parent_document")
     # Per-cell enrichment provenance (optional, for enriched datasets)
     cell_status: Optional[Dict[str, str]] = Field(default=None, alias="_cell_status")
+    # Absolute position in the session's data.jsonl (stable row identity for cell edits
+    # when row_name is absent, e.g. generic CSV/JSON imports). Counts non-blank lines.
+    row_index: Optional[int] = Field(default=None, alias="_row_index")
 
 class PaginatedData(BaseModel):
     """Paginated data response."""
