@@ -1721,6 +1721,8 @@ function Workspace() {
   });
   const [isDraggingDivider, setIsDraggingDivider] = useState(false);
   const [reextraction, setReextraction] = useState<WorkspaceReextractionState | null>(null);
+  const [reextractConfirm, setReextractConfirm] = useState<{ columns: string[] } | null>(null);
+  const [stoppingReextraction, setStoppingReextraction] = useState(false);
 
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (!sessionId) return;
@@ -2041,7 +2043,11 @@ function Workspace() {
     });
   }, []);
 
-  const startReextraction = useCallback(async (columns?: string[]) => {
+  // Resolve the requested columns to a concrete, non-empty target set and open
+  // the confirm card. Both routes (manual button + chat tool) re-extract only
+  // after an explicit confirm; the backend gated action owns baseline capture
+  // and document precheck so this stays purely presentational.
+  const requestReextraction = useCallback((columns?: string[]) => {
     if (!sessionId || rerunStarting) return;
 
     const schemaColumnNames = new Set(
@@ -2064,25 +2070,14 @@ function Workspace() {
       return;
     }
 
+    setReextractConfirm({ columns: targetColumns });
+  }, [pendingSchemaColumns, rerunStarting, schema?.schema, sessionId, toast]);
+
+  const startReextraction = useCallback(async (targetColumns: string[]) => {
+    if (!sessionId || rerunStarting || targetColumns.length === 0) return;
+
     setRerunStarting(true);
     try {
-      await schemaAPI.captureBaseline(sessionId).catch(() => undefined);
-
-      const availability = await schemaAPI.precheckDocuments(sessionId, {
-        operation_type: 'reextraction',
-      }).catch(() => null);
-      if (availability?.can_proceed === false) {
-        const missingCount = availability.missing_documents?.length || 0;
-        toast({
-          title: 'Source documents unavailable',
-          description: missingCount > 0
-            ? `${missingCount} source document(s) are missing. Upload them in the Classic Visualizer and try again.`
-            : 'Upload the original source documents, then try again.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
       const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
       const configured = await getConfiguredProviders();
       const available = getAvailableProviders(configured);
@@ -2130,7 +2125,40 @@ function Workspace() {
     } finally {
       setRerunStarting(false);
     }
-  }, [clearPendingRerun, pendingSchemaColumns, rerunStarting, schema?.schema, sessionId, toast]);
+  }, [clearPendingRerun, rerunStarting, sessionId, toast]);
+
+  const confirmReextraction = useCallback(async () => {
+    if (!reextractConfirm) return;
+    const { columns } = reextractConfirm;
+    setReextractConfirm(null);
+    await startReextraction(columns);
+  }, [reextractConfirm, startReextraction]);
+
+  // Cancel a running re-extraction. Reuses the same backend stop mechanism as
+  // the classic Visualizer (POST /schema/stop-reextraction); the WebSocket
+  // 'reextraction_stopped' handler clears the spinner.
+  const stopReextraction = useCallback(async () => {
+    if (!sessionId || !reextraction?.operationId || stoppingReextraction) return;
+    setStoppingReextraction(true);
+    try {
+      await schemaAPI.stopReextraction(sessionId, reextraction.operationId);
+      toast({
+        title: 'Stopping re-extraction',
+        description: 'Finishing the current document, then stopping. Partial results are kept.',
+      });
+    } catch (err: any) {
+      toast({
+        title: 'Could not stop re-extraction',
+        description: err?.response?.data?.detail || err?.message || 'Stop request failed.',
+        variant: 'destructive',
+      });
+      setStoppingReextraction(false);
+    }
+  }, [reextraction?.operationId, sessionId, stoppingReextraction, toast]);
+
+  useEffect(() => {
+    if (!reextraction) setStoppingReextraction(false);
+  }, [reextraction]);
 
   const startSchemaRediscovery = useCallback(async () => {
     if (!sessionId || rerunStarting) return;
@@ -2188,12 +2216,12 @@ function Workspace() {
         ? `Re-extract ${columns.join(', ')} to refresh values from source documents.`
         : 'Re-extract to refresh values from source documents.',
       action: (
-        <ToastAction altText="Re-extract columns" onClick={() => startReextraction(columns)}>
+        <ToastAction altText="Re-extract columns" onClick={() => requestReextraction(columns)}>
           Re-extract
         </ToastAction>
       ),
     });
-  }, [markRerunNeeded, sessionMode, startReextraction, startSchemaRediscovery, toast]);
+  }, [markRerunNeeded, requestReextraction, sessionMode, startSchemaRediscovery, toast]);
 
   const runPendingEdits = useCallback(async () => {
     if (!sessionId || !pendingRerunKind || rerunStarting) return;
@@ -2201,8 +2229,8 @@ function Workspace() {
       await startSchemaRediscovery();
       return;
     }
-    await startReextraction(pendingSchemaColumns);
-  }, [pendingRerunKind, pendingSchemaColumns, rerunStarting, sessionId, startReextraction, startSchemaRediscovery]);
+    requestReextraction(pendingSchemaColumns);
+  }, [pendingRerunKind, pendingSchemaColumns, rerunStarting, requestReextraction, sessionId, startSchemaRediscovery]);
 
   const progressPercent = Math.round((status?.progress || 0) * 100);
   const topbarQuestion = schema?.query || config?.query || '';
@@ -2279,7 +2307,7 @@ function Workspace() {
           columns={pendingSchemaColumns}
           sessionMode={sessionMode}
           busy={rerunStarting}
-          onReextract={() => startReextraction(pendingRerunKind === 'schema' ? pendingSchemaColumns : undefined)}
+          onReextract={() => requestReextraction(pendingRerunKind === 'schema' ? pendingSchemaColumns : undefined)}
           onRediscover={startSchemaRediscovery}
           onDismiss={clearPendingRerun}
         />
@@ -2372,6 +2400,18 @@ function Workspace() {
             <>
               <Progress value={bottombarProgress} className="h-1.5" />
               <span className="workspace-topbar-percent">{bottombarProgress}%</span>
+              {reextraction && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={stopReextraction}
+                  disabled={stoppingReextraction}
+                  aria-label="Stop re-extraction"
+                >
+                  {stoppingReextraction ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                  {stoppingReextraction ? 'Stopping…' : 'Stop'}
+                </Button>
+              )}
             </>
           ) : (
             <span className="workspace-topbar-status-empty">No status</span>
@@ -2468,6 +2508,31 @@ function Workspace() {
         config={config}
         costEstimate={costEstimate}
       />
+
+      <Dialog
+        open={Boolean(reextractConfirm)}
+        onOpenChange={(open) => { if (!open) setReextractConfirm(null); }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Re-extract values?</DialogTitle>
+            <DialogDescription>
+              {reextractConfirm
+                ? `Re-extract ${reextractConfirm.columns.length} column(s): ${reextractConfirm.columns.join(', ')}. This runs the extraction model over your source documents. Other columns stay unchanged.`
+                : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReextractConfirm(null)} disabled={rerunStarting}>
+              Cancel
+            </Button>
+            <Button onClick={confirmReextraction} disabled={rerunStarting}>
+              {rerunStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+              Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

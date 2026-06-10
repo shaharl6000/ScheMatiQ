@@ -2,7 +2,7 @@
 Schema editing API endpoints for ScheMatiQ.
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
@@ -11,11 +11,8 @@ import asyncio
 import logging
 from pathlib import Path
 
-from app.models.session import VisualizationSession, SessionStatus, ColumnInfo
+from app.models.session import ColumnInfo
 from app.models.modification import ModificationAction
-from app.models.schematiq import RetrieverConfig
-from app.services.session_manager import SessionManager
-from app.services.websocket_manager import WebSocketManager
 from app.services.schema_manager import SchemaManager
 from app.services.reextraction_service import ReextractionService
 from app.services.continue_discovery_service import ContinueDiscoveryService
@@ -998,12 +995,15 @@ async def start_reextraction(
         await concurrency_limiter.acquire(session_id, "reextraction")
 
         try:
-            result = await reextraction_service.start_reextraction(
+            # Shared gated entry point (also used by the chat reextract tool):
+            # scope resolution + baseline capture + document precheck + start.
+            result = await reextraction_service.start_gated_reextraction(
                 session_id,
-                request.columns
+                columns=request.columns,
+                scope="explicit",
             )
         except Exception:
-            # Release slot if start_reextraction fails before creating its task
+            # Release slot if the gated start fails before creating its task
             await concurrency_limiter.release(session_id)
             raise
 
@@ -1091,7 +1091,6 @@ async def upload_missing_papers(
     files: List[Any] = None  # Will be UploadFile in actual use
 ):
     """Upload papers that are missing from storage."""
-    from fastapi import UploadFile, File
 
     try:
         session = session_manager.get_session(session_id)

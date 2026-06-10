@@ -14,7 +14,7 @@ from pathlib import Path
 from datetime import datetime
 
 from app.models.session import (
-    ColumnInfo, ColumnBaseline, SchemaBaseline, VisualizationSession
+    ColumnInfo, ColumnBaseline, SchemaBaseline, VisualizationSession, ObservationUnitInfo
 )
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
@@ -26,8 +26,6 @@ from app.core.logging_utils import set_session_context
 
 # ScheMatiQ library imports
 from schematiq.value_extraction.main import build_table_jsonl
-from schematiq.value_extraction.core.paper_processor import PaperProcessor
-from schematiq.core.schema import Schema, Column
 from schematiq.core.llm_backends import GeminiLLM
 from schematiq.core.model_specs import ModelNames
 from schematiq.core import utils as schematiq_utils
@@ -544,7 +542,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     doc_dir = f"datasets/{session_cloud_dataset}"
                                     logger.debug(f"Using session cloud_dataset fallback: {doc_dir}")
                                 else:
-                                    logger.debug(f"No cloud_dataset fallback available - documents may not be found")
+                                    logger.debug("No cloud_dataset fallback available - documents may not be found")
                                     # No cloud fallback - will be checked locally only
                                     doc_dir = None
 
@@ -799,6 +797,88 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     # ==================== Re-extraction ====================
 
+    async def resolve_reextraction_columns(
+        self,
+        session_id: str,
+        columns: Optional[List[str]] = None,
+        scope: str = "explicit",
+    ) -> List[str]:
+        """Resolve the column scope for a re-extraction.
+
+        Shared by the manual REST route and the chat tool so both apply the
+        same scoping rules: explicit columns are validated against the schema,
+        ``scope='all'`` targets every column, and ``edited_only`` targets only
+        columns changed since the baseline (never silently widening to all).
+        Excerpt/derived columns are always excluded.
+        """
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+
+        valid_columns = {col.name for col in session.columns}
+        if columns:
+            resolved = [c for c in columns if c in valid_columns]
+            if not resolved:
+                raise ValueError(
+                    "None of the requested columns exist in the schema. "
+                    "Check the schema for exact column names."
+                )
+        elif scope == "all":
+            resolved = [col.name for col in session.columns]
+        else:  # edited_only — do NOT silently widen to all columns
+            changes = self.detect_schema_changes(session)
+            resolved = changes.get("changed_columns") or changes.get("new_columns") or []
+            if not resolved:
+                raise ValueError(
+                    "No edited or new columns to re-extract. Pass specific "
+                    "columns, or scope='all' to re-extract the whole table."
+                )
+
+        resolved = [c for c in resolved if not c.lower().endswith("_excerpt")]
+        if not resolved:
+            raise ValueError("No columns available for re-extraction")
+        return resolved
+
+    async def start_gated_reextraction(
+        self,
+        session_id: str,
+        columns: Optional[List[str]] = None,
+        scope: str = "explicit",
+        capture_baseline: bool = True,
+    ) -> Dict[str, Any]:
+        """Single gated entry point for re-extraction.
+
+        Both the manual workspace button (via ``POST /schema/reextract``) and the
+        chat ``reextract`` tool funnel through here so the gating is identical:
+        resolve the column scope, capture a fresh baseline, verify source
+        documents are available, then start the operation. Raises ``ValueError``
+        with a user-facing message when a gate fails; the caller owns the
+        concurrency slot and releases it on error.
+        """
+        resolved = await self.resolve_reextraction_columns(session_id, columns, scope)
+
+        # Capture baseline AFTER resolving scope (edited_only reads the old baseline)
+        # so the pending-change detection clears once re-extraction starts.
+        if capture_baseline:
+            await self.capture_and_save_baseline(session_id)
+
+        availability = await self.precheck_document_availability(
+            session_id, operation_type="reextraction"
+        )
+        if not availability.get("can_proceed", False):
+            missing = availability.get("missing_documents") or []
+            if missing:
+                raise ValueError(
+                    f"{len(missing)} source document(s) are unavailable. "
+                    "Upload them in the Classic Visualizer and try again."
+                )
+            raise ValueError(
+                "No source documents available. Upload the original source "
+                "documents, then try again."
+            )
+
+        return await self.start_reextraction(session_id, resolved)
+
     async def start_reextraction(
         self,
         session_id: str,
@@ -953,7 +1033,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
 
             # Download cloud papers before extraction
-            logger.debug(f"Discovering papers for re-extraction...")
+            logger.debug("Discovering papers for re-extraction...")
             paper_discovery = await self.discover_papers(operation.session_id)
             logger.debug(f"Paper discovery result - available: {len(paper_discovery.get('available_papers', []))}, cloud: {len(paper_discovery.get('cloud_papers', {}))}, missing: {len(paper_discovery.get('missing_papers', []))}")
 
@@ -965,7 +1045,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 )
                 logger.debug(f"Downloaded {len(downloaded)} papers from cloud storage for re-extraction")
             else:
-                logger.debug(f"No cloud papers to download")
+                logger.debug("No cloud papers to download")
 
             # Get target columns
             target_columns = [
@@ -1098,7 +1178,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
 
             if docs_directories:
-                logger.debug(f"Starting build_table_jsonl extraction...")
+                logger.debug("Starting build_table_jsonl extraction...")
 
                 # Build known_units from existing data (paper_stem -> [unit_names])
                 # This skips the expensive LLM unit discovery for rows that already exist.
@@ -1180,10 +1260,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)
                 logger.debug(f"build_table_jsonl completed, output_file exists: {output_file.exists()}")
             else:
-                logger.debug(f"No document directories exist, skipping extraction")
+                logger.debug("No document directories exist, skipping extraction")
 
             # Merge results with existing data
-            logger.debug(f"Merging re-extracted data...")
+            logger.debug("Merging re-extracted data...")
             await self._merge_reextracted_data(
                 operation.session_id,
                 operation.columns,
@@ -1569,7 +1649,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             logger.debug(f"Could not load LLM config from schematiq_config.json: {e}")
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
-        logger.debug(f"Using default GeminiLLM - this will use GEMINI_API_KEY env var")
+        logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
         return GeminiLLM(model=ModelNames.DEFAULT_VALUE_EXTRACTION, temperature=0)
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):

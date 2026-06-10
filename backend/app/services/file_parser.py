@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 from app.models.upload import (
     FileValidationResult, ColumnMappingRequest, SchemaValidationResult,
-    ScheMatiQSchemaFormat, SchemaColumn, CompatibilityCheck, DualFileUploadResult
+    ScheMatiQSchemaFormat, SchemaColumn, CompatibilityCheck
 )
 from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SchemaEvolution, SchemaSnapshot
-from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE
 from app.services import row_filtering
 
 _COLUMN_DISPLAY_NAMES = {

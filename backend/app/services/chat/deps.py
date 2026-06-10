@@ -7,9 +7,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
+from app.core.config import RELEASE_CONFIG
 from app.services import (
-    concurrency_limiter,
     session_manager,
     websocket_manager,
 )
