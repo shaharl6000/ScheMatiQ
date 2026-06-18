@@ -906,7 +906,7 @@ const Visualize = () => {
   // forever. While an operation is active, poll its status directly and clear
   // the same state the WS handler would, so the bar always resolves.
   useEffect(() => {
-    if (!activeReextractionId) return;
+    if (!sessionId || !activeReextractionId) return;
 
     let cancelled = false;
     let intervalId: ReturnType<typeof setInterval> | null = null;
