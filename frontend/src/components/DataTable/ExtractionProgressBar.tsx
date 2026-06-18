@@ -122,7 +122,7 @@ const ExtractionProgressBar: React.FC<ExtractionProgressBarProps> = ({
       {currentDocumentProgress && currentDocumentProgress.totalDocuments > 0 && (
         <div className="space-y-1">
           <Progress
-            value={(currentDocumentProgress.documentIndex / currentDocumentProgress.totalDocuments) * 100}
+            value={Math.min(100, (Math.max(0, currentDocumentProgress.documentIndex - 0.5) / currentDocumentProgress.totalDocuments) * 100)}
             className="h-2"
           />
           <p className="text-xs text-muted-foreground">
