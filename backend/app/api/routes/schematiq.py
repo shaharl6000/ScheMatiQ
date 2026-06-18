@@ -355,7 +355,7 @@ async def resume_schematiq(session_id: str, background_tasks: BackgroundTasks):
         await concurrency_limiter.acquire(session_id, "schematiq")
 
         # Start resumed ScheMatiQ in background
-        background_tasks.add_task(schematiq_runner.resume_schematiq, session_id)
+        background_tasks.add_task(schematiq_runner.resume_qbsd, session_id)
 
         return {"message": "ScheMatiQ execution resumed", "session_id": session_id}
 
