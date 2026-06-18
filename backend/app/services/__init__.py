@@ -80,6 +80,10 @@ class ConcurrencyLimiter:
         async with self._lock:
             return len(self._active)
 
+    def is_session_active(self, session_id: str) -> bool:
+        """Return True if this session currently holds a concurrency slot."""
+        return session_id in self._active
+
 
 concurrency_limiter = ConcurrencyLimiter(MAX_CONCURRENT_SESSIONS)
 logger.info("[concurrency] Concurrency limiter initialized: max %d sessions", MAX_CONCURRENT_SESSIONS)

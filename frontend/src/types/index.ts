@@ -140,7 +140,7 @@ export interface VisualizationSession {
   id: string;
   type: 'load' | 'schematiq';
   status: 'created' | 'processing' | 'schema_ready' | 'completed' | 'error' | 'stopped' |
-          'schema_extracted' | 'documents_uploaded' | 'processing_documents';
+          'schema_extracted' | 'documents_uploaded' | 'processing_documents' | 'observation_unit_review';
   metadata: SessionMetadata;
   schema_query?: string;
   columns: ColumnInfo[];

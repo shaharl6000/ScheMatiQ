@@ -11,7 +11,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-from app.models.session import VisualizationSession
+from app.models.session import VisualizationSession, SessionStatus
 from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
 
@@ -364,7 +364,14 @@ class ObservationUnitManager:
         # Update session
         session.observation_unit = updated_observation_unit
         session.metadata.last_modified = datetime.now()
-        session.metadata.pending_observation_unit_rediscovery = True
+        # Only flag rediscovery after schema exists — initial review pause just resumes forward.
+        session.metadata.pending_observation_unit_rediscovery = (
+            session.status != SessionStatus.OBSERVATION_UNIT_REVIEW
+            and (
+                session.metadata.schema_discovery_completed
+                or bool(session.columns)
+            )
+        )
         self.session_manager.update_session(session)
 
         # Update schema JSON file on disk

@@ -18,7 +18,7 @@ from app.models.unit import (
     AutoMergeResult,
 )
 from app.models.session import DataRow
-from app.core.config import DEFAULT_DATA_DIR
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
 from app.services import row_filtering
 
 logger = logging.getLogger(__name__)
@@ -27,42 +27,116 @@ logger = logging.getLogger(__name__)
 class UnitViewService:
     """Service for managing observation unit views and merges."""
 
-    # In-memory row cache: session_id -> (rows, file_mtimes, cached_at)
-    _row_cache: Dict[str, Tuple[List[Dict], Dict[str, float], float]] = {}
+    # In-memory row cache: session_id -> (rows, file_signatures, cached_at)
+    _row_cache: Dict[str, Tuple[List[Dict], Dict[str, Tuple[float, int]], float]] = {}
     _CACHE_TTL = 30  # seconds
 
     def __init__(self, data_dir: str = DEFAULT_DATA_DIR):
         self.data_dir = Path(data_dir)
-        self.work_dir = Path("./schematiq_work")
+        self.work_dir = Path(DEFAULT_SCHEMATIQ_WORK_DIR)
+
+    def _dev_instance_work_dirs(self) -> List[Path]:
+        """schematiq_work dirs from dev.sh isolation (.dev-data/instance-N/)."""
+        from app.services.data_utils import _BACKEND_DIR
+
+        dev_root = _BACKEND_DIR.parent / ".dev-data"
+        if not dev_root.is_dir():
+            return []
+
+        seen: set[Path] = set()
+        dirs: List[Path] = []
+        for instance_work in sorted(dev_root.glob("instance-*/schematiq_work")):
+            resolved = instance_work.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                dirs.append(instance_work)
+        return dirs
+
+    def _candidate_work_dirs(self) -> List[Path]:
+        """Work dirs to search — CWD-relative, module-relative, and dev.sh instances."""
+        from app.services.data_utils import get_schematiq_work_dir
+
+        seen: set[Path] = set()
+        candidates: List[Path] = []
+        for d in (self.work_dir, get_schematiq_work_dir(), *self._dev_instance_work_dirs()):
+            resolved = d.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                candidates.append(d)
+        return candidates
+
+    def _dev_instance_data_dirs(self) -> List[Path]:
+        """data dirs from dev.sh isolation (.dev-data/instance-N/data)."""
+        from app.services.data_utils import _BACKEND_DIR
+
+        dev_root = _BACKEND_DIR.parent / ".dev-data"
+        if not dev_root.is_dir():
+            return []
+
+        seen: set[Path] = set()
+        dirs: List[Path] = []
+        for instance_data in sorted(dev_root.glob("instance-*/data")):
+            resolved = instance_data.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                dirs.append(instance_data)
+        return dirs
+
+    def _candidate_data_dirs(self) -> List[Path]:
+        """Data dirs to search — CWD-relative, module-relative, and dev.sh instances."""
+        from app.services.data_utils import get_data_dir
+
+        seen: set[Path] = set()
+        candidates: List[Path] = []
+        for d in (self.data_dir, get_data_dir(), *self._dev_instance_data_dirs()):
+            resolved = d.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                candidates.append(d)
+        return candidates
 
     def _get_all_data_files(self, session_id: str) -> List[Path]:
         """Get all data file paths for a session, checking multiple locations.
+
+        Checks both CWD-relative paths (where schematiq_runner writes under dev.sh)
+        and module-relative paths (backend/schematiq_work) so units are found
+        regardless of process working directory.
 
         Returns list of existing files from:
         1. schematiq_work/{session_id}/extracted_data.jsonl (ScheMatiQ sessions)
         2. schematiq_work/{session_id}/data.jsonl (fallback if extracted_data doesn't exist)
         3. data/{session_id}/data.jsonl (always check - may have additional docs)
         """
-        data_files = []
+        data_files: List[Path] = []
+        resolved_files: set[Path] = set()
 
-        # Check ScheMatiQ work directory (original ScheMatiQ extraction)
-        schematiq_extracted = self.work_dir / session_id / "extracted_data.jsonl"
-        if schematiq_extracted.exists():
-            data_files.append(schematiq_extracted)
+        # Check ScheMatiQ work directories (original ScheMatiQ extraction)
+        for work_dir in self._candidate_work_dirs():
+            schematiq_extracted = work_dir / session_id / "extracted_data.jsonl"
+            if schematiq_extracted.exists():
+                resolved = schematiq_extracted.resolve()
+                if resolved not in resolved_files:
+                    resolved_files.add(resolved)
+                    data_files.append(schematiq_extracted)
 
         # Check schematiq_work for data.jsonl (only if extracted_data.jsonl doesn't exist)
         if not data_files:
-            schematiq_data = self.work_dir / session_id / "data.jsonl"
-            if schematiq_data.exists():
-                data_files.append(schematiq_data)
+            for work_dir in self._candidate_work_dirs():
+                schematiq_data = work_dir / session_id / "data.jsonl"
+                if schematiq_data.exists():
+                    resolved = schematiq_data.resolve()
+                    if resolved not in resolved_files:
+                        resolved_files.add(resolved)
+                        data_files.append(schematiq_data)
 
-        # Always check data directory - may contain additional documents
-        data_file = self.data_dir / session_id / "data.jsonl"
-        if data_file.exists():
-            # Use resolve() to handle symlinks and relative paths correctly
-            resolved_files = [f.resolve() for f in data_files]
-            if data_file.resolve() not in resolved_files:
-                data_files.append(data_file)
+        # Always check data directories — may contain additional documents
+        for data_dir in self._candidate_data_dirs():
+            data_file = data_dir / session_id / "data.jsonl"
+            if data_file.exists():
+                resolved = data_file.resolve()
+                if resolved not in resolved_files:
+                    resolved_files.add(resolved)
+                    data_files.append(data_file)
 
         return data_files
 
@@ -79,7 +153,7 @@ class UnitViewService:
         """Load all data rows from all session data files (cached).
 
         Uses an in-memory cache keyed by session_id. Cache is invalidated when:
-        - Any data file's mtime changes (file was modified)
+        - Any data file's mtime or size changes (file was modified/appended)
         - TTL expires (30s)
         - Explicitly invalidated after mutations (merge, add, delete)
 
@@ -89,18 +163,19 @@ class UnitViewService:
         if not data_files:
             return []
 
-        # Check cache validity
+        # Check cache validity (mtime + size catches JSONL appends in the same second)
         now = time.monotonic()
-        current_mtimes = {}
+        current_signatures: Dict[str, Tuple[float, int]] = {}
         for f in data_files:
             try:
-                current_mtimes[str(f)] = f.stat().st_mtime
+                st = f.stat()
+                current_signatures[str(f)] = (st.st_mtime, st.st_size)
             except OSError:
                 pass
 
         if session_id in self._row_cache:
-            cached_rows, cached_mtimes, cached_at = self._row_cache[session_id]
-            if (now - cached_at) < self._CACHE_TTL and cached_mtimes == current_mtimes:
+            cached_rows, cached_signatures, cached_at = self._row_cache[session_id]
+            if (now - cached_at) < self._CACHE_TTL and cached_signatures == current_signatures:
                 return cached_rows
 
         # Cache miss — read from disk
@@ -125,7 +200,7 @@ class UnitViewService:
                 logger.warning(f"Error reading {data_file}: {e}")
             seen_keys.update(file_keys)
 
-        self._row_cache[session_id] = (rows, current_mtimes, now)
+        self._row_cache[session_id] = (rows, current_signatures, now)
         return rows
 
     def _save_all_rows(self, session_id: str, rows: List[Dict]) -> None:
@@ -148,7 +223,17 @@ class UnitViewService:
         # Check for unit_name with and without underscore prefix at root level
         for field in ['_unit_name', 'unit_name']:
             if field in row and row[field]:
-                return str(row[field]).strip()
+                value = row[field]
+                if isinstance(value, dict):
+                    value = value.get('value') or value.get('answer')
+                if value:
+                    return str(value).strip()
+
+        # Multi-unit extraction rows: instance name is often stored as _row_name
+        if row.get('_observation_unit') or row.get('_unit_confidence'):
+            for field in ('_row_name', 'row_name'):
+                if row.get(field):
+                    return str(row[field]).strip()
 
         # Also check within the 'data' field for unit-related columns
         # This handles cases where the observation unit is stored as a regular column

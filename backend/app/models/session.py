@@ -131,6 +131,10 @@ class SessionMetadata(BaseModel):
     # While True, re-extraction must not reuse row names from existing data as known_units (that
     # would skip LLM unit discovery and ignore the new definition).
     pending_observation_unit_rediscovery: bool = False
+    # Set when resume_qbsd resets artifacts; cleared with pending flag after that run completes.
+    observation_unit_rediscovery_run: bool = False
+    # Suppress partial data-collection archive when stop is only preparing rediscovery.
+    skip_stop_data_collection: bool = False
 
 class SkippedDocumentInfo(BaseModel):
     """Metadata for a document that was skipped during extraction."""

@@ -269,6 +269,8 @@ const Visualize = () => {
               queryClient.invalidateQueries(['session', sessionId]);
               queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
               queryClient.invalidateQueries(['documentList', sessionId]);
+              // Re-read units from disk as each row lands (unit list API is file-based)
+              refreshUnits();
               setTimeout(() => {
                 setNewlyAddedRows(prev => {
                   const newSet = new Set(Array.from(prev));
@@ -574,6 +576,9 @@ const Visualize = () => {
   // This allows showing the "By Unit" toggle even when the API doesn't detect unit names
   // Check for _unit_name metadata field OR columns with "unit"/"observation" in the name
   const hasUnitColumn = useMemo(() => {
+    // During live extraction, row keys in streamingCells are observation-unit instance names
+    if (streamingCells.size > 0) return true;
+
     if (!dataResponse?.rows?.length) return false;
 
     // Check for _unit_name field (observation unit metadata) - same as DataTable's hasObservationUnits
@@ -586,7 +591,7 @@ const Visualize = () => {
       header.toLowerCase().includes('unit') ||
       header.toLowerCase().includes('observation')
     );
-  }, [dataResponse]);
+  }, [dataResponse, streamingCells]);
 
   // WebSocket effect for re-extraction and document processing
   // Uses wsRef to maintain connection across effect re-runs
@@ -644,6 +649,8 @@ const Visualize = () => {
                 queryClient.invalidateQueries(['session', sessionId]);
                 queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
               queryClient.invalidateQueries(['documentList', sessionId]);
+                // Re-read units from disk as each row lands (unit list API is file-based)
+                refreshUnits();
                 setTimeout(() => {
                   setNewlyAddedRows(prev => {
                     const newSet = new Set(Array.from(prev));
@@ -854,9 +861,13 @@ const Visualize = () => {
     };
 
     // Determine if we should connect
+    const isSchematiqSessionActive =
+      mode === 'schematiq' &&
+      (session?.status === 'processing' || session?.status === 'observation_unit_review');
+
     const shouldConnect = forceWebSocketConnect ||
       session?.status === 'processing_documents' ||
-      (mode === 'schematiq' && session?.status === 'processing');
+      isSchematiqSessionActive;
 
     if (shouldConnect) {
       connectWebSocket();
@@ -874,8 +885,11 @@ const Visualize = () => {
 
   // Separate effect to close WebSocket when no longer needed
   useEffect(() => {
-    if (!forceWebSocketConnect && session?.status !== 'processing_documents' &&
-        !(mode === 'schematiq' && session?.status === 'processing')) {
+    const isSchematiqSessionActive =
+      mode === 'schematiq' &&
+      (session?.status === 'processing' || session?.status === 'observation_unit_review');
+
+    if (!forceWebSocketConnect && session?.status !== 'processing_documents' && !isSchematiqSessionActive) {
       // No longer need WebSocket, close it
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         debug.log('Closing WebSocket - no longer needed');
@@ -1710,12 +1724,13 @@ const Visualize = () => {
 
         {/* ScheMatiQ Monitor Tab */}
         {mode === 'schematiq' && (
-          <TabsContent value="monitor" className="mt-4">
+          <TabsContent value="monitor" forceMount className="mt-4 data-[state=inactive]:hidden">
             <ScheMatiQMonitor
               sessionId={sessionId}
               autoStarted={autoStartState.autoStarted}
               initialCapacityMessage={autoStartState.initialCapacityMessage}
               onExtractionStarted={handleReextractionStarted}
+              onResumeStarted={() => setForceWebSocketConnect(true)}
             />
           </TabsContent>
         )}

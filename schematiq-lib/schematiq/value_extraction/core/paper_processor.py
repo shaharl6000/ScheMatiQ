@@ -1319,6 +1319,11 @@ class PaperProcessor:
         Returns:
             UnitParseResult from the parser
         """
+        if self._check_stop_requested():
+            from .unit_parser import UnitParseResult
+
+            return UnitParseResult(success=False, error="Stop requested")
+
         # Build the prompt for unit identification
         example_names_str = (
             ", ".join(observation_unit.example_names or []) or "None provided"
@@ -1419,6 +1424,9 @@ class PaperProcessor:
         last_format = None
 
         for attempt in range(max_retries + 1):
+            if self._check_stop_requested():
+                return UnitIdentificationResult(units=[], skip_reason="Stop requested")
+
             try:
                 is_retry = attempt > 0
                 if is_retry:
@@ -1519,6 +1527,9 @@ class PaperProcessor:
                 # Parse failed - record error for retry
                 last_error = result.error
                 last_format = result.detected_format
+
+                if result.error == "Stop requested":
+                    return UnitIdentificationResult(units=[], skip_reason="Stop requested")
 
                 if result.detected_format == "value_extraction":
                     logging.warning(
