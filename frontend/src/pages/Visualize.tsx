@@ -899,6 +899,72 @@ const Visualize = () => {
     }
   }, [forceWebSocketConnect, session?.status, mode]);
 
+  // Fallback completion poll for re-extraction.
+  // The progress bar normally clears on the 'reextraction_completed' WebSocket
+  // event. But re-extraction runs after the session is already 'completed', so
+  // if the socket drops mid-run that event never arrives and the bar sticks
+  // forever. While an operation is active, poll its status directly and clear
+  // the same state the WS handler would, so the bar always resolves.
+  useEffect(() => {
+    if (!activeReextractionId) return;
+
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const clearReextractionState = () => {
+      setProcessingColumns(new Set());
+      setCurrentColumn(null);
+      setCurrentDocumentProgress(null);
+      setStreamingCells(new Map());
+      setActiveReextractionId(null);
+      setIsStoppingReextraction(false);
+    };
+
+    const poll = async () => {
+      try {
+        const { schemaAPI } = await import('../services/api');
+        const st = await schemaAPI.getReextractionStatus(sessionId, activeReextractionId);
+        if (cancelled) return;
+
+        // Keep the bar in sync with server-side progress even when WS is silent.
+        if (st.total_documents > 0 && (st.status === 'running' || st.status === 'starting')) {
+          setCurrentDocumentProgress(prev => ({
+            documentName: prev?.documentName ?? '',
+            documentIndex: Math.min(st.processed_documents, st.total_documents),
+            totalDocuments: st.total_documents,
+          }));
+        }
+
+        if (st.status === 'completed' || st.status === 'failed' || st.status === 'stopped') {
+          clearReextractionState();
+          queryClient.invalidateQueries(['session', sessionId, mode]);
+          queryClient.invalidateQueries(['data', sessionId, mode]);
+          queryClient.invalidateQueries({ queryKey: ['unitData', sessionId], exact: false });
+          queryClient.invalidateQueries(['documentList', sessionId]);
+          refreshUnits();
+        }
+      } catch (err) {
+        // A 404 means the operation was already cleaned up server-side after
+        // finishing — treat that as completion so the bar doesn't hang.
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        if (!cancelled && status === 404) {
+          clearReextractionState();
+          queryClient.invalidateQueries(['session', sessionId, mode]);
+          queryClient.invalidateQueries(['data', sessionId, mode]);
+          refreshUnits();
+        }
+        // Other errors (transient network blips): keep polling.
+      }
+    };
+
+    intervalId = setInterval(poll, 2500);
+
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [activeReextractionId, sessionId, mode, queryClient]);
+
   // Schema data update listener
   useEffect(() => {
     const handleSchemaDataUpdate = (event: CustomEvent) => {
