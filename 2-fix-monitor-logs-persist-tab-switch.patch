@@ -1,0 +1,33 @@
+From 338fd5688405df05db53c733da45b7e61849a5da Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Thu, 18 Jun 2026 08:20:01 +0000
+Subject: [PATCH] fix: preserve ScheMatiQ Monitor logs when switching tabs
+
+The Monitor's log list lives in component-local useState. Radix
+TabsContent unmounts inactive tabs by default, so leaving the Monitor
+tab during a run and returning remounted the component and wiped all
+logs.
+
+Add forceMount to the Monitor TabsContent so it stays mounted and keeps
+its log state, with data-[state=inactive]:hidden to keep it hidden while
+another tab is active.
+---
+ frontend/src/pages/Visualize.tsx | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/frontend/src/pages/Visualize.tsx b/frontend/src/pages/Visualize.tsx
+index 1b4cfce..2c4d389 100644
+--- a/frontend/src/pages/Visualize.tsx
++++ b/frontend/src/pages/Visualize.tsx
+@@ -1710,7 +1710,7 @@ const Visualize = () => {
+ 
+         {/* ScheMatiQ Monitor Tab */}
+         {mode === 'schematiq' && (
+-          <TabsContent value="monitor" className="mt-4">
++          <TabsContent value="monitor" forceMount className="mt-4 data-[state=inactive]:hidden">
+             <ScheMatiQMonitor
+               sessionId={sessionId}
+               autoStarted={autoStartState.autoStarted}
+-- 
+2.43.0
+

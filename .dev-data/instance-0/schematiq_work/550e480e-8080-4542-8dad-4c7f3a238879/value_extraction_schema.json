@@ -1,0 +1,68 @@
+{
+  "query": "Do federal judges appointed by different Presidents (Trump vs. other Republican vs. Democratic) differ in their voting tendencies on immigration injunction cases? Do Trump-appointed judges tend to be more supportive of Trump administration immigration policies compared to judges appointed by other Republican or Democratic presidents?\n",
+  "columns": [
+    {
+      "column": "case_name",
+      "explanation": "Identifies the specific legal dispute being analyzed.",
+      "definition": "The title or style of the court case (e.g., 'Arevalo Millan v. Trump').",
+      "allowed_values": [
+        "free-form"
+      ],
+      "auto_expand_threshold": 2
+    },
+    {
+      "column": "judge_name",
+      "explanation": "Crucial for identifying the judge to cross-reference their appointing president and analyze voting patterns.",
+      "definition": "The name of the federal judge presiding over the case and issuing the order.",
+      "allowed_values": [
+        "free-form"
+      ],
+      "auto_expand_threshold": 2
+    },
+    {
+      "column": "challenged_policy",
+      "explanation": "Allows researchers to categorize the types of immigration policies being challenged (e.g., Alien Enemies Act invocation, sponsor vetting, legal service program termination).",
+      "definition": "A brief description of the Trump administration immigration policy, proclamation, or executive action being challenged in the case.",
+      "allowed_values": [
+        "free-form"
+      ],
+      "auto_expand_threshold": 2
+    },
+    {
+      "column": "injunction_ruling_type",
+      "explanation": "Directly measures the judge's voting tendency on the requested immigration injunction.",
+      "definition": "The court's decision regarding the plaintiff's motion for a preliminary injunction or temporary restraining order.",
+      "allowed_values": [
+        "granted",
+        "denied",
+        "granted in part and denied in part"
+      ],
+      "auto_expand_threshold": 2
+    },
+    {
+      "column": "government_position_supported",
+      "explanation": "Helps determine if the judge's voting tendency is supportive of the administration's policies.",
+      "definition": "Indicates whether the judge's ruling ultimately supported the government's position, opposed it, or was mixed.",
+      "allowed_values": [
+        "yes",
+        "no",
+        "partially"
+      ],
+      "auto_expand_threshold": 2
+    },
+    {
+      "column": "ruling_rationale_summary",
+      "explanation": "Provides qualitative context on how the judge interpreted the law, which helps identify systematic differences in legal philosophy between appointees.",
+      "definition": "A summary of the judge's legal reasoning for granting or denying the injunction (e.g., likelihood of success on due process claims, lack of standing, statutory interpretation of the Alien Enemies Act).",
+      "allowed_values": [
+        "free-form"
+      ],
+      "auto_expand_threshold": 2
+    }
+  ],
+  "max_keys": 25,
+  "observation_unit": {
+    "name": "Judge",
+    "definition": "A federal judge"
+  }
+}

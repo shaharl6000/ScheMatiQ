@@ -1,0 +1,66 @@
+{
+  "query": "Do federal judges appointed by different Presidents (Trump vs. other Republican vs. Democratic) differ in their voting tendencies on immigration injunction cases? Do Trump-appointed judges tend to be more supportive of Trump administration immigration policies compared to judges appointed by other Republican or Democratic presidents?\n",
+  "schema": [
+    {
+      "name": "judge_name",
+      "definition": "The full name of the federal judge who authored or signed the decision.",
+      "rationale": "Required to identify the specific judge and link them to their appointing President.",
+      "allowed_values": [
+        "John W. Holcomb",
+        "Deborah L. Boardman",
+        "Joseph N. Laplante",
+        "Dabney L. Friedrich",
+        "Randolph D. Moss",
+        "Stephanie L. Haines",
+        "Amir H. Ali"
+      ]
+    },
+    {
+      "name": "appointing_president",
+      "definition": "The United States President who appointed the judge to the federal bench.",
+      "rationale": "Directly addresses the core research question comparing Trump appointees, other Republican appointees, and Democratic appointees.",
+      "allowed_values": [
+        "Donald J. Trump",
+        "Other Republican",
+        "Democratic"
+      ]
+    },
+    {
+      "name": "ruling_on_immigration_policy",
+      "definition": "The judge's ruling or vote on the challenged immigration policy or executive action.",
+      "rationale": "Measures the judge's voting tendency and supportiveness toward the administration's immigration policies.",
+      "allowed_values": [
+        "supported_policy",
+        "enjoined_policy_partially",
+        "enjoined_policy_fully",
+        "dismissed_challenge"
+      ]
+    },
+    {
+      "name": "challenged_policy_type",
+      "definition": "The specific type of immigration policy or executive action being challenged in the case.",
+      "rationale": "Allows researchers to control for the specific type of policy (e.g., birthright citizenship, Alien Enemies Act, legal representation programs) when comparing voting patterns.",
+      "allowed_values": [
+        "birthright_citizenship_restriction",
+        "alien_enemies_act_removal",
+        "legal_representation_program_termination",
+        "sponsor_documentation_requirements"
+      ]
+    },
+    {
+      "name": "injunction_scope_granted",
+      "definition": "The geographic or party scope of the preliminary injunction or temporary restraining order granted by the judge.",
+      "rationale": "Helps analyze whether judges differ in their willingness to issue sweeping nationwide/universal injunctions versus party-specific relief.",
+      "allowed_values": [
+        "nationwide_universal",
+        "classwide_limited",
+        "party_specific",
+        "none"
+      ]
+    }
+  ],
+  "observation_unit": {
+    "name": "Judge",
+    "definition": "A federal judge"
+  }
+}

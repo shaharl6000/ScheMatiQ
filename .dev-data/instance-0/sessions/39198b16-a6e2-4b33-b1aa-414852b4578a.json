@@ -1,0 +1,417 @@
+{
+  "id": "39198b16-a6e2-4b33-b1aa-414852b4578a",
+  "type": "schematiq",
+  "status": "completed",
+  "metadata": {
+    "source": "ScheMatiQ Query: Do federal judges appointed by different President...",
+    "created": "2026-06-18 18:58:02.399041",
+    "last_modified": "2026-06-18 18:59:35.905894",
+    "file_size": null,
+    "row_count": null,
+    "schema_discovery_completed": true,
+    "total_documents": 4,
+    "processed_documents": 3,
+    "extracted_schema": null,
+    "uploaded_documents": [
+      "Arevalo2025-06-02CDCA.txt",
+      "Angelica2025-06-09DDC.txt",
+      "Amica2025-07-06DDC.txt",
+      "AmericanGateways2025-07-21DDC.txt"
+    ],
+    "processing_stats": {
+      "llm_stats": {
+        "total_calls": 8,
+        "current_cost_usd": 0.13693,
+        "estimated_cost_usd": 0.163092,
+        "estimated_calls": 12
+      }
+    },
+    "original_row_count": null,
+    "additional_rows_added": 0,
+    "cloud_dataset": null,
+    "document_metadata": {
+      "Arevalo2025-06-02CDCA.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "Arevalo2025-06-02CDCA.txt"
+      },
+      "Angelica2025-06-09DDC.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "Angelica2025-06-09DDC.txt"
+      },
+      "Amica2025-07-06DDC.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "Amica2025-07-06DDC.txt"
+      },
+      "AmericanGateways2025-07-21DDC.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "AmericanGateways2025-07-21DDC.txt"
+      },
+      "AmericanGateways2025-07-21DDC": {
+        "url": null
+      },
+      "Amica2025-07-06DDC": {
+        "url": null
+      },
+      "Angelica2025-06-09DDC": {
+        "url": null
+      },
+      "Arevalo2025-06-02CDCA": {
+        "url": null
+      }
+    },
+    "pubmed_link_suppressed_stems": [
+      "AmericanGateways2025-07-21DDC",
+      "Amica2025-07-06DDC",
+      "Angelica2025-06-09DDC",
+      "Arevalo2025-06-02CDCA"
+    ],
+    "pending_observation_unit_rediscovery": false,
+    "observation_unit_rediscovery_run": false
+  },
+  "schema_query": "Do federal judges appointed by different Presidents (Trump vs. other Republican vs. Democratic) differ in their voting tendencies on immigration injunction cases? Do Trump-appointed judges tend to be more supportive of Trump administration immigration policies compared to judges appointed by other Republican or Democratic presidents?\n",
+  "columns": [
+    {
+      "name": "judge_name",
+      "definition": "The full name of the federal judge presiding over the case.",
+      "rationale": "Essential for identifying the specific judge and linking them to their appointing President.",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "John W. Holcomb",
+        "Dabney L. Friedrich",
+        "Randolph D. Moss",
+        "Amir H. Ali"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": null
+    },
+    {
+      "name": "appointing_president",
+      "definition": "The name of the U.S. President who appointed the judge to the federal bench.",
+      "rationale": "Directly addresses the core query comparing Trump-appointed judges with those appointed by other Republican or Democratic presidents.",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "Donald J. Trump",
+        "Barack Obama",
+        "George W. Bush",
+        "Joe Biden"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": null
+    },
+    {
+      "name": "appointing_president_party",
+      "definition": "The political party affiliation of the President who appointed the judge.",
+      "rationale": "Allows grouping and comparison of voting tendencies across broader partisan lines (Republican vs. Democratic).",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "Republican",
+        "Democratic"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": null
+    },
+    {
+      "name": "case_outcome_support_for_administration_policy",
+      "definition": "Indicates whether the judge's ruling supported or upheld the Trump administration's immigration policy or executive action.",
+      "rationale": "Directly answers whether judges are supportive of Trump administration immigration policies.",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "supported",
+        "opposed",
+        "mixed"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": null
+    },
+    {
+      "name": "injunction_ruling_type",
+      "definition": "The court's decision regarding the requested preliminary injunction or temporary restraining order.",
+      "rationale": "Identifies the specific voting tendency on immigration injunction cases.",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "granted",
+        "denied",
+        "granted in part and denied in part"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": null
+    },
+    {
+      "name": "challenged_immigration_policy",
+      "definition": "The specific immigration policy, executive order, or program challenged in the case.",
+      "rationale": "Provides context on what policy was being evaluated (e.g., Alien Enemies Act, sponsor document requirements, National Qualified Representative Program).",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "Alien Enemies Act (Proclamation No. 10903)",
+        "Unaccompanied Children Program Foundational Rule / Sponsor Document Requirements",
+        "Legal Orientation Program (LOP) Termination",
+        "National Qualified Representative Program (NQRP) Rescission"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": null
+    }
+  ],
+  "statistics": {
+    "total_rows": 3,
+    "total_columns": 6,
+    "total_documents": 3,
+    "completeness": 77.77777777777779,
+    "column_stats": [
+      {
+        "name": "judge_name",
+        "definition": "The full name of the federal judge presiding over the case.",
+        "rationale": "Essential for identifying the specific judge and linking them to their appointing President.",
+        "data_type": "object",
+        "non_null_count": 3,
+        "unique_count": 3,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "John W. Holcomb",
+          "Dabney L. Friedrich",
+          "Randolph D. Moss",
+          "Amir H. Ali"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      },
+      {
+        "name": "appointing_president",
+        "definition": "The name of the U.S. President who appointed the judge to the federal bench.",
+        "rationale": "Directly addresses the core query comparing Trump-appointed judges with those appointed by other Republican or Democratic presidents.",
+        "data_type": "object",
+        "non_null_count": 1,
+        "unique_count": 2,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "Donald J. Trump",
+          "Barack Obama",
+          "George W. Bush",
+          "Joe Biden"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      },
+      {
+        "name": "appointing_president_party",
+        "definition": "The political party affiliation of the President who appointed the judge.",
+        "rationale": "Allows grouping and comparison of voting tendencies across broader partisan lines (Republican vs. Democratic).",
+        "data_type": "object",
+        "non_null_count": 1,
+        "unique_count": 2,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "Republican",
+          "Democratic"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      },
+      {
+        "name": "case_outcome_support_for_administration_policy",
+        "definition": "Indicates whether the judge's ruling supported or upheld the Trump administration's immigration policy or executive action.",
+        "rationale": "Directly answers whether judges are supportive of Trump administration immigration policies.",
+        "data_type": "object",
+        "non_null_count": 3,
+        "unique_count": 2,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "supported",
+          "opposed",
+          "mixed"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      },
+      {
+        "name": "injunction_ruling_type",
+        "definition": "The court's decision regarding the requested preliminary injunction or temporary restraining order.",
+        "rationale": "Identifies the specific voting tendency on immigration injunction cases.",
+        "data_type": "object",
+        "non_null_count": 3,
+        "unique_count": 2,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "granted",
+          "denied",
+          "granted in part and denied in part"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      },
+      {
+        "name": "challenged_immigration_policy",
+        "definition": "The specific immigration policy, executive order, or program challenged in the case.",
+        "rationale": "Provides context on what policy was being evaluated (e.g., Alien Enemies Act, sponsor document requirements, National Qualified Representative Program).",
+        "data_type": "object",
+        "non_null_count": 3,
+        "unique_count": 3,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "Alien Enemies Act (Proclamation No. 10903)",
+          "Unaccompanied Children Program Foundational Rule / Sponsor Document Requirements",
+          "Legal Orientation Program (LOP) Termination",
+          "National Qualified Representative Program (NQRP) Rescission"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      }
+    ],
+    "schema_evolution": {
+      "snapshots": [
+        {
+          "iteration": 1,
+          "documents_processed": [
+            "Arevalo2025-06-02CDCA.txt",
+            "Angelica2025-06-09DDC.txt",
+            "Amica2025-07-06DDC.txt",
+            "AmericanGateways2025-07-21DDC.txt"
+          ],
+          "total_columns": 6,
+          "new_columns": [
+            "judge_name",
+            "appointing_president",
+            "appointing_president_party",
+            "case_outcome_support_for_administration_policy",
+            "injunction_ruling_type",
+            "challenged_immigration_policy"
+          ],
+          "cumulative_documents": 4
+        }
+      ],
+      "column_sources": {
+        "judge_name": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "appointing_president": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "appointing_president_party": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "case_outcome_support_for_administration_policy": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "injunction_ruling_type": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt",
+        "challenged_immigration_policy": "Arevalo2025-06-02CDCA.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, AmericanGateways2025-07-21DDC.txt"
+      }
+    },
+    "skipped_documents": [
+      {
+        "document": "Amica2025-07-06DDC",
+        "reason": "The document is a legal memorandum opinion regarding a specific administrative law case (Amica Center for Immigrant Rights v. U.S. Department of Justice). It does not contain any analysis, data, or evaluation of federal judges' voting tendencies based on their appointing President, nor does it address the query's research question."
+      }
+    ]
+  },
+  "error_message": null,
+  "schema_suggestions": null,
+  "schema_baseline": {
+    "columns": {
+      "judge_name": {
+        "name": "judge_name",
+        "definition": "The full name of the federal judge presiding over the case.",
+        "rationale": "Essential for identifying the specific judge and linking them to their appointing President.",
+        "allowed_values": [
+          "John W. Holcomb",
+          "Dabney L. Friedrich",
+          "Randolph D. Moss",
+          "Amir H. Ali"
+        ],
+        "checksum": "be874224141d6351b164306aec88f15a"
+      },
+      "appointing_president": {
+        "name": "appointing_president",
+        "definition": "The name of the U.S. President who appointed the judge to the federal bench.",
+        "rationale": "Directly addresses the core query comparing Trump-appointed judges with those appointed by other Republican or Democratic presidents.",
+        "allowed_values": [
+          "Donald J. Trump",
+          "Barack Obama",
+          "George W. Bush",
+          "Joe Biden"
+        ],
+        "checksum": "d87d59ac0edaa515b1294b6176764816"
+      },
+      "appointing_president_party": {
+        "name": "appointing_president_party",
+        "definition": "The political party affiliation of the President who appointed the judge.",
+        "rationale": "Allows grouping and comparison of voting tendencies across broader partisan lines (Republican vs. Democratic).",
+        "allowed_values": [
+          "Republican",
+          "Democratic"
+        ],
+        "checksum": "75af55840cc8e721fc612cfd79b248a9"
+      },
+      "case_outcome_support_for_administration_policy": {
+        "name": "case_outcome_support_for_administration_policy",
+        "definition": "Indicates whether the judge's ruling supported or upheld the Trump administration's immigration policy or executive action.",
+        "rationale": "Directly answers whether judges are supportive of Trump administration immigration policies.",
+        "allowed_values": [
+          "supported",
+          "opposed",
+          "mixed"
+        ],
+        "checksum": "7aa8526647cede50c25489acf79236e2"
+      },
+      "injunction_ruling_type": {
+        "name": "injunction_ruling_type",
+        "definition": "The court's decision regarding the requested preliminary injunction or temporary restraining order.",
+        "rationale": "Identifies the specific voting tendency on immigration injunction cases.",
+        "allowed_values": [
+          "granted",
+          "denied",
+          "granted in part and denied in part"
+        ],
+        "checksum": "2fa24b1053786a4cf1f444f834d00485"
+      },
+      "challenged_immigration_policy": {
+        "name": "challenged_immigration_policy",
+        "definition": "The specific immigration policy, executive order, or program challenged in the case.",
+        "rationale": "Provides context on what policy was being evaluated (e.g., Alien Enemies Act, sponsor document requirements, National Qualified Representative Program).",
+        "allowed_values": [
+          "Alien Enemies Act (Proclamation No. 10903)",
+          "Unaccompanied Children Program Foundational Rule / Sponsor Document Requirements",
+          "Legal Orientation Program (LOP) Termination",
+          "National Qualified Representative Program (NQRP) Rescission"
+        ],
+        "checksum": "566a2c527b12030e962647f513c9843e"
+      }
+    },
+    "captured_at": "2026-06-18 18:59:35.891434"
+  },
+  "creation_metadata": null,
+  "modification_history": [],
+  "observation_unit": {
+    "name": "Judge",
+    "definition": "An individual federal judge",
+    "example_names": null,
+    "source_document": null,
+    "discovery_iteration": null
+  },
+  "opt_out_data_collection": false,
+  "write_artifacts": false
+}

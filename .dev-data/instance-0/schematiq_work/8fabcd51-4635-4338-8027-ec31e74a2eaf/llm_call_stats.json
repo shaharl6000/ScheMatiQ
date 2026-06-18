@@ -1,0 +1,46 @@
+{
+  "total_calls": 5,
+  "per_stage": {
+    "observation_unit_discovery": 1,
+    "schema_discovery": 2,
+    "value_extraction": 2
+  },
+  "log_length": 5,
+  "log": [
+    {
+      "timestamp": 1781789858.387511,
+      "stage": "observation_unit_discovery",
+      "model": "gemini-3.5-flash",
+      "prompt_length": 86467,
+      "completion_length": 317
+    },
+    {
+      "timestamp": 1781789865.614263,
+      "stage": "schema_discovery",
+      "model": "gemini-3.5-flash",
+      "prompt_length": 87969,
+      "completion_length": 48
+    },
+    {
+      "timestamp": 1781789871.685577,
+      "stage": "schema_discovery",
+      "model": "gemini-3.5-flash",
+      "prompt_length": 62047,
+      "completion_length": 2999
+    },
+    {
+      "timestamp": 1781789875.341362,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 66715,
+      "completion_length": 367
+    },
+    {
+      "timestamp": 1781789878.5131361,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 92637,
+      "completion_length": 518
+    }
+  ]
+}

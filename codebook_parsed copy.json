@@ -1,0 +1,964 @@
+[
+  {
+    "Number": 1,
+    "Name": "CaseId",
+    "Structure": "Text variable [XXX/YY]",
+    "Definition": "A unique case docket number as labeled by the Israeli Supreme Court [ISC], in the form of a serial number, dash and year of case opening. In each year, the numbering is calibrated to start at 1.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 2,
+    "Name": "ISCD_ID",
+    "Structure": "Numerical variable [XXXXXXX.XX]",
+    "Definition": "A unique internal identiﬁcation number assigned by the Israeli Supreme Court Database [ISCD] team to each case. The first two numbers (the millionth and hundred thousandth) indicate the year of case opening and the remainder digits represent the serial number identical to that of the CaseId. * In the justice-centered data a decimal is added, and the number following it indicates the deciding justice placement within the court panel - “.01” for the head of the panel, “.02” for the second justice in the panel, etc.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 3,
+    "Name": "Casename",
+    "Structure": "Text variable in Hebrew [party a versus party y]",
+    "Definition": "The names of the first listed petitioner/appellant and the first listed respondent/appellee.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 4,
+    "Name": "CaseCitation",
+    "Structure": "Text variable in Hebrew [procedure classification XXX/YY party a versus party y]",
+    "Definition": "The citation to the case from the official court website, containing the case legal procedure classification, docket number, year of case opening and names of the first petitioner/appellant and respondent/appellee.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 5,
+    "Name": "URL",
+    "Structure": "Text variable [URL link]",
+    "Definition": "The Uniform Resource Locator (URL) link to the published final court decision in the case, as published in the ISC website.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 6,
+    "Name": "Merged",
+    "Structure": "Numerical variable [XX]",
+    "Definition": "The supreme court has the power to consolidate different petitions or appeals that raise the same legal or factual cases.  This variable is counter indicating whether the ISC consolidated the coded case with other cases, and how many cases were consolidated together. Note that the variable has no entry when the case was not merged or combined with other cases.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 7,
+    "Name": "Merged_first",
+    "Structure": "Text variable [XXX/YY]",
+    "Definition": "The CaseId of the first listed case in a cluster of relevant merged cases by the ISC. The variable has no entry when the case was not merged or combined with other cases.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 8,
+    "Name": "Petitioner1",
+    "Structure": "Text variable in Hebrew [name]",
+    "Definition": "The name of the first petitioner or appellant listed. In cases where the party is an individual, the name consists of the first (given) and last names. For companies, ministries and other parties, the name appears as written by the petitioner filing the case.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 9,
+    "Name": "Petitioner2",
+    "Structure": "Text variable in Hebrew [name]",
+    "Definition": "The name of the second petitioner or appellant listed. In cases where the party is an individual, the name consists of the first (given) and last names. For companies, ministries and other parties, the name appears as written by the petitioner filing the case. This field has no entry if there is only one petitioner (NPetitioners = 1); the name must be distinct from Petitioner1.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 10,
+    "Name": "Petitioner3",
+    "Structure": "Text variable in Hebrew [name]",
+    "Definition": "The name of the third petitioner or appellant listed. In cases where the party is an individual, the name consists of the first (given) and last names. For companies, ministries and other parties, the name appears as written by the petitioner filing the case. This field has no entry if there are fewer than three petitioners (NPetitioners < 3); the name must be distinct from Petitioner1 and Petitioner2.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 11,
+    "Name": "PetitionerType1",
+    "Structure": "Nominal variable [type]",
+    "Definition": "The variable classifying the first petitioner or appellant based on the parties’ names to the fallowing types and variable values: Business – including a registered company, corporation, banks, insurance companies, etc. Government – all state and governmental agencies, including government ministries and ministers, the social security office, state prosecutors, the parliament, prison authority, the police and the state comptroller. Individual - private litigants, not belonging to any other classification. Judiciary - all court and judicial tribunals active in Israel. Military – including the army, military officers, the head of the civil administration in the territories, secret security forces (the Mossad and Shabak), etc. Municipal – including municipalities, local councils, and mayors. NGO – non-governmental organizations including non-profit organizations and partly funded public organizations, such as universities or political parties.",
+    "Allowed_Values": [
+      "Business",
+      "Government",
+      "Individual",
+      "Judiciary",
+      "Military",
+      "Municipal",
+      "NGO"
+    ]
+  },
+  {
+    "Number": 12,
+    "Name": "PetitionerType2",
+    "Structure": "Nominal variable [type]",
+    "Definition": "The variable classifying the second petitioner or appellant. See PetitionerType1 for the full type definitions. This field has no entry if there is no Petitioner2.",
+    "Allowed_Values": [
+      "Business",
+      "Government",
+      "Individual",
+      "Judiciary",
+      "Military",
+      "Municipal",
+      "NGO"
+    ]
+  },
+  {
+    "Number": 13,
+    "Name": "PetitionerType3",
+    "Structure": "Nominal variable [type]",
+    "Definition": "The variable classifying the third petitioner or appellant. See PetitionerType1 for the full type definitions. This field has no entry if there is no Petitioner3.",
+    "Allowed_Values": [
+      "Business",
+      "Government",
+      "Individual",
+      "Judiciary",
+      "Military",
+      "Municipal",
+      "NGO"
+    ]
+  },
+  {
+    "Number": 14,
+    "Name": "LawyerP1",
+    "Structure": "Text variable in Hebrew [last name, first name]",
+    "Definition": "The name of the lawyer representing the first petitioner or appellant listed. This includes the first and last name of the first legal representative listed by the parties without identification of the relevant law firm. Second-chair lawyers are coded also, separated by commas from the head lawyer, only if they reported their names to the court secretariat during the initial filing stages. In some cases with state attorneys, usually when a specific attorney was not assigned to the case during the initial filing stages, instead of specifying the lawyer's name, this variable notes that a lawyer from the State Attorney’s Office is representing the case (\"פרקליטות המדינה\").",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 15,
+    "Name": "LawyerP2",
+    "Structure": "Text variable in Hebrew [last name, first name]",
+    "Definition": "The name of the lawyer representing the second petitioner or appellant listed. This includes the first and last name of the first legal representative listed by the parties without identification of the relevant law firm. Second-chair lawyers are coded also, separated by commas from the head lawyer, only if they reported their names to the court secretariat during the initial filing stages. In some cases with state attorneys (usually when a specific attorney was not assigned to the case during the initial filing stages), instead of specifying the lawyer's name, this variable notes that a lawyer from the State Attorney’s Office is representing the case (\"פרקליטות המדינה\"). This field has no entry if there is no Petitioner2, or if the second petitioner shares the same lawyer as Petitioner1 (do not repeat the same name already listed in LawyerP1).",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 16,
+    "Name": "LawyerP3",
+    "Structure": "Text variable in Hebrew [last name, first name]",
+    "Definition": "The name of the lawyer representing the third petitioner or appellant listed. This includes the first and last name of the first legal representative listed by the parties without identification of the relevant law firm. Second-chair lawyers are coded also, separated by commas from the head lawyer, only if they reported their names to the court secretariat during the initial filing stages. In some cases with represented by state attorneys (usually when a specific attorney was not assigned to the case during the initial filing stages), instead of specifying the lawyer's name, this variable notes that a lawyer from the State Attorney’s Office is representing the case (\"פרקליטות המדינה\"). This field has no entry if there is no Petitioner3, or if the third petitioner shares the same lawyer already listed in LawyerP1 or LawyerP2 (do not repeat names already used).",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 17,
+    "Name": "Respondent1",
+    "Structure": "Text variable in Hebrew [name]",
+    "Definition": "The name of the first respondent or appellee listed. In cases where the party is an individual, the name consists of the first (given) and last names. For companies, ministries and other parties, the name appears as written by the petitioner filing the case.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 18,
+    "Name": "Respondent2",
+    "Structure": "Text variable in Hebrew [name]",
+    "Definition": "The name of the second respondent or appellee listed. In cases where the party is an individual, the name consists of the first (given) and last names. For companies, ministries and other parties, the name appears as written by the petitioner filing the case. This field has no entry if there is only one respondent (NRespondents = 1); the name must be distinct from Respondent1.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 19,
+    "Name": "Respondent3",
+    "Structure": "Text variable in Hebrew [name]",
+    "Definition": "The name of the third respondent or appellee listed. In cases where the party is an individual, the name consists of the first (given) and last names. For companies, ministries and other parties, the name appears written by the petitioner filing the case. This field has no entry if there are fewer than three respondents (NRespondents < 3); the name must be distinct from Respondent1 and Respondent2.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 20,
+    "Name": "RespondentType1",
+    "Structure": "Nominal variable [type]",
+    "Definition": "The variable classifying the first respondent or appellee based on the parties’ names to the fallowing types and variable values: Business – including a registered company, corporation, banks, insurance companies, etc. Government – all state and governmental agencies, including government ministries and ministers, the social security office, state prosecutors, the parliament, prison authority, the police and the state comptroller. Individual - private litigants, not belonging to any other classification. Judiciary - all court and judicial tribunals active in Israel. Military – including the army, military officers, the head of the civil administration in the territories, secret security forces (the Mossad and Shabak), etc. Municipal – including municipalities, local councils, and mayors. NGO – non-governmental organizations including non-profit organizations and partly funded public organizations, such as universities or political parties.",
+    "Allowed_Values": [
+      "Business",
+      "Government",
+      "Individual",
+      "Judiciary",
+      "Military",
+      "Municipal",
+      "NGO"
+    ]
+  },
+  {
+    "Number": 21,
+    "Name": "RespondentType2",
+    "Structure": "Nominal variable [type]",
+    "Definition": "The variable classifying the second respondent or appellee. See RespondentType1 for the full type definitions. This field has no entry if there is no Respondent2.",
+    "Allowed_Values": [
+      "Business",
+      "Government",
+      "Individual",
+      "Judiciary",
+      "Military",
+      "Municipal",
+      "NGO"
+    ]
+  },
+  {
+    "Number": 22,
+    "Name": "RespondentType3",
+    "Structure": "Nominal variable [type]",
+    "Definition": "The variable classifying the third respondent or appellee. See RespondentType1 for the full type definitions. This field has no entry if there is no Respondent3.",
+    "Allowed_Values": [
+      "Business",
+      "Government",
+      "Individual",
+      "Judiciary",
+      "Military",
+      "Municipal",
+      "NGO"
+    ]
+  },
+  {
+    "Number": 23,
+    "Name": "LawyerR1",
+    "Structure": "Text variable in Hebrew [last name, first name]",
+    "Definition": "The name of the lawyer representing the first respondent or appellee listed. This includes the first and last name of the first legal representative listed by the parties without identification of the relevant law firm. Second-chair lawyers are coded also, separated by commas from the head lawyer, only if they reported their names to the court secretariat during the initial filing stages. In some cases with state attorneys (usually when a specific attorney was not assigned to the case during the initial filing stages), instead of specifying the lawyer's name, this variable notes that a lawyer from the State Attorney’s Office is representing the case (\"פרקליטות המדינה\").",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 24,
+    "Name": "LawyerR2",
+    "Structure": "Text variable in Hebrew [last name, first name]",
+    "Definition": "The name of the lawyer representing the second respondent or appellee listed. This includes the first and last name of the first legal representative listed by the parties without identification of the relevant law firm. Second-chair lawyers are coded also, separated by commas from the head lawyer, only if they reported their names to the court secretariat during the initial filing stages. In some cases with state attorneys (usually when a specific attorney was not assigned to the case during the initial filing stages), instead of specifying the lawyer's name, this variable notes that a lawyer from the State Attorney’s Office is representing the case (\"פרקליטות המדינה\"). This field has no entry if there is no Respondent2, or if the second respondent shares the same lawyer as Respondent1 (do not repeat the same name already listed in LawyerR1).",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 25,
+    "Name": "LawyerR3",
+    "Structure": "Text variable in Hebrew [last name, first name]",
+    "Definition": "The name of the lawyer representing the third respondent or appellee listed. This includes the first and last name of the first legal representative listed by the parties without identification of the relevant law firm. Second-chair lawyers are coded also, separated by commas from the head lawyer, only if they reported their names to the court secretariat during the initial filing stages. In some cases with state attorneys (usually when a specific attorney was not assigned to the case during the initial filing stages), instead of specifying the lawyer's name, this variable notes that a lawyer from the State Attorney’s Office is representing the case (\"פרקליטות המדינה\"). This field has no entry if there is no Respondent3, or if the third respondent shares the same lawyer already listed in LawyerR1 or LawyerR2 (do not repeat names already used).",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 26,
+    "Name": "NPetitioners",
+    "Structure": "Numeric variable [xx]",
+    "Definition": "A counter for the number of petitioners or appellants submitting the case to the ISC.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 27,
+    "Name": "NRespondents",
+    "Structure": "Numeric variable [xx]",
+    "Definition": "A counter for the number of respondents or appellees.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 28,
+    "Name": "CourtSourceInstance",
+    "Structure": "Nominal variable [court name]",
+    "Definition": "The name of the court whose decision the ISC is reviewing. The Israeli judiciary is divided into two main systems: the general law courts and specialized tribunals. The general courts enjoy residual general jurisdiction in civil and criminal matters, according to a hierarchical structure: magistrate’s courts serve as basic first instance trial courts, district courts are the middle level courts and the Israeli Supreme Court functions as the highest court of appeal for contesting a lower court’s judgment. In administrative matters, the ISC holds residual jurisdiction to hear petitions against governmental authorities while sitting as the High Court of Justice [HCJ] (Bagatz), as first and last instance. However, the Administrative Affairs Courts Act of 2000 gradually transferred first instance jurisdiction in specific administrative types of disputes from the HCJ to the district courts, sitting as administrative affairs courts. Several district courts also hold specific jurisdiction as standard contracts courts, antitrust tribunals or admiralty courts. Specialized tribunals include a wide variety of authorities with judicial powers, most commonly labor courts (adjudicating labor-related disputes), religious courts (deciding, inter alia, in matters of personal status) and military tribunals. Judgements of the specialized tribunals may be petitioned or appealed under different legal circumstances to the ISC, most commonly when it sits as the HCJ. The ISC thus wears two hats: First, as the highest court of appeal, it hears appeals as of right on judgments rendered in the district courts and applications for leave to appeal against judgments rendered on appeal from cases decided first in the magistrate’s courts. Second, it sits as the HCJ, hearing administrative and constitutional petitions at first instance, as well as petitions against prior rulings of the specialized tribunals. This variable classifies the court whose decision the ISC is reviewing according to the foll",
+    "Allowed_Values": [
+      "District court - General",
+      "District court - Administrative",
+      "Magistrate’s court",
+      "Labor court",
+      "Military tribunal",
+      "Religious court",
+      "Antitrust tribunal",
+      "Standard Contracts Court",
+      "Admiralty Court"
+    ]
+  },
+  {
+    "Number": 29,
+    "Name": "CourtISourceDistrict",
+    "Structure": "Nominal variable [geographic location]",
+    "Definition": "The name of the geographic district of the court whose decision the ISC is reviewing. A missing value is registered in all HCJ cases as the ISC is generally the first (and last) judicial instance hearing these cases (see in CourtSourceInstance). Additionally, we note that HCJ petitions against specialized tribunals are mostly filed against a national level (appeal level) tribunal, rather than geographical relevant court.",
+    "Allowed_Values": [
+      "Jerusalem",
+      "Tel Aviv",
+      "Central",
+      "Haifa",
+      "Beersheba",
+      "Nazareth"
+    ]
+  },
+  {
+    "Number": 30,
+    "Name": "NumCaseSource",
+    "Structure": "Text variable [procedure classification XXXXX/MM/YY]",
+    "Definition": "A unique docket number for the original case the ISC is reviewing. The labeling is standardized by the Israeli judiciary and comprises a procedural classification, serial number, dash and the month and year of case opening in the lower court instance. In older cases, opened at the court of origin prior to 2009, the labeling could also appear in one of the following formats: XXXXXX/YY or 00-XXXXXX/YY. This variable has no entry for HCJ cases (see explanation in CourtSourceInstance).",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 31,
+    "Name": "DateCaseSource",
+    "Structure": "Date variable [DD/MM/YYYY]",
+    "Definition": "The day, month and year of the final decision by the lower court in the case the ISC is reviewing. This variable has no entry for HCJ cases (see explanation in CourtSourceInstance).",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 32,
+    "Name": "DateOpen",
+    "Structure": "Date variable [DD/MM/YYYY]",
+    "Definition": "The day, month and year of the case filing in the ISC.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 33,
+    "Name": "DateFinalDecision",
+    "Structure": "Date variable [DD/MM/YYYY]",
+    "Definition": "The day, month and year of the final closing decision rendered in the case. This variable has no entry for open cases in which a final decision has not yet been rendered.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 34,
+    "Name": "NumHearings",
+    "Structure": "Numeric Variable [xx]",
+    "Definition": "A counter for the number of oral arguments before the court.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 35,
+    "Name": "DateFArgument",
+    "Structure": "Date variable [DD/MM/YYYY]",
+    "Definition": "The day, month and year when the case was first orally argued before the court. This variable has no entry for cases that were not orally argued.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 36,
+    "Name": "DateLArgument",
+    "Structure": "Date variable [DD/MM/YYYY]",
+    "Definition": "The day, month and year of the last and final oral argument, before a final decision was rendered. This variable has no entry for cases that were not orally argued or in open cases.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 37,
+    "Name": "LIssue",
+    "Structure": "Nominal variable [general legal procedure]",
+    "Definition": "The legal issue or general procedure type according to the broad administrative classification of legal departments in the ISC. According to this classification, all HCJ cases, as well as Administrative appeals, Election Appeals and Approvals are classified broadly as “Administrative Law”.",
+    "Allowed_Values": [
+      "Civil law",
+      "Criminal law",
+      "Administrative law"
+    ]
+  },
+  {
+    "Number": 38,
+    "Name": "LegalProcedure",
+    "Structure": "Nominal variable [specific legal procedure]",
+    "Definition": "The specific legal procedure of the case according to the classification made by the petitioner or appellant when filing the case.",
+    "Allowed_Values": [
+      "Criminal appeal",
+      "Civil appeal",
+      "Administrative appeal",
+      "High Court of Justice",
+      "Election approval",
+      "Election appeal",
+      "Civil further hearing",
+      "Criminal further hearing",
+      "Administrative further hearing",
+      "High Court of Justice further hearing",
+      "Criminal retrial"
+    ]
+  },
+  {
+    "Number": 39,
+    "Name": "LegalProcedureHebrew",
+    "Structure": "Nominal variable in Hebrew [specific legal procedure]",
+    "Definition": "The legal procedure (see LegalProcedure) of the case in Hebrew acronym.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 40,
+    "Name": "LIssueArea",
+    "Structure": "Nominal variable [specific legal domain]",
+    "Definition": "A more refined distinction of the legal domain, according to type of legal procedure of the lower court case whose decision the ISC is reviewing. In many cases, the type of legal procedure in the lower court provides a better definition of the legal issue area. Examples are in bankruptcy cases, class actions, tenders or tax law. This variable has no entry for HCJ cases (see explanation in CourtSourceInstance). The classification of type of legal procedures in lower court instances of the Israeli judiciary can be found here: http://elyon1.court.gov.il/heb/netminfo/doc/list_t.pdf.",
+    "Allowed_Values": [
+      "Administrative petition",
+      "Antitrust",
+      "Bankruptcy",
+      "Civil appeal",
+      "Civil case – regular",
+      "Civil – intermediate request",
+      "Civil Short Track",
+      "Class action",
+      "Criminal – regular",
+      "Criminal extradition",
+      "Criminal – bankruptcy",
+      "Derivative action",
+      "Firm liquidation",
+      "Income tax",
+      "Originating motion",
+      "Other civil appeal",
+      "Severe crime case",
+      "Tax",
+      "Tax tribunal appeal",
+      "Tenders"
+    ]
+  },
+  {
+    "Number": 41,
+    "Name": "LIssueAreaHebrew",
+    "Structure": "Nominal variable in Hebrew [specific legal domain]",
+    "Definition": "The legal domain, according to type of legal procedure of the lower court case being reviewed (see LIssueArea), in Hebrew acronym, in the original form the acronym was updated by the court secretariat. This variable has no entry for HCJ cases (see explanation in CourtSourceInstance).",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 42,
+    "Name": "IssueCourt-1",
+    "Structure": "Nominal variable [issue]",
+    "Definition": "A detailed classification of the most important legal subject matter or issue of the controversy discussed in the case. As most cases have more than one main legal subject matter, the second is identified and classified in the issueCourt2 variable. Due to the inherent difficulty in identifying subject matter, issueCourt1 and issueCourt2 were not automatically coded, but hand coded by law students (see a detailed description of the coding method in the introductory section). The criteria for the identiﬁcation of issues are hard to articulate and rest mainly on the law students’ understanding of the case, after carefully reading the ISC’s decision. * The main legal subject matter/issue of controversy may itself be contested among the justices on a panel. Therefore, a corresponding variable specifying the two most important legal issues discussed in each individual justice’s published opinion appear in the justice-centered dataset, labeled as “Issue-1”and “Issue-2.”",
+    "Allowed_Values": [
+      "Criminal law - Traffic",
+      "Criminal law - White-collar crimes",
+      "Criminal law - Security offenses",
+      "Criminal law - Violent offenses",
+      "Criminal law - Sex offenses",
+      "Criminal law - Corruption offenses",
+      "Criminal law - Prisoner's petitions",
+      "Criminal law - Criminal arrests",
+      "Criminal law - Criminal procedure and evidence",
+      "Criminal law - Appeal on sentence",
+      "Criminal law - Drugs",
+      "Criminal law - Criminal law – other",
+      "Civil law - Contracts",
+      "Civil law - Torts",
+      "Civil law - Land",
+      "Civil law - Fiscal and tax",
+      "Civil law - Corporate and commercial law",
+      "Civil law - Equity and trusts",
+      "Civil law - Property law",
+      "Civil law - Intellectual property",
+      "Civil law - Bankruptcy",
+      "Civil law - Civil procedure and evidence",
+      "Civil law - Civil law – other",
+      "Family law - Wills and succession law",
+      "Family law - Custody and guardianship",
+      "Family law - Alimony and assets",
+      "Family law - Family law – other",
+      "Jewish law - Rabbinical courts",
+      "Jewish law - Other religious courts",
+      "Jewish law - Jewish law – other",
+      "Social security, health insurance, pension",
+      "Labor and employment",
+      "International law",
+      "National security, military and the territories",
+      "Administrative law and regulation - Tenders",
+      "Administrative law and regulation - Licenses and permits, including planning and construction",
+      "Administrative law and regulation - Media",
+      "Administrative law and regulation - Commercial and economic regulation",
+      "Administrative law and regulation - Municipalities",
+      "Administrative law and regulation - Environmental",
+      "Administrative law and regulation - Education",
+      "Administrative law and regulation - Citizenship",
+      "Administrative law and regulation - Administrative law – other",
+      "Constitutional law - Election law",
+      "Constitutional law - Religion and state",
+      "Constitutional law - Separation of powers and judicial power",
+      "Constitutional law - Human rights - Dignity",
+      "Constitutional law - Human rights - Minimal conditions for existence in dignity",
+      "Constitutional law - Human rights - Right to health",
+      "Constitutional law - Human rights - Right to life",
+      "Constitutional law - Human rights - Equality/discrimination",
+      "Constitutional law - Human rights - Property",
+      "Constitutional law - Human rights - Access to courts",
+      "Constitutional law - Human rights - Due process",
+      "Constitutional law - Human rights - Freedom of association",
+      "Constitutional law - Human rights - Freedom of movement",
+      "Constitutional law - Human rights - Freedom of occupation",
+      "Constitutional law - Human rights - Freedom of speech",
+      "Constitutional law - Human rights - Liberty",
+      "Constitutional law - Human rights - Autonomy",
+      "Constitutional law - Human rights - Right to family life",
+      "Constitutional law - Human rights - Education",
+      "Constitutional law - Human rights - Freedom of religion (includes freedom from religion)",
+      "Constitutional law - Human rights - Privacy",
+      "Constitutional law - Human rights - Interest",
+      "Constitutional law - Human rights - The right to elect and to be elected",
+      "Constitutional law - Human rights - The right to a nationality",
+      "Constitutional law - Constitutional law – other"
+    ]
+  },
+  {
+    "Number": 43,
+    "Name": "IssueCourt-2",
+    "Structure": "Nominal variable [issue]",
+    "Definition": "See in IssueCourt1.",
+    "Allowed_Values": [
+      "Criminal law - Traffic",
+      "Criminal law - White-collar crimes",
+      "Criminal law - Security offenses",
+      "Criminal law - Violent offenses",
+      "Criminal law - Sex offenses",
+      "Criminal law - Corruption offenses",
+      "Criminal law - Prisoner's petitions",
+      "Criminal law - Criminal arrests",
+      "Criminal law - Criminal procedure and evidence",
+      "Criminal law - Appeal on sentence",
+      "Criminal law - Drugs",
+      "Criminal law - Criminal law – other",
+      "Civil law - Contracts",
+      "Civil law - Torts",
+      "Civil law - Land",
+      "Civil law - Fiscal and tax",
+      "Civil law - Corporate and commercial law",
+      "Civil law - Equity and trusts",
+      "Civil law - Property law",
+      "Civil law - Intellectual property",
+      "Civil law - Bankruptcy",
+      "Civil law - Civil procedure and evidence",
+      "Civil law - Civil law – other",
+      "Family law - Wills and succession law",
+      "Family law - Custody and guardianship",
+      "Family law - Alimony and assets",
+      "Family law - Family law – other",
+      "Jewish law - Rabbinical courts",
+      "Jewish law - Other religious courts",
+      "Jewish law - Jewish law – other",
+      "Social security, health insurance, pension",
+      "Labor and employment",
+      "International law",
+      "National security, military and the territories",
+      "Administrative law and regulation - Tenders",
+      "Administrative law and regulation - Licenses and permits, including planning and construction",
+      "Administrative law and regulation - Media",
+      "Administrative law and regulation - Commercial and economic regulation",
+      "Administrative law and regulation - Municipalities",
+      "Administrative law and regulation - Environmental",
+      "Administrative law and regulation - Education",
+      "Administrative law and regulation - Citizenship",
+      "Administrative law and regulation - Administrative law – other",
+      "Constitutional law - Election law",
+      "Constitutional law - Religion and state",
+      "Constitutional law - Separation of powers and judicial power",
+      "Constitutional law - Human rights - Dignity",
+      "Constitutional law - Human rights - Minimal conditions for existence in dignity",
+      "Constitutional law - Human rights - Right to health",
+      "Constitutional law - Human rights - Right to life",
+      "Constitutional law - Human rights - Equality/discrimination",
+      "Constitutional law - Human rights - Property",
+      "Constitutional law - Human rights - Access to courts",
+      "Constitutional law - Human rights - Due process",
+      "Constitutional law - Human rights - Freedom of association",
+      "Constitutional law - Human rights - Freedom of movement",
+      "Constitutional law - Human rights - Freedom of occupation",
+      "Constitutional law - Human rights - Freedom of speech",
+      "Constitutional law - Human rights - Liberty",
+      "Constitutional law - Human rights - Autonomy",
+      "Constitutional law - Human rights - Right to family life",
+      "Constitutional law - Human rights - Education",
+      "Constitutional law - Human rights - Freedom of religion (includes freedom from religion)",
+      "Constitutional law - Human rights - Privacy",
+      "Constitutional law - Human rights - Interest",
+      "Constitutional law - Human rights - The right to elect and to be elected",
+      "Constitutional law - Human rights - The right to a nationality",
+      "Constitutional law - Constitutional law – other"
+    ]
+  },
+  {
+    "Number": 44,
+    "Name": "DispositionCourt",
+    "Structure": "Nominal variable [disposition]",
+    "Definition": "The manner of the case disposition according to the final court decision that closed the case. A judgment on the merits value is coded in cases closed by reasoned judicial decisions, including cases dismissed, denied or erased in limine due to lack of standing or want of jurisdiction (see further classifications for these cases in the outcomeCourt variable). Cases that were closed with no reasoned decision are classified into five groups. The first two indicate cases in which the petitioner or appellant requested to withdrawal or erase their case filing. In a large share of these cases, the petitioner/appellant request is stimulated by judicial involvement during the court hearings, hinting to the petitioners/appellants that they have almost no chance of winning, and might avoid or reduce trial costs by withdrawing their case. In cases where it was clear according to the court’s decision that the justices had recommended the withdrawal request, the dispositionCourt variable is coded as “Withdrawal – recommended by judges.” Other cases of withdrawals are coded as “Withdrawal – unknown reason.” Please note that judicial encouragement of a withdrawal might have occurred in these cases too. Another possibility is that a withdrawal was requested after the petition become redundant, perhaps due to the parties’ change in behavior or any other unknown reason. Two other values indicate case closed by a settlement – whether a settlement officially approved and sometimes suggested and negotiated by the ISC (“Court-approved settlement”), or an out-of-court settlement (“Out-of-court settlement”). The final value (“Other”) is rare and refers to cases erased due to an administrative error, unpaid court fees, etc. This variable has no entry for open cases in which a final decision has not yet been rendered. Due to the varied form of the court’s final decisions and the lack of a structured paragraph or standardized phrasing of votes and outcomes, this variable was not automated, but",
+    "Allowed_Values": [
+      "Judgment on the merits",
+      "Withdrawal – recommended by judges",
+      "Withdrawal – unknown reason",
+      "Court-approved settlement",
+      "Out-of-court settlement",
+      "Other – statistical closing; court fees unpaid, failure to appear in court, etc."
+    ]
+  },
+  {
+    "Number": 45,
+    "Name": "OutcomeCourt",
+    "Structure": "Nominal variable [outcome]",
+    "Definition": "The legal disposition and outcome of the ISC final decision, classified into seven categories. Cases are coded as “Rejected\" when the reviewed decision of the lower court/state is fully afﬁrmed and \"Accepted\" if the reviewed decision is fully reversed or vacated. ISC decisions that only partly affirm the reviewed decision, while partly reversing/vacating or remanding it, are coded as \"Partly accepted.\" ISC decisions to return a case to a lower court for reconsideration are classified as \"Remand.\" Cases dismissed, denied or erased in limine due to lack of standing, want of jurisdiction, etc. are classified as \"Dismissed.\" All cases closed by manner of withdrawal or settlement, with or without court engagement or approval (see in DispositionCourt), are coded as \"No court disposition.\" Finally, \"Unusual disposition\" is coded in very rare cases, where no other form of legal disposition is relevant. This variable has no entry for open cases in which a final decision has not yet been rendered. Due to the varied form of the court’s final decisions and the lack of a structured paragraph or standardized phrasing of votes and outcomes, this variable was not automatically coded, but hand coded by ten law students (see a detailed description of the coding method in the introductory section). * A corresponding variable for each individual justice vote for the legal disposition and outcome appears in the justice-centered dataset, labeled as “Outcome.”",
+    "Allowed_Values": [
+      "Rejected",
+      "Accepted",
+      "Partly accepted",
+      "Remand",
+      "Dismissed",
+      "No court disposition",
+      "Unusual disposition"
+    ]
+  },
+  {
+    "Number": 46,
+    "Name": "WinnerCourt",
+    "Structure": "Nominal variable [winner]",
+    "Definition": "This variable indicates whether the petitioner or appellant emerged victorious. The \"Petitioner\" was classified as the winner in cases of total and complete victory, almost always in cases in which the reviewed decision is fully reversed or vacated by the ISC (OutcomeCourt= \"Accepted\"). The \"Respondent\" was classified as the winner in cases fully afﬁrmed or dismissed (OutcomeCourt= \"Rejected\" or \"Dismissed\"). Many cases disposed by manner of withdrawal due to judicial involvement were also coded as cases won by the \"Respondent,\" but only if it was clear that the petitioner or appellant did not receive any remedy during the judicial proceeding. If the ISC decision only partly affirmed the reviewed decision (OutcomeCourt= \"Partly accepted\") or returned the case to a lower court for reconsideration (OutcomeCourt= \"Remand\"), the winner was coded as \"Both,\" meaning the plaintiff/appellant won the case in part. Note, however, that the degree of victory is unknown. In other cases, such as settlements, where the coders could read that the plaintiff/appellant achieved part, but not all, of their requested remedy, the winner was also coded as \"Both.\" An \"unknown\" value was mostly coded in cases of withdrawal due to unknown reason. This variable has no entry for open cases in which a final decision has not yet been rendered. Due to the varied form of the court’s final decisions and the lack of a structured paragraph or standardized phrasing of votes and outcomes, this variable was not automatically coded, but hand coded by ten law students (see a detailed description of the coding method in the introductory section). * A corresponding variable for each individual justice’s vote for the winning party appears in the justice-centered dataset, labeled as “Winner.”",
+    "Allowed_Values": [
+      "Petitioner",
+      "Respondent",
+      "Both",
+      "Unknown"
+    ]
+  },
+  {
+    "Number": 47,
+    "Name": "Nwords",
+    "Structure": "Numerical variable [XXXXX]",
+    "Definition": "A counter for the number of words in the final court decision (including all the panel justice's opinions), rounded to the nearest hundred. This variable has no entry for open cases in which a final decision has not yet been rendered.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 48,
+    "Name": "AgreedOutcome",
+    "Structure": "Nominal variable [type]",
+    "Definition": "The variable indicates whether the court decision was unanimously agreed by all justices on the panel (\"Unanimous\"), or if there was at least one minority dissenting opinion (\"Split\"). The criteria for defining a dissenting opinion are based on the coding for each justice’s legal disposition, outcome and winner compared to those of the other justices on the panel (see DispositionCourt, OutcomeCourt and WinnerCourt variables). If there is any variance in the justices' opinion in at least one of the three outcome variables, the case is coded as a split decision. Otherwise, the case is coded as a unanimous decision. Note that according to this definition, a case with the same final outcome in all of the individual opinions, though each justice may use different legal reasoning, is defined as a unanimous decision. Additionally, a case partly accepted and won by both parties, though including different operational outcomes by the different justices, could also be coded as a unanimous decision (for example, a constitutional case in which Justice A and Justice B disqualify only one article in a new law, while Justice C disqualifies two articles). This variable has no entry for open cases in which a final decision has not yet been rendered.",
+    "Allowed_Values": [
+      "Unanimous",
+      "Split"
+    ]
+  },
+  {
+    "Number": 49,
+    "Name": "Njudges",
+    "Structure": "Numeric variable [3-9]",
+    "Definition": "The number of judges in the panel deciding the case. As the dataset does not include cases decided by a single judge, the number of judges in a panel is an uneven number varying from three, the default in most cases, to nine. Panels are mandatorily extended in specific legal procedures pertaining to parliamentary elections, retrials and further court hearings, and may also be extended in any case according to the chief justice’s discretion. Enlarged panels are rare in the ISC and generally indicate a legal or political salient case.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 50,
+    "Name": "NMajority",
+    "Structure": "Numerical variable [1-9]",
+    "Definition": "A counter for the number of judges supporting the majority ruling in the case of a split decision (AgreedOutcome=\"Split\"). This variable has no entry for open cases in which a final decision has not yet been rendered.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 51,
+    "Name": "NMinority",
+    "Structure": "Numerical variable [1-4]",
+    "Definition": "A counter for the number of judges dissenting in the case of a split decision. This variable has no entry for open cases in which a final decision has not yet been rendered.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 52,
+    "Name": "JOpinionWriter",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the justice writing the lead first opinion. This variable is coded based on the name of the justice that appears in the first substantive paragraph of the opinion. Thus, in rare opinions that open with a different textual structure, such as quotes or table of content, the variable might not have an entry. Additionally, the variable has no entry in per curiam opinions, written in the name of all panel judges together (with no individual reasoning).",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 53,
+    "Name": "Justice1",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the head of the panel, often the most senior justice in the assigned panel. Seniority is determined by the date of the justice’s appointment to the ISC.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 54,
+    "Name": "Justice2",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the second judge in the panel – the order is often set by seniority in the ISC and corresponds to the order of judges that appears in the final decision.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 55,
+    "Name": "Justice3",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the third judge in the panel – the order is often set by seniority in the ISC and corresponds to the order of judges that appears in the final decision.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 56,
+    "Name": "Justice4",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the fourth judge in the panel – the order is often set by seniority in the ISC and corresponds to the order of judges that appears in the final decision. This field has no entry when Njudges < 4 (most common three-judge panels).",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 57,
+    "Name": "Justice5",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the fifth judge in the panel, ordered by seniority as in Justice4. This field has no entry when Njudges < 5.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 58,
+    "Name": "Justice6",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the sixth judge in the panel, ordered by seniority as in Justice4. This field has no entry when Njudges < 6.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 59,
+    "Name": "Justice7",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the seventh judge in the panel, ordered by seniority as in Justice4. This field has no entry when Njudges < 7.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 60,
+    "Name": "Justice8",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the eighth judge in the panel, ordered by seniority as in Justice4. This field has no entry when Njudges < 8.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 61,
+    "Name": "Justice9",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the ninth judge in the panel, ordered by seniority as in Justice4. This field has no entry when Njudges < 9.",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 62,
+    "Name": "Name",
+    "Structure": "Text variable [first name, last name]",
+    "Definition": "The first and last name of the deciding Justice. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 63,
+    "Name": "Title",
+    "Structure": "Nominal variable [title]",
+    "Definition": "The variable classifies the official role of the deciding justice at the time the final decision was rendered into three groups: The court president, equivalent to chief justice in the U.S. Supreme Court, appointed by a seniority principle determined by the date of justice appointment; vice president – the second most senior justice, until his/her retirement or appointment as president; and justice – all other justices of the court. The variable is coded based on the title appearing before a justice's name in the opening part of the court opinion text. Thus, it might reflect the court's typist mistakes in cases where the title mentioned by the court is incorrect. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": [
+      "President",
+      "Vice president",
+      "Justice"
+    ]
+  },
+  {
+    "Number": 64,
+    "Name": "Seniority",
+    "Structure": "Numerical [years]",
+    "Definition": "A counter for the number of years from the deciding justice's appointment to the ISC to the final decision in the case. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": null
+  },
+  {
+    "Number": 65,
+    "Name": "Retired",
+    "Structure": "Nominal variable [retired/presiding]",
+    "Definition": "The variable indicates if the deciding justice was already retired when signing the final decision (“retired”) or not (“presiding”). According to Israeli legal procedure, a judge who began the hearing of a case and retired is authorized to terminate the hearing and sign a decision within three months of the date of retirement (the Courts Law 1984, section 15). The variable is coded based on the justice's status appearing before a justice's name in the opening part of the court opinion text. Thus, it might reflect the court's typist mistakes in cases where the justice's status mentioned by the court is incorrect. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": [
+      "Retired",
+      "Presiding"
+    ]
+  },
+  {
+    "Number": 66,
+    "Name": "Experience",
+    "Structure": "Nominal variable [experience]",
+    "Definition": "The variable classifies the deciding justice’s work experience prior to his/her appointment to the ISC into four groups: judge, almost always in one of the six Israeli district courts; senior position in the legal public service, usually the attorney general or state prosecutor; private lawyer, most commonly in one of Israel’s most prestigious law firms; and law professor in an Israeli or American university. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": [
+      "Judge",
+      "Legal public service",
+      "Private lawyer",
+      "Law professor"
+    ]
+  },
+  {
+    "Number": 67,
+    "Name": "Gender",
+    "Structure": "Nominal variable [male/female]",
+    "Definition": "The gender of the deciding justice. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": [
+      "Male",
+      "Female"
+    ]
+  },
+  {
+    "Number": 68,
+    "Name": "Religion",
+    "Structure": "Nominal variable [religion]",
+    "Definition": "The variable classifies the deciding justice’s nationality and religious identity into four groups:  religious observant Jew, secular non-observant Jew, non-Jewish justice (between 2010 and 2018, two non-Jewish justices served on the ISC, both Arab Christians), and Jewish justice with unknown religious beliefs and practices. Data on the religious observance of justices is in most cases publicized and mentioned in various biographies of the justices. The justices who observe Jewish religious laws and practices in varying degrees were coded as religious. The main shortcoming of the described coding is that it does not enable a more sensitive account of the wide spectrum of religious and secular ideologies existing in Israel. This limitation is manifested mainly on the secular side of the coding, as there is no differentiation between adherents of extreme secular ideology (or “the antireligious,” as they are referred to in Israel) and those who are not religiously observant, yet do not particularly relate to matters of religion. Unfortunately, we could not find a consistent and reliable source for refining the classifications. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": [
+      "Jewish – religious",
+      "Jewish – secular",
+      "Non-Jewish",
+      "Jewish – unknown"
+    ]
+  },
+  {
+    "Number": 69,
+    "Name": "Issue1",
+    "Structure": "Nominal variable [issue]",
+    "Definition": "See in IssueCourt1. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": [
+      "Criminal law - Traffic",
+      "Criminal law - White-collar crimes",
+      "Criminal law - Security offenses",
+      "Criminal law - Violent offenses",
+      "Criminal law - Sex offenses",
+      "Criminal law - Corruption offenses",
+      "Criminal law - Prisoner's petitions",
+      "Criminal law - Criminal arrests",
+      "Criminal law - Criminal procedure and evidence",
+      "Criminal law - Appeal on sentence",
+      "Criminal law - Drugs",
+      "Criminal law - Criminal law – other",
+      "Civil law - Contracts",
+      "Civil law - Torts",
+      "Civil law - Land",
+      "Civil law - Fiscal and tax",
+      "Civil law - Corporate and commercial law",
+      "Civil law - Equity and trusts",
+      "Civil law - Property law",
+      "Civil law - Intellectual property",
+      "Civil law - Bankruptcy",
+      "Civil law - Civil procedure and evidence",
+      "Civil law - Civil law – other",
+      "Family law - Wills and succession law",
+      "Family law - Custody and guardianship",
+      "Family law - Alimony and assets",
+      "Family law - Family law – other",
+      "Jewish law - Rabbinical courts",
+      "Jewish law - Other religious courts",
+      "Jewish law - Jewish law – other",
+      "Social security, health insurance, pension",
+      "Labor and employment",
+      "International law",
+      "National security, military and the territories",
+      "Administrative law and regulation - Tenders",
+      "Administrative law and regulation - Licenses and permits, including planning and construction",
+      "Administrative law and regulation - Media",
+      "Administrative law and regulation - Commercial and economic regulation",
+      "Administrative law and regulation - Municipalities",
+      "Administrative law and regulation - Environmental",
+      "Administrative law and regulation - Education",
+      "Administrative law and regulation - Citizenship",
+      "Administrative law and regulation - Administrative law – other",
+      "Constitutional law - Election law",
+      "Constitutional law - Religion and state",
+      "Constitutional law - Separation of powers and judicial power",
+      "Constitutional law - Human rights - Dignity",
+      "Constitutional law - Human rights - Minimal conditions for existence in dignity",
+      "Constitutional law - Human rights - Right to health",
+      "Constitutional law - Human rights - Right to life",
+      "Constitutional law - Human rights - Equality/discrimination",
+      "Constitutional law - Human rights - Property",
+      "Constitutional law - Human rights - Access to courts",
+      "Constitutional law - Human rights - Due process",
+      "Constitutional law - Human rights - Freedom of association",
+      "Constitutional law - Human rights - Freedom of movement",
+      "Constitutional law - Human rights - Freedom of occupation",
+      "Constitutional law - Human rights - Freedom of speech",
+      "Constitutional law - Human rights - Liberty",
+      "Constitutional law - Human rights - Autonomy",
+      "Constitutional law - Human rights - Right to family life",
+      "Constitutional law - Human rights - Education",
+      "Constitutional law - Human rights - Freedom of religion (includes freedom from religion)",
+      "Constitutional law - Human rights - Privacy",
+      "Constitutional law - Human rights - Interest",
+      "Constitutional law - Human rights - The right to elect and to be elected",
+      "Constitutional law - Human rights - The right to a nationality",
+      "Constitutional law - Constitutional law – other"
+    ]
+  },
+  {
+    "Number": 70,
+    "Name": "Issue2",
+    "Structure": "Nominal variable [issue]",
+    "Definition": "See in IssueCourt2. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": [
+      "Criminal law - Traffic",
+      "Criminal law - White-collar crimes",
+      "Criminal law - Security offenses",
+      "Criminal law - Violent offenses",
+      "Criminal law - Sex offenses",
+      "Criminal law - Corruption offenses",
+      "Criminal law - Prisoner's petitions",
+      "Criminal law - Criminal arrests",
+      "Criminal law - Criminal procedure and evidence",
+      "Criminal law - Appeal on sentence",
+      "Criminal law - Drugs",
+      "Criminal law - Criminal law – other",
+      "Civil law - Contracts",
+      "Civil law - Torts",
+      "Civil law - Land",
+      "Civil law - Fiscal and tax",
+      "Civil law - Corporate and commercial law",
+      "Civil law - Equity and trusts",
+      "Civil law - Property law",
+      "Civil law - Intellectual property",
+      "Civil law - Bankruptcy",
+      "Civil law - Civil procedure and evidence",
+      "Civil law - Civil law – other",
+      "Family law - Wills and succession law",
+      "Family law - Custody and guardianship",
+      "Family law - Alimony and assets",
+      "Family law - Family law – other",
+      "Jewish law - Rabbinical courts",
+      "Jewish law - Other religious courts",
+      "Jewish law - Jewish law – other",
+      "Social security, health insurance, pension",
+      "Labor and employment",
+      "International law",
+      "National security, military and the territories",
+      "Administrative law and regulation - Tenders",
+      "Administrative law and regulation - Licenses and permits, including planning and construction",
+      "Administrative law and regulation - Media",
+      "Administrative law and regulation - Commercial and economic regulation",
+      "Administrative law and regulation - Municipalities",
+      "Administrative law and regulation - Environmental",
+      "Administrative law and regulation - Education",
+      "Administrative law and regulation - Citizenship",
+      "Administrative law and regulation - Administrative law – other",
+      "Constitutional law - Election law",
+      "Constitutional law - Religion and state",
+      "Constitutional law - Separation of powers and judicial power",
+      "Constitutional law - Human rights - Dignity",
+      "Constitutional law - Human rights - Minimal conditions for existence in dignity",
+      "Constitutional law - Human rights - Right to health",
+      "Constitutional law - Human rights - Right to life",
+      "Constitutional law - Human rights - Equality/discrimination",
+      "Constitutional law - Human rights - Property",
+      "Constitutional law - Human rights - Access to courts",
+      "Constitutional law - Human rights - Due process",
+      "Constitutional law - Human rights - Freedom of association",
+      "Constitutional law - Human rights - Freedom of movement",
+      "Constitutional law - Human rights - Freedom of occupation",
+      "Constitutional law - Human rights - Freedom of speech",
+      "Constitutional law - Human rights - Liberty",
+      "Constitutional law - Human rights - Autonomy",
+      "Constitutional law - Human rights - Right to family life",
+      "Constitutional law - Human rights - Education",
+      "Constitutional law - Human rights - Freedom of religion (includes freedom from religion)",
+      "Constitutional law - Human rights - Privacy",
+      "Constitutional law - Human rights - Interest",
+      "Constitutional law - Human rights - The right to elect and to be elected",
+      "Constitutional law - Human rights - The right to a nationality",
+      "Constitutional law - Constitutional law – other"
+    ]
+  },
+  {
+    "Number": 71,
+    "Name": "Disposition",
+    "Structure": "Nominal variable [disposition]",
+    "Definition": "See in DispositionCourt. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": [
+      "Judgment on the merits",
+      "Withdrawal – recommended by judges",
+      "Withdrawal – unknown reason",
+      "Court-approved settlement",
+      "Out-of-court settlement",
+      "Other – statistical closing; court fees unpaid, failure to appear in court, etc."
+    ]
+  },
+  {
+    "Number": 72,
+    "Name": "Outcome",
+    "Structure": "Nominal variable [outcome]",
+    "Definition": "See in OutcomeCourt. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": [
+      "Rejected",
+      "Accepted",
+      "Partly accepted",
+      "Remand",
+      "Dismissed",
+      "No court disposition",
+      "Unusual disposition"
+    ]
+  },
+  {
+    "Number": 73,
+    "Name": "Winner",
+    "Structure": "Nominal variable [winner]",
+    "Definition": "See in WinnerCourt. * This variable only appears in the judge-centered dataset",
+    "Allowed_Values": [
+      "Petitioner",
+      "Respondent",
+      "Both",
+      "Unknown"
+    ]
+  },
+  {
+    "Number": 74,
+    "Name": "Dissent",
+    "Structure": "Nominal variable [type]",
+    "Definition": "The variable indicates whether a justice dissented from the panel's decision (\"Dissenting\") or if his opinion was in line with the entire panel, in unanimous cases, or with the panel's majority in split cases (\"Not dissenting\"). The criteria for defining a dissenting opinion are based on the coding for the justice’s legal disposition, outcome and winner compared to those of the court majority, as coded in DispositionCourt, OutcomeCourt and WinnerCourt variables. If there is any variance between the justice and panel's opinion, in at least one of the three outcome variables, the variable is coded as a dissenting opinion. Otherwise, the case is coded as not dissenting. Note that according to this definition, an opinion with the same outcomes, through utilizing different legal reasoning, is defined as a \"not dissenting\" opinion (see more in AgreedOutcome). This variable has no entry for open cases in which a final decision has not yet been rendered.",
+    "Allowed_Values": [
+      "Dissenting",
+      "Not dissenting"
+    ]
+  }
+]

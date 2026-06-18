@@ -1,0 +1,74 @@
+{
+  "query": "Do federal judges appointed by different Presidents (Trump vs. other Republican vs. Democratic) differ in their voting tendencies on immigration injunction cases? Do Trump-appointed judges tend to be more supportive of Trump administration immigration policies compared to judges appointed by other Republican or Democratic presidents?\n",
+  "columns": [
+    {
+      "column": "judge_name",
+      "explanation": "Required to identify the specific judge and link them to their appointing President.",
+      "definition": "The full name of the federal judge presiding over the case.",
+      "allowed_values": [
+        "Dabney L. Friedrich",
+        "Randolph D. Moss",
+        "Amir H. Ali"
+      ],
+      "auto_expand_threshold": 2
+    },
+    {
+      "column": "appointing_president",
+      "explanation": "Directly addresses the core query comparing Trump appointees, other Republican appointees, and Democratic appointees.",
+      "definition": "The name of the U.S. President who appointed the judge to the federal bench.",
+      "allowed_values": [
+        "Donald Trump",
+        "Barack Obama",
+        "Joe Biden"
+      ],
+      "auto_expand_threshold": 2
+    },
+    {
+      "column": "appointing_president_party",
+      "explanation": "Enables grouping and comparison of voting tendencies between Republican and Democratic appointees.",
+      "definition": "The political party of the President who appointed the judge.",
+      "allowed_values": [
+        "Republican",
+        "Democrat"
+      ],
+      "auto_expand_threshold": 2
+    },
+    {
+      "column": "case_outcome_immigration_supportive",
+      "explanation": "Directly answers whether Trump-appointed judges tend to be more supportive of Trump administration policies compared to other judges.",
+      "definition": "Indicates whether the judge's ruling or vote supported the immigration policy/action of the presidential administration in power at the time of the lawsuit.",
+      "allowed_values": [
+        "yes",
+        "no",
+        "mixed"
+      ],
+      "auto_expand_threshold": 2
+    },
+    {
+      "column": "injunction_ruling_type",
+      "explanation": "Captures the specific voting/ruling tendency on the injunction request.",
+      "definition": "The court's decision regarding the requested immigration injunction.",
+      "allowed_values": [
+        "granted",
+        "denied",
+        "granted in part and denied in part"
+      ],
+      "auto_expand_threshold": 2
+    },
+    {
+      "column": "challenged_administration",
+      "explanation": "Allows researchers to isolate cases challenging Trump administration policies versus other administrations.",
+      "definition": "The presidential administration whose immigration policy or action is being challenged in the case.",
+      "allowed_values": [
+        "Trump",
+        "Biden"
+      ],
+      "auto_expand_threshold": 2
+    }
+  ],
+  "max_keys": 25,
+  "observation_unit": {
+    "name": "Judge",
+    "definition": "An individual federal judge"
+  }
+}

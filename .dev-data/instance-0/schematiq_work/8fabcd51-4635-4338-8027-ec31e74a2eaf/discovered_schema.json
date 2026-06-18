@@ -1,0 +1,85 @@
+{
+  "query": "Do federal judges appointed by different Presidents (Trump vs. other Republican vs. Democratic) differ in their voting tendencies on immigration injunction cases? Do Trump-appointed judges tend to be more supportive of Trump administration immigration policies compared to judges appointed by other Republican or Democratic presidents?\n",
+  "schema": [
+    {
+      "name": "judge_name",
+      "definition": "The full name of the federal judge presiding over the case or issuing the opinion.",
+      "rationale": "Necessary to identify the specific judge and subsequently determine their appointing President.",
+      "allowed_values": [
+        "Amir H. Ali"
+      ]
+    },
+    {
+      "name": "appointing_president",
+      "definition": "The name of the U.S. President who appointed the judge to the federal bench.",
+      "rationale": "Directly addresses the core query comparing Trump appointees, other Republican appointees, and Democratic appointees.",
+      "allowed_values": [
+        "Donald Trump",
+        "Joe Biden",
+        "Barack Obama",
+        "George W. Bush",
+        "Bill Clinton"
+      ]
+    },
+    {
+      "name": "appointing_president_party",
+      "definition": "The political party of the President who appointed the judge.",
+      "rationale": "Allows grouping of judges by political party (Democratic vs. Republican) to analyze voting tendencies.",
+      "allowed_values": [
+        "Democratic",
+        "Republican"
+      ]
+    },
+    {
+      "name": "case_type",
+      "definition": "The legal category of the case, specifically identifying if it is an immigration injunction or related immigration policy challenge.",
+      "rationale": "Ensures the case falls within the scope of 'immigration injunction cases' specified in the query.",
+      "allowed_values": [
+        "Immigration Injunction",
+        "Other Immigration",
+        "Non-Immigration"
+      ]
+    },
+    {
+      "name": "challenged_policy_administration",
+      "definition": "The presidential administration that enacted or implemented the challenged immigration policy.",
+      "rationale": "Helps determine if the judge's ruling supports or opposes policies of a specific administration (e.g., the Trump administration).",
+      "allowed_values": [
+        "Trump Administration",
+        "Biden Administration",
+        "Obama Administration",
+        "Bush Administration"
+      ]
+    },
+    {
+      "name": "ruling_direction",
+      "definition": "The outcome of the judge's ruling relative to the government's immigration policy (e.g., ruling in favor of the government/policy or in favor of the immigrant/plaintiff challenging the policy).",
+      "rationale": "Directly measures the judge's 'voting tendency' and supportiveness toward administration policies.",
+      "allowed_values": [
+        "Pro-Government/Policy",
+        "Pro-Immigrant/Challenger"
+      ]
+    },
+    {
+      "name": "injunction_granted",
+      "definition": "Whether the judge granted the requested preliminary or permanent injunction against the government's immigration policy.",
+      "rationale": "Directly answers whether the judge ruled to halt/enjoin the immigration policy in question.",
+      "allowed_values": [
+        "Yes",
+        "No",
+        "Partial"
+      ]
+    }
+  ],
+  "observation_unit": {
+    "name": "Judge",
+    "definition": "A federal judge whose voting tendencies on immigration injunction cases are analyzed based on the appointing President.",
+    "example_names": [
+      "Randolph D. Moss",
+      "Judge A (Trump Appointee)",
+      "Judge B (Obama Appointee)"
+    ],
+    "source_document": "Amica2025-07-06DDC.txt",
+    "discovery_iteration": 1
+  }
+}

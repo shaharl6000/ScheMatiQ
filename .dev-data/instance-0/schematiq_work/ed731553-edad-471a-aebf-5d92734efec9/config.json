@@ -1,0 +1,37 @@
+{
+  "query": "Do federal judges appointed by different Presidents (Trump vs. other Republican vs. Democratic) differ in their voting tendencies on immigration injunction cases? Do Trump-appointed judges tend to be more supportive of Trump administration immigration policies compared to judges appointed by other Republican or Democratic presidents?\n",
+  "docs_path": null,
+  "upload_pending": true,
+  "max_keys_schema": 25,
+  "documents_batch_size": 3,
+  "initial_schema_path": null,
+  "initial_schema": null,
+  "initial_observation_unit": null,
+  "schema_creation_backend": {
+    "provider": "gemini",
+    "model": "gemini-3.5-flash",
+    "max_output_tokens": null,
+    "temperature": 0.0,
+    "context_window_size": null,
+    "api_key": null
+  },
+  "value_extraction_backend": {
+    "provider": "gemini",
+    "model": "gemini-3.1-flash-lite",
+    "max_output_tokens": null,
+    "temperature": 0.0,
+    "context_window_size": null,
+    "api_key": null
+  },
+  "retriever": null,
+  "output_path": "outputs/visualization_output.json",
+  "document_randomization_seed": 42,
+  "convergence_threshold": null,
+  "skip_value_extraction": false,
+  "review_observation_unit": true,
+  "previous_session_id": null,
+  "count_toward_quota": true,
+  "llm_call_limit": null,
+  "opt_out_data_collection": false,
+  "write_artifacts": null
+}

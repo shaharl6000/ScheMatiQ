@@ -1,0 +1,42 @@
+From 2762e5e64b53de6751ebd8fe3e329715a5a00381 Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Thu, 18 Jun 2026 08:36:38 +0000
+Subject: [PATCH] fix: re-extraction progress bar no longer jumps to 100% and
+ sticks
+
+The Data-tab extraction progress bar used documentIndex/totalDocuments,
+where documentIndex is the count of documents *started*. With a single
+document the bar jumped to 100% the instant the only document began and
+then sat there spinning until completion, reading as stuck with no clear
+finish. With multiple documents it ran one step ahead of real progress.
+
+Give the in-flight document half credit ((documentIndex - 0.5)/total) so
+the bar shows real in-progress motion (50% for a single doc) and never
+reaches 100% before the run actually finishes and the bar is cleared.
+Purely presentational; backend progress events and the 'Document X of Y'
+label are unchanged.
+---
+ .../src/components/DataTable/ExtractionProgressBar.tsx     | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/frontend/src/components/DataTable/ExtractionProgressBar.tsx b/frontend/src/components/DataTable/ExtractionProgressBar.tsx
+index 37e4b82..93ee1c5 100644
+--- a/frontend/src/components/DataTable/ExtractionProgressBar.tsx
++++ b/frontend/src/components/DataTable/ExtractionProgressBar.tsx
+@@ -122,7 +122,12 @@ const ExtractionProgressBar: React.FC<ExtractionProgressBarProps> = ({
+       {currentDocumentProgress && currentDocumentProgress.totalDocuments > 0 && (
+         <div className="space-y-1">
+           <Progress
+-            value={(currentDocumentProgress.documentIndex / currentDocumentProgress.totalDocuments) * 100}
++            value={Math.min(
++              100,
++              (Math.max(0, currentDocumentProgress.documentIndex - 0.5) /
++                currentDocumentProgress.totalDocuments) *
++                100,
++            )}
+             className="h-2"
+           />
+           <p className="text-xs text-muted-foreground">
+-- 
+2.43.0
+
