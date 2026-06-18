@@ -1710,7 +1710,7 @@ const Visualize = () => {
 
         {/* ScheMatiQ Monitor Tab */}
         {mode === 'schematiq' && (
-          <TabsContent value="monitor" className="mt-4">
+          <TabsContent value="monitor" forceMount className="mt-4 data-[state=inactive]:hidden">
             <ScheMatiQMonitor
               sessionId={sessionId}
               autoStarted={autoStartState.autoStarted}
