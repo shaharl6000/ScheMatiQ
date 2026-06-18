@@ -328,12 +328,21 @@ async def resume_schematiq(session_id: str, background_tasks: BackgroundTasks):
             SessionStatus.COMPLETED,
             SessionStatus.STOPPED,
             SessionStatus.SCHEMA_READY,
+            SessionStatus.PROCESSING,
         }
         if session.status not in allowed_statuses:
             raise HTTPException(
                 status_code=400,
                 detail=f"Session cannot be resumed from status '{session.status}'. "
                        f"Allowed: {', '.join(s.value for s in allowed_statuses)}"
+            )
+        if (
+            session.status == SessionStatus.PROCESSING
+            and not session.metadata.pending_observation_unit_rediscovery
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Session is still processing. Stop the run before resuming.",
             )
 
         # Pre-check global LLM quota before starting background task
@@ -351,11 +360,19 @@ async def resume_schematiq(session_id: str, background_tasks: BackgroundTasks):
                     detail="The system has reached its processing capacity. Please try again later."
                 )
 
-        # Reserve concurrency slot before starting background task
-        await concurrency_limiter.acquire(session_id, "schematiq")
+        # Stop + prepare synchronously so resume cannot race the active pipeline.
+        try:
+            await schematiq_runner.prepare_resume(session_id)
+        except RuntimeError as e:
+            msg = str(e)
+            if "already has an active operation" in msg or "Timed out waiting" in msg:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Pipeline is still stopping. Wait a few seconds and try Save & Rediscover again.",
+                ) from e
+            raise HTTPException(status_code=500, detail=msg) from e
 
-        # Start resumed ScheMatiQ in background
-        background_tasks.add_task(schematiq_runner.resume_qbsd, session_id)
+        background_tasks.add_task(schematiq_runner.run_schematiq, session_id)
 
         return {"message": "ScheMatiQ execution resumed", "session_id": session_id}
 

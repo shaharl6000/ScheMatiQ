@@ -3,18 +3,40 @@
  */
 
 /**
+ * Normalize FastAPI/Pydantic error `detail` to a display string.
+ */
+export const formatApiErrorDetail = (detail: unknown): string | null => {
+  if (typeof detail === 'string') {
+    return detail;
+  }
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail
+      .map((err: { msg?: string }) => (typeof err?.msg === 'string' ? err.msg : String(err)))
+      .join('; ');
+  }
+  if (detail && typeof detail === 'object' && 'msg' in detail) {
+    const msg = (detail as { msg?: string }).msg;
+    if (typeof msg === 'string') {
+      return msg;
+    }
+  }
+  return null;
+};
+
+/**
  * Extract error message from API response
  */
 export const extractApiErrorMessage = (error: unknown, fallbackMessage: string): string => {
-  if (error && typeof error === 'object' && 'response' in error) {
-    const apiError = error as any;
-    if (apiError?.response?.data?.detail) {
-      return apiError.response.data.detail;
-    }
+  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  const formatted = formatApiErrorDetail(detail);
+  if (formatted) {
+    return formatted;
   }
   if (error && typeof error === 'object' && 'message' in error) {
     const errorWithMessage = error as { message: string };
-    return errorWithMessage.message;
+    if (errorWithMessage.message) {
+      return errorWithMessage.message;
+    }
   }
   return fallbackMessage;
 };

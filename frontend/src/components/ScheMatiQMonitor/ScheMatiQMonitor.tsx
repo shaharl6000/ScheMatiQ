@@ -17,6 +17,7 @@ import {
   X,
   Pencil,
   RefreshCw,
+  ChevronLeft,
   Table,
 } from 'lucide-react';
 import { useQuery, useQueryClient } from 'react-query';
@@ -45,6 +46,7 @@ import {
   getDefaultModelForProvider,
   getAvailableProviders,
 } from '@/constants/llmModels';
+import { extractApiErrorMessage } from '../../utils/apiHelpers';
 
 interface ScheMatiQMonitorProps {
   sessionId: string;
@@ -52,6 +54,21 @@ interface ScheMatiQMonitorProps {
   initialCapacityMessage?: string;
   /** Notify parent when deferred extraction starts (schema-only → full table fill). */
   onExtractionStarted?: (columns: string[], operationId?: string) => void;
+  /** Keep WebSocket alive before resume so extraction events stream incrementally. */
+  onResumeStarted?: () => void;
+}
+
+/** Format observation unit for monitor logs and summary surfaces. */
+function formatObservationUnitSummary(obs: {
+  name: string;
+  definition: string;
+  example_names?: string[];
+}): string {
+  let summary = `"${obs.name}": ${obs.definition}`;
+  if (obs.example_names && obs.example_names.length > 0) {
+    summary += ` (examples: ${obs.example_names.join(', ')})`;
+  }
+  return summary;
 }
 
 interface LogEntry {
@@ -60,6 +77,8 @@ interface LogEntry {
   message: string;
   details?: any;
 }
+
+type ReviewEntryMode = 'initial' | 'mid_run' | 'post_run';
 
 // Processing state that changes IMMEDIATELY on user action
 type ProcessingState = 'idle' | 'starting' | 'schema' | 'extraction' | 'completed' | 'error' | 'stopped' | 'observation_unit_review';
@@ -76,6 +95,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   autoStarted = false,
   initialCapacityMessage = '',
   onExtractionStarted,
+  onResumeStarted,
 }) => {
   const queryClient = useQueryClient();
   const llmStatsCacheKey = ['schematiq-llm-stats', sessionId];
@@ -106,6 +126,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
     return '';
   });
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [reviewSaveError, setReviewSaveError] = useState<string>('');
   const [capacityMessage, setCapacityMessage] = useState<string>(initialCapacityMessage);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
 
@@ -139,6 +160,10 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   const [newExample, setNewExample] = useState('');
   const [isResuming, setIsResuming] = useState(false);
   const [obsUnitEdited, setObsUnitEdited] = useState(false);
+  // How the user entered observation-unit review (initial pause vs mid-run vs post-run edit)
+  const [reviewEntryMode, setReviewEntryMode] = useState<ReviewEntryMode | null>(null);
+  const [processingStateBeforeEdit, setProcessingStateBeforeEdit] = useState<ProcessingState | null>(null);
+  const [editBaseline, setEditBaseline] = useState<ObservationUnitReadyData | null>(null);
 
   // LLM Stats state
   const [llmStats, setLlmStats] = useState<LlmStats | null>(cachedLlmStats || null);
@@ -195,6 +220,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
             setEditDefinition(obsData.definition);
             setEditExamples(obsData.example_names || []);
             setObsUnitEdited(false);
+            setEditBaseline(obsData);
+            setReviewEntryMode('initial');
+            setProcessingStateBeforeEdit(null);
           }
         }).catch(() => { /* ignore - will retry on next poll */ });
       }
@@ -407,7 +435,12 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         addLog(logData?.level || 'info', logData?.message || 'Log message', message.data);
       } else if (message.type === 'observation_unit_ready') {
         const obsData = message.data as ObservationUnitReadyData;
-        addLog('info', `Observation unit discovered: "${obsData?.name}". Review before continuing.`);
+        addLog(
+          'info',
+          obsData
+            ? `Observation unit discovered: ${formatObservationUnitSummary(obsData)}. Review before continuing.`
+            : 'Observation unit discovered. Review before continuing.',
+        );
         setProcessingState('observation_unit_review');
         if (obsData) {
           setReviewObsUnit(obsData);
@@ -415,6 +448,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
           setEditDefinition(obsData.definition);
           setEditExamples(obsData.example_names || []);
           setObsUnitEdited(false);
+          setEditBaseline(obsData);
+          setReviewEntryMode('initial');
+          setProcessingStateBeforeEdit(null);
         }
         queryClient.invalidateQueries(['schematiq-status', sessionId]);
       } else if (message.type === 'reextraction_started') {
@@ -730,18 +766,17 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         `Extracting ${response.columns.length} column(s) across ${docCount} document(s). Open the Data tab for live rows.`,
       );
     } catch (err: unknown) {
-      const axiosErr = err as { response?: { data?: { detail?: string }; status?: number }; message?: string };
-      const detail = axiosErr.response?.data?.detail;
+      const message = extractApiErrorMessage(err, 'Failed to start extraction');
       setDeferredExtractError(
-        axiosErr.response?.status === 503
-          ? (detail || 'Server is busy. Try again in a few minutes.')
-          : (detail || axiosErr.message || 'Failed to start extraction'),
+        (err as { response?: { status?: number } })?.response?.status === 503
+          ? (message || 'Server is busy. Try again in a few minutes.')
+          : message,
       );
       addLog(
         'error',
-        axiosErr.response?.status === 503
-          ? (detail || 'Server is busy')
-          : (detail || axiosErr.message || 'Failed to start extraction'),
+        (err as { response?: { status?: number } })?.response?.status === 503
+          ? (message || 'Server is busy')
+          : message,
       );
     } finally {
       setIsDeferredExtracting(false);
@@ -782,9 +817,8 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       await schematiqAPI.run(sessionId);
       addLog('info', 'ScheMatiQ execution started');
       // Stay in 'starting' state until we receive progress updates
-    } catch (error: any) {
-      const status = error?.response?.status;
-      const detail = error?.response?.data?.detail;
+    } catch (error: unknown) {
+      const status = (error as { response?: { status?: number } })?.response?.status;
 
       if (status === 429) {
         // Quota exceeded — show orange banner
@@ -794,11 +828,12 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       } else if (status === 503) {
         // Server busy — show friendly amber banner, not error state
         setProcessingState('idle');
-        setCapacityMessage(detail || 'The server is currently busy processing other requests. Please try again in a few minutes.');
+        const message = extractApiErrorMessage(error, 'The server is currently busy processing other requests. Please try again in a few minutes.');
+        setCapacityMessage(message);
         addLog('warning', 'Server busy — please retry shortly');
       } else {
         setProcessingState('error');
-        const message = detail || error.message || 'Failed to start ScheMatiQ';
+        const message = extractApiErrorMessage(error, 'Failed to start ScheMatiQ');
         setErrorMessage(message);
         addLog('error', `Failed to start ScheMatiQ: ${message}`);
       }
@@ -818,9 +853,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         setIsStopping(false);
         addLog('warning', 'Stop requested — processing will stop at the next checkpoint.');
       }
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail;
-      addLog('error', detail || error.message || 'Failed to stop');
+    } catch (error: unknown) {
+      const message = extractApiErrorMessage(error, 'Failed to stop');
+      addLog('error', message);
       setIsStopping(false);
     }
   };
@@ -839,24 +874,122 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
     setObsUnitEdited(true);
   }, []);
 
+  const examplesEqual = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((val, i) => val === b[i]);
+
+  const hasObsUnitChanges = useCallback(() => {
+    const baseline = editBaseline || reviewObsUnit;
+    if (!baseline) return false;
+    return (
+      editName.trim() !== baseline.name.trim() ||
+      editDefinition.trim() !== baseline.definition.trim() ||
+      !examplesEqual(editExamples, baseline.example_names || [])
+    );
+  }, [editBaseline, reviewObsUnit, editName, editDefinition, editExamples]);
+
+  const closeMidRunEditor = useCallback((restoreState?: ProcessingState | null) => {
+    const baseline = editBaseline || reviewObsUnit;
+    if (baseline) {
+      setEditName(baseline.name);
+      setEditDefinition(baseline.definition);
+      setEditExamples(baseline.example_names || []);
+    }
+    setObsUnitEdited(false);
+    setReviewEntryMode(null);
+    setEditBaseline(null);
+    setProcessingStateBeforeEdit(null);
+    if (restoreState) {
+      setProcessingState(restoreState);
+    }
+  }, [editBaseline, reviewObsUnit]);
+
+  const handleCloseReviewPanel = () => {
+    if (reviewEntryMode === 'mid_run') {
+      closeMidRunEditor(processingStateBeforeEdit || 'schema');
+      addLog('info', 'Returned to monitor — pipeline continues.');
+      return;
+    }
+    if (reviewEntryMode === 'post_run') {
+      const baseline = editBaseline || reviewObsUnit;
+      if (baseline) {
+        setEditName(baseline.name);
+        setEditDefinition(baseline.definition);
+        setEditExamples(baseline.example_names || []);
+      }
+      setObsUnitEdited(false);
+      setReviewEntryMode(null);
+      setEditBaseline(null);
+      setProcessingState(processingStateBeforeEdit || 'completed');
+      setProcessingStateBeforeEdit(null);
+    }
+  };
+
+  const handleDiscardObsUnitChanges = () => {
+    const baseline = editBaseline || reviewObsUnit;
+    if (baseline) {
+      setEditName(baseline.name);
+      setEditDefinition(baseline.definition);
+      setEditExamples(baseline.example_names || []);
+    }
+    setObsUnitEdited(false);
+  };
+
   const handleResume = async (skipEdit = false) => {
     setIsResuming(true);
+    setReviewSaveError('');
     try {
+      let confirmedObsUnit: ObservationUnitReadyData | null = reviewObsUnit
+        ? {
+            name: editName.trim() || reviewObsUnit.name,
+            definition: editDefinition.trim() || reviewObsUnit.definition,
+            example_names: editExamples.length > 0 ? editExamples : (reviewObsUnit.example_names || []),
+          }
+        : null;
+
+      const shouldPersistEdit = !skipEdit && hasObsUnitChanges() && editName.trim() && editDefinition.trim();
+
       // If the user edited the observation unit, save changes first
-      if (!skipEdit && obsUnitEdited && editName.trim() && editDefinition.trim()) {
-        await observationUnitAPI.updateDefinition(sessionId, {
+      if (shouldPersistEdit) {
+        const response = await observationUnitAPI.updateDefinition(sessionId, {
           name: editName.trim(),
           definition: editDefinition.trim(),
           example_names: editExamples.length > 0 ? editExamples : undefined,
         });
-        addLog('success', `Observation unit updated to "${editName.trim()}"`);
+        confirmedObsUnit = {
+          name: response.observation_unit.name,
+          definition: response.observation_unit.definition,
+          example_names: response.observation_unit.example_names || [],
+        };
+        setReviewObsUnit(confirmedObsUnit);
+        setEditName(confirmedObsUnit.name);
+        setEditDefinition(confirmedObsUnit.definition);
+        setEditExamples(confirmedObsUnit.example_names);
+        addLog('success', `Observation unit updated: ${formatObservationUnitSummary(confirmedObsUnit)}`);
       }
 
-      // Resume the pipeline
+      const isRediscover =
+        (reviewEntryMode === 'mid_run' || reviewEntryMode === 'post_run') && shouldPersistEdit;
+      if (isRediscover) {
+        addLog('info', 'Stopping current run and rediscovering schema with updated observation unit...');
+        setReviewEntryMode(null);
+        setEditBaseline(null);
+        setProcessingStateBeforeEdit(null);
+      }
+
+      // Keep WebSocket connected before backend resumes extraction
+      onResumeStarted?.();
+
+      // Resume waits for any in-flight pipeline to stop, then restarts (backend resume_qbsd)
       await schematiqAPI.resume(sessionId);
-      addLog('info', 'Resuming schema generation...');
+      if (confirmedObsUnit) {
+        addLog('info', `Resuming with observation unit: ${formatObservationUnitSummary(confirmedObsUnit)}`);
+      } else {
+        addLog('info', 'Resuming schema generation...');
+      }
 
       // Transition to starting/schema state
+      setReviewEntryMode(null);
+      setEditBaseline(null);
       setProcessingState('starting');
       setCurrentStepMessage('Resuming pipeline...');
       startTimeRef.current = Date.now();
@@ -874,11 +1007,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         totalDocs: 0,
         isComplete: false
       });
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail;
-      const message = detail || error.message || 'Failed to resume';
-      setErrorMessage(message);
-      setProcessingState('error');
+    } catch (error: unknown) {
+      const message = extractApiErrorMessage(error, 'Failed to resume');
+      setReviewSaveError(message);
       addLog('error', `Failed to resume: ${message}`);
     } finally {
       setIsResuming(false);
@@ -895,6 +1026,16 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   };
 
   const isProcessing = processingState === 'starting' || processingState === 'schema' || processingState === 'extraction';
+
+  // While mid-run review panel is open, backend phase is not `observation_unit_review` — keep phase cards live
+  const phaseDisplayState: ProcessingState =
+    processingState === 'observation_unit_review' && reviewEntryMode === 'mid_run'
+      ? (schemaProgress.isComplete || status?.schema_completed
+          ? 'extraction'
+          : (processingStateBeforeEdit || 'schema'))
+      : processingState === 'observation_unit_review' && reviewEntryMode === 'post_run'
+        ? (processingStateBeforeEdit || 'completed')
+        : processingState;
 
   if (isLoading && !autoStarted) {
     return (
@@ -1060,16 +1201,57 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
           )}
 
           {/* OBSERVATION UNIT REVIEW STATE */}
-          {processingState === 'observation_unit_review' && reviewObsUnit && (
-            <div className="w-full max-w-lg">
-              <div className="flex flex-col items-center mb-4">
+          {processingState === 'observation_unit_review' && reviewObsUnit && (() => {
+            const hasChanges = hasObsUnitChanges();
+            const schemaAlreadyDiscovered = schemaProgress.isComplete || !!status?.schema_completed;
+            const isMidRunReview = reviewEntryMode === 'mid_run';
+            const isPostRunReview = reviewEntryMode === 'post_run';
+            const isInitialReview = reviewEntryMode === 'initial';
+            const trimmedDefinition = editDefinition.trim();
+            const formValid = !!editName.trim()
+              && trimmedDefinition.length >= 10
+              && trimmedDefinition.length <= 500
+              && editName.trim().length <= 100;
+            const primaryLabel = schemaAlreadyDiscovered
+              ? 'Save & Rediscover'
+              : (isInitialReview && !hasChanges
+                ? 'Continue to Schema Generation'
+                : 'Save & Continue to Schema Generation');
+            const primaryEnabled = isResuming
+              ? false
+              : isInitialReview
+                ? formValid
+                : formValid && hasChanges;
+            const discardEnabled = !isResuming && hasChanges;
+            const showCloseControl = isMidRunReview || isPostRunReview;
+
+            return (
+            <div className="w-full max-w-lg relative">
+              {showCloseControl && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="absolute left-0 top-0 h-8 w-8 text-muted-foreground hover:text-foreground"
+                  onClick={handleCloseReviewPanel}
+                  disabled={isResuming}
+                  aria-label="Back to monitor"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                </Button>
+              )}
+
+              <div className="flex flex-col items-center mb-4 pt-1">
                 <div className="w-14 h-14 rounded-full bg-purple-100 flex items-center justify-center mb-3">
                   <Layers className="h-7 w-7 text-purple-600" />
                 </div>
                 <p className="text-xl font-semibold text-purple-700 mb-1">Review Observation Unit</p>
                 <p className="text-sm text-muted-foreground text-center">
-                  The observation unit defines what each row in your table represents.
-                  Review and optionally edit before schema generation.
+                  {isMidRunReview
+                    ? 'Review or edit the observation unit. The pipeline keeps running until you save a change.'
+                    : isPostRunReview
+                      ? 'Edit the observation unit to rediscover the schema with your changes.'
+                      : 'The observation unit defines what each row in your table represents. Review and optionally edit before schema generation.'}
                 </p>
               </div>
 
@@ -1080,7 +1262,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                   <Input
                     id="obs-name"
                     value={editName}
-                    onChange={(e) => { setEditName(e.target.value); setObsUnitEdited(true); }}
+                    onChange={(e) => { setEditName(e.target.value); setObsUnitEdited(true); setReviewSaveError(''); }}
                     placeholder="e.g., Model, Protein, Study"
                   />
                 </div>
@@ -1091,13 +1273,13 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                   <Textarea
                     id="obs-definition"
                     value={editDefinition}
-                    onChange={(e) => { setEditDefinition(e.target.value); setObsUnitEdited(true); }}
+                    onChange={(e) => { setEditDefinition(e.target.value); setObsUnitEdited(true); setReviewSaveError(''); }}
                     placeholder="Describe what constitutes a single row..."
                     rows={3}
                     className="resize-none"
                   />
                   <p className="text-xs text-muted-foreground">
-                    {editDefinition.length}/500 characters
+                    {trimmedDefinition.length}/500 characters (minimum 10)
                   </p>
                 </div>
 
@@ -1134,45 +1316,44 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                 </div>
               </div>
 
-              {/* Action Buttons */}
+              {/* Action Buttons — always mounted; only enabled state and label change */}
+              {reviewSaveError && (
+                <Alert variant="destructive" className="mt-4">
+                  <AlertDescription>{reviewSaveError}</AlertDescription>
+                </Alert>
+              )}
               <div className="flex flex-col gap-2 mt-5">
                 <Button
                   size="lg"
                   onClick={() => handleResume(false)}
-                  disabled={isResuming || !editName.trim() || !editDefinition.trim()}
+                  disabled={!primaryEnabled}
                   className="w-full"
                 >
                   {isResuming ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Resuming...
+                      {(isMidRunReview || isPostRunReview) && hasChanges ? 'Rediscovering...' : 'Resuming...'}
                     </>
                   ) : (
                     <>
                       <ArrowRight className="h-4 w-4 mr-2" />
-                      {obsUnitEdited ? 'Save & Continue to Schema Generation' : 'Continue to Schema Generation'}
+                      {primaryLabel}
                     </>
                   )}
                 </Button>
-                {obsUnitEdited && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      // Reset edits to original values
-                      setEditName(reviewObsUnit.name);
-                      setEditDefinition(reviewObsUnit.definition);
-                      setEditExamples(reviewObsUnit.example_names || []);
-                      setObsUnitEdited(false);
-                    }}
-                    className="text-muted-foreground"
-                  >
-                    Discard changes
-                  </Button>
-                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleDiscardObsUnitChanges}
+                  disabled={!discardEnabled}
+                  className="text-muted-foreground"
+                >
+                  Discard changes
+                </Button>
               </div>
             </div>
-          )}
+            );
+          })()}
         </CardContent>
       </Card>
 
@@ -1181,10 +1362,18 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         <Card className="bg-purple-50/50 border-purple-200">
           <CardContent className="py-3 px-4 flex items-center justify-between">
             <div className="flex items-center gap-2 min-w-0">
-              <Layers className="h-4 w-4 text-purple-600 shrink-0" />
+              <Layers className="h-4 w-4 text-purple-600 shrink-0 mt-0.5" />
               <div className="min-w-0">
                 <span className="text-xs text-purple-600 font-medium">Observation Unit</span>
-                <p className="text-sm font-semibold text-purple-900 truncate">{editName || reviewObsUnit.name}</p>
+                <p className="text-sm font-semibold text-purple-900">{editName || reviewObsUnit.name}</p>
+                <p className="text-xs text-purple-800/80 mt-0.5 line-clamp-2">
+                  {editDefinition || reviewObsUnit.definition}
+                </p>
+                {(editExamples.length > 0 || (reviewObsUnit.example_names?.length ?? 0) > 0) && (
+                  <p className="text-xs text-purple-700/70 mt-0.5 truncate">
+                    Examples: {(editExamples.length > 0 ? editExamples : reviewObsUnit.example_names || []).join(', ')}
+                  </p>
+                )}
               </div>
             </div>
             <Button
@@ -1193,15 +1382,9 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
               className="text-purple-600 hover:text-purple-800 hover:bg-purple-100 shrink-0"
               disabled={isResuming}
               onClick={async () => {
-                // If pipeline is running, stop it first
-                if (isProcessing) {
-                  try {
-                    await schematiqAPI.stop(sessionId);
-                    addLog('info', 'Stopped pipeline to edit observation unit');
-                  } catch (e) {
-                    // Ignore stop errors — might already be stopped
-                  }
-                }
+                // Enter edit mode without stopping the pipeline — stop only happens on confirmed change
+                setProcessingStateBeforeEdit(processingState);
+                setReviewEntryMode(isProcessing ? 'mid_run' : 'post_run');
                 // Load fresh observation unit from session
                 try {
                   const session = await loadAPI.getSession(sessionId);
@@ -1216,9 +1399,17 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                     setEditDefinition(obsData.definition);
                     setEditExamples(obsData.example_names || []);
                     setObsUnitEdited(false);
+                    setEditBaseline(obsData);
                   }
                 } catch (e) {
                   // Fall back to the cached observation unit data
+                  if (reviewObsUnit) {
+                    setEditBaseline({
+                      name: reviewObsUnit.name,
+                      definition: reviewObsUnit.definition,
+                      example_names: reviewObsUnit.example_names || [],
+                    });
+                  }
                 }
                 setProcessingState('observation_unit_review');
               }}
@@ -1282,37 +1473,37 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         {(() => {
           const schemaIsComplete = schemaProgress.isComplete || processingState === 'completed';
           return (
-            <Card className={`transition-all ${processingState === 'schema' ? 'border-primary border-2 shadow-md' : ''}`}>
+            <Card className={`transition-all ${phaseDisplayState === 'schema' || phaseDisplayState === 'starting' ? 'border-primary border-2 shadow-md' : ''}`}>
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-medium flex items-center gap-2">
                     {schemaIsComplete ? (
                       <CheckCircle2 className="h-5 w-5 text-green-500" />
-                    ) : processingState === 'schema' ? (
+                    ) : phaseDisplayState === 'schema' || phaseDisplayState === 'starting' ? (
                       <Loader2 className="h-5 w-5 animate-spin text-primary" />
                     ) : (
                       <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
                     )}
                     Phase 1: Schema
                   </span>
-                  <Badge variant={schemaIsComplete ? 'success' : processingState === 'schema' ? 'default' : 'secondary'}>
+                  <Badge variant={schemaIsComplete ? 'success' : phaseDisplayState === 'schema' || phaseDisplayState === 'starting' ? 'default' : 'secondary'}>
                     {schemaIsComplete
                       ? 'Complete'
-                      : processingState === 'schema'
+                      : phaseDisplayState === 'schema' || phaseDisplayState === 'starting'
                         ? 'In Progress'
                         : 'Pending'}
                   </Badge>
                 </div>
                 <Progress
-                  value={schemaIsComplete ? 100 : (processingState === 'schema' ? Math.max(10, (schemaProgress.iteration / schemaProgress.maxIterations) * 100) : 0)}
-                  className={`h-2 ${processingState === 'schema' && !schemaIsComplete ? 'animate-pulse' : ''}`}
+                  value={schemaIsComplete ? 100 : (phaseDisplayState === 'schema' || phaseDisplayState === 'starting' ? Math.max(10, (schemaProgress.iteration / schemaProgress.maxIterations) * 100) : 0)}
+                  className={`h-2 ${(phaseDisplayState === 'schema' || phaseDisplayState === 'starting') && !schemaIsComplete ? 'animate-pulse' : ''}`}
                 />
                 <p className="text-xs text-muted-foreground mt-2">
                   {schemaIsComplete
                     ? `${schemaProgress.columnsDiscovered} columns discovered`
-                    : processingState === 'schema' && schemaProgress.iteration > 0
+                    : (phaseDisplayState === 'schema' || phaseDisplayState === 'starting') && schemaProgress.iteration > 0
                       ? `Iteration ${schemaProgress.iteration}/${schemaProgress.maxIterations}`
-                      : processingState === 'schema'
+                      : phaseDisplayState === 'schema' || phaseDisplayState === 'starting'
                         ? 'Analyzing documents...'
                         : 'Waiting to start'}
                 </p>
@@ -1329,7 +1520,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
               extractionProgress.totalDocs > 0 &&
               extractionProgress.processedDocs >= extractionProgress.totalDocs);
           return (
-            <Card className={`transition-all ${!schemaOnly && processingState === 'extraction' ? 'border-primary border-2 shadow-md' : ''} ${schemaOnly ? 'opacity-60' : ''}`}>
+            <Card className={`transition-all ${!schemaOnly && phaseDisplayState === 'extraction' ? 'border-primary border-2 shadow-md' : ''} ${schemaOnly ? 'opacity-60' : ''}`}>
               <CardContent className="pt-4 pb-4">
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-medium flex items-center gap-2">
@@ -1339,19 +1530,19 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                       </div>
                     ) : extractionIsComplete ? (
                       <CheckCircle2 className="h-5 w-5 text-green-500" />
-                    ) : processingState === 'extraction' ? (
+                    ) : phaseDisplayState === 'extraction' ? (
                       <Loader2 className="h-5 w-5 animate-spin text-primary" />
                     ) : (
                       <div className="h-5 w-5 rounded-full border-2 border-muted-foreground/30" />
                     )}
                     Phase 2: Extraction
                   </span>
-                  <Badge variant={schemaOnly ? 'secondary' : extractionIsComplete ? 'success' : processingState === 'extraction' ? 'default' : 'secondary'}>
+                  <Badge variant={schemaOnly ? 'secondary' : extractionIsComplete ? 'success' : phaseDisplayState === 'extraction' ? 'default' : 'secondary'}>
                     {schemaOnly
                       ? 'Skipped'
                       : extractionIsComplete
                         ? 'Complete'
-                        : processingState === 'extraction'
+                        : phaseDisplayState === 'extraction'
                           ? 'In Progress'
                           : 'Pending'}
                   </Badge>
@@ -1363,17 +1554,17 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                       ? 100
                       : extractionProgress.totalDocs > 0
                         ? (extractionProgress.processedDocs / extractionProgress.totalDocs) * 100
-                        : processingState === 'extraction' ? 10 : 0}
-                  className={`h-2 ${!schemaOnly && processingState === 'extraction' && !extractionIsComplete ? 'animate-pulse' : ''}`}
+                        : phaseDisplayState === 'extraction' ? 10 : 0}
+                  className={`h-2 ${!schemaOnly && phaseDisplayState === 'extraction' && !extractionIsComplete ? 'animate-pulse' : ''}`}
                 />
                 <p className="text-xs text-muted-foreground mt-2">
                   {schemaOnly
                     ? 'Extraction was skipped'
                     : extractionIsComplete
                       ? `${extractionProgress.totalDocs} documents processed`
-                      : processingState === 'extraction' && extractionProgress.totalDocs > 0
+                      : phaseDisplayState === 'extraction' && extractionProgress.totalDocs > 0
                         ? `${extractionProgress.processedDocs}/${extractionProgress.totalDocs} documents`
-                        : processingState === 'extraction'
+                        : phaseDisplayState === 'extraction'
                           ? 'Starting extraction...'
                           : 'Waiting for schema'}
                 </p>

@@ -300,8 +300,35 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             self.clear_stop_flag(session_id)
             await concurrency_limiter.release(session_id)
 
-    async def resume_qbsd(self, session_id: str):
-        """Resume ScheMatiQ after observation unit review."""
+    async def _reset_for_observation_unit_rediscovery(self, session_id: str) -> None:
+        """Clear schema/data artifacts so a full rediscovery run starts clean."""
+        session_dir = self.work_dir / session_id
+        for fname in (
+            "extracted_data.jsonl",
+            "discovered_schema.json",
+            "value_extraction_schema.json",
+            "llm_call_stats.json",
+        ):
+            artifact = session_dir / fname
+            if artifact.exists():
+                artifact.unlink()
+                logger.info("Removed %s for observation unit rediscovery", fname)
+
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            return
+
+        session.columns = []
+        session.statistics = None
+        session.error_message = None
+        session.metadata.schema_discovery_completed = False
+        session.metadata.processed_documents = 0
+        session.metadata.total_documents = 0
+        session.metadata.processing_stats = {}
+        self.session_manager.update_session(session)
+
+    async def prepare_resume(self, session_id: str) -> None:
+        """Stop any in-flight run, reset for rediscovery if needed, update config, acquire slot."""
         set_session_context(session_id)
 
         config_file = self.work_dir / session_id / "config.json"
@@ -315,17 +342,95 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         if not session:
             raise RuntimeError(f"Session {session_id} not found")
 
-        if session.observation_unit:
+        rediscover = bool(session.metadata.pending_observation_unit_rediscovery)
+
+        with self._state_lock:
+            is_running = session_id in self.running_sessions
+
+        slot_held = concurrency_limiter.is_session_active(session_id)
+        if is_running or self.is_stop_requested(session_id):
+            if rediscover:
+                session.metadata.skip_stop_data_collection = True
+                self.session_manager.update_session(session)
+            logger.info(
+                "Stopping in-flight pipeline before resume for session %s (rediscover=%s)",
+                session_id,
+                rediscover,
+            )
+            await self.stop_execution(session_id)
+        elif slot_held:
+            logger.warning(
+                "Concurrency slot still held for session %s without running task — waiting to clear",
+                session_id,
+            )
+            for _ in range(120):
+                if not concurrency_limiter.is_session_active(session_id):
+                    break
+                await asyncio.sleep(1)
+            if concurrency_limiter.is_session_active(session_id):
+                await concurrency_limiter.release(session_id)
+
+        if rediscover:
+            await self._reset_for_observation_unit_rediscovery(session_id)
+            session = self.session_manager.get_session(session_id)
+            if session:
+                session.metadata.observation_unit_rediscovery_run = True
+                self.session_manager.update_session(session)
+                logger.info("Prepared session %s for observation unit rediscovery", session_id)
+
+        session = self.session_manager.get_session(session_id)
+        if session and session.observation_unit:
+            obs_unit = session.observation_unit
             config_data["initial_observation_unit"] = {
-                "name": session.observation_unit.name,
-                "definition": session.observation_unit.definition,
+                "name": obs_unit.name,
+                "definition": obs_unit.definition,
             }
+            if obs_unit.example_names:
+                config_data["initial_observation_unit"]["example_names"] = obs_unit.example_names
+
+            examples_suffix = ""
+            if obs_unit.example_names:
+                examples_suffix = f" (examples: {', '.join(obs_unit.example_names)})"
+            resume_log = (
+                f'Resuming with observation unit: "{obs_unit.name}": '
+                f'{obs_unit.definition}{examples_suffix}'
+            )
+            logger.info(resume_log)
+            await self.websocket_manager.broadcast_to_session(session_id, {
+                "type": "log",
+                "timestamp": datetime.now().isoformat(),
+                "data": {
+                    "level": "info",
+                    "message": resume_log,
+                },
+            })
 
         config_data["review_observation_unit"] = False
 
         with open(config_file, 'w') as f:
             json.dump(config_data, f, indent=2)
 
+        for attempt in range(120):
+            try:
+                await concurrency_limiter.acquire(session_id, "schematiq")
+                return
+            except RuntimeError as exc:
+                if "already has an active operation" not in str(exc):
+                    raise
+                if attempt == 0:
+                    logger.info(
+                        "Waiting for session %s pipeline slot to free before resume",
+                        session_id,
+                    )
+                await asyncio.sleep(1)
+
+        raise RuntimeError(
+            f"Timed out waiting for session {session_id} to stop before resume"
+        )
+
+    async def resume_qbsd(self, session_id: str, acquire_slot: bool = False):
+        """Resume ScheMatiQ after observation unit review or post-edit rediscovery."""
+        await self.prepare_resume(session_id)
         await self.run_schematiq(session_id)
 
     async def _execute_schematiq(self, session_id: str, config: ScheMatiQConfig):
@@ -655,6 +760,10 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 "estimated_cost_usd": initial_cost_estimate_usd,
                 "estimated_calls": initial_calls_estimate,
             }
+            if session.metadata.observation_unit_rediscovery_run:
+                session.metadata.pending_observation_unit_rediscovery = False
+                session.metadata.observation_unit_rediscovery_run = False
+                logger.info("Cleared pending_observation_unit_rediscovery after successful rediscovery")
             self.session_manager.update_session(session)
             self.session_manager.capture_schema_baseline(session_id)
 
@@ -880,11 +989,15 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             "data_rows_saved": rows_saved,
             "message": "Processing stopped during value extraction"
         })
-        if self._data_collection_service and rows_saved > 0:
+        skip_archive = bool(session.metadata.skip_stop_data_collection)
+        if skip_archive:
+            session.metadata.skip_stop_data_collection = False
+            self.session_manager.update_session(session)
+        elif self._data_collection_service and rows_saved > 0:
             await self._data_collection_service.trigger_archive(session_id, "schematiq_stopped_partial")
-        if self._pubmed_enrichment_service and rows_saved > 0:
+        if not skip_archive and self._pubmed_enrichment_service and rows_saved > 0:
             await self._pubmed_enrichment_service.enrich_session(session_id)
-        if self._uniprot_enrichment_service and rows_saved > 0:
+        if not skip_archive and self._uniprot_enrichment_service and rows_saved > 0:
             await self._uniprot_enrichment_service.enrich_session(session_id)
 
     def _move_pending_documents(self, session_id: str):
