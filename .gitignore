@@ -142,3 +142,4 @@ test_*.py
 
 # Local evaluation scripts
 evaluate_schematiq.py
+.dev-data/
