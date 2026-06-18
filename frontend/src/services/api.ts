@@ -1012,6 +1012,14 @@ export const chatAPI = {
     const response = await api.post(`/chat/${sessionId}/confirm`, { chat_id: chatId });
     return response.data;
   },
+
+  cancelAction: async (
+    sessionId: string,
+    chatId: string,
+  ): Promise<ChatMessageResponse> => {
+    const response = await api.post(`/chat/${sessionId}/cancel`, { chat_id: chatId });
+    return response.data;
+  },
 };
 
 export async function downloadBlob(path: string, fallbackFilename: string): Promise<void> {

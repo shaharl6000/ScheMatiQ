@@ -248,6 +248,18 @@ const emptyData: PaginatedData = {
   has_more: false,
 };
 
+function dataEquals(a: PaginatedData, b: PaginatedData): boolean {
+  if (a === b) return true;
+  if (
+    a.total_count !== b.total_count
+    || a.filtered_count !== b.filtered_count
+    || a.rows.length !== b.rows.length
+  ) {
+    return false;
+  }
+  return JSON.stringify(a.rows) === JSON.stringify(b.rows);
+}
+
 function formatFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];
@@ -646,6 +658,7 @@ function SpreadsheetSurface({
   onSelectionChange,
   onRefresh,
   onEditFollowUp,
+  onEditEnd,
   layoutRevision,
 }: {
   activeSheet: SheetId;
@@ -658,6 +671,7 @@ function SpreadsheetSurface({
   onSelectionChange: (selection: SheetSelection) => void;
   onRefresh: () => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
+  onEditEnd: () => void;
   layoutRevision: string;
 }) {
   const { sessionId } = useParams();
@@ -1034,7 +1048,11 @@ function SpreadsheetSurface({
         minSpareRows={sheet.minSpareRows || 0}
         licenseKey="non-commercial-and-evaluation"
         afterInit={syncHotTableDimensions}
-        afterChange={handleChanges}
+        afterChange={(changes, source) => {
+          handleChanges(changes, source);
+          if (source !== 'loadData') onEditEnd();
+        }}
+        afterDeselect={onEditEnd}
         afterSelectionEnd={(row: number, col: number, row2: number, col2: number) => {
           if (row < 0 || col < 0 || row2 < 0 || col2 < 0) {
             onSelectionChange(null);
@@ -1310,6 +1328,19 @@ function ChatPanel({
     }
   }, [appendMessages, applyChatResponse, pendingAction, sessionId]);
 
+  const cancelPendingAction = useCallback(async () => {
+    const action = pendingAction;
+    setPendingAction(null);
+    if (!action || !sessionId) return;
+    try {
+      const response = await chatAPI.cancelAction(sessionId, action.chatId);
+      applyChatResponse(response);
+    } catch {
+      // Best-effort: the next expensive call overwrites the server's pending
+      // slot regardless, so a failed cancel is non-fatal.
+    }
+  }, [applyChatResponse, pendingAction, sessionId]);
+
   return (
     <aside className="workspace-chat">
       <div className="workspace-chat-header">
@@ -1364,7 +1395,7 @@ function ChatPanel({
                 <Check className="h-4 w-4" />
                 Confirm
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setPendingAction(null)} disabled={busy}>
+              <Button size="sm" variant="outline" onClick={cancelPendingAction} disabled={busy}>
                 <X className="h-4 w-4" />
                 Cancel
               </Button>
@@ -1724,6 +1755,32 @@ function Workspace() {
   const [reextractConfirm, setReextractConfirm] = useState<{ columns: string[] } | null>(null);
   const [stoppingReextraction, setStoppingReextraction] = useState(false);
 
+  const deferredDataRef = useRef<PaginatedData | null>(null);
+
+  const isCellEditorOpen = useCallback(() => {
+    const editor = hotTableRef.current?.hotInstance?.getActiveEditor?.();
+    return Boolean(editor?.isOpened?.());
+  }, []);
+
+  const applyData = useCallback(
+    (nextData: PaginatedData, opts?: { silent?: boolean }) => {
+      if (opts?.silent && isCellEditorOpen()) {
+        deferredDataRef.current = nextData;
+        return;
+      }
+      deferredDataRef.current = null;
+      setData((current) => (dataEquals(current, nextData) ? current : nextData));
+    },
+    [isCellEditorOpen],
+  );
+
+  const flushDeferredData = useCallback(() => {
+    const pending = deferredDataRef.current;
+    if (!pending) return;
+    deferredDataRef.current = null;
+    setData((current) => (dataEquals(current, pending) ? current : pending));
+  }, []);
+
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (!sessionId) return;
     if (!options?.silent) {
@@ -1738,7 +1795,7 @@ function Workspace() {
         ]);
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
-        setData(nextData);
+        applyData(nextData, options);
         setDocuments(nextDocuments);
         setConfig(null);
         return;
@@ -1754,7 +1811,7 @@ function Workspace() {
         ]);
         setStatus(nextStatus);
         setSchema(nextSchema);
-        setData(nextData);
+        applyData(nextData, options);
         setDocuments(nextDocuments);
         setConfig(nextConfig);
       } catch (err) {
@@ -1767,7 +1824,7 @@ function Workspace() {
         ]);
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
-        setData(nextData);
+        applyData(nextData, options);
         setDocuments(nextDocuments);
         setConfig(null);
       }
@@ -1778,7 +1835,15 @@ function Workspace() {
     }
   }, [sessionId, sessionMode]);
 
-  const refreshSilent = useCallback(() => refresh({ silent: true }), [refresh]);
+  const inFlightSilentRef = useRef<Promise<void> | null>(null);
+  const refreshSilent = useCallback(() => {
+    if (inFlightSilentRef.current) return inFlightSilentRef.current;
+    const run = refresh({ silent: true }).finally(() => {
+      inFlightSilentRef.current = null;
+    });
+    inFlightSilentRef.current = run;
+    return run;
+  }, [refresh]);
 
   useEffect(() => {
     setProjectDialogOpen(!sessionId);
@@ -2331,6 +2396,7 @@ function Workspace() {
               onSelectionChange={updateSheetSelection}
               onRefresh={refreshSilent}
               onEditFollowUp={notifyEditFollowUp}
+              onEditEnd={flushDeferredData}
               layoutRevision={gridLayoutRevision}
             />
             {loading && sessionId && (

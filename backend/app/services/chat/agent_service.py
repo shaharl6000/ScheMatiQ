@@ -152,6 +152,33 @@ class ChatAgentService:
                 "messages": outbound_messages,
             }
 
+    async def cancel_pending(
+        self,
+        session_id: str,
+        chat_id: str,
+    ) -> dict[str, Any]:
+        """Abandon a pending expensive action without running it.
+
+        Clears ``state.pending`` server-side so a cancelled confirmation card can
+        never be executed by a later ``/confirm`` (e.g. a double-tap or stale
+        client). Idempotent: cancelling when nothing is pending is a no-op.
+        """
+        state = chat_session_store.get(chat_id)
+        if not state or state.workspace_session_id != session_id:
+            raise ValueError("Chat session not found. Start a new conversation.")
+
+        # Clearing pending is the whole job; we deliberately emit no tool_log.
+        # The frontend already removes the confirmation card optimistically, and
+        # the chat has only running/done/error statuses, so any log here would
+        # render either as a misleading red "error" or a false "done" for an
+        # action that never ran.
+        state.pending = None
+        return {
+            "chat_id": chat_id,
+            "status": "complete",
+            "messages": [],
+        }
+
     def _get_or_create_session(
         self,
         session_id: str,
