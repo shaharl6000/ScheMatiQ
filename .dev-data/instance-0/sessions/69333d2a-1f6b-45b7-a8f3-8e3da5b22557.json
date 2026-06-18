@@ -1,0 +1,69 @@
+{
+  "id": "69333d2a-1f6b-45b7-a8f3-8e3da5b22557",
+  "type": "schematiq",
+  "status": "stopped",
+  "metadata": {
+    "source": "ScheMatiQ Query: Do federal judges appointed by different President...",
+    "created": "2026-06-18 16:40:25.022619",
+    "last_modified": "2026-06-18 16:40:33.924291",
+    "file_size": null,
+    "row_count": null,
+    "schema_discovery_completed": true,
+    "total_documents": null,
+    "processed_documents": 0,
+    "extracted_schema": null,
+    "uploaded_documents": [
+      "Angelica2025-06-09DDC.txt",
+      "Amica2025-07-06DDC.txt",
+      "AmericanGateways2025-07-21DDC.txt"
+    ],
+    "processing_stats": {},
+    "original_row_count": null,
+    "additional_rows_added": 0,
+    "cloud_dataset": null,
+    "document_metadata": {
+      "Angelica2025-06-09DDC.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "Angelica2025-06-09DDC.txt"
+      },
+      "Amica2025-07-06DDC.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "Amica2025-07-06DDC.txt"
+      },
+      "AmericanGateways2025-07-21DDC.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "AmericanGateways2025-07-21DDC.txt"
+      }
+    },
+    "pubmed_link_suppressed_stems": [
+      "AmericanGateways2025-07-21DDC",
+      "Amica2025-07-06DDC",
+      "Angelica2025-06-09DDC"
+    ],
+    "pending_observation_unit_rediscovery": false
+  },
+  "schema_query": "Do federal judges appointed by different Presidents (Trump vs. other Republican vs. Democratic) differ in their voting tendencies on immigration injunction cases? Do Trump-appointed judges tend to be more supportive of Trump administration immigration policies compared to judges appointed by other Republican or Democratic presidents?\n",
+  "columns": [],
+  "statistics": null,
+  "error_message": null,
+  "schema_suggestions": null,
+  "schema_baseline": null,
+  "creation_metadata": null,
+  "modification_history": [],
+  "observation_unit": {
+    "name": "Judge",
+    "definition": "An individual federal judge whose rulings on immigration injunction cases are analyzed to compare voting tendencies based on the appointing President.",
+    "example_names": [
+      "Dabney L. Friedrich",
+      "Randolph D. Moss",
+      "Amir H. Ali"
+    ],
+    "source_document": "Angelica2025-06-09DDC.txt",
+    "discovery_iteration": 1
+  },
+  "opt_out_data_collection": false,
+  "write_artifacts": false
+}

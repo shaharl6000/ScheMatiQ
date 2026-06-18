@@ -1,0 +1,8 @@
+{
+  "query": "Do federal judges appointed by different Presidents (Trump vs. other Republican vs. Democratic) differ in their voting tendencies on immigration injunction cases? Do Trump-appointed judges tend to be more supportive of Trump administration immigration policies compared to judges appointed by other Republican or Democratic presidents?\n",
+  "schema": [],
+  "observation_unit": {
+    "name": "Judge",
+    "definition": "An individual federal judge"
+  }
+}

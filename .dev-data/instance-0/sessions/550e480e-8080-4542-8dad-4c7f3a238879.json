@@ -1,0 +1,599 @@
+{
+  "id": "550e480e-8080-4542-8dad-4c7f3a238879",
+  "type": "schematiq",
+  "status": "completed",
+  "metadata": {
+    "source": "ScheMatiQ Query: Do federal judges appointed by different President...",
+    "created": "2026-06-18 17:04:17.742914",
+    "last_modified": "2026-06-18 17:05:38.843188",
+    "file_size": null,
+    "row_count": null,
+    "schema_discovery_completed": true,
+    "total_documents": 6,
+    "processed_documents": 6,
+    "extracted_schema": null,
+    "uploaded_documents": [
+      "Barbara2025-07-10DNH.txt",
+      "ASR2025-05-13WDPA.txt",
+      "Arevalo2025-06-02CDCA.txt",
+      "Angelica2025-06-09DDC.txt",
+      "Amica2025-07-06DDC.txt",
+      "AmericanGateways2025-07-21DDC.txt"
+    ],
+    "processing_stats": {
+      "llm_stats": {
+        "total_calls": 13,
+        "current_cost_usd": 0.197221,
+        "estimated_cost_usd": 0.183195,
+        "estimated_calls": 17
+      }
+    },
+    "original_row_count": null,
+    "additional_rows_added": 0,
+    "cloud_dataset": null,
+    "document_metadata": {
+      "Barbara2025-07-10DNH.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "Barbara2025-07-10DNH.txt"
+      },
+      "ASR2025-05-13WDPA.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "ASR2025-05-13WDPA.txt"
+      },
+      "Arevalo2025-06-02CDCA.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "Arevalo2025-06-02CDCA.txt"
+      },
+      "Angelica2025-06-09DDC.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "Angelica2025-06-09DDC.txt"
+      },
+      "Amica2025-07-06DDC.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "Amica2025-07-06DDC.txt"
+      },
+      "AmericanGateways2025-07-21DDC.txt": {
+        "extraction_status": "extracted from text",
+        "extraction_method": "plain",
+        "original_filename": "AmericanGateways2025-07-21DDC.txt"
+      },
+      "ASR2025-05-13WDPA": {
+        "url": null
+      },
+      "AmericanGateways2025-07-21DDC": {
+        "url": null
+      },
+      "Amica2025-07-06DDC": {
+        "url": null
+      },
+      "Angelica2025-06-09DDC": {
+        "url": null
+      },
+      "Arevalo2025-06-02CDCA": {
+        "url": null
+      },
+      "Barbara2025-07-10DNH": {
+        "url": null
+      }
+    },
+    "pubmed_link_suppressed_stems": [
+      "ASR2025-05-13WDPA",
+      "AmericanGateways2025-07-21DDC",
+      "Amica2025-07-06DDC",
+      "Angelica2025-06-09DDC",
+      "Arevalo2025-06-02CDCA",
+      "Barbara2025-07-10DNH"
+    ],
+    "pending_observation_unit_rediscovery": true
+  },
+  "schema_query": "Do federal judges appointed by different Presidents (Trump vs. other Republican vs. Democratic) differ in their voting tendencies on immigration injunction cases? Do Trump-appointed judges tend to be more supportive of Trump administration immigration policies compared to judges appointed by other Republican or Democratic presidents?\n",
+  "columns": [
+    {
+      "name": "case_name",
+      "definition": "The title or style of the court case (e.g., 'Arevalo Millan v. Trump').",
+      "rationale": "Identifies the specific legal dispute being analyzed.",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "free-form"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": [
+        {
+          "value": "A.S.R. v. Donald J. Trump, et al.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937622",
+          "documents": [
+            "ASR2025-05-13WDPA"
+          ]
+        },
+        {
+          "value": "AMERICAN GATEWAYS, et al., v. U.S. DEPARTMENT OF JUSTICE, et al.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937704",
+          "documents": [
+            "AmericanGateways2025-07-21DDC"
+          ]
+        },
+        {
+          "value": "Amica Center for Immigrant Rights, et al. v. U.S. Department of Justice, et al.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937712",
+          "documents": [
+            "Amica2025-07-06DDC"
+          ]
+        },
+        {
+          "value": "ANGELICA S., et al. v. U.S. DEPARTMENT OF HEALTH AND HUMAN SERVICES, et al.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937717",
+          "documents": [
+            "Angelica2025-06-09DDC"
+          ]
+        },
+        {
+          "value": "Darwin Antonio Arevalo Millan v. Donald J. Trump, et al.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937722",
+          "documents": [
+            "Arevalo2025-06-02CDCA"
+          ]
+        },
+        {
+          "value": "Barbara, et al. v. Donald J. Trump, et al.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937727",
+          "documents": [
+            "Barbara2025-07-10DNH"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "judge_name",
+      "definition": "The name of the federal judge presiding over the case and issuing the order.",
+      "rationale": "Crucial for identifying the judge to cross-reference their appointing president and analyze voting patterns.",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "free-form"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": [
+        {
+          "value": "Stephanie L. Haines",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937901",
+          "documents": [
+            "ASR2025-05-13WDPA"
+          ]
+        },
+        {
+          "value": "Amir H. Ali",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937910",
+          "documents": [
+            "AmericanGateways2025-07-21DDC"
+          ]
+        },
+        {
+          "value": "Randolph D. Moss",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937914",
+          "documents": [
+            "Amica2025-07-06DDC"
+          ]
+        },
+        {
+          "value": "Dabney L. Friedrich",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937919",
+          "documents": [
+            "Angelica2025-06-09DDC"
+          ]
+        },
+        {
+          "value": "John W. Holcomb",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937923",
+          "documents": [
+            "Arevalo2025-06-02CDCA"
+          ]
+        },
+        {
+          "value": "Joseph N. Laplante",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937928",
+          "documents": [
+            "Barbara2025-07-10DNH"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "challenged_policy",
+      "definition": "A brief description of the Trump administration immigration policy, proclamation, or executive action being challenged in the case.",
+      "rationale": "Allows researchers to categorize the types of immigration policies being challenged (e.g., Alien Enemies Act invocation, sponsor vetting, legal service program termination).",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "free-form"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": [
+        {
+          "value": "President Trump's Proclamation invoking the Alien Enemies Act (AEA) regarding the invasion of the United States by Tren de Aragua (TdA).",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937965",
+          "documents": [
+            "ASR2025-05-13WDPA"
+          ]
+        },
+        {
+          "value": "The rescission of the National Qualified Representative Program (NQRP), which provided qualified legal representation to detained, unrepresented individuals found mentally incompetent in immigration proceedings.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937971",
+          "documents": [
+            "AmericanGateways2025-07-21DDC"
+          ]
+        },
+        {
+          "value": "The termination of federal contracts for legal orientation programs (LOP, LOPC, ICH, FGLOP, and CCI) and the decision to in-source some of these programs while discontinuing others.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937976",
+          "documents": [
+            "Amica2025-07-06DDC"
+          ]
+        },
+        {
+          "value": "An Interim Final Rule (IFR) revising the Unaccompanied Children Program Foundational Rule and new sponsor document requirements (identification and proof of income) in the ORR Policy Guide.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937979",
+          "documents": [
+            "Angelica2025-06-09DDC"
+          ]
+        },
+        {
+          "value": "Presidential Proclamation No. 10903, which invokes the Alien Enemies Act to authorize the immediate removal of certain Venezuelan nationals suspected of being members of the foreign terrorist organization Tren de Aragua.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937984",
+          "documents": [
+            "Arevalo2025-06-02CDCA"
+          ]
+        },
+        {
+          "value": "Executive Order \u201cProtecting the Meaning and Value of American Citizenship.\u201d",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.937989",
+          "documents": [
+            "Barbara2025-07-10DNH"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "injunction_ruling_type",
+      "definition": "The court's decision regarding the plaintiff's motion for a preliminary injunction or temporary restraining order.",
+      "rationale": "Directly measures the judge's voting tendency on the requested immigration injunction.",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "granted",
+        "denied",
+        "granted in part and denied in part"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": null
+    },
+    {
+      "name": "government_position_supported",
+      "definition": "Indicates whether the judge's ruling ultimately supported the government's position, opposed it, or was mixed.",
+      "rationale": "Helps determine if the judge's voting tendency is supportive of the administration's policies.",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "yes",
+        "no",
+        "partially"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": null
+    },
+    {
+      "name": "ruling_rationale_summary",
+      "definition": "A summary of the judge's legal reasoning for granting or denying the injunction (e.g., likelihood of success on due process claims, lack of standing, statutory interpretation of the Alien Enemies Act).",
+      "rationale": "Provides qualitative context on how the judge interpreted the law, which helps identify systematic differences in legal philosophy between appointees.",
+      "data_type": "object",
+      "non_null_count": null,
+      "unique_count": null,
+      "source_document": null,
+      "discovery_iteration": null,
+      "allowed_values": [
+        "free-form"
+      ],
+      "auto_expand_threshold": 2,
+      "pending_values": [
+        {
+          "value": "The court found the Proclamation complied with the AEA, rejecting arguments that it was factually incorrect or that the INA superseded the AEA. However, it granted the injunction regarding notice, ruling that the current notice provided by the Executive Branch was constitutionally deficient under the Fifth Amendment and Supreme Court precedent, requiring 21 days' notice and an opportunity to be heard.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.938030",
+          "documents": [
+            "ASR2025-05-13WDPA"
+          ]
+        },
+        {
+          "value": "The court found that the Acting Director's termination of the NQRP was arbitrary and capricious under the Administrative Procedure Act (APA) because the agency failed to consider the reliance interests of the affected population and the impact on the administration of justice, and offered no persuasive justification for the rescission beyond 'convenience'.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.938036",
+          "documents": [
+            "AmericanGateways2025-07-21DDC"
+          ]
+        },
+        {
+          "value": "The court found that it lacked jurisdiction under the Tucker Act to review the in-sourcing decision, and that the decision to terminate the other programs was committed to agency discretion by law and thus unreviewable under the APA. The court also rejected the First Amendment and other constitutional claims on the merits.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.938041",
+          "documents": [
+            "Amica2025-07-06DDC"
+          ]
+        },
+        {
+          "value": "The court found that the plaintiffs had standing to challenge the new sponsor documentation requirements but not the Interim Final Rule. Regarding the documentation requirements, the court held that the government acted arbitrarily and capriciously by failing to provide a reasoned explanation for the changes and by applying them retroactively without considering reliance interests.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.938045",
+          "documents": [
+            "Angelica2025-06-09DDC"
+          ]
+        },
+        {
+          "value": "The judge ruled that the President has broad discretion under the Alien Enemies Act to determine if an invasion or predatory incursion exists, making the Proclamation likely lawful. However, the judge granted a preliminary injunction because the detainees are likely to succeed on their due process claims, as they are entitled to more notice and process than the government had promised before removal.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.938050",
+          "documents": [
+            "Arevalo2025-06-02CDCA"
+          ]
+        },
+        {
+          "value": "The court found that the petitioners demonstrated a likelihood of success on the merits, a likelihood of irreparable harm, that the balance of hardships favored the petitioners, and that the injunction was in the public interest.",
+          "document_count": 1,
+          "first_seen": "2026-06-18 17:05:37.938054",
+          "documents": [
+            "Barbara2025-07-10DNH"
+          ]
+        }
+      ]
+    }
+  ],
+  "statistics": {
+    "total_rows": 6,
+    "total_columns": 6,
+    "total_documents": 6,
+    "completeness": 100.0,
+    "column_stats": [
+      {
+        "name": "case_name",
+        "definition": "The title or style of the court case (e.g., 'Arevalo Millan v. Trump').",
+        "rationale": "Identifies the specific legal dispute being analyzed.",
+        "data_type": "object",
+        "non_null_count": 6,
+        "unique_count": 6,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "free-form"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      },
+      {
+        "name": "judge_name",
+        "definition": "The name of the federal judge presiding over the case and issuing the order.",
+        "rationale": "Crucial for identifying the judge to cross-reference their appointing president and analyze voting patterns.",
+        "data_type": "object",
+        "non_null_count": 6,
+        "unique_count": 6,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "free-form"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      },
+      {
+        "name": "challenged_policy",
+        "definition": "A brief description of the Trump administration immigration policy, proclamation, or executive action being challenged in the case.",
+        "rationale": "Allows researchers to categorize the types of immigration policies being challenged (e.g., Alien Enemies Act invocation, sponsor vetting, legal service program termination).",
+        "data_type": "object",
+        "non_null_count": 6,
+        "unique_count": 6,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "free-form"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      },
+      {
+        "name": "injunction_ruling_type",
+        "definition": "The court's decision regarding the plaintiff's motion for a preliminary injunction or temporary restraining order.",
+        "rationale": "Directly measures the judge's voting tendency on the requested immigration injunction.",
+        "data_type": "object",
+        "non_null_count": 6,
+        "unique_count": 3,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "granted",
+          "denied",
+          "granted in part and denied in part"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      },
+      {
+        "name": "government_position_supported",
+        "definition": "Indicates whether the judge's ruling ultimately supported the government's position, opposed it, or was mixed.",
+        "rationale": "Helps determine if the judge's voting tendency is supportive of the administration's policies.",
+        "data_type": "object",
+        "non_null_count": 6,
+        "unique_count": 3,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "yes",
+          "no",
+          "partially"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      },
+      {
+        "name": "ruling_rationale_summary",
+        "definition": "A summary of the judge's legal reasoning for granting or denying the injunction (e.g., likelihood of success on due process claims, lack of standing, statutory interpretation of the Alien Enemies Act).",
+        "rationale": "Provides qualitative context on how the judge interpreted the law, which helps identify systematic differences in legal philosophy between appointees.",
+        "data_type": "object",
+        "non_null_count": 6,
+        "unique_count": 6,
+        "source_document": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "discovery_iteration": null,
+        "allowed_values": [
+          "free-form"
+        ],
+        "auto_expand_threshold": 2,
+        "pending_values": null
+      }
+    ],
+    "schema_evolution": {
+      "snapshots": [
+        {
+          "iteration": 1,
+          "documents_processed": [
+            "Arevalo2025-06-02CDCA.txt",
+            "Barbara2025-07-10DNH.txt",
+            "Angelica2025-06-09DDC.txt",
+            "Amica2025-07-06DDC.txt",
+            "ASR2025-05-13WDPA.txt",
+            "AmericanGateways2025-07-21DDC.txt"
+          ],
+          "total_columns": 6,
+          "new_columns": [
+            "case_name",
+            "judge_name",
+            "challenged_policy",
+            "injunction_ruling_type",
+            "government_position_supported",
+            "ruling_rationale_summary"
+          ],
+          "cumulative_documents": 6
+        }
+      ],
+      "column_sources": {
+        "case_name": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "judge_name": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "challenged_policy": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "injunction_ruling_type": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "government_position_supported": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt",
+        "ruling_rationale_summary": "Arevalo2025-06-02CDCA.txt, Barbara2025-07-10DNH.txt, Angelica2025-06-09DDC.txt, Amica2025-07-06DDC.txt, ASR2025-05-13WDPA.txt, AmericanGateways2025-07-21DDC.txt"
+      }
+    },
+    "skipped_documents": []
+  },
+  "error_message": null,
+  "schema_suggestions": null,
+  "schema_baseline": {
+    "columns": {
+      "case_name": {
+        "name": "case_name",
+        "definition": "The title or style of the court case (e.g., 'Arevalo Millan v. Trump').",
+        "rationale": "Identifies the specific legal dispute being analyzed.",
+        "allowed_values": [
+          "free-form"
+        ],
+        "checksum": "7b88726de4c18c284ce1e8149730df12"
+      },
+      "judge_name": {
+        "name": "judge_name",
+        "definition": "The name of the federal judge presiding over the case and issuing the order.",
+        "rationale": "Crucial for identifying the judge to cross-reference their appointing president and analyze voting patterns.",
+        "allowed_values": [
+          "free-form"
+        ],
+        "checksum": "4fb3ab2382b08a7c470738a216ec4941"
+      },
+      "challenged_policy": {
+        "name": "challenged_policy",
+        "definition": "A brief description of the Trump administration immigration policy, proclamation, or executive action being challenged in the case.",
+        "rationale": "Allows researchers to categorize the types of immigration policies being challenged (e.g., Alien Enemies Act invocation, sponsor vetting, legal service program termination).",
+        "allowed_values": [
+          "free-form"
+        ],
+        "checksum": "9dc499633a5226196590318fd4682621"
+      },
+      "injunction_ruling_type": {
+        "name": "injunction_ruling_type",
+        "definition": "The court's decision regarding the plaintiff's motion for a preliminary injunction or temporary restraining order.",
+        "rationale": "Directly measures the judge's voting tendency on the requested immigration injunction.",
+        "allowed_values": [
+          "granted",
+          "denied",
+          "granted in part and denied in part"
+        ],
+        "checksum": "c634dff4e3352e4d898c432e96c0c454"
+      },
+      "government_position_supported": {
+        "name": "government_position_supported",
+        "definition": "Indicates whether the judge's ruling ultimately supported the government's position, opposed it, or was mixed.",
+        "rationale": "Helps determine if the judge's voting tendency is supportive of the administration's policies.",
+        "allowed_values": [
+          "yes",
+          "no",
+          "partially"
+        ],
+        "checksum": "7c29136b50d1322061d725c6294fb279"
+      },
+      "ruling_rationale_summary": {
+        "name": "ruling_rationale_summary",
+        "definition": "A summary of the judge's legal reasoning for granting or denying the injunction (e.g., likelihood of success on due process claims, lack of standing, statutory interpretation of the Alien Enemies Act).",
+        "rationale": "Provides qualitative context on how the judge interpreted the law, which helps identify systematic differences in legal philosophy between appointees.",
+        "allowed_values": [
+          "free-form"
+        ],
+        "checksum": "e9d82162b0816b9c4a9b7da053d6ebc8"
+      }
+    },
+    "captured_at": "2026-06-18 17:05:38.832153"
+  },
+  "creation_metadata": null,
+  "modification_history": [],
+  "observation_unit": {
+    "name": "Judge",
+    "definition": "A federal judge",
+    "example_names": null,
+    "source_document": null,
+    "discovery_iteration": null
+  },
+  "opt_out_data_collection": false,
+  "write_artifacts": false
+}

@@ -1,0 +1,122 @@
+{
+  "total_calls": 16,
+  "per_stage": {
+    "schema_discovery": 1,
+    "value_extraction": 15
+  },
+  "log_length": 16,
+  "log": [
+    {
+      "timestamp": 1781791924.291349,
+      "stage": "schema_discovery",
+      "model": "gemini-3.5-flash",
+      "prompt_length": 358019,
+      "completion_length": 2818
+    },
+    {
+      "timestamp": 1781791929.2595289,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 107278,
+      "completion_length": 756
+    },
+    {
+      "timestamp": 1781791934.1115,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 99350,
+      "completion_length": 2236
+    },
+    {
+      "timestamp": 1781791938.748616,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 66407,
+      "completion_length": 451
+    },
+    {
+      "timestamp": 1781791942.461901,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 58449,
+      "completion_length": 1402
+    },
+    {
+      "timestamp": 1781791948.217311,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 92329,
+      "completion_length": 473
+    },
+    {
+      "timestamp": 1781791952.363096,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 84375,
+      "completion_length": 1379
+    },
+    {
+      "timestamp": 1781791955.8364182,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 62174,
+      "completion_length": 326
+    },
+    {
+      "timestamp": 1781791959.364529,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 54232,
+      "completion_length": 1807
+    },
+    {
+      "timestamp": 1781791965.027086,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 79624,
+      "completion_length": 728
+    },
+    {
+      "timestamp": 1781791969.029621,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 71670,
+      "completion_length": 1350
+    },
+    {
+      "timestamp": 1781791970.928689,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 71694,
+      "completion_length": 427
+    },
+    {
+      "timestamp": 1781791974.076716,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 71673,
+      "completion_length": 1792
+    },
+    {
+      "timestamp": 1781791976.754951,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 71664,
+      "completion_length": 1431
+    },
+    {
+      "timestamp": 1781791978.954896,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 71661,
+      "completion_length": 1465
+    },
+    {
+      "timestamp": 1781791981.369907,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 71670,
+      "completion_length": 1800
+    }
+  ]
+}

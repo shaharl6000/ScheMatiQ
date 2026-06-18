@@ -1,0 +1,68 @@
+{
+  "query": "Do federal judges appointed by different Presidents (Trump vs. other Republican vs. Democratic) differ in their voting tendencies on immigration injunction cases? Do Trump-appointed judges tend to be more supportive of Trump administration immigration policies compared to judges appointed by other Republican or Democratic presidents?\n",
+  "schema": [
+    {
+      "name": "judge_name",
+      "definition": "The full name of the federal judge presiding over the case or authoring the opinion.",
+      "rationale": "Necessary to identify the specific judge whose voting tendencies and appointment background are being analyzed.",
+      "allowed_values": [
+        "Dabney L. Friedrich",
+        "Randolph D. Moss",
+        "Amir H. Ali"
+      ]
+    },
+    {
+      "name": "appointing_president",
+      "definition": "The U.S. President who appointed the judge to the federal bench.",
+      "rationale": "Directly addresses the core query comparing Trump-appointed judges with those appointed by other Republican or Democratic presidents.",
+      "allowed_values": [
+        "Donald Trump",
+        "Barack Obama",
+        "Joe Biden"
+      ]
+    },
+    {
+      "name": "appointing_president_party",
+      "definition": "The political party of the President who appointed the judge.",
+      "rationale": "Allows grouping of judges by appointing party (Republican vs. Democratic) to analyze broader voting tendencies.",
+      "allowed_values": [
+        "Republican",
+        "Democratic"
+      ]
+    },
+    {
+      "name": "ruling_on_injunction",
+      "definition": "The court's decision regarding the requested preliminary injunction or temporary restraining order.",
+      "rationale": "Captures the judge's vote/ruling on the immigration injunction, which is the dependent variable of the research question.",
+      "allowed_values": [
+        "granted",
+        "granted in part and denied in part",
+        "denied"
+      ]
+    },
+    {
+      "name": "challenged_immigration_policy_administration",
+      "definition": "The presidential administration that promulgated the challenged immigration policy or rule.",
+      "rationale": "Allows researchers to determine if Trump-appointed judges are more supportive of Trump administration policies specifically, compared to other administrations' policies.",
+      "allowed_values": [
+        "Trump Administration",
+        "Biden Administration",
+        "Obama Administration"
+      ]
+    },
+    {
+      "name": "challenged_policy_description",
+      "definition": "A brief description of the specific immigration policy, rule, or program being challenged in the case.",
+      "rationale": "Provides essential context on the type of immigration issue (e.g., unaccompanied minors, legal representation, funding) being decided.",
+      "allowed_values": [
+        "Unaccompanied Children Program sponsor documentation and income requirements",
+        "Termination of Legal Orientation Programs (LOP, ICH, FGLOP, CCI)",
+        "Rescission of National Qualified Representative Program (NQRP)"
+      ]
+    }
+  ],
+  "observation_unit": {
+    "name": "Judge",
+    "definition": "A federal judge"
+  }
+}

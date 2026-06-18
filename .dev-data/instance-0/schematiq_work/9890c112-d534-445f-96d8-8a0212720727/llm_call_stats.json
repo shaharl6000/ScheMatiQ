@@ -1,0 +1,31 @@
+{
+  "total_calls": 3,
+  "per_stage": {
+    "schema_discovery": 1,
+    "value_extraction": 2
+  },
+  "log_length": 3,
+  "log": [
+    {
+      "timestamp": 1781789773.327244,
+      "stage": "schema_discovery",
+      "model": "gemini-3.5-flash",
+      "prompt_length": 143017,
+      "completion_length": 48
+    },
+    {
+      "timestamp": 1781789778.5291479,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 66417,
+      "completion_length": 394
+    },
+    {
+      "timestamp": 1781789784.5310059,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 92339,
+      "completion_length": 403
+    }
+  ]
+}

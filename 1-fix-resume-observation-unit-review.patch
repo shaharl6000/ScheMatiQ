@@ -1,0 +1,34 @@
+From fb0b7dad7f7ec6ea32b2e72e9504c4d614b2d14c Mon Sep 17 00:00:00 2001
+From: Claude <claude@anthropic.com>
+Date: Thu, 18 Jun 2026 08:18:48 +0000
+Subject: [PATCH] fix: resume after observation unit review calls correct
+ runner method
+
+The /schematiq/resume endpoint scheduled schematiq_runner.resume_schematiq
+as a background task, but that method does not exist on ScheMatiQRunner
+(the method is named resume_qbsd). The endpoint returned 200 while the
+background task crashed with AttributeError, so the pipeline never
+continued to schema discovery after the user approved the observation
+unit in 'Review before schema generation' mode.
+
+Point the background task at the existing resume_qbsd method.
+---
+ backend/app/api/routes/schematiq.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/backend/app/api/routes/schematiq.py b/backend/app/api/routes/schematiq.py
+index 293eb32..5ff19d6 100644
+--- a/backend/app/api/routes/schematiq.py
++++ b/backend/app/api/routes/schematiq.py
+@@ -355,7 +355,7 @@ async def resume_schematiq(session_id: str, background_tasks: BackgroundTasks):
+         await concurrency_limiter.acquire(session_id, "schematiq")
+ 
+         # Start resumed ScheMatiQ in background
+-        background_tasks.add_task(schematiq_runner.resume_schematiq, session_id)
++        background_tasks.add_task(schematiq_runner.resume_qbsd, session_id)
+ 
+         return {"message": "ScheMatiQ execution resumed", "session_id": session_id}
+ 
+-- 
+2.43.0
+

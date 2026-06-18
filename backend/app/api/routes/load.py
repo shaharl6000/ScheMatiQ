@@ -1485,6 +1485,13 @@ async def export_complete_data(session_id: str, format: str = "json"):
         if session.statistics and session.statistics.schema_evolution:
             export_data["schema_evolution"] = session.statistics.schema_evolution.model_dump()
 
+        # Include skipped documents if available (parity with the GUI banner)
+        if session.statistics and session.statistics.skipped_documents:
+            export_data["metadata"]["skipped_documents"] = [
+                doc.model_dump() if hasattr(doc, "model_dump") else doc
+                for doc in session.statistics.skipped_documents
+            ]
+
         # Include observation_unit if available
         if session.observation_unit:
             export_data["observation_unit"] = session.observation_unit.model_dump()

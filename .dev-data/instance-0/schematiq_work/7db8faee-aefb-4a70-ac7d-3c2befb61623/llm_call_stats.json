@@ -1,0 +1,80 @@
+{
+  "total_calls": 10,
+  "per_stage": {
+    "schema_discovery": 1,
+    "value_extraction": 9
+  },
+  "log_length": 10,
+  "log": [
+    {
+      "timestamp": 1781792410.786776,
+      "stage": "schema_discovery",
+      "model": "gemini-3.5-flash",
+      "prompt_length": 358019,
+      "completion_length": 2818
+    },
+    {
+      "timestamp": 1781792414.64716,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 107308,
+      "completion_length": 524
+    },
+    {
+      "timestamp": 1781792419.25932,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 99350,
+      "completion_length": 2236
+    },
+    {
+      "timestamp": 1781792425.306273,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 66437,
+      "completion_length": 447
+    },
+    {
+      "timestamp": 1781792429.107913,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 58449,
+      "completion_length": 1402
+    },
+    {
+      "timestamp": 1781792433.279273,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 92359,
+      "completion_length": 347
+    },
+    {
+      "timestamp": 1781792435.980549,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 62204,
+      "completion_length": 370
+    },
+    {
+      "timestamp": 1781792439.642524,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 54232,
+      "completion_length": 1807
+    },
+    {
+      "timestamp": 1781792444.286376,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 79654,
+      "completion_length": 444
+    },
+    {
+      "timestamp": 1781792447.8395379,
+      "stage": "value_extraction",
+      "model": "gemini-3.1-flash-lite",
+      "prompt_length": 71670,
+      "completion_length": 1350
+    }
+  ]
+}
