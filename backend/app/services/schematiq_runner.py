@@ -118,6 +118,28 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             self.stop_flags[session_id] = True
 
         logger.info("Stop requested for session %s", session_id)
+
+        # Emit an immediate optimistic 'stopped' so the monitor leaves the spinner
+        # state right away. The pipeline can't cancel an in-flight LLM call mid-thread,
+        # so its own stop handler (_handle_stop_after_*) may be delayed by up to one
+        # long LLM call; without this the UI hangs on "Wrapping up...". The task's
+        # later 'stopped' event refines these counts with the final numbers.
+        try:
+            session_dir = self.work_dir / session_id
+            schema_saved = (session_dir / "discovered_schema.json").exists()
+            rows_saved = 0
+            data_file = session_dir / "extracted_data.jsonl"
+            if data_file.exists():
+                with open(data_file, 'r') as f:
+                    rows_saved = sum(1 for _ in f)
+            await self.broadcast_stopped(session_id, {
+                "schema_saved": schema_saved,
+                "data_rows_saved": rows_saved,
+                "message": "Stop requested",
+            })
+        except Exception as e:
+            logger.warning("Could not send optimistic stopped broadcast for %s: %s", session_id, e)
+
         return {"accepted": True, "message": "Stop signal sent"}
 
     async def stop_execution(self, session_id: str) -> Dict[str, Any]:
