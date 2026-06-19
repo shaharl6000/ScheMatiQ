@@ -30,11 +30,17 @@ class RetrieverConfig(BaseModel):
     dynamic_k_minimum: int = 3
 
 class InitialSchemaColumn(BaseModel):
-    """Initial schema column definition."""
+    """Initial schema column definition.
+
+    ``definition`` and ``rationale`` may be empty when the user wants the LLM
+    to fill them. ``locked`` marks the column as user-seeded so the discovery
+    pipeline never drops or renames it.
+    """
     name: str
-    definition: str
-    rationale: str
+    definition: str = ""
+    rationale: str = ""
     allowed_values: Optional[List[str]] = None
+    locked: bool = False
 
 class InitialObservationUnit(BaseModel):
     """Initial observation unit configuration."""

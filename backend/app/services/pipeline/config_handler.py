@@ -147,7 +147,8 @@ def convert_config_to_schematiq_format(
                 "name": col.name,
                 "definition": col.definition,
                 "rationale": col.rationale,
-                "allowed_values": col.allowed_values
+                "allowed_values": col.allowed_values,
+                "locked": col.locked,
             }
             for col in config.initial_schema
         ]

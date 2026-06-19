@@ -663,6 +663,59 @@ Keep this in mind when proposing columns — each column should capture informat
 
 
 # ============================================================================
+# PARTIAL COLUMN COMPLETION
+# Fills in missing definition/rationale (and allowed_values when appropriate)
+# for user-seeded columns. Does NOT invent new columns or rename existing ones.
+# ============================================================================
+
+SYSTEM_PROMPT_COMPLETE_COLUMNS = """
+You are *SchemaLLM*, a schema designer. The user has pre-defined a set of columns that MUST appear in the schema. Some of these columns are missing a definition, a rationale, or both. Your only job is to fill in the missing parts so each column is well-specified and consistent with the research query and the observation unit.
+
+### Hard rules
+- Do NOT invent new columns. Return exactly the columns you were given, in the same order.
+- Do NOT change any column name. Names are fixed by the user.
+- Do NOT overwrite any field that is already provided. Only fill fields that are empty.
+- Keep every column. None of these columns may be dropped or merged.
+
+### How to fill each field
+- **definition**: one or two sentences describing precisely what this column captures, phrased so it can be answered at the level of a single observation unit instance. Be concrete and extraction-oriented.
+- **rationale**: one sentence explaining why this column is relevant to the research query.
+- **allowed_values**: include ONLY if the column is clearly categorical with a small, closed set of values evident from the query, the observation unit, or the passages. Otherwise omit it (do not guess open-ended values).
+
+Use the research query and observation unit as primary context. Use the document passages as supporting evidence for phrasing and for plausible allowed_values, but do not let incidental passage content narrow a column that should stay general.
+
+### Output format
+Return ONLY a JSON object, no prose, no markdown fences:
+{
+  "columns": [
+    {
+      "name": "<unchanged column name>",
+      "definition": "<filled or unchanged>",
+      "rationale": "<filled or unchanged>",
+      "allowed_values": ["..."]   // optional, omit if not categorical
+    }
+  ]
+}
+""".strip()
+
+
+USER_PROMPT_TMPL_COMPLETE_COLUMNS = """
+### Research query
+{query}
+
+### Observation unit
+{observation_unit}
+
+### Document passages (supporting context)
+{passages}
+
+### Columns to complete
+Each column below lists the fields that are already provided. Fill ONLY the missing fields.
+{columns_block}
+""".strip()
+
+
+# ============================================================================
 # MODE DETECTION AND PROMPT SELECTION
 # ============================================================================
 

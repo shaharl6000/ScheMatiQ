@@ -47,6 +47,7 @@ import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import InitialSchemaEditor from '@/components/InitialSchemaEditor/InitialSchemaEditor';
 import {
   Sheet,
   SheetContent,
@@ -1214,6 +1215,30 @@ const ScheMatiQConfigPage = () => {
                     )}
                   </div>
                 </div>
+
+                <hr />
+
+                {/* Pre-define columns (collapsed by default) */}
+                <Collapsible>
+                  <CollapsibleTrigger className="group flex items-center gap-2 text-sm font-medium hover:text-foreground transition-colors">
+                    <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+                    <span>Pre-define columns</span>
+                    <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-3">
+                    <p className="text-xs text-muted-foreground mb-3">
+                      Add columns you want to appear in the final table. Only the column name is
+                      required — definition and rationale are optional and will be filled by the
+                      AI during discovery if left blank.
+                    </p>
+                    <InitialSchemaEditor
+                      onSchemaChange={(path, data) => {
+                        setInitialSchemaPath(path);
+                        setInitialSchemaData(data);
+                      }}
+                    />
+                  </CollapsibleContent>
+                </Collapsible>
 
                 <hr />
 

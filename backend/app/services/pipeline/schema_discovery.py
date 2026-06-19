@@ -89,6 +89,9 @@ async def run_schema_discovery(
             evolution, progress_callback
         )
 
+    # Tracks whether complete_partial_columns has already run for this discovery.
+    completion_done = False
+
     # Handle pre-configured observation unit
     pending_observation_unit_name = None
     initial_obs_unit = schematiq_config.get("initial_observation_unit")
@@ -174,6 +177,23 @@ async def run_schema_discovery(
         if is_stop_requested(session_id):
             logger.warning("Stop requested after observation unit discovery - saving partial schema")
             break
+
+        # Complete any partial user-seeded columns once, with passages as supporting context.
+        if not completion_done and any(ScheMatiQ._is_partial(c) for c in current_schema.columns):
+            logger.info("Completing partial user-seeded columns (batch %d)", iteration + 1)
+            current_schema.columns = await loop.run_in_executor(
+                schematiq_thread_pool,
+                functools.partial(
+                    ScheMatiQ.complete_partial_columns,
+                    columns=current_schema.columns,
+                    query=query,
+                    observation_unit=current_schema.observation_unit,
+                    passages=relevant_content,
+                    llm=llm,
+                    context_window_size=schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
+                ),
+            )
+        completion_done = True
 
         # Generate schema for this iteration
         logger.debug("[%s] Offloading generate_schema to thread pool", session_id)
@@ -331,6 +351,22 @@ async def _run_query_only_discovery(
         if observation_unit:
             current_schema.observation_unit = observation_unit
 
+        # Complete any partial user-seeded columns before schema generation (QUERY_ONLY: no passages).
+        if any(ScheMatiQ._is_partial(c) for c in current_schema.columns):
+            logger.info("[%s] QUERY_ONLY: completing partial user-seeded columns", session_id)
+            current_schema.columns = await loop.run_in_executor(
+                schematiq_thread_pool,
+                functools.partial(
+                    ScheMatiQ.complete_partial_columns,
+                    columns=current_schema.columns,
+                    query=query,
+                    observation_unit=observation_unit,
+                    passages=[],
+                    llm=llm,
+                    context_window_size=schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
+                ),
+            )
+
         logger.debug("[%s] Offloading QUERY_ONLY generate_schema to thread pool", session_id)
         schema_result = await loop.run_in_executor(
             schematiq_thread_pool,
@@ -388,15 +424,7 @@ def _load_initial_schema(schematiq_config: Dict[str, Any], query: str, max_keys:
     """Load initial schema from inline config or file path."""
     if "initial_schema" in schematiq_config:
         try:
-            columns = []
-            for col_data in schematiq_config["initial_schema"]:
-                col = Column(
-                    name=col_data["name"],
-                    definition=col_data.get("definition", ""),
-                    rationale=col_data.get("rationale", ""),
-                    allowed_values=col_data.get("allowed_values")
-                )
-                columns.append(col)
+            columns = [Column.from_dict(col_data) for col_data in schematiq_config["initial_schema"]]
             initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
             logger.info("Loaded inline initial schema with %d columns", len(columns))
             return initial_schema
@@ -408,26 +436,10 @@ def _load_initial_schema(schematiq_config: Dict[str, Any], query: str, max_keys:
             with open(schematiq_config["initial_schema_path"]) as f:
                 initial_data = json.load(f)
                 if isinstance(initial_data, list):
-                    columns = [
-                        Column(
-                            name=col_data["name"],
-                            definition=col_data.get("definition", ""),
-                            rationale=col_data.get("rationale", ""),
-                            allowed_values=col_data.get("allowed_values")
-                        )
-                        for col_data in initial_data
-                    ]
+                    columns = [Column.from_dict(col_data) for col_data in initial_data]
                     initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
                 elif isinstance(initial_data, dict) and "schema" in initial_data:
-                    columns = [
-                        Column(
-                            name=col_data["name"],
-                            definition=col_data.get("definition", ""),
-                            rationale=col_data.get("rationale", ""),
-                            allowed_values=col_data.get("allowed_values")
-                        )
-                        for col_data in initial_data["schema"]
-                    ]
+                    columns = [Column.from_dict(col_data) for col_data in initial_data["schema"]]
                     initial_schema = Schema(query=query, columns=columns, max_keys=max_keys)
                 else:
                     return None
