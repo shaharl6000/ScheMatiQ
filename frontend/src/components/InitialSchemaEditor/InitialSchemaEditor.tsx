@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Trash2, Pencil, Loader2, X, FileJson, List, Info, Upload, Cloud, Check, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Pencil, Loader2, X, FileJson, List, Info, Upload, Cloud, Check, AlertCircle, Lock, Sparkles, HelpCircle, Copy } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 
 import { Button } from '@/components/ui/button';
@@ -8,6 +8,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
@@ -39,6 +41,20 @@ import {
 } from '@/utils/columnConstraintLabels';
 
 type SchemaSource = 'none' | 'file' | 'manual';
+
+// Sample schema shown in the "See example" popover next to file-upload options.
+// Demonstrates both fully-specified and name-only columns, no `locked` field
+// (the default is locked=true when imported).
+const EXAMPLE_SCHEMA_JSON = `[
+  {
+    "name": "organism",
+    "definition": "The organism or species from which the protein originates.",
+    "rationale": "Provides biological context for the NES analysis."
+  },
+  {
+    "name": "Gene Symbol"
+  }
+]`;
 
 interface SchemaFile {
   value: string;
@@ -74,6 +90,59 @@ interface CloudSchema {
   }[];
 }
 
+const ExampleSchemaPopover: React.FC = () => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(EXAMPLE_SCHEMA_JSON);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard unavailable — silently ignore.
+    }
+  };
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-xs text-muted-foreground hover:text-foreground gap-1"
+        >
+          <HelpCircle className="h-3.5 w-3.5" />
+          See example
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-96 space-y-2">
+        <p className="text-sm font-medium">Example schema file</p>
+        <p className="text-xs text-muted-foreground">
+          Upload a JSON array of columns. Only <code className="text-foreground">name</code> is required.{' '}
+          <code className="text-foreground">definition</code> and <code className="text-foreground">rationale</code> are optional.
+          Any field you do not provide will be filled in by the AI during discovery.
+        </p>
+        <div className="relative">
+          <pre className="text-xs bg-muted rounded p-2 overflow-x-auto max-h-60">
+            <code>{EXAMPLE_SCHEMA_JSON}</code>
+          </pre>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="absolute top-1 right-1 h-7 w-7"
+            onClick={handleCopy}
+            aria-label="Copy example"
+          >
+            {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+};
+
 const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChange }) => {
   const [source, setSource] = useState<SchemaSource>('none');
   const [schemaFiles, setSchemaFiles] = useState<SchemaFile[]>([]);
@@ -89,11 +158,10 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
   const [loadingCloudSchemas, setLoadingCloudSchemas] = useState(false);
   const [selectedCloudSchema, setSelectedCloudSchema] = useState<string>('');
 
-  // File upload state
+  // File upload state. On successful parse, columns are imported into `columns` and
+  // the source switches to 'manual' — these are only used during the brief upload step.
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [uploadedSchemaData, setUploadedSchemaData] = useState<InitialSchemaColumn[] | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
 
   // Column editor dialog state
@@ -103,7 +171,8 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
     name: '',
     definition: '',
     rationale: '',
-    allowed_values: [] as string[]
+    allowed_values: [] as string[],
+    locked: true
   });
   const [newAllowedValue, setNewAllowedValue] = useState('');
 
@@ -120,30 +189,31 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
-  // Notify parent when schema changes
+  // Notify parent when schema changes. File-uploaded and cloud-selected columns
+  // are imported into `columns` (the unified editable list), so the parent only
+  // needs to watch `columns`.
   useEffect(() => {
-    if (source === 'none') {
+    if (source === 'none' || columns.length === 0) {
       onSchemaChange(undefined, undefined);
-    } else if (source === 'file') {
-      if (fileTab === 'cloud' && selectedCloudSchema) {
-        // Find the selected cloud schema and pass its columns as data
-        const schema = cloudSchemas.find(s => s.name === selectedCloudSchema);
-        if (schema) {
-          onSchemaChange(undefined, schema.columns as InitialSchemaColumn[]);
-        } else {
-          onSchemaChange(undefined, undefined);
-        }
-      } else if (fileTab === 'upload' && uploadedSchemaData) {
-        onSchemaChange(undefined, uploadedSchemaData);
-      } else {
-        onSchemaChange(undefined, undefined);
-      }
-    } else if (source === 'manual' && columns.length > 0) {
-      onSchemaChange(undefined, columns);
     } else {
-      onSchemaChange(undefined, undefined);
+      onSchemaChange(undefined, columns);
     }
-  }, [source, fileTab, selectedCloudSchema, uploadedSchemaData, columns, cloudSchemas, onSchemaChange]);
+  }, [source, columns, onSchemaChange]);
+
+  // Import a batch of columns into the unified editable list and switch to manual mode.
+  // Used by both file-upload and cloud-schema-select paths.
+  const importColumns = useCallback((incoming: InitialSchemaColumn[]) => {
+    const normalized = incoming.map(col => ({
+      name: col.name,
+      definition: col.definition ?? '',
+      rationale: col.rationale ?? '',
+      allowed_values: col.allowed_values,
+      // Imported columns default to locked=true unless the source explicitly says false.
+      locked: col.locked ?? true,
+    }));
+    setColumns(normalized);
+    setSource('manual');
+  }, []);
 
   const fetchSchemaFiles = async () => {
     setLoadingFiles(true);
@@ -169,7 +239,8 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
     }
   };
 
-  // File upload handler
+  // File upload handler. On success, columns are imported into the unified editable
+  // list and the source switches to 'manual' so the user can edit them per-row.
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     const file = acceptedFiles[0];
     if (!file) return;
@@ -177,45 +248,39 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
     setUploadError(null);
     setUploadSuccess(false);
     setUploadedFile(file);
-    setUploadedSchemaData(null);
 
-    // Validate file extension
     if (!file.name.endsWith('.json')) {
       setUploadError('File must be a JSON file (.json)');
       return;
     }
 
-    // Read and parse the file locally
     try {
       const text = await file.text();
       const data = JSON.parse(text);
 
-      // Validate schema structure
-      let columns: InitialSchemaColumn[] = [];
+      let parsedColumns: InitialSchemaColumn[] = [];
       if (Array.isArray(data)) {
-        columns = data;
+        parsedColumns = data;
       } else if (data && typeof data === 'object' && 'columns' in data) {
-        columns = data.columns;
+        parsedColumns = data.columns;
       } else {
         setUploadError('Schema must be a JSON array of columns or an object with a "columns" key');
         return;
       }
 
-      // Validate columns have required fields
-      for (let i = 0; i < columns.length; i++) {
-        const col = columns[i];
-        if (!col.name || !col.definition || !col.rationale) {
-          setUploadError(`Column ${i + 1} must have 'name', 'definition', and 'rationale' fields`);
+      for (let i = 0; i < parsedColumns.length; i++) {
+        if (!parsedColumns[i].name) {
+          setUploadError(`Column ${i + 1} must have a 'name' field`);
           return;
         }
       }
 
-      if (columns.length === 0) {
+      if (parsedColumns.length === 0) {
         setUploadError('Schema must contain at least one column');
         return;
       }
 
-      setUploadedSchemaData(columns);
+      importColumns(parsedColumns);
       setUploadSuccess(true);
     } catch (e) {
       if (e instanceof SyntaxError) {
@@ -224,7 +289,7 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
         setUploadError('Failed to parse schema file');
       }
     }
-  }, []);
+  }, [importColumns]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -236,11 +301,14 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
 
   const handleCloudSchemaSelect = (schemaName: string) => {
     setSelectedCloudSchema(schemaName);
+    const schema = cloudSchemas.find(s => s.name === schemaName);
+    if (schema) {
+      importColumns(schema.columns as InitialSchemaColumn[]);
+    }
   };
 
   const clearUploadedFile = () => {
     setUploadedFile(null);
-    setUploadedSchemaData(null);
     setUploadError(null);
     setUploadSuccess(false);
   };
@@ -263,7 +331,7 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
 
   const openAddDialog = () => {
     setEditingIndex(null);
-    setFormData({ name: '', definition: '', rationale: '', allowed_values: [] });
+    setFormData({ name: '', definition: '', rationale: '', allowed_values: [], locked: true });
     setNewAllowedValue('');
     setDialogOpen(true);
   };
@@ -273,16 +341,17 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
     setEditingIndex(index);
     setFormData({
       name: col.name,
-      definition: col.definition,
-      rationale: col.rationale,
-      allowed_values: col.allowed_values || []
+      definition: col.definition ?? '',
+      rationale: col.rationale ?? '',
+      allowed_values: col.allowed_values || [],
+      locked: col.locked ?? true,
     });
     setNewAllowedValue('');
     setDialogOpen(true);
   };
 
   const handleSaveColumn = () => {
-    if (!formData.name.trim() || !formData.definition.trim() || !formData.rationale.trim()) {
+    if (!formData.name.trim()) {
       return;
     }
 
@@ -290,7 +359,8 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
       name: formData.name.trim(),
       definition: formData.definition.trim(),
       rationale: formData.rationale.trim(),
-      allowed_values: formData.allowed_values.length > 0 ? formData.allowed_values : undefined
+      allowed_values: formData.allowed_values.length > 0 ? formData.allowed_values : undefined,
+      locked: formData.locked,
     };
 
     if (editingIndex !== null) {
@@ -355,18 +425,21 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
       {/* File Selection with Tabs */}
       {source === 'file' && (
         <Tabs value={fileTab} onValueChange={(v) => setFileTab(v as 'upload' | 'cloud')} className="w-full">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="cloud" className="flex items-center gap-2">
-              <Cloud className="h-4 w-4" />
-              From Cloud
-            </TabsTrigger>
-            <TabsTrigger value="upload" className="flex items-center gap-2">
-              <Upload className="h-4 w-4" />
-              Upload File
-            </TabsTrigger>
-          </TabsList>
+          <div className="flex items-center justify-between gap-2">
+            <TabsList className="grid grid-cols-2 flex-1">
+              <TabsTrigger value="cloud" className="flex items-center gap-2">
+                <Cloud className="h-4 w-4" />
+                From Cloud
+              </TabsTrigger>
+              <TabsTrigger value="upload" className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                Upload File
+              </TabsTrigger>
+            </TabsList>
+            <ExampleSchemaPopover />
+          </div>
 
-          {/* Cloud Schema Tab */}
+          {/* Cloud Schema Tab — selection imports immediately into the editable list. */}
           <TabsContent value="cloud" className="space-y-3 mt-4">
             <Select
               value={selectedCloudSchema}
@@ -401,135 +474,43 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
                 )}
               </SelectContent>
             </Select>
-
-            {/* Preview selected cloud schema */}
-            {selectedCloudSchema && (
-              <Card>
-                <CardContent className="pt-4">
-                  {(() => {
-                    const schema = cloudSchemas.find(s => s.name === selectedCloudSchema);
-                    if (!schema) return null;
-                    return (
-                      <>
-                        <p className="text-sm font-medium mb-2">
-                          Schema Preview ({schema.columns_count} columns)
-                        </p>
-                        <div className="space-y-2 max-h-60 overflow-y-auto">
-                          {schema.columns.map((col, idx) => (
-                            <div key={idx} className="text-sm p-2 bg-muted/50 rounded">
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium">{col.name}</span>
-                                {col.allowed_values && col.allowed_values.length > 0 && (
-                                  <Badge variant="outline" className="text-xs">
-                                    {col.allowed_values.join(', ')}
-                                  </Badge>
-                                )}
-                              </div>
-                              <p className="text-muted-foreground text-xs mt-1 line-clamp-1">
-                                {col.definition}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      </>
-                    );
-                  })()}
-                </CardContent>
-              </Card>
-            )}
+            <p className="text-xs text-muted-foreground">
+              Selecting a schema loads its columns into the editable list below — you can edit any field afterwards.
+            </p>
           </TabsContent>
 
-          {/* Upload File Tab */}
+          {/* Upload File Tab — successful upload imports columns into the editable list. */}
           <TabsContent value="upload" className="space-y-3 mt-4">
-            {!uploadedFile ? (
-              <div
-                {...getRootProps()}
-                className={`
-                  border-2 border-dashed rounded-lg p-6 text-center cursor-pointer
-                  transition-colors duration-200
-                  ${isDragActive
-                    ? 'border-primary bg-primary/5'
-                    : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
-                  }
-                `}
-              >
-                <input {...getInputProps()} />
-                <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm font-medium">
-                  {isDragActive ? 'Drop the file here...' : 'Drag & drop a schema file'}
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  or click to browse (JSON files only)
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {/* Uploaded file info */}
-                <Card>
-                  <CardContent className="py-3 px-4">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <FileJson className="h-5 w-5 text-primary" />
-                        <div>
-                          <p className="font-medium text-sm">{uploadedFile.name}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {uploadedSchemaData
-                              ? `${uploadedSchemaData.length} columns`
-                              : 'Parsing...'
-                            }
-                          </p>
-                        </div>
-                        {uploadSuccess && (
-                          <Check className="h-4 w-4 text-green-500" />
-                        )}
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={clearUploadedFile}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+            <div
+              {...getRootProps()}
+              className={`
+                border-2 border-dashed rounded-lg p-6 text-center cursor-pointer
+                transition-colors duration-200
+                ${isDragActive
+                  ? 'border-primary bg-primary/5'
+                  : 'border-muted-foreground/25 hover:border-primary/50 hover:bg-muted/50'
+                }
+              `}
+            >
+              <input {...getInputProps()} />
+              <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+              <p className="text-sm font-medium">
+                {isDragActive ? 'Drop the file here...' : 'Drag & drop a schema file'}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                or click to browse (JSON files only)
+              </p>
+            </div>
 
-                {/* Error message */}
-                {uploadError && (
-                  <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg text-destructive text-sm">
-                    <AlertCircle className="h-4 w-4" />
-                    {uploadError}
-                  </div>
-                )}
-
-                {/* Preview uploaded schema */}
-                {uploadedSchemaData && (
-                  <Card>
-                    <CardContent className="pt-4">
-                      <p className="text-sm font-medium mb-2">
-                        Schema Preview ({uploadedSchemaData.length} columns)
-                      </p>
-                      <div className="space-y-2 max-h-60 overflow-y-auto">
-                        {uploadedSchemaData.map((col, idx) => (
-                          <div key={idx} className="text-sm p-2 bg-muted/50 rounded">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{col.name}</span>
-                              {col.allowed_values && col.allowed_values.length > 0 && (
-                                <Badge variant="outline" className="text-xs">
-                                  {col.allowed_values.join(', ')}
-                                </Badge>
-                              )}
-                            </div>
-                            <p className="text-muted-foreground text-xs mt-1 line-clamp-1">
-                              {col.definition}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+            {/* Error message — shown when parsing fails. On success we auto-switch to manual mode. */}
+            {uploadError && (
+              <div className="flex items-center gap-2 p-3 bg-destructive/10 rounded-lg text-destructive text-sm">
+                <AlertCircle className="h-4 w-4" />
+                {uploadError}
               </div>
+            )}
+            {uploadedFile && !uploadError && !uploadSuccess && (
+              <p className="text-xs text-muted-foreground">Parsing {uploadedFile.name}...</p>
             )}
           </TabsContent>
         </Tabs>
@@ -541,13 +522,27 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
           {/* Column List */}
           {columns.length > 0 && (
             <div className="space-y-2">
-              {columns.map((col, idx) => (
+              {columns.map((col, idx) => {
+                const willAutoComplete = !col.definition?.trim() || !col.rationale?.trim();
+                return (
                 <Card key={idx}>
                   <CardContent className="py-3 px-4">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium">{col.name}</span>
+                          {col.locked && (
+                            <Badge variant="outline" className="text-xs gap-1">
+                              <Lock className="h-3 w-3" />
+                              locked
+                            </Badge>
+                          )}
+                          {willAutoComplete && (
+                            <Badge variant="secondary" className="text-xs gap-1">
+                              <Sparkles className="h-3 w-3" />
+                              AI will fill blanks
+                            </Badge>
+                          )}
                           {col.allowed_values && col.allowed_values.length > 0 && (
                             <Badge variant="outline" className="text-xs">
                               {col.allowed_values.join(', ')}
@@ -555,7 +550,7 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
                           )}
                         </div>
                         <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                          {col.definition}
+                          {col.definition || <span className="italic">Optional — AI will fill this in if left blank</span>}
                         </p>
                       </div>
                       <div className="flex gap-1">
@@ -577,7 +572,8 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -598,7 +594,10 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
               {editingIndex !== null ? 'Edit Column' : 'Add Column'}
             </DialogTitle>
             <DialogDescription className="space-y-2 text-left">
-              <span className="block">Define a column for the initial schema.</span>
+              <span className="block">
+                Only <span className="font-medium text-foreground">name</span> is required. Definition and rationale are
+                optional — the AI will fill them in during discovery if left blank.
+              </span>
               <span className="block text-muted-foreground">
                 After discovery runs, use <span className="font-medium text-foreground">Re-extract Data</span> on the
                 Visualize page whenever you add or change columns so the table is filled from your documents.
@@ -622,14 +621,12 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
 
             {/* Definition */}
             <div className="space-y-2">
-              <Label htmlFor="col-definition">
-                Definition <span className="text-destructive">*</span>
-              </Label>
+              <Label htmlFor="col-definition">Definition</Label>
               <Textarea
                 id="col-definition"
                 value={formData.definition}
                 onChange={(e) => setFormData(prev => ({ ...prev, definition: e.target.value }))}
-                placeholder="What this column represents..."
+                placeholder="Optional — AI will fill this in if left blank"
                 rows={8}
                 className="min-h-[168px] resize-y"
               />
@@ -637,17 +634,36 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
 
             {/* Rationale */}
             <div className="space-y-2">
-              <Label htmlFor="col-rationale">
-                Rationale <span className="text-destructive">*</span>
-              </Label>
+              <Label htmlFor="col-rationale">Rationale</Label>
               <Textarea
                 id="col-rationale"
                 value={formData.rationale}
                 onChange={(e) => setFormData(prev => ({ ...prev, rationale: e.target.value }))}
-                placeholder="Why this column is important..."
+                placeholder="Optional — AI will fill this in if left blank"
                 rows={4}
                 className="min-h-[88px] resize-y"
               />
+            </div>
+
+            {/* Locked checkbox */}
+            <div className="flex items-start gap-2 p-3 bg-muted/40 rounded-md">
+              <Checkbox
+                id="col-locked"
+                checked={formData.locked}
+                onCheckedChange={(checked) =>
+                  setFormData(prev => ({ ...prev, locked: checked === true }))
+                }
+                className="mt-0.5"
+              />
+              <div className="space-y-0.5">
+                <Label htmlFor="col-locked" className="cursor-pointer flex items-center gap-1.5 font-medium">
+                  <Lock className="h-3.5 w-3.5" />
+                  Keep this column
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Locked columns are preserved through schema discovery — they will not be dropped or renamed.
+                </p>
+              </div>
             </div>
 
             {/* Allowed Values */}
@@ -767,7 +783,7 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
             </Button>
             <Button
               onClick={handleSaveColumn}
-              disabled={!formData.name.trim() || !formData.definition.trim() || !formData.rationale.trim()}
+              disabled={!formData.name.trim()}
             >
               {editingIndex !== null ? 'Save Changes' : 'Add Column'}
             </Button>

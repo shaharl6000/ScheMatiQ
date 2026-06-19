@@ -76,15 +76,16 @@ class ObservationUnit:
 @dataclass
 class Column:
     name: str
-    rationale: str
-    definition: str
+    rationale: str = ""
+    definition: str = ""
     source_document: Optional[str] = None      # Document that first added this column
     discovery_iteration: Optional[int] = None  # Iteration when this column was discovered
     allowed_values: Optional[List[str]] = None  # Closed set of valid values for categorical columns
     auto_expand_threshold: Optional[int] = 2   # Auto-add new value if seen in N+ docs (None/0 = disabled)
+    locked: bool = False                       # User-seeded column protected from prune/merge changes
 
-    def to_dict(self) -> Dict[str, str]:
-        result = {"column": self.name, "explanation": self.rationale, "definition": self.definition}
+    def to_dict(self) -> Dict[str, Any]:
+        result: Dict[str, Any] = {"column": self.name, "explanation": self.rationale, "definition": self.definition}
         # Include source tracking fields if set
         if self.source_document is not None:
             result["source_document"] = self.source_document
@@ -94,7 +95,30 @@ class Column:
             result["allowed_values"] = self.allowed_values
         if self.auto_expand_threshold is not None:
             result["auto_expand_threshold"] = self.auto_expand_threshold
+        if self.locked:
+            result["locked"] = True
         return result
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Column":
+        """Deserialize a Column from a dict, accepting both current and legacy keys.
+
+        Legacy keys: ``column`` for ``name``, ``explanation`` for ``rationale``.
+        """
+        name = data.get("column") or data.get("name")
+        if not name:
+            raise KeyError("Column dict must contain 'name' or 'column' key")
+        rationale = data.get("explanation") or data.get("rationale") or ""
+        return cls(
+            name=name,
+            rationale=rationale,
+            definition=data.get("definition", ""),
+            source_document=data.get("source_document"),
+            discovery_iteration=data.get("discovery_iteration"),
+            allowed_values=data.get("allowed_values"),
+            auto_expand_threshold=data.get("auto_expand_threshold"),
+            locked=data.get("locked", False),
+        )
 
     # Needed for `set` / dict keys
     def __hash__(self): return hash(self.name.lower())
@@ -203,17 +227,22 @@ class Schema:
 
             # 3) Update / insert
             if key:  # already present – maybe replace rationale
-                if len(cand.rationale) > len(combined[key].rationale):
-                    combined[key].rationale = cand.rationale
+                existing = combined[key]
+                if len(cand.rationale) > len(existing.rationale):
+                    existing.rationale = cand.rationale
                 # Merge allowed_values (union)
                 if cand.allowed_values:
-                    existing_av = combined[key].allowed_values or []
+                    existing_av = existing.allowed_values or []
                     merged_av = list(dict.fromkeys(existing_av + cand.allowed_values))  # Preserve order, dedupe
                     merged_av = [v for v in merged_av if v is not None]  # Filter nulls from LLM output
-                    combined[key].allowed_values = merged_av if merged_av else None
+                    existing.allowed_values = merged_av if merged_av else None
                 # Keep existing auto_expand_threshold unless candidate has it and existing doesn't
-                if cand.auto_expand_threshold is not None and combined[key].auto_expand_threshold is None:
-                    combined[key].auto_expand_threshold = cand.auto_expand_threshold
+                if cand.auto_expand_threshold is not None and existing.auto_expand_threshold is None:
+                    existing.auto_expand_threshold = cand.auto_expand_threshold
+                # Locked columns: name and locked flag are preserved (already true since we're updating in place).
+                # If existing is locked but candidate's definition is not empty and existing's is, fill it.
+                if existing.locked and not existing.definition and cand.definition:
+                    existing.definition = cand.definition
             else:    # brand-new column
                 combined[cand.name] = cand
                 combined_emb[cand.name] = _embed(cand.name)
@@ -232,18 +261,29 @@ class Schema:
         Trim to `max_keys` columns, keeping those most semantically
         relevant to *query*.  If `query` is None, use self.query.
         Only fall back to "longest rationale" heuristic if no query is available.
+
+        Locked columns are always retained, even if it would push the total
+        beyond ``max_keys``. The budget cut applies only to unlocked columns.
         """
         if self.max_keys is None or len(self.columns) <= self.max_keys:
             return
 
-        # Use provided query, or fall back to self.query
+        locked = [c for c in self.columns if c.locked]
+        unlocked = [c for c in self.columns if not c.locked]
+
+        # Budget for unlocked columns after reserving slots for locked ones.
+        unlocked_budget = max(0, self.max_keys - len(locked))
+        if unlocked_budget == 0:
+            self.columns = locked
+            return
+
         if query is None:
             query = self.query
 
         if not query:
             # Only use fallback heuristic if there's truly no query available
-            self.columns.sort(key=lambda c: len(c.rationale), reverse=True)
-            self.columns = self.columns[: self.max_keys]
+            unlocked.sort(key=lambda c: len(c.rationale), reverse=True)
+            self.columns = locked + unlocked[:unlocked_budget]
             return
 
         # --- query-aware scoring ------------------------------------------- #
@@ -255,8 +295,8 @@ class Schema:
             length_bonus = 0.05 * len(col.rationale) / 100.0  # tiny tie-break
             return sim + length_bonus
 
-        self.columns.sort(key=_score, reverse=True)
-        self.columns = self.columns[: self.max_keys]
+        unlocked.sort(key=_score, reverse=True)
+        self.columns = locked + unlocked[:unlocked_budget]
 
     def jaccard(self, other: "Schema") -> float:
         a = {c.name.lower() for c in self.columns}
@@ -265,11 +305,11 @@ class Schema:
         union = len(a | b) or 1
         return inter / union
 
-    def to_llm_dict(self) -> List[Dict[str, str]]:
+    def to_llm_dict(self) -> List[Dict[str, Any]]:
         """Serialize schema for LLM prompts, excluding internal fields like _q_emb."""
-        result = []
+        result: List[Dict[str, Any]] = []
         for col in self.columns:
-            col_dict = {
+            col_dict: Dict[str, Any] = {
                 "name": col.name,
                 "definition": col.definition,
                 "rationale": col.rationale
@@ -279,6 +319,8 @@ class Schema:
             # Include auto_expand_threshold for LLM awareness
             if col.auto_expand_threshold is not None:
                 col_dict["auto_expand_threshold"] = col.auto_expand_threshold
+            if col.locked:
+                col_dict["locked"] = True
             result.append(col_dict)
         return result
 
@@ -297,15 +339,7 @@ class Schema:
     def from_dict(cls, data: Dict[str, Any]) -> "Schema":
         """Deserialize schema from dictionary."""
         columns = [
-            Column(
-                name=col.get("column") or col.get("name"),
-                definition=col.get("definition", ""),
-                rationale=col.get("explanation", "") or col.get("rationale", ""),
-                source_document=col.get("source_document"),
-                discovery_iteration=col.get("discovery_iteration"),
-                allowed_values=col.get("allowed_values"),
-                auto_expand_threshold=col.get("auto_expand_threshold"),
-            )
+            Column.from_dict(col)
             for col in data.get("schema", data.get("columns", []))
         ]
 

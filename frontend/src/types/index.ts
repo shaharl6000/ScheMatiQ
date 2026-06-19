@@ -209,12 +209,16 @@ export interface RetrieverConfig {
   dynamic_k_minimum: number;
 }
 
-// Initial schema column for inline schema definition
+// Initial schema column for inline schema definition.
+// `definition` and `rationale` may be empty — the LLM will fill them during discovery
+// when `locked` is true. `locked` marks the column as user-seeded so it is preserved
+// through merge and prune steps.
 export interface InitialSchemaColumn {
   name: string;
-  definition: string;
-  rationale: string;
+  definition?: string;
+  rationale?: string;
   allowed_values?: string[];
+  locked?: boolean;
 }
 
 // Initial observation unit configuration

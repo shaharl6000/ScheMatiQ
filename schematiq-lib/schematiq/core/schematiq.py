@@ -33,7 +33,8 @@ from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.core.prompts import (
     get_prompts, get_observation_unit_prompts, SchemaMode, DRAFT_SCHEMA_TMPL,
     SYSTEM_PROMPT_OBSERVATION_UNIT, USER_PROMPT_TMPL_OBSERVATION_UNIT,
-    OBSERVATION_UNIT_CONTEXT_TMPL
+    OBSERVATION_UNIT_CONTEXT_TMPL,
+    SYSTEM_PROMPT_COMPLETE_COLUMNS, USER_PROMPT_TMPL_COMPLETE_COLUMNS,
 )
 
 
@@ -526,6 +527,103 @@ def generate_schema(
     return schema, document_helpful, suggested_value_additions, mode
 
 
+def _is_partial(col: Column) -> bool:
+    """A locked column is partial when it's missing either definition or rationale."""
+    return col.locked and (not col.definition or not col.rationale)
+
+
+def complete_partial_columns(
+    columns: List[Column],
+    query: str,
+    observation_unit: Optional[ObservationUnit],
+    passages: List[str],
+    llm,
+    context_window_size: int = 8192,
+) -> List[Column]:
+    """Fill in missing definition/rationale on user-seeded locked columns via a single LLM call.
+
+    Only ``locked=True`` columns with empty definition or rationale are sent to the LLM.
+    The LLM response can only fill empty fields — existing fields, names, and the
+    ``locked`` flag are preserved. New columns from the LLM (if any) are discarded.
+
+    If there are no partial locked columns, returns ``columns`` unchanged and makes no LLM call.
+    """
+    partial = [c for c in columns if _is_partial(c)]
+    if not partial:
+        return columns
+
+    # Build the columns block — one line per partial column, marking what's already provided.
+    lines = []
+    for col in partial:
+        def_part = f'definition="{col.definition}"' if col.definition else "definition=<MISSING>"
+        rat_part = f'rationale="{col.rationale}"' if col.rationale else "rationale=<MISSING>"
+        lines.append(f'- name="{col.name}" | {def_part} | {rat_part}')
+    columns_block = "\n".join(lines)
+
+    if observation_unit is None:
+        ou_str = "(not yet defined)"
+    elif observation_unit.definition:
+        ou_str = f"{observation_unit.name}: {observation_unit.definition}"
+    else:
+        ou_str = observation_unit.name
+
+    passages_str = "\n\n".join(p.strip() for p in passages[:5]) if passages else "(no documents)"
+
+    user_content = USER_PROMPT_TMPL_COMPLETE_COLUMNS.format(
+        query=(query or "").strip() or "(not provided)",
+        observation_unit=ou_str,
+        passages=passages_str,
+        columns_block=columns_block,
+    )
+
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT_COMPLETE_COLUMNS},
+        {"role": "user", "content": user_content},
+    ]
+    trimmed = utils.fit_prompt(messages, truncate=True, context_window_size=context_window_size)
+
+    LLMCallTracker.get_instance().set_stage("complete_partial_columns")
+    task_tokens = llm.max_tokens_for_task("complete_partial_columns")
+    generate_kwargs = {"max_output_tokens": task_tokens}
+    raw = llm.generate(trimmed, **generate_kwargs)
+
+    cleaned = _extract_json(raw)
+    try:
+        payload = json.loads(cleaned)
+        returned = payload.get("columns", [])
+    except (json.JSONDecodeError, TypeError) as e:
+        logging.warning("complete_partial_columns: failed to parse LLM response (%s); leaving columns unchanged", e)
+        return columns
+
+    # Map returned items by lowercase name; only consider names present in the input.
+    input_names = {c.name.lower() for c in partial}
+    returned_by_name: Dict[str, Dict[str, Any]] = {}
+    for item in returned:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not name:
+            continue
+        if name.lower() in input_names:
+            returned_by_name[name.lower()] = item
+
+    # Update partial columns in place. Existing fields are never overwritten.
+    for col in partial:
+        item = returned_by_name.get(col.name.lower())
+        if not item:
+            continue
+        if not col.definition and item.get("definition"):
+            col.definition = item["definition"]
+        if not col.rationale and item.get("rationale"):
+            col.rationale = item["rationale"]
+        if col.allowed_values is None and item.get("allowed_values"):
+            avs = [v for v in item["allowed_values"] if v]
+            if avs:
+                col.allowed_values = avs
+
+    return columns
+
+
 def evaluate_schema_convergence(prev: Schema, new: Schema, thresh: float = 0.9) -> bool:
     """
     Stop when Jaccard similarity ≥ thresh AND no new columns were added.
@@ -543,7 +641,7 @@ def load_initial_schema(initial_schema_path: Path, query: str, max_keys_schema: 
     
     try:
         data = json.loads(initial_schema_path.read_text(encoding="utf-8"))
-        columns = [Column(**col) for col in data]
+        columns = [Column.from_dict(col) for col in data]
         logging.info("Loaded initial schema with %d columns from %s", len(columns), initial_schema_path)
         return Schema(query=query, columns=columns, max_keys=max_keys_schema)
     except Exception as e:
@@ -636,6 +734,9 @@ def discover_schema(
                 col.discovery_iteration = 0
             evolution.record_column_source(col.name, col.source_document)
 
+    # Tracks whether complete_partial_columns has already run for this discovery.
+    completion_done = False
+
     # Handle QUERY_ONLY mode: no documents, just generate schema from query
     if not has_documents:
         logging.info("QUERY_ONLY mode: Generating schema from query without documents")
@@ -650,6 +751,19 @@ def discover_schema(
                 source_document="query_only"
             )
         schema.observation_unit = observation_unit
+
+        # Complete any partial user-seeded columns before the LLM proposes additions.
+        if any(_is_partial(c) for c in schema.columns):
+            logging.info("Completing partial user-seeded columns (QUERY_ONLY mode)")
+            schema.columns = complete_partial_columns(
+                columns=schema.columns,
+                query=query or "",
+                observation_unit=observation_unit,
+                passages=[],
+                llm=llm,
+                context_window_size=context_window_size,
+            )
+        completion_done = True
 
         proposed, _, _, mode = generate_schema(
             passages=[], query=query, max_keys_schema=max_keys_schema,
@@ -730,6 +844,20 @@ def discover_schema(
             )
             schema.observation_unit = observation_unit
             logging.info("Set observation unit: %s - %s", observation_unit.name, observation_unit.definition)
+
+        # Complete any partial user-seeded columns once, with passages from the first
+        # successful iteration as supporting context.
+        if not completion_done and any(_is_partial(c) for c in schema.columns):
+            logging.info("Completing partial user-seeded columns (iteration %d)", it)
+            schema.columns = complete_partial_columns(
+                columns=schema.columns,
+                query=query or "",
+                observation_unit=observation_unit,
+                passages=passages,
+                llm=llm,
+                context_window_size=context_window_size,
+            )
+        completion_done = True
 
         proposed, document_helpful, suggested_value_additions, _ = generate_schema(
             passages, query, max_keys_schema, schema, llm, context_window_size,
