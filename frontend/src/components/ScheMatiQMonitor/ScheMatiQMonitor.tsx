@@ -151,6 +151,10 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
 
   // Stop button loading state - shows immediate feedback when user clicks stop
   const [isStopping, setIsStopping] = useState(false);
+  // Tracks that the user requested a stop. Read inside the WebSocket handler
+  // (which closes over stale state) to ignore late progress events that would
+  // otherwise revive the spinner after we've moved to the stopped state.
+  const stopRequestedRef = useRef(false);
 
   // Observation unit review state
   const [reviewObsUnit, setReviewObsUnit] = useState<ObservationUnitReadyData | null>(null);
@@ -282,6 +286,21 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   // WebSocket connection for real-time updates
   useEffect(() => {
     const handleMessage = async (message: WebSocketMessage) => {
+      // Once the user has requested a stop, the pipeline keeps emitting progress
+      // events while it winds down (it can't cancel an in-flight LLM call mid-thread).
+      // Those late events would flip processingState back to 'schema'/'extraction'
+      // and restart the spinner. Drop progress-moving events; let only terminal/log
+      // events through so the stopped/completed/error state can still settle.
+      if (stopRequestedRef.current) {
+        const allowedWhileStopping = new Set([
+          'stopped', 'reextraction_stopped', 'completed', 'reextraction_completed',
+          'reextraction_failed', 'error', 'log', 'connected', 'disconnected', 'reconnecting',
+        ]);
+        if (!allowedWhileStopping.has(message.type)) {
+          return;
+        }
+      }
+
       if (message.type === 'connected') {
         setConnectionStatus('connected');
         // Don't log — connection status is shown by the indicator
@@ -546,6 +565,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         const data = message.data as { processed_documents?: number; total_documents?: number };
         setActiveReextractionId(null);
         setIsStopping(false);
+        stopRequestedRef.current = false;
         setSchemaOnly(false);
         setProcessingState('completed');
         const processed = data?.processed_documents ?? 0;
@@ -575,6 +595,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         // THEN update processing state (after data is available)
         setProcessingState('stopped');
         setIsStopping(false);  // Reset stop button state
+        stopRequestedRef.current = false;  // pipeline has fully stopped
         setStoppedInfo({
           schemaSaved: schemaSaved,
           dataRowsSaved: rows
@@ -799,6 +820,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
     queryClient.removeQueries(llmStatsCacheKey, { exact: true });
     startTimeRef.current = Date.now();
     lastLoggedPhaseRef.current = null;
+    stopRequestedRef.current = false;
 
     // Reset progress
     setSchemaProgress({
@@ -842,6 +864,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
 
   const handleStop = async () => {
     setIsStopping(true);
+    stopRequestedRef.current = true;
     try {
       if (activeReextractionId) {
         await schemaAPI.stopReextraction(sessionId, activeReextractionId);
@@ -849,14 +872,23 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         // UI updates on reextraction_stopped WebSocket (or status poll fallback)
       } else {
         await schematiqAPI.stop(sessionId);
-        setProcessingState('stopped');
-        setIsStopping(false);
         addLog('warning', 'Stop requested — processing will stop at the next checkpoint.');
+        // Move to stopped immediately. Seed stoppedInfo with what we know NOW so the
+        // hero card shows a final message instead of the "Wrapping up..." spinner,
+        // which would otherwise hang if the authoritative 'stopped' WS event is
+        // delayed by an in-flight LLM call. The 'stopped' event refines these numbers.
+        setProcessingState('stopped');
+        setStoppedInfo(prev => prev ?? {
+          schemaSaved: schemaProgress.isComplete,
+          dataRowsSaved: extractionProgress.processedDocs,
+        });
+        setIsStopping(false);
       }
     } catch (error: unknown) {
       const message = extractApiErrorMessage(error, 'Failed to stop');
       addLog('error', message);
       setIsStopping(false);
+      stopRequestedRef.current = false;  // allow retry
     }
   };
 
@@ -994,6 +1026,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       setCurrentStepMessage('Resuming pipeline...');
       startTimeRef.current = Date.now();
       lastLoggedPhaseRef.current = null;
+      stopRequestedRef.current = false;
 
       // Reset progress for the new run
       setSchemaProgress({
