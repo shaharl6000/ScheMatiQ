@@ -63,6 +63,7 @@ import {
   DEFAULT_MAX_KEYS_SCHEMA,
   getAvailableProviders,
   getDefaultModelForProvider,
+  WS_DISCONNECTED_REFRESH_INTERVAL,
   type LLMProviderKey,
 } from '@/constants';
 import { chatAPI, configAPI, loadAPI, observationUnitAPI, schemaAPI, schematiqAPI, unitsAPI } from '@/services/api';
@@ -759,13 +760,15 @@ function SpreadsheetSurface({
   }, [schema]);
 
   const dataColumnNames = useMemo(() => {
+    // The schema is the source of truth for which columns the Data tab shows.
+    // We intentionally do NOT union in keys from data.rows: a schema edit
+    // (rename/delete) sets reprocess=false, so the stored row data keeps the
+    // old keys until a re-extract reconciles them. Unioning those keys back in
+    // made deleted/renamed columns linger in the Data tab.
     const names = new Set<string>();
     schemaColumns.forEach((column) => names.add(column.name));
-    data.rows.forEach((row) => {
-      Object.keys(row.data || {}).forEach((name) => names.add(name));
-    });
     return Array.from(names);
-  }, [data.rows, schemaColumns]);
+  }, [schemaColumns]);
 
   const dataRows = useMemo(() => {
     return data.rows.map((row) => {
@@ -931,7 +934,11 @@ function SpreadsheetSurface({
         if (key === 'name') request.new_name = String(newValue || '').trim();
         if (key === 'definition') request.definition = String(newValue || '');
         if (key === 'rationale') request.rationale = String(newValue || '');
-        if (key === 'allowed_values') request.allowed_values = parseAllowedValues(newValue);
+        if (key === 'allowed_values') {
+          // Emptying the cell intentionally clears allowed_values; send [] so the
+          // backend distinguishes "cleared" from "unchanged" (undefined is dropped by axios).
+          request.allowed_values = parseAllowedValues(newValue) ?? [];
+        }
 
         const affectedColumn = key === 'name' ? String(newValue || '').trim() : existing.name;
 
@@ -1752,6 +1759,7 @@ function Workspace() {
   });
   const [isDraggingDivider, setIsDraggingDivider] = useState(false);
   const [reextraction, setReextraction] = useState<WorkspaceReextractionState | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
   const [reextractConfirm, setReextractConfirm] = useState<{ columns: string[] } | null>(null);
   const [stoppingReextraction, setStoppingReextraction] = useState(false);
 
@@ -1833,7 +1841,7 @@ function Workspace() {
         setLoading(false);
       }
     }
-  }, [sessionId, sessionMode]);
+  }, [applyData, sessionId, sessionMode]);
 
   const inFlightSilentRef = useRef<Promise<void> | null>(null);
   const refreshSilent = useCallback(() => {
@@ -1855,6 +1863,7 @@ function Workspace() {
     setPendingSchemaColumns([]);
     setRerunStarting(false);
     setReextraction(null);
+    setWsConnected(false);
     // Reset session-scoped view/data so a freshly imported/loaded session
     // never renders the previous session's sheet, schema, or rows.
     setActiveSheet('data');
@@ -1869,20 +1878,30 @@ function Workspace() {
 
   useEffect(() => {
     refresh();
-    if (!sessionId) return undefined;
-    const interval = window.setInterval(() => refresh({ silent: true }), 5000);
-    return () => window.clearInterval(interval);
   }, [refresh, sessionId]);
+
+  useEffect(() => {
+    if (!sessionId || wsConnected) return undefined;
+    const interval = window.setInterval(() => refreshSilent(), WS_DISCONNECTED_REFRESH_INTERVAL);
+    return () => window.clearInterval(interval);
+  }, [refreshSilent, sessionId, wsConnected]);
 
   useEffect(() => {
     if (!sessionId) return undefined;
 
     const handler = (message: WebSocketMessage) => {
-      if (
-        message.type === 'connected' ||
-        message.type === 'heartbeat' ||
-        message.type === 'pong'
-      ) {
+      if (message.type === 'connected') {
+        setWsConnected(true);
+        void refreshSilent();
+        return;
+      }
+
+      if (message.type === 'disconnected' || message.type === 'reconnecting') {
+        setWsConnected(false);
+        return;
+      }
+
+      if (message.type === 'heartbeat' || message.type === 'pong') {
         return;
       }
 
@@ -1966,8 +1985,9 @@ function Workspace() {
     return () => {
       webSocketService.removeMessageHandler(handler);
       webSocketService.disconnect();
+      setWsConnected(false);
     };
-  }, [refresh, sessionId, toast]);
+  }, [refresh, refreshSilent, sessionId, toast]);
 
   const estimateCurrentCost = useCallback(async () => {
     if (!sessionId) return;
