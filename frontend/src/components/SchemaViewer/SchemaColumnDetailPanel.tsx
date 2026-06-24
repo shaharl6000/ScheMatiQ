@@ -62,7 +62,7 @@ const SchemaColumnDetailPanel: React.FC<SchemaColumnDetailPanelProps> = ({
           <div className="flex items-center justify-between p-4 border-b">
             <div className="flex items-center gap-2 flex-wrap flex-1 mr-2">
               <h3 className="font-semibold text-lg truncate">
-                {formatColumnName(column.name)}
+                {column.display_name || formatColumnName(column.name)}
               </h3>
               {isModified && (
                 <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300">

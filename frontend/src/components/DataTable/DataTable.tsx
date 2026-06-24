@@ -82,6 +82,7 @@ import { useToast } from '@/components/ui/use-toast';
 
 interface ColumnInfoProp {
   name: string;
+  display_name?: string;
   definition?: string;
   allowed_values?: string[];
 }
@@ -237,11 +238,14 @@ const SortableHeaderCell: React.FC<SortableHeaderCellProps> = ({
   );
 };
 
-// Column header with optional definition tooltip
-const ColumnHeaderLabel: React.FC<{ column: string; definition?: string }> = ({ column, definition }) => {
+// Column header with optional definition tooltip.
+// `displayName` is the user's original typed label (preserved when it differs
+// from the sanitized canonical column key); fall back to formatting the key.
+const ColumnHeaderLabel: React.FC<{ column: string; displayName?: string; definition?: string }> = ({ column, displayName, definition }) => {
+  const text = displayName || formatColumnName(column);
   const label = column.startsWith('_') && column !== '_unit_name'
-    ? <Badge variant="outline">{formatColumnName(column)}</Badge>
-    : formatColumnName(column);
+    ? <Badge variant="outline">{text}</Badge>
+    : text;
 
   if (!definition) return <>{label}</>;
 
@@ -1441,6 +1445,7 @@ const DataTable: React.FC<DataTableProps> = ({
                         >
                           <ColumnHeaderLabel
                             column={frozenColumn}
+                            displayName={columnInfo?.find(c => c.name === frozenColumn)?.display_name}
                             definition={columnInfo?.find(c => c.name === frozenColumn)?.definition}
                           />
                         </div>
@@ -1472,6 +1477,7 @@ const DataTable: React.FC<DataTableProps> = ({
                     >
                         <ColumnHeaderLabel
                           column={column}
+                          displayName={columnInfo?.find(c => c.name === column)?.display_name}
                           definition={columnInfo?.find(c => c.name === column)?.definition}
                         />
                       </SortableHeaderCell>

@@ -522,6 +522,7 @@ async def process_dual_files(session_id: str, mapping: Optional[ColumnMappingReq
             for col in schema_data.get('schema', []):
                 col_info = ColumnInfo(
                     name=col['name'],
+                    display_name=col.get('display_name'),
                     definition=col.get('definition'),
                     rationale=col.get('rationale'),
                     data_type="object"  # Will be updated from data analysis
@@ -750,6 +751,7 @@ async def extract_schema(session_id: str, query: str = ""):
         for col in extracted_schema['schema']:
             col_info = ColumnInfo(
                 name=col['name'],
+                display_name=col.get('display_name'),
                 definition=col['definition'],
                 rationale=col['rationale'],
                 data_type="extracted"  # Mark as extracted

@@ -164,7 +164,7 @@ interface UnitGroupedTableProps {
   /** Columns to display */
   columns: string[];
   /** Column metadata for display */
-  columnInfo?: { name: string; definition?: string; allowed_values?: string[] }[];
+  columnInfo?: { name: string; display_name?: string; definition?: string; allowed_values?: string[] }[];
   /** Callback when data changes */
   onDataChange?: () => void;
   /** Columns currently being re-extracted */
@@ -915,7 +915,9 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                 {/* Scrollable data columns (drag-and-drop reorderable) */}
                 <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>
                 {visibleColumns.map(column => {
-                  const colDef = columnInfo?.find(c => c.name === column)?.definition;
+                  const colInfo = columnInfo?.find(c => c.name === column);
+                  const colDef = colInfo?.definition;
+                  const colLabel = colInfo?.display_name || formatColumnName(column);
                   return (
                     <SortableColumnHeader
                       key={column}
@@ -927,7 +929,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                       {colDef ? (
                         <Tooltip delayDuration={300}>
                           <TooltipTrigger asChild>
-                            <span className="cursor-help underline decoration-dashed decoration-muted-foreground/40 underline-offset-4">{formatColumnName(column)}</span>
+                            <span className="cursor-help underline decoration-dashed decoration-muted-foreground/40 underline-offset-4">{colLabel}</span>
                           </TooltipTrigger>
                           <TooltipContent side="bottom" align="start" className="max-w-xs px-3 py-2">
                             <p className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 mb-1.5">Definition</p>
@@ -935,7 +937,7 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
                           </TooltipContent>
                         </Tooltip>
                       ) : (
-                        formatColumnName(column)
+                        colLabel
                       )}
                     </SortableColumnHeader>
                   );

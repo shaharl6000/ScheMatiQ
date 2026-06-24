@@ -65,6 +65,11 @@ class SchemaSuggestion(BaseModel):
 class ColumnInfo(BaseModel):
     """Information about a data column."""
     name: str
+    # Original user-typed label, preserved only when it differs from the
+    # sanitized canonical `name` (e.g. user typed "judge full name" → name is
+    # "judge_full_name", display_name is "judge full name"). UI renders
+    # display_name when present, otherwise it formats `name`.
+    display_name: Optional[str] = None
     definition: str = ""
     rationale: str = ""
     data_type: Optional[str] = None

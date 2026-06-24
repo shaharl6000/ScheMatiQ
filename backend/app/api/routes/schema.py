@@ -103,12 +103,26 @@ async def edit_column(
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
+        # Sanitize a requested rename into a canonical key + optional display label.
+        canonical_new_name: Optional[str] = None
+        new_display_name: Optional[str] = None
+        if edit_request.new_name:
+            from app.services.data_utils import canonicalize_column_name
+            canonical_new_name, new_display_name = canonicalize_column_name(edit_request.new_name)
+            if not canonical_new_name:
+                raise HTTPException(status_code=400, detail="Column name cannot be empty")
+            # Reject collisions with a different existing column (compare canonical keys)
+            if canonical_new_name != edit_request.old_name and any(
+                col.name == canonical_new_name for col in session.columns
+            ):
+                raise HTTPException(status_code=400, detail=f"Column '{canonical_new_name}' already exists")
+
         # Find the column to edit
         column_found = False
         for col in session.columns:
             if col.name == edit_request.old_name:
                 # Update column properties
-                if edit_request.new_name:
+                if canonical_new_name:
                     # Move baseline entry to the new key so the renamed column stays
                     # tracked (not reported as "new").  Intentionally, old_baseline.name
                     # is NOT updated — it retains the previous column name.
@@ -117,8 +131,9 @@ async def edit_column(
                     # keeping the stale name in the baseline entry is the signal it relies on.
                     if session.schema_baseline and edit_request.old_name in session.schema_baseline.columns:
                         old_baseline = session.schema_baseline.columns.pop(edit_request.old_name)
-                        session.schema_baseline.columns[edit_request.new_name] = old_baseline
-                    col.name = edit_request.new_name
+                        session.schema_baseline.columns[canonical_new_name] = old_baseline
+                    col.name = canonical_new_name
+                    col.display_name = new_display_name
                 if edit_request.definition is not None:
                     col.definition = edit_request.definition
                 if edit_request.rationale is not None:
@@ -135,10 +150,10 @@ async def edit_column(
         # Track modification in history
         modification = ModificationAction(
             action_type="column_edited",
-            column_name=edit_request.new_name or edit_request.old_name,
+            column_name=canonical_new_name or edit_request.old_name,
             details={
                 "original_name": edit_request.old_name,
-                "new_name": edit_request.new_name,
+                "new_name": canonical_new_name,
                 "definition_changed": edit_request.definition is not None,
                 "rationale_changed": edit_request.rationale is not None,
                 "allowed_values_changed": edit_request.allowed_values is not None,
@@ -151,15 +166,15 @@ async def edit_column(
         session_manager.update_session(session)
 
         # Rename column key in data rows so the data table matches the schema
-        if edit_request.new_name:
+        if canonical_new_name and canonical_new_name != edit_request.old_name:
             try:
-                await data_editor.rename_column(session_id, edit_request.old_name, edit_request.new_name)
+                await data_editor.rename_column(session_id, edit_request.old_name, canonical_new_name)
             except FileNotFoundError:
                 logger.warning(
                     "Column '%s' renamed to '%s' in schema for session %s, "
                     "but no data JSONL files were found to update row keys",
                     edit_request.old_name,
-                    edit_request.new_name,
+                    canonical_new_name,
                     session_id,
                 )
 
@@ -167,7 +182,7 @@ async def edit_column(
         await websocket_manager.broadcast_schema_updated(session_id, {
             "operation": "edit_column",
             "old_name": edit_request.old_name,
-            "new_name": edit_request.new_name,
+            "new_name": canonical_new_name,
             "columns": [col.model_dump() for col in session.columns]
         })
 
@@ -178,7 +193,7 @@ async def edit_column(
             background_tasks.add_task(
                 schema_manager.reprocess_column,
                 session_id,
-                edit_request.new_name or edit_request.old_name
+                canonical_new_name or edit_request.old_name
             )
 
         return {
@@ -290,15 +305,23 @@ async def add_column(
         session = session_manager.get_session(session_id)
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
-        
-        # Check if column already exists
+
+        # Sanitize the user-typed name into a canonical key; keep the original
+        # text as a display label only when it differs.
+        from app.services.data_utils import canonicalize_column_name
+        canonical_name, display_name = canonicalize_column_name(add_request.name)
+        if not canonical_name:
+            raise HTTPException(status_code=400, detail="Column name cannot be empty")
+
+        # Check if column already exists (compare on the canonical key)
         for col in session.columns:
-            if col.name == add_request.name:
-                raise HTTPException(status_code=400, detail=f"Column '{add_request.name}' already exists")
+            if col.name == canonical_name:
+                raise HTTPException(status_code=400, detail=f"Column '{canonical_name}' already exists")
         
         # Create new column
         new_column = ColumnInfo(
-            name=add_request.name,
+            name=canonical_name,
+            display_name=display_name,
             definition=add_request.definition,
             rationale=add_request.rationale or "",
             data_type=add_request.data_type,
@@ -310,7 +333,7 @@ async def add_column(
         # Track modification in history
         modification = ModificationAction(
             action_type="column_added",
-            column_name=add_request.name,
+            column_name=canonical_name,
             details={
                 "definition": add_request.definition,
                 "rationale": add_request.rationale or "",
@@ -323,7 +346,8 @@ async def add_column(
         if session.statistics:
             # Add to column_stats
             new_col_info = ColumnInfo(
-                name=add_request.name,
+                name=canonical_name,
+                display_name=display_name,
                 definition=add_request.definition,
                 rationale=add_request.rationale or "",
                 data_type=add_request.data_type or "object",
@@ -337,7 +361,7 @@ async def add_column(
             # Update schema_evolution
             if session.statistics.schema_evolution:
                 # Add column source
-                session.statistics.schema_evolution.column_sources[add_request.name] = "manual_addition"
+                session.statistics.schema_evolution.column_sources[canonical_name] = "manual_addition"
 
         session.metadata.last_modified = datetime.now()
         session_manager.update_session(session)
@@ -392,15 +416,22 @@ async def merge_columns(
                 raise HTTPException(status_code=404, detail=f"Source column '{col_name}' not found")
             source_columns.append(col)
         
-        # Check if target column already exists
-        if any(col.name == merge_request.target_column for col in session.columns):
-            raise HTTPException(status_code=400, detail=f"Target column '{merge_request.target_column}' already exists")
+        # Sanitize the user-typed target name into a canonical key + display label.
+        from app.services.data_utils import canonicalize_column_name
+        canonical_target, target_display_name = canonicalize_column_name(merge_request.target_column)
+        if not canonical_target:
+            raise HTTPException(status_code=400, detail="Target column name cannot be empty")
+
+        # Check if target column already exists (compare on the canonical key)
+        if any(col.name == canonical_target for col in session.columns):
+            raise HTTPException(status_code=400, detail=f"Target column '{canonical_target}' already exists")
         
         # Create merged column
         merged_definition = merge_request.definition or f"Merged from: {', '.join(merge_request.source_columns)}"
         merged_rationale = merge_request.rationale or f"Merged column using {merge_request.merge_strategy} strategy"
         merged_column = ColumnInfo(
-            name=merge_request.target_column,
+            name=canonical_target,
+            display_name=target_display_name,
             definition=merged_definition,
             rationale=merged_rationale,
             data_type="text"
@@ -416,7 +447,7 @@ async def merge_columns(
         await schema_manager.merge_column_data(
             session_id,
             merge_request.source_columns,
-            merge_request.target_column,
+            canonical_target,
             merge_request.merge_strategy,
             merge_request.separator
         )
@@ -425,7 +456,7 @@ async def merge_columns(
         await websocket_manager.broadcast_schema_updated(session_id, {
             "operation": "merge_columns",
             "source_columns": merge_request.source_columns,
-            "target_column": merge_request.target_column,
+            "target_column": canonical_target,
             "columns": [col.model_dump() for col in session.columns],
             "data_updated": True,
             "refresh_data": True

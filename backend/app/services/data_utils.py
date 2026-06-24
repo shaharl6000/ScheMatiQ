@@ -5,7 +5,29 @@ import logging
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from schematiq.value_extraction.utils.schema_builder import sanitize_column_name
+
 logger = logging.getLogger(__name__)
+
+
+def canonicalize_column_name(raw_name: str) -> Tuple[str, Optional[str]]:
+    """Split a user-typed column name into (canonical_name, display_name).
+
+    The *canonical* name is the value stored and used everywhere internally
+    (schema keys, data-row keys, baselines, re-extraction merge, filters/sort).
+    It is the user's text with characters invalid for downstream schema keys
+    (anything outside ``[a-zA-Z0-9_]``) replaced by ``_`` — the same rule used
+    for Gemini controlled-generation property names, so the two stay consistent.
+
+    The *display_name* preserves the exact text the user typed and is returned
+    **only when it differs** from the canonical name. When it is ``None`` the
+    canonical name is already display-ready (callers should fall back to their
+    normal label formatting).
+    """
+    raw = (raw_name or "").strip()
+    canonical = sanitize_column_name(raw)
+    display = raw if raw != canonical else None
+    return canonical, display
 
 
 def row_dedup_key(row: dict) -> Tuple[str, str]:

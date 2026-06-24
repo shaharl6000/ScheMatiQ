@@ -51,6 +51,9 @@ export interface SchemaSuggestion {
 
 export interface ColumnInfo {
   name: string;
+  // Original user-typed label, present only when it differs from the sanitized
+  // canonical `name`. UI should render this when set, else format `name`.
+  display_name?: string;
   definition?: string;
   rationale?: string;
   data_type?: string;

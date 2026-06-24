@@ -1490,7 +1490,7 @@ const Visualize = () => {
                   sessionId={sessionId!}
                   sessionType={mode}
                   columns={session?.columns?.map(col => col.name) || []}
-                  columnInfo={session?.columns?.map(col => ({ name: col.name, definition: col.definition, allowed_values: col.allowed_values ?? undefined }))}
+                  columnInfo={session?.columns?.map(col => ({ name: col.name, display_name: col.display_name, definition: col.definition, allowed_values: col.allowed_values ?? undefined }))}
                   documentUrlMap={documentUrlMap}
                   onDataChange={() => {
                     queryClient.invalidateQueries(['session', sessionId, mode]);
@@ -1534,7 +1534,7 @@ const Visualize = () => {
               queryClient.invalidateQueries(['documentList', sessionId]);
                     refreshUnits();
                   }}
-                  columnInfo={session?.columns?.map(col => ({ name: col.name, definition: col.definition, allowed_values: col.allowed_values ?? undefined }))}
+                  columnInfo={session?.columns?.map(col => ({ name: col.name, display_name: col.display_name, definition: col.definition, allowed_values: col.allowed_values ?? undefined }))}
                   viewMode={viewMode}
                   onViewModeChange={handleViewModeChange}
                   hasUnits={((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) || false}

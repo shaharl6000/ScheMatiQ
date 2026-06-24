@@ -14,7 +14,7 @@ from app.core.logging_utils import set_session_context
 from app.models.modification import ModificationAction
 from app.models.session import ColumnInfo, SessionType
 from app.services import concurrency_limiter, session_manager
-from app.services.data_utils import _resolve_source_document
+from app.services.data_utils import _resolve_source_document, canonicalize_column_name
 from app.services.pipeline.data_query import get_data as query_get_data
 from schematiq.core.cost_estimator import estimate_from_config
 from .deps import (
@@ -201,12 +201,16 @@ class ToolExecutor:
       session = session_manager.get_session(session_id)
       if not session:
           raise ValueError("Session not found")
-      name = args["name"]
       definition = args["definition"]
+      name, display_name = canonicalize_column_name(args["name"])
+      if not name:
+          raise ValueError("Column name cannot be empty")
       for col in session.columns:
           if col.name == name:
               raise ValueError(f"Column '{name}' already exists")
-      new_column = ColumnInfo(name=name, definition=definition, rationale="")
+      new_column = ColumnInfo(
+          name=name, display_name=display_name, definition=definition, rationale=""
+      )
       session.columns.append(new_column)
       session.modification_history.append(
           ModificationAction(
@@ -238,8 +242,15 @@ class ToolExecutor:
       if not session:
           raise ValueError("Session not found")
       old_name = args["old_name"]
-      new_name = args.get("new_name")
       definition = args.get("definition")
+      new_name: Optional[str] = None
+      new_display_name: Optional[str] = None
+      if args.get("new_name"):
+          new_name, new_display_name = canonicalize_column_name(args["new_name"])
+          if not new_name:
+              raise ValueError("Column name cannot be empty")
+          if new_name != old_name and any(col.name == new_name for col in session.columns):
+              raise ValueError(f"Column '{new_name}' already exists")
       column_found = False
       for col in session.columns:
           if col.name == old_name:
@@ -248,6 +259,7 @@ class ToolExecutor:
                       old_baseline = session.schema_baseline.columns.pop(old_name)
                       session.schema_baseline.columns[new_name] = old_baseline
                   col.name = new_name
+                  col.display_name = new_display_name
               if definition is not None:
                   col.definition = definition
               column_found = True
@@ -323,15 +335,22 @@ class ToolExecutor:
           raise ValueError("Session not found")
       column_a = args["column_a"]
       column_b = args["column_b"]
-      target_name = args.get("target_name") or column_a
       source_columns = [column_a, column_b]
       for col_name in source_columns:
           if not any(col.name == col_name for col in session.columns):
               raise ValueError(f"Column '{col_name}' not found")
-      if any(col.name == target_name for col in session.columns):
+      target_name, target_display_name = canonicalize_column_name(
+          args.get("target_name") or column_a
+      )
+      if not target_name:
+          raise ValueError("Target column name cannot be empty")
+      if target_name not in source_columns and any(
+          col.name == target_name for col in session.columns
+      ):
           raise ValueError(f"Target column '{target_name}' already exists")
       merged_column = ColumnInfo(
           name=target_name,
+          display_name=target_display_name,
           definition=f"Merged from: {', '.join(source_columns)}",
           rationale="Merged via chat tool",
           data_type="text",
