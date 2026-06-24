@@ -1004,6 +1004,18 @@ function SpreadsheetSurface({
 
   const handleBeforeRemoveRow = useCallback(
     (_index: number, _amount: number, physicalRows: number[], _source?: string): boolean | void => {
+      // The observation-unit sheet has a fixed set of structural rows
+      // (name / definition / example_names). Their values are editable, but the
+      // rows themselves must never be removed, so block deletion outright.
+      if (activeSheet === 'unit') {
+        toast({
+          title: 'Cannot delete this row',
+          description: 'Observation unit fields are fixed. Edit the value instead of removing the row.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+
       // Row removal only deletes a schema column when done on the Schema sheet.
       // On other sheets, fall through to Handsontable's default behavior.
       if (activeSheet !== 'schema' || !sessionId) return;
