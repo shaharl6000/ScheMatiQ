@@ -89,19 +89,22 @@ concurrency_limiter = ConcurrencyLimiter(MAX_CONCURRENT_SESSIONS)
 logger.info("[concurrency] Concurrency limiter initialized: max %d sessions", MAX_CONCURRENT_SESSIONS)
 
 
-def find_session_data_file(session_id: str) -> Optional[Path]:
-    """Find the primary data file for a session (ScheMatiQ or load).
+def find_session_data_file_sync(session_id: str) -> Optional[Path]:
+    """Find the primary data file for a session, hydrating from storage when needed.
 
-    ScheMatiQ sessions store extracted data in ./schematiq_work/{session_id}/extracted_data.jsonl.
-    Load sessions store data in ./data/{session_id}/data.jsonl.
+    For use from sync/thread-pool code only. Async callers should use
+    ``find_session_data_file`` instead.
     """
-    schematiq_file = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
-    if schematiq_file.exists():
-        return schematiq_file
-    load_file = Path("./data") / session_id / "data.jsonl"
-    if load_file.exists():
-        return load_file
-    return None
+    from app.services.data_utils import resolve_primary_session_data_file_sync
+
+    return resolve_primary_session_data_file_sync(session_id)
+
+
+async def find_session_data_file(session_id: str) -> Optional[Path]:
+    """Find the primary data file for a session, hydrating from storage when needed."""
+    from app.services.data_utils import resolve_primary_session_data_file
+
+    return await resolve_primary_session_data_file(session_id)
 
 
 # ── Shared EmbeddingRetriever singleton ────────────────────────────

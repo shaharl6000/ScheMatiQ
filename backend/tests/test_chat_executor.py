@@ -70,7 +70,7 @@ def patched_reextraction(monkeypatch):
 
     captured: dict[str, list] = {}
 
-    async def fake_start(session_id, columns):
+    async def fake_start(session_id, columns, renamed_from=None):
         captured["columns"] = list(columns)
         return {"status": "started", "columns": list(columns)}
 

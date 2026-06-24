@@ -1385,6 +1385,82 @@ class ReextractionService(WebSocketBroadcasterMixin):
             await concurrency_limiter.release(operation.session_id)
             self._cleanup_operation(operation_id)
 
+    @staticmethod
+    def _row_names_loosely_match(existing_name: str, extracted_name: str) -> bool:
+        """Match when OU rediscovery shortens names (e.g. 'David J. Barron' vs 'Barron')."""
+        if not existing_name or not extracted_name:
+            return False
+        if existing_name == extracted_name:
+            return True
+        existing_last = existing_name.strip().split()[-1].lower()
+        extracted_last = extracted_name.strip().split()[-1].lower()
+        return (
+            len(existing_last) > 2
+            and existing_last == extracted_last
+        )
+
+    def _match_extracted_row(
+        self,
+        row_name: str,
+        row_src: str,
+        papers: List[str],
+        extracted_by_key: Dict[tuple, Dict[str, Any]],
+        extracted_by_row_name: Dict[str, List[Dict[str, Any]]],
+        extracted_by_paper_stem: Dict[str, List[Dict[str, Any]]],
+        matched_extracted_keys: set,
+    ) -> Optional[Dict[str, Any]]:
+        """Find the re-extraction output row that corresponds to an existing table row."""
+        from app.services.data_utils import _resolve_source_document
+
+        row_key = (row_name, row_src) if row_name else None
+        if row_key and row_key in extracted_by_key:
+            return extracted_by_key[row_key]
+
+        if row_name and row_name in extracted_by_row_name:
+            candidates = extracted_by_row_name[row_name]
+            if len(candidates) == 1:
+                return candidates[0]
+            for paper in papers:
+                paper_stem = (
+                    paper.split("_")[0].lower()
+                    if "_" in paper
+                    else paper.rsplit(".", 1)[0].lower()
+                )
+                for cand in candidates:
+                    if _resolve_source_document(cand).lower() == paper_stem:
+                        return cand
+
+        # OU rediscovery may shorten unit names — match by last name + source document.
+        if row_name:
+            loose_matches = []
+            for ext_key, ext_row in extracted_by_key.items():
+                if ext_key in matched_extracted_keys:
+                    continue
+                ext_name, ext_src = ext_key
+                if not self._row_names_loosely_match(row_name, ext_name):
+                    continue
+                if row_src and ext_src and row_src.lower() != ext_src.lower():
+                    continue
+                ext_papers = ext_row.get("_papers") or ext_row.get("papers") or []
+                if papers and ext_papers and not set(papers) & set(ext_papers):
+                    continue
+                loose_matches.append(ext_row)
+            if len(loose_matches) == 1:
+                return loose_matches[0]
+
+        for paper in papers:
+            paper_stem = (
+                paper.split("_")[0].lower()
+                if "_" in paper
+                else paper.rsplit(".", 1)[0].lower()
+            )
+            if paper_stem in extracted_by_paper_stem:
+                candidates = extracted_by_paper_stem[paper_stem]
+                if len(candidates) == 1:
+                    return candidates[0]
+
+        return None
+
     async def _merge_reextracted_data(
         self,
         session_id: str,
@@ -1397,12 +1473,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
             return
 
         from app.services.data_utils import (
-            enumerate_session_data_files,
+            get_extraction_column_value,
+            get_schematiq_work_dir,
             persist_session_data_file,
             remove_column_keys_in_row,
+            resolve_session_data_files,
+            session_has_stored_data,
         )
 
-        data_files = enumerate_session_data_files(session_id)
+        work_dir = get_schematiq_work_dir()
+        data_files = await resolve_session_data_files(session_id, work_dir=work_dir)
 
         # Read extracted values indexed by composite key (row_name, source_document)
         # to avoid collisions when the same observation unit appears in multiple docs
@@ -1427,10 +1507,17 @@ class ReextractionService(WebSocketBroadcasterMixin):
         logger.debug(f"Extracted composite keys from extraction file: {list(extracted_by_key.keys())}")
 
         if not data_files:
-            schematiq_extracted_file = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
+            if await session_has_stored_data(session_id, work_dir=work_dir):
+                raise RuntimeError(
+                    f"Cannot merge re-extracted data for session {session_id}: "
+                    "existing table data is in storage but could not be loaded locally. "
+                    "Refusing to overwrite."
+                )
+
+            schematiq_extracted_file = work_dir / session_id / "extracted_data.jsonl"
             schematiq_extracted_file.parent.mkdir(parents=True, exist_ok=True)
             new_rows = [
-                self._storage_row_from_extraction(ext_row_data)
+                self._storage_row_from_extraction(ext_row_data, columns=columns)
                 for ext_row_data in extracted_by_key.values()
             ]
             with open(schematiq_extracted_file, "w") as f:
@@ -1474,52 +1561,40 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     row = json.loads(line)
                     row_name = row.get('row_name') or row.get('_row_name')
                     row_src = _resolve_source_document(row)
-                    papers = row.get('papers') or []
+                    papers = row.get('papers') or row.get('_papers') or []
 
-                    # Try composite key match first (row_name + source_document)
-                    extracted = None
-                    row_key = (row_name, row_src) if row_name else None
-                    if row_key and row_key in extracted_by_key:
-                        extracted = extracted_by_key[row_key]
-                    elif row_name and row_name in extracted_by_row_name:
-                        # Fallback: match by row_name alone only if there's exactly one candidate
-                        candidates = extracted_by_row_name[row_name]
-                        if len(candidates) == 1:
-                            extracted = candidates[0]
-                        else:
-                            # Multiple candidates — try to match by paper
-                            for paper in papers:
-                                paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                                for cand in candidates:
-                                    cand_src = _resolve_source_document(cand).lower()
-                                    if cand_src == paper_stem:
-                                        extracted = cand
-                                        break
-                                if extracted:
-                                    break
-                    if not extracted:
-                        # Last resort fallback: try to match by paper name stem
-                        for paper in papers:
-                            paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                            if paper_stem in extracted_by_paper_stem:
-                                candidates = extracted_by_paper_stem[paper_stem]
-                                if len(candidates) == 1:
-                                    extracted = candidates[0]
-                                break
+                    extracted = self._match_extracted_row(
+                        row_name,
+                        row_src,
+                        papers,
+                        extracted_by_key,
+                        extracted_by_row_name,
+                        extracted_by_paper_stem,
+                        matched_extracted_keys,
+                    )
 
                     if extracted:
                         rows_updated += 1
                         matched_extracted_keys.add(row_dedup_key(extracted))
-                        
+
                         for col_name in columns:
                             old_name = (renamed_from or {}).get(col_name)
                             if old_name:
                                 remove_column_keys_in_row(row, old_name)
-                            if col_name in extracted:
+                            extracted_value = get_extraction_column_value(
+                                extracted, col_name
+                            )
+                            if extracted_value is not None:
                                 if 'data' in row:
-                                    row['data'][col_name] = extracted[col_name]
+                                    row['data'][col_name] = extracted_value
                                 else:
-                                    row[col_name] = extracted[col_name]
+                                    row[col_name] = extracted_value
+                                logger.info(
+                                    "Merged column %r into row %r from %s",
+                                    col_name,
+                                    row_name,
+                                    data_file.name,
+                                )
                     else:
                         logger.debug(f"No extracted match for row '{row_name}' (src={row_src}) in {data_file.name} (papers: {papers[:3]})")
 
@@ -1532,7 +1607,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     if ext_key in matched_extracted_keys:
                         continue
 
-                    new_row = self._storage_row_from_extraction(ext_row_data)
+                    new_row = self._storage_row_from_extraction(
+                        ext_row_data, columns=columns
+                    )
                     updated_rows.append(new_row)
                     new_rows_added += 1
 
@@ -1555,8 +1632,18 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         self._update_session_stats_after_merge(session_id, columns, all_updated_rows)
 
-    def _storage_row_from_extraction(self, ext_row_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _storage_row_from_extraction(
+        self,
+        ext_row_data: Dict[str, Any],
+        columns: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """Normalize build_table_jsonl output for extracted_data.jsonl (flat runtime format)."""
+        from schematiq.value_extraction.utils.schema_builder import (
+            align_extraction_keys_to_schema,
+        )
+
+        if columns:
+            ext_row_data = align_extraction_keys_to_schema(ext_row_data, columns)
         if ext_row_data.get("_row_name"):
             return ext_row_data
         row_name = ext_row_data.get("row_name")

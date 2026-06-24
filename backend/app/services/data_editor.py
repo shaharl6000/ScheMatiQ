@@ -10,8 +10,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.services.data_utils import (
-    ensure_session_data_file_local,
-    enumerate_session_data_files,
+    resolve_session_data_files,
     persist_session_data_file,
     remove_column_keys_in_row,
     rename_column_keys_in_row,
@@ -37,14 +36,7 @@ class DataEditor:
 
     async def _resolve_session_data_files(self, session_id: str) -> list[Path]:
         """Return existing local data files, hydrating from storage when needed."""
-        from app.storage import get_storage
-
-        storage = get_storage()
-        for path in self._candidate_data_files(session_id):
-            if not path.exists():
-                await ensure_session_data_file_local(session_id, path, storage=storage)
-
-        return enumerate_session_data_files(
+        return await resolve_session_data_files(
             session_id,
             work_dir=self.work_dir,
             data_dir=self.data_dir,

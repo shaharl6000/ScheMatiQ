@@ -62,7 +62,9 @@ class UniProtEnrichmentService:
                 )
                 return
 
-            jsonl_path = _find_session_data_file(session_id)
+            from app.services import find_session_data_file
+
+            jsonl_path = await find_session_data_file(session_id)
             if jsonl_path is None:
                 return
 
@@ -198,14 +200,6 @@ class UniProtEnrichmentService:
 
 
 # ── module-private helpers ───────────────────────────────────────────
-
-def _find_session_data_file(session_id: str):
-    """Locate the primary extracted-data jsonl for a session.
-
-    Imported lazily because app.services.__init__ imports this module.
-    """
-    from app.services import find_session_data_file
-    return find_session_data_file(session_id)
 
 
 def _read_first_row(jsonl_path: Path):

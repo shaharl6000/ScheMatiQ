@@ -274,7 +274,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
     async def remove_column_data(self, session_id: str, column_name: str):
         """Remove a column's data from all existing records, including excerpt columns."""
         try:
-            data_file = find_session_data_file(session_id)
+            data_file = await find_session_data_file(session_id)
 
             if not data_file:
                 await self.broadcast_progress(
@@ -526,7 +526,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                 "merging_columns"
             )
             
-            data_file = find_session_data_file(session_id)
+            data_file = await find_session_data_file(session_id)
 
             if not data_file:
                 return
@@ -617,7 +617,7 @@ class SchemaManager(WebSocketBroadcasterMixin):
                         extracted_data[line_num] = row_data[column_name]
 
         # Update main data file
-        data_file = find_session_data_file(session_id)
+        data_file = await find_session_data_file(session_id)
 
         if not data_file:
             return

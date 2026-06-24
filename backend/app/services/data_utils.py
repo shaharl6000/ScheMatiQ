@@ -43,27 +43,56 @@ _APP_DIR = _MODULE_DIR.parent              # app/
 _BACKEND_DIR = _APP_DIR.parent             # backend/
 
 
+def candidate_work_dirs() -> List[Path]:
+    """Search order for schematiq_work — CWD first (dev.sh / Docker), then fallbacks."""
+    seen: set[Path] = set()
+    dirs: List[Path] = []
+    for raw in (Path.cwd() / "schematiq_work", _BACKEND_DIR / "schematiq_work"):
+        resolved = raw.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            dirs.append(raw)
+    dev_root = _BACKEND_DIR.parent / ".dev-data"
+    if dev_root.is_dir():
+        for instance_work in sorted(dev_root.glob("instance-*/schematiq_work")):
+            resolved = instance_work.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                dirs.append(instance_work)
+    return dirs
+
+
+def candidate_data_dirs() -> List[Path]:
+    """Search order for session data/ — CWD first (dev.sh / Docker), then fallbacks."""
+    seen: set[Path] = set()
+    dirs: List[Path] = []
+    for raw in (Path.cwd() / "data", _BACKEND_DIR / "data", _APP_DIR / "data"):
+        resolved = raw.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            dirs.append(raw)
+    dev_root = _BACKEND_DIR.parent / ".dev-data"
+    if dev_root.is_dir():
+        for instance_data in sorted(dev_root.glob("instance-*/data")):
+            resolved = instance_data.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                dirs.append(instance_data)
+    return dirs
+
+
 def get_schematiq_work_dir() -> Path:
-    """Get the schematiq_work directory path, resolved from module location."""
-    return _BACKEND_DIR / "schematiq_work"
+    """Runtime schematiq_work directory (CWD-relative — matches dev.sh and Docker WORKDIR)."""
+    work_dir = Path.cwd() / "schematiq_work"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    return work_dir.resolve()
 
 
 def get_data_dir() -> Path:
-    """Get the data directory path, resolved from module location.
-
-    Checks both Docker/Railway location (backend/data) and local dev
-    location (backend/app/data), preferring whichever has content.
-    """
-    docker_data_dir = _BACKEND_DIR / "data"
-    local_data_dir = _APP_DIR / "data"
-
-    if docker_data_dir.exists() and any(docker_data_dir.iterdir()):
-        return docker_data_dir
-    elif local_data_dir.exists() and any(local_data_dir.iterdir()):
-        return local_data_dir
-    else:
-        docker_data_dir.mkdir(exist_ok=True)
-        return docker_data_dir
+    """Runtime data directory (CWD-relative — matches dev.sh and Docker WORKDIR)."""
+    data_dir = Path.cwd() / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir.resolve()
 
 
 def collect_all_data_rows(session_id: str, work_dir: Path = None, data_dir: Path = None) -> List[dict]:
@@ -150,26 +179,131 @@ def enumerate_session_data_files(
     Matches the set processed by ``reextraction_service._merge_reextracted_data``:
     schematiq_work/extracted_data.jsonl, schematiq_work/data.jsonl (fallback),
     and data/data.jsonl (additional documents).
+
+    When *work_dir* is omitted, searches ``candidate_work_dirs()`` in order so
+    dev.sh isolation (``.dev-data/instance-N/schematiq_work``) is found even if
+    a stale copy was hydrated under ``backend/schematiq_work``.
     """
+    data_files: List[Path] = []
+    work_dirs = [work_dir] if work_dir is not None else candidate_work_dirs()
+
+    for wd in work_dirs:
+        extracted_file = wd / session_id / "extracted_data.jsonl"
+        if extracted_file.exists():
+            data_files.append(extracted_file)
+            break
+
+    if not data_files:
+        for wd in work_dirs:
+            schematiq_data_file = wd / session_id / "data.jsonl"
+            if schematiq_data_file.exists():
+                data_files.append(schematiq_data_file)
+                break
+
+    data_dirs = [data_dir] if data_dir is not None else candidate_data_dirs()
+    seen = {f.resolve() for f in data_files}
+    for dd in data_dirs:
+        load_data_file = dd / session_id / "data.jsonl"
+        if load_data_file.exists() and load_data_file.resolve() not in seen:
+            data_files.append(load_data_file)
+            break
+
+    return data_files
+
+
+def session_data_file_candidates(
+    session_id: str,
+    work_dir: Path = None,
+    data_dir: Path = None,
+) -> List[Path]:
+    """All data JSONL paths that may exist for a session (before hydration)."""
     if work_dir is None:
         work_dir = get_schematiq_work_dir()
     if data_dir is None:
         data_dir = get_data_dir()
 
-    data_files: List[Path] = []
-    extracted_file = work_dir / session_id / "extracted_data.jsonl"
-    schematiq_data_file = work_dir / session_id / "data.jsonl"
-    load_data_file = data_dir / session_id / "data.jsonl"
+    return [
+        work_dir / session_id / "extracted_data.jsonl",
+        work_dir / session_id / "data.jsonl",
+        data_dir / session_id / "data.jsonl",
+    ]
 
-    if extracted_file.exists():
-        data_files.append(extracted_file)
-    if not data_files and schematiq_data_file.exists():
-        data_files.append(schematiq_data_file)
-    if load_data_file.exists() and load_data_file.resolve() not in {
-        f.resolve() for f in data_files
-    }:
-        data_files.append(load_data_file)
-    return data_files
+
+async def session_has_stored_data(
+    session_id: str,
+    storage=None,
+    work_dir: Path = None,
+    data_dir: Path = None,
+) -> bool:
+    """Return True if any session data JSONL object exists in remote storage."""
+    if storage is None:
+        from app.storage import get_storage
+
+        storage = get_storage()
+
+    for local_path in session_data_file_candidates(session_id, work_dir, data_dir):
+        storage_path = storage_path_for_data_file(local_path, session_id)
+        if storage_path and await storage.file_exists("data", storage_path):
+            return True
+    return False
+
+
+async def resolve_session_data_files(
+    session_id: str,
+    work_dir: Path = None,
+    data_dir: Path = None,
+    storage=None,
+) -> List[Path]:
+    """Return existing local data files, hydrating from storage when needed."""
+    if work_dir is None:
+        work_dir = get_schematiq_work_dir()
+    if data_dir is None:
+        data_dir = get_data_dir()
+    if storage is None:
+        from app.storage import get_storage
+
+        storage = get_storage()
+
+    # Prefer any on-disk session data (including dev.sh instance dirs) before hydrating.
+    existing = enumerate_session_data_files(session_id)
+    if existing:
+        return existing
+
+    for path in session_data_file_candidates(session_id, work_dir, data_dir):
+        if not path.exists():
+            await ensure_session_data_file_local(session_id, path, storage=storage)
+
+    return enumerate_session_data_files(session_id, work_dir=work_dir, data_dir=data_dir)
+
+
+async def resolve_primary_session_data_file(
+    session_id: str,
+    work_dir: Path = None,
+    data_dir: Path = None,
+    storage=None,
+) -> Optional[Path]:
+    """Return the primary session data JSONL path, hydrating from storage when needed."""
+    files = await resolve_session_data_files(
+        session_id,
+        work_dir=work_dir,
+        data_dir=data_dir,
+        storage=storage,
+    )
+    return files[0] if files else None
+
+
+def resolve_primary_session_data_file_sync(session_id: str) -> Optional[Path]:
+    """Sync entry point for thread-pool callers without a running event loop."""
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(resolve_primary_session_data_file(session_id))
+    raise RuntimeError(
+        "resolve_primary_session_data_file_sync cannot be called from a running event loop; "
+        "use resolve_primary_session_data_file instead."
+    )
 
 
 def storage_path_for_data_file(local_path: Path, session_id: str) -> Optional[str]:
@@ -291,6 +425,29 @@ def remove_column_keys_in_row(row: dict, column_name: str) -> None:
     else:
         row.pop(column_name, None)
         row.pop(excerpt_column, None)
+
+
+def get_extraction_column_value(row: dict, column_name: str):
+    """Return a column value from re-extraction output using schema or sanitized key.
+
+    Controlled generation may leave values under sanitized keys (e.g.
+    ``judge_full_name`` for schema column ``judge full name``).  Lookup is
+    deterministic — same rules as ``align_extraction_keys_to_schema``.
+    """
+    from schematiq.value_extraction.utils.schema_builder import sanitize_column_name
+
+    containers = [row]
+    nested = row.get("data")
+    if isinstance(nested, dict):
+        containers.append(nested)
+
+    sanitized = sanitize_column_name(column_name)
+    for container in containers:
+        if column_name in container:
+            return container[column_name]
+        if sanitized != column_name and sanitized in container:
+            return container[sanitized]
+    return None
 
 
 def normalize_row_data(row: dict) -> dict:

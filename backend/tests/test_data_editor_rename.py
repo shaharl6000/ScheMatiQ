@@ -14,11 +14,12 @@ from app.storage.local_backend import LocalStorageBackend
 
 
 @pytest.fixture
-def session_dirs(tmp_path):
+def session_dirs(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     work_dir = tmp_path / "schematiq_work"
     data_dir = tmp_path / "data"
-    work_dir.mkdir()
-    data_dir.mkdir()
+    work_dir.mkdir(parents=True)
+    data_dir.mkdir(parents=True)
     return work_dir, data_dir
 
 
@@ -126,10 +127,6 @@ async def test_rename_then_reextract_merge_removes_stale_key(
 ):
     """Repro path: schema rename + re-extract must not leave the old column key."""
     work_dir, data_dir = session_dirs
-    monkeypatch.setattr(
-        "app.services.data_utils.get_schematiq_work_dir", lambda: work_dir
-    )
-    monkeypatch.setattr("app.services.data_utils.get_data_dir", lambda: data_dir)
 
     session_id = "rename-reextract-session"
     editor = DataEditor(work_dir=str(work_dir), data_dir=str(data_dir))
