@@ -783,6 +783,11 @@ async def export_complete_schematiq_data(
                 "columns": [
                     {
                         "name": col.name,
+                        # Additive metadata: the user's original typed label. Stays
+                        # separate from the canonical `name` (the data/schema key)
+                        # so it round-trips back on reimport without ever becoming
+                        # a header or data key.
+                        "display_name": col.display_name,
                         "definition": col.definition or "",
                         "rationale": col.rationale or "",
                         "data_type": col.data_type,
@@ -1147,6 +1152,10 @@ async def export_schematiq_schema_only(
                     "source_document": col.source_document,
                     "discovery_iteration": col.discovery_iteration
                 }
+                # Additive metadata: preserve the user's original typed label so it
+                # round-trips on reimport. The canonical `name` stays the schema key.
+                if col.display_name:
+                    col_export["display_name"] = col.display_name
                 if col.allowed_values:
                     col_export["allowed_values"] = col.allowed_values
                 schema_columns.append(col_export)

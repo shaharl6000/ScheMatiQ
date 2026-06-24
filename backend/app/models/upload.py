@@ -35,6 +35,9 @@ class DataPreviewRequest(BaseModel):
 class SchemaColumn(BaseModel):
     """Schema column definition from ScheMatiQ schema."""
     name: str
+    # Original user-typed label, additive metadata that round-trips alongside the
+    # canonical `name`. Never used as a schema/data key.
+    display_name: Optional[str] = None
     definition: Optional[str] = None
     rationale: Optional[str] = None
 

@@ -637,6 +637,7 @@ class FileParser:
                         for col_def in data["schema"]["columns"]:
                             if isinstance(col_def, dict) and "name" in col_def:
                                 schema_metadata_from_export[col_def["name"]] = {
+                                    "display_name": col_def.get("display_name"),
                                     "definition": col_def.get("definition", ""),
                                     "rationale": col_def.get("rationale", ""),
                                     "allowed_values": col_def.get("allowed_values"),
@@ -705,6 +706,7 @@ class FileParser:
 
                 col_info = ColumnInfo(
                     name=key,
+                    display_name=meta.get("display_name"),
                     data_type=meta.get("data_type") or "object",
                     non_null_count=non_null,
                     unique_count=len(values_set),
@@ -1273,6 +1275,7 @@ class FileParser:
                 try:
                     col = SchemaColumn(
                         name=col_def['name'],
+                        display_name=col_def.get('display_name'),
                         definition=col_def.get('definition'),
                         rationale=col_def.get('rationale')
                     )

@@ -298,6 +298,9 @@ class DataCollectionService:
         schema_columns = [
             {
                 "name": col.name,
+                # Additive metadata: the user's original typed label, kept separate
+                # from the canonical `name` key so it round-trips on reload.
+                "display_name": col.display_name,
                 "definition": col.definition or "",
                 "rationale": col.rationale or "",
                 "data_type": col.data_type,
