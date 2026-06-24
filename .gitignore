@@ -144,9 +144,8 @@ backend/test_*.py
 # AI tooling config
 .claude/agents/
 
-# Local dev runner instance storage (dev.sh)
+# Local dev runner instance storage (dev.sh multi-instance isolation)
 .dev-data/
 
 # Local evaluation scripts
 evaluate_schematiq.py
-.dev-data/
