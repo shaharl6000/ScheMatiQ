@@ -816,9 +816,9 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     loadSchemaChangeStatus();
   };
 
-  const handleReextractionError = (message: string) => {
+  const handleReextractionError = useCallback((message: string) => {
     toast({ title: 'Re-extraction Error', description: message, variant: 'destructive' });
-  };
+  }, [toast]);
 
   /** Start full table re-extraction (all columns). Used when user clicks "Re-extract Table" from observation unit modal. */
   const handleFullReextractionRequest = useCallback(async () => {
@@ -869,7 +869,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         handleReextractionError(detail || 'Failed to start re-extraction');
       }
     }
-  }, [localColumns, sessionId, onReextractionStarted, toast]);
+  }, [localColumns, sessionId, onReextractionStarted, toast, handleReextractionError]);
 
   const handleContinueDiscoverySuccess = (message: string, newColumns: ColumnInfo[]) => {
     toast({ title: 'Success', description: message });
