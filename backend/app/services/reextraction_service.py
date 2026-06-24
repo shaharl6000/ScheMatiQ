@@ -1062,6 +1062,68 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "missing_papers": paper_discovery["missing_papers"]
         }
 
+    def _build_known_units_for_reextraction(
+        self,
+        session_id: str,
+        session: VisualizationSession,
+        rediscover_observation_units: bool,
+    ) -> Dict[str, List[str]]:
+        """Map paper stems to known observation-unit names for re-extraction.
+
+        Papers with rows in extracted data map to their unit names. Papers skipped
+        during the original extraction (no units found) map to ``[]`` so the lib
+        reuses the empty-list skip path instead of running LLM unit discovery.
+        """
+        if rediscover_observation_units:
+            return {}
+
+        known_units: Dict[str, List[str]] = {}
+        reextract_data_files = []
+        schematiq_extracted = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
+        if schematiq_extracted.exists():
+            reextract_data_files.append(schematiq_extracted)
+        if not reextract_data_files:
+            schematiq_data = Path("./schematiq_work") / session_id / "data.jsonl"
+            if schematiq_data.exists():
+                reextract_data_files.append(schematiq_data)
+        load_data = Path("./data") / session_id / "data.jsonl"
+        if load_data.exists() and load_data.resolve() not in [
+            f.resolve() for f in reextract_data_files
+        ]:
+            reextract_data_files.append(load_data)
+
+        for df in reextract_data_files:
+            try:
+                with open(df, "r") as f:
+                    for line in f:
+                        if line.strip():
+                            try:
+                                row = json.loads(line)
+                                row_name = row.get("_row_name") or row.get("row_name")
+                                papers = row.get("_papers") or row.get("papers") or []
+                                if isinstance(papers, str):
+                                    papers = [papers]
+                                for paper in papers:
+                                    paper_stem = Path(paper).stem
+                                    if paper_stem not in known_units:
+                                        known_units[paper_stem] = []
+                                    if row_name and row_name not in known_units[paper_stem]:
+                                        known_units[paper_stem].append(row_name)
+                            except json.JSONDecodeError:
+                                continue
+            except Exception as e:
+                logger.warning(f"Error reading data file {df} for known_units: {e}")
+
+        # Skipped docs have no rows; present them as [] (not absent/None) to avoid
+        # a wasteful LLM unit-identification call on re-extraction.
+        if session.statistics and session.statistics.skipped_documents:
+            for skipped in session.statistics.skipped_documents:
+                paper_stem = Path(skipped.document).stem
+                if paper_stem not in known_units:
+                    known_units[paper_stem] = []
+
+        return known_units
+
     async def _run_reextraction(self, operation_id: str):
         """Execute re-extraction in background."""
         operation = self.active_operations.get(operation_id)
@@ -1261,46 +1323,12 @@ class ReextractionService(WebSocketBroadcasterMixin):
             if docs_directories:
                 logger.debug("Starting build_table_jsonl extraction...")
 
-                # Build known_units from existing data (paper_stem -> [unit_names])
-                # This skips the expensive LLM unit discovery for rows that already exist.
-                # After the user edits the observation unit, pending_observation_unit_rediscovery
-                # forces a full LLM re-identification instead of reusing old row names.
-                known_units: Dict[str, List[str]] = {}
-                if not rediscover_observation_units:
-                    reextract_data_files = []
-                    schematiq_extracted = Path("./schematiq_work") / operation.session_id / "extracted_data.jsonl"
-                    if schematiq_extracted.exists():
-                        reextract_data_files.append(schematiq_extracted)
-                    if not reextract_data_files:
-                        schematiq_data = Path("./schematiq_work") / operation.session_id / "data.jsonl"
-                        if schematiq_data.exists():
-                            reextract_data_files.append(schematiq_data)
-                    load_data = Path("./data") / operation.session_id / "data.jsonl"
-                    if load_data.exists() and load_data.resolve() not in [f.resolve() for f in reextract_data_files]:
-                        reextract_data_files.append(load_data)
-
-                    for df in reextract_data_files:
-                        try:
-                            with open(df, 'r') as f:
-                                for line in f:
-                                    if line.strip():
-                                        try:
-                                            row = json.loads(line)
-                                            row_name = row.get('_row_name') or row.get('row_name')
-                                            papers = row.get('_papers') or row.get('papers') or []
-                                            if isinstance(papers, str):
-                                                papers = [papers]
-                                            for paper in papers:
-                                                paper_stem = Path(paper).stem
-                                                if paper_stem not in known_units:
-                                                    known_units[paper_stem] = []
-                                                if row_name and row_name not in known_units[paper_stem]:
-                                                    known_units[paper_stem].append(row_name)
-                                        except json.JSONDecodeError:
-                                            continue
-                        except Exception as e:
-                            logger.warning(f"Error reading data file {df} for known_units: {e}")
-                else:
+                known_units = self._build_known_units_for_reextraction(
+                    operation.session_id,
+                    session,
+                    rediscover_observation_units,
+                )
+                if rediscover_observation_units:
                     logger.info(
                         "pending_observation_unit_rediscovery: skipping known_units; "
                         "LLM will re-identify observation units from documents"
