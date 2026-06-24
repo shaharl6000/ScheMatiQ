@@ -88,6 +88,7 @@ import {
 } from '@/types';
 import { DocumentListResponse } from '@/types/unit';
 import { getApiKeyForProvider, getConfiguredProviders } from '@/utils/apiKeyStorage';
+import { formatColumnName } from '@/utils/formatting';
 
 import './Workspace.css';
 
@@ -759,6 +760,17 @@ function SpreadsheetSurface({
     return cols;
   }, [schema]);
 
+  // Display-only label for a canonical column name. The canonical `name` stays
+  // the identity used for every edit/delete/API payload; this only affects what
+  // the user sees in the Schema sheet's name cell and the Data tab headers.
+  const columnDisplayLabel = useCallback(
+    (name: string): string => {
+      const col = schemaColumns.find((c) => c.name === name);
+      return col?.display_name || formatColumnName(name);
+    },
+    [schemaColumns]
+  );
+
   const dataColumnNames = useMemo(() => {
     // The schema is the source of truth for which columns the Data tab shows.
     // We intentionally do NOT union in keys from data.rows: a schema edit
@@ -784,7 +796,12 @@ function SpreadsheetSurface({
 
   const schemaRows = useMemo(() => {
     return schemaColumns.map((column) => ({
-      name: column.name || '',
+      // Display-only: the canonical `column.name` remains the edit identity
+      // (handleChanges/handleBeforeRemoveRow read it from schemaColumns, not
+      // from this displayed value). No formatColumnName fallback here: this cell
+      // is editable, so a plain canonical name must show verbatim (e.g. "status",
+      // not "Status") to match what an edit operates on.
+      name: column.display_name || column.name || '',
       definition: column.definition || '',
       rationale: column.rationale || '',
       allowed_values: Array.isArray(column.allowed_values) ? column.allowed_values.join(', ') : '',
@@ -832,10 +849,10 @@ function SpreadsheetSurface({
       rows: dataRows,
       columns: [
         { key: '_row_name', label: 'unit_name', width: 220, readOnly: true },
-        ...dataColumnNames.map((name) => ({ key: name, label: name, width: 190 })),
+        ...dataColumnNames.map((name) => ({ key: name, label: columnDisplayLabel(name), width: 190 })),
       ],
     };
-  }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows]);
+  }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel]);
 
   const handleChanges = useCallback((changes: any[] | null, source: string) => {
     if (!changes || source === 'loadData' || !sessionId) return;
