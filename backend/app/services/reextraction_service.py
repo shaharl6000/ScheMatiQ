@@ -43,7 +43,8 @@ class ReextractionOperation:
         operation_id: str,
         session_id: str,
         columns: List[str],
-        status: str = "pending"
+        status: str = "pending",
+        renamed_from: Optional[Dict[str, str]] = None,
     ):
         self.operation_id = operation_id
         self.session_id = session_id
@@ -56,6 +57,8 @@ class ReextractionOperation:
         self.started_at: Optional[datetime] = None
         self.completed_at: Optional[datetime] = None
         self.error: Optional[str] = None
+        # new column name -> previous column name (from schema renames)
+        self.renamed_from: Dict[str, str] = renamed_from or {}
 
 
 class ReextractionService(WebSocketBroadcasterMixin):
@@ -156,7 +159,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 await self._merge_reextracted_data(
                     operation.session_id,
                     operation.columns,
-                    output_file
+                    output_file,
+                    renamed_from=operation.renamed_from,
                 )
                 output_file.unlink(missing_ok=True)
                 schema_file = session_dir / f"reextract_schema_{operation_id}.json"
@@ -797,6 +801,42 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     # ==================== Re-extraction ====================
 
+    def _collect_renamed_from_history(
+        self,
+        session: VisualizationSession,
+        columns: List[str],
+    ) -> Dict[str, str]:
+        """Map new column names to their previous names from edit history."""
+        renamed: Dict[str, str] = {}
+        column_set = set(columns)
+        valid_columns = {col.name for col in session.columns if col.name}
+
+        if session.schema_baseline:
+            for col_name in columns:
+                baseline = session.schema_baseline.columns.get(col_name)
+                if (
+                    baseline
+                    and baseline.name != col_name
+                    and baseline.name not in valid_columns
+                ):
+                    renamed[col_name] = baseline.name
+
+        for mod in reversed(session.modification_history or []):
+            if mod.action_type != "column_edited":
+                continue
+            details = mod.details or {}
+            old_name = details.get("original_name")
+            new_name = details.get("new_name")
+            if (
+                new_name
+                and old_name
+                and new_name != old_name
+                and new_name in column_set
+                and old_name not in valid_columns
+            ):
+                renamed.setdefault(new_name, old_name)
+        return renamed
+
     async def resolve_reextraction_columns(
         self,
         session_id: str,
@@ -857,8 +897,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
         """
         resolved = await self.resolve_reextraction_columns(session_id, columns, scope)
 
+        session = self.session_manager.get_session(session_id)
+        renamed_from = (
+            self._collect_renamed_from_history(session, resolved) if session else {}
+        )
+
         # Capture baseline AFTER resolving scope (edited_only reads the old baseline)
-        # so the pending-change detection clears once re-extraction starts.
+        # and AFTER collecting rename signals from the old baseline / edit history.
         if capture_baseline:
             await self.capture_and_save_baseline(session_id)
 
@@ -877,12 +922,15 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 "documents, then try again."
             )
 
-        return await self.start_reextraction(session_id, resolved)
+        return await self.start_reextraction(
+            session_id, resolved, renamed_from=renamed_from
+        )
 
     async def start_reextraction(
         self,
         session_id: str,
-        columns: List[str]
+        columns: List[str],
+        renamed_from: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """
         Start a re-extraction operation for selected columns.
@@ -973,11 +1021,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Create operation
         operation_id = str(uuid.uuid4())[:8]
+        if renamed_from is None:
+            renamed_from = self._collect_renamed_from_history(session, columns)
         operation = ReextractionOperation(
             operation_id=operation_id,
             session_id=session_id,
             columns=columns,
-            status="starting"
+            status="starting",
+            renamed_from=renamed_from,
         )
         operation.total_documents = doc_count
         with self._state_lock:
@@ -1267,7 +1318,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             await self._merge_reextracted_data(
                 operation.session_id,
                 operation.columns,
-                output_file
+                output_file,
+                renamed_from=operation.renamed_from,
             )
 
             # Update baseline after successful extraction
@@ -1337,24 +1389,20 @@ class ReextractionService(WebSocketBroadcasterMixin):
         self,
         session_id: str,
         columns: List[str],
-        extraction_file: Path
+        extraction_file: Path,
+        renamed_from: Optional[Dict[str, str]] = None,
     ):
         """Merge re-extracted values with existing data across ALL data files."""
         if not extraction_file.exists():
             return
 
-        # Find ALL data files (same pattern as unit_view_service._get_all_data_files)
-        schematiq_extracted_file = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
-        schematiq_data_file = Path("./schematiq_work") / session_id / "data.jsonl"
-        load_data_file = Path("./data") / session_id / "data.jsonl"
+        from app.services.data_utils import (
+            enumerate_session_data_files,
+            persist_session_data_file,
+            remove_column_keys_in_row,
+        )
 
-        data_files = []
-        if schematiq_extracted_file.exists():
-            data_files.append(schematiq_extracted_file)
-        if not data_files and schematiq_data_file.exists():
-            data_files.append(schematiq_data_file)
-        if load_data_file.exists() and load_data_file.resolve() not in [f.resolve() for f in data_files]:
-            data_files.append(load_data_file)
+        data_files = enumerate_session_data_files(session_id)
 
         # Read extracted values indexed by composite key (row_name, source_document)
         # to avoid collisions when the same observation unit appears in multiple docs
@@ -1379,6 +1427,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         logger.debug(f"Extracted composite keys from extraction file: {list(extracted_by_key.keys())}")
 
         if not data_files:
+            schematiq_extracted_file = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
             schematiq_extracted_file.parent.mkdir(parents=True, exist_ok=True)
             new_rows = [
                 self._storage_row_from_extraction(ext_row_data)
@@ -1392,6 +1441,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 schematiq_extracted_file,
                 len(new_rows),
             )
+            await persist_session_data_file(session_id, schematiq_extracted_file)
             self._update_session_stats_after_merge(session_id, columns, new_rows)
             return
 
@@ -1462,6 +1512,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         matched_extracted_keys.add(row_dedup_key(extracted))
                         
                         for col_name in columns:
+                            old_name = (renamed_from or {}).get(col_name)
+                            if old_name:
+                                remove_column_keys_in_row(row, old_name)
                             if col_name in extracted:
                                 if 'data' in row:
                                     row['data'][col_name] = extracted[col_name]
@@ -1490,6 +1543,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
             with open(data_file, 'w') as f:
                 for row in updated_rows:
                     f.write(json.dumps(row) + '\n')
+
+            await persist_session_data_file(session_id, data_file)
 
             total_rows_updated += rows_updated
             total_new_rows += new_rows_added

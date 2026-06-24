@@ -3,7 +3,7 @@
 import json
 import logging
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +138,159 @@ def collect_all_data_rows(session_id: str, work_dir: Path = None, data_dir: Path
         seen_keys.update(file_keys)
 
     return all_rows
+
+
+def enumerate_session_data_files(
+    session_id: str,
+    work_dir: Path = None,
+    data_dir: Path = None,
+) -> List[Path]:
+    """Return all session data JSONL paths that may hold table rows.
+
+    Matches the set processed by ``reextraction_service._merge_reextracted_data``:
+    schematiq_work/extracted_data.jsonl, schematiq_work/data.jsonl (fallback),
+    and data/data.jsonl (additional documents).
+    """
+    if work_dir is None:
+        work_dir = get_schematiq_work_dir()
+    if data_dir is None:
+        data_dir = get_data_dir()
+
+    data_files: List[Path] = []
+    extracted_file = work_dir / session_id / "extracted_data.jsonl"
+    schematiq_data_file = work_dir / session_id / "data.jsonl"
+    load_data_file = data_dir / session_id / "data.jsonl"
+
+    if extracted_file.exists():
+        data_files.append(extracted_file)
+    if not data_files and schematiq_data_file.exists():
+        data_files.append(schematiq_data_file)
+    if load_data_file.exists() and load_data_file.resolve() not in {
+        f.resolve() for f in data_files
+    }:
+        data_files.append(load_data_file)
+    return data_files
+
+
+def storage_path_for_data_file(local_path: Path, session_id: str) -> Optional[str]:
+    """Map a local data JSONL path to its Supabase ``data`` bucket object key."""
+    name = local_path.name
+    if name == "extracted_data.jsonl":
+        return f"{session_id}/extracted_data.jsonl"
+    if name == "data.jsonl" and "schematiq_work" not in local_path.parts:
+        return f"{session_id}/data.jsonl"
+    return None
+
+
+async def ensure_session_data_file_local(
+    session_id: str,
+    local_path: Path,
+    storage=None,
+) -> bool:
+    """Ensure a data JSONL file exists locally, hydrating from storage when needed."""
+    if local_path.exists():
+        return True
+
+    storage_path = storage_path_for_data_file(local_path, session_id)
+    if not storage_path:
+        return False
+
+    if storage is None:
+        from app.storage import get_storage
+
+        storage = get_storage()
+
+    try:
+        data = await storage.download_file("data", storage_path)
+    except Exception as exc:
+        logger.debug(
+            "Storage download failed for session %s path %s: %s",
+            session_id,
+            storage_path,
+            exc,
+        )
+        return False
+
+    if not data:
+        return False
+
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    local_path.write_bytes(data)
+    logger.info(
+        "Hydrated %s from storage data/%s for session %s",
+        local_path,
+        storage_path,
+        session_id,
+    )
+    return True
+
+
+async def persist_session_data_file(
+    session_id: str,
+    local_path: Path,
+    storage=None,
+) -> None:
+    """Write a data JSONL file back to the active storage backend."""
+    if not local_path.exists():
+        return
+
+    storage_path = storage_path_for_data_file(local_path, session_id)
+    if not storage_path:
+        return
+
+    if storage is None:
+        from app.storage import get_storage
+
+        storage = get_storage()
+
+    content = local_path.read_bytes()
+    try:
+        await storage.upload_file(
+            "data",
+            storage_path,
+            content,
+            content_type="application/x-ndjson",
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to persist %s to storage data/%s for session %s: %s",
+            local_path,
+            storage_path,
+            session_id,
+            exc,
+        )
+
+
+def rename_column_keys_in_row(row: dict, old_name: str, new_name: str) -> bool:
+    """Rename a column key (and its excerpt column) within a single data row."""
+    updated = False
+    old_excerpt = f"{old_name}_excerpt"
+    new_excerpt = f"{new_name}_excerpt"
+
+    if "data" in row and isinstance(row["data"], dict):
+        if old_name in row["data"]:
+            row["data"][new_name] = row["data"].pop(old_name)
+            updated = True
+        if old_excerpt in row["data"]:
+            row["data"][new_excerpt] = row["data"].pop(old_excerpt)
+    else:
+        if old_name in row:
+            row[new_name] = row.pop(old_name)
+            updated = True
+        if old_excerpt in row:
+            row[new_excerpt] = row.pop(old_excerpt)
+    return updated
+
+
+def remove_column_keys_in_row(row: dict, column_name: str) -> None:
+    """Remove a column key (and its excerpt column) from a single data row."""
+    excerpt_column = f"{column_name}_excerpt"
+    if "data" in row and isinstance(row["data"], dict):
+        row["data"].pop(column_name, None)
+        row["data"].pop(excerpt_column, None)
+    else:
+        row.pop(column_name, None)
+        row.pop(excerpt_column, None)
 
 
 def normalize_row_data(row: dict) -> dict:

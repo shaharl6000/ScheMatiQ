@@ -155,7 +155,13 @@ async def edit_column(
             try:
                 await data_editor.rename_column(session_id, edit_request.old_name, edit_request.new_name)
             except FileNotFoundError:
-                pass  # No data file yet — nothing to rename
+                logger.warning(
+                    "Column '%s' renamed to '%s' in schema for session %s, "
+                    "but no data JSONL files were found to update row keys",
+                    edit_request.old_name,
+                    edit_request.new_name,
+                    session_id,
+                )
 
         # Broadcast schema update
         await websocket_manager.broadcast_schema_updated(session_id, {
