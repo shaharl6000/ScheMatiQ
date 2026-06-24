@@ -1002,6 +1002,44 @@ function SpreadsheetSurface({
     }
   }, [activeSheet, data.rows, observationUnitRows, onEditFollowUp, onRefresh, schemaColumns, sessionId, toast]);
 
+  const handleBeforeRemoveRow = useCallback(
+    (_index: number, _amount: number, physicalRows: number[], _source?: string): boolean | void => {
+      // Row removal only deletes a schema column when done on the Schema sheet.
+      // On other sheets, fall through to Handsontable's default behavior.
+      if (activeSheet !== 'schema' || !sessionId) return;
+
+      const names = physicalRows
+        .map((rowIndex) => schemaColumns[rowIndex]?.name)
+        .filter((name): name is string => Boolean(name && name.trim()));
+
+      if (names.length === 0) return;
+
+      Promise.all(names.map((name) => schemaAPI.deleteColumn(sessionId, name)))
+        .then(() => {
+          toast({
+            title: names.length > 1 ? 'Schema columns deleted' : 'Schema column deleted',
+            description: names.join(', '),
+          });
+          onEditFollowUp('schema', names);
+          onRefresh();
+        })
+        .catch((err: any) => {
+          toast({
+            title: 'Column delete failed',
+            description: err?.response?.data?.detail || err?.message || 'Could not delete column',
+            variant: 'destructive',
+          });
+          onRefresh();
+        });
+
+      // Cancel Handsontable's local removal; the schema state refresh below
+      // re-renders the grid from the server's updated schema, keeping the
+      // Schema and Data tabs in sync with a single source of truth.
+      return false;
+    },
+    [activeSheet, onEditFollowUp, onRefresh, schemaColumns, sessionId, toast],
+  );
+
   if (!sessionId) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -1055,6 +1093,7 @@ function SpreadsheetSurface({
         minSpareRows={sheet.minSpareRows || 0}
         licenseKey="non-commercial-and-evaluation"
         afterInit={syncHotTableDimensions}
+        beforeRemoveRow={handleBeforeRemoveRow}
         afterChange={(changes, source) => {
           handleChanges(changes, source);
           if (source !== 'loadData') onEditEnd();
