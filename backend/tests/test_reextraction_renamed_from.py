@@ -57,6 +57,17 @@ async def test_gated_reextraction_collects_renamed_from_before_baseline_recaptur
 
     service = ReextractionService(MagicMock(), session_manager)
     service.capture_and_save_baseline = AsyncMock()
+    discovery = {
+        "total_rows": 0,
+        "rows_with_papers": 0,
+        "available_papers": [],
+        "missing_papers": [],
+        "paper_to_rows": {},
+        "cloud_papers": {},
+        "local_papers": [],
+        "session_document_count": 0,
+    }
+    service.discover_papers = AsyncMock(return_value=discovery)
     service.precheck_document_availability = AsyncMock(
         return_value={"can_proceed": True}
     )
@@ -68,6 +79,7 @@ async def test_gated_reextraction_collects_renamed_from_before_baseline_recaptur
         "sess-1",
         ["judge_name"],
         renamed_from={"judge_name": "appointing_president"},
+        paper_discovery=discovery,
     )
     service.capture_and_save_baseline.assert_awaited_once_with("sess-1")
     assert service.start_reextraction.await_args.kwargs["renamed_from"] == {

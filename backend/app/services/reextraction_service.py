@@ -61,6 +61,8 @@ class ReextractionOperation:
         self.renamed_from: Dict[str, str] = renamed_from or {}
         # composite keys already merged incrementally during extraction
         self.incrementally_merged_keys: Set[tuple] = set()
+        # paper discovery snapshot for this operation (avoids redundant rescans)
+        self.paper_discovery: Optional[Dict[str, Any]] = None
 
 
 class ReextractionService(WebSocketBroadcasterMixin):
@@ -911,8 +913,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if capture_baseline:
             await self.capture_and_save_baseline(session_id)
 
+        paper_discovery = await self.discover_papers(session_id)
         availability = await self.precheck_document_availability(
-            session_id, operation_type="reextraction"
+            session_id,
+            operation_type="reextraction",
+            paper_discovery=paper_discovery,
         )
         if not availability.get("can_proceed", False):
             missing = availability.get("missing_documents") or []
@@ -927,7 +932,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
 
         return await self.start_reextraction(
-            session_id, resolved, renamed_from=renamed_from
+            session_id,
+            resolved,
+            renamed_from=renamed_from,
+            paper_discovery=paper_discovery,
         )
 
     async def start_reextraction(
@@ -935,6 +943,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         session_id: str,
         columns: List[str],
         renamed_from: Optional[Dict[str, str]] = None,
+        paper_discovery: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Start a re-extraction operation for selected columns.
@@ -1012,7 +1021,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     "Please set the observation unit before re-extracting."
                 )
         # Discover papers (includes on-disk uploads when the table has no rows yet)
-        paper_discovery = await self.discover_papers(session_id)
+        if paper_discovery is None:
+            paper_discovery = await self.discover_papers(session_id)
         doc_count = len(paper_discovery.get("available_papers") or [])
         if doc_count == 0:
             doc_count = paper_discovery.get("session_document_count") or 0
@@ -1035,6 +1045,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             renamed_from=renamed_from,
         )
         operation.total_documents = doc_count
+        operation.paper_discovery = paper_discovery
         with self._state_lock:
             self.active_operations[operation_id] = operation
 
@@ -1087,9 +1098,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 }
             )
 
-            # Download cloud papers before extraction
-            logger.debug("Discovering papers for re-extraction...")
-            paper_discovery = await self.discover_papers(operation.session_id)
+            # Reuse discovery from the start path (same operation, no disk changes in between)
+            paper_discovery = operation.paper_discovery
+            if paper_discovery is None:
+                paper_discovery = await self.discover_papers(operation.session_id)
             logger.debug(f"Paper discovery result - available: {len(paper_discovery.get('available_papers', []))}, cloud: {len(paper_discovery.get('cloud_papers', {}))}, missing: {len(paper_discovery.get('missing_papers', []))}")
 
             if paper_discovery.get("cloud_papers"):
@@ -1973,7 +1985,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
     async def precheck_document_availability(
         self,
         session_id: str,
-        operation_type: str = "reextraction"
+        operation_type: str = "reextraction",
+        paper_discovery: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Pre-check document availability before extraction starts.
@@ -1992,8 +2005,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
             - total_rows: Total number of rows in the table
             - rows_with_missing_docs: Number of rows that reference missing documents
         """
-        # Use the existing discover_papers method which already categorizes documents
-        discovery = await self.discover_papers(session_id)
+        if paper_discovery is None:
+            paper_discovery = await self.discover_papers(session_id)
+        discovery = paper_discovery
 
         # Build paper_to_rows mapping (already returned by discover_papers)
         paper_to_rows = discovery.get("paper_to_rows", {})

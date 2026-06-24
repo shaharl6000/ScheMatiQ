@@ -70,16 +70,29 @@ def patched_reextraction(monkeypatch):
 
     captured: dict[str, list] = {}
 
-    async def fake_start(session_id, columns, renamed_from=None):
+    async def fake_start(session_id, columns, renamed_from=None, paper_discovery=None):
         captured["columns"] = list(columns)
         return {"status": "started", "columns": list(columns)}
 
     async def noop(*args, **kwargs):
         return None
 
+    async def fake_discover(*args, **kwargs):
+        return {
+            "total_rows": 0,
+            "rows_with_papers": 0,
+            "available_papers": ["doc1.txt"],
+            "missing_papers": [],
+            "paper_to_rows": {},
+            "cloud_papers": {},
+            "local_papers": ["doc1.txt"],
+            "session_document_count": 1,
+        }
+
     async def fake_precheck(*args, **kwargs):
         return {"can_proceed": True, "missing_documents": []}
 
+    monkeypatch.setattr(te.reextraction_service, "discover_papers", fake_discover)
     monkeypatch.setattr(te.reextraction_service, "start_reextraction", fake_start)
     monkeypatch.setattr(te.reextraction_service, "capture_and_save_baseline", noop)
     monkeypatch.setattr(te.reextraction_service, "precheck_document_availability", fake_precheck)
