@@ -1032,7 +1032,10 @@ function SpreadsheetSurface({
             title: names.length > 1 ? 'Schema columns deleted' : 'Schema column deleted',
             description: names.join(', '),
           });
-          onEditFollowUp('schema', names);
+          // Deleting a column outright does not invalidate the remaining
+          // columns' extracted values, so it must not flag a re-extract.
+          // The "Schema changed" banner is only for edits/additions that
+          // require re-running extraction against the source documents.
           onRefresh();
         })
         .catch((err: any) => {
