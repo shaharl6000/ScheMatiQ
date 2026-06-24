@@ -73,7 +73,7 @@ class GoogleSheetsLogger:
             if credentials is None:
                 return
 
-            self._service = build("sheets", "v4", credentials=credentials)
+            self._service = build("sheets", "v4", credentials=credentials, cache_discovery=False)
             self._enabled = True
             logger.info("[data-collection] Google Sheets logger initialized")
         except ImportError:

@@ -478,7 +478,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if data_dir_file.exists() and data_dir_file not in data_files:
             data_files.append(data_dir_file)
 
-        logger.info(f"discover_papers: data_files={[str(f) for f in data_files]}, "
+        logger.debug(f"discover_papers: data_files={[str(f) for f in data_files]}, "
                      f"data_session_dir exists={data_session_dir.exists()}, "
                      f"schematiq_session_dir exists={schematiq_session_dir.exists()}")
 
@@ -577,7 +577,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         local_files.add(f.name)
                         local_files.add(f.stem)  # Also match without extension
 
-        logger.info(f"discover_papers: total_rows={total_rows}, paper_refs={len(paper_refs)}, "
+        logger.debug(f"discover_papers: total_rows={total_rows}, paper_refs={len(paper_refs)}, "
                      f"local_files={len(local_files)}, dirs_checked={[str(d) for d in local_dirs_to_check if d.exists()]}")
 
         # Categorize papers: local, cloud, or missing
@@ -653,7 +653,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     if doc_name not in local_papers:
                         local_papers.append(doc_name)
                 available = list(dict.fromkeys(local_papers + list(cloud_papers.keys())))
-                logger.info(
+                logger.debug(
                     "discover_papers: no row references; using %d on-disk session document(s)",
                     len(session_document_filenames),
                 )
