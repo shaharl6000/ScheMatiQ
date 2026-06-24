@@ -41,6 +41,7 @@ export const WS_RECONNECT_MAX_DELAY = 10000; // milliseconds
 export const SCHEMATIQ_REFRESH_INTERVAL = 3000; // milliseconds for ScheMatiQ data polling
 export const PROCESSING_REFRESH_INTERVAL = 2000; // milliseconds for processing status
 export const SESSION_REFRESH_INTERVAL = 3000; // milliseconds
+export const WS_DISCONNECTED_REFRESH_INTERVAL = 20000; // fallback poll when WebSocket is down
 
 // File Upload Configuration
 export const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB in bytes
