@@ -376,6 +376,10 @@
 
 .workspace-grid-wrap {
   position: relative;
+  /* Establish a stacking context so Handsontable's sticky header clones
+     (ht_clone_top, z-index: 101) stay contained below modal overlays (z-index: 130+)
+     instead of escaping into the root stacking context. */
+  z-index: 0;
   min-height: 0;
   flex: 1 1 auto;
   overflow: hidden;
