@@ -51,7 +51,7 @@ def _build_gmail_service():
                 client_secret=creds_data["client_secret"],
                 scopes=SCOPES,
             )
-            return build("gmail", "v1", credentials=credentials)
+            return build("gmail", "v1", credentials=credentials, cache_discovery=False)
 
         # Option 2: Service account (needs domain-wide delegation for Gmail)
         if GOOGLE_SERVICE_ACCOUNT_JSON or GOOGLE_SERVICE_ACCOUNT_FILE:
@@ -66,7 +66,7 @@ def _build_gmail_service():
                 credentials = service_account.Credentials.from_service_account_file(
                     GOOGLE_SERVICE_ACCOUNT_FILE, scopes=SCOPES
                 )
-            return build("gmail", "v1", credentials=credentials)
+            return build("gmail", "v1", credentials=credentials, cache_discovery=False)
 
     except Exception as e:
         logger.debug("[email-alert] Could not build Gmail service: %s", e)
