@@ -1464,11 +1464,14 @@ const Visualize = () => {
 
         {/* Data Tab */}
         <TabsContent value="data" className="mt-4">
-          {(isCompleted || isEnhancedUploadProcessing || isScheMatiQRunning || isStopped || session?.status === 'documents_uploaded') &&
-            (dataResponse ||
-              streamingCells.size > 0 ||
-              (mode === 'schematiq' && session?.status === 'processing' && dataLoading)) ? (
+          {(isCompleted || isEnhancedUploadProcessing || isScheMatiQRunning || isStopped || session?.status === 'documents_uploaded') ? (
             <div className="relative" data-table-container>
+              {dataLoading && !dataResponse && (
+                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-background/80">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                  <span className="mt-2 text-sm text-muted-foreground">Loading data…</span>
+                </div>
+              )}
               {/* View mode toggle (only when observation units exist) */}
               {((unitListResponse && unitListResponse.totalUnits > 0) || hasUnitColumn) && (
                 <div className="mb-4 flex items-center gap-4">

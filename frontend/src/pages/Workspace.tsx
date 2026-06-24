@@ -1021,7 +1021,7 @@ function SpreadsheetSurface({
         '--workspace-table-text-align': displayOptions.align,
       } as CSSProperties}
     >
-      {gridSize.width > 0 && gridSize.height > 0 && <HotTable
+      <HotTable
         ref={hotTableRef}
         key={`${activeSheet}-${sheet.columns.length}-${formatVersion}`}
         className="workspace-hot"
@@ -1034,8 +1034,8 @@ function SpreadsheetSurface({
         }))}
         colHeaders={sheet.columns.map((column) => column.label)}
         rowHeaders
-        width={gridSize.width}
-        height={gridSize.height}
+        width={gridSize.width || 320}
+        height={gridSize.height || 260}
         stretchH="none"
         manualColumnResize
         manualRowResize
@@ -1078,7 +1078,7 @@ function SpreadsheetSurface({
           if (formatClasses) props.className = formatClasses;
           return props;
         }}
-      />}
+      />
     </div>
   );
 }
@@ -1855,6 +1855,12 @@ function Workspace() {
     setPendingSchemaColumns([]);
     setRerunStarting(false);
     setReextraction(null);
+    // Reset session-scoped view/data so a freshly imported/loaded session
+    // never renders the previous session's sheet, schema, or rows.
+    setActiveSheet('data');
+    setData(emptyData);
+    setSchema(null);
+    setStatus(null);
   }, [sessionId]);
 
   useEffect(() => {
@@ -2399,7 +2405,7 @@ function Workspace() {
               onEditEnd={flushDeferredData}
               layoutRevision={gridLayoutRevision}
             />
-            {loading && sessionId && (
+            {(loading || importingProject) && sessionId && (
               <div className="workspace-loading-overlay" role="status" aria-live="polite">
                 <div className="workspace-loading-card">
                   <Loader2 className="h-5 w-5 animate-spin" />
