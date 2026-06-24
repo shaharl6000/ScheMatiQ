@@ -70,6 +70,7 @@ ENABLE_CONTROLLED_GENERATION = True
 
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
 OnValueExtractedCallback = Callable[[str, str, Any], None]
+OnUnitRowWrittenCallback = Callable[[Dict[str, Any]], None]
 
 # Type alias for should_stop callback: () -> bool
 ShouldStopCallback = Callable[[], bool]

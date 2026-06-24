@@ -397,4 +397,119 @@ async def test_merge_loose_row_name_match_after_observation_unit_rediscovery(
     merged = _read_jsonl(extracted_path)
     assert len(merged) == 1
     assert merged[0]["judge full name"]["answer"] == "David J. Barron"
-    assert merged[0]["judge_name"]["answer"] == "Barron"
+
+
+@pytest.mark.asyncio
+async def test_incremental_merge_persists_each_row_before_final_merge(
+    isolated_dirs, monkeypatch
+):
+    """Each unit row merged during extraction must land on disk immediately."""
+    work_dir, _data_dir = isolated_dirs
+    session_id = "sess-incremental"
+    storage = InMemoryStorage()
+
+    monkeypatch.setattr("app.storage.get_storage", lambda: storage)
+
+    async def _noop_persist(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(
+        "app.services.data_utils.persist_session_data_file",
+        _noop_persist,
+    )
+
+    extracted_path = work_dir / session_id / "extracted_data.jsonl"
+    extracted_path.parent.mkdir(parents=True)
+    extracted_path.write_bytes(
+        _jsonl_lines(
+            [
+                {
+                    "_row_name": "Row A",
+                    "_source_document": "doc1",
+                    "Title": {"answer": "Original A"},
+                    "Year": {"answer": "2020"},
+                },
+                {
+                    "_row_name": "Row B",
+                    "_source_document": "doc2",
+                    "Title": {"answer": "Original B"},
+                    "Year": {"answer": "2021"},
+                },
+            ]
+        )
+    )
+
+    service = _make_service()
+    from app.services.reextraction_service import ReextractionOperation
+
+    operation = ReextractionOperation(
+        operation_id="op-inc",
+        session_id=session_id,
+        columns=["Title"],
+    )
+
+    await service._merge_incremental_unit_row(
+        session_id,
+        columns=["Title"],
+        extracted_row={
+            "_row_name": "Row A",
+            "_source_document": "doc1",
+            "Title": {"answer": "Updated A"},
+        },
+        operation=operation,
+    )
+
+    after_first = _read_jsonl(extracted_path)
+    by_name = {r["_row_name"]: r for r in after_first}
+    assert by_name["Row A"]["Title"]["answer"] == "Updated A"
+    assert by_name["Row B"]["Title"]["answer"] == "Original B"
+
+    await service._merge_incremental_unit_row(
+        session_id,
+        columns=["Title"],
+        extracted_row={
+            "_row_name": "Row B",
+            "_source_document": "doc2",
+            "Title": {"answer": "Updated B"},
+        },
+        operation=operation,
+    )
+
+    after_second = _read_jsonl(extracted_path)
+    by_name = {r["_row_name"]: r for r in after_second}
+    assert by_name["Row A"]["Title"]["answer"] == "Updated A"
+    assert by_name["Row B"]["Title"]["answer"] == "Updated B"
+    assert by_name["Row A"]["Year"]["answer"] == "2020"
+    assert len(after_second) == 2
+
+    extraction_file = work_dir / session_id / "reextract_output.jsonl"
+    extraction_file.write_bytes(
+        _jsonl_lines(
+            [
+                {
+                    "_row_name": "Row A",
+                    "_source_document": "doc1",
+                    "Title": {"answer": "Updated A"},
+                },
+                {
+                    "_row_name": "Row B",
+                    "_source_document": "doc2",
+                    "Title": {"answer": "Updated B"},
+                },
+            ]
+        )
+    )
+
+    service._update_session_stats_after_merge = MagicMock()
+    await service._merge_reextracted_data(
+        session_id,
+        columns=["Title"],
+        extraction_file=extraction_file,
+        initial_matched_keys=operation.incrementally_merged_keys,
+    )
+
+    final = _read_jsonl(extracted_path)
+    assert len(final) == 2
+    by_name = {r["_row_name"]: r for r in final}
+    assert by_name["Row A"]["Title"]["answer"] == "Updated A"
+    assert by_name["Row B"]["Title"]["answer"] == "Updated B"

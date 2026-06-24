@@ -1021,7 +1021,14 @@ class FileParser:
         data_file = session_dir / "data.jsonl"
 
         if not data_file.exists():
-            raise FileNotFoundError("No processed data found")
+            return PaginatedData(
+                rows=[],
+                total_count=0,
+                filtered_count=None,
+                page=page,
+                page_size=page_size,
+                has_more=False,
+            )
 
         # Check if we need to filter/sort (requires loading all rows)
         needs_processing = bool(filters or sort or search or document_filter)

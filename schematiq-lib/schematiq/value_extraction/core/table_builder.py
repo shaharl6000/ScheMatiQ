@@ -16,7 +16,12 @@ from schematiq.core.results import SkippedDocument
 from schematiq.core.config import config as lib_config
 from schematiq.value_extraction.config.messages import skipped_summary, DEFAULT_SKIP_REASON
 
-from .paper_processor import PaperProcessor, OnValueExtractedCallback, OnWarningCallback
+from .paper_processor import (
+    PaperProcessor,
+    OnValueExtractedCallback,
+    OnUnitRowWrittenCallback,
+    OnWarningCallback,
+)
 from .row_manager import RowDataManager
 from .llm_cache import LLMCache
 from ..config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
@@ -31,6 +36,7 @@ class TableBuilder:
 
     def __init__(self, llm: LLMInterface, retriever=None, cache: LLMCache = None,
                  on_value_extracted: Optional[OnValueExtractedCallback] = None,
+                 on_unit_row_written: Optional[OnUnitRowWrittenCallback] = None,
                  should_stop: Optional[ShouldStopCallback] = None,
                  on_warning: Optional[OnWarningCallback] = None,
                  on_document_started: Optional[Callable[[str], None]] = None,
@@ -39,6 +45,7 @@ class TableBuilder:
         self.retriever = retriever
         self.cache = cache or LLMCache()
         self.on_value_extracted = on_value_extracted
+        self.on_unit_row_written = on_unit_row_written
         self.should_stop = should_stop
         self.on_warning = on_warning
         self.on_document_started = on_document_started
@@ -483,7 +490,12 @@ class TableBuilder:
                             total_units_written += 1
                             print(f"  ✅ Wrote unit row: {unit_name}")
 
-                            # Notify callback
+                            # Notify callbacks
+                            if self.on_unit_row_written:
+                                try:
+                                    self.on_unit_row_written(dict(unit_row))
+                                except Exception as cb_err:
+                                    print(f"  ⚠️ on_unit_row_written callback error: {cb_err}")
                             if self.on_value_extracted:
                                 for col_name, col_value in unit_row.items():
                                     if not col_name.startswith('_') and col_name != "document_directory":

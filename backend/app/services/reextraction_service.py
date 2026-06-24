@@ -59,6 +59,8 @@ class ReextractionOperation:
         self.error: Optional[str] = None
         # new column name -> previous column name (from schema renames)
         self.renamed_from: Dict[str, str] = renamed_from or {}
+        # composite keys already merged incrementally during extraction
+        self.incrementally_merged_keys: Set[tuple] = set()
 
 
 class ReextractionService(WebSocketBroadcasterMixin):
@@ -78,6 +80,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         self._data_collection_service = data_collection_service
         self._pubmed_enrichment_service = pubmed_enrichment_service
         self._uniprot_enrichment_service = uniprot_enrichment_service
+        self._incremental_merge_locks: Dict[str, asyncio.Lock] = {}
 
     @staticmethod
     def get_cached_retriever():
@@ -161,6 +164,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     operation.columns,
                     output_file,
                     renamed_from=operation.renamed_from,
+                    initial_matched_keys=operation.incrementally_merged_keys,
                 )
                 output_file.unlink(missing_ok=True)
                 schema_file = session_dir / f"reextract_schema_{operation_id}.json"
@@ -1166,6 +1170,23 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 except Exception as e:
                     logger.warning(f"Document started broadcast error: {e}")
 
+            def on_unit_row_written(unit_row: Dict[str, Any]):
+                """Persist merged row to data file before cell broadcasts."""
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._merge_incremental_unit_row(
+                            operation.session_id,
+                            operation.columns,
+                            dict(unit_row),
+                            operation,
+                            renamed_from=operation.renamed_from,
+                        ),
+                        loop,
+                    )
+                    future.result(timeout=120)
+                except Exception as e:
+                    logger.warning(f"Incremental merge failed for unit row: {e}")
+
             def on_value_extracted(row_name: str, column_name: str, value: Any):
                 processed_count[0] += 1
                 # processed_documents = source files; processed_count = cells (do not mix)
@@ -1173,19 +1194,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # Schedule broadcasts on main event loop from thread (fire and forget)
                 try:
                     # 1. Broadcast individual cell value for live table updates
-                    # Use broadcast_event (same as document_started) since broadcast_cell_extracted
-                    # uses buffering that fails silently
                     asyncio.run_coroutine_threadsafe(
-                        self.broadcast_event(
+                        self.broadcast_cell_extracted(
                             operation.session_id,
-                            "cell_extracted",
                             {
                                 "row_name": row_name,
                                 "column": column_name,
-                                "value": value
-                            }
+                                "value": value,
+                            },
                         ),
-                        loop
+                        loop,
                     )
 
                     # 2. Broadcast progress for UI indicators
@@ -1302,6 +1320,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         retrieval_k=10,
                         max_workers=1,
                         on_value_extracted=on_value_extracted,
+                        on_unit_row_written=on_unit_row_written,
                         on_document_started=on_document_started,
                         should_stop=should_stop,  # Allow graceful stop
                         known_units=known_units if known_units else None,
@@ -1320,6 +1339,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 operation.columns,
                 output_file,
                 renamed_from=operation.renamed_from,
+                initial_matched_keys=operation.incrementally_merged_keys,
             )
 
             # Update baseline after successful extraction
@@ -1461,35 +1481,54 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         return None
 
+    def _get_incremental_merge_lock(self, session_id: str) -> asyncio.Lock:
+        if session_id not in self._incremental_merge_locks:
+            self._incremental_merge_locks[session_id] = asyncio.Lock()
+        return self._incremental_merge_locks[session_id]
+
+    async def _merge_incremental_unit_row(
+        self,
+        session_id: str,
+        columns: List[str],
+        extracted_row: Dict[str, Any],
+        operation: ReextractionOperation,
+        renamed_from: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Persist a single re-extracted unit row and track it for the final merge."""
+        from app.services.data_utils import row_dedup_key
+
+        ext_key = row_dedup_key(extracted_row)
+        if not ext_key[0]:
+            return
+
+        async with self._get_incremental_merge_lock(session_id):
+            extracted_by_key = {ext_key: extracted_row}
+            await self._merge_extracted_index_into_data_files(
+                session_id,
+                columns,
+                extracted_by_key,
+                renamed_from=renamed_from,
+                create_backup=False,
+                update_session_stats=False,
+                initial_matched_keys=operation.incrementally_merged_keys,
+            )
+            operation.incrementally_merged_keys.add(ext_key)
+
     async def _merge_reextracted_data(
         self,
         session_id: str,
         columns: List[str],
         extraction_file: Path,
         renamed_from: Optional[Dict[str, str]] = None,
+        initial_matched_keys: Optional[Set[tuple]] = None,
     ):
         """Merge re-extracted values with existing data across ALL data files."""
         if not extraction_file.exists():
             return
 
-        from app.services.data_utils import (
-            get_extraction_column_value,
-            get_schematiq_work_dir,
-            persist_session_data_file,
-            remove_column_keys_in_row,
-            resolve_session_data_files,
-            session_has_stored_data,
-        )
-
-        work_dir = get_schematiq_work_dir()
-        data_files = await resolve_session_data_files(session_id, work_dir=work_dir)
-
-        # Read extracted values indexed by composite key (row_name, source_document)
-        # to avoid collisions when the same observation unit appears in multiple docs
-        from app.services.data_utils import row_dedup_key, _resolve_source_document
+        from app.services.data_utils import row_dedup_key
 
         extracted_by_key: Dict[tuple, Dict[str, Any]] = {}
-        extracted_by_row_name: Dict[str, List[Dict[str, Any]]] = {}
         with open(extraction_file, 'r') as f:
             for line in f:
                 if not line.strip():
@@ -1502,9 +1541,52 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 key = row_dedup_key(row_data)
                 if key[0]:
                     extracted_by_key[key] = row_data
-                    extracted_by_row_name.setdefault(key[0], []).append(row_data)
 
         logger.debug(f"Extracted composite keys from extraction file: {list(extracted_by_key.keys())}")
+
+        matched_keys: set = set(initial_matched_keys or ())
+        await self._merge_extracted_index_into_data_files(
+            session_id,
+            columns,
+            extracted_by_key,
+            renamed_from=renamed_from,
+            create_backup=True,
+            update_session_stats=True,
+            initial_matched_keys=matched_keys,
+        )
+
+    async def _merge_extracted_index_into_data_files(
+        self,
+        session_id: str,
+        columns: List[str],
+        extracted_by_key: Dict[tuple, Dict[str, Any]],
+        renamed_from: Optional[Dict[str, str]] = None,
+        *,
+        create_backup: bool = True,
+        update_session_stats: bool = True,
+        initial_matched_keys: Optional[set] = None,
+    ) -> None:
+        """Apply extracted rows to on-disk session data files."""
+        if not extracted_by_key:
+            return
+
+        from app.services.data_utils import (
+            get_extraction_column_value,
+            get_schematiq_work_dir,
+            persist_session_data_file,
+            remove_column_keys_in_row,
+            resolve_session_data_files,
+            row_dedup_key,
+            session_has_stored_data,
+            _resolve_source_document,
+        )
+
+        work_dir = get_schematiq_work_dir()
+        data_files = await resolve_session_data_files(session_id, work_dir=work_dir)
+
+        extracted_by_row_name: Dict[str, List[Dict[str, Any]]] = {}
+        for key, row_data in extracted_by_key.items():
+            extracted_by_row_name.setdefault(key[0], []).append(row_data)
 
         if not data_files:
             if await session_has_stored_data(session_id, work_dir=work_dir):
@@ -1516,41 +1598,87 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
             schematiq_extracted_file = work_dir / session_id / "extracted_data.jsonl"
             schematiq_extracted_file.parent.mkdir(parents=True, exist_ok=True)
-            new_rows = [
-                self._storage_row_from_extraction(ext_row_data, columns=columns)
-                for ext_row_data in extracted_by_key.values()
-            ]
+
+            existing_rows: List[Dict[str, Any]] = []
+            if schematiq_extracted_file.exists():
+                existing_rows = []
+                with open(schematiq_extracted_file, "r") as f:
+                    for line in f:
+                        if line.strip():
+                            existing_rows.append(json.loads(line))
+
+            matched_extracted_keys: set = set(initial_matched_keys or ())
+            updated_rows = list(existing_rows)
+            rows_updated = 0
+            new_rows_added = 0
+
+            for row in updated_rows:
+                row_name = row.get('row_name') or row.get('_row_name')
+                row_src = _resolve_source_document(row)
+                papers = row.get('papers') or row.get('_papers') or []
+                extracted = self._match_extracted_row(
+                    row_name,
+                    row_src,
+                    papers,
+                    extracted_by_key,
+                    extracted_by_row_name,
+                    {},
+                    matched_extracted_keys,
+                )
+                if extracted:
+                    rows_updated += 1
+                    matched_extracted_keys.add(row_dedup_key(extracted))
+                    for col_name in columns:
+                        old_name = (renamed_from or {}).get(col_name)
+                        if old_name:
+                            remove_column_keys_in_row(row, old_name)
+                        extracted_value = get_extraction_column_value(extracted, col_name)
+                        if extracted_value is not None:
+                            if 'data' in row:
+                                row['data'][col_name] = extracted_value
+                            else:
+                                row[col_name] = extracted_value
+
+            for ext_key, ext_row_data in extracted_by_key.items():
+                if ext_key in matched_extracted_keys:
+                    continue
+                updated_rows.append(
+                    self._storage_row_from_extraction(ext_row_data, columns=columns)
+                )
+                new_rows_added += 1
+                matched_extracted_keys.add(ext_key)
+
             with open(schematiq_extracted_file, "w") as f:
-                for row in new_rows:
+                for row in updated_rows:
                     f.write(json.dumps(row, ensure_ascii=False) + "\n")
             logger.info(
-                "Created %s with %d rows (first extraction after schema-only)",
+                "Wrote %s with %d rows (%d updated, %d new)",
                 schematiq_extracted_file,
-                len(new_rows),
+                len(updated_rows),
+                rows_updated,
+                new_rows_added,
             )
             await persist_session_data_file(session_id, schematiq_extracted_file)
-            self._update_session_stats_after_merge(session_id, columns, new_rows)
+            if update_session_stats:
+                self._update_session_stats_after_merge(session_id, columns, updated_rows)
             return
 
-        # Build a fallback mapping from paper name stem to extracted data list
         extracted_by_paper_stem: Dict[str, List[Dict[str, Any]]] = {}
         for key, row_data in extracted_by_key.items():
             extracted_by_paper_stem.setdefault(key[0].lower(), []).append(row_data)
 
-        # Process each data file
         import shutil
         total_rows_updated = 0
         total_new_rows = 0
         all_updated_rows = []
-        matched_extracted_keys: set = set()
+        matched_extracted_keys: set = set(initial_matched_keys or ())
         primary_data_file = data_files[0]
 
         for data_file in data_files:
-            # Backup existing data
-            backup_file = data_file.parent / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
-            shutil.copy2(data_file, backup_file)
+            if create_backup:
+                backup_file = data_file.parent / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
+                shutil.copy2(data_file, backup_file)
 
-            # Read and update existing rows
             updated_rows = []
             rows_updated = 0
             with open(data_file, 'r') as f:
@@ -1596,11 +1724,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     data_file.name,
                                 )
                     else:
-                        logger.debug(f"No extracted match for row '{row_name}' (src={row_src}) in {data_file.name} (papers: {papers[:3]})")
+                        logger.debug(
+                            "No extracted match for row %r (src=%s) in %s (papers: %s)",
+                            row_name,
+                            row_src,
+                            data_file.name,
+                            papers[:3],
+                        )
 
                     updated_rows.append(row)
 
-            # Append new rows (only to the primary data file to avoid duplicates)
             new_rows_added = 0
             if data_file.resolve() == primary_data_file.resolve():
                 for ext_key, ext_row_data in extracted_by_key.items():
@@ -1612,11 +1745,11 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     )
                     updated_rows.append(new_row)
                     new_rows_added += 1
+                    matched_extracted_keys.add(ext_key)
 
                 if new_rows_added > 0:
                     logger.info(f"Appended {new_rows_added} new rows to {data_file.name}")
 
-            # Write updated data
             with open(data_file, 'w') as f:
                 for row in updated_rows:
                     f.write(json.dumps(row) + '\n')
@@ -1626,11 +1759,24 @@ class ReextractionService(WebSocketBroadcasterMixin):
             total_rows_updated += rows_updated
             total_new_rows += new_rows_added
             all_updated_rows.extend(updated_rows)
-            logger.debug(f"Merged re-extracted data in {data_file}: {rows_updated} rows updated, {new_rows_added} new rows added")
+            logger.debug(
+                "Merged re-extracted data in %s: %d rows updated, %d new rows added",
+                data_file,
+                rows_updated,
+                new_rows_added,
+            )
 
-        logger.debug(f"Merged re-extracted data for {len(columns)} columns across {len(data_files)} files, {total_rows_updated} rows updated, {total_new_rows} new rows added")
+        logger.debug(
+            "Merged re-extracted data for %d columns across %d files, "
+            "%d rows updated, %d new rows added",
+            len(columns),
+            len(data_files),
+            total_rows_updated,
+            total_new_rows,
+        )
 
-        self._update_session_stats_after_merge(session_id, columns, all_updated_rows)
+        if update_session_stats:
+            self._update_session_stats_after_merge(session_id, columns, all_updated_rows)
 
     def _storage_row_from_extraction(
         self,
