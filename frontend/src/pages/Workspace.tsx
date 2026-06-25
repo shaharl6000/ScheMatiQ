@@ -57,6 +57,7 @@ import { ToastAction } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
 import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
+import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import {
   buildExcerptMapping,
   resolveCellGrounding,
@@ -80,6 +81,7 @@ import {
   ColumnInfo,
   CostEstimate,
   DataRow,
+  DocumentAvailabilityResponse,
   PaginatedData,
   SchemaData,
   ReextractionCompletedData,
@@ -99,6 +101,15 @@ import { formatColumnName } from '@/utils/formatting';
 import './Workspace.css';
 
 registerAllModules();
+
+// Source-document provenance shown in the Data sheet. We display the file name
+// only — never a full path — so loaded projects and ScheMatiQ runs read the
+// same way. Handles both POSIX and Windows separators.
+const documentDisplayName = (value?: string | null): string => {
+  if (!value) return '';
+  const parts = String(value).split(/[\\/]/);
+  return (parts[parts.length - 1] || String(value)).trim();
+};
 
 type SheetId = 'data' | 'unit' | 'schema';
 type WorkspaceSessionMode = 'schematiq' | 'load';
@@ -792,6 +803,11 @@ function SpreadsheetSurface({
     return data.rows.map((row) => {
       const sheetRow: Record<string, string> = {
         _row_name: row.row_name || row._unit_name || '',
+        // Provenance: the source document this row was extracted from. Falls back
+        // to the parent document or the first referenced paper. File name only.
+        _source_document: documentDisplayName(
+          row._source_document || row._parent_document || row.papers?.[0],
+        ),
       };
       dataColumnNames.forEach((column) => {
         sheetRow[column] = extractDisplayValue(row.data?.[column]);
@@ -874,6 +890,7 @@ function SpreadsheetSurface({
       rows: dataRows,
       columns: [
         { key: '_row_name', label: 'unit_name', width: 220, readOnly: true },
+        { key: '_source_document', label: 'Source Document', width: 220, readOnly: true },
         ...dataColumnNames.map((name) => ({ key: name, label: columnDisplayLabel(name), width: 190 })),
       ],
     };
@@ -1929,6 +1946,8 @@ function Workspace() {
   const [reextraction, setReextraction] = useState<WorkspaceReextractionState | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [reextractConfirm, setReextractConfirm] = useState<{ columns: string[] } | null>(null);
+  const [reextractAvailability, setReextractAvailability] = useState<DocumentAvailabilityResponse | null>(null);
+  const [reextractAvailabilityLoading, setReextractAvailabilityLoading] = useState(false);
   const [stoppingReextraction, setStoppingReextraction] = useState(false);
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
@@ -2308,6 +2327,26 @@ function Workspace() {
     });
   }, []);
 
+  // Pre-check source-document availability for the current session. Used by the
+  // re-extract confirm card so the user can upload missing originals (e.g. after
+  // loading a project from JSON, where documents are not bundled) before running
+  // the extraction model. Failures leave availability null and fall back to the
+  // backend gate in start_gated_reextraction, which still blocks and reports.
+  const runReextractPrecheck = useCallback(async () => {
+    if (!sessionId) return;
+    setReextractAvailabilityLoading(true);
+    try {
+      const availability = await schemaAPI.precheckDocuments(sessionId, {
+        operation_type: 'reextraction',
+      });
+      setReextractAvailability(availability);
+    } catch {
+      setReextractAvailability(null);
+    } finally {
+      setReextractAvailabilityLoading(false);
+    }
+  }, [sessionId]);
+
   // Resolve the requested columns to a concrete, non-empty target set and open
   // the confirm card. Both routes (manual button + chat tool) re-extract only
   // after an explicit confirm; the backend gated action owns baseline capture
@@ -2336,7 +2375,9 @@ function Workspace() {
     }
 
     setReextractConfirm({ columns: targetColumns });
-  }, [pendingSchemaColumns, rerunStarting, schema?.schema, sessionId, toast]);
+    setReextractAvailability(null);
+    void runReextractPrecheck();
+  }, [pendingSchemaColumns, rerunStarting, runReextractPrecheck, schema?.schema, sessionId, toast]);
 
   const startReextraction = useCallback(async (targetColumns: string[]) => {
     if (!sessionId || rerunStarting || targetColumns.length === 0) return;
@@ -2404,10 +2445,14 @@ function Workspace() {
 
   const confirmReextraction = useCallback(async () => {
     if (!reextractConfirm) return;
+    // Belt-and-suspenders: the Confirm button is disabled when no documents are
+    // available, but guard here too so a stale click can't bypass the gate.
+    if (reextractAvailability && !reextractAvailability.can_proceed) return;
     const { columns } = reextractConfirm;
     setReextractConfirm(null);
+    setReextractAvailability(null);
     await startReextraction(columns);
-  }, [reextractConfirm, startReextraction]);
+  }, [reextractAvailability, reextractConfirm, startReextraction]);
 
   // Cancel a running re-extraction. Reuses the same backend stop mechanism as
   // the classic Visualizer (POST /schema/stop-reextraction); the WebSocket
@@ -2799,7 +2844,12 @@ function Workspace() {
 
       <Dialog
         open={Boolean(reextractConfirm)}
-        onOpenChange={(open) => { if (!open) setReextractConfirm(null); }}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReextractConfirm(null);
+            setReextractAvailability(null);
+          }
+        }}
       >
         <DialogContent>
           <DialogHeader>
@@ -2810,11 +2860,43 @@ function Workspace() {
                 : ''}
             </DialogDescription>
           </DialogHeader>
+
+          {sessionId && (reextractAvailabilityLoading || reextractAvailability) && (
+            <div className="py-1">
+              <MissingDocumentsSection
+                sessionId={sessionId}
+                availability={reextractAvailability}
+                loading={reextractAvailabilityLoading}
+                onRefresh={runReextractPrecheck}
+              />
+              {reextractAvailability && !reextractAvailability.can_proceed && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Re-extraction needs at least one source document. Upload the
+                  files listed above — names must match the originals — then Confirm.
+                </p>
+              )}
+            </div>
+          )}
+
           <DialogFooter>
-            <Button variant="outline" onClick={() => setReextractConfirm(null)} disabled={rerunStarting}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setReextractConfirm(null);
+                setReextractAvailability(null);
+              }}
+              disabled={rerunStarting}
+            >
               Cancel
             </Button>
-            <Button onClick={confirmReextraction} disabled={rerunStarting}>
+            <Button
+              onClick={confirmReextraction}
+              disabled={
+                rerunStarting ||
+                reextractAvailabilityLoading ||
+                Boolean(reextractAvailability && !reextractAvailability.can_proceed)
+              }
+            >
               {rerunStarting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
               Confirm
             </Button>
