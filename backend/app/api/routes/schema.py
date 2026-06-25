@@ -492,32 +492,41 @@ async def reprocess_documents(
                 raise HTTPException(status_code=404, detail=f"Column '{col_name}' not found")
 
         # Reserve a concurrency slot
-        await concurrency_limiter.acquire(session_id, "reprocess")
+        await concurrency_limiter.acquire(session_id, "reextraction")
 
-        # Schedule reprocessing
-        background_tasks.add_task(
-            schema_manager.reprocess_documents,
-            session_id,
-            columns_to_process,
-            reprocess_request.incremental,
-            reprocess_request.force_reprocess
-        )
+        try:
+            # Funnel through the same gated entry point as POST /reextract and
+            # the chat reextract/reprocess tools. The legacy
+            # schema_manager.reprocess_documents path only extracts when the
+            # local ./data/<session_id>/documents directory exists, so on the
+            # Supabase backend (source documents not materialized locally) it
+            # silently no-ops and then reports a false success, leaving columns
+            # empty. The gated path materializes the source documents from the
+            # active storage backend and raises a user-facing error when none
+            # are available.
+            scope = "explicit" if reprocess_request.columns else "all"
+            result = await reextraction_service.start_gated_reextraction(
+                session_id,
+                columns=reprocess_request.columns,
+                scope=scope,
+            )
+        except Exception:
+            # The gated start owns the slot on success and releases it on
+            # error; release here only if it raised before taking ownership.
+            await concurrency_limiter.release(session_id)
+            raise
 
-        return {
-            "status": "success",
-            "message": "Document reprocessing started",
-            "columns": columns_to_process,
-            "incremental": reprocess_request.incremental
-        }
+        return result
 
     except CapacityExceededError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
-        await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/reprocessing-status/{session_id}")
