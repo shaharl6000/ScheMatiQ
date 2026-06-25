@@ -39,7 +39,7 @@ def open_gold_tables(tables_path):
 def open_pred_tables(tables_path):
 
     if not MINE:
-        filter_jsonl_path = r"C:\Users\shaharl\Desktop\shahar\Uni\QueryDiscovery\data\schema_6_filtered\arxiv_tables_filtered_4_columns_queries_070725.jsonl"
+        filter_jsonl_path = os.environ.get("SCHEMATIQ_FILTER_JSONL", "")
 
         # Load the set of tabids to keep
         with open(filter_jsonl_path, encoding="utf-8") as f:
