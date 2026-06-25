@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import threading
 import uuid
 from dataclasses import dataclass
@@ -18,6 +19,109 @@ logger = logging.getLogger(__name__)
 
 PLAIN_EXTENSIONS = {".txt", ".md", ".json"}
 CONVERT_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf"}
+
+# Extensions that read_document_text() returns text for directly (no conversion).
+READABLE_TEXT_EXTENSIONS = (".txt", ".md", ".html", ".htm", ".json")
+
+# Single source of truth for "files the pipeline can load as text" — exactly what
+# read_document_text() can produce (plain-text family read directly + .pdf
+# converted). Callers gating which session documents are loadable should derive
+# from this so the selectable set never drifts from what read_document_text
+# actually supports.
+MATERIALIZABLE_EXTENSIONS = READABLE_TEXT_EXTENSIONS + (".pdf",)
+
+# Extensions stored under data/{session}/documents/ after ingestion (lib reader set).
+LIB_READABLE_STORAGE_EXTENSIONS = frozenset({".txt", ".md", ".html", ".htm"})
+
+
+def unique_dest_path(dest_dir: Path, filename: str) -> Path:
+    """Return a non-colliding path under dest_dir (adds _N suffix if needed)."""
+    dest_path = dest_dir / filename
+    if not dest_path.exists():
+        return dest_path
+    base_name = Path(filename).stem
+    extension = Path(filename).suffix
+    counter = 1
+    while dest_path.exists():
+        dest_path = dest_dir / f"{base_name}_{counter}{extension}"
+        counter += 1
+    return dest_path
+
+
+def commit_document_to_documents_dir(
+    source_path: Path,
+    documents_dir: Path,
+    *,
+    worker_id: Optional[str] = None,
+) -> Optional[Path]:
+    """Convert if needed and place a lib-readable document in documents/.
+
+    Used when moving files from pending_documents/ into documents/. Converts
+    PDF/office/JSON sources to ``{stem}.txt`` via preprocess_uploaded_file.
+    Already-readable text types are moved unchanged. Returns the final path, or
+    None on failure (logged; ingestion continues for other files).
+    """
+    if not source_path.is_file() or source_path.name.startswith("."):
+        return None
+
+    documents_dir.mkdir(parents=True, exist_ok=True)
+    ext = source_path.suffix.lower()
+
+    if ext in LIB_READABLE_STORAGE_EXTENSIONS:
+        dest = unique_dest_path(documents_dir, source_path.name)
+        shutil.move(str(source_path), str(dest))
+        return dest
+
+    if ext in CONVERT_EXTENSIONS or ext in PLAIN_EXTENSIONS:
+        result = preprocess_uploaded_file(
+            source_path,
+            worker_id=worker_id,
+            original_filename=source_path.name,
+        )
+        if not result.success:
+            logger.warning(
+                "Skipping document %s: conversion failed (%s)",
+                source_path.name,
+                result.status,
+            )
+            return None
+        ready_path = result.output_path
+        dest = unique_dest_path(documents_dir, ready_path.name)
+        shutil.move(str(ready_path), str(dest))
+        return dest
+
+    logger.warning(
+        "Skipping document %s: unsupported type %s for documents/",
+        source_path.name,
+        ext,
+    )
+    return None
+
+
+def read_document_text(path: Path) -> Optional[str]:
+    """Read a source document to plain text for the extraction pipeline.
+
+    Centralizes the "if .pdf convert, else read_text" dispatch that was
+    duplicated across services. Handles the plain-text family directly and
+    converts PDFs via pymupdf. Office formats (.docx/.doc/.rtf) are expected to
+    have been converted to .txt at upload time (see preprocess_uploaded_file)
+    and are NOT handled here — they return None so callers warn and skip rather
+    than feed binary to the LLM. Returns None when the type is unsupported or no
+    usable (non-whitespace) text is produced.
+    """
+    ext = path.suffix.lower()
+    try:
+        if ext in READABLE_TEXT_EXTENSIONS:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        elif ext == ".pdf":
+            from app.services.pdf_utils import extract_text_from_pdf
+            text = extract_text_from_pdf(path)
+        else:
+            return None
+    except Exception as e:
+        logger.warning("Could not read document %s: %s", path.name, e)
+        return None
+    return text if text and text.strip() else None
 
 _soffice_lock = threading.Lock()
 _soffice_path: Optional[str] = None

@@ -20,6 +20,7 @@ from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import schematiq_thread_pool, concurrency_limiter
+from app.services.data_utils import row_name_of
 from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
 from app.core.logging_utils import set_session_context
@@ -499,7 +500,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         total_rows += 1
                         try:
                             row = json.loads(line)
-                            row_name = row.get('row_name') or row.get('_row_name') or f"row_{total_rows}"
+                            row_name = row_name_of(row) or f"row_{total_rows}"
 
                             # Helper to extract value from ScheMatiQ answer format or plain value
                             def extract_value(val: Any) -> str:
@@ -510,25 +511,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                 return str(val) if val else ''
 
                             # Get papers from multiple possible locations
-                            papers_raw = (
-                                row.get('papers') or
-                                row.get('_papers') or
-                                row.get('Papers') or
-                                row.get('data', {}).get('Papers') or
-                                row.get('data', {}).get('papers') or
-                                []
-                            )
-
-                            # Handle ScheMatiQ answer format for papers
-                            if isinstance(papers_raw, dict) and 'answer' in papers_raw:
-                                papers_raw = papers_raw.get('answer', [])
-
-                            if isinstance(papers_raw, str):
-                                papers = [papers_raw] if papers_raw else []
-                            elif isinstance(papers_raw, list):
-                                papers = papers_raw
-                            else:
-                                papers = []
+                            from app.services.data_utils import extract_papers
+                            papers = extract_papers(row)
 
                             # Get document directory from row data (check multiple possible locations)
                             doc_dir_raw = (
@@ -688,7 +672,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     row_idx += 1
                                     try:
                                         row = json.loads(line)
-                                        row_name = row.get('row_name') or row.get('_row_name') or f"row_{row_idx}"
+                                        row_name = row_name_of(row) or f"row_{row_idx}"
                                         row_src = _resolve_source_document(row)
                                         papers_raw = row.get('papers') or row.get('_papers') or []
                                         if isinstance(papers_raw, list):
@@ -1653,7 +1637,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             new_rows_added = 0
 
             for row in updated_rows:
-                row_name = row.get('row_name') or row.get('_row_name')
+                row_name = row_name_of(row)
                 row_src = _resolve_source_document(row)
                 papers = row.get('papers') or row.get('_papers') or []
                 extracted = self._match_extracted_row(
@@ -1727,7 +1711,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         continue
 
                     row = json.loads(line)
-                    row_name = row.get('row_name') or row.get('_row_name')
+                    row_name = row_name_of(row)
                     row_src = _resolve_source_document(row)
                     papers = row.get('papers') or row.get('_papers') or []
 
@@ -2089,7 +2073,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         row_idx += 1
                         try:
                             row = json.loads(line)
-                            row_name = row.get('row_name') or row.get('_row_name') or f"row_{row_idx}"
+                            row_name = row_name_of(row) or f"row_{row_idx}"
                             papers_raw = (
                                 row.get('papers') or
                                 row.get('_papers') or

@@ -31,6 +31,8 @@ from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG, MAX_DOCUMENTS
 from app.core.logging_utils import set_session_context
 from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
+from app.services.document_preprocessor import read_document_text, MATERIALIZABLE_EXTENSIONS
+from app.services.data_utils import extract_papers, row_name_of
 
 # ScheMatiQ library imports
 from schematiq.core import schematiq as ScheMatiQ
@@ -47,34 +49,25 @@ SCHEMATIQ_AVAILABLE = True
 # The detector (get_available_documents) and the loader (_prepare_documents)
 # MUST agree on this set, otherwise the detector reports can_use_original=True
 # for files the loader then skips -> "No documents available for schema discovery".
-ORIGINAL_DOC_EXTENSIONS = ('.txt', '.md', '.json', '.pdf')
+# Both the original-docs loader and the detector load via read_document_text, so
+# this is exactly the set that helper can materialize (single source of truth).
+ORIGINAL_DOC_EXTENSIONS = MATERIALIZABLE_EXTENSIONS
 
 # schematiq_work/ subdirs hold plain-text document dumps only. Keep this narrow:
-# never widen it to ORIGINAL_DOC_EXTENSIONS, or the .json entry would pull
+# never widen it to MATERIALIZABLE_EXTENSIONS, or the .json entry would pull
 # llm_call_stats.json / extracted_data.jsonl in as if they were source documents.
 WORK_DIR_TEXT_EXTENSIONS = ('.txt', '.md')
 
-# Extensions the schematiq-lib document reader can load (schematiq.core.schematiq.load_documents).
-INCREMENTAL_EXTRACTION_DOC_EXTENSIONS = ('.txt', '.md', '.html', '.htm')
+# Source extensions selectable for incremental extraction. Identical to the set
+# read_document_text can produce: _run_incremental_extraction materializes each
+# selected document to .txt (converting .pdf) before the schematiq-lib reader
+# loads documents_filtered/.
+INCREMENTAL_EXTRACTION_DOC_EXTENSIONS = MATERIALIZABLE_EXTENSIONS
 
 
 def _extract_papers(row_data: dict) -> List[str]:
-    """Extract source-document references from a data.jsonl row."""
-    papers_raw = (
-        row_data.get('papers') or
-        row_data.get('_papers') or
-        row_data.get('Papers') or
-        row_data.get('data', {}).get('Papers') or
-        row_data.get('data', {}).get('papers') or
-        []
-    )
-    if isinstance(papers_raw, dict) and 'answer' in papers_raw:
-        papers_raw = papers_raw.get('answer', [])
-    if isinstance(papers_raw, str):
-        return [papers_raw] if papers_raw else []
-    if isinstance(papers_raw, list):
-        return [p for p in papers_raw if p]
-    return []
+    """Backward-compatible alias for app.services.data_utils.extract_papers."""
+    return extract_papers(row_data)
 
 
 def _index_session_documents(docs_dir: Path) -> tuple[Dict[str, Path], Dict[str, Path]]:
@@ -141,7 +134,7 @@ def _plan_incremental_extraction_documents(
     """
     scoped_rows: List[dict] = []
     for row in row_records:
-        row_name = row.get('row_name') or row.get('_row_name')
+        row_name = row_name_of(row)
         if not row_name:
             continue
         if rows_in_scope is not None and row_name not in rows_in_scope:
@@ -155,7 +148,7 @@ def _plan_incremental_extraction_documents(
         if papers:
             needed_papers.update(papers)
         else:
-            row_name = row.get('row_name') or row.get('_row_name')
+            row_name = row_name_of(row)
             logger.debug(
                 "Row %r has no papers field; skipping papers-based mapping for this row",
                 row_name,
@@ -177,7 +170,7 @@ def _plan_incremental_extraction_documents(
     else:
         mode = 'prefix'
         existing_row_names = {
-            row.get('row_name') or row.get('_row_name') for row in scoped_rows
+            row_name_of(row) for row in scoped_rows
         } - {None}
         if docs_dir.exists():
             for doc_path in docs_dir.iterdir():
@@ -710,16 +703,8 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     ext = f.suffix.lower()
                     if ext not in ORIGINAL_DOC_EXTENSIONS:
                         continue
-                    try:
-                        if ext == '.pdf':
-                            from app.services.pdf_utils import extract_text_from_pdf
-                            content = extract_text_from_pdf(f)
-                        else:
-                            content = f.read_text(encoding='utf-8', errors='replace')
-                    except Exception as e:
-                        logger.warning(f"Could not read {f.name}: {e}")
-                        continue
-                    if content and content.strip():
+                    content = read_document_text(f)
+                    if content:
                         documents.append(content)
                         filenames.append(f.name)
 
@@ -1572,9 +1557,9 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     rows_in_scope = set(selected)
 
             existing_rows = {
-                row.get('row_name') or row.get('_row_name')
+                row_name_of(row)
                 for row in row_records
-                if row.get('row_name') or row.get('_row_name')
+                if row_name_of(row)
             }
             if rows_in_scope is not None:
                 existing_rows &= rows_in_scope
@@ -1597,11 +1582,24 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             for warning in mapping_warnings:
                 logger.warning(warning)
 
+            materialized = 0
             for doc_path in selected_docs:
-                shutil.copy2(doc_path, filtered_docs_dir / doc_path.name)
-                logger.debug(f"Including document for incremental extraction: {doc_path.name}")
+                text = read_document_text(doc_path)
+                if not text:
+                    mapping_warnings.append(
+                        f"Could not materialize {doc_path.name} for incremental "
+                        f"extraction; skipping"
+                    )
+                    logger.warning("Could not materialize %s; skipping", doc_path.name)
+                    continue
+                # Write as .txt so the schematiq-lib reader can load it (it does
+                # not read PDFs); converted PDFs land here as plain text.
+                dest = filtered_docs_dir / f"{doc_path.stem}.txt"
+                dest.write_text(text, encoding="utf-8")
+                logger.debug(f"Materialized document for incremental extraction: {dest.name}")
+                materialized += 1
 
-            doc_count = len(selected_docs)
+            doc_count = materialized
             if existing_rows and doc_count == 0:
                 logger.warning(
                     "Incremental extraction: %d in-scope row(s) but documents_filtered/ is empty "
@@ -1824,7 +1822,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     continue
 
                 row = json.loads(line)
-                row_name = row.get('row_name') or row.get('_row_name')
+                row_name = row_name_of(row)
                 row_src = _resolve_source_document(row)
                 papers = row.get('papers') or []
 

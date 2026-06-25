@@ -108,12 +108,28 @@ def test_missing_paper_emits_warning(tmp_path):
     assert "missing.pdf" in warnings[0]
 
 
-def test_non_readable_resolved_file_emits_warning(tmp_path):
+def test_pdf_paper_is_selected(tmp_path):
+    # PDFs are now selectable; _run_incremental_extraction materializes them to
+    # text via read_document_text before the lib reads documents_filtered/.
     docs_dir = tmp_path / "documents"
     docs_dir.mkdir(parents=True)
     (docs_dir / "judges.pdf").write_bytes(b"%PDF-1.4")
 
     rows = [{"_row_name": "Judge A", "_papers": ["judges.pdf"]}]
+
+    selected, mode, warnings = _plan_incremental_extraction_documents(docs_dir, rows)
+
+    assert mode == "papers"
+    assert [p.name for p in selected] == ["judges.pdf"]
+    assert warnings == []
+
+
+def test_unsupported_resolved_file_emits_warning(tmp_path):
+    docs_dir = tmp_path / "documents"
+    docs_dir.mkdir(parents=True)
+    (docs_dir / "archive.zip").write_bytes(b"PK\x03\x04")
+
+    rows = [{"_row_name": "Row A", "_papers": ["archive.zip"]}]
 
     selected, mode, warnings = _plan_incremental_extraction_documents(docs_dir, rows)
 
