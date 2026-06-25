@@ -516,20 +516,20 @@ class ToolExecutor:
   async def _handle_reprocess(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
-      # Route through the same gated entry point as `reextract`. The legacy
-      # schema_manager.reprocess_documents path only extracts when the local
-      # ./data/<session_id>/documents directory exists, so on the Supabase
-      # backend (where source documents are not materialized locally) it
-      # silently no-ops and then broadcasts a false "completed", leaving the
-      # column empty. The gated path materializes the source documents from
-      # the active storage backend and raises a user-facing error when none
-      # are available, so it is correct on both local and Supabase backends.
+      # Route through start_gated_reextraction so column scope uses
+      # resolve_reextraction_columns (schema validation + _excerpt stripping),
+      # same as the reextract tool. The legacy schema_manager.reprocess_documents
+      # path only extracts when ./data/<session_id>/documents exists locally,
+      # so on Supabase it silently no-ops; the gated path materializes sources
+      # from storage and fails clearly when none are available.
+      columns = args.get("columns")
+      scope = args.get("scope", "all" if not columns else "edited_only")
       await concurrency_limiter.acquire(session_id, "reprocess")
       try:
           result = await reextraction_service.start_gated_reextraction(
               session_id,
-              columns=args.get("columns"),
-              scope=args.get("scope", "edited_only"),
+              columns=columns,
+              scope=scope,
           )
       except Exception:
           await concurrency_limiter.release(session_id)

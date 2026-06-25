@@ -127,3 +127,56 @@ async def test_reextract_edited_only_does_not_widen_to_all(executor, sample_sess
         await executor.execute(
             "reextract", sample_session.id, "schematiq", {"scope": "edited_only"}
         )
+
+
+@pytest.mark.asyncio
+async def test_reprocess_scopes_to_explicit_columns(executor, sample_session, patched_reextraction):
+    _, captured = patched_reextraction
+    result = await executor.execute(
+        "reprocess", sample_session.id, "schematiq", {"columns": ["Title"]}
+    )
+    assert captured["columns"] == ["Title"]
+    assert result["columns"] == ["Title"]
+
+
+@pytest.mark.asyncio
+async def test_reprocess_rejects_unknown_columns(executor, sample_session, patched_reextraction):
+    with pytest.raises(ValueError, match="exist in the schema"):
+        await executor.execute(
+            "reprocess", sample_session.id, "schematiq", {"columns": ["Nope"]}
+        )
+
+
+@pytest.mark.asyncio
+async def test_reprocess_rejects_excerpt_only_columns(
+    executor, sample_session, patched_reextraction, session_manager_fixture,
+):
+    sample_session.columns.append(ColumnInfo(name="Title_excerpt", definition="Supporting text"))
+    session_manager_fixture.update_session(sample_session)
+
+    with pytest.raises(ValueError, match="No columns available for re-extraction"):
+        await executor.execute(
+            "reprocess",
+            sample_session.id,
+            "schematiq",
+            {"columns": ["Title_excerpt"]},
+        )
+
+
+@pytest.mark.asyncio
+async def test_reprocess_strips_excerpt_from_mixed_column_list(
+    executor, sample_session, patched_reextraction, session_manager_fixture,
+):
+    sample_session.columns.append(ColumnInfo(name="Title_excerpt", definition="Supporting text"))
+    session_manager_fixture.update_session(sample_session)
+    _, captured = patched_reextraction
+
+    result = await executor.execute(
+        "reprocess",
+        sample_session.id,
+        "schematiq",
+        {"columns": ["Title", "Title_excerpt"]},
+    )
+
+    assert captured["columns"] == ["Title"]
+    assert result["columns"] == ["Title"]

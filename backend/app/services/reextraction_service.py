@@ -849,13 +849,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
         columns: Optional[List[str]] = None,
         scope: str = "explicit",
     ) -> List[str]:
-        """Resolve the column scope for a re-extraction.
+        """Resolve the column scope for a re-extraction or chat reprocess.
 
-        Shared by the manual REST route and the chat tool so both apply the
-        same scoping rules: explicit columns are validated against the schema,
-        ``scope='all'`` targets every column, and ``edited_only`` targets only
-        columns changed since the baseline (never silently widening to all).
-        Excerpt/derived columns are always excluded.
+        Shared by the manual REST route and the chat ``reextract`` / ``reprocess``
+        tools so both apply the same scoping rules: explicit columns are validated
+        against the schema, ``scope='all'`` targets every column, and ``edited_only``
+        targets only columns changed since the baseline (never silently widening to
+        all). Excerpt/derived columns are always excluded.
         """
         session = self.session_manager.get_session(session_id)
         if not session:
