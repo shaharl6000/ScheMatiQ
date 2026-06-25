@@ -58,6 +58,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useToast } from '@/components/ui/use-toast';
 import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
 import {
+  buildExcerptMapping,
+  resolveCellGrounding,
+  type CellGrounding,
+} from '@/components/DataTable/utils/excerptUtils';
+import ContentModal from '@/components/ContentModal/ContentModal';
+import {
   DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
   DEFAULT_DOCUMENTS_BATCH_SIZE,
   DEFAULT_MAX_KEYS_SCHEMA,
@@ -794,6 +800,25 @@ function SpreadsheetSurface({
     });
   }, [data.rows, dataColumnNames]);
 
+  const dataGrounding = useMemo(() => {
+    const mapping = buildExcerptMapping(data.rows);
+    return data.rows.map((row) => {
+      const perColumn: Record<string, CellGrounding> = {};
+      dataColumnNames.forEach((canonical) => {
+        const grounding = resolveCellGrounding(row, canonical, mapping);
+        if (grounding && grounding.excerpts.length > 0) {
+          perColumn[canonical] = grounding;
+        }
+      });
+      return perColumn;
+    });
+  }, [data.rows, dataColumnNames]);
+
+  const [groundingModal, setGroundingModal] = useState<{
+    title: string;
+    content: { answer: string; excerpts: CellGrounding['excerpts'] };
+  } | null>(null);
+
   const schemaRows = useMemo(() => {
     return schemaColumns.map((column) => ({
       // Display-only: the canonical `column.name` remains the edit identity
@@ -1144,6 +1169,34 @@ function SpreadsheetSurface({
             toCol: Math.max(col, col2),
           });
         }}
+        afterOnCellMouseDown={(event, coords) => {
+          if (activeSheet !== 'data' || coords.row < 0 || coords.col < 0) return;
+
+          const column = sheet.columns[coords.col];
+          if (!column || column.key === '_row_name') return;
+
+          const hot = hotTableRef.current?.hotInstance;
+          const physicalRow = hot ? hot.toPhysicalRow(coords.row) : coords.row;
+          if (!dataGrounding[physicalRow]?.[column.key]) return;
+
+          // Open grounding on the top-right indicator only so single-click
+          // selection and keyboard editing on grounded cells stay normal.
+          const cellElement = (event.target as HTMLElement | null)?.closest('td');
+          if (!cellElement) return;
+          const rect = cellElement.getBoundingClientRect();
+          const indicatorSize = 14;
+          const clickX = event.clientX - rect.left;
+          const clickY = event.clientY - rect.top;
+          const inIndicatorRegion =
+            clickX >= rect.width - indicatorSize && clickY <= indicatorSize;
+          if (!inIndicatorRegion) return;
+
+          const grounding = dataGrounding[physicalRow][column.key];
+          setGroundingModal({
+            title: `${columnDisplayLabel(column.key)} — grounding`,
+            content: { answer: grounding.answer, excerpts: grounding.excerpts },
+          });
+        }}
         cells={(row: number, col: number) => {
           const props: { readOnly?: boolean; className?: string } = {};
           const column = sheet.columns[col];
@@ -1154,9 +1207,21 @@ function SpreadsheetSurface({
           }
           const formatClasses = getCellFormatClasses(cellFormats[cellFormatKey(activeSheet, row, col)]);
           if (formatClasses) props.className = formatClasses;
+          if (activeSheet === 'data' && column && dataGrounding[row]?.[column.key]) {
+            props.className = [props.className, 'has-grounding'].filter(Boolean).join(' ');
+          }
           return props;
         }}
       />
+      {groundingModal && (
+        <ContentModal
+          open
+          onClose={() => setGroundingModal(null)}
+          title={groundingModal.title}
+          content={groundingModal.content}
+          evidenceOnly
+        />
+      )}
     </div>
   );
 }
