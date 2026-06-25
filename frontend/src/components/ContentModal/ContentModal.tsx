@@ -29,6 +29,7 @@ interface ContentModalProps {
   title: string;
   content: CellValue;
   onSave?: (newValue: string) => Promise<void>;
+  evidenceOnly?: boolean;
 }
 
 /** Extract the editable string value from a CellValue. */
@@ -130,7 +131,14 @@ const renderTextWithLinks = (text: string): React.ReactNode => {
   );
 };
 
-const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, content, onSave }) => {
+const ContentModal: React.FC<ContentModalProps> = ({
+  open,
+  onClose,
+  title,
+  content,
+  onSave,
+  evidenceOnly = false,
+}) => {
   const [copied, setCopied] = React.useState(false);
   const [isEditing, setIsEditing] = React.useState(false);
   const [editValue, setEditValue] = React.useState('');
@@ -357,6 +365,19 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
           return renderEditMode(isManuallyEdited ? [] : excerpts);
         }
 
+        if (evidenceOnly) {
+          return (
+            <div className="space-y-4">
+              {isManuallyEdited ? (
+                <p className="text-sm text-muted-foreground italic flex items-center gap-1.5">
+                  <Pencil className="h-3 w-3" />
+                  Manually edited
+                </p>
+              ) : renderExcerpts(excerpts)}
+            </div>
+          );
+        }
+
         return (
           <div className="space-y-4">
             <div>
@@ -443,7 +464,7 @@ const ContentModal: React.FC<ContentModalProps> = ({ open, onClose, title, conte
       >
         <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <DialogTitle className="pr-8">{title}</DialogTitle>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 mr-8">
             {onSave && !isEditing && (
               <Tooltip>
                 <TooltipTrigger asChild>

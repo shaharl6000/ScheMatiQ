@@ -1219,6 +1219,7 @@ function SpreadsheetSurface({
           onClose={() => setGroundingModal(null)}
           title={groundingModal.title}
           content={groundingModal.content}
+          evidenceOnly
         />
       )}
     </div>
