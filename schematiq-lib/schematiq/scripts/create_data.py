@@ -111,15 +111,6 @@ def get_queries_from_arxivDIGESTables(path_json):
 
 
 
-# # read jsonl
-# data = []
-# with open(r'C:\Users\shaharl\Desktop\shahar\Uni\Information_Extraction\dev_10_1.jsonl', 'r', encoding='utf-8') as f:
-#     for line in f:
-#         cur = json.loads(line)
-#         data.append(cur)
-#
-# # Now `data` is a list of Python dictionaries
-# print(data)
 
 def text_from_url_s2orc(url):
     # modify these
@@ -194,11 +185,6 @@ def pdf_to_json(pdf_path, output_txt_path):
 if __name__ == "__main__":
     print("start")
 
-    # pdf_path = r"C:\Users\shaharl\Desktop\shahar\Uni\Information_Extraction\QueryDiscovery\data\NES_DATA" \
-    #            r"\pdf\Structural_prerequisites_for_CRM1.pdf"
-    # output_txt_path = r"C:\Users\shaharl\Desktop\shahar\Uni\Information_Extraction\QueryDiscovery\data\NES_DATA" \
-    #                   r"\text\Structural_prerequisites_for_CRM1.txt"
-    # text_from_pdf(pdf_path, output_txt_path)
 
     arxivDIGESTables_data()
 
