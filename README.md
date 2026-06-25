@@ -180,7 +180,7 @@ Both services deploy on **Railway** using **Dockerfile-based** builds:
 
 ## Contributing
 
-Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/shaharl6000/QueryDiscovery/issues).
+Contributions are welcome! Please open an issue or pull request on [GitHub](https://github.com/shaharl6000/ScheMatiQ/issues).
 
 ## Citation
 
