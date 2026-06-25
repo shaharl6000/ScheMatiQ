@@ -492,32 +492,34 @@ async def reprocess_documents(
                 raise HTTPException(status_code=404, detail=f"Column '{col_name}' not found")
 
         # Reserve a concurrency slot
-        await concurrency_limiter.acquire(session_id, "reprocess")
+        await concurrency_limiter.acquire(session_id, "reextraction")
 
-        # Schedule reprocessing
-        background_tasks.add_task(
-            schema_manager.reprocess_documents,
-            session_id,
-            columns_to_process,
-            reprocess_request.incremental,
-            reprocess_request.force_reprocess
-        )
+        try:
+            # Shared gated entry point (same as POST /reextract): the legacy
+            # reprocess_documents path silently no-ops on the Supabase backend,
+            # so route through the gated path, which materializes documents first.
+            scope = "explicit" if reprocess_request.columns else "all"
+            result = await reextraction_service.start_gated_reextraction(
+                session_id,
+                columns=reprocess_request.columns,
+                scope=scope,
+            )
+        except Exception:
+            # Release slot if the gated start fails before creating its task
+            await concurrency_limiter.release(session_id)
+            raise
 
-        return {
-            "status": "success",
-            "message": "Document reprocessing started",
-            "columns": columns_to_process,
-            "incremental": reprocess_request.incremental
-        }
+        return result
 
     except CapacityExceededError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:
-        await concurrency_limiter.release(session_id)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/reprocessing-status/{session_id}")
