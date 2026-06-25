@@ -43,6 +43,12 @@ from schematiq.value_extraction.main import build_table_jsonl
 
 SCHEMATIQ_AVAILABLE = True
 
+# Source-document extensions recognized when document_source == "original".
+# The detector (get_available_documents) and the loader (_prepare_documents)
+# MUST agree on this set, otherwise the detector reports can_use_original=True
+# for files the loader then skips -> "No documents available for schema discovery".
+ORIGINAL_DOC_EXTENSIONS = ('.txt', '.md', '.json', '.pdf')
+
 
 class ContinueDiscoveryOperation:
     """Tracks a running continue discovery operation."""
@@ -445,7 +451,11 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         docs_dir = session_dir / "documents"
         if docs_dir.exists():
             for f in docs_dir.iterdir():
-                if f.is_file() and not f.name.startswith('.'):
+                if (
+                    f.is_file()
+                    and f.suffix.lower() in ORIGINAL_DOC_EXTENSIONS
+                    and not f.name.startswith('.')
+                ):
                     local_docs.add(f.name)
 
         # Also check schematiq_work
@@ -559,16 +569,29 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Use existing documents
             schematiq_work_dir = self._get_schematiq_work_dir() / session_id
 
-            # Check data/{session_id}/documents/ first
+            # Check data/{session_id}/documents/ first.
+            # Source docs land here verbatim via _move_pending_documents, so a
+            # PDF (or other non-text source) may live here and must be converted
+            # to text on read. Reading only .txt/.md silently yields 0 documents.
             if docs_dir.exists():
                 for f in sorted(docs_dir.iterdir()):
-                    if f.is_file() and f.suffix in ['.txt', '.md'] and not f.name.startswith('.'):
-                        try:
-                            content = f.read_text(encoding='utf-8')
-                            documents.append(content)
-                            filenames.append(f.name)
-                        except Exception as e:
-                            logger.debug(f"Could not read {f}: {e}")
+                    if not f.is_file() or f.name.startswith('.'):
+                        continue
+                    ext = f.suffix.lower()
+                    if ext not in ORIGINAL_DOC_EXTENSIONS:
+                        continue
+                    try:
+                        if ext == '.pdf':
+                            from app.services.pdf_utils import extract_text_from_pdf
+                            content = extract_text_from_pdf(f)
+                        else:
+                            content = f.read_text(encoding='utf-8', errors='replace')
+                    except Exception as e:
+                        logger.warning(f"Could not read {f.name}: {e}")
+                        continue
+                    if content and content.strip():
+                        documents.append(content)
+                        filenames.append(f.name)
 
             # Also check schematiq_work directory
             if not documents and schematiq_work_dir.exists():
