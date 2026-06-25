@@ -495,15 +495,9 @@ async def reprocess_documents(
         await concurrency_limiter.acquire(session_id, "reextraction")
 
         try:
-            # Funnel through the same gated entry point as POST /reextract and
-            # the chat reextract/reprocess tools. The legacy
-            # schema_manager.reprocess_documents path only extracts when the
-            # local ./data/<session_id>/documents directory exists, so on the
-            # Supabase backend (source documents not materialized locally) it
-            # silently no-ops and then reports a false success, leaving columns
-            # empty. The gated path materializes the source documents from the
-            # active storage backend and raises a user-facing error when none
-            # are available.
+            # Shared gated entry point (same as POST /reextract): the legacy
+            # reprocess_documents path silently no-ops on the Supabase backend,
+            # so route through the gated path, which materializes documents first.
             scope = "explicit" if reprocess_request.columns else "all"
             result = await reextraction_service.start_gated_reextraction(
                 session_id,
@@ -511,8 +505,7 @@ async def reprocess_documents(
                 scope=scope,
             )
         except Exception:
-            # The gated start owns the slot on success and releases it on
-            # error; release here only if it raised before taking ownership.
+            # Release slot if the gated start fails before creating its task
             await concurrency_limiter.release(session_id)
             raise
 
