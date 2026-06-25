@@ -126,9 +126,6 @@ schematiq-lib/dist/
 # Root-level data/research files
 *.txt
 !requirements.txt
-Immigration_ground_truth.csv
-different Presidents ScheMatiQ meeting results_*.csv
-missing_from_SM/
 
 # Test scripts at root
 # Test scripts at root (ad-hoc scripts, not the real suite)
@@ -146,6 +143,3 @@ backend/test_*.py
 
 # Local dev runner instance storage (dev.sh multi-instance isolation)
 .dev-data/
-
-# Local evaluation scripts
-evaluate_schematiq.py
