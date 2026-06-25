@@ -186,11 +186,10 @@ async def get_status(
     schema_only = False
     try:
         if config_path.exists():
-            import json as _json
-            cfg = _json.loads(config_path.read_text())
+            cfg = json.loads(config_path.read_text())
             schema_only = cfg.get("skip_value_extraction", False)
-    except Exception:
-        pass
+    except (OSError, ValueError) as exc:  # missing/unreadable file or bad JSON
+        logger.debug("Could not read skip_value_extraction from %s: %s", config_path, exc)
 
     # Deferred extraction completed — table data exists even if config still has skip flag
     if schema_only:
