@@ -66,6 +66,19 @@ class ChatAgentService:
     ) -> dict[str, Any]:
         state = self._get_or_create_session(session_id, session_mode, chat_id, pinned_tool)
         outbound_messages: list[dict[str, Any]] = []
+        if state.pending:
+            abort_messages, new_pending = await self._abort_pending(
+                state,
+                reason="Superseded by a new message.",
+            )
+            outbound_messages.extend(abort_messages)
+            if new_pending:
+                return {
+                    "chat_id": state.chat_id,
+                    "status": "pending_confirmation",
+                    "messages": outbound_messages,
+                    "pending_action": new_pending,
+                }
         user_text = message
         if pinned_tool:
             user_text = f"[User pinned tool: {pinned_tool}]\n{message}"
@@ -159,25 +172,58 @@ class ChatAgentService:
     ) -> dict[str, Any]:
         """Abandon a pending expensive action without running it.
 
-        Clears ``state.pending`` server-side so a cancelled confirmation card can
-        never be executed by a later ``/confirm`` (e.g. a double-tap or stale
-        client). Idempotent: cancelling when nothing is pending is a no-op.
+        Clears ``state.pending`` server-side and tells Gemini the tool was
+        declined so the chat can accept new messages. Idempotent: cancelling
+        when nothing is pending is a no-op.
         """
         state = chat_session_store.get(chat_id)
         if not state or state.workspace_session_id != session_id:
             raise ValueError("Chat session not found. Start a new conversation.")
 
-        # Clearing pending is the whole job; we deliberately emit no tool_log.
-        # The frontend already removes the confirmation card optimistically, and
-        # the chat has only running/done/error statuses, so any log here would
-        # render either as a misleading red "error" or a false "done" for an
-        # action that never ran.
-        state.pending = None
+        outbound_messages, new_pending = await self._abort_pending(
+            state,
+            reason="User declined confirmation.",
+        )
         return {
             "chat_id": chat_id,
-            "status": "complete",
-            "messages": [],
+            "status": "pending_confirmation" if new_pending else "complete",
+            "messages": outbound_messages,
+            "pending_action": new_pending,
         }
+
+    async def _abort_pending(
+        self,
+        state: ChatSessionState,
+        *,
+        reason: str,
+    ) -> tuple[list[dict[str, Any]], Optional[dict[str, Any]]]:
+        """Drop a held expensive-tool confirmation and unblock the Gemini chat."""
+        pending = state.pending
+        if not pending:
+            return [], None
+
+        state.pending = None
+        outbound_messages: list[dict[str, Any]] = []
+        try:
+            response = await self._send_function_response(
+                state,
+                pending,
+                {"cancelled": True, "message": reason},
+            )
+            loop_result = await self._continue_after_tool(
+                state,
+                response,
+                outbound_messages,
+            )
+            return outbound_messages, loop_result.get("pending_action")
+        except Exception as exc:
+            logger.warning(
+                "Failed to abort pending chat tool %s for session %s: %s",
+                pending.tool_name,
+                state.workspace_session_id,
+                exc,
+            )
+        return outbound_messages, None
 
     def _get_or_create_session(
         self,

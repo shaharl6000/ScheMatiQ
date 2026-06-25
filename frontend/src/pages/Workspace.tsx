@@ -1183,6 +1183,15 @@ const CHAT_SCHEMA_FOLLOWUP_TOOLS = new Set([
   'merge_columns',
 ]);
 
+// Expensive chat tools that pause for server-side confirmation (pending_action)
+// or, once completed, already imply a re-run prompt — skip the top banner then.
+const CHAT_RERUN_FOLLOWUP_TOOLS = new Set([
+  'reextract',
+  'reprocess',
+  'run_schematiq',
+  'continue_discovery',
+]);
+
 function mapChatTurnMessage(message: ChatTurnMessage): WorkspaceMessage {
   return {
     id: message.id,
@@ -1212,6 +1221,7 @@ function ChatPanel({
   sessionMode,
   onRefresh,
   onEditFollowUp,
+  onRegisterCancelPending,
 }: {
   sessionId?: string;
   sessionMode: WorkspaceSessionMode;
@@ -1220,6 +1230,7 @@ function ChatPanel({
   data: PaginatedData;
   onRefresh: () => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
+  onRegisterCancelPending?: (cancel: (() => Promise<boolean>) | null) => void;
 }) {
   const [messages, setMessages] = useState<WorkspaceMessage[]>([
     {
@@ -1287,12 +1298,12 @@ function ChatPanel({
       onRefresh();
     }
 
-    const alreadyFollowedUp = completedTools.some((message) =>
-      message.tool_name === 'reextract'
-      || message.tool_name === 'reprocess'
-      || message.tool_name === 'run_schematiq'
-      || message.tool_name === 'continue_discovery',
-    );
+    const alreadyFollowedUp =
+      (response.pending_action != null
+        && CHAT_RERUN_FOLLOWUP_TOOLS.has(response.pending_action.tool_name))
+      || completedTools.some((message) =>
+        CHAT_RERUN_FOLLOWUP_TOOLS.has(message.tool_name!),
+      );
 
     if (!alreadyFollowedUp && completedTools.some((message) => message.tool_name === 'edit_observation_unit')) {
       onEditFollowUp('unit');
@@ -1355,7 +1366,6 @@ function ChatPanel({
     }
 
     setBusy(true);
-    setPendingAction(null);
     try {
       const response = await chatAPI.sendMessage(sessionId, {
         message: text,
@@ -1406,18 +1416,40 @@ function ChatPanel({
     }
   }, [appendMessages, applyChatResponse, pendingAction, sessionId]);
 
-  const cancelPendingAction = useCallback(async () => {
-    const action = pendingAction;
-    setPendingAction(null);
-    if (!action || !sessionId) return;
+  const cancelPendingAction = useCallback(async (): Promise<boolean> => {
+    if (!pendingAction || !sessionId) return true;
+    setBusy(true);
     try {
-      const response = await chatAPI.cancelAction(sessionId, action.chatId);
+      const response = await chatAPI.cancelAction(sessionId, pendingAction.chatId);
+      setPendingAction(null);
       applyChatResponse(response);
-    } catch {
-      // Best-effort: the next expensive call overwrites the server's pending
-      // slot regardless, so a failed cancel is non-fatal.
+      return true;
+    } catch (err: any) {
+      appendMessages([
+        {
+          id: `${Date.now()}-cancel-error`,
+          role: 'assistant',
+          content:
+            err?.response?.data?.detail
+            || err?.message
+            || 'Could not cancel the pending action. Try again.',
+        },
+      ]);
+      return false;
+    } finally {
+      setBusy(false);
     }
-  }, [applyChatResponse, pendingAction, sessionId]);
+  }, [appendMessages, applyChatResponse, pendingAction, sessionId]);
+
+  useEffect(() => {
+    if (!onRegisterCancelPending) return;
+    if (pendingAction) {
+      onRegisterCancelPending(cancelPendingAction);
+    } else {
+      onRegisterCancelPending(null);
+    }
+    return () => onRegisterCancelPending(null);
+  }, [cancelPendingAction, onRegisterCancelPending, pendingAction]);
 
   return (
     <aside className="workspace-chat">
@@ -1835,6 +1867,12 @@ function Workspace() {
   const [stoppingReextraction, setStoppingReextraction] = useState(false);
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
+  const cancelChatPendingRef = useRef<(() => Promise<boolean>) | null>(null);
+
+  const cancelChatPendingIfAny = useCallback(async (): Promise<boolean> => {
+    if (!cancelChatPendingRef.current) return true;
+    return cancelChatPendingRef.current();
+  }, []);
 
   const isCellEditorOpen = useCallback(() => {
     const editor = hotTableRef.current?.hotInstance?.getActiveEditor?.();
@@ -2238,6 +2276,16 @@ function Workspace() {
   const startReextraction = useCallback(async (targetColumns: string[]) => {
     if (!sessionId || rerunStarting || targetColumns.length === 0) return;
 
+    const chatPendingCleared = await cancelChatPendingIfAny();
+    if (!chatPendingCleared) {
+      toast({
+        title: 'Chat confirmation still pending',
+        description: 'Cancel the chat confirmation card first, then try again.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     setRerunStarting(true);
     try {
       const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
@@ -2287,7 +2335,7 @@ function Workspace() {
     } finally {
       setRerunStarting(false);
     }
-  }, [clearPendingRerun, rerunStarting, sessionId, toast]);
+  }, [cancelChatPendingIfAny, clearPendingRerun, rerunStarting, sessionId, toast]);
 
   const confirmReextraction = useCallback(async () => {
     if (!reextractConfirm) return;
@@ -2336,6 +2384,15 @@ function Workspace() {
 
     setRerunStarting(true);
     try {
+      const chatPendingCleared = await cancelChatPendingIfAny();
+      if (!chatPendingCleared) {
+        toast({
+          title: 'Chat confirmation still pending',
+          description: 'Cancel the chat confirmation card first, then try again.',
+          variant: 'destructive',
+        });
+        return;
+      }
       await schematiqAPI.resume(sessionId);
       clearPendingRerun();
       toast({
@@ -2352,7 +2409,7 @@ function Workspace() {
     } finally {
       setRerunStarting(false);
     }
-  }, [clearPendingRerun, refresh, rerunStarting, sessionId, sessionMode, toast]);
+  }, [cancelChatPendingIfAny, clearPendingRerun, refresh, rerunStarting, sessionId, sessionMode, toast]);
 
   const notifyEditFollowUp = useCallback((kind: PendingRerunKind, columns: string[] = []) => {
     markRerunNeeded(kind, columns);
@@ -2525,6 +2582,9 @@ function Workspace() {
             data={data}
             onRefresh={refreshSilent}
             onEditFollowUp={notifyEditFollowUp}
+            onRegisterCancelPending={(cancel) => {
+              cancelChatPendingRef.current = cancel;
+            }}
           />
         </div>
       </div>

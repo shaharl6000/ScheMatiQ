@@ -166,7 +166,7 @@ async def test_confirm_without_pending_raises(agent_with_fake_executor):
 @pytest.mark.asyncio
 async def test_cancel_clears_pending_so_confirm_cannot_run_it(agent_with_fake_executor):
     agent, executor = agent_with_fake_executor
-    chat = FakeChat([])
+    chat = FakeChat([FakeResponse(text="Understood.")])
     state = _make_state(chat)
     state.pending = PendingToolCall(
         tool_name="run_schematiq",
@@ -178,11 +178,79 @@ async def test_cancel_clears_pending_so_confirm_cannot_run_it(agent_with_fake_ex
     assert cancel_result["status"] == "complete"
     assert state.pending is None
     assert executor.executed == []
+    # _abort_pending must unblock Gemini by sending the cancelled function response.
+    assert len(chat.sent) == 1
 
     # A stale /confirm after a cancel must now error instead of executing.
     with pytest.raises(ValueError):
         await agent.confirm_pending(state.workspace_session_id, state.chat_id)
     assert executor.executed == []
+
+
+@pytest.mark.asyncio
+async def test_abort_pending_drains_gemini_turn_without_executing_tool(
+    agent_with_fake_executor,
+):
+    """Held state.pending is cleared and Gemini is notified; the tool never runs."""
+    agent, executor = agent_with_fake_executor
+    chat = FakeChat([FakeResponse(text="Okay, I will not re-extract.")])
+    state = _make_state(chat)
+    state.pending = PendingToolCall(
+        tool_name="reextract",
+        args={"columns": ["Age"]},
+        function_call_part=FakeFunctionCall("reextract", {"columns": ["Age"]}),
+    )
+
+    messages, new_pending = await agent._abort_pending(
+        state,
+        reason="User declined confirmation.",
+    )
+
+    assert state.pending is None
+    assert new_pending is None
+    assert executor.executed == []
+    assert len(chat.sent) == 1
+    assert any(msg.get("role") == "assistant" for msg in messages)
+
+
+@pytest.mark.asyncio
+async def test_send_message_aborts_held_pending_before_new_turn(
+    agent_with_fake_executor,
+    monkeypatch,
+):
+    """A new user message must drop a held confirmation so /confirm cannot run later."""
+    agent, executor = agent_with_fake_executor
+    chat = FakeChat([FakeResponse(text="Noted.")])
+    state = _make_state(chat)
+    state.pending = PendingToolCall(
+        tool_name="reextract",
+        args={"columns": ["Age"]},
+        function_call_part=FakeFunctionCall("reextract", {"columns": ["Age"]}),
+    )
+
+    run_loop_calls: list[str] = []
+
+    async def fake_run_loop(st, user_text, outbound_messages):
+        run_loop_calls.append(user_text)
+        outbound_messages.append(agent._text_message("loop done"))
+        return {"status": "complete"}
+
+    monkeypatch.setattr(agent, "_run_loop", fake_run_loop)
+
+    result = await agent.send_message(
+        session_id=state.workspace_session_id,
+        message="never mind",
+        session_mode="schematiq",
+        chat_id=state.chat_id,
+    )
+
+    assert result["status"] == "complete"
+    assert state.pending is None
+    assert run_loop_calls == ["never mind"]
+    assert executor.executed == []
+
+    with pytest.raises(ValueError):
+        await agent.confirm_pending(state.workspace_session_id, state.chat_id)
 
 
 @pytest.mark.asyncio

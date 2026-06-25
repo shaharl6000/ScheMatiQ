@@ -90,7 +90,11 @@ async def cancel_chat_action(
             chat_id=result["chat_id"],
             status=result["status"],
             messages=[ChatTurnMessage(**msg) for msg in result["messages"]],
-            pending_action=None,
+            pending_action=(
+                PendingChatAction(**result["pending_action"])
+                if result.get("pending_action")
+                else None
+            ),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
