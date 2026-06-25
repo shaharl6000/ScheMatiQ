@@ -465,6 +465,7 @@ const ContentModal: React.FC<ContentModalProps> = ({
       >
         <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <DialogTitle className="pr-8">{title}</DialogTitle>
+          {!evidenceOnly && (
           <div className="flex items-center gap-1 mr-8">
             {onSave && !isEditing && (
               <Tooltip>
@@ -510,9 +511,10 @@ const ContentModal: React.FC<ContentModalProps> = ({
               </TooltipContent>
             </Tooltip>
           </div>
+          )}
         </DialogHeader>
 
-        <ScrollArea className="flex-1 min-h-[200px]">
+        <ScrollArea className={evidenceOnly ? 'flex-1' : 'flex-1 min-h-[200px]'}>
           <div className="pr-4">
             {formatContent(displayContent)}
           </div>
