@@ -91,7 +91,7 @@ class SupabaseStorageBackend(StorageInterface):
             )
             return True
         except Exception as e:
-            print(f"Error saving session {session_id} to Supabase: {e}")
+            logger.error(f"Error saving session {session_id} to Supabase: {e}")
             return False
 
     async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -103,7 +103,7 @@ class SupabaseStorageBackend(StorageInterface):
         except Exception as e:
             # Session not found is expected for new sessions
             if "not found" not in str(e).lower():
-                print(f"Error loading session {session_id} from Supabase: {e}")
+                logger.error(f"Error loading session {session_id} from Supabase: {e}")
             return None
 
     async def delete_session(self, session_id: str) -> bool:
@@ -121,7 +121,7 @@ class SupabaseStorageBackend(StorageInterface):
 
             return True
         except Exception as e:
-            print(f"Error deleting session {session_id} from Supabase: {e}")
+            logger.error(f"Error deleting session {session_id} from Supabase: {e}")
             return False
 
     async def list_sessions(self) -> List[str]:
@@ -134,7 +134,7 @@ class SupabaseStorageBackend(StorageInterface):
                 if f["name"].endswith(".json")
             ]
         except Exception as e:
-            print(f"Error listing sessions from Supabase: {e}")
+            logger.error(f"Error listing sessions from Supabase: {e}")
             return []
 
     # ================
@@ -170,7 +170,7 @@ class SupabaseStorageBackend(StorageInterface):
 
             return f"{bucket}/{storage_path}"
         except Exception as e:
-            print(f"Error uploading file {bucket}/{path} to Supabase: {e}")
+            logger.error(f"Error uploading file {bucket}/{path} to Supabase: {e}")
             raise
 
     async def download_file(self, bucket: str, path: str) -> Optional[bytes]:
@@ -180,7 +180,7 @@ class SupabaseStorageBackend(StorageInterface):
             return self.client.storage.from_(bucket).download(storage_path)
         except Exception as e:
             if "not found" not in str(e).lower():
-                print(f"Error downloading file {bucket}/{path} from Supabase: {e}")
+                logger.error(f"Error downloading file {bucket}/{path} from Supabase: {e}")
             return None
 
     async def delete_file(self, bucket: str, path: str) -> bool:
@@ -190,7 +190,7 @@ class SupabaseStorageBackend(StorageInterface):
             self.client.storage.from_(bucket).remove([storage_path])
             return True
         except Exception as e:
-            print(f"Error deleting file {bucket}/{path} from Supabase: {e}")
+            logger.error(f"Error deleting file {bucket}/{path} from Supabase: {e}")
             return False
 
     async def file_exists(self, bucket: str, path: str) -> bool:
@@ -245,7 +245,7 @@ class SupabaseStorageBackend(StorageInterface):
                 offset += page_size
             return result
         except Exception as e:
-            print(f"Error listing folder {bucket}/{folder}: {e}")
+            logger.error(f"Error listing folder {bucket}/{folder}: {e}")
             return set()
 
     async def list_files(self, bucket: str, prefix: str = "") -> List[str]:
@@ -282,7 +282,7 @@ class SupabaseStorageBackend(StorageInterface):
 
             return result
         except Exception as e:
-            print(f"Error listing files {bucket}/{prefix} from Supabase: {e}")
+            logger.error(f"Error listing files {bucket}/{prefix} from Supabase: {e}")
             return []
 
     # =====================
@@ -301,7 +301,7 @@ class SupabaseStorageBackend(StorageInterface):
 
             return True
         except Exception as e:
-            print(f"Error deleting directory {bucket}/{prefix} from Supabase: {e}")
+            logger.error(f"Error deleting directory {bucket}/{prefix} from Supabase: {e}")
             return False
 
     # =================
@@ -315,7 +315,7 @@ class SupabaseStorageBackend(StorageInterface):
             response = self.client.storage.from_(bucket).get_public_url(storage_path)
             return response
         except Exception as e:
-            print(f"Error getting public URL for {bucket}/{path}: {e}")
+            logger.error(f"Error getting public URL for {bucket}/{path}: {e}")
             return None
 
     def get_signed_url(
@@ -342,7 +342,7 @@ class SupabaseStorageBackend(StorageInterface):
             )
             return response.get("signedURL")
         except Exception as e:
-            print(f"Error creating signed URL for {bucket}/{path}: {e}")
+            logger.error(f"Error creating signed URL for {bucket}/{path}: {e}")
             return None
 
     # =================
@@ -428,7 +428,7 @@ class SupabaseStorageBackend(StorageInterface):
                 if f["name"].endswith(".json")
             ]
         except Exception as e:
-            print(f"Error listing sessions from Supabase: {e}")
+            logger.error(f"Error listing sessions from Supabase: {e}")
             return []
 
     # =======================
@@ -533,7 +533,7 @@ class SupabaseStorageBackend(StorageInterface):
 
             return sorted(result, key=lambda f: f.name)
         except Exception as e:
-            print(f"Error listing dataset files from Supabase: {e}")
+            logger.error(f"Error listing dataset files from Supabase: {e}")
             return []
 
     async def download_dataset_file(self, dataset_name: str, filename: str) -> Optional[bytes]:
@@ -542,7 +542,7 @@ class SupabaseStorageBackend(StorageInterface):
             path = f"{dataset_name}/{filename}"
             return self.client.storage.from_("datasets").download(path)
         except Exception as e:
-            print(f"Error downloading dataset file {dataset_name}/{filename}: {e}")
+            logger.error(f"Error downloading dataset file {dataset_name}/{filename}: {e}")
             return None
 
     async def download_dataset_to_local(self, dataset_name: str, local_dir: str) -> List[str]:
@@ -565,7 +565,7 @@ class SupabaseStorageBackend(StorageInterface):
                         f.write(content)
                     created_files.append(str(dest_path))
         except Exception as e:
-            print(f"Error downloading dataset to local: {e}")
+            logger.error(f"Error downloading dataset to local: {e}")
 
         return created_files
 
@@ -663,7 +663,7 @@ class SupabaseStorageBackend(StorageInterface):
 
             return sorted(templates, key=lambda t: t.name)
         except Exception as e:
-            print(f"Error listing templates from Supabase: {e}")
+            logger.error(f"Error listing templates from Supabase: {e}")
             return []
 
     async def download_template(self, template_name: str) -> Optional[bytes]:
@@ -685,7 +685,7 @@ class SupabaseStorageBackend(StorageInterface):
 
             return None
         except Exception as e:
-            print(f"Error downloading template {template_name}: {e}")
+            logger.error(f"Error downloading template {template_name}: {e}")
             return None
 
     # =======================
@@ -765,7 +765,7 @@ class SupabaseStorageBackend(StorageInterface):
 
             return None
         except Exception as e:
-            print(f"Error downloading initial schema {schema_name}: {e}")
+            logger.error(f"Error downloading initial schema {schema_name}: {e}")
             return None
 
     async def upload_initial_schema(
@@ -796,5 +796,5 @@ class SupabaseStorageBackend(StorageInterface):
 
             return f"initial_schemas/{schema_name}"
         except Exception as e:
-            print(f"Error uploading initial schema {schema_name} to Supabase: {e}")
+            logger.error(f"Error uploading initial schema {schema_name} to Supabase: {e}")
             raise
