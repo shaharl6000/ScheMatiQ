@@ -516,27 +516,25 @@ class ToolExecutor:
   async def _handle_reprocess(
       self, session_id: str, session_mode: str, args: dict[str, Any]
   ) -> dict[str, Any]:
-      session = session_manager.get_session(session_id)
-      if not session:
-          raise ValueError("Session not found")
-      columns = args.get("columns") or [col.name for col in session.columns]
+      # Route through the same gated entry point as `reextract`. The legacy
+      # schema_manager.reprocess_documents path only extracts when the local
+      # ./data/<session_id>/documents directory exists, so on the Supabase
+      # backend (where source documents are not materialized locally) it
+      # silently no-ops and then broadcasts a false "completed", leaving the
+      # column empty. The gated path materializes the source documents from
+      # the active storage backend and raises a user-facing error when none
+      # are available, so it is correct on both local and Supabase backends.
       await concurrency_limiter.acquire(session_id, "reprocess")
-      asyncio.create_task(
-          self._reprocess_task(session_id, columns)
-      )
-      return {
-          "status": "started",
-          "message": "Document reprocessing started.",
-          "columns": columns,
-      }
-
-  async def _reprocess_task(self, session_id: str, columns: list[str]) -> None:
       try:
-          await schema_manager.reprocess_documents(session_id, columns, True, False)
-      except Exception as exc:
-          logger.error("Chat-triggered reprocess failed for %s: %s", session_id, exc)
-      finally:
+          result = await reextraction_service.start_gated_reextraction(
+              session_id,
+              columns=args.get("columns"),
+              scope=args.get("scope", "edited_only"),
+          )
+      except Exception:
           await concurrency_limiter.release(session_id)
+          raise
+      return result
 
   async def _handle_web_search(
       self, session_id: str, session_mode: str, args: dict[str, Any]
