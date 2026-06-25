@@ -248,9 +248,12 @@ def _all_tools() -> list[ToolSpec]:
         ToolSpec(
             name="reextract",
             description=(
-                "Re-run value extraction for schema columns (expensive). Prefer passing the "
-                "specific `columns` you changed so only those are re-extracted; this must not "
-                "re-extract the whole table or touch the observation unit unless scope='all'."
+                "Re-run value extraction for SPECIFIC schema columns you added or edited "
+                "(expensive). Pass the `columns` you changed so only those are re-extracted; "
+                "when omitted it defaults to the edited/new columns only (scope='edited_only'). "
+                "Does not touch other columns or the observation unit unless scope='all'. Use "
+                "this for a targeted refresh after add_column/edit_column; use `reprocess` to "
+                "refresh the entire table."
             ),
             parameters={
                 "type": "object",
@@ -289,7 +292,12 @@ def _all_tools() -> list[ToolSpec]:
         ),
         ToolSpec(
             name="reprocess",
-            description="Re-run backbone LLM extraction for specified or all columns (expensive).",
+            description=(
+                "Re-run value extraction for the ENTIRE table — every column — from the source "
+                "documents (expensive). When `columns` is omitted it re-extracts all columns "
+                "(scope='all'). Use this for a full refresh of every value; prefer `reextract` "
+                "when you only changed specific columns and want to refresh just those."
+            ),
             parameters={
                 "type": "object",
                 "properties": {
