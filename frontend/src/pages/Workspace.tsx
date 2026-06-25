@@ -96,6 +96,15 @@ import './Workspace.css';
 
 registerAllModules();
 
+// Source-document provenance shown in the Data sheet. We display the file name
+// only — never a full path — so loaded projects and ScheMatiQ runs read the
+// same way. Handles both POSIX and Windows separators.
+const documentDisplayName = (value?: string | null): string => {
+  if (!value) return '';
+  const parts = String(value).split(/[\\/]/);
+  return (parts[parts.length - 1] || String(value)).trim();
+};
+
 type SheetId = 'data' | 'unit' | 'schema';
 type WorkspaceSessionMode = 'schematiq' | 'load';
 type PendingRerunKind = 'schema' | 'unit';
@@ -788,6 +797,11 @@ function SpreadsheetSurface({
     return data.rows.map((row) => {
       const sheetRow: Record<string, string> = {
         _row_name: row.row_name || row._unit_name || '',
+        // Provenance: the source document this row was extracted from. Falls back
+        // to the parent document or the first referenced paper. File name only.
+        _source_document: documentDisplayName(
+          row._source_document || row._parent_document || row.papers?.[0],
+        ),
       };
       dataColumnNames.forEach((column) => {
         sheetRow[column] = extractDisplayValue(row.data?.[column]);
@@ -851,6 +865,7 @@ function SpreadsheetSurface({
       rows: dataRows,
       columns: [
         { key: '_row_name', label: 'unit_name', width: 220, readOnly: true },
+        { key: '_source_document', label: 'Source Document', width: 220, readOnly: true },
         ...dataColumnNames.map((name) => ({ key: name, label: columnDisplayLabel(name), width: 190 })),
       ],
     };
