@@ -450,6 +450,7 @@ const ContentModal: React.FC<ContentModalProps> = ({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+        onOpenAutoFocus={(e) => e.preventDefault()}
         onEscapeKeyDown={(e) => {
           if (isEditing) {
             e.preventDefault();
