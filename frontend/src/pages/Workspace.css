@@ -584,6 +584,21 @@
   text-decoration: var(--workspace-table-text-decoration, none);
 }
 
+.workspace-hot .handsontable td.has-grounding {
+  position: relative;
+}
+
+.workspace-hot .handsontable td.has-grounding::after {
+  content: '›';
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  font-size: 10px;
+  line-height: 1;
+  color: #8a9a90;
+  pointer-events: none;
+}
+
 .workspace-hot .handsontable td.workspace-cell-font-inter {
   font-family: Inter, system-ui, sans-serif;
 }
@@ -840,6 +855,10 @@
   color: hsl(var(--foreground));
   background: hsl(150 8% 9%);
   border-color: hsl(150 7% 18%);
+}
+
+.dark .workspace-hot .handsontable td.has-grounding::after {
+  color: hsl(142 12% 52%);
 }
 
 .dark .workspace-hot .handsontable .ht_master .htCore tbody tr:nth-child(even) > td:not(.current):not(.area):not(.highlight) {

@@ -66,7 +66,15 @@ import { useToast } from '@/components/ui/use-toast';
 import { ToastAction } from '@/components/ui/toast';
 import { getEditableValue } from './EditableCell';
 import { formatColumnName } from '../../utils/formatting';
-import { buildColumnMetadata, parsePythonString, extractDisplayValue, getDefaultColumnOrder } from './utils';
+import {
+  buildColumnMetadata,
+  parsePythonString,
+  extractDisplayValue,
+  getDefaultColumnOrder,
+  buildExcerptMapping,
+  parseExcerpts,
+  normalizeToScheMatiQ,
+} from './utils';
 import { FilterOperator, FilterValue, ColumnMetadata, FilterRule, SortColumn } from './types/filters';
 import { useTableSort } from './hooks/useTableSort';
 import { useTableFilter } from './hooks/useTableFilter';
@@ -615,28 +623,10 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     }
   }, [visibleColumns, hasSourceDocument, onColumnReorder]);
 
-  // Create mapping of main columns to their corresponding excerpt columns
-  const excerptMapping = useMemo(() => {
-    const mapping: Record<string, string> = {};
-
-    if (!unitData?.rows) return mapping;
-
-    const allDataColumns = new Set<string>();
-    unitData.rows.forEach(row => {
-      Object.keys(row.data).forEach(key => allDataColumns.add(key));
-    });
-
-    Array.from(allDataColumns).forEach(col => {
-      if (col.endsWith('_excerpt')) {
-        const baseColumn = col.replace('_excerpt', '');
-        if (allDataColumns.has(baseColumn)) {
-          mapping[baseColumn] = col;
-        }
-      }
-    });
-
-    return mapping;
-  }, [unitData?.rows]);
+  const excerptMapping = useMemo(
+    () => buildExcerptMapping(unitData?.rows || []),
+    [unitData?.rows],
+  );
 
   // Filter dialog handlers
   const handleOpenFilterDialog = useCallback((column?: string) => {
@@ -1224,125 +1214,6 @@ export const UnitGroupedTable: React.FC<UnitGroupedTableProps> = ({
     </Card>
   );
 };
-
-/**
- * Parse pipe-separated excerpt strings like: {'text': '...', 'source': '...'} | {'text': '...'}
- */
-function parseExcerpts(excerpts: unknown[]): Array<{text: string; source: string}> {
-  const result: Array<{text: string; source: string}> = [];
-
-  for (const exc of excerpts) {
-    if (typeof exc === 'string') {
-      // Check if it's pipe-separated
-      if (exc.includes("'text':") || exc.includes('"text":')) {
-        // Split by pipe and parse each part
-        const parts = exc.split(/\s*\|\s*/);
-        for (const part of parts) {
-          const parsed = parsePythonString(part.trim());
-          if (typeof parsed === 'object' && parsed !== null && 'text' in parsed) {
-            const obj = parsed as Record<string, unknown>;
-            result.push({
-              text: String(obj.text || ''),
-              source: String(obj.source || `Source ${result.length + 1}`)
-            });
-          } else if (typeof parsed === 'string' && parsed.trim()) {
-            result.push({ text: parsed, source: `Source ${result.length + 1}` });
-          }
-        }
-      } else if (exc.trim()) {
-        result.push({ text: exc, source: `Source ${result.length + 1}` });
-      }
-    } else if (typeof exc === 'object' && exc !== null) {
-      const obj = exc as Record<string, unknown>;
-      if ('text' in obj) {
-        result.push({
-          text: String(obj.text || ''),
-          source: String(obj.source || `Source ${result.length + 1}`)
-        });
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
- * Normalize value to ScheMatiQ format with 'answer' and 'excerpts'.
- */
-function normalizeToScheMatiQ(val: unknown): unknown {
-  if (!val || typeof val !== 'object') return val;
-
-  // If it's an array with dict items, take first item
-  if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object') {
-    return normalizeToScheMatiQ(val[0]);
-  }
-
-  const obj = val as Record<string, unknown>;
-
-  // Already in ScheMatiQ format
-  if ('answer' in obj) {
-    let answerVal = obj.answer;
-    let excerptsVal = obj.excerpts || [];
-
-    // Parse answer if it's a JSON string
-    if (typeof answerVal === 'string') {
-      const parsed = parsePythonString(answerVal);
-      if (parsed !== answerVal && typeof parsed === 'object' && parsed !== null) {
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const firstItem = parsed[0];
-          if (typeof firstItem === 'object') {
-            const item = firstItem as Record<string, unknown>;
-            answerVal = item.value || item.answer || String(firstItem);
-            const allExcerpts: unknown[] = [];
-            for (const p of parsed) {
-              const pObj = p as Record<string, unknown>;
-              const exc = pObj.excerpt || pObj.excerpts;
-              if (exc) {
-                allExcerpts.push(...(Array.isArray(exc) ? exc : [exc]));
-              }
-            }
-            if (allExcerpts.length > 0) {
-              excerptsVal = allExcerpts;
-            }
-          }
-        } else {
-          // Plain object (e.g., parsed Python dict) — use as answer directly
-          answerVal = parsed;
-        }
-      }
-    }
-
-    // Parse excerpts using parseExcerpts
-    const parsedExcerpts = parseExcerpts(excerptsVal as unknown[]);
-
-    return {
-      answer: answerVal,
-      excerpts: parsedExcerpts,
-      ...(obj.manually_edited ? { manually_edited: true } : {})
-    };
-  }
-
-  // Normalize 'value'/'excerpt'/'citation' format
-  if ('value' in obj) {
-    const excerptsRaw = obj.citation ? [obj.citation] :
-                        obj.excerpt ? [obj.excerpt] :
-                        (obj.excerpts || []);
-    return {
-      answer: obj.value,
-      excerpts: parseExcerpts(excerptsRaw as unknown[])
-    };
-  }
-
-  // ExcerptWithSource format - wrap text as answer with source
-  if ('text' in obj) {
-    return {
-      answer: obj.text,
-      excerpts: obj.source ? [{ text: String(obj.text), source: String(obj.source) }] : []
-    };
-  }
-
-  return val;
-}
 
 /** Maximum visible lines in data cells before CSS truncation */
 const DATA_CELL_MAX_LINES = 8;
