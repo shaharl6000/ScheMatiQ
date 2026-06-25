@@ -778,12 +778,13 @@ class ReextractionService(WebSocketBroadcasterMixin):
             try:
                 content = await storage.download_file('datasets', supabase_path)
                 if content:
+                    from app.services.document_preprocessor import commit_bytes_to_documents_dir
                     # Ensure paper_name has the correct extension
                     local_filename = paper_name if '.' in paper_name else f"{paper_name}.txt"
-                    local_path = docs_dir / local_filename
-                    local_path.write_bytes(content)
-                    downloaded.append(paper_name)
-                    logger.debug(f"Downloaded {paper_name} from Supabase to {local_path}")
+                    committed = commit_bytes_to_documents_dir(content, local_filename, docs_dir)
+                    if committed:
+                        downloaded.append(paper_name)
+                        logger.debug(f"Downloaded {paper_name} from Supabase to {committed}")
             except Exception as e:
                 logger.debug(f"Error downloading {paper_name} from Supabase: {e}")
 

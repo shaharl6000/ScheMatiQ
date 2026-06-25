@@ -1143,13 +1143,13 @@ async def upload_missing_papers(
         uploaded = []
         # Handle file uploads if provided
         if files:
+            from app.services.document_preprocessor import commit_bytes_to_documents_dir
             for file in files:
                 if hasattr(file, 'filename') and hasattr(file, 'read'):
-                    file_path = docs_dir / file.filename
                     content = await file.read()
-                    with open(file_path, 'wb') as f:
-                        f.write(content)
-                    uploaded.append(file.filename)
+                    committed = commit_bytes_to_documents_dir(content, file.filename, docs_dir)
+                    if committed:
+                        uploaded.append(file.filename)
 
         return {
             "status": "success",

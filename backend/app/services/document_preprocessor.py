@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import tempfile
 import threading
 import uuid
 from dataclasses import dataclass
@@ -17,20 +18,39 @@ from app.services.document_conversion.convert_to_txt import (
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Document-extension sets.
+#
+# These look similar but encode DIFFERENT intents and have different reasons to
+# change, so they are deliberately kept as separate constants rather than
+# derived from one another. The two that MUST stay equal (the "loadable as text"
+# sets used by continue_discovery) are already derived from MATERIALIZABLE_
+# EXTENSIONS at their definitions; do not collapse the rest.
+# ---------------------------------------------------------------------------
+
+# Capability: source types we can normalize/convert to plain text.
+# PLAIN = read/normalize in place; CONVERT = needs pymupdf (pdf) or LibreOffice
+# (office). Changing these tracks what the conversion layer can handle.
 PLAIN_EXTENSIONS = {".txt", ".md", ".json"}
 CONVERT_EXTENSIONS = {".pdf", ".docx", ".doc", ".rtf"}
 
-# Extensions that read_document_text() returns text for directly (no conversion).
+# What read_document_text() returns text for WITHOUT conversion. Includes .json
+# (we read it as text). Note the asymmetry with LIB_READABLE_STORAGE_EXTENSIONS
+# below: that set excludes .json because the schematiq-lib reader cannot load it.
 READABLE_TEXT_EXTENSIONS = (".txt", ".md", ".html", ".htm", ".json")
 
 # Single source of truth for "files the pipeline can load as text" — exactly what
 # read_document_text() can produce (plain-text family read directly + .pdf
-# converted). Callers gating which session documents are loadable should derive
-# from this so the selectable set never drifts from what read_document_text
-# actually supports.
+# converted). Callers gating which session documents are loadable derive from
+# this so the selectable set never drifts from what read_document_text supports
+# (see ORIGINAL_DOC_EXTENSIONS / INCREMENTAL_EXTRACTION_DOC_EXTENSIONS).
 MATERIALIZABLE_EXTENSIONS = READABLE_TEXT_EXTENSIONS + (".pdf",)
 
-# Extensions stored under data/{session}/documents/ after ingestion (lib reader set).
+# Extensions left as-is when committing into data/{session}/documents/ (the rest
+# are converted to .txt). This MUST mirror the `exts` set in the schematiq-lib
+# reader (schematiq/core/schematiq.py::load_documents) — an external library
+# constraint that cannot be bound in code, so it is intentionally NOT derived.
+# Excludes .json on purpose: the lib reader does not load .json.
 LIB_READABLE_STORAGE_EXTENSIONS = frozenset({".txt", ".md", ".html", ".htm"})
 
 
@@ -96,6 +116,36 @@ def commit_document_to_documents_dir(
         ext,
     )
     return None
+
+
+def commit_bytes_to_documents_dir(
+    content: bytes,
+    filename: str,
+    documents_dir: Path,
+    *,
+    worker_id: Optional[str] = None,
+) -> Optional[Path]:
+    """Persist downloaded/uploaded bytes into documents/ as a lib-readable file.
+
+    For callers that receive raw bytes (cloud downloads, direct uploads) rather
+    than a file already on disk. Stages the bytes in a private temp directory
+    under their real *filename*, then routes through
+    commit_document_to_documents_dir so PDF/office/JSON inputs are converted to
+    ``{stem}.txt`` exactly like the pending->documents move. The temp directory
+    is always cleaned up. Returns the committed path, or None on failure.
+    """
+    staging_dir = Path(tempfile.mkdtemp(prefix="docstage_"))
+    try:
+        staged = staging_dir / filename
+        staged.write_bytes(content)
+        return commit_document_to_documents_dir(
+            staged, documents_dir, worker_id=worker_id
+        )
+    except Exception as e:
+        logger.warning("Could not commit bytes for %s: %s", filename, e)
+        return None
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def read_document_text(path: Path) -> Optional[str]:

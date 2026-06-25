@@ -5,6 +5,7 @@ from pathlib import Path
 from app.services.document_preprocessor import (
     LIB_READABLE_STORAGE_EXTENSIONS,
     commit_document_to_documents_dir,
+    commit_bytes_to_documents_dir,
 )
 from app.services.schematiq_runner import ScheMatiQRunner
 
@@ -91,3 +92,38 @@ def test_move_pending_documents_converts_pdf(tmp_path, monkeypatch):
     assert (documents / "judges.txt").read_text(encoding="utf-8") == "INGESTED TEXT"
     assert not list(pending.iterdir())
     assert not any(f.suffix.lower() == ".pdf" for f in documents.iterdir())
+
+
+def test_commit_bytes_pdf_becomes_txt(tmp_path, monkeypatch):
+    # Downloaded/uploaded PDF bytes should land in documents/ as readable .txt,
+    # with no temp staging or .pdf left behind.
+    documents = tmp_path / "data" / "sess" / "documents"
+    _mock_pdf_convert(monkeypatch, "CLOUD PDF TEXT")
+
+    dest = commit_bytes_to_documents_dir(b"%PDF-1.4 fake", "judges.pdf", documents)
+
+    assert dest == documents / "judges.txt"
+    assert dest.read_text(encoding="utf-8") == "CLOUD PDF TEXT"
+    assert not any(f.suffix.lower() == ".pdf" for f in documents.iterdir())
+
+
+def test_commit_bytes_plain_txt_passes_through(tmp_path):
+    documents = tmp_path / "data" / "sess" / "documents"
+
+    dest = commit_bytes_to_documents_dir(b"plain bytes", "notes.txt", documents)
+
+    assert dest == documents / "notes.txt"
+    assert dest.read_text(encoding="utf-8") == "plain bytes"
+
+
+def test_commit_bytes_conversion_failure_returns_none(tmp_path, monkeypatch):
+    documents = tmp_path / "data" / "sess" / "documents"
+    monkeypatch.setattr(
+        "app.services.document_preprocessor.convert_file",
+        lambda *args, **kwargs: (False, "corrupt pdf"),
+    )
+
+    dest = commit_bytes_to_documents_dir(b"%PDF-1.4", "broken.pdf", documents)
+
+    assert dest is None
+    assert not documents.exists() or not any(documents.iterdir())

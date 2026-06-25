@@ -31,7 +31,7 @@ from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG, MAX_DOCUMENTS
 from app.core.logging_utils import set_session_context
 from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
-from app.services.document_preprocessor import read_document_text, MATERIALIZABLE_EXTENSIONS
+from app.services.document_preprocessor import read_document_text, MATERIALIZABLE_EXTENSIONS, commit_bytes_to_documents_dir
 from app.services.data_utils import extract_papers, row_name_of
 
 # ScheMatiQ library imports
@@ -735,17 +735,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     filename = file_path.rsplit('/', 1)[-1]
                     content = await storage.download_file('datasets', file_path)
                     if content:
-                        # Save locally
-                        local_path = docs_dir / filename
-                        local_path.write_bytes(content)
-
-                        # Add to documents list
-                        try:
-                            text_content = content.decode('utf-8')
-                            documents.append(text_content)
-                            filenames.append(filename)
-                        except UnicodeDecodeError:
-                            logger.debug(f"Could not decode {filename} as UTF-8")
+                        committed = commit_bytes_to_documents_dir(content, filename, docs_dir)
+                        if committed:
+                            text_content = read_document_text(committed)
+                            if text_content:
+                                documents.append(text_content)
+                                filenames.append(committed.name)
             except Exception as e:
                 logger.error(f"Error downloading cloud documents: {e}")
                 raise
