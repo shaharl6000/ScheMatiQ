@@ -251,7 +251,7 @@ def query_uniprot(query_str, fields=UNIPROT_FIELDS, size=5):
     url = f"{UNIPROT_SEARCH_URL}?{urllib.parse.urlencode(params)}"
 
     req = urllib.request.Request(url)
-    req.add_header("User-Agent", "ScheMatiQ-Enrichment/1.0 (+https://github.com/shaharl6000/QueryDiscovery)")
+    req.add_header("User-Agent", "ScheMatiQ-Enrichment/1.0 (+https://github.com/shaharl6000/ScheMatiQ)")
 
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:

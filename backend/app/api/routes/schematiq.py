@@ -1,5 +1,6 @@
 """ScheMatiQ API endpoints."""
 
+import logging
 import uuid
 import asyncio
 import csv
@@ -23,6 +24,7 @@ from app.services.file_parser import format_column_header
 
 from schematiq.core.cost_estimator import estimate_from_config
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 # Create shared ScheMatiQ runner instance with shared managers
 from app.services import pubmed_enrichment_service, uniprot_enrichment_service
@@ -112,12 +114,12 @@ async def configure_schematiq(config: ScheMatiQConfig):
     """Configure a new ScheMatiQ session."""
     from app.core.config import DEVELOPER_MODE
     try:
-        print(f"DEBUG: Received ScheMatiQ config: {config}")
+        logger.debug(f"Received ScheMatiQ config: {config}")
         
         # Validate configuration
         validation = await schematiq_runner.validate_config(config)
         
-        print(f"DEBUG: Validation result: {validation}")
+        logger.debug(f"Validation result: {validation}")
         
         if not validation["is_valid"]:
             raise HTTPException(status_code=400, detail=validation["errors"])
@@ -145,7 +147,7 @@ async def configure_schematiq(config: ScheMatiQConfig):
         }
         
     except Exception as e:
-        print(f"DEBUG: Exception in configure_schematiq: {e}")
+        logger.error(f"Exception in configure_schematiq: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -548,7 +550,7 @@ async def list_document_directories():
                 break
 
         if research_data_path is None:
-            print(f"DEBUG: Could not find research/data directory. Tried: {[str(c) for c in candidates]}")
+            logger.warning(f"Could not find research/data directory. Tried: {[str(c) for c in candidates]}")
             return []
 
         directories = []
@@ -562,7 +564,7 @@ async def list_document_directories():
         return directories
 
     except Exception as e:
-        print(f"DEBUG: Error listing directories: {e}")
+        logger.error(f"Error listing directories: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -589,7 +591,7 @@ async def list_schema_files():
                 break
 
         if config_path is None:
-            print(f"DEBUG: Could not find research/experiments/configurations directory. Tried: {[str(c) for c in candidates]}")
+            logger.warning(f"Could not find research/experiments/configurations directory. Tried: {[str(c) for c in candidates]}")
             return []
 
         schema_files = []
@@ -630,7 +632,7 @@ async def list_schema_files():
         return schema_files
 
     except Exception as e:
-        print(f"DEBUG: Error listing schema files: {e}")
+        logger.error(f"Error listing schema files: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -770,7 +772,7 @@ async def export_complete_schematiq_data(
                         "value_extraction_backend": schematiq_config.get("value_extraction_backend")
                     }
             except Exception as e:
-                print(f"DEBUG: Could not load LLM configuration for complete export: {e}")
+                logger.warning(f"Could not load LLM configuration for complete export: {e}")
         
         # Prepare complete export data structure
         export_data = {
@@ -974,7 +976,7 @@ async def export_complete_schematiq_data(
             raise HTTPException(status_code=400, detail="Unsupported format. Use 'json' or 'zip'")
         
     except Exception as e:
-        print(f"DEBUG: Exception in export_complete_schematiq_data: {e}")
+        logger.error(f"Exception in export_complete_schematiq_data: {e}")
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
@@ -1139,7 +1141,7 @@ async def export_schematiq_schema_only(
                         "value_extraction_backend": schematiq_config.get("value_extraction_backend")
                     }
             except Exception as e:
-                print(f"DEBUG: Could not load LLM configuration: {e}")
+                logger.warning(f"Could not load LLM configuration: {e}")
 
         # Create ScheMatiQ schema export
         schema_columns = []
@@ -1200,5 +1202,5 @@ async def export_schematiq_schema_only(
         )
         
     except Exception as e:
-        print(f"DEBUG: Exception in export_schematiq_schema_only: {e}")
+        logger.error(f"Exception in export_schematiq_schema_only: {e}")
         raise HTTPException(status_code=500, detail=str(e))

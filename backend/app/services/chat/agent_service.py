@@ -301,7 +301,11 @@ class ChatAgentService:
         for _ in range(MAX_TOOL_ITERATIONS):
             function_calls = getattr(response, "function_calls", None) or []
             if function_calls:
-                for function_call in function_calls:
+                # Handle one tool call per turn. Gemini (AUTO mode) normally returns a
+                # single call; if it ever batches several, take the first and let the model
+                # re-issue the rest next turn, so trailing calls aren't dropped when an
+                # earlier one needs confirmation.
+                for function_call in function_calls[:1]:
                     tool_name = function_call.name
                     args = dict(function_call.args or {})
                     tool = TOOL_BY_NAME.get(tool_name)
@@ -313,10 +317,6 @@ class ChatAgentService:
                         tool_name,
                         tool.cost_class,
                         state.workspace_session_id,
-                    )
-
-                    outbound_messages.append(
-                        self._tool_log(tool_name, "running", f"...{tool_running_label(tool_name).lower()}")
                     )
 
                     if tool.cost_class == "expensive":
@@ -338,6 +338,9 @@ class ChatAgentService:
                             },
                         }
 
+                    outbound_messages.append(
+                        self._tool_log(tool_name, "running", f"...{tool_running_label(tool_name).lower()}")
+                    )
                     try:
                         tool_result = await self._executor.execute(
                             tool_name,

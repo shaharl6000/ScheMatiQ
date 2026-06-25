@@ -1,6 +1,7 @@
 """Local filesystem storage backend implementation."""
 
 import json
+import logging
 import os
 import shutil
 from pathlib import Path
@@ -10,6 +11,8 @@ import aiofiles
 import aiofiles.os
 
 from app.storage.interface import StorageInterface, DatasetInfo, FileInfo, TemplateInfo, InitialSchemaInfo
+
+logger = logging.getLogger(__name__)
 
 
 class LocalStorageBackend(StorageInterface):
@@ -94,7 +97,7 @@ class LocalStorageBackend(StorageInterface):
                 await f.write(json.dumps(data, indent=2, default=str))
             return True
         except Exception as e:
-            print(f"Error saving session {session_id}: {e}")
+            logger.error(f"Error saving session {session_id}: {e}")
             return False
 
     async def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -107,7 +110,7 @@ class LocalStorageBackend(StorageInterface):
                 content = await f.read()
                 return json.loads(content)
         except Exception as e:
-            print(f"Error loading session {session_id}: {e}")
+            logger.error(f"Error loading session {session_id}: {e}")
             return None
 
     async def delete_session(self, session_id: str) -> bool:
@@ -130,7 +133,7 @@ class LocalStorageBackend(StorageInterface):
 
             return True
         except Exception as e:
-            print(f"Error deleting session {session_id}: {e}")
+            logger.error(f"Error deleting session {session_id}: {e}")
             return False
 
     async def list_sessions(self) -> List[str]:
@@ -139,7 +142,7 @@ class LocalStorageBackend(StorageInterface):
             session_files = list(self.sessions_dir.glob("*.json"))
             return [f.stem for f in session_files]
         except Exception as e:
-            print(f"Error listing sessions: {e}")
+            logger.error(f"Error listing sessions: {e}")
             return []
 
     # ================
@@ -165,7 +168,7 @@ class LocalStorageBackend(StorageInterface):
 
             return str(file_path)
         except Exception as e:
-            print(f"Error uploading file {bucket}/{path}: {e}")
+            logger.error(f"Error uploading file {bucket}/{path}: {e}")
             raise
 
     async def download_file(self, bucket: str, path: str) -> Optional[bytes]:
@@ -179,7 +182,7 @@ class LocalStorageBackend(StorageInterface):
             async with aiofiles.open(file_path, 'rb') as f:
                 return await f.read()
         except Exception as e:
-            print(f"Error downloading file {bucket}/{path}: {e}")
+            logger.error(f"Error downloading file {bucket}/{path}: {e}")
             return None
 
     async def delete_file(self, bucket: str, path: str) -> bool:
@@ -190,7 +193,7 @@ class LocalStorageBackend(StorageInterface):
                 file_path.unlink()
             return True
         except Exception as e:
-            print(f"Error deleting file {bucket}/{path}: {e}")
+            logger.error(f"Error deleting file {bucket}/{path}: {e}")
             return False
 
     async def file_exists(self, bucket: str, path: str) -> bool:
@@ -217,7 +220,7 @@ class LocalStorageBackend(StorageInterface):
                 return set()
             return {f.name for f in folder_path.iterdir() if f.is_file()}
         except Exception as e:
-            print(f"Error listing folder {bucket}/{folder}: {e}")
+            logger.error(f"Error listing folder {bucket}/{folder}: {e}")
             return set()
 
     async def list_files(self, bucket: str, prefix: str = "") -> List[str]:
@@ -241,7 +244,7 @@ class LocalStorageBackend(StorageInterface):
 
             return files
         except Exception as e:
-            print(f"Error listing files {bucket}/{prefix}: {e}")
+            logger.error(f"Error listing files {bucket}/{prefix}: {e}")
             return []
 
     # =====================
@@ -256,7 +259,7 @@ class LocalStorageBackend(StorageInterface):
                 shutil.rmtree(dir_path)
             return True
         except Exception as e:
-            print(f"Error deleting directory {bucket}/{prefix}: {e}")
+            logger.error(f"Error deleting directory {bucket}/{prefix}: {e}")
             return False
 
     # =================
@@ -271,7 +274,7 @@ class LocalStorageBackend(StorageInterface):
                 json.dump(data, f, indent=2, default=str)
             return True
         except Exception as e:
-            print(f"Error saving session {session_id}: {e}")
+            logger.error(f"Error saving session {session_id}: {e}")
             return False
 
     def get_session_sync(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -283,7 +286,7 @@ class LocalStorageBackend(StorageInterface):
             with open(session_file, 'r') as f:
                 return json.load(f)
         except Exception as e:
-            print(f"Error loading session {session_id}: {e}")
+            logger.error(f"Error loading session {session_id}: {e}")
             return None
 
     def upload_file_sync(
@@ -301,7 +304,7 @@ class LocalStorageBackend(StorageInterface):
                 f.write(data)
             return str(file_path)
         except Exception as e:
-            print(f"Error uploading file {bucket}/{path}: {e}")
+            logger.error(f"Error uploading file {bucket}/{path}: {e}")
             raise
 
     def download_file_sync(self, bucket: str, path: str) -> Optional[bytes]:
@@ -313,7 +316,7 @@ class LocalStorageBackend(StorageInterface):
             with open(file_path, 'rb') as f:
                 return f.read()
         except Exception as e:
-            print(f"Error downloading file {bucket}/{path}: {e}")
+            logger.error(f"Error downloading file {bucket}/{path}: {e}")
             return None
 
     def file_exists_sync(self, bucket: str, path: str) -> bool:
@@ -327,7 +330,7 @@ class LocalStorageBackend(StorageInterface):
             session_files = list(self.sessions_dir.glob("*.json"))
             return [f.stem for f in session_files]
         except Exception as e:
-            print(f"Error listing sessions: {e}")
+            logger.error(f"Error listing sessions: {e}")
             return []
 
     def get_local_path(self, bucket: str, path: str) -> Path:
@@ -365,7 +368,7 @@ class LocalStorageBackend(StorageInterface):
         """List available datasets from research/data directory."""
         datasets_path = self._resolve_datasets_dir()
         if not datasets_path or not datasets_path.exists():
-            print(f"Datasets directory not found: {self.datasets_dir}")
+            logger.warning(f"Datasets directory not found: {self.datasets_dir}")
             return []
 
         datasets = []
@@ -385,7 +388,7 @@ class LocalStorageBackend(StorageInterface):
                             description=f"Document collection: {item.name}"
                         ))
         except Exception as e:
-            print(f"Error listing datasets: {e}")
+            logger.error(f"Error listing datasets: {e}")
 
         return sorted(datasets, key=lambda d: d.name)
 
@@ -420,7 +423,7 @@ class LocalStorageBackend(StorageInterface):
                         content_type=content_type
                     ))
         except Exception as e:
-            print(f"Error listing dataset files: {e}")
+            logger.error(f"Error listing dataset files: {e}")
 
         return sorted(files, key=lambda f: f.name)
 
@@ -438,7 +441,7 @@ class LocalStorageBackend(StorageInterface):
             async with aiofiles.open(file_path, 'rb') as f:
                 return await f.read()
         except Exception as e:
-            print(f"Error downloading dataset file {dataset_name}/{filename}: {e}")
+            logger.error(f"Error downloading dataset file {dataset_name}/{filename}: {e}")
             return None
 
     async def download_dataset_to_local(self, dataset_name: str, local_dir: str) -> List[str]:
@@ -465,7 +468,7 @@ class LocalStorageBackend(StorageInterface):
                     shutil.copy2(file_path, dest_path)
                     created_files.append(str(dest_path))
         except Exception as e:
-            print(f"Error copying dataset to local: {e}")
+            logger.error(f"Error copying dataset to local: {e}")
 
         return created_files
 
@@ -561,7 +564,7 @@ class LocalStorageBackend(StorageInterface):
                             column_count=column_count
                         ))
         except Exception as e:
-            print(f"Error listing templates: {e}")
+            logger.error(f"Error listing templates: {e}")
 
         return sorted(templates, key=lambda t: t.name)
 
@@ -578,7 +581,7 @@ class LocalStorageBackend(StorageInterface):
                     async with aiofiles.open(file_path, 'rb') as f:
                         return await f.read()
                 except Exception as e:
-                    print(f"Error downloading template {template_name}: {e}")
+                    logger.error(f"Error downloading template {template_name}: {e}")
                     return None
 
         # Try exact filename
@@ -588,7 +591,7 @@ class LocalStorageBackend(StorageInterface):
                 async with aiofiles.open(file_path, 'rb') as f:
                     return await f.read()
             except Exception as e:
-                print(f"Error downloading template {template_name}: {e}")
+                logger.error(f"Error downloading template {template_name}: {e}")
 
         return None
 
@@ -629,7 +632,7 @@ class LocalStorageBackend(StorageInterface):
                             if columns_count > 3:
                                 preview += f", ... (+{columns_count - 3} more)"
                         except Exception as e:
-                            print(f"Error parsing schema {file_path.name}: {e}")
+                            logger.error(f"Error parsing schema {file_path.name}: {e}")
                             continue
 
                         if columns_count > 0:
@@ -642,7 +645,7 @@ class LocalStorageBackend(StorageInterface):
                                 columns=columns
                             ))
         except Exception as e:
-            print(f"Error listing initial schemas: {e}")
+            logger.error(f"Error listing initial schemas: {e}")
 
         return sorted(schemas, key=lambda s: s.name)
 
@@ -658,7 +661,7 @@ class LocalStorageBackend(StorageInterface):
                 async with aiofiles.open(file_path, 'rb') as f:
                     return await f.read()
             except Exception as e:
-                print(f"Error downloading initial schema {schema_name}: {e}")
+                logger.error(f"Error downloading initial schema {schema_name}: {e}")
                 return None
 
         # Try exact filename
@@ -668,7 +671,7 @@ class LocalStorageBackend(StorageInterface):
                 async with aiofiles.open(file_path, 'rb') as f:
                     return await f.read()
             except Exception as e:
-                print(f"Error downloading initial schema {schema_name}: {e}")
+                logger.error(f"Error downloading initial schema {schema_name}: {e}")
 
         return None
 
@@ -694,5 +697,5 @@ class LocalStorageBackend(StorageInterface):
 
             return str(file_path)
         except Exception as e:
-            print(f"Error uploading initial schema {schema_name}: {e}")
+            logger.error(f"Error uploading initial schema {schema_name}: {e}")
             raise

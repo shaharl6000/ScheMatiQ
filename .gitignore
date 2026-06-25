@@ -59,12 +59,6 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
-# Data directories in src/
-src/abstracts/
-src/full_text/
-src/full_text_test/
-src/manually/
-
 # Logs
 *.log
 
@@ -86,15 +80,6 @@ cache/
 .env.development
 config/secrets.*
 /test/
-
-# Add visualization specific ignores (legacy paths)
-ScheMatiQ/visualization/frontend/build/
-ScheMatiQ/visualization/frontend/node_modules/
-
-# Backend data and session directories (legacy location)
-ScheMatiQ/visualization/backend/data/
-ScheMatiQ/visualization/backend/sessions/
-ScheMatiQ/visualization/backend/schematiq_work/
 
 # New structure ignores
 # Frontend
@@ -126,9 +111,6 @@ schematiq-lib/dist/
 # Root-level data/research files
 *.txt
 !requirements.txt
-Immigration_ground_truth.csv
-different Presidents ScheMatiQ meeting results_*.csv
-missing_from_SM/
 
 # Test scripts at root
 # Test scripts at root (ad-hoc scripts, not the real suite)
@@ -147,6 +129,11 @@ backend/test_*.py
 # Local dev runner instance storage (dev.sh multi-instance isolation)
 .dev-data/
 
-# Local evaluation scripts
-evaluate_schematiq.py
 /.test-venv/
+
+# --- repo hygiene (prevent stray artifacts recurring) ---
+*.patch
+Untitled
+* copy.*
+*\ copy.*
+backend/debug
