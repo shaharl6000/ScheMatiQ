@@ -20,6 +20,7 @@ import { DataStatistics, SchemaEvolution, CreationMetadata, ModificationAction, 
 import { CollapsibleSection, InfoCard } from '../shared';
 import LLMConfigDisplay from '../LLMConfigDisplay';
 import { Input } from '@/components/ui/input';
+import { formatColumnName } from '../../utils/formatting';
 
 interface StatsDashboardProps {
   statistics: DataStatistics;
@@ -38,6 +39,14 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
   const filteredColumnStats = statistics.column_stats.filter(
     col => !col.name.endsWith('_excerpt')
   );
+
+  // statistics.column_stats only carries canonical names; resolve the user-facing
+  // label from session.columns (which carries display_name) by matching on the
+  // canonical name, falling back to formatting the canonical name.
+  const columnLabel = (name: string): string => {
+    const match = session?.columns?.find(c => c.name === name);
+    return match?.display_name || formatColumnName(name);
+  };
 
   // Extract LLM config from session
   const llmConfig = session?.metadata?.extracted_schema?.llm_configuration;
@@ -174,6 +183,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
                 <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                 <XAxis
                   dataKey="name"
+                  tickFormatter={(value) => columnLabel(value)}
                   angle={-45}
                   textAnchor="end"
                   height={80}
@@ -182,7 +192,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
                 <YAxis tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12 }} />
                 <Tooltip
                   formatter={(value: number) => [`${value.toFixed(1)}%`, 'Completeness']}
-                  labelFormatter={(label) => `Column: ${label}`}
+                  labelFormatter={(label) => `Column: ${columnLabel(label as string)}`}
                   contentStyle={{
                     backgroundColor: 'hsl(var(--background))',
                     border: '1px solid hsl(var(--border))',
@@ -219,7 +229,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
                     key={col.name}
                     className="border-b border-border odd:bg-muted/50"
                   >
-                    <td className="p-3 font-medium">{col.name}</td>
+                    <td className="p-3 font-medium">{columnLabel(col.name)}</td>
                     <td className="p-3 text-muted-foreground">
                       {filteredColumnStats[index]?.data_type || 'unknown'}
                     </td>
@@ -404,7 +414,7 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
           )}
 
           {/* Schema Evolution Section */}
-          <SchemaEvolutionSection evolution={statistics.schema_evolution} columnStats={statistics.column_stats} />
+          <SchemaEvolutionSection evolution={statistics.schema_evolution} columnStats={statistics.column_stats} session={session} />
         </div>
       </CollapsibleSection>
     </div>
@@ -415,9 +425,10 @@ const StatsDashboard: React.FC<StatsDashboardProps> = ({
 interface SchemaEvolutionSectionProps {
   evolution?: SchemaEvolution;
   columnStats: DataStatistics['column_stats'];
+  session?: VisualizationSession;
 }
 
-const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evolution, columnStats }) => {
+const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evolution, columnStats, session }) => {
   // If no evolution data, show info message
   if (!evolution || !evolution.snapshots || evolution.snapshots.length === 0) {
     return (
@@ -471,11 +482,15 @@ const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evoluti
     cumulativeDocs: snapshot.cumulative_documents,
   }));
 
-  // Build column origins data from column_sources
+  // Build column origins data from column_sources. column_sources is keyed by the
+  // canonical column name; resolve the user-facing label from session.columns
+  // (which carries display_name), falling back to formatting the canonical name.
   const columnOriginsData = Object.entries(evolution.column_sources).map(([columnName, source]) => {
     const colStat = columnStats.find(c => c.name === columnName);
+    const match = session?.columns?.find(c => c.name === columnName);
     return {
       columnName,
+      displayName: match?.display_name || formatColumnName(columnName),
       source,
       definition: colStat?.definition || '',
       iteration: colStat?.discovery_iteration,
@@ -584,7 +599,7 @@ const SchemaEvolutionSection: React.FC<SchemaEvolutionSectionProps> = ({ evoluti
                     key={col.columnName}
                     className="border-b border-border odd:bg-muted/50"
                   >
-                    <td className="p-3 font-medium whitespace-nowrap">{col.columnName}</td>
+                    <td className="p-3 font-medium whitespace-nowrap">{col.displayName}</td>
                     <td className="p-3">
                       <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary whitespace-nowrap">
                         {col.source}

@@ -131,7 +131,11 @@ different Presidents ScheMatiQ meeting results_*.csv
 missing_from_SM/
 
 # Test scripts at root
-test_*.py
+# Test scripts at root (ad-hoc scripts, not the real suite)
+/test_*.py
+backend/test_*.py
+!backend/tests/*.py
+!backend/tests/**/*.py
 
 # Railway deployment
 .railway-config
@@ -140,6 +144,8 @@ test_*.py
 # AI tooling config
 .claude/agents/
 
+# Local dev runner instance storage (dev.sh multi-instance isolation)
+.dev-data/
+
 # Local evaluation scripts
 evaluate_schematiq.py
-.dev-data/

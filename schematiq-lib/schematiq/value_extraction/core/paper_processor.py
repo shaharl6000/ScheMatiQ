@@ -70,6 +70,7 @@ ENABLE_CONTROLLED_GENERATION = True
 
 # Type alias for value extracted callback: (row_name, column_name, value) -> None
 OnValueExtractedCallback = Callable[[str, str, Any], None]
+OnUnitRowWrittenCallback = Callable[[Dict[str, Any]], None]
 
 # Type alias for should_stop callback: () -> bool
 ShouldStopCallback = Callable[[], bool]
@@ -1698,7 +1699,13 @@ class PaperProcessor:
             max_new_tokens=effective_max,
         )
 
-        return all_cleaned
+        from schematiq.value_extraction.utils.schema_builder import (
+            align_extraction_keys_to_schema,
+        )
+
+        return align_extraction_keys_to_schema(
+            all_cleaned, [c.name for c in schema.columns]
+        )
 
     def extract_values_for_paper_with_units(
         self,

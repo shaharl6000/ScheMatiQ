@@ -142,16 +142,27 @@ def convert_config_to_schematiq_format(
         }
 
     if config.initial_schema:
-        schematiq_config["initial_schema"] = [
-            {
-                "name": col.name,
+        # Sanitize user-seeded column names into canonical keys so the discovery
+        # pipeline, stored rows, and re-extraction all use the same key. The
+        # original typed text is carried as `display_name` (ignored by the lib's
+        # Column.from_dict) so the runner can re-attach it as the UI label after
+        # the columns round-trip back out of discovery.
+        from app.services.data_utils import canonicalize_column_name
+
+        initial_schema_entries = []
+        for col in config.initial_schema:
+            canonical_name, display_name = canonicalize_column_name(col.name)
+            entry = {
+                "name": canonical_name,
                 "definition": col.definition,
                 "rationale": col.rationale,
                 "allowed_values": col.allowed_values,
                 "locked": col.locked,
             }
-            for col in config.initial_schema
-        ]
+            if display_name is not None:
+                entry["display_name"] = display_name
+            initial_schema_entries.append(entry)
+        schematiq_config["initial_schema"] = initial_schema_entries
     elif config.initial_schema_path:
         initial_schema_path = Path(config.initial_schema_path)
         if not initial_schema_path.is_absolute():

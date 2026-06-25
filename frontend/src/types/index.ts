@@ -51,6 +51,9 @@ export interface SchemaSuggestion {
 
 export interface ColumnInfo {
   name: string;
+  // Original user-typed label, present only when it differs from the sanitized
+  // canonical `name`. UI should render this when set, else format `name`.
+  display_name?: string;
   definition?: string;
   rationale?: string;
   data_type?: string;
@@ -168,6 +171,9 @@ export interface DataRow {
   _unit_confidence?: string;
   // Per-cell enrichment provenance (optional, for enriched datasets)
   _cell_status?: Record<string, CellStatus>;
+  // Absolute non-blank line position in the session data file; stable row
+  // identity for cell edits when row_name is absent (e.g. generic imports).
+  _row_index?: number;
 }
 
 export interface PaginatedData {
@@ -347,7 +353,7 @@ export interface ObservationUnitReadyData {
 }
 
 export interface WebSocketMessage {
-  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'reextraction_started' | 'reextraction_progress' | 'reextraction_completed' | 'reextraction_failed' | 'reextraction_stopped' | 'document_started' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready';
+  type: 'progress' | 'log' | 'error' | 'completed' | 'connected' | 'disconnected' | 'reconnecting' | 'pong' | 'heartbeat' | 'schema_completed' | 'schema_progress' | 'row_completed' | 'schema_updated' | 'reprocessing_progress' | 'reprocessing_completed' | 'reextraction_started' | 'reextraction_progress' | 'reextraction_completed' | 'reextraction_failed' | 'reextraction_stopped' | 'document_started' | 'cell_extracted' | 'stopped' | 'continue_discovery_progress' | 'continue_discovery_completed' | 'continue_discovery_stopped' | 'incremental_extraction_progress' | 'quota_exceeded' | 'observation_unit_ready' | 'observation_unit_definition_updated';
   timestamp?: string;
   session_id?: string;
   message?: string;
@@ -507,9 +513,11 @@ export interface MergeColumnsRequest {
 }
 
 export interface ReprocessRequest {
+  columns?: string[]; // Specific columns, null = all
   column_names?: string[]; // Specific columns, null = all
   document_paths?: string[]; // Specific documents, null = all
   incremental?: boolean; // Only process changed columns
+  force_reprocess?: boolean;
 }
 
 export interface SchemaEditResponse {
@@ -964,6 +972,42 @@ export interface DocumentStats {
 /**
  * Complete cost estimate for ScheMatiQ execution.
  */
+export type ChatToolStatus = 'running' | 'done' | 'error';
+
+export interface ChatToolInfo {
+  name: string;
+  description: string;
+  cost_class: 'cheap' | 'expensive';
+  available: boolean;
+  parameters: Record<string, unknown>;
+}
+
+export interface ChatTurnMessage {
+  id: string;
+  role: 'assistant' | 'user' | 'tool';
+  content: string;
+  kind?: 'text' | 'tool_log';
+  tool_name?: string;
+  tool_status?: ChatToolStatus;
+  // Schema column(s) a successful edit touched, so the follow-up re-extract
+  // can be scoped to exactly those columns.
+  columns?: string[];
+}
+
+export interface PendingChatToolAction {
+  tool_name: string;
+  label: string;
+  description: string;
+  args: Record<string, unknown>;
+}
+
+export interface ChatMessageResponse {
+  chat_id: string;
+  status: 'complete' | 'pending_confirmation';
+  messages: ChatTurnMessage[];
+  pending_action?: PendingChatToolAction;
+}
+
 export interface CostEstimate {
   /** Estimate for schema discovery phase */
   schema_discovery: PhaseEstimate;

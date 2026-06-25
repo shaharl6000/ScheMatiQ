@@ -14,7 +14,7 @@ from pathlib import Path
 from datetime import datetime
 
 from app.models.session import (
-    ColumnInfo, ColumnBaseline, SchemaBaseline, VisualizationSession
+    ColumnInfo, ColumnBaseline, SchemaBaseline, VisualizationSession, ObservationUnitInfo
 )
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
@@ -26,8 +26,6 @@ from app.core.logging_utils import set_session_context
 
 # ScheMatiQ library imports
 from schematiq.value_extraction.main import build_table_jsonl
-from schematiq.value_extraction.core.paper_processor import PaperProcessor
-from schematiq.core.schema import Schema, Column
 from schematiq.core.llm_backends import GeminiLLM
 from schematiq.core.model_specs import ModelNames
 from schematiq.core import utils as schematiq_utils
@@ -45,7 +43,8 @@ class ReextractionOperation:
         operation_id: str,
         session_id: str,
         columns: List[str],
-        status: str = "pending"
+        status: str = "pending",
+        renamed_from: Optional[Dict[str, str]] = None,
     ):
         self.operation_id = operation_id
         self.session_id = session_id
@@ -58,6 +57,12 @@ class ReextractionOperation:
         self.started_at: Optional[datetime] = None
         self.completed_at: Optional[datetime] = None
         self.error: Optional[str] = None
+        # new column name -> previous column name (from schema renames)
+        self.renamed_from: Dict[str, str] = renamed_from or {}
+        # composite keys already merged incrementally during extraction
+        self.incrementally_merged_keys: Set[tuple] = set()
+        # paper discovery snapshot for this operation (avoids redundant rescans)
+        self.paper_discovery: Optional[Dict[str, Any]] = None
 
 
 class ReextractionService(WebSocketBroadcasterMixin):
@@ -77,6 +82,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         self._data_collection_service = data_collection_service
         self._pubmed_enrichment_service = pubmed_enrichment_service
         self._uniprot_enrichment_service = uniprot_enrichment_service
+        self._incremental_merge_locks: Dict[str, asyncio.Lock] = {}
 
     @staticmethod
     def get_cached_retriever():
@@ -158,7 +164,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 await self._merge_reextracted_data(
                     operation.session_id,
                     operation.columns,
-                    output_file
+                    output_file,
+                    renamed_from=operation.renamed_from,
+                    initial_matched_keys=operation.incrementally_merged_keys,
                 )
                 output_file.unlink(missing_ok=True)
                 schema_file = session_dir / f"reextract_schema_{operation_id}.json"
@@ -472,7 +480,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
         if data_dir_file.exists() and data_dir_file not in data_files:
             data_files.append(data_dir_file)
 
-        logger.info(f"discover_papers: data_files={[str(f) for f in data_files]}, "
+        logger.debug(f"discover_papers: data_files={[str(f) for f in data_files]}, "
                      f"data_session_dir exists={data_session_dir.exists()}, "
                      f"schematiq_session_dir exists={schematiq_session_dir.exists()}")
 
@@ -544,7 +552,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                                     doc_dir = f"datasets/{session_cloud_dataset}"
                                     logger.debug(f"Using session cloud_dataset fallback: {doc_dir}")
                                 else:
-                                    logger.debug(f"No cloud_dataset fallback available - documents may not be found")
+                                    logger.debug("No cloud_dataset fallback available - documents may not be found")
                                     # No cloud fallback - will be checked locally only
                                     doc_dir = None
 
@@ -571,7 +579,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         local_files.add(f.name)
                         local_files.add(f.stem)  # Also match without extension
 
-        logger.info(f"discover_papers: total_rows={total_rows}, paper_refs={len(paper_refs)}, "
+        logger.debug(f"discover_papers: total_rows={total_rows}, paper_refs={len(paper_refs)}, "
                      f"local_files={len(local_files)}, dirs_checked={[str(d) for d in local_dirs_to_check if d.exists()]}")
 
         # Categorize papers: local, cloud, or missing
@@ -647,7 +655,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     if doc_name not in local_papers:
                         local_papers.append(doc_name)
                 available = list(dict.fromkeys(local_papers + list(cloud_papers.keys())))
-                logger.info(
+                logger.debug(
                     "discover_papers: no row references; using %d on-disk session document(s)",
                     len(session_document_filenames),
                 )
@@ -799,10 +807,143 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
     # ==================== Re-extraction ====================
 
+    def _collect_renamed_from_history(
+        self,
+        session: VisualizationSession,
+        columns: List[str],
+    ) -> Dict[str, str]:
+        """Map new column names to their previous names from edit history."""
+        renamed: Dict[str, str] = {}
+        column_set = set(columns)
+        valid_columns = {col.name for col in session.columns if col.name}
+
+        if session.schema_baseline:
+            for col_name in columns:
+                baseline = session.schema_baseline.columns.get(col_name)
+                if (
+                    baseline
+                    and baseline.name != col_name
+                    and baseline.name not in valid_columns
+                ):
+                    renamed[col_name] = baseline.name
+
+        for mod in reversed(session.modification_history or []):
+            if mod.action_type != "column_edited":
+                continue
+            details = mod.details or {}
+            old_name = details.get("original_name")
+            new_name = details.get("new_name")
+            if (
+                new_name
+                and old_name
+                and new_name != old_name
+                and new_name in column_set
+                and old_name not in valid_columns
+            ):
+                renamed.setdefault(new_name, old_name)
+        return renamed
+
+    async def resolve_reextraction_columns(
+        self,
+        session_id: str,
+        columns: Optional[List[str]] = None,
+        scope: str = "explicit",
+    ) -> List[str]:
+        """Resolve the column scope for a re-extraction or chat reprocess.
+
+        Shared by the manual REST route and the chat ``reextract`` / ``reprocess``
+        tools so both apply the same scoping rules: explicit columns are validated
+        against the schema, ``scope='all'`` targets every column, and ``edited_only``
+        targets only columns changed since the baseline (never silently widening to
+        all). Excerpt/derived columns are always excluded.
+        """
+        session = self.session_manager.get_session(session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+
+        valid_columns = {col.name for col in session.columns}
+        if columns:
+            resolved = [c for c in columns if c in valid_columns]
+            if not resolved:
+                raise ValueError(
+                    "None of the requested columns exist in the schema. "
+                    "Check the schema for exact column names."
+                )
+        elif scope == "all":
+            resolved = [col.name for col in session.columns]
+        else:  # edited_only — do NOT silently widen to all columns
+            changes = self.detect_schema_changes(session)
+            resolved = changes.get("changed_columns") or changes.get("new_columns") or []
+            if not resolved:
+                raise ValueError(
+                    "No edited or new columns to re-extract. Pass specific "
+                    "columns, or scope='all' to re-extract the whole table."
+                )
+
+        resolved = [c for c in resolved if not c.lower().endswith("_excerpt")]
+        if not resolved:
+            raise ValueError("No columns available for re-extraction")
+        return resolved
+
+    async def start_gated_reextraction(
+        self,
+        session_id: str,
+        columns: Optional[List[str]] = None,
+        scope: str = "explicit",
+        capture_baseline: bool = True,
+    ) -> Dict[str, Any]:
+        """Single gated entry point for re-extraction.
+
+        Both the manual workspace button (via ``POST /schema/reextract``) and the
+        chat ``reextract`` tool funnel through here so the gating is identical:
+        resolve the column scope, capture a fresh baseline, verify source
+        documents are available, then start the operation. Raises ``ValueError``
+        with a user-facing message when a gate fails; the caller owns the
+        concurrency slot and releases it on error.
+        """
+        resolved = await self.resolve_reextraction_columns(session_id, columns, scope)
+
+        session = self.session_manager.get_session(session_id)
+        renamed_from = (
+            self._collect_renamed_from_history(session, resolved) if session else {}
+        )
+
+        # Capture baseline AFTER resolving scope (edited_only reads the old baseline)
+        # and AFTER collecting rename signals from the old baseline / edit history.
+        if capture_baseline:
+            await self.capture_and_save_baseline(session_id)
+
+        paper_discovery = await self.discover_papers(session_id)
+        availability = await self.precheck_document_availability(
+            session_id,
+            operation_type="reextraction",
+            paper_discovery=paper_discovery,
+        )
+        if not availability.get("can_proceed", False):
+            missing = availability.get("missing_documents") or []
+            if missing:
+                raise ValueError(
+                    f"{len(missing)} source document(s) are unavailable. "
+                    "Upload them in the Classic Visualizer and try again."
+                )
+            raise ValueError(
+                "No source documents available. Upload the original source "
+                "documents, then try again."
+            )
+
+        return await self.start_reextraction(
+            session_id,
+            resolved,
+            renamed_from=renamed_from,
+            paper_discovery=paper_discovery,
+        )
+
     async def start_reextraction(
         self,
         session_id: str,
-        columns: List[str]
+        columns: List[str],
+        renamed_from: Optional[Dict[str, str]] = None,
+        paper_discovery: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Start a re-extraction operation for selected columns.
@@ -880,7 +1021,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     "Please set the observation unit before re-extracting."
                 )
         # Discover papers (includes on-disk uploads when the table has no rows yet)
-        paper_discovery = await self.discover_papers(session_id)
+        if paper_discovery is None:
+            paper_discovery = await self.discover_papers(session_id)
         doc_count = len(paper_discovery.get("available_papers") or [])
         if doc_count == 0:
             doc_count = paper_discovery.get("session_document_count") or 0
@@ -893,13 +1035,17 @@ class ReextractionService(WebSocketBroadcasterMixin):
 
         # Create operation
         operation_id = str(uuid.uuid4())[:8]
+        if renamed_from is None:
+            renamed_from = self._collect_renamed_from_history(session, columns)
         operation = ReextractionOperation(
             operation_id=operation_id,
             session_id=session_id,
             columns=columns,
-            status="starting"
+            status="starting",
+            renamed_from=renamed_from,
         )
         operation.total_documents = doc_count
+        operation.paper_discovery = paper_discovery
         with self._state_lock:
             self.active_operations[operation_id] = operation
 
@@ -915,6 +1061,68 @@ class ReextractionService(WebSocketBroadcasterMixin):
             "rows_to_process": doc_count,
             "missing_papers": paper_discovery["missing_papers"]
         }
+
+    def _build_known_units_for_reextraction(
+        self,
+        session_id: str,
+        session: VisualizationSession,
+        rediscover_observation_units: bool,
+    ) -> Dict[str, List[str]]:
+        """Map paper stems to known observation-unit names for re-extraction.
+
+        Papers with rows in extracted data map to their unit names. Papers skipped
+        during the original extraction (no units found) map to ``[]`` so the lib
+        reuses the empty-list skip path instead of running LLM unit discovery.
+        """
+        if rediscover_observation_units:
+            return {}
+
+        known_units: Dict[str, List[str]] = {}
+        reextract_data_files = []
+        schematiq_extracted = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
+        if schematiq_extracted.exists():
+            reextract_data_files.append(schematiq_extracted)
+        if not reextract_data_files:
+            schematiq_data = Path("./schematiq_work") / session_id / "data.jsonl"
+            if schematiq_data.exists():
+                reextract_data_files.append(schematiq_data)
+        load_data = Path("./data") / session_id / "data.jsonl"
+        if load_data.exists() and load_data.resolve() not in [
+            f.resolve() for f in reextract_data_files
+        ]:
+            reextract_data_files.append(load_data)
+
+        for df in reextract_data_files:
+            try:
+                with open(df, "r") as f:
+                    for line in f:
+                        if line.strip():
+                            try:
+                                row = json.loads(line)
+                                row_name = row.get("_row_name") or row.get("row_name")
+                                papers = row.get("_papers") or row.get("papers") or []
+                                if isinstance(papers, str):
+                                    papers = [papers]
+                                for paper in papers:
+                                    paper_stem = Path(paper).stem
+                                    if paper_stem not in known_units:
+                                        known_units[paper_stem] = []
+                                    if row_name and row_name not in known_units[paper_stem]:
+                                        known_units[paper_stem].append(row_name)
+                            except json.JSONDecodeError:
+                                continue
+            except Exception as e:
+                logger.warning(f"Error reading data file {df} for known_units: {e}")
+
+        # Skipped docs have no rows; present them as [] (not absent/None) to avoid
+        # a wasteful LLM unit-identification call on re-extraction.
+        if session.statistics and session.statistics.skipped_documents:
+            for skipped in session.statistics.skipped_documents:
+                paper_stem = Path(skipped.document).stem
+                if paper_stem not in known_units:
+                    known_units[paper_stem] = []
+
+        return known_units
 
     async def _run_reextraction(self, operation_id: str):
         """Execute re-extraction in background."""
@@ -952,9 +1160,10 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 }
             )
 
-            # Download cloud papers before extraction
-            logger.debug(f"Discovering papers for re-extraction...")
-            paper_discovery = await self.discover_papers(operation.session_id)
+            # Reuse discovery from the start path (same operation, no disk changes in between)
+            paper_discovery = operation.paper_discovery
+            if paper_discovery is None:
+                paper_discovery = await self.discover_papers(operation.session_id)
             logger.debug(f"Paper discovery result - available: {len(paper_discovery.get('available_papers', []))}, cloud: {len(paper_discovery.get('cloud_papers', {}))}, missing: {len(paper_discovery.get('missing_papers', []))}")
 
             if paper_discovery.get("cloud_papers"):
@@ -965,7 +1174,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 )
                 logger.debug(f"Downloaded {len(downloaded)} papers from cloud storage for re-extraction")
             else:
-                logger.debug(f"No cloud papers to download")
+                logger.debug("No cloud papers to download")
 
             # Get target columns
             target_columns = [
@@ -1035,6 +1244,23 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 except Exception as e:
                     logger.warning(f"Document started broadcast error: {e}")
 
+            def on_unit_row_written(unit_row: Dict[str, Any]):
+                """Persist merged row to data file before cell broadcasts."""
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._merge_incremental_unit_row(
+                            operation.session_id,
+                            operation.columns,
+                            dict(unit_row),
+                            operation,
+                            renamed_from=operation.renamed_from,
+                        ),
+                        loop,
+                    )
+                    future.result(timeout=120)
+                except Exception as e:
+                    logger.warning(f"Incremental merge failed for unit row: {e}")
+
             def on_value_extracted(row_name: str, column_name: str, value: Any):
                 processed_count[0] += 1
                 # processed_documents = source files; processed_count = cells (do not mix)
@@ -1042,19 +1268,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 # Schedule broadcasts on main event loop from thread (fire and forget)
                 try:
                     # 1. Broadcast individual cell value for live table updates
-                    # Use broadcast_event (same as document_started) since broadcast_cell_extracted
-                    # uses buffering that fails silently
                     asyncio.run_coroutine_threadsafe(
-                        self.broadcast_event(
+                        self.broadcast_cell_extracted(
                             operation.session_id,
-                            "cell_extracted",
                             {
                                 "row_name": row_name,
                                 "column": column_name,
-                                "value": value
-                            }
+                                "value": value,
+                            },
                         ),
-                        loop
+                        loop,
                     )
 
                     # 2. Broadcast progress for UI indicators
@@ -1098,48 +1321,14 @@ class ReextractionService(WebSocketBroadcasterMixin):
             )
 
             if docs_directories:
-                logger.debug(f"Starting build_table_jsonl extraction...")
+                logger.debug("Starting build_table_jsonl extraction...")
 
-                # Build known_units from existing data (paper_stem -> [unit_names])
-                # This skips the expensive LLM unit discovery for rows that already exist.
-                # After the user edits the observation unit, pending_observation_unit_rediscovery
-                # forces a full LLM re-identification instead of reusing old row names.
-                known_units: Dict[str, List[str]] = {}
-                if not rediscover_observation_units:
-                    reextract_data_files = []
-                    schematiq_extracted = Path("./schematiq_work") / operation.session_id / "extracted_data.jsonl"
-                    if schematiq_extracted.exists():
-                        reextract_data_files.append(schematiq_extracted)
-                    if not reextract_data_files:
-                        schematiq_data = Path("./schematiq_work") / operation.session_id / "data.jsonl"
-                        if schematiq_data.exists():
-                            reextract_data_files.append(schematiq_data)
-                    load_data = Path("./data") / operation.session_id / "data.jsonl"
-                    if load_data.exists() and load_data.resolve() not in [f.resolve() for f in reextract_data_files]:
-                        reextract_data_files.append(load_data)
-
-                    for df in reextract_data_files:
-                        try:
-                            with open(df, 'r') as f:
-                                for line in f:
-                                    if line.strip():
-                                        try:
-                                            row = json.loads(line)
-                                            row_name = row.get('_row_name') or row.get('row_name')
-                                            papers = row.get('_papers') or row.get('papers') or []
-                                            if isinstance(papers, str):
-                                                papers = [papers]
-                                            for paper in papers:
-                                                paper_stem = Path(paper).stem
-                                                if paper_stem not in known_units:
-                                                    known_units[paper_stem] = []
-                                                if row_name and row_name not in known_units[paper_stem]:
-                                                    known_units[paper_stem].append(row_name)
-                                        except json.JSONDecodeError:
-                                            continue
-                        except Exception as e:
-                            logger.warning(f"Error reading data file {df} for known_units: {e}")
-                else:
+                known_units = self._build_known_units_for_reextraction(
+                    operation.session_id,
+                    session,
+                    rediscover_observation_units,
+                )
+                if rediscover_observation_units:
                     logger.info(
                         "pending_observation_unit_rediscovery: skipping known_units; "
                         "LLM will re-identify observation units from documents"
@@ -1171,6 +1360,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         retrieval_k=10,
                         max_workers=1,
                         on_value_extracted=on_value_extracted,
+                        on_unit_row_written=on_unit_row_written,
                         on_document_started=on_document_started,
                         should_stop=should_stop,  # Allow graceful stop
                         known_units=known_units if known_units else None,
@@ -1180,14 +1370,16 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)
                 logger.debug(f"build_table_jsonl completed, output_file exists: {output_file.exists()}")
             else:
-                logger.debug(f"No document directories exist, skipping extraction")
+                logger.debug("No document directories exist, skipping extraction")
 
             # Merge results with existing data
-            logger.debug(f"Merging re-extracted data...")
+            logger.debug("Merging re-extracted data...")
             await self._merge_reextracted_data(
                 operation.session_id,
                 operation.columns,
-                output_file
+                output_file,
+                renamed_from=operation.renamed_from,
+                initial_matched_keys=operation.incrementally_merged_keys,
             )
 
             # Update baseline after successful extraction
@@ -1253,35 +1445,130 @@ class ReextractionService(WebSocketBroadcasterMixin):
             await concurrency_limiter.release(operation.session_id)
             self._cleanup_operation(operation_id)
 
+    @staticmethod
+    def _row_names_loosely_match(existing_name: str, extracted_name: str) -> bool:
+        """Match when OU rediscovery shortens names (e.g. 'David J. Barron' vs 'Barron')."""
+        if not existing_name or not extracted_name:
+            return False
+        if existing_name == extracted_name:
+            return True
+        existing_last = existing_name.strip().split()[-1].lower()
+        extracted_last = extracted_name.strip().split()[-1].lower()
+        return (
+            len(existing_last) > 2
+            and existing_last == extracted_last
+        )
+
+    def _match_extracted_row(
+        self,
+        row_name: str,
+        row_src: str,
+        papers: List[str],
+        extracted_by_key: Dict[tuple, Dict[str, Any]],
+        extracted_by_row_name: Dict[str, List[Dict[str, Any]]],
+        extracted_by_paper_stem: Dict[str, List[Dict[str, Any]]],
+        matched_extracted_keys: set,
+    ) -> Optional[Dict[str, Any]]:
+        """Find the re-extraction output row that corresponds to an existing table row."""
+        from app.services.data_utils import _resolve_source_document
+
+        row_key = (row_name, row_src) if row_name else None
+        if row_key and row_key in extracted_by_key:
+            return extracted_by_key[row_key]
+
+        if row_name and row_name in extracted_by_row_name:
+            candidates = extracted_by_row_name[row_name]
+            if len(candidates) == 1:
+                return candidates[0]
+            for paper in papers:
+                paper_stem = (
+                    paper.split("_")[0].lower()
+                    if "_" in paper
+                    else paper.rsplit(".", 1)[0].lower()
+                )
+                for cand in candidates:
+                    if _resolve_source_document(cand).lower() == paper_stem:
+                        return cand
+
+        # OU rediscovery may shorten unit names — match by last name + source document.
+        if row_name:
+            loose_matches = []
+            for ext_key, ext_row in extracted_by_key.items():
+                if ext_key in matched_extracted_keys:
+                    continue
+                ext_name, ext_src = ext_key
+                if not self._row_names_loosely_match(row_name, ext_name):
+                    continue
+                if row_src and ext_src and row_src.lower() != ext_src.lower():
+                    continue
+                ext_papers = ext_row.get("_papers") or ext_row.get("papers") or []
+                if papers and ext_papers and not set(papers) & set(ext_papers):
+                    continue
+                loose_matches.append(ext_row)
+            if len(loose_matches) == 1:
+                return loose_matches[0]
+
+        for paper in papers:
+            paper_stem = (
+                paper.split("_")[0].lower()
+                if "_" in paper
+                else paper.rsplit(".", 1)[0].lower()
+            )
+            if paper_stem in extracted_by_paper_stem:
+                candidates = extracted_by_paper_stem[paper_stem]
+                if len(candidates) == 1:
+                    return candidates[0]
+
+        return None
+
+    def _get_incremental_merge_lock(self, session_id: str) -> asyncio.Lock:
+        if session_id not in self._incremental_merge_locks:
+            self._incremental_merge_locks[session_id] = asyncio.Lock()
+        return self._incremental_merge_locks[session_id]
+
+    async def _merge_incremental_unit_row(
+        self,
+        session_id: str,
+        columns: List[str],
+        extracted_row: Dict[str, Any],
+        operation: ReextractionOperation,
+        renamed_from: Optional[Dict[str, str]] = None,
+    ) -> None:
+        """Persist a single re-extracted unit row and track it for the final merge."""
+        from app.services.data_utils import row_dedup_key
+
+        ext_key = row_dedup_key(extracted_row)
+        if not ext_key[0]:
+            return
+
+        async with self._get_incremental_merge_lock(session_id):
+            extracted_by_key = {ext_key: extracted_row}
+            await self._merge_extracted_index_into_data_files(
+                session_id,
+                columns,
+                extracted_by_key,
+                renamed_from=renamed_from,
+                create_backup=False,
+                update_session_stats=False,
+                initial_matched_keys=operation.incrementally_merged_keys,
+            )
+            operation.incrementally_merged_keys.add(ext_key)
+
     async def _merge_reextracted_data(
         self,
         session_id: str,
         columns: List[str],
-        extraction_file: Path
+        extraction_file: Path,
+        renamed_from: Optional[Dict[str, str]] = None,
+        initial_matched_keys: Optional[Set[tuple]] = None,
     ):
         """Merge re-extracted values with existing data across ALL data files."""
         if not extraction_file.exists():
             return
 
-        # Find ALL data files (same pattern as unit_view_service._get_all_data_files)
-        schematiq_extracted_file = Path("./schematiq_work") / session_id / "extracted_data.jsonl"
-        schematiq_data_file = Path("./schematiq_work") / session_id / "data.jsonl"
-        load_data_file = Path("./data") / session_id / "data.jsonl"
-
-        data_files = []
-        if schematiq_extracted_file.exists():
-            data_files.append(schematiq_extracted_file)
-        if not data_files and schematiq_data_file.exists():
-            data_files.append(schematiq_data_file)
-        if load_data_file.exists() and load_data_file.resolve() not in [f.resolve() for f in data_files]:
-            data_files.append(load_data_file)
-
-        # Read extracted values indexed by composite key (row_name, source_document)
-        # to avoid collisions when the same observation unit appears in multiple docs
-        from app.services.data_utils import row_dedup_key, _resolve_source_document
+        from app.services.data_utils import row_dedup_key
 
         extracted_by_key: Dict[tuple, Dict[str, Any]] = {}
-        extracted_by_row_name: Dict[str, List[Dict[str, Any]]] = {}
         with open(extraction_file, 'r') as f:
             for line in f:
                 if not line.strip():
@@ -1294,46 +1581,144 @@ class ReextractionService(WebSocketBroadcasterMixin):
                 key = row_dedup_key(row_data)
                 if key[0]:
                     extracted_by_key[key] = row_data
-                    extracted_by_row_name.setdefault(key[0], []).append(row_data)
 
         logger.debug(f"Extracted composite keys from extraction file: {list(extracted_by_key.keys())}")
 
-        if not data_files:
-            schematiq_extracted_file.parent.mkdir(parents=True, exist_ok=True)
-            new_rows = [
-                self._storage_row_from_extraction(ext_row_data)
-                for ext_row_data in extracted_by_key.values()
-            ]
-            with open(schematiq_extracted_file, "w") as f:
-                for row in new_rows:
-                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
-            logger.info(
-                "Created %s with %d rows (first extraction after schema-only)",
-                schematiq_extracted_file,
-                len(new_rows),
-            )
-            self._update_session_stats_after_merge(session_id, columns, new_rows)
+        matched_keys: set = set(initial_matched_keys or ())
+        await self._merge_extracted_index_into_data_files(
+            session_id,
+            columns,
+            extracted_by_key,
+            renamed_from=renamed_from,
+            create_backup=True,
+            update_session_stats=True,
+            initial_matched_keys=matched_keys,
+        )
+
+    async def _merge_extracted_index_into_data_files(
+        self,
+        session_id: str,
+        columns: List[str],
+        extracted_by_key: Dict[tuple, Dict[str, Any]],
+        renamed_from: Optional[Dict[str, str]] = None,
+        *,
+        create_backup: bool = True,
+        update_session_stats: bool = True,
+        initial_matched_keys: Optional[set] = None,
+    ) -> None:
+        """Apply extracted rows to on-disk session data files."""
+        if not extracted_by_key:
             return
 
-        # Build a fallback mapping from paper name stem to extracted data list
+        from app.services.data_utils import (
+            get_extraction_column_value,
+            get_schematiq_work_dir,
+            persist_session_data_file,
+            remove_column_keys_in_row,
+            resolve_session_data_files,
+            row_dedup_key,
+            session_has_stored_data,
+            _resolve_source_document,
+        )
+
+        work_dir = get_schematiq_work_dir()
+        data_files = await resolve_session_data_files(session_id, work_dir=work_dir)
+
+        extracted_by_row_name: Dict[str, List[Dict[str, Any]]] = {}
+        for key, row_data in extracted_by_key.items():
+            extracted_by_row_name.setdefault(key[0], []).append(row_data)
+
+        if not data_files:
+            if await session_has_stored_data(session_id, work_dir=work_dir):
+                raise RuntimeError(
+                    f"Cannot merge re-extracted data for session {session_id}: "
+                    "existing table data is in storage but could not be loaded locally. "
+                    "Refusing to overwrite."
+                )
+
+            schematiq_extracted_file = work_dir / session_id / "extracted_data.jsonl"
+            schematiq_extracted_file.parent.mkdir(parents=True, exist_ok=True)
+
+            existing_rows: List[Dict[str, Any]] = []
+            if schematiq_extracted_file.exists():
+                existing_rows = []
+                with open(schematiq_extracted_file, "r") as f:
+                    for line in f:
+                        if line.strip():
+                            existing_rows.append(json.loads(line))
+
+            matched_extracted_keys: set = set(initial_matched_keys or ())
+            updated_rows = list(existing_rows)
+            rows_updated = 0
+            new_rows_added = 0
+
+            for row in updated_rows:
+                row_name = row.get('row_name') or row.get('_row_name')
+                row_src = _resolve_source_document(row)
+                papers = row.get('papers') or row.get('_papers') or []
+                extracted = self._match_extracted_row(
+                    row_name,
+                    row_src,
+                    papers,
+                    extracted_by_key,
+                    extracted_by_row_name,
+                    {},
+                    matched_extracted_keys,
+                )
+                if extracted:
+                    rows_updated += 1
+                    matched_extracted_keys.add(row_dedup_key(extracted))
+                    for col_name in columns:
+                        old_name = (renamed_from or {}).get(col_name)
+                        if old_name:
+                            remove_column_keys_in_row(row, old_name)
+                        extracted_value = get_extraction_column_value(extracted, col_name)
+                        if extracted_value is not None:
+                            if 'data' in row:
+                                row['data'][col_name] = extracted_value
+                            else:
+                                row[col_name] = extracted_value
+
+            for ext_key, ext_row_data in extracted_by_key.items():
+                if ext_key in matched_extracted_keys:
+                    continue
+                updated_rows.append(
+                    self._storage_row_from_extraction(ext_row_data, columns=columns)
+                )
+                new_rows_added += 1
+                matched_extracted_keys.add(ext_key)
+
+            with open(schematiq_extracted_file, "w") as f:
+                for row in updated_rows:
+                    f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            logger.info(
+                "Wrote %s with %d rows (%d updated, %d new)",
+                schematiq_extracted_file,
+                len(updated_rows),
+                rows_updated,
+                new_rows_added,
+            )
+            await persist_session_data_file(session_id, schematiq_extracted_file)
+            if update_session_stats:
+                self._update_session_stats_after_merge(session_id, columns, updated_rows)
+            return
+
         extracted_by_paper_stem: Dict[str, List[Dict[str, Any]]] = {}
         for key, row_data in extracted_by_key.items():
             extracted_by_paper_stem.setdefault(key[0].lower(), []).append(row_data)
 
-        # Process each data file
         import shutil
         total_rows_updated = 0
         total_new_rows = 0
         all_updated_rows = []
-        matched_extracted_keys: set = set()
+        matched_extracted_keys: set = set(initial_matched_keys or ())
         primary_data_file = data_files[0]
 
         for data_file in data_files:
-            # Backup existing data
-            backup_file = data_file.parent / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
-            shutil.copy2(data_file, backup_file)
+            if create_backup:
+                backup_file = data_file.parent / f"data_backup_{int(datetime.now().timestamp())}.jsonl"
+                shutil.copy2(data_file, backup_file)
 
-            # Read and update existing rows
             updated_rows = []
             rows_updated = 0
             with open(data_file, 'r') as f:
@@ -1344,84 +1729,107 @@ class ReextractionService(WebSocketBroadcasterMixin):
                     row = json.loads(line)
                     row_name = row.get('row_name') or row.get('_row_name')
                     row_src = _resolve_source_document(row)
-                    papers = row.get('papers') or []
+                    papers = row.get('papers') or row.get('_papers') or []
 
-                    # Try composite key match first (row_name + source_document)
-                    extracted = None
-                    row_key = (row_name, row_src) if row_name else None
-                    if row_key and row_key in extracted_by_key:
-                        extracted = extracted_by_key[row_key]
-                    elif row_name and row_name in extracted_by_row_name:
-                        # Fallback: match by row_name alone only if there's exactly one candidate
-                        candidates = extracted_by_row_name[row_name]
-                        if len(candidates) == 1:
-                            extracted = candidates[0]
-                        else:
-                            # Multiple candidates — try to match by paper
-                            for paper in papers:
-                                paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                                for cand in candidates:
-                                    cand_src = _resolve_source_document(cand).lower()
-                                    if cand_src == paper_stem:
-                                        extracted = cand
-                                        break
-                                if extracted:
-                                    break
-                    if not extracted:
-                        # Last resort fallback: try to match by paper name stem
-                        for paper in papers:
-                            paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
-                            if paper_stem in extracted_by_paper_stem:
-                                candidates = extracted_by_paper_stem[paper_stem]
-                                if len(candidates) == 1:
-                                    extracted = candidates[0]
-                                break
+                    extracted = self._match_extracted_row(
+                        row_name,
+                        row_src,
+                        papers,
+                        extracted_by_key,
+                        extracted_by_row_name,
+                        extracted_by_paper_stem,
+                        matched_extracted_keys,
+                    )
 
                     if extracted:
                         rows_updated += 1
                         matched_extracted_keys.add(row_dedup_key(extracted))
-                        
+
                         for col_name in columns:
-                            if col_name in extracted:
+                            old_name = (renamed_from or {}).get(col_name)
+                            if old_name:
+                                remove_column_keys_in_row(row, old_name)
+                            extracted_value = get_extraction_column_value(
+                                extracted, col_name
+                            )
+                            if extracted_value is not None:
                                 if 'data' in row:
-                                    row['data'][col_name] = extracted[col_name]
+                                    row['data'][col_name] = extracted_value
                                 else:
-                                    row[col_name] = extracted[col_name]
+                                    row[col_name] = extracted_value
+                                logger.info(
+                                    "Merged column %r into row %r from %s",
+                                    col_name,
+                                    row_name,
+                                    data_file.name,
+                                )
                     else:
-                        logger.debug(f"No extracted match for row '{row_name}' (src={row_src}) in {data_file.name} (papers: {papers[:3]})")
+                        logger.debug(
+                            "No extracted match for row %r (src=%s) in %s (papers: %s)",
+                            row_name,
+                            row_src,
+                            data_file.name,
+                            papers[:3],
+                        )
 
                     updated_rows.append(row)
 
-            # Append new rows (only to the primary data file to avoid duplicates)
             new_rows_added = 0
             if data_file.resolve() == primary_data_file.resolve():
                 for ext_key, ext_row_data in extracted_by_key.items():
                     if ext_key in matched_extracted_keys:
                         continue
 
-                    new_row = self._storage_row_from_extraction(ext_row_data)
+                    new_row = self._storage_row_from_extraction(
+                        ext_row_data, columns=columns
+                    )
                     updated_rows.append(new_row)
                     new_rows_added += 1
+                    matched_extracted_keys.add(ext_key)
 
                 if new_rows_added > 0:
                     logger.info(f"Appended {new_rows_added} new rows to {data_file.name}")
 
-            # Write updated data
             with open(data_file, 'w') as f:
                 for row in updated_rows:
                     f.write(json.dumps(row) + '\n')
 
+            await persist_session_data_file(session_id, data_file)
+
             total_rows_updated += rows_updated
             total_new_rows += new_rows_added
             all_updated_rows.extend(updated_rows)
-            logger.debug(f"Merged re-extracted data in {data_file}: {rows_updated} rows updated, {new_rows_added} new rows added")
+            logger.debug(
+                "Merged re-extracted data in %s: %d rows updated, %d new rows added",
+                data_file,
+                rows_updated,
+                new_rows_added,
+            )
 
-        logger.debug(f"Merged re-extracted data for {len(columns)} columns across {len(data_files)} files, {total_rows_updated} rows updated, {total_new_rows} new rows added")
+        logger.debug(
+            "Merged re-extracted data for %d columns across %d files, "
+            "%d rows updated, %d new rows added",
+            len(columns),
+            len(data_files),
+            total_rows_updated,
+            total_new_rows,
+        )
 
-        self._update_session_stats_after_merge(session_id, columns, all_updated_rows)
+        if update_session_stats:
+            self._update_session_stats_after_merge(session_id, columns, all_updated_rows)
 
-    def _storage_row_from_extraction(self, ext_row_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _storage_row_from_extraction(
+        self,
+        ext_row_data: Dict[str, Any],
+        columns: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """Normalize build_table_jsonl output for extracted_data.jsonl (flat runtime format)."""
+        from schematiq.value_extraction.utils.schema_builder import (
+            align_extraction_keys_to_schema,
+        )
+
+        if columns:
+            ext_row_data = align_extraction_keys_to_schema(ext_row_data, columns)
         if ext_row_data.get("_row_name"):
             return ext_row_data
         row_name = ext_row_data.get("row_name")
@@ -1569,7 +1977,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
             logger.debug(f"Could not load LLM config from schematiq_config.json: {e}")
 
         # Fallback: Use default GeminiLLM (will use GEMINI_API_KEY env var)
-        logger.debug(f"Using default GeminiLLM - this will use GEMINI_API_KEY env var")
+        logger.debug("Using default GeminiLLM - this will use GEMINI_API_KEY env var")
         return GeminiLLM(model=ModelNames.DEFAULT_VALUE_EXTRACTION, temperature=0)
 
     async def broadcast_event(self, session_id: str, event_type: str, data: Dict[str, Any]):
@@ -1605,7 +2013,8 @@ class ReextractionService(WebSocketBroadcasterMixin):
     async def precheck_document_availability(
         self,
         session_id: str,
-        operation_type: str = "reextraction"
+        operation_type: str = "reextraction",
+        paper_discovery: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Pre-check document availability before extraction starts.
@@ -1624,8 +2033,9 @@ class ReextractionService(WebSocketBroadcasterMixin):
             - total_rows: Total number of rows in the table
             - rows_with_missing_docs: Number of rows that reference missing documents
         """
-        # Use the existing discover_papers method which already categorizes documents
-        discovery = await self.discover_papers(session_id)
+        if paper_discovery is None:
+            paper_discovery = await self.discover_papers(session_id)
+        discovery = paper_discovery
 
         # Build paper_to_rows mapping (already returned by discover_papers)
         paper_to_rows = discovery.get("paper_to_rows", {})

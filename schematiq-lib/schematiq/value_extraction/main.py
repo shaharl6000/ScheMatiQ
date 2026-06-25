@@ -8,7 +8,11 @@ from typing import Callable, Any, Optional, Dict, List
 
 from schematiq.core import utils
 from .core.table_builder import TableBuilder
-from .core.paper_processor import OnValueExtractedCallback, OnWarningCallback
+from .core.paper_processor import (
+    OnValueExtractedCallback,
+    OnUnitRowWrittenCallback,
+    OnWarningCallback,
+)
 from .config.constants import DEFAULT_MAX_NEW_TOKENS, DEFAULT_MAX_WORKERS
 
 
@@ -29,6 +33,7 @@ def build_table_jsonl(
     retrieval_k: int = 8,
     max_workers: int = DEFAULT_MAX_WORKERS,
     on_value_extracted: Optional[OnValueExtractedCallback] = None,
+    on_unit_row_written: Optional[OnUnitRowWrittenCallback] = None,
     should_stop: Optional[ShouldStopCallback] = None,
     on_warning: Optional[OnWarningCallback] = None,
     known_units: Optional[Dict[str, List[str]]] = None,
@@ -69,6 +74,7 @@ def build_table_jsonl(
     table_builder = TableBuilder(
         llm, retriever,
         on_value_extracted=on_value_extracted,
+        on_unit_row_written=on_unit_row_written,
         should_stop=should_stop,
         on_warning=on_warning,
         on_document_started=on_document_started,

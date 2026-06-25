@@ -163,7 +163,6 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
   const [editExamples, setEditExamples] = useState<string[]>([]);
   const [newExample, setNewExample] = useState('');
   const [isResuming, setIsResuming] = useState(false);
-  const [obsUnitEdited, setObsUnitEdited] = useState(false);
   // How the user entered observation-unit review (initial pause vs mid-run vs post-run edit)
   const [reviewEntryMode, setReviewEntryMode] = useState<ReviewEntryMode | null>(null);
   const [processingStateBeforeEdit, setProcessingStateBeforeEdit] = useState<ProcessingState | null>(null);
@@ -223,7 +222,6 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
             setEditName(obsData.name);
             setEditDefinition(obsData.definition);
             setEditExamples(obsData.example_names || []);
-            setObsUnitEdited(false);
             setEditBaseline(obsData);
             setReviewEntryMode('initial');
             setProcessingStateBeforeEdit(null);
@@ -466,7 +464,6 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
           setEditName(obsData.name);
           setEditDefinition(obsData.definition);
           setEditExamples(obsData.example_names || []);
-          setObsUnitEdited(false);
           setEditBaseline(obsData);
           setReviewEntryMode('initial');
           setProcessingStateBeforeEdit(null);
@@ -898,12 +895,10 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
     if (editExamples.length >= 20) return;
     setEditExamples(prev => [...prev, trimmed]);
     setNewExample('');
-    setObsUnitEdited(true);
   }, [newExample, editExamples]);
 
   const handleRemoveExample = useCallback((index: number) => {
     setEditExamples(prev => prev.filter((_, i) => i !== index));
-    setObsUnitEdited(true);
   }, []);
 
   const examplesEqual = (a: string[], b: string[]) =>
@@ -926,7 +921,6 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       setEditDefinition(baseline.definition);
       setEditExamples(baseline.example_names || []);
     }
-    setObsUnitEdited(false);
     setReviewEntryMode(null);
     setEditBaseline(null);
     setProcessingStateBeforeEdit(null);
@@ -948,7 +942,6 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         setEditDefinition(baseline.definition);
         setEditExamples(baseline.example_names || []);
       }
-      setObsUnitEdited(false);
       setReviewEntryMode(null);
       setEditBaseline(null);
       setProcessingState(processingStateBeforeEdit || 'completed');
@@ -963,7 +956,6 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
       setEditDefinition(baseline.definition);
       setEditExamples(baseline.example_names || []);
     }
-    setObsUnitEdited(false);
   };
 
   const handleResume = async (skipEdit = false) => {
@@ -1295,7 +1287,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                   <Input
                     id="obs-name"
                     value={editName}
-                    onChange={(e) => { setEditName(e.target.value); setObsUnitEdited(true); setReviewSaveError(''); }}
+                    onChange={(e) => { setEditName(e.target.value); setReviewSaveError(''); }}
                     placeholder="e.g., Model, Protein, Study"
                   />
                 </div>
@@ -1306,7 +1298,7 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                   <Textarea
                     id="obs-definition"
                     value={editDefinition}
-                    onChange={(e) => { setEditDefinition(e.target.value); setObsUnitEdited(true); setReviewSaveError(''); }}
+                    onChange={(e) => { setEditDefinition(e.target.value); setReviewSaveError(''); }}
                     placeholder="Describe what constitutes a single row..."
                     rows={3}
                     className="resize-none"
@@ -1431,7 +1423,6 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
                     setEditName(obsData.name);
                     setEditDefinition(obsData.definition);
                     setEditExamples(obsData.example_names || []);
-                    setObsUnitEdited(false);
                     setEditBaseline(obsData);
                   }
                 } catch (e) {

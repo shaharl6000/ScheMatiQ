@@ -52,7 +52,7 @@ class GoogleDriveUploader:
             if credentials is None:
                 return
 
-            self._service = build("drive", "v3", credentials=credentials)
+            self._service = build("drive", "v3", credentials=credentials, cache_discovery=False)
             self._enabled = True
             logger.info("[data-collection] Google Drive uploader initialized")
         except ImportError:

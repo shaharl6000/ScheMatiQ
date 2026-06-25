@@ -253,9 +253,9 @@ class DataCollectionService:
         config_json: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """Build project.schematiq.json — matches /schematiq/export-complete JSON format."""
-        from app.services import find_session_data_file
+        from app.services import find_session_data_file_sync
 
-        data_path = find_session_data_file(session_id)
+        data_path = find_session_data_file_sync(session_id)
         if not data_path or not data_path.exists():
             return None
 
@@ -298,6 +298,9 @@ class DataCollectionService:
         schema_columns = [
             {
                 "name": col.name,
+                # Additive metadata: the user's original typed label, kept separate
+                # from the canonical `name` key so it round-trips on reload.
+                "display_name": col.display_name,
                 "definition": col.definition or "",
                 "rationale": col.rationale or "",
                 "data_type": col.data_type,
@@ -378,9 +381,9 @@ class DataCollectionService:
 
     def _read_data_file(self, session_id: str) -> Optional[str]:
         """Read the primary data file (extracted_data.jsonl or data.jsonl)."""
-        from app.services import find_session_data_file
+        from app.services import find_session_data_file_sync
 
-        data_path = find_session_data_file(session_id)
+        data_path = find_session_data_file_sync(session_id)
         if data_path and data_path.exists():
             try:
                 return data_path.read_text(encoding="utf-8")
@@ -394,9 +397,9 @@ class DataCollectionService:
         Returns a set of filename stems (no extensions), or None if the JSONL
         doesn't exist (meaning we should fall back to archiving all documents).
         """
-        from app.services import find_session_data_file
+        from app.services import find_session_data_file_sync
 
-        data_path = find_session_data_file(session_id)
+        data_path = find_session_data_file_sync(session_id)
         if not data_path or not data_path.exists():
             return None
 
@@ -471,9 +474,9 @@ class DataCollectionService:
 
     def _build_export_csv(self, session, session_id: str, config: Optional[Dict[str, Any]]) -> Optional[str]:
         """Build a CSV export matching the /export endpoint format."""
-        from app.services import find_session_data_file
+        from app.services import find_session_data_file_sync
 
-        data_path = find_session_data_file(session_id)
+        data_path = find_session_data_file_sync(session_id)
         if not data_path or not data_path.exists():
             return None
 

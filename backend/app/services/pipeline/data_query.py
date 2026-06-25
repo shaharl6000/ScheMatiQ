@@ -249,21 +249,13 @@ async def get_data(
     document_filter: Optional[List[str]] = None
 ) -> PaginatedData:
     """Get extracted data from all possible locations with optional filtering and sorting."""
-    data_files = []
+    from app.services.data_utils import get_data_dir, resolve_session_data_files
 
-    extracted_file = work_dir / session_id / "extracted_data.jsonl"
-    if extracted_file.exists():
-        data_files.append(extracted_file)
-
-    if not data_files:
-        schematiq_data_file = work_dir / session_id / "data.jsonl"
-        if schematiq_data_file.exists():
-            data_files.append(schematiq_data_file)
-
-    data_dir_file = Path("./data") / session_id / "data.jsonl"
-    if data_dir_file.exists():
-        if data_dir_file not in data_files:
-            data_files.append(data_dir_file)
+    data_files = await resolve_session_data_files(
+        session_id,
+        work_dir=work_dir,
+        data_dir=get_data_dir(),
+    )
 
     if not data_files:
         return PaginatedData(rows=[], total_count=0, filtered_count=None, page=page, page_size=page_size, has_more=False)

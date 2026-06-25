@@ -18,10 +18,10 @@ logger = logging.getLogger(__name__)
 
 from app.models.upload import (
     FileValidationResult, ColumnMappingRequest, SchemaValidationResult,
-    ScheMatiQSchemaFormat, SchemaColumn, CompatibilityCheck, DualFileUploadResult
+    ScheMatiQSchemaFormat, SchemaColumn, CompatibilityCheck
 )
 from app.models.session import ColumnInfo, DataStatistics, DataRow, PaginatedData, SchemaEvolution, SchemaSnapshot
-from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE
+from app.core.config import DEFAULT_DATA_DIR, DEFAULT_PAGE_SIZE
 from app.services import row_filtering
 
 _COLUMN_DISPLAY_NAMES = {
@@ -376,6 +376,31 @@ class FileParser:
         # Apply column mapping if provided
         if mapping:
             df = df.rename(columns=mapping.column_mappings)
+
+        # Sanitize raw user headers (spaces / punctuation) into canonical keys so
+        # they match the keys used everywhere else, keeping the original text as a
+        # display label. Skip ScheMatiQ exports (comment metadata) whose column
+        # names already originate from a prior session.
+        csv_display_names: Dict[str, str] = {}
+        if not metadata_info['has_comments']:
+            from app.services.data_utils import canonicalize_column_name
+            rename_map: Dict[str, str] = {}
+            taken = {str(c) for c in df.columns}
+            for col in df.columns:
+                col_str = str(col)
+                if col_str.lower() in self.METADATA_COLUMNS or col_str.startswith('_'):
+                    continue
+                canonical, display = canonicalize_column_name(col_str)
+                # Skip if unchanged or if it would collide with another column.
+                if not canonical or canonical == col_str or canonical in taken:
+                    continue
+                rename_map[col] = canonical
+                taken.discard(col_str)
+                taken.add(canonical)
+                if display is not None:
+                    csv_display_names[canonical] = display
+            if rename_map:
+                df = df.rename(columns=rename_map)
         
         # Extract columns info, using metadata if available
         columns = []
@@ -405,6 +430,7 @@ class FileParser:
 
             col_info = ColumnInfo(
                 name=col,
+                display_name=csv_display_names.get(col),
                 data_type=str(df[col].dtype),
                 non_null_count=non_null_count,
                 unique_count=unique_count,
@@ -611,6 +637,7 @@ class FileParser:
                         for col_def in data["schema"]["columns"]:
                             if isinstance(col_def, dict) and "name" in col_def:
                                 schema_metadata_from_export[col_def["name"]] = {
+                                    "display_name": col_def.get("display_name"),
                                     "definition": col_def.get("definition", ""),
                                     "rationale": col_def.get("rationale", ""),
                                     "allowed_values": col_def.get("allowed_values"),
@@ -653,6 +680,12 @@ class FileParser:
 
         columns = []
 
+        # Populated only for genuine raw JSON imports (not ScheMatiQ exports):
+        # maps an original spaced/punctuated key -> sanitized canonical key, plus
+        # the original text as a display label. Applied when writing rows below.
+        json_rename_map: Dict[str, str] = {}
+        json_display_names: Dict[str, str] = {}
+
         # When we have schema definitions from a complete export, use those as the
         # definitive column list (individual rows may be sparse / missing columns)
         if schema_metadata_from_export:
@@ -673,6 +706,7 @@ class FileParser:
 
                 col_info = ColumnInfo(
                     name=key,
+                    display_name=meta.get("display_name"),
                     data_type=meta.get("data_type") or "object",
                     non_null_count=non_null,
                     unique_count=len(values_set),
@@ -729,16 +763,32 @@ class FileParser:
                 )
                 columns.append(col_info)
         else:
-            # Regular JSON format
+            # Regular JSON format — a genuine raw user import. Sanitize spaced /
+            # punctuated keys into canonical keys (kept aligned with the row data
+            # written below) and preserve the original text as a display label.
+            from app.services.data_utils import canonicalize_column_name
+            taken = {str(k) for k in sample_row.keys()}
             for key in sample_row.keys():
                 # Skip metadata columns - these are not schema columns for LLM extraction
                 if key.startswith('_') or key.lower() in self.METADATA_COLUMNS:
                     continue
 
+                canonical, display = canonicalize_column_name(str(key))
+                if canonical and canonical != str(key) and canonical not in taken:
+                    json_rename_map[key] = canonical
+                    taken.discard(str(key))
+                    taken.add(canonical)
+                    if display is not None:
+                        json_display_names[canonical] = display
+                    name = canonical
+                else:
+                    name = key
+
                 # Get metadata from schema if available
                 meta = schema_metadata.get(key, {})
                 col_info = ColumnInfo(
-                    name=key,
+                    name=name,
+                    display_name=json_display_names.get(name),
                     data_type=type(sample_row[key]).__name__,
                     non_null_count=sum(1 for row in data_rows if key in row and row[key] is not None),
                     unique_count=len(set(
@@ -801,6 +851,11 @@ class FileParser:
                     papers_col_names = ['Papers', 'papers', 'Paper', 'paper', 'Documents', 'documents']
                     papers_value = []
                     clean_data = dict(row_data)  # Copy to avoid modifying original
+                    # Align data keys with the sanitized canonical column names.
+                    if json_rename_map:
+                        clean_data = {
+                            json_rename_map.get(k, k): v for k, v in clean_data.items()
+                        }
                     for col_name in papers_col_names:
                         if col_name in clean_data:
                             raw_val = clean_data.pop(col_name)
@@ -1021,7 +1076,14 @@ class FileParser:
         data_file = session_dir / "data.jsonl"
 
         if not data_file.exists():
-            raise FileNotFoundError("No processed data found")
+            return PaginatedData(
+                rows=[],
+                total_count=0,
+                filtered_count=None,
+                page=page,
+                page_size=page_size,
+                has_more=False,
+            )
 
         # Check if we need to filter/sort (requires loading all rows)
         needs_processing = bool(filters or sort or search or document_filter)
@@ -1077,21 +1139,26 @@ class FileParser:
         else:
             # Original efficient pagination (no filtering/sorting)
             with open(data_file) as f:
-                total_count = sum(1 for _ in f)
+                total_count = sum(1 for line in f if line.strip())
 
             rows = []
             start_line = page * page_size
             end_line = start_line + page_size
 
             with open(data_file) as f:
-                for i, line in enumerate(f):
-                    if i >= start_line and i < end_line:
+                idx = 0
+                for line in f:
+                    if not line.strip():
+                        continue
+                    if idx >= start_line and idx < end_line:
                         row_data = json.loads(line)
+                        row_data['_row_index'] = idx
                         if 'data' in row_data:
                             row_data['data'] = self._sanitize_data_dict(row_data['data'])
                         rows.append(DataRow(**row_data))
-                    elif i >= end_line:
+                    elif idx >= end_line:
                         break
+                    idx += 1
 
             return PaginatedData(
                 rows=rows,
@@ -1103,12 +1170,21 @@ class FileParser:
             )
 
     def _load_all_rows(self, data_file: Path) -> List[Dict]:
-        """Load all rows from JSONL file."""
+        """Load all rows from JSONL file.
+
+        Each row is stamped with its absolute non-blank line position as
+        ``_row_index`` so it survives filtering/sorting and can serve as a
+        stable identity for cell edits when ``row_name`` is absent.
+        """
         rows = []
+        idx = 0
         with open(data_file) as f:
             for line in f:
                 if line.strip():
-                    rows.append(json.loads(line))
+                    row = json.loads(line)
+                    row['_row_index'] = idx
+                    rows.append(row)
+                    idx += 1
         return rows
 
     def _apply_search(self, rows: List[Dict], search: str) -> List[Dict]:
@@ -1199,6 +1275,7 @@ class FileParser:
                 try:
                     col = SchemaColumn(
                         name=col_def['name'],
+                        display_name=col_def.get('display_name'),
                         definition=col_def.get('definition'),
                         rationale=col_def.get('rationale')
                     )
@@ -1357,11 +1434,24 @@ class FileParser:
             content = await file.read()
             await f.write(content)
         
-        # Save parsed schema for easy access
+        # Save parsed schema for easy access. Sanitize user-authored column names
+        # into canonical keys (kept consistent with the sanitized data keys
+        # produced when parsing the data file) and preserve the original text as a
+        # display label.
         if validation.columns:
+            from app.services.data_utils import canonicalize_column_name
+            sanitized_schema = []
+            for col in validation.columns:
+                col_dict = col.model_dump()
+                canonical, display = canonicalize_column_name(col_dict.get("name", ""))
+                if canonical:
+                    col_dict["name"] = canonical
+                    if display is not None:
+                        col_dict["display_name"] = display
+                sanitized_schema.append(col_dict)
             parsed_schema = {
                 "query": validation.query,
-                "schema": [col.model_dump() for col in validation.columns]
+                "schema": sanitized_schema
             }
             
             # Include LLM configuration if available

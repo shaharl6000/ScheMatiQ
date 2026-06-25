@@ -31,7 +31,9 @@ import {
   ConfirmColumnsResponse,
   DocumentAvailabilityRequest,
   DocumentAvailabilityResponse,
-  CostEstimate
+  CostEstimate,
+  ChatToolInfo,
+  ChatMessageResponse,
 } from '../types';
 import {
   UnitListResponse,
@@ -360,10 +362,12 @@ export const schematiqAPI = {
     rowName: string,
     column: string,
     value: string,
-    sourceDocument?: string
+    sourceDocument?: string,
+    rowIndex?: number
   ): Promise<{ status: string; session_id: string; row_name: string; column: string; value: string; previous_value?: any }> => {
-    const params: Record<string, string> = { row_name: rowName, column, value };
+    const params: Record<string, string | number> = { row_name: rowName, column, value };
     if (sourceDocument) params.source_document = sourceDocument;
+    if (!rowName && rowIndex != null) params.row_index = rowIndex;
     const response = await api.put(`/schematiq/cell/${sessionId}`, null, { params });
     return response.data;
   },
@@ -975,6 +979,49 @@ export const unitsAPI = {
  * @param path - API path (relative to API_BASE)
  * @param fallbackFilename - Default filename if Content-Disposition header is missing
  */
+export const chatAPI = {
+  getTools: async (
+    sessionId?: string,
+    sessionMode: 'schematiq' | 'load' = 'schematiq',
+  ): Promise<ChatToolInfo[]> => {
+    const params = new URLSearchParams({ session_mode: sessionMode });
+    if (sessionId) {
+      params.set('session_id', sessionId);
+    }
+    const response = await api.get(`/chat/tools?${params.toString()}`);
+    return response.data.tools;
+  },
+
+  sendMessage: async (
+    sessionId: string,
+    payload: {
+      message: string;
+      chat_id?: string;
+      session_mode: 'schematiq' | 'load';
+      pinned_tool?: string;
+    },
+  ): Promise<ChatMessageResponse> => {
+    const response = await api.post(`/chat/${sessionId}/message`, payload);
+    return response.data;
+  },
+
+  confirmAction: async (
+    sessionId: string,
+    chatId: string,
+  ): Promise<ChatMessageResponse> => {
+    const response = await api.post(`/chat/${sessionId}/confirm`, { chat_id: chatId });
+    return response.data;
+  },
+
+  cancelAction: async (
+    sessionId: string,
+    chatId: string,
+  ): Promise<ChatMessageResponse> => {
+    const response = await api.post(`/chat/${sessionId}/cancel`, { chat_id: chatId });
+    return response.data;
+  },
+};
+
 export async function downloadBlob(path: string, fallbackFilename: string): Promise<void> {
   const response = await api.get(path, { responseType: 'blob' });
 

@@ -1,9 +1,10 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Mail } from 'lucide-react';
 
 import Load from './pages/Load';
 import ScheMatiQConfig from './pages/ScheMatiQConfig';
 import Visualize from './pages/Visualize';
+import Workspace from './pages/Workspace';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { ViewModeProvider } from './contexts/ViewModeContext';
@@ -33,25 +34,30 @@ function AppHeader() {
 }
 
 function App() {
+  const location = useLocation();
+  const isWorkspace = location.pathname.startsWith('/workspace');
+
   return (
     <TooltipProvider>
     <NavigationGuardProvider>
     <ViewModeProvider>
-      <div className="min-h-screen flex flex-col bg-background">
-        <AppHeader />
+      <div className={isWorkspace ? 'h-screen overflow-hidden flex flex-col bg-background' : 'min-h-screen flex flex-col bg-background'}>
+        {!isWorkspace && <AppHeader />}
 
         {/* Main Content */}
-        <main className="container py-6 flex-1">
+        <main className={isWorkspace ? 'flex-1 min-h-0 overflow-hidden' : 'container py-6 flex-1'}>
           <Routes>
             <Route path="/" element={<ScheMatiQConfig />} />
             <Route path="/load" element={<Load />} />
             <Route path="/schematiq" element={<Navigate to="/" replace />} />
             <Route path="/visualize/:sessionId" element={<Visualize />} />
+            <Route path="/workspace" element={<Workspace />} />
+            <Route path="/workspace/:sessionId" element={<Workspace />} />
           </Routes>
         </main>
 
         {/* Footer */}
-        <footer className="border-t mt-auto bg-muted/40">
+        {!isWorkspace && <footer className="border-t mt-auto bg-muted/40">
           <div className="container py-6 flex flex-col sm:flex-row items-center gap-4 sm:gap-6">
             <img
               src="/huji_icon.png"
@@ -78,7 +84,7 @@ function App() {
               </div>
             </div>
           </div>
-        </footer>
+        </footer>}
       </div>
     </ViewModeProvider>
     </NavigationGuardProvider>

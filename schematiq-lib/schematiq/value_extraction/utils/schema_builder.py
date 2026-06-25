@@ -2,7 +2,7 @@
 
 import logging
 import re
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +23,49 @@ _MAX_COLUMNS_FOR_CONTROLLED_GENERATION = 40
 def _sanitize_name(name: str) -> str:
     """Replace characters invalid for Gemini response_schema property names with '_'."""
     return _SANITIZE_RE.sub("_", name)
+
+
+def sanitize_column_name(name: str) -> str:
+    """Public alias for :func:`_sanitize_name` (controlled-generation key normalization)."""
+    return _sanitize_name(name)
+
+
+def align_extraction_keys_to_schema(
+    row: Dict[str, Any],
+    column_names: List[str],
+) -> Dict[str, Any]:
+    """Rename sanitized extraction keys to exact schema column names.
+
+    Gemini controlled generation replaces spaces, hyphens, and other characters
+  with underscores in ``response_schema`` property names.  Parsers should remap
+    via ``key_map`` immediately after parsing; this helper is a safety net when
+    a sanitized key reaches storage unchanged (e.g. re-extraction merge).
+    """
+    if not column_names:
+        return row
+
+    schema_names = set(column_names)
+    sanitized_to_schema = {sanitize_column_name(name): name for name in column_names}
+
+    aligned: Dict[str, Any] = {}
+    for key, value in row.items():
+        if key.startswith("_") or key in (
+            "row_name",
+            "papers",
+            "data",
+            "document_directory",
+        ):
+            aligned[key] = value
+            continue
+        if key in schema_names:
+            aligned[key] = value
+        elif key in sanitized_to_schema:
+            schema_key = sanitized_to_schema[key]
+            if schema_key not in aligned:
+                aligned[schema_key] = value
+        else:
+            aligned[key] = value
+    return aligned
 
 
 def build_extraction_response_schema(

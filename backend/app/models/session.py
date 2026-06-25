@@ -65,6 +65,11 @@ class SchemaSuggestion(BaseModel):
 class ColumnInfo(BaseModel):
     """Information about a data column."""
     name: str
+    # Original user-typed label, preserved only when it differs from the
+    # sanitized canonical `name` (e.g. user typed "judge full name" → name is
+    # "judge_full_name", display_name is "judge full name"). UI renders
+    # display_name when present, otherwise it formats `name`.
+    display_name: Optional[str] = None
     definition: str = ""
     rationale: str = ""
     data_type: Optional[str] = None
@@ -195,6 +200,9 @@ class DataRow(BaseModel):
     parent_document: Optional[str] = Field(default=None, alias="_parent_document")
     # Per-cell enrichment provenance (optional, for enriched datasets)
     cell_status: Optional[Dict[str, str]] = Field(default=None, alias="_cell_status")
+    # Absolute position in the session's data.jsonl (stable row identity for cell edits
+    # when row_name is absent, e.g. generic CSV/JSON imports). Counts non-blank lines.
+    row_index: Optional[int] = Field(default=None, alias="_row_index")
 
 class PaginatedData(BaseModel):
     """Paginated data response."""

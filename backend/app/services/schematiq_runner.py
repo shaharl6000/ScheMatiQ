@@ -951,10 +951,19 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         session.metadata.schema_discovery_completed = True
         logger.debug("Updated session %s status to SCHEMA_READY with %d columns", session_id, len(discovered_schema.columns))
 
+        # User-seeded (locked) columns were sanitized to canonical keys before
+        # discovery; re-attach their original typed text as the display label.
+        seeded_display_names = {
+            entry["name"]: entry["display_name"]
+            for entry in schematiq_config.get("initial_schema", [])
+            if isinstance(entry, dict) and entry.get("display_name")
+        }
+
         schema_columns = []
         for col in discovered_schema.columns:
             col_info = ColumnInfo(
                 name=col.name,
+                display_name=seeded_display_names.get(col.name),
                 definition=col.definition,
                 rationale=col.rationale,
                 data_type="object",

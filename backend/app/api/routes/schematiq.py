@@ -470,10 +470,17 @@ class CellRestoreBody(BaseModel):
     restore: Any = None
 
 @router.put("/cell/{session_id}")
-async def update_cell(session_id: str, row_name: str, column: str, value: str,
+async def update_cell(session_id: str, column: str, value: str,
+                      row_name: str = "",
+                      row_index: Optional[int] = None,
                       source_document: Optional[str] = None,
                       body: Optional[CellRestoreBody] = None):
-    """Update a single cell value in the data table."""
+    """Update a single cell value in the data table.
+
+    Rows are identified by ``row_name`` (preferred). When the row has no name
+    (e.g. generic CSV/JSON imports in load mode), ``row_index`` — the absolute
+    non-blank line position from the paginated data — is used as a fallback.
+    """
     try:
         session = session_manager.get_session(session_id)
         if not session:
@@ -483,6 +490,7 @@ async def update_cell(session_id: str, row_name: str, column: str, value: str,
         result = await data_editor.update_cell(
             session_id, row_name, column, value,
             restore=restore, source_document=source_document,
+            row_index=row_index,
         )
         return result
 
@@ -775,6 +783,11 @@ async def export_complete_schematiq_data(
                 "columns": [
                     {
                         "name": col.name,
+                        # Additive metadata: the user's original typed label. Stays
+                        # separate from the canonical `name` (the data/schema key)
+                        # so it round-trips back on reimport without ever becoming
+                        # a header or data key.
+                        "display_name": col.display_name,
                         "definition": col.definition or "",
                         "rationale": col.rationale or "",
                         "data_type": col.data_type,
@@ -1139,6 +1152,10 @@ async def export_schematiq_schema_only(
                     "source_document": col.source_document,
                     "discovery_iteration": col.discovery_iteration
                 }
+                # Additive metadata: preserve the user's original typed label so it
+                # round-trips on reimport. The canonical `name` stays the schema key.
+                if col.display_name:
+                    col_export["display_name"] = col.display_name
                 if col.allowed_values:
                     col_export["allowed_values"] = col.allowed_values
                 schema_columns.append(col_export)

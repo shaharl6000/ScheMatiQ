@@ -816,9 +816,9 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
     loadSchemaChangeStatus();
   };
 
-  const handleReextractionError = (message: string) => {
+  const handleReextractionError = useCallback((message: string) => {
     toast({ title: 'Re-extraction Error', description: message, variant: 'destructive' });
-  };
+  }, [toast]);
 
   /** Start full table re-extraction (all columns). Used when user clicks "Re-extract Table" from observation unit modal. */
   const handleFullReextractionRequest = useCallback(async () => {
@@ -869,7 +869,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
         handleReextractionError(detail || 'Failed to start re-extraction');
       }
     }
-  }, [localColumns, sessionId, onReextractionStarted, toast]);
+  }, [localColumns, sessionId, onReextractionStarted, toast, handleReextractionError]);
 
   const handleContinueDiscoverySuccess = (message: string, newColumns: ColumnInfo[]) => {
     toast({ title: 'Success', description: message });
@@ -1452,7 +1452,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                     isNew && "text-green-600 dark:text-green-400"
                                   )}
                                 >
-                                  <span className="truncate block">{formatColumnName(column.name)}</span>
+                                  <span className="truncate block">{column.display_name || formatColumnName(column.name)}</span>
                                 </button>
                               );
                             })}
@@ -1585,7 +1585,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                         />
                                       )}
                                       <h4 className="font-medium text-xs truncate flex-1">
-                                        {formatColumnName(column.name)}
+                                        {column.display_name || formatColumnName(column.name)}
                                       </h4>
                                       {isModified && <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Modified" />}
                                       {isNew && <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="New" />}
@@ -1668,7 +1668,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                                         />
                                       )}
                                       <h4 className="font-semibold text-sm">
-                                        {formatColumnName(column.name)}
+                                        {column.display_name || formatColumnName(column.name)}
                                       </h4>
                                       {isModified && (
                                         <Badge variant="outline" className="text-xs bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 border-amber-300">
@@ -1893,7 +1893,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                           />
                         )}
                         <h4 className="font-medium text-xs truncate flex-1">
-                          {formatColumnName(column.name)}
+                          {column.display_name || formatColumnName(column.name)}
                         </h4>
                         {isModified && <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" title="Modified" />}
                         {isNew && <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" title="New" />}
@@ -1948,7 +1948,7 @@ const SchemaViewer: React.FC<SchemaViewerProps> = ({
                         />
                       )}
                       <h4 className="font-semibold text-sm">
-                        {formatColumnName(column.name)}
+                        {column.display_name || formatColumnName(column.name)}
                       </h4>
                       {isModified && (
                         <Tooltip>
