@@ -652,25 +652,18 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
         additional_data_file.unlink(missing_ok=True)
 
         # Move processed documents from pending_documents/ to documents/
+        from app.services.document_preprocessor import commit_document_to_documents_dir
+
         pending_dir = session_dir / "pending_documents"
         docs_dir = session_dir / "documents"
         docs_dir.mkdir(exist_ok=True)
 
         if pending_dir.exists():
-            import shutil
-            for file_path in pending_dir.iterdir():
+            for file_path in sorted(pending_dir.iterdir()):
                 if file_path.is_file():
-                    dest_path = docs_dir / file_path.name
-                    # Handle duplicate filenames
-                    if dest_path.exists():
-                        base_name = file_path.stem
-                        extension = file_path.suffix
-                        counter = 1
-                        while dest_path.exists():
-                            dest_path = docs_dir / f"{base_name}_{counter}{extension}"
-                            counter += 1
-                    shutil.move(str(file_path), str(dest_path))
-                    logger.debug(f"Moved {file_path.name} to documents/")
+                    dest = commit_document_to_documents_dir(file_path, docs_dir)
+                    if dest:
+                        logger.debug(f"Committed {dest.name} to documents/")
 
         return new_rows_added
 

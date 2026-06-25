@@ -1032,24 +1032,22 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             await self._uniprot_enrichment_service.enrich_session(session_id)
 
     def _move_pending_documents(self, session_id: str):
-        """Move processed documents from pending_documents/ to documents/."""
+        """Move processed documents from pending_documents/ to documents/ as plain text."""
+        from app.services.document_preprocessor import commit_document_to_documents_dir
+
         data_session_dir = Path("./data") / session_id
         pending_dir = data_session_dir / "pending_documents"
         completed_docs_dir = data_session_dir / "documents"
         if pending_dir.exists():
             completed_docs_dir.mkdir(parents=True, exist_ok=True)
             moved_count = 0
-            for file_path in pending_dir.iterdir():
+            for file_path in sorted(pending_dir.iterdir()):
                 if file_path.is_file():
-                    dest_path = completed_docs_dir / file_path.name
-                    if dest_path.exists():
-                        base_name = file_path.stem
-                        extension = file_path.suffix
-                        counter = 1
-                        while dest_path.exists():
-                            dest_path = completed_docs_dir / f"{base_name}_{counter}{extension}"
-                            counter += 1
-                    shutil.move(str(file_path), str(dest_path))
-                    moved_count += 1
+                    if commit_document_to_documents_dir(file_path, completed_docs_dir):
+                        moved_count += 1
             if moved_count:
-                logger.info("Moved %d files from pending_documents/ to documents/ for session %s", moved_count, session_id)
+                logger.info(
+                    "Committed %d file(s) from pending_documents/ to documents/ for session %s",
+                    moved_count,
+                    session_id,
+                )

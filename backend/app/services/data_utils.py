@@ -47,13 +47,46 @@ def row_dedup_key(row: dict) -> Tuple[str, str]:
     return (row_name, src)
 
 
+def row_name_of(row: dict) -> Optional[str]:
+    """Return a data row's name, tolerating both 'row_name' and '_row_name'.
+
+    Non-underscore key takes precedence to match existing call sites; rows
+    written by the library carry '_row_name', API-shaped rows carry 'row_name',
+    and in practice only one is present.
+    """
+    return row.get('row_name') or row.get('_row_name')
+
+
+def extract_papers(row: dict) -> List[str]:
+    """Extract source-document references from a data.jsonl row.
+
+    Tolerates every shape the pipeline emits: ``papers`` / ``_papers`` /
+    ``Papers`` (top-level or nested under ``data``), the ScheMatiQ
+    answer-wrapped dict (``{"answer": [...]}``), and a bare string. Empty
+    entries are dropped. Returns an empty list when no references are present.
+    """
+    papers_raw = (
+        row.get('papers') or
+        row.get('_papers') or
+        row.get('Papers') or
+        row.get('data', {}).get('Papers') or
+        row.get('data', {}).get('papers') or
+        []
+    )
+    if isinstance(papers_raw, dict) and 'answer' in papers_raw:
+        papers_raw = papers_raw.get('answer', [])
+    if isinstance(papers_raw, str):
+        return [papers_raw] if papers_raw else []
+    if isinstance(papers_raw, list):
+        return [p for p in papers_raw if p]
+    return []
+
+
 def _resolve_source_document(row: dict) -> str:
     """Extract the source-document identifier from *row* regardless of format."""
     src = row.get('_source_document') or row.get('source_document') or ''
     if not src:
-        papers = row.get('_papers') or row.get('papers') or []
-        if isinstance(papers, str):
-            papers = [papers]
+        papers = extract_papers(row)
         if papers:
             src = Path(papers[0]).stem
     return src

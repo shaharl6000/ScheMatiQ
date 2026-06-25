@@ -31,6 +31,8 @@ from app.storage.factory import get_storage
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG, MAX_DOCUMENTS
 from app.core.logging_utils import set_session_context
 from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
+from app.services.document_preprocessor import read_document_text, MATERIALIZABLE_EXTENSIONS, commit_bytes_to_documents_dir
+from app.services.data_utils import extract_papers, row_name_of
 
 # ScheMatiQ library imports
 from schematiq.core import schematiq as ScheMatiQ
@@ -42,6 +44,145 @@ from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.value_extraction.main import build_table_jsonl
 
 SCHEMATIQ_AVAILABLE = True
+
+# Source-document extensions recognized when document_source == "original".
+# The detector (get_available_documents) and the loader (_prepare_documents)
+# MUST agree on this set, otherwise the detector reports can_use_original=True
+# for files the loader then skips -> "No documents available for schema discovery".
+# Both the original-docs loader and the detector load via read_document_text, so
+# this is exactly the set that helper can materialize (single source of truth).
+ORIGINAL_DOC_EXTENSIONS = MATERIALIZABLE_EXTENSIONS
+
+# schematiq_work/ subdirs hold plain-text document dumps only. Keep this narrow:
+# never widen it to MATERIALIZABLE_EXTENSIONS, or the .json entry would pull
+# llm_call_stats.json / extracted_data.jsonl in as if they were source documents.
+WORK_DIR_TEXT_EXTENSIONS = ('.txt', '.md')
+
+# Source extensions selectable for incremental extraction. Identical to the set
+# read_document_text can produce: _run_incremental_extraction materializes each
+# selected document to .txt (converting .pdf) before the schematiq-lib reader
+# loads documents_filtered/.
+INCREMENTAL_EXTRACTION_DOC_EXTENSIONS = MATERIALIZABLE_EXTENSIONS
+
+
+def _extract_papers(row_data: dict) -> List[str]:
+    """Backward-compatible alias for app.services.data_utils.extract_papers."""
+    return extract_papers(row_data)
+
+
+def _index_session_documents(docs_dir: Path) -> tuple[Dict[str, Path], Dict[str, Path]]:
+    """Index on-disk session documents by lowercase filename and stem."""
+    by_name: Dict[str, Path] = {}
+    by_stem: Dict[str, Path] = {}
+    if docs_dir.exists():
+        for doc_path in docs_dir.iterdir():
+            if doc_path.is_file() and not doc_path.name.startswith('.'):
+                by_name[doc_path.name.lower()] = doc_path
+                by_stem[doc_path.stem.lower()] = doc_path
+    return by_name, by_stem
+
+
+def _resolve_paper_to_document(
+    paper: str,
+    by_name: Dict[str, Path],
+    by_stem: Dict[str, Path],
+    readable_extensions: tuple[str, ...],
+) -> tuple[Optional[Path], Optional[str]]:
+    """Map a papers-field value to a lib-readable file under documents/."""
+    paper = paper.strip()
+    if not paper:
+        return None, None
+
+    paper_lower = paper.lower()
+    candidates: List[Path] = []
+    if paper_lower in by_name:
+        candidates.append(by_name[paper_lower])
+    if paper_lower in by_stem:
+        candidates.append(by_stem[paper_lower])
+    if f"{paper_lower}.txt" in by_name:
+        candidates.append(by_name[f"{paper_lower}.txt"])
+    if paper_lower.endswith('.txt'):
+        stem = paper_lower[:-4]
+        if stem in by_stem:
+            candidates.append(by_stem[stem])
+
+    seen: Set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.suffix.lower() in readable_extensions:
+            return candidate, None
+        return None, (
+            f"Paper {paper!r} resolves to {candidate.name}, which cannot be read by "
+            f"the extractor (supported: {', '.join(readable_extensions)})"
+        )
+
+    return None, f"Needed paper {paper!r} not found in documents/"
+
+
+def _plan_incremental_extraction_documents(
+    docs_dir: Path,
+    row_records: List[dict],
+    rows_in_scope: Optional[Set[str]] = None,
+    readable_extensions: tuple[str, ...] = INCREMENTAL_EXTRACTION_DOC_EXTENSIONS,
+) -> tuple[List[Path], str, List[str]]:
+    """
+    Choose session documents to copy for incremental extraction.
+
+    Returns (selected_paths, mode, warnings). mode is 'papers' or 'prefix'.
+    """
+    scoped_rows: List[dict] = []
+    for row in row_records:
+        row_name = row_name_of(row)
+        if not row_name:
+            continue
+        if rows_in_scope is not None and row_name not in rows_in_scope:
+            continue
+        scoped_rows.append(row)
+
+    by_name, by_stem = _index_session_documents(docs_dir)
+    needed_papers: Set[str] = set()
+    for row in scoped_rows:
+        papers = _extract_papers(row)
+        if papers:
+            needed_papers.update(papers)
+        else:
+            row_name = row_name_of(row)
+            logger.debug(
+                "Row %r has no papers field; skipping papers-based mapping for this row",
+                row_name,
+            )
+
+    warnings: List[str] = []
+    selected: Dict[str, Path] = {}
+
+    if needed_papers:
+        mode = 'papers'
+        for paper in sorted(needed_papers):
+            doc_path, warning = _resolve_paper_to_document(
+                paper, by_name, by_stem, readable_extensions
+            )
+            if warning:
+                warnings.append(warning)
+            elif doc_path:
+                selected[doc_path.name] = doc_path
+    else:
+        mode = 'prefix'
+        existing_row_names = {
+            row_name_of(row) for row in scoped_rows
+        } - {None}
+        if docs_dir.exists():
+            for doc_path in docs_dir.iterdir():
+                if not doc_path.is_file():
+                    continue
+                if doc_path.suffix.lower() not in readable_extensions:
+                    continue
+                row_name = doc_path.stem.split('_')[0]
+                if row_name in existing_row_names:
+                    selected[doc_path.name] = doc_path
+
+    return list(selected.values()), mode, warnings
 
 
 class ContinueDiscoveryOperation:
@@ -404,19 +545,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     continue
                 try:
                     row = json.loads(line)
-                    papers_raw = (
-                        row.get('papers') or
-                        row.get('_papers') or
-                        row.get('Papers') or
-                        row.get('data', {}).get('Papers') or
-                        row.get('data', {}).get('papers') or
-                        []
-                    )
-                    # Handle ScheMatiQ answer format
-                    if isinstance(papers_raw, dict) and 'answer' in papers_raw:
-                        papers_raw = papers_raw.get('answer', [])
-                    if isinstance(papers_raw, str):
-                        papers_raw = [papers_raw] if papers_raw else []
+                    papers_raw = _extract_papers(row)
                     for paper in papers_raw:
                         if paper:
                             all_papers.add(paper)
@@ -445,7 +574,11 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         docs_dir = session_dir / "documents"
         if docs_dir.exists():
             for f in docs_dir.iterdir():
-                if f.is_file() and not f.name.startswith('.'):
+                if (
+                    f.is_file()
+                    and f.suffix.lower() in ORIGINAL_DOC_EXTENSIONS
+                    and not f.name.startswith('.')
+                ):
                     local_docs.add(f.name)
 
         # Also check schematiq_work
@@ -454,7 +587,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             for subdir in schematiq_work_dir.iterdir():
                 if subdir.is_dir() and not subdir.name.startswith('.'):
                     for f in subdir.iterdir():
-                        if f.is_file() and f.suffix in ['.txt', '.md']:
+                        if f.is_file() and f.suffix.lower() in WORK_DIR_TEXT_EXTENSIONS:
                             local_docs.add(f.name)
 
         # 4. Get cloud dataset from session metadata
@@ -559,29 +692,36 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             # Use existing documents
             schematiq_work_dir = self._get_schematiq_work_dir() / session_id
 
-            # Check data/{session_id}/documents/ first
+            # Check data/{session_id}/documents/ first.
+            # Source docs land here verbatim via _move_pending_documents, so a
+            # PDF (or other non-text source) may live here and must be converted
+            # to text on read. Reading only .txt/.md silently yields 0 documents.
             if docs_dir.exists():
                 for f in sorted(docs_dir.iterdir()):
-                    if f.is_file() and f.suffix in ['.txt', '.md'] and not f.name.startswith('.'):
-                        try:
-                            content = f.read_text(encoding='utf-8')
-                            documents.append(content)
-                            filenames.append(f.name)
-                        except Exception as e:
-                            logger.debug(f"Could not read {f}: {e}")
+                    if not f.is_file() or f.name.startswith('.'):
+                        continue
+                    ext = f.suffix.lower()
+                    if ext not in ORIGINAL_DOC_EXTENSIONS:
+                        continue
+                    content = read_document_text(f)
+                    if content:
+                        documents.append(content)
+                        filenames.append(f.name)
 
             # Also check schematiq_work directory
             if not documents and schematiq_work_dir.exists():
                 for subdir in schematiq_work_dir.iterdir():
                     if subdir.is_dir() and not subdir.name.startswith('.'):
                         for f in sorted(subdir.iterdir()):
-                            if f.is_file() and f.suffix in ['.txt', '.md']:
+                            if f.is_file() and f.suffix.lower() in WORK_DIR_TEXT_EXTENSIONS:
                                 try:
-                                    content = f.read_text(encoding='utf-8')
+                                    content = f.read_text(encoding='utf-8', errors='replace')
+                                except Exception as e:
+                                    logger.warning(f"Could not read {f.name}: {e}")
+                                    continue
+                                if content and content.strip():
                                     documents.append(content)
                                     filenames.append(f.name)
-                                except Exception as e:
-                                    logger.debug(f"Could not read {f}: {e}")
 
         elif document_source == "cloud":
             # Download from cloud storage
@@ -595,17 +735,12 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     filename = file_path.rsplit('/', 1)[-1]
                     content = await storage.download_file('datasets', file_path)
                     if content:
-                        # Save locally
-                        local_path = docs_dir / filename
-                        local_path.write_bytes(content)
-
-                        # Add to documents list
-                        try:
-                            text_content = content.decode('utf-8')
-                            documents.append(text_content)
-                            filenames.append(filename)
-                        except UnicodeDecodeError:
-                            logger.debug(f"Could not decode {filename} as UTF-8")
+                        committed = commit_bytes_to_documents_dir(content, filename, docs_dir)
+                        if committed:
+                            text_content = read_document_text(committed)
+                            if text_content:
+                                documents.append(text_content)
+                                filenames.append(committed.name)
             except Exception as e:
                 logger.error(f"Error downloading cloud documents: {e}")
                 raise
@@ -1401,39 +1536,72 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
             output_file = session_dir / f"incremental_output_{operation_id}.jsonl"
 
-            # Get existing row names from data.jsonl - only extract for existing rows
-            existing_rows = set()
+            # Load existing rows and determine extraction scope
+            row_records: List[dict] = []
             data_file = session_dir / "data.jsonl"
             if data_file.exists():
                 with open(data_file, 'r') as f:
                     for line in f:
                         if line.strip():
-                            row_data = json.loads(line)
-                            row_name = row_data.get('row_name') or row_data.get('_row_name')
-                            if row_name:
-                                existing_rows.add(row_name)
+                            row_records.append(json.loads(line))
+
+            rows_in_scope: Optional[Set[str]] = None
+            if extraction_config.get("row_selection") == "selected":
+                selected = extraction_config.get("selected_rows") or operation.extraction_rows
+                if selected:
+                    rows_in_scope = set(selected)
+
+            existing_rows = {
+                row_name_of(row)
+                for row in row_records
+                if row_name_of(row)
+            }
+            if rows_in_scope is not None:
+                existing_rows &= rows_in_scope
             logger.debug(f"Existing rows to extract: {existing_rows}")
 
-            # Create filtered docs directory with only documents for existing rows
+            # Create filtered docs directory with documents for in-scope rows
             filtered_docs_dir = session_dir / "documents_filtered"
             if filtered_docs_dir.exists():
                 shutil.rmtree(filtered_docs_dir)
             filtered_docs_dir.mkdir(exist_ok=True)
 
-            # Copy only documents that belong to existing rows
-            if docs_dir.exists():
-                for doc_path in docs_dir.iterdir():
-                    if doc_path.is_file() and doc_path.suffix in ['.txt', '.md']:
-                        # Extract row name from filename (first part before underscore)
-                        row_name = doc_path.stem.split('_')[0]
-                        if row_name in existing_rows:
-                            shutil.copy2(doc_path, filtered_docs_dir / doc_path.name)
-                            logger.debug(f"Including document for existing row: {doc_path.name}")
-                        else:
-                            logger.debug(f"Skipping document for new row: {doc_path.name}")
+            selected_docs, mapping_mode, mapping_warnings = _plan_incremental_extraction_documents(
+                docs_dir, row_records, rows_in_scope
+            )
+            logger.info(
+                "Incremental extraction document selection mode=%s, selected=%d document(s)",
+                mapping_mode,
+                len(selected_docs),
+            )
+            for warning in mapping_warnings:
+                logger.warning(warning)
 
-            # Count filtered documents
-            doc_count = sum(1 for f in filtered_docs_dir.iterdir() if f.is_file()) if filtered_docs_dir.exists() else 0
+            materialized = 0
+            for doc_path in selected_docs:
+                text = read_document_text(doc_path)
+                if not text:
+                    mapping_warnings.append(
+                        f"Could not materialize {doc_path.name} for incremental "
+                        f"extraction; skipping"
+                    )
+                    logger.warning("Could not materialize %s; skipping", doc_path.name)
+                    continue
+                # Write as .txt so the schematiq-lib reader can load it (it does
+                # not read PDFs); converted PDFs land here as plain text.
+                dest = filtered_docs_dir / f"{doc_path.stem}.txt"
+                dest.write_text(text, encoding="utf-8")
+                logger.debug(f"Materialized document for incremental extraction: {dest.name}")
+                materialized += 1
+
+            doc_count = materialized
+            if existing_rows and doc_count == 0:
+                logger.warning(
+                    "Incremental extraction: %d in-scope row(s) but documents_filtered/ is empty "
+                    "(mode=%s); extraction will be skipped",
+                    len(existing_rows),
+                    mapping_mode,
+                )
             logger.info(f"Filtered to {doc_count} documents for existing rows")
             operation.total_documents = doc_count
 
@@ -1649,7 +1817,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     continue
 
                 row = json.loads(line)
-                row_name = row.get('row_name') or row.get('_row_name')
+                row_name = row_name_of(row)
                 row_src = _resolve_source_document(row)
                 papers = row.get('papers') or []
 

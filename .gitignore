@@ -59,12 +59,6 @@ venv.bak/
 ehthumbs.db
 Thumbs.db
 
-# Data directories in src/
-src/abstracts/
-src/full_text/
-src/full_text_test/
-src/manually/
-
 # Logs
 *.log
 
@@ -86,15 +80,6 @@ cache/
 .env.development
 config/secrets.*
 /test/
-
-# Add visualization specific ignores (legacy paths)
-ScheMatiQ/visualization/frontend/build/
-ScheMatiQ/visualization/frontend/node_modules/
-
-# Backend data and session directories (legacy location)
-ScheMatiQ/visualization/backend/data/
-ScheMatiQ/visualization/backend/sessions/
-ScheMatiQ/visualization/backend/schematiq_work/
 
 # New structure ignores
 # Frontend
@@ -143,3 +128,12 @@ backend/test_*.py
 
 # Local dev runner instance storage (dev.sh multi-instance isolation)
 .dev-data/
+
+/.test-venv/
+
+# --- repo hygiene (prevent stray artifacts recurring) ---
+*.patch
+Untitled
+* copy.*
+*\ copy.*
+backend/debug
