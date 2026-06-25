@@ -49,6 +49,148 @@ SCHEMATIQ_AVAILABLE = True
 # for files the loader then skips -> "No documents available for schema discovery".
 ORIGINAL_DOC_EXTENSIONS = ('.txt', '.md', '.json', '.pdf')
 
+# schematiq_work/ subdirs hold plain-text document dumps only. Keep this narrow:
+# never widen it to ORIGINAL_DOC_EXTENSIONS, or the .json entry would pull
+# llm_call_stats.json / extracted_data.jsonl in as if they were source documents.
+WORK_DIR_TEXT_EXTENSIONS = ('.txt', '.md')
+
+# Extensions the schematiq-lib document reader can load (schematiq.core.schematiq.load_documents).
+INCREMENTAL_EXTRACTION_DOC_EXTENSIONS = ('.txt', '.md', '.html', '.htm')
+
+
+def _extract_papers(row_data: dict) -> List[str]:
+    """Extract source-document references from a data.jsonl row."""
+    papers_raw = (
+        row_data.get('papers') or
+        row_data.get('_papers') or
+        row_data.get('Papers') or
+        row_data.get('data', {}).get('Papers') or
+        row_data.get('data', {}).get('papers') or
+        []
+    )
+    if isinstance(papers_raw, dict) and 'answer' in papers_raw:
+        papers_raw = papers_raw.get('answer', [])
+    if isinstance(papers_raw, str):
+        return [papers_raw] if papers_raw else []
+    if isinstance(papers_raw, list):
+        return [p for p in papers_raw if p]
+    return []
+
+
+def _index_session_documents(docs_dir: Path) -> tuple[Dict[str, Path], Dict[str, Path]]:
+    """Index on-disk session documents by lowercase filename and stem."""
+    by_name: Dict[str, Path] = {}
+    by_stem: Dict[str, Path] = {}
+    if docs_dir.exists():
+        for doc_path in docs_dir.iterdir():
+            if doc_path.is_file() and not doc_path.name.startswith('.'):
+                by_name[doc_path.name.lower()] = doc_path
+                by_stem[doc_path.stem.lower()] = doc_path
+    return by_name, by_stem
+
+
+def _resolve_paper_to_document(
+    paper: str,
+    by_name: Dict[str, Path],
+    by_stem: Dict[str, Path],
+    readable_extensions: tuple[str, ...],
+) -> tuple[Optional[Path], Optional[str]]:
+    """Map a papers-field value to a lib-readable file under documents/."""
+    paper = paper.strip()
+    if not paper:
+        return None, None
+
+    paper_lower = paper.lower()
+    candidates: List[Path] = []
+    if paper_lower in by_name:
+        candidates.append(by_name[paper_lower])
+    if paper_lower in by_stem:
+        candidates.append(by_stem[paper_lower])
+    if f"{paper_lower}.txt" in by_name:
+        candidates.append(by_name[f"{paper_lower}.txt"])
+    if paper_lower.endswith('.txt'):
+        stem = paper_lower[:-4]
+        if stem in by_stem:
+            candidates.append(by_stem[stem])
+
+    seen: Set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if candidate.suffix.lower() in readable_extensions:
+            return candidate, None
+        return None, (
+            f"Paper {paper!r} resolves to {candidate.name}, which cannot be read by "
+            f"the extractor (supported: {', '.join(readable_extensions)})"
+        )
+
+    return None, f"Needed paper {paper!r} not found in documents/"
+
+
+def _plan_incremental_extraction_documents(
+    docs_dir: Path,
+    row_records: List[dict],
+    rows_in_scope: Optional[Set[str]] = None,
+    readable_extensions: tuple[str, ...] = INCREMENTAL_EXTRACTION_DOC_EXTENSIONS,
+) -> tuple[List[Path], str, List[str]]:
+    """
+    Choose session documents to copy for incremental extraction.
+
+    Returns (selected_paths, mode, warnings). mode is 'papers' or 'prefix'.
+    """
+    scoped_rows: List[dict] = []
+    for row in row_records:
+        row_name = row.get('row_name') or row.get('_row_name')
+        if not row_name:
+            continue
+        if rows_in_scope is not None and row_name not in rows_in_scope:
+            continue
+        scoped_rows.append(row)
+
+    by_name, by_stem = _index_session_documents(docs_dir)
+    needed_papers: Set[str] = set()
+    for row in scoped_rows:
+        papers = _extract_papers(row)
+        if papers:
+            needed_papers.update(papers)
+        else:
+            row_name = row.get('row_name') or row.get('_row_name')
+            logger.debug(
+                "Row %r has no papers field; skipping papers-based mapping for this row",
+                row_name,
+            )
+
+    warnings: List[str] = []
+    selected: Dict[str, Path] = {}
+
+    if needed_papers:
+        mode = 'papers'
+        for paper in sorted(needed_papers):
+            doc_path, warning = _resolve_paper_to_document(
+                paper, by_name, by_stem, readable_extensions
+            )
+            if warning:
+                warnings.append(warning)
+            elif doc_path:
+                selected[doc_path.name] = doc_path
+    else:
+        mode = 'prefix'
+        existing_row_names = {
+            row.get('row_name') or row.get('_row_name') for row in scoped_rows
+        } - {None}
+        if docs_dir.exists():
+            for doc_path in docs_dir.iterdir():
+                if not doc_path.is_file():
+                    continue
+                if doc_path.suffix.lower() not in readable_extensions:
+                    continue
+                row_name = doc_path.stem.split('_')[0]
+                if row_name in existing_row_names:
+                    selected[doc_path.name] = doc_path
+
+    return list(selected.values()), mode, warnings
+
 
 class ContinueDiscoveryOperation:
     """Tracks a running continue discovery operation."""
@@ -410,19 +552,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     continue
                 try:
                     row = json.loads(line)
-                    papers_raw = (
-                        row.get('papers') or
-                        row.get('_papers') or
-                        row.get('Papers') or
-                        row.get('data', {}).get('Papers') or
-                        row.get('data', {}).get('papers') or
-                        []
-                    )
-                    # Handle ScheMatiQ answer format
-                    if isinstance(papers_raw, dict) and 'answer' in papers_raw:
-                        papers_raw = papers_raw.get('answer', [])
-                    if isinstance(papers_raw, str):
-                        papers_raw = [papers_raw] if papers_raw else []
+                    papers_raw = _extract_papers(row)
                     for paper in papers_raw:
                         if paper:
                             all_papers.add(paper)
@@ -464,7 +594,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             for subdir in schematiq_work_dir.iterdir():
                 if subdir.is_dir() and not subdir.name.startswith('.'):
                     for f in subdir.iterdir():
-                        if f.is_file() and f.suffix in ['.txt', '.md']:
+                        if f.is_file() and f.suffix.lower() in WORK_DIR_TEXT_EXTENSIONS:
                             local_docs.add(f.name)
 
         # 4. Get cloud dataset from session metadata
@@ -598,13 +728,15 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                 for subdir in schematiq_work_dir.iterdir():
                     if subdir.is_dir() and not subdir.name.startswith('.'):
                         for f in sorted(subdir.iterdir()):
-                            if f.is_file() and f.suffix in ['.txt', '.md']:
+                            if f.is_file() and f.suffix.lower() in WORK_DIR_TEXT_EXTENSIONS:
                                 try:
-                                    content = f.read_text(encoding='utf-8')
+                                    content = f.read_text(encoding='utf-8', errors='replace')
+                                except Exception as e:
+                                    logger.warning(f"Could not read {f.name}: {e}")
+                                    continue
+                                if content and content.strip():
                                     documents.append(content)
                                     filenames.append(f.name)
-                                except Exception as e:
-                                    logger.debug(f"Could not read {f}: {e}")
 
         elif document_source == "cloud":
             # Download from cloud storage
@@ -1424,39 +1556,59 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
 
             output_file = session_dir / f"incremental_output_{operation_id}.jsonl"
 
-            # Get existing row names from data.jsonl - only extract for existing rows
-            existing_rows = set()
+            # Load existing rows and determine extraction scope
+            row_records: List[dict] = []
             data_file = session_dir / "data.jsonl"
             if data_file.exists():
                 with open(data_file, 'r') as f:
                     for line in f:
                         if line.strip():
-                            row_data = json.loads(line)
-                            row_name = row_data.get('row_name') or row_data.get('_row_name')
-                            if row_name:
-                                existing_rows.add(row_name)
+                            row_records.append(json.loads(line))
+
+            rows_in_scope: Optional[Set[str]] = None
+            if extraction_config.get("row_selection") == "selected":
+                selected = extraction_config.get("selected_rows") or operation.extraction_rows
+                if selected:
+                    rows_in_scope = set(selected)
+
+            existing_rows = {
+                row.get('row_name') or row.get('_row_name')
+                for row in row_records
+                if row.get('row_name') or row.get('_row_name')
+            }
+            if rows_in_scope is not None:
+                existing_rows &= rows_in_scope
             logger.debug(f"Existing rows to extract: {existing_rows}")
 
-            # Create filtered docs directory with only documents for existing rows
+            # Create filtered docs directory with documents for in-scope rows
             filtered_docs_dir = session_dir / "documents_filtered"
             if filtered_docs_dir.exists():
                 shutil.rmtree(filtered_docs_dir)
             filtered_docs_dir.mkdir(exist_ok=True)
 
-            # Copy only documents that belong to existing rows
-            if docs_dir.exists():
-                for doc_path in docs_dir.iterdir():
-                    if doc_path.is_file() and doc_path.suffix in ['.txt', '.md']:
-                        # Extract row name from filename (first part before underscore)
-                        row_name = doc_path.stem.split('_')[0]
-                        if row_name in existing_rows:
-                            shutil.copy2(doc_path, filtered_docs_dir / doc_path.name)
-                            logger.debug(f"Including document for existing row: {doc_path.name}")
-                        else:
-                            logger.debug(f"Skipping document for new row: {doc_path.name}")
+            selected_docs, mapping_mode, mapping_warnings = _plan_incremental_extraction_documents(
+                docs_dir, row_records, rows_in_scope
+            )
+            logger.info(
+                "Incremental extraction document selection mode=%s, selected=%d document(s)",
+                mapping_mode,
+                len(selected_docs),
+            )
+            for warning in mapping_warnings:
+                logger.warning(warning)
 
-            # Count filtered documents
-            doc_count = sum(1 for f in filtered_docs_dir.iterdir() if f.is_file()) if filtered_docs_dir.exists() else 0
+            for doc_path in selected_docs:
+                shutil.copy2(doc_path, filtered_docs_dir / doc_path.name)
+                logger.debug(f"Including document for incremental extraction: {doc_path.name}")
+
+            doc_count = len(selected_docs)
+            if existing_rows and doc_count == 0:
+                logger.warning(
+                    "Incremental extraction: %d in-scope row(s) but documents_filtered/ is empty "
+                    "(mode=%s); extraction will be skipped",
+                    len(existing_rows),
+                    mapping_mode,
+                )
             logger.info(f"Filtered to {doc_count} documents for existing rows")
             operation.total_documents = doc_count
 
