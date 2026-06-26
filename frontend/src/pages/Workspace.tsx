@@ -56,6 +56,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
 import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
+import StatsDashboard from '@/components/StatsDashboard/StatsDashboard';
+import ScheMatiQMonitor from '@/components/ScheMatiQMonitor/ScheMatiQMonitor';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import {
   buildExcerptMapping,
@@ -110,7 +112,7 @@ const documentDisplayName = (value?: string | null): string => {
   return (parts[parts.length - 1] || String(value)).trim();
 };
 
-type SheetId = 'data' | 'unit' | 'schema';
+type SheetId = 'data' | 'unit' | 'schema' | 'stats' | 'monitor';
 type WorkspaceSessionMode = 'schematiq' | 'load';
 type PendingRerunKind = 'schema' | 'unit';
 
@@ -246,6 +248,8 @@ const SHEETS: Array<{ id: SheetId; label: string }> = [
   { id: 'data', label: 'Data' },
   { id: 'unit', label: 'Observation Unit' },
   { id: 'schema', label: 'Schema' },
+  { id: 'stats', label: 'Statistics' },
+  { id: 'monitor', label: 'ScheMatiQ Monitor' },
 ];
 
 const WORKSPACE_MENUS = [
@@ -1944,6 +1948,7 @@ function Workspace() {
   const [pendingSchemaColumns, setPendingSchemaColumns] = useState<string[]>([]);
   const [rerunStarting, setRerunStarting] = useState(false);
   const [status, setStatus] = useState<ScheMatiQStatus | null>(null);
+  const [session, setSession] = useState<VisualizationSession | null>(null);
   const [schema, setSchema] = useState<SchemaData | null>(null);
   const [data, setData] = useState<PaginatedData>(emptyData);
   const [documents, setDocuments] = useState<DocumentListResponse | null>(null);
@@ -2037,6 +2042,7 @@ function Workspace() {
         ]);
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
+        setSession(loadSession);
         applyData(nextData, options);
         setDocuments(nextDocuments);
         setConfig(null);
@@ -2044,15 +2050,17 @@ function Workspace() {
       }
 
       try {
-        const [nextStatus, nextSchema, nextData, nextDocuments, nextConfig] = await Promise.all([
+        const [nextStatus, nextSchema, nextData, nextDocuments, nextConfig, statsSession] = await Promise.all([
           schematiqAPI.getStatus(sessionId),
           schematiqAPI.getSchema(sessionId).catch(() => null),
           schematiqAPI.getData(sessionId, 0, 500).catch(() => emptyData),
           unitsAPI.getDocuments(sessionId).catch(() => null),
           schematiqAPI.getConfig(sessionId).catch(() => null),
+          loadAPI.getSession(sessionId).catch(() => null),
         ]);
         setStatus(nextStatus);
         setSchema(nextSchema);
+        setSession(statsSession);
         applyData(nextData, options);
         setDocuments(nextDocuments);
         setConfig(nextConfig);
@@ -2066,6 +2074,7 @@ function Workspace() {
         ]);
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
+        setSession(loadSession);
         applyData(nextData, options);
         setDocuments(nextDocuments);
         setConfig(null);
@@ -2104,7 +2113,14 @@ function Workspace() {
     setData(emptyData);
     setSchema(null);
     setStatus(null);
+    setSession(null);
   }, [sessionId]);
+
+  useEffect(() => {
+    if (activeSheet === 'monitor' && sessionMode !== 'schematiq') {
+      setActiveSheet('data');
+    }
+  }, [activeSheet, sessionMode]);
 
   useEffect(() => {
     setSheetSelection(null);
@@ -2685,30 +2701,84 @@ function Workspace() {
         style={{ gridTemplateColumns: bodyGridColumns }}
       >
         <section className="workspace-sheet-pane" data-hidden={isSheetHidden}>
-          <div className="workspace-grid-wrap">
-            <SpreadsheetSurface
-              activeSheet={activeSheet}
-              data={data}
-              schema={schema}
-              displayOptions={tableDisplay}
-              cellFormats={cellFormats}
-              formatVersion={formatVersion}
-              hotTableRef={hotTableRef}
-              onSelectionChange={updateSheetSelection}
-              onRefresh={refreshSilent}
-              onEditFollowUp={notifyEditFollowUp}
-              onEditEnd={flushDeferredData}
-              layoutRevision={gridLayoutRevision}
-            />
-            {(loading || importingProject) && sessionId && (
-              <div className="workspace-loading-overlay" role="status" aria-live="polite">
-                <div className="workspace-loading-card">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>Loading project…</span>
+          {activeSheet === 'stats' ? (
+            <div className="workspace-dashboard-wrap" style={{ height: '100%', overflow: 'auto', padding: '16px' }}>
+              {session?.statistics ? (
+                <StatsDashboard
+                  statistics={session.statistics}
+                  session={session}
+                  creationMetadata={session.creation_metadata}
+                  modificationHistory={session.modification_history}
+                />
+              ) : (
+                <div className="workspace-dashboard-empty" style={{ color: 'var(--muted-foreground, #6b7280)', fontSize: 14 }}>
+                  Statistics will appear once processing completes.
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          ) : activeSheet !== 'monitor' ? (
+            <div className="workspace-grid-wrap">
+              <SpreadsheetSurface
+                activeSheet={activeSheet}
+                data={data}
+                schema={schema}
+                displayOptions={tableDisplay}
+                cellFormats={cellFormats}
+                formatVersion={formatVersion}
+                hotTableRef={hotTableRef}
+                onSelectionChange={updateSheetSelection}
+                onRefresh={refreshSilent}
+                onEditFollowUp={notifyEditFollowUp}
+                onEditEnd={flushDeferredData}
+                layoutRevision={gridLayoutRevision}
+              />
+              {(loading || importingProject) && sessionId && (
+                <div className="workspace-loading-overlay" role="status" aria-live="polite">
+                  <div className="workspace-loading-card">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <span>Loading project…</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : null}
+
+          {/*
+            ScheMatiQ Monitor stays mounted (hidden, not unmounted) while another
+            sheet is active, so its log history survives tab switches. It is only
+            rendered in schematiq mode (the monitor tab is hidden otherwise).
+          */}
+          {sessionMode === 'schematiq' && sessionId && (
+            <div
+              className="workspace-dashboard-wrap"
+              style={{
+                height: '100%',
+                overflow: 'auto',
+                padding: '16px',
+                display: activeSheet === 'monitor' ? 'block' : 'none',
+              }}
+            >
+              <ScheMatiQMonitor
+                sessionId={sessionId}
+                onResumeStarted={refreshSilent}
+                onExtractionStarted={(columns, operationId) => {
+                  // Optimistically surface the bottom-bar re-extraction banner
+                  // when a run is started from the monitor tab. The subsequent
+                  // reextraction_started/progress WebSocket events fill in
+                  // totalDocuments and switch to the data sheet.
+                  if (!operationId) return;
+                  setReextraction({
+                    operationId,
+                    columns,
+                    progress: 0,
+                    processedDocuments: 0,
+                    totalDocuments: 0,
+                    currentColumn: columns[0],
+                  });
+                }}
+              />
+            </div>
+          )}
         </section>
 
         <div
@@ -2738,7 +2808,7 @@ function Workspace() {
 
       <div className="workspace-bottombar">
         <div className="workspace-bottombar-tabs">
-          {SHEETS.map((sheet) => (
+          {SHEETS.filter((sheet) => sheet.id !== 'monitor' || sessionMode === 'schematiq').map((sheet) => (
             <button
               key={sheet.id}
               className="workspace-sheet-tab"
