@@ -52,6 +52,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
+import { Checkbox } from '@/components/ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
@@ -402,7 +405,27 @@ function parseAllowedValues(value: unknown): string[] | undefined {
     .filter(Boolean);
 }
 
-function buildConfig(query: string, apiKey: string): ScheMatiQConfig {
+type AdvancedSettings = {
+  skipValueExtraction: boolean;
+  maxKeysSchema: number;
+  documentsBatchSize: number;
+  observationUnitMode: 'auto' | 'name_only' | 'full';
+  observationUnitName: string;
+  observationUnitDefinition: string;
+  reviewObservationUnit: boolean;
+};
+
+const DEFAULT_ADVANCED: AdvancedSettings = {
+  skipValueExtraction: false,
+  maxKeysSchema: DEFAULT_MAX_KEYS_SCHEMA,
+  documentsBatchSize: DEFAULT_DOCUMENTS_BATCH_SIZE,
+  observationUnitMode: 'auto',
+  observationUnitName: '',
+  observationUnitDefinition: '',
+  reviewObservationUnit: false,
+};
+
+function buildConfig(query: string, apiKey: string, advanced: AdvancedSettings = DEFAULT_ADVANCED): ScheMatiQConfig {
   const backend = {
     provider: DEFAULT_PROVIDER,
     model: DEFAULT_SCHEMA_MODEL,
@@ -410,12 +433,23 @@ function buildConfig(query: string, apiKey: string): ScheMatiQConfig {
     api_key: apiKey || undefined,
   };
 
+  const trimmedUnitName = advanced.observationUnitName.trim();
+  let initialObservationUnit: { name: string; definition?: string } | undefined;
+  if (advanced.observationUnitMode === 'name_only' && trimmedUnitName) {
+    initialObservationUnit = { name: trimmedUnitName };
+  } else if (advanced.observationUnitMode === 'full' && trimmedUnitName) {
+    initialObservationUnit = {
+      name: trimmedUnitName,
+      definition: advanced.observationUnitDefinition.trim() || undefined,
+    };
+  }
+
   return {
     query,
     docs_path: null,
     upload_pending: true,
-    max_keys_schema: DEFAULT_MAX_KEYS_SCHEMA,
-    documents_batch_size: DEFAULT_DOCUMENTS_BATCH_SIZE,
+    max_keys_schema: advanced.maxKeysSchema,
+    documents_batch_size: advanced.documentsBatchSize,
     schema_creation_backend: backend,
     value_extraction_backend: {
       ...backend,
@@ -423,7 +457,9 @@ function buildConfig(query: string, apiKey: string): ScheMatiQConfig {
     },
     output_path: 'outputs/workspace_output.json',
     document_randomization_seed: DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
-    skip_value_extraction: false,
+    skip_value_extraction: advanced.skipValueExtraction,
+    initial_observation_unit: initialObservationUnit,
+    review_observation_unit: advanced.observationUnitMode === 'auto' ? advanced.reviewObservationUnit : undefined,
   };
 }
 
@@ -473,6 +509,13 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
   const [creating, setCreating] = useState(false);
   const [startConfirmed, setStartConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState<AdvancedSettings>(DEFAULT_ADVANCED);
+
+  const updateAdvanced = useCallback((patch: Partial<AdvancedSettings>) => {
+    setAdvanced((prev) => ({ ...prev, ...patch }));
+    setEstimate(null);
+    setStartConfirmed(false);
+  }, []);
 
   useEffect(() => {
     configAPI.getConfig()
@@ -498,7 +541,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     setError(null);
     setEstimating(true);
     try {
-      const config = buildConfig(query.trim(), apiKey.trim());
+      const config = buildConfig(query.trim(), apiKey.trim(), advanced);
       const result = await schematiqAPI.estimateCostPreview(
         config,
         files.map((file) => ({ name: file.webkitRelativePath || file.name, size: file.size }))
@@ -513,7 +556,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     } finally {
       setEstimating(false);
     }
-  }, [apiKey, files, query]);
+  }, [apiKey, files, query, advanced]);
 
   const startProject = useCallback(async () => {
     if (!query.trim() || files.length === 0) {
@@ -533,7 +576,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     setCreating(true);
     setError(null);
     try {
-      const config = buildConfig(query.trim(), apiKey.trim());
+      const config = buildConfig(query.trim(), apiKey.trim(), advanced);
       const result = await schematiqAPI.configure(config);
       await loadAPI.addDocuments(result.session_id, files);
       await schematiqAPI.run(result.session_id);
@@ -549,7 +592,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     } finally {
       setCreating(false);
     }
-  }, [apiKey, estimate, estimateProject, files, navigate, onCreated, onOpenChange, query, serverHasKeys, startConfirmed, toast]);
+  }, [apiKey, estimate, estimateProject, files, navigate, onCreated, onOpenChange, query, serverHasKeys, startConfirmed, toast, advanced]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -617,6 +660,114 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
               placeholder={serverHasKeys ? 'Optional: server keys are configured' : 'Required unless server keys are configured'}
             />
           </div>
+
+          <Collapsible>
+            <CollapsibleTrigger className="group flex items-center gap-2 text-sm font-medium hover:text-foreground transition-colors">
+              <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+              <span>Advanced settings</span>
+              <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-3 space-y-4">
+              {/* Schema-only mode */}
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="ws-skip-value"
+                  checked={advanced.skipValueExtraction}
+                  onCheckedChange={(checked) => updateAdvanced({ skipValueExtraction: checked === true })}
+                />
+                <Label htmlFor="ws-skip-value" className="text-sm cursor-pointer">
+                  Discover columns only (skip data extraction)
+                </Label>
+              </div>
+
+              {/* Schema parameters */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="ws-max-keys" className="text-xs text-muted-foreground">Max columns</Label>
+                  <Input
+                    id="ws-max-keys"
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={advanced.maxKeysSchema}
+                    onChange={(event) => updateAdvanced({ maxKeysSchema: parseInt(event.target.value, 10) || DEFAULT_MAX_KEYS_SCHEMA })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ws-batch-size" className="text-xs text-muted-foreground">Batch size</Label>
+                  <Input
+                    id="ws-batch-size"
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={advanced.documentsBatchSize}
+                    onChange={(event) => updateAdvanced({ documentsBatchSize: parseInt(event.target.value, 10) || DEFAULT_DOCUMENTS_BATCH_SIZE })}
+                  />
+                </div>
+              </div>
+
+              {/* Observation unit */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Observation unit</Label>
+                <RadioGroup
+                  value={advanced.observationUnitMode === 'auto' ? 'auto' : 'specify'}
+                  onValueChange={(value) => {
+                    if (value === 'auto') {
+                      updateAdvanced({ observationUnitMode: 'auto', observationUnitName: '', observationUnitDefinition: '' });
+                    } else {
+                      updateAdvanced({ observationUnitMode: 'name_only', reviewObservationUnit: false });
+                    }
+                  }}
+                  className="space-y-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <RadioGroupItem value="auto" id="ws-obs-auto" className="mt-1" />
+                    <div className="space-y-1">
+                      <Label htmlFor="ws-obs-auto" className="font-medium cursor-pointer">Auto-detect (recommended)</Label>
+                      <p className="text-sm text-muted-foreground">
+                        The system determines what each row represents from your query and documents.
+                      </p>
+                      {advanced.observationUnitMode === 'auto' && (
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <Checkbox
+                            id="ws-review-obs"
+                            checked={advanced.reviewObservationUnit}
+                            onCheckedChange={(checked) => updateAdvanced({ reviewObservationUnit: checked === true })}
+                          />
+                          <Label htmlFor="ws-review-obs" className="text-sm cursor-pointer">
+                            Review before schema generation
+                          </Label>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <RadioGroupItem value="specify" id="ws-obs-specify" className="mt-1" />
+                    <div className="space-y-1 flex-1">
+                      <Label htmlFor="ws-obs-specify" className="font-medium cursor-pointer">I'll specify</Label>
+                      {advanced.observationUnitMode !== 'auto' && (
+                        <div className="space-y-2 mt-2">
+                          <Input
+                            placeholder="e.g., Research Paper, Model-Benchmark Evaluation"
+                            value={advanced.observationUnitName}
+                            onChange={(event) => updateAdvanced({ observationUnitName: event.target.value })}
+                          />
+                          <Input
+                            placeholder="Optional definition: e.g., Each row represents a single research paper"
+                            value={advanced.observationUnitDefinition}
+                            onChange={(event) => updateAdvanced({
+                              observationUnitDefinition: event.target.value,
+                              observationUnitMode: event.target.value.trim() ? 'full' : 'name_only',
+                            })}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </RadioGroup>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
 
           {estimate && (
             <div className="rounded-md border bg-muted/30 p-3 text-sm">
