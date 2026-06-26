@@ -1,0 +1,19 @@
+diff --git a/frontend/src/components/ScheMatiQMonitor/ScheMatiQMonitor.tsx b/frontend/src/components/ScheMatiQMonitor/ScheMatiQMonitor.tsx
+index 6baa144..a7c3837 100644
+--- a/frontend/src/components/ScheMatiQMonitor/ScheMatiQMonitor.tsx
++++ b/frontend/src/components/ScheMatiQMonitor/ScheMatiQMonitor.tsx
+@@ -762,10 +762,10 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
+         return;
+       }
+ 
+-      // Ensure progress WebSocket is connected before background work starts
+-      if (!webSocketService.isConnected()) {
+-        webSocketService.connect(sessionId, 'progress');
+-      }
++      // Ensure progress WebSocket is connected before background work starts.
++      // ensureConnected() does not take an additional reference (the mount
++      // effect already holds one), so it cannot leak a ref-count.
++      webSocketService.ensureConnected(sessionId, 'progress');
+ 
+       setSchemaOnly(false);
+       setActiveReextractionId(response.operation_id);

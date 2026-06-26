@@ -1,0 +1,28 @@
+diff --git a/frontend/src/components/ContentModal/ContentModal.tsx b/frontend/src/components/ContentModal/ContentModal.tsx
+index 850262b1..21cce2ce 100644
+--- a/frontend/src/components/ContentModal/ContentModal.tsx
++++ b/frontend/src/components/ContentModal/ContentModal.tsx
+@@ -449,7 +449,11 @@ const ContentModal: React.FC<ContentModalProps> = ({
+   return (
+     <Dialog open={open} onOpenChange={handleOpenChange}>
+       <DialogContent
+-        className="sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
++        className={
++          evidenceOnly
++            ? 'max-w-md p-4 gap-2 max-h-[80vh] overflow-hidden flex flex-col'
++            : 'sm:max-w-2xl max-h-[80vh] overflow-hidden flex flex-col'
++        }
+         onOpenAutoFocus={(e) => e.preventDefault()}
+         onEscapeKeyDown={(e) => {
+           if (isEditing) {
+@@ -463,8 +467,8 @@ const ContentModal: React.FC<ContentModalProps> = ({
+           }
+         }}
+       >
+-        <DialogHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+-          <DialogTitle className="pr-8">{title}</DialogTitle>
++        <DialogHeader className={evidenceOnly ? 'space-y-0' : 'flex flex-row items-center justify-between space-y-0 pb-2'}>
++          <DialogTitle className={evidenceOnly ? 'sr-only' : 'pr-8'}>{title}</DialogTitle>
+           {!evidenceOnly && (
+           <div className="flex items-center gap-1 mr-8">
+             {onSave && !isEditing && (
