@@ -139,6 +139,7 @@ Untitled
 backend/debug
 
 # Local root-level helper/docs files
-/*.sh
-/*.md
-/*.txt
+/CLAUDE.md
+/tasks.md
+/requirements.txt
+/*.patch
