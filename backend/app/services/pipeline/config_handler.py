@@ -44,14 +44,20 @@ async def resolve_docs_paths(config: ScheMatiQConfig, session_id: str, work_dir:
     session_dir = work_dir / session_id
     session_dir.mkdir(parents=True, exist_ok=True)
 
-    # Check for uploaded documents in data/{session_id}/pending_documents/ directory
-    data_dir = Path("./data") / session_id / "pending_documents"
-    if data_dir.exists():
-        uploaded_files = [f for f in sorted(data_dir.iterdir())
-                        if f.is_file() and not f.name.startswith('.')]
-        if uploaded_files:
-            logger.info("Using %d uploaded documents from %s", len(uploaded_files), data_dir)
-            return [str(data_dir.absolute())]
+    # Check for session-local source documents. Newly uploaded files land in
+    # pending_documents/; once a run completes they are moved to documents/
+    # (see SchematiqRunner._move_pending_documents). On an observation-unit
+    # rediscovery the source docs therefore live in documents/, so we must
+    # check both locations — otherwise the pipeline finds no documents, runs
+    # in schema-only mode, and silently skips value extraction.
+    session_data_dir = Path("./data") / session_id
+    for candidate in (session_data_dir / "pending_documents", session_data_dir / "documents"):
+        if candidate.exists():
+            local_files = [f for f in sorted(candidate.iterdir())
+                           if f.is_file() and not f.name.startswith('.')]
+            if local_files:
+                logger.info("Using %d documents from %s", len(local_files), candidate)
+                return [str(candidate.absolute())]
 
     # No uploaded files - resolve from config.docs_path
     docs_paths = config.docs_path if isinstance(config.docs_path, list) else [config.docs_path]
