@@ -1,7 +1,7 @@
 """Verify extraction excerpts against source text for hallucination detection."""
 
 import difflib
-from typing import Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 
 
 class ExcerptGrounder:

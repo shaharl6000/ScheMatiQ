@@ -486,7 +486,6 @@ class EmbeddingRetriever(Retriever):
 # 2. Prompt-based implementation                                            #
 ##############################################################################
 
-from schematiq.core.llm_backends import LLMInterface   # assumes the base class lives there
 from schematiq.core.llm_call_tracker import LLMCallTracker
 
 

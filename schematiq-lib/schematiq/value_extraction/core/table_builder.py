@@ -9,9 +9,8 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 
-from schematiq.core.schema import Schema, Column
+from schematiq.core.schema import Schema
 from schematiq.core.llm_backends import LLMInterface
-from schematiq.core import utils
 from schematiq.core.results import SkippedDocument
 from schematiq.core.config import config as lib_config
 from schematiq.value_extraction.config.messages import skipped_summary, DEFAULT_SKIP_REASON
@@ -421,7 +420,7 @@ class TableBuilder:
 
         for paper in papers:
             if self.should_stop and self.should_stop():
-                print(f"🛑 Stop requested during observation unit processing")
+                print("🛑 Stop requested during observation unit processing")
                 self._stopped = True
                 return
 
@@ -529,7 +528,7 @@ class TableBuilder:
         for column in schema.columns:
             # Check for stop request
             if self.should_stop and self.should_stop():
-                print(f"🛑 Stop requested during column processing")
+                print("🛑 Stop requested during column processing")
                 self._stopped = True
                 return
 
@@ -545,7 +544,7 @@ class TableBuilder:
             for paper in papers:
                 # Check for stop request
                 if self.should_stop and self.should_stop():
-                    print(f"🛑 Stop requested during paper processing")
+                    print("🛑 Stop requested during paper processing")
                     self._stopped = True
                     return
                 # Note: Don't skip based on processed_papers here - we need to try
@@ -601,7 +600,7 @@ class TableBuilder:
                 for future in concurrent.futures.as_completed(future_to_paper):
                     # Check for stop request
                     if self.should_stop and self.should_stop():
-                        print(f"🛑 Stop requested - cancelling pending futures")
+                        print("🛑 Stop requested - cancelling pending futures")
                         self._stopped = True
                         # Cancel any pending futures
                         for pending_future in future_to_paper:
@@ -624,7 +623,7 @@ class TableBuilder:
             for paper in unprocessed_papers:
                 # Check for stop request
                 if self.should_stop and self.should_stop():
-                    print(f"🛑 Stop requested during sequential processing")
+                    print("🛑 Stop requested during sequential processing")
                     self._stopped = True
                     return
 

@@ -1,7 +1,7 @@
 """Detect and format tables in plain-text documents."""
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Optional
 
 

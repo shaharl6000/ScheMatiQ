@@ -3,7 +3,7 @@
 import json
 import random
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 class FewShotManager:
     """Manages few-shot examples from ground truth data for evaluation."""

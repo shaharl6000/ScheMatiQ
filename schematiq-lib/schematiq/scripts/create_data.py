@@ -10,7 +10,6 @@ import io
 import requests
 from PyPDF2 import PdfReader
 from collections import Counter
-import io
 
 
 MIN_COLUMNS_THRESH = 4

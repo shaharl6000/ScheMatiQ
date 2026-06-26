@@ -247,7 +247,7 @@ class UnitIdentificationParser:
                         "relevant_passages": unit.get("relevant_passages", unit.get("passages", [])),
                         "confidence": unit.get("confidence", "medium")
                     })
-                    warnings.append(f"Unit used alternate field name instead of 'unit_name'")
+                    warnings.append("Unit used alternate field name instead of 'unit_name'")
 
                 else:
                     # Dict but no recognizable unit name field

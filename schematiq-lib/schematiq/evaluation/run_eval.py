@@ -1,4 +1,3 @@
-from argparse import ArgumentParser
 import json
 from tqdm import tqdm
 import os
@@ -129,7 +128,7 @@ def main(gold_tables, pred_tables, out_file,
         pred_table = pred_table_instance.pop("table_cls")
 
         if len(pred_table_instance["aspects"]) == 0:
-            print(f"W: problem with EMPTY schema! ")
+            print("W: problem with EMPTY schema! ")
             continue
 
         if len(pred_table_instance["aspects"]) == 3 and "rational" in pred_table_instance["aspects"][2]:
@@ -186,7 +185,7 @@ if __name__ == "__main__":
             main(
                 pred_tables=os.path.join(pred_directory, f"{cur_pred}.jsonl"),
                 gold_tables=os.path.join(pred_directory,
-                                         f"arxiv_tables_filtered_4_columns_retrieved_queries_270725.jsonl"),
+                                         "arxiv_tables_filtered_4_columns_retrieved_queries_270725.jsonl"),
                 out_file=os.path.join(out_directory, f"SCORE_{cur_pred}_{featurizer}_{scorer}_{thresh}.jsonl"),
                 featurizer=featurizer,
                 scorer=scorer,
