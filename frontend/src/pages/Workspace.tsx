@@ -2567,17 +2567,10 @@ function Workspace() {
     markRerunNeeded(kind, columns);
 
     if (kind === 'unit') {
-      toast({
-        title: 'Observation unit updated',
-        description: sessionMode === 'schematiq'
-          ? 'Changing the unit changes row granularity. Rediscover the schema, then re-extract all data.'
-          : 'Imported static projects can edit the unit, but rediscovery needs a ScheMatiQ project with source documents.',
-        action: sessionMode === 'schematiq' ? (
-          <ToastAction altText="Rediscover schema and re-extract" onClick={() => startSchemaRediscovery()}>
-            Rediscover &amp; re-extract
-          </ToastAction>
-        ) : undefined,
-      });
+      // The persistent top banner (driven by markRerunNeeded above) already
+      // surfaces the "Rediscover schema & re-extract" action. We intentionally
+      // do not also fire a toast here to avoid two competing prompts for the
+      // same action.
       return;
     }
 
