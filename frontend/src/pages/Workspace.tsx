@@ -159,7 +159,7 @@ function formatSheetColHeader(column: SheetColumn): string {
   const label = escapeHtmlText(column.label);
   if (!column.headerTooltip) return label;
   const escaped = escapeHtmlAttribute(column.headerTooltip);
-  return `${label}<span class="workspace-col-header-info" title="${escaped}" aria-label="${escaped}">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>`;
+  return `${label}<span class="workspace-col-header-info" data-tooltip="${escaped}" aria-label="${escaped}" tabindex="0" role="img">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>`;
 }
 
 type WorkspaceMessage = {
