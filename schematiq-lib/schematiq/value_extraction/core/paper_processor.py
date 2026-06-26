@@ -6,7 +6,7 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Dict, Any, Set, Callable, Optional, List, Iterator, Tuple
+from typing import Dict, Any, Set, Callable, Optional, List, Iterator
 
 logger = logging.getLogger(__name__)
 from schematiq.core.schema import Schema, Column, ObservationUnit, _embed
@@ -325,7 +325,7 @@ class PaperProcessor:
                 print(f"⚠️  Callback error for {column_name}: {e}")
         else:
             print(
-                f"⚠️  on_value_extracted callback is NOT SET - cell streaming disabled"
+                "⚠️  on_value_extracted callback is NOT SET - cell streaming disabled"
             )
 
     def _attach_source_to_excerpts(
@@ -458,7 +458,7 @@ class PaperProcessor:
         raw = self._generate(trimmed, temperature=0, **self._gemini_kwargs(thinking_budget=0))
         # Check stop immediately after LLM call returns
         if self._check_stop_requested():
-            print(f"🛑 Stop requested after LLM call, returning empty")
+            print("🛑 Stop requested after LLM call, returning empty")
             return {}
         try:
             parsed = self.json_parser.parse_response(raw)
@@ -567,7 +567,7 @@ class PaperProcessor:
         )
         # Check stop immediately after LLM call returns
         if self._check_stop_requested():
-            print(f"🛑 Stop requested after batch LLM call, returning empty")
+            print("🛑 Stop requested after batch LLM call, returning empty")
             return {}
 
         try:
@@ -935,7 +935,7 @@ class PaperProcessor:
             # Check stop immediately after LLM call returns
             if self._check_stop_requested():
                 print(
-                    f"🛑 Stop requested after single-column LLM call, returning empty"
+                    "🛑 Stop requested after single-column LLM call, returning empty"
                 )
                 return {}
             try:
@@ -1091,7 +1091,7 @@ class PaperProcessor:
             # Check for stop request before each column extraction
             if self._check_stop_requested():
                 print(
-                    f"🛑 Stop requested during column extraction, returning partial results"
+                    "🛑 Stop requested during column extraction, returning partial results"
                 )
                 return row
 
@@ -1109,7 +1109,7 @@ class PaperProcessor:
                 # Check for stop before attempt 2
                 if self._check_stop_requested():
                     print(
-                        f"🛑 Stop requested before fallback attempt, returning partial results"
+                        "🛑 Stop requested before fallback attempt, returning partial results"
                     )
                     return row
                 # Attempt 2: Only try expanded retrieval if we have a retriever and got empty result
@@ -1125,7 +1125,7 @@ class PaperProcessor:
                 # Check for stop before attempt 3
                 if self._check_stop_requested():
                     print(
-                        f"🛑 Stop requested before snippet attempt, returning partial results"
+                        "🛑 Stop requested before snippet attempt, returning partial results"
                     )
                     return row
                 third = _single_column_attempt(
@@ -1774,7 +1774,7 @@ class PaperProcessor:
             ident_skip_reason = ident_result.skip_reason
 
         if not units:
-            print(f"  ⚠️ No units found, skipping document")
+            print("  ⚠️ No units found, skipping document")
             if known_units is not None:
                 return ExtractionResult(rows=[], skip_reason=KNOWN_UNITS_EMPTY)
             return ExtractionResult(rows=[], skip_reason=ident_skip_reason)
@@ -1798,7 +1798,7 @@ class PaperProcessor:
         try:
             for i, unit in enumerate(units, 1):
                 if self._check_stop_requested():
-                    print(f"🛑 Stop requested during unit extraction")
+                    print("🛑 Stop requested during unit extraction")
                     break
 
                 unit_name = unit.get("unit_name", f"Unit {i}")

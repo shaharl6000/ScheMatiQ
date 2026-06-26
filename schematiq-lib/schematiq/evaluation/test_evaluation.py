@@ -127,8 +127,8 @@ def main():
     passed = sum(results)
     total = len(results)
 
-    print(f"\n📊 TEST SUMMARY")
-    print(f"=" * 30)
+    print("\n📊 TEST SUMMARY")
+    print("=" * 30)
     print(f"Passed: {passed}/{total}")
     print(f"Success Rate: {passed/total*100:.1f}%")
 

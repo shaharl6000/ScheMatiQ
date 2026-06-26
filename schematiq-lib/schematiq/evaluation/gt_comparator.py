@@ -1,7 +1,7 @@
 """Ground truth comparison utilities for schema evaluation."""
 
 import re
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 

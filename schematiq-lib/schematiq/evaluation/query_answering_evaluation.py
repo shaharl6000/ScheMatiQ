@@ -56,14 +56,14 @@ def main():
     # Check if config file exists
     if not config_path.exists():
         print(f"❌ Configuration file not found: {config_path}")
-        print(f"💡 Try creating a config file based on evaluation/config/evaluation_config.json")
+        print("💡 Try creating a config file based on evaluation/config/evaluation_config.json")
         return 1
 
     # Create output directory if it doesn't exist
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
-        print(f"🚀 Starting Schema Evaluation")
+        print("🚀 Starting Schema Evaluation")
         print(f"   Config: {config_path}")
         print(f"   Output: {output_path}")
         print()
@@ -83,7 +83,7 @@ def main():
         # Generate additional reports if configured
         _generate_additional_reports(result, output_path, args.verbose)
 
-        print(f"✅ Evaluation completed successfully!")
+        print("✅ Evaluation completed successfully!")
         print(f"📄 Results saved to: {output_path}")
 
         return 0
@@ -110,7 +110,7 @@ def _generate_additional_reports(result, output_path, verbose=False):
     _generate_markdown_report(result, md_path)
 
     if verbose:
-        print(f"📊 Additional reports generated:")
+        print("📊 Additional reports generated:")
         print(f"   CSV Summary: {csv_path}")
         print(f"   Markdown Report: {md_path}")
 

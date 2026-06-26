@@ -1,6 +1,6 @@
 """Row-level query evaluation for schema assessment."""
 
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any
 from dataclasses import dataclass
 
 from ..core.llm_backends import LLMInterface

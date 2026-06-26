@@ -32,7 +32,6 @@ from schematiq.core.schema import Schema, Column, SchemaEvolution, ObservationUn
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.core.prompts import (
     get_prompts, get_observation_unit_prompts, SchemaMode, DRAFT_SCHEMA_TMPL,
-    SYSTEM_PROMPT_OBSERVATION_UNIT, USER_PROMPT_TMPL_OBSERVATION_UNIT,
     OBSERVATION_UNIT_CONTEXT_TMPL,
     SYSTEM_PROMPT_COMPLETE_COLUMNS, USER_PROMPT_TMPL_COMPLETE_COLUMNS,
 )
@@ -1101,7 +1100,7 @@ def main(cfg_path: Path) -> None:
 
     # Print results
     print(f"\nSchema discovery completed for {total_docs} documents in {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
-    print(f"\n📊 Document Contributions:")
+    print("\n📊 Document Contributions:")
     print(f"  • Contributing files: {len(contributing_files)}")
     print(f"  • Non-contributing files: {len(non_contributing_files)}")
     if total_docs > 0:
@@ -1109,12 +1108,12 @@ def main(cfg_path: Path) -> None:
         print(f"  • Contribution rate: {contribution_rate:.1f}%")
     
     if contributing_files:
-        print(f"\n✅ Files that contributed to schema:")
+        print("\n✅ Files that contributed to schema:")
         for filename in contributing_files:
             print(f"  • {filename}")
     
     if non_contributing_files:
-        print(f"\n❌ Files that did not contribute:")
+        print("\n❌ Files that did not contribute:")
         for filename in non_contributing_files:
             print(f"  • {filename}")
 

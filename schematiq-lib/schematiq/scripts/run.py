@@ -13,7 +13,6 @@ Write the code as modular as possible, to be able to work on much longer documen
 """
 
 from typing import List
-import torch
 from tqdm import tqdm
 import json
 import re

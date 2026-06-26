@@ -10,7 +10,6 @@ from typing import Any
 
 from schematiq.core.model_specs import ModelNames
 
-import numpy as np
 import pandas as pd
 import torch
 from nltk import word_tokenize
@@ -20,7 +19,6 @@ from openai import OpenAI
 from sentence_transformers import util
 
 from schematiq.core.embedding_model import load_sentence_transformer
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from table import Table
 
@@ -517,7 +515,7 @@ Table 2:
         alignment_str = response.choices[0].message.content
         alignment_str = alignment_str.split("Table 1:\n|")[0]
         try:
-            alignment_json = json.loads(re.search("(\[.+\])", alignment_str, re.DOTALL)[0])
+            alignment_json = json.loads(re.search(r"(\[.+\])", alignment_str, re.DOTALL)[0])
         except json.JSONDecodeError:
             # try again
             if response.choices[0].finish_reason == self._together.types.common.FinishReason.Length:
@@ -528,7 +526,7 @@ Table 2:
                 print(response)
             alignment_str = response.choices[0].message.content
             alignment_str = alignment_str.split("Table 1:\n|")[0]
-            alignment_json = json.loads(re.search("(\[.+\])", alignment_str, re.DOTALL)[0])
+            alignment_json = json.loads(re.search(r"(\[.+\])", alignment_str, re.DOTALL)[0])
 
         for gold_col_name in featurized_gold_col_list:
             for pred_col_name in featurized_pred_col_list:

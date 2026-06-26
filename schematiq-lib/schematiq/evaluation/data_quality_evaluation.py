@@ -21,8 +21,7 @@ import json
 from schematiq.core.model_specs import ModelNames
 import pandas as pd
 import numpy as np
-from pathlib import Path
-from typing import Dict, List, Tuple, Any, Optional, Set
+from typing import Dict, List, Tuple, Any, Optional
 import argparse
 from dataclasses import dataclass
 from schematiq.core.embedding_model import load_sentence_transformer
@@ -499,11 +498,11 @@ class ValueEvaluator:
         llm_judge_results = []
         llm_scores = []
 
-        print(f"\n=== Value Evaluation ===")
+        print("\n=== Value Evaluation ===")
         if self.use_llm_judge and self.llm_judge:
-            print(f"Using hybrid evaluation: Semantic similarity + LLM Judge")
+            print("Using hybrid evaluation: Semantic similarity + LLM Judge")
         else:
-            print(f"Using semantic similarity only")
+            print("Using semantic similarity only")
 
         comparison_count = 0
         for row_alignment in row_alignments:
@@ -700,17 +699,17 @@ class DataQualityEvaluator:
 
         metrics = result.summary_metrics
 
-        print(f"\n📊 ROW ALIGNMENT:")
+        print("\n📊 ROW ALIGNMENT:")
         print(f"  Matched rows: {metrics['rows_matched']} / {metrics['total_pred_rows']} predictions")
         print(f"  Row match rate: {metrics['row_match_rate']:.3f}")
 
-        print(f"\n🏗️  SCHEMA SIMILARITY:")
+        print("\n🏗️  SCHEMA SIMILARITY:")
         print(f"  Schema recall: {metrics['schema_recall']:.3f}")
         print(f"  Schema precision: {metrics['schema_precision']:.3f}")
         print(f"  Schema F1: {metrics['schema_f1']:.3f}")
         print(f"  Avg field similarity: {result.schema_similarity['avg_field_similarity']:.3f}")
 
-        print(f"\n💎 VALUE SIMILARITY:")
+        print("\n💎 VALUE SIMILARITY:")
         print(f"  Semantic similarity: {metrics['avg_value_similarity']:.3f}")
         print(f"  Median similarity: {metrics['median_value_similarity']:.3f}")
         print(f"  Total comparisons: {result.value_similarity.get('total_comparisons', 0)}")
@@ -722,23 +721,23 @@ class DataQualityEvaluator:
 
         # Show best/worst performing fields
         if 'best_fields' in result.value_similarity:
-            print(f"\n🏆 BEST PERFORMING FIELDS:")
+            print("\n🏆 BEST PERFORMING FIELDS:")
             for field, score in result.value_similarity['best_fields']:
                 print(f"  {field}: {score:.3f}")
 
         if 'worst_fields' in result.value_similarity:
-            print(f"\n📉 WORST PERFORMING FIELDS:")
+            print("\n📉 WORST PERFORMING FIELDS:")
             for field, score in result.value_similarity['worst_fields']:
                 print(f"  {field}: {score:.3f}")
 
         # Show LLM judge insights if available
         if result.llm_judge_results:
-            print(f"\n🤖 LLM JUDGE INSIGHTS:")
+            print("\n🤖 LLM JUDGE INSIGHTS:")
             high_conf_count = sum(1 for r in result.llm_judge_results if r.confidence == 'High')
             print(f"  High confidence judgments: {high_conf_count}/{len(result.llm_judge_results)}")
 
             # Show a few example judgments
-            print(f"  Sample LLM judgments:")
+            print("  Sample LLM judgments:")
             for i, judge_result in enumerate(result.llm_judge_results[:3]):
                 print(f"    {judge_result.field_name}: {judge_result.judgment_score:.3f} - {judge_result.judgment_reasoning[:60]}...")
 

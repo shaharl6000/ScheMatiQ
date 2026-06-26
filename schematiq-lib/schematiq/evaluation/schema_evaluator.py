@@ -3,7 +3,7 @@
 import json
 import time
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from dataclasses import dataclass, asdict
 
 from ..core import utils
@@ -47,7 +47,7 @@ class SchemaEvaluator:
 
         self.gt_column = self.config["gt_column"]
 
-        print(f"📊 Initialized SchemaEvaluator")
+        print("📊 Initialized SchemaEvaluator")
         print(f"   Query: {self.query[:100]}...")
         print(f"   Data: {self.data_path}")
         print(f"   GT Column: {self.gt_column}")
@@ -61,7 +61,7 @@ class SchemaEvaluator:
         """
         start_time = time.time()
 
-        print(f"🔍 Starting schema evaluation...")
+        print("🔍 Starting schema evaluation...")
 
         # Load data
         data = self._load_evaluation_data()
@@ -357,26 +357,26 @@ class SchemaEvaluator:
 
     def print_summary(self, result: SchemaEvaluationResult) -> None:
         """Print evaluation summary."""
-        print(f"\n📊 SCHEMA EVALUATION SUMMARY")
-        print(f"=" * 50)
+        print("\n📊 SCHEMA EVALUATION SUMMARY")
+        print("=" * 50)
         print(f"Query: {result.query}")
         print(f"Total Rows Evaluated: {result.total_rows}")
         print(f"Evaluation Time: {result.evaluation_time:.2f}s")
 
-        print(f"\n📈 OVERALL METRICS:")
+        print("\n📈 OVERALL METRICS:")
         for metric, value in result.overall_metrics.items():
             if isinstance(value, float):
                 print(f"  {metric}: {value:.3f}")
             else:
                 print(f"  {metric}: {value}")
 
-        print(f"\n🔍 COLUMN ANALYSIS:")
+        print("\n🔍 COLUMN ANALYSIS:")
         ca = result.column_analysis
         print(f"  Total Schema Columns: {ca.get('total_columns', 0)}")
         print(f"  Most Used: {', '.join(ca.get('most_used_columns', [])[:3])}")
         print(f"  Unused: {len(ca.get('unused_columns', []))} columns")
 
-        print(f"\n💡 RECOMMENDATIONS:")
+        print("\n💡 RECOMMENDATIONS:")
         for category, recs in result.recommendations.items():
             if recs:
                 print(f"  {category.title()}:")

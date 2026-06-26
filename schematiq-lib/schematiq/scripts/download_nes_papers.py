@@ -24,7 +24,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urljoin, urlparse, quote
+from urllib.parse import urljoin, urlparse
 
 import aiofiles
 import difflib
