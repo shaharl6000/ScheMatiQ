@@ -762,10 +762,10 @@ const ScheMatiQMonitor: React.FC<ScheMatiQMonitorProps> = ({
         return;
       }
 
-      // Ensure progress WebSocket is connected before background work starts
-      if (!webSocketService.isConnected()) {
-        webSocketService.connect(sessionId, 'progress');
-      }
+      // Ensure progress WebSocket is connected before background work starts.
+      // ensureConnected() does not take an additional reference (the mount
+      // effect already holds one), so it cannot leak a ref-count.
+      webSocketService.ensureConnected(sessionId, 'progress');
 
       setSchemaOnly(false);
       setActiveReextractionId(response.operation_id);
