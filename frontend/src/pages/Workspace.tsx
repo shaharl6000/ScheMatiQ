@@ -149,10 +149,18 @@ function escapeHtmlAttribute(value: string): string {
     .replace(/</g, '&lt;');
 }
 
+function escapeHtmlText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 function formatSheetColHeader(column: SheetColumn): string {
-  if (!column.headerTooltip) return column.label;
+  const label = escapeHtmlText(column.label);
+  if (!column.headerTooltip) return label;
   const escaped = escapeHtmlAttribute(column.headerTooltip);
-  return `${column.label}<span class="workspace-col-header-info" title="${escaped}" aria-label="${escaped}">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>`;
+  return `${label}<span class="workspace-col-header-info" title="${escaped}" aria-label="${escaped}">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>`;
 }
 
 type WorkspaceMessage = {
