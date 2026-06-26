@@ -794,6 +794,17 @@ function SpreadsheetSurface({
   const { sessionId } = useParams();
   const { toast } = useToast();
   const gridContainerRef = useRef<HTMLDivElement | null>(null);
+  // Track the grid container as state (not just a ref) so the measurement
+  // effect below re-runs the moment the real element mounts. On the
+  // project-creation flow the surface first renders a placeholder (no session,
+  // no ref) and only attaches the measured element once a session arrives;
+  // a plain ref would not re-trigger the effect, leaving the grid stuck at its
+  // 320px fallback width until a tab switch forces a remount.
+  const [gridContainerEl, setGridContainerEl] = useState<HTMLDivElement | null>(null);
+  const setGridContainerRef = useCallback((node: HTMLDivElement | null) => {
+    gridContainerRef.current = node;
+    setGridContainerEl(node);
+  }, []);
   const lastGridSizeRef = useRef({ width: 0, height: 0 });
   const [gridSize, setGridSize] = useState({ width: 0, height: 0 });
 
@@ -832,7 +843,7 @@ function SpreadsheetSurface({
   }, [applyGridSize, hotTableRef]);
 
   useLayoutEffect(() => {
-    const element = gridContainerRef.current;
+    const element = gridContainerEl;
     if (!element) return undefined;
 
     lastGridSizeRef.current = { width: 0, height: 0 };
@@ -864,7 +875,7 @@ function SpreadsheetSurface({
       observer?.disconnect();
       window.removeEventListener('resize', measureGrid);
     };
-  }, [activeSheet, layoutRevision, measureGrid]);
+  }, [activeSheet, layoutRevision, measureGrid, gridContainerEl]);
 
   useEffect(() => {
     syncHotTableDimensions();
@@ -1357,7 +1368,7 @@ function SpreadsheetSurface({
 
   return (
     <div
-      ref={gridContainerRef}
+      ref={setGridContainerRef}
       className="workspace-grid-surface h-full w-full min-h-0 min-w-0"
       style={{
         '--workspace-table-font': displayOptions.fontFamily === 'Mono'
