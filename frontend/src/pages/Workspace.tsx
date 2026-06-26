@@ -53,7 +53,6 @@ import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { ToastAction } from '@/components/ui/toast';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
 import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
@@ -2473,6 +2472,7 @@ function Workspace() {
       toast({
         title: 'Re-extraction started',
         description: `Re-extracting ${response.columns.join(', ')} across ${docCount} document(s). Other columns stay unchanged.`,
+        duration: 4000,
       });
     } catch (err: any) {
       toast({
@@ -2550,6 +2550,7 @@ function Workspace() {
       toast({
         title: 'Schema rediscovery started',
         description: 'Rediscovering schema from the updated observation unit.',
+        duration: 4000,
       });
       await refresh({ silent: true });
     } catch (err: any) {
@@ -2568,24 +2569,25 @@ function Workspace() {
 
     if (kind === 'unit') {
       // The persistent top banner (driven by markRerunNeeded above) already
-      // surfaces the "Rediscover schema & re-extract" action. We intentionally
-      // do not also fire a toast here to avoid two competing prompts for the
-      // same action.
+      // surfaces the "Rediscover schema & re-extract" action, so we do not fire a
+      // competing toast. Exception: in an imported (non-ScheMatiQ) project
+      // rediscovery is impossible and the banner's action only errors, so we
+      // surface a proactive, action-less explanation instead.
+      if (sessionMode !== 'schematiq') {
+        toast({
+          title: 'Observation unit updated',
+          description: 'Imported static projects can edit the unit, but rediscovery needs a ScheMatiQ project with source documents.',
+        });
+      }
       return;
     }
 
-    toast({
-      title: 'Schema updated',
-      description: columns.length > 0
-        ? `Re-extract ${columns.join(', ')} to refresh values from source documents.`
-        : 'Re-extract to refresh values from source documents.',
-      action: (
-        <ToastAction altText="Re-extract columns" onClick={() => requestReextraction(columns)}>
-          Re-extract
-        </ToastAction>
-      ),
-    });
-  }, [markRerunNeeded, requestReextraction, sessionMode, startSchemaRediscovery, toast]);
+    // Schema edits: the persistent "Schema changed" banner is the single,
+    // always-fresh entry point for re-extraction, so we raise no duplicate toast
+    // here. The old toast was also broken — its action captured a stale
+    // `requestReextraction` closure (schema not yet refreshed when the toast was
+    // created), producing a false "No columns to re-extract" error on click.
+  }, [markRerunNeeded, sessionMode, toast]);
 
   const runPendingEdits = useCallback(async () => {
     if (!sessionId || !pendingRerunKind || rerunStarting) return;
