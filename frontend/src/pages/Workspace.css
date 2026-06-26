@@ -563,26 +563,37 @@
   border-color: #b7d4c1;
   color: #0f5132;
   font-weight: 700;
-  overflow: visible;
 }
 
-.workspace-hot .handsontable .ht_clone_top thead th {
-  overflow: visible;
+.workspace-hot .handsontable .colHeader .workspace-col-header-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  vertical-align: middle;
 }
 
-.workspace-hot .handsontable .htCore thead th .relative,
-.workspace-hot .handsontable .ht_clone_top thead th .relative {
-  overflow: visible;
+.workspace-hot .handsontable .colHeader .workspace-col-header-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workspace-hot .handsontable .colHeader .workspace-col-header-info {
-  position: relative;
+  flex: 0 0 auto;
   display: inline-flex;
-  vertical-align: middle;
-  margin-left: 4px;
+  align-items: center;
   color: hsl(var(--muted-foreground));
   cursor: help;
   line-height: 0;
+  transition: color 100ms ease;
+}
+
+.workspace-hot .handsontable .colHeader .workspace-col-header-info:hover,
+.workspace-hot .handsontable .colHeader .workspace-col-header-info:focus-visible {
+  color: hsl(var(--foreground));
+  outline: none;
 }
 
 .workspace-hot .handsontable .colHeader .workspace-col-header-info svg {
@@ -590,37 +601,25 @@
   height: 14px;
 }
 
-.workspace-hot .handsontable .colHeader .workspace-col-header-info::after {
-  content: attr(data-tooltip);
-  position: absolute;
-  left: calc(100% + 6px);
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 200;
-  width: max-content;
+/* Single body-level tooltip for the header info icons. Lives on document.body
+   so it escapes Handsontable's overflow-clipped scroll containers; positioned
+   with JS (see SpreadsheetSurface). */
+.workspace-hot-tooltip {
+  position: fixed;
+  z-index: 1000;
   max-width: 20rem;
   padding: 0.375rem 0.75rem;
   border-radius: 0.375rem;
   border: 1px solid hsl(var(--border));
   background: hsl(var(--popover));
   color: hsl(var(--popover-foreground));
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   font-weight: 400;
   line-height: 1.25rem;
   white-space: normal;
   text-align: left;
   box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   pointer-events: none;
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 100ms ease, visibility 100ms ease;
-  transition-delay: 0ms;
-}
-
-.workspace-hot .handsontable .colHeader .workspace-col-header-info:hover::after,
-.workspace-hot .handsontable .colHeader .workspace-col-header-info:focus-visible::after {
-  opacity: 1;
-  visibility: visible;
 }
 
 .workspace-hot .handsontable .htCore tbody th {

@@ -132,6 +132,12 @@ type SheetColumn = {
 };
 
 const SCHEMA_COLUMN_HEADER_TOOLTIPS = {
+  name:
+    "The column's canonical name. This is the identity used for every edit, rename, re-extraction, and export, so the data tab keys off it.",
+  definition:
+    'What this column captures. Sent to the model as the extraction instruction, so keep it precise and unambiguous.',
+  rationale:
+    'Why this column exists. Optional context for collaborators; it is not used during extraction.',
   allowed_values:
     'Optional limits: categories (yes/no), numbers, ranges, or one saved date style per column. Leave empty for plain text.',
   auto_expand_threshold:
@@ -159,7 +165,18 @@ function formatSheetColHeader(column: SheetColumn): string {
   const label = escapeHtmlText(column.label);
   if (!column.headerTooltip) return label;
   const escaped = escapeHtmlAttribute(column.headerTooltip);
-  return `${label}<span class="workspace-col-header-info" data-tooltip="${escaped}" aria-label="${escaped}" tabindex="0" role="img">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>`;
+  // Wrap the label and icon in a flex container: the label truncates with an
+  // ellipsis when the column is narrow while the info icon stays pinned and
+  // visible (otherwise long headers like "auto_expand_threshold" clip the icon
+  // away). The tooltip text rides on data-tooltip and is rendered by a single
+  // body-level element (see SpreadsheetSurface) so it escapes Handsontable's
+  // overflow-clipped scroll containers.
+  return (
+    `<span class="workspace-col-header-wrap">` +
+    `<span class="workspace-col-header-label">${label}</span>` +
+    `<span class="workspace-col-header-info" data-tooltip="${escaped}" aria-label="${escaped}" tabindex="0" role="img">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>` +
+    `</span>`
+  );
 }
 
 type WorkspaceMessage = {
@@ -803,6 +820,105 @@ function SpreadsheetSurface({
     syncHotTableDimensions();
   }, [gridSize, syncHotTableDimensions]);
 
+  // Hover/focus help for Handsontable column-header info icons.
+  //
+  // Handsontable renders headers as raw HTML inside scroll containers that clip
+  // overflow for virtualization, and it has no React tree we can mount a tooltip
+  // component into. A CSS ::after tooltip therefore gets cut off (and overflows
+  // the viewport on the rightmost column), and a native `title` has an
+  // uncontrollable delay. Instead we keep one tooltip element on document.body
+  // and position it with JS: it escapes every clipping context, appears
+  // instantly, and stays inside the viewport for any column. One element plus
+  // delegated listeners means no per-render cost and it survives table remounts.
+  useEffect(() => {
+    const INFO_SELECTOR = '.workspace-hot .workspace-col-header-info';
+    const tooltip = document.createElement('div');
+    tooltip.className = 'workspace-hot-tooltip';
+    tooltip.setAttribute('role', 'tooltip');
+    tooltip.style.display = 'none';
+    document.body.appendChild(tooltip);
+
+    let activeIcon: HTMLElement | null = null;
+
+    const place = (icon: HTMLElement) => {
+      const margin = 8;
+      const gap = 6;
+      const anchor = icon.getBoundingClientRect();
+      const tip = tooltip.getBoundingClientRect();
+
+      let top = anchor.bottom + gap;
+      if (top + tip.height > window.innerHeight - margin) {
+        top = anchor.top - tip.height - gap; // flip above
+      }
+      top = Math.max(margin, Math.min(top, window.innerHeight - margin - tip.height));
+
+      let left = anchor.left;
+      if (left + tip.width > window.innerWidth - margin) {
+        left = window.innerWidth - margin - tip.width; // clamp to right edge
+      }
+      left = Math.max(margin, left);
+
+      tooltip.style.top = `${Math.round(top)}px`;
+      tooltip.style.left = `${Math.round(left)}px`;
+    };
+
+    const show = (icon: HTMLElement) => {
+      const text = icon.getAttribute('data-tooltip');
+      if (!text) return;
+      activeIcon = icon;
+      tooltip.textContent = text;
+      tooltip.style.display = 'block';
+      place(icon); // measure after content + display so dimensions are real
+    };
+
+    const hide = () => {
+      activeIcon = null;
+      tooltip.style.display = 'none';
+    };
+
+    const resolveIcon = (event: Event): HTMLElement | null => {
+      const target = event.target as HTMLElement | null;
+      return (target?.closest?.(INFO_SELECTOR) as HTMLElement | null) ?? null;
+    };
+
+    const onOver = (event: Event) => {
+      const icon = resolveIcon(event);
+      if (icon && icon !== activeIcon) show(icon);
+    };
+    const onOut = (event: Event) => {
+      if (!activeIcon) return;
+      const related = (event as MouseEvent).relatedTarget as Node | null;
+      if (related && activeIcon.contains(related)) return; // moved onto child svg
+      hide();
+    };
+    const onFocusIn = (event: Event) => {
+      const icon = resolveIcon(event);
+      if (icon) show(icon);
+    };
+    const dismiss = () => {
+      if (activeIcon) hide();
+    };
+
+    document.addEventListener('mouseover', onOver, true);
+    document.addEventListener('mouseout', onOut, true);
+    document.addEventListener('focusin', onFocusIn, true);
+    document.addEventListener('focusout', dismiss, true);
+    // Any scroll (the grid scrolls internally) or resize moves the anchor, so
+    // drop the tooltip rather than let it drift.
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('resize', dismiss);
+
+    return () => {
+      document.removeEventListener('mouseover', onOver, true);
+      document.removeEventListener('mouseout', onOut, true);
+      document.removeEventListener('focusin', onFocusIn, true);
+      document.removeEventListener('focusout', dismiss, true);
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('resize', dismiss);
+      tooltip.remove();
+    };
+  }, []);
+
   const schemaColumns = useMemo(() => {
     const cols = (schema?.schema || []) as Array<ColumnInfo & { allowed_values?: string[] }>;
     return cols;
@@ -898,9 +1014,19 @@ function SpreadsheetSurface({
         rows: schemaRows,
         minSpareRows: 1,
         columns: [
-          { key: 'name', label: 'name', width: 180 },
-          { key: 'definition', label: 'definition', width: 360 },
-          { key: 'rationale', label: 'rationale', width: 320 },
+          { key: 'name', label: 'name', width: 180, headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.name },
+          {
+            key: 'definition',
+            label: 'definition',
+            width: 360,
+            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.definition,
+          },
+          {
+            key: 'rationale',
+            label: 'rationale',
+            width: 320,
+            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.rationale,
+          },
           {
             key: 'allowed_values',
             label: 'allowed_values',
@@ -932,10 +1058,20 @@ function SpreadsheetSurface({
       columns: [
         { key: '_row_name', label: 'unit_name', width: 220, readOnly: true },
         { key: '_source_document', label: 'Source Document', width: 220, readOnly: true },
-        ...dataColumnNames.map((name) => ({ key: name, label: columnDisplayLabel(name), width: 190 })),
+        ...dataColumnNames.map((name) => {
+          // Mirror the legacy DataTable header behaviour: the data column's
+          // header explains itself with the schema definition on hover.
+          const definition = schemaColumns.find((c) => c.name === name)?.definition?.trim();
+          return {
+            key: name,
+            label: columnDisplayLabel(name),
+            width: 190,
+            headerTooltip: definition || undefined,
+          };
+        }),
       ],
     };
-  }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel]);
+  }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel, schemaColumns]);
 
   const handleChanges = useCallback((changes: any[] | null, source: string) => {
     if (!changes || source === 'loadData' || !sessionId) return;
