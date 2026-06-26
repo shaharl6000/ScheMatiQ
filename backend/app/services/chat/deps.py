@@ -74,8 +74,63 @@ def get_gemini_api_key() -> str:
     return key
 
 
-def truncate_result(value: Any, max_chars: int = 4000) -> Any:
+def truncate_result(value: Any, max_chars: int = 8000) -> Any:
     text = json.dumps(value, ensure_ascii=False, default=str)
     if len(text) <= max_chars:
         return value
+
+    def _size(item: Any) -> int:
+        return len(json.dumps(item, ensure_ascii=False, default=str))
+
+    # Preserve structure instead of collapsing the whole payload into an opaque
+    # preview string. Callers (and the model) rely on specific keys — e.g.
+    # get_schema's `column_names`/`column_count` drive the "(N columns)" summary
+    # and tell the agent which columns exist. A blunt preview drops those keys
+    # and reports 0 columns while feeding the model a JSON string cut mid-object.
+    if isinstance(value, dict):
+        # Small, high-signal keys are always kept verbatim first; the rest of the
+        # budget is filled with heavier keys (lists are kept partially).
+        summary_keys = (
+            "status", "message", "error", "hint", "truncated",
+            "column_names", "column_count", "total_count", "query",
+            "observation_unit", "format", "operation", "reprocessing",
+        )
+        kept: dict[str, Any] = {}
+        for key in summary_keys:
+            if key in value:
+                kept[key] = value[key]
+        remaining = max(max_chars - _size(kept), 0)
+        for key, item in value.items():
+            if key in kept:
+                continue
+            chunk = _size(item)
+            if chunk <= remaining:
+                kept[key] = item
+                remaining -= chunk
+            elif isinstance(item, list):
+                subset: list[Any] = []
+                for entry in item:
+                    entry_size = _size(entry)
+                    if entry_size > remaining:
+                        break
+                    subset.append(entry)
+                    remaining -= entry_size
+                kept[key] = subset
+                if len(subset) < len(item):
+                    kept[f"{key}_omitted"] = len(item) - len(subset)
+            # Oversized non-list values are dropped (key omitted) to stay in budget.
+        kept["truncated"] = True
+        return kept
+
+    if isinstance(value, list):
+        subset = []
+        remaining = max_chars
+        for entry in value:
+            entry_size = _size(entry)
+            if entry_size > remaining:
+                break
+            subset.append(entry)
+            remaining -= entry_size
+        return {"truncated": True, "items": subset, "omitted": len(value) - len(subset)}
+
     return {"truncated": True, "preview": text[:max_chars]}

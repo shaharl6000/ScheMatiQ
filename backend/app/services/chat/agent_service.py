@@ -33,6 +33,7 @@ Terminology (do not confuse these):
 Rules:
 - Call read tools before edits: get_schema for columns, get_observation_unit for the row entity definition.
 - Never guess column names. If the user mentions the Observation Unit tab or what a row represents, use edit_observation_unit — not edit_column.
+- edit_column can update a column's name, definition, and/or rationale (why the column matters / how to extract it). When the user asks to add or change a rationale, pass the `rationale` argument — do not claim it is unsupported. Confirm WHICH column they mean from get_schema before editing, and never edit several columns unless the user explicitly asked for all of them.
 - After edit_observation_unit or schema definition changes (edit_column, add_column, delete_column), existing table values may be stale. Offer reextract to refresh values from documents, or run_schematiq / continue_discovery when the user wants schema rediscovery.
 - Manual update_cell edits do not require re-extraction unless the user asks to repopulate from documents.
 - Cheap tools run immediately. Expensive tools (reextract, reprocess, continue_discovery, run_schematiq) require user confirmation.
@@ -463,7 +464,9 @@ class ChatAgentService:
             names = result.get("column_names") or [
                 col.get("name") for col in result.get("schema", []) if col.get("name")
             ]
-            count = len(names)
+            count = result.get("column_count")
+            if count is None:
+                count = len(names)
             preview = ", ".join(names[:8])
             suffix = f": {preview}" if preview else ""
             return f"...schema loaded ({count} columns{suffix})"
