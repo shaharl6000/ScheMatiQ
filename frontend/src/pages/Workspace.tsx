@@ -58,6 +58,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
 import StatsDashboard from '@/components/StatsDashboard/StatsDashboard';
 import ScheMatiQMonitor from '@/components/ScheMatiQMonitor/ScheMatiQMonitor';
+import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import {
   buildExcerptMapping,
@@ -1951,6 +1952,8 @@ function Workspace() {
   const [session, setSession] = useState<VisualizationSession | null>(null);
   const [schema, setSchema] = useState<SchemaData | null>(null);
   const [data, setData] = useState<PaginatedData>(emptyData);
+  const [dataView, setDataView] = useState<'by_document' | 'by_unit'>('by_document');
+  const [unitData, setUnitData] = useState<PaginatedData>(emptyData);
   const [documents, setDocuments] = useState<DocumentListResponse | null>(null);
   const [config, setConfig] = useState<ScheMatiQConfig | null>(null);
   const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
@@ -2114,7 +2117,24 @@ function Workspace() {
     setSchema(null);
     setStatus(null);
     setSession(null);
+    setDataView('by_document');
+    setUnitData(emptyData);
   }, [sessionId]);
+
+  // Lazily fetch the observation-unit-grouped data when the Data sheet is in
+  // "By Unit" mode. Same schema columns as the by-document view; only the row
+  // grouping differs (one row per observation unit instead of per document).
+  useEffect(() => {
+    if (activeSheet !== 'data' || dataView !== 'by_unit' || !sessionId) return;
+    let cancelled = false;
+    unitsAPI
+      .getData(sessionId, { page: 0, pageSize: 500 })
+      .then((res) => { if (!cancelled) setUnitData(res); })
+      .catch(() => { if (!cancelled) setUnitData(emptyData); });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSheet, dataView, sessionId, data]);
 
   useEffect(() => {
     if (activeSheet === 'monitor' && sessionMode !== 'schematiq') {
@@ -2701,6 +2721,17 @@ function Workspace() {
         style={{ gridTemplateColumns: bodyGridColumns }}
       >
         <section className="workspace-sheet-pane" data-hidden={isSheetHidden}>
+          {activeSheet === 'data' && (
+            <div
+              className="workspace-data-toolbar"
+              style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderBottom: '1px solid #e2e8e2' }}
+            >
+              <ViewModeToggle
+                viewMode={dataView === 'by_unit' ? 'by_unit' : 'standard'}
+                onViewModeChange={(mode) => setDataView(mode === 'by_unit' ? 'by_unit' : 'by_document')}
+              />
+            </div>
+          )}
           {activeSheet === 'stats' ? (
             <div className="workspace-dashboard-wrap" style={{ height: '100%', overflow: 'auto', padding: '16px' }}>
               {session?.statistics ? (
@@ -2720,7 +2751,7 @@ function Workspace() {
             <div className="workspace-grid-wrap">
               <SpreadsheetSurface
                 activeSheet={activeSheet}
-                data={data}
+                data={activeSheet === 'data' && dataView === 'by_unit' ? unitData : data}
                 schema={schema}
                 displayOptions={tableDisplay}
                 cellFormats={cellFormats}
