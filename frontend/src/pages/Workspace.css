@@ -565,6 +565,20 @@
   font-weight: 700;
 }
 
+.workspace-hot .handsontable .colHeader .workspace-col-header-info {
+  display: inline-flex;
+  vertical-align: middle;
+  margin-left: 4px;
+  color: hsl(var(--muted-foreground));
+  cursor: help;
+  line-height: 0;
+}
+
+.workspace-hot .handsontable .colHeader .workspace-col-header-info svg {
+  width: 14px;
+  height: 14px;
+}
+
 .workspace-hot .handsontable .htCore tbody th {
   background: #eef5f0;
   border-color: #d8e4dc;
