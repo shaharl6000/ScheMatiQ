@@ -121,6 +121,13 @@ def _all_tools() -> list[ToolSpec]:
                 "properties": {
                     "name": {"type": "string", "description": "New column name."},
                     "definition": {"type": "string", "description": "What this column captures."},
+                    "rationale": {
+                        "type": "string",
+                        "description": (
+                            "Why this column matters for the query / guidance for extraction "
+                            "(optional)."
+                        ),
+                    },
                 },
                 "required": ["name", "definition"],
             },
@@ -130,10 +137,13 @@ def _all_tools() -> list[ToolSpec]:
         ToolSpec(
             name="edit_column",
             description=(
-                "Rename or update a SCHEMA COLUMN (data table field). Does not change the "
-                "observation unit definition — use edit_observation_unit for that. "
-                "Call get_schema first for exact column names. Does not re-run extraction; "
-                "use reprocess separately if needed."
+                "Rename or update a SCHEMA COLUMN (data table field): its name, definition "
+                "(what the column captures), and/or rationale (why the column matters / how to "
+                "extract it). Does not change the observation unit definition — use "
+                "edit_observation_unit for that. Call get_schema first for the exact column "
+                "name and to confirm WHICH column the user means before editing; never edit "
+                "multiple columns unless the user explicitly asked for all of them. Does not "
+                "re-run extraction; use reextract separately if needed."
             ),
             parameters={
                 "type": "object",
@@ -141,6 +151,13 @@ def _all_tools() -> list[ToolSpec]:
                     "old_name": {"type": "string", "description": "Current column name."},
                     "new_name": {"type": "string", "description": "New column name (optional)."},
                     "definition": {"type": "string", "description": "Updated definition (optional)."},
+                    "rationale": {
+                        "type": "string",
+                        "description": (
+                            "Updated rationale: why this column matters for the query / guidance "
+                            "for extraction (optional). Pass an empty string to clear it."
+                        ),
+                    },
                 },
                 "required": ["old_name"],
             },
