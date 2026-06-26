@@ -12,7 +12,6 @@ from typing import Any, Optional
 from app.services.data_utils import (
     resolve_session_data_files,
     persist_session_data_file,
-    remove_column_keys_in_row,
     rename_column_keys_in_row,
 )
 

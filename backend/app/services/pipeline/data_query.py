@@ -8,7 +8,7 @@ from pathlib import Path
 
 from app.models.session import (
     ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus,
-    SchemaEvolution, VisualizationSession, SkippedDocumentInfo
+    SchemaEvolution, SkippedDocumentInfo
 )
 from app.models.schematiq import ScheMatiQStatus
 

@@ -5,14 +5,13 @@ import asyncio
 import logging
 import os
 import random
-import shutil
 import threading
 import time
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
 
-from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, RELEASE_CONFIG, LLM_CALL_GLOBAL_LIMIT
+from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT
 from app.core.logging_utils import set_session_context
 from app.services import schematiq_thread_pool, concurrency_limiter
 
@@ -29,21 +28,19 @@ from app.services.pipeline.data_query import (
 
 logger = logging.getLogger(__name__)
 
-from schematiq.core.schema import Schema, ObservationUnit
-from schematiq.core.llm_backends import LLMInterface
+from schematiq.core.schema import ObservationUnit
 from schematiq.core.llm_call_tracker import LLMCallTracker, GlobalLLMUsageTracker, QuotaExceededError
 from schematiq.core.cost_estimator import estimate_from_config
 
 from app.models.schematiq import ScheMatiQConfig, ScheMatiQStatus
 from app.models.session import (
-    ColumnInfo, DataStatistics, DataRow, PaginatedData, SessionStatus,
-    SchemaEvolution, SchemaSnapshot, VisualizationSession, ObservationUnitInfo,
+    ColumnInfo, PaginatedData, SessionStatus,
+    ObservationUnitInfo,
     SkippedDocumentInfo
 )
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
-from app.storage import get_storage
 
 class ScheMatiQRunner(WebSocketBroadcasterMixin):
     """Handles ScheMatiQ execution and integration."""

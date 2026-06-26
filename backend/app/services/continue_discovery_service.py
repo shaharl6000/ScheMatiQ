@@ -19,7 +19,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 from app.models.session import (
-    ColumnInfo, VisualizationSession
+    ColumnInfo
 )
 # Note: SchemaEvolution, SchemaSnapshot are imported locally where needed
 # to avoid conflict with schematiq.core.schema.SchemaEvolution
@@ -28,7 +28,7 @@ from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import schematiq_thread_pool, concurrency_limiter
 from app.storage.factory import get_storage
-from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG, MAX_DOCUMENTS
+from app.core.config import DEVELOPER_MODE, MAX_DOCUMENTS
 from app.core.logging_utils import set_session_context
 from app.services.pipeline.llm_factory import enforce_release_llm_config as _enforce_release_llm_config
 from app.services.document_preprocessor import read_document_text, MATERIALIZABLE_EXTENSIONS, commit_bytes_to_documents_dir
@@ -36,9 +36,7 @@ from app.services.data_utils import extract_papers, row_name_of
 
 # ScheMatiQ library imports
 from schematiq.core import schematiq as ScheMatiQ
-from schematiq.core.schematiq import discover_schema
 from schematiq.core.schema import Schema, Column, SchemaEvolution, SchemaSnapshot
-from schematiq.core.llm_backends import GeminiLLM
 from schematiq.core import utils as schematiq_utils
 from schematiq.core.llm_call_tracker import LLMCallTracker
 from schematiq.value_extraction.main import build_table_jsonl
@@ -334,7 +332,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
         data_rows = collect_all_data_rows(session_id)
 
         if not data_rows:
-            logger.debug(f"No data rows found for statistics computation")
+            logger.debug("No data rows found for statistics computation")
             return
 
         # Preserve existing schema evolution and skipped_documents, but fix any corrupted data
@@ -1040,7 +1038,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             )
 
             # Manual iteration loop for schema discovery (allows stop between batches)
-            logger.info(f"Starting manual schema discovery loop with initial_schema")
+            logger.info("Starting manual schema discovery loop with initial_schema")
 
             # Create document batches
             batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
@@ -1284,15 +1282,15 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             if session:
                 session.status = "completed"
                 self.session_manager.update_session(session)
-                logger.info(f"Set session status to 'completed' after discovery")
+                logger.info("Set session status to 'completed' after discovery")
 
             # Recompute statistics with proper column stats (non_null_count, unique_count, etc.)
             self._recompute_statistics(operation.session_id, preserve_evolution=True)
-            logger.info(f"Statistics recomputed after discovery phase")
+            logger.info("Statistics recomputed after discovery phase")
 
             # Recapture schema baseline so new columns are tracked for change detection
             self.session_manager.capture_schema_baseline(operation.session_id)
-            logger.info(f"Schema baseline recaptured after continue discovery")
+            logger.info("Schema baseline recaptured after continue discovery")
 
             # Complete discovery phase
             operation.status = "completed"
@@ -1669,7 +1667,7 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
                     )
 
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)
-                logger.info(f"Incremental extraction completed")
+                logger.info("Incremental extraction completed")
 
             # Clean up filtered docs directory
             if filtered_docs_dir.exists():
@@ -1697,15 +1695,15 @@ class ContinueDiscoveryService(WebSocketBroadcasterMixin):
             if session:
                 session.status = "completed"
                 self.session_manager.update_session(session)
-                logger.info(f"Set session status to 'completed' after incremental extraction")
+                logger.info("Set session status to 'completed' after incremental extraction")
 
             # Recompute statistics with proper column stats (non_null_count, unique_count, etc.)
             self._recompute_statistics(operation.session_id, preserve_evolution=True)
-            logger.info(f"Statistics recomputed after extraction phase")
+            logger.info("Statistics recomputed after extraction phase")
 
             # Recapture schema baseline so new columns are tracked for change detection
             self.session_manager.capture_schema_baseline(operation.session_id)
-            logger.info(f"Schema baseline recaptured after incremental extraction")
+            logger.info("Schema baseline recaptured after incremental extraction")
 
             # Cleanup
             schema_file.unlink(missing_ok=True)

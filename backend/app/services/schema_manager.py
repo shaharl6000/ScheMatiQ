@@ -11,15 +11,13 @@ import threading
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from datetime import datetime
-import time
 
-from app.models.session import ColumnInfo, SessionStatus
+from app.models.session import ColumnInfo
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin
 from app.services import schematiq_thread_pool, concurrency_limiter, find_session_data_file
 from app.core.config import DEVELOPER_MODE, RELEASE_CONFIG
-from app.core.logging_utils import set_session_context
 
 logger = logging.getLogger(__name__)
 

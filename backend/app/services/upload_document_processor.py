@@ -13,13 +13,12 @@ from datetime import datetime
 
 # ScheMatiQ library imports
 from schematiq.value_extraction.main import build_table_jsonl
-from schematiq.core.llm_backends import LLMInterface, TogetherLLM, OpenAILLM, GeminiLLM
 from schematiq.core.model_specs import ModelNames
 from schematiq.core import utils
 
 SCHEMATIQ_AVAILABLE = True
 
-from app.models.session import SessionStatus, DataRow, DataStatistics, ColumnInfo, VisualizationSession, SkippedDocumentInfo
+from app.models.session import SessionStatus, DataStatistics, ColumnInfo, VisualizationSession, SkippedDocumentInfo
 from app.services.websocket_manager import WebSocketManager
 from app.services.session_manager import SessionManager
 from app.services.websocket_mixin import WebSocketBroadcasterMixin

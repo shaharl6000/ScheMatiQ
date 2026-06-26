@@ -11,7 +11,7 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-from app.models.session import VisualizationSession, SessionStatus
+from app.models.session import SessionStatus
 from app.services.session_manager import SessionManager
 from app.services.websocket_manager import WebSocketManager
 

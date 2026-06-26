@@ -1,7 +1,7 @@
 """Models for tracking schema modifications and creation metadata."""
 
 from datetime import datetime
-from typing import List, Optional, Literal, Dict, Any
+from typing import Literal, Dict, Any
 from pydantic import BaseModel, Field
 
 

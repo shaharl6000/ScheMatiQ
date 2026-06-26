@@ -7,22 +7,18 @@ import json
 import csv
 import io
 import random
-import tempfile
-import zipfile
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, BackgroundTasks, Query
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from app.models.session import VisualizationSession, SessionType, SessionMetadata, PaginatedData, SessionStatus, FilterSortRequest
 from app.models.upload import (
-    FileValidationResult, ColumnMappingRequest, DataPreviewRequest,
-    SchemaValidationResult, DualFileUploadResult, CompatibilityCheck
+    ColumnMappingRequest, CompatibilityCheck
 )
 from app.services.file_parser import FileParser, format_column_header, is_system_file
-from app.services.session_manager import SessionManager
 from app.services import session_manager, websocket_manager, concurrency_limiter
 from app.services.upload_document_processor import UploadDocumentProcessor
 from app.storage import get_storage
@@ -1267,7 +1263,7 @@ async def process_documents(session_id: str, background_tasks: BackgroundTasks, 
                     schema_col = {
                         "name": col.name,
                         "definition": col.definition or f"Column containing {col.name} data",
-                        "rationale": col.rationale or f"Extracted from uploaded data structure"
+                        "rationale": col.rationale or "Extracted from uploaded data structure"
                     }
                     extracted_schema["schema"].append(schema_col)
 
