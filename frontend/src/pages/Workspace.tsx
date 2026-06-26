@@ -131,9 +131,26 @@ type SheetColumn = {
   width?: number;
   readOnly?: boolean;
   headerTooltip?: string;
+  // Optional Handsontable cell renderer (used for the observation-unit `field`
+  // column, where the meaningful concepts live in the rows rather than the
+  // headers). Typed loosely to avoid importing Handsontable's renderer types.
+  renderer?: (
+    instance: unknown,
+    td: HTMLTableCellElement,
+    row: number,
+    col: number,
+    prop: string | number,
+    value: unknown,
+  ) => void;
 };
 
 const SCHEMA_COLUMN_HEADER_TOOLTIPS = {
+  name:
+    "The column's canonical name. This is the identity used for every edit, rename, re-extraction, and export, so the data tab keys off it.",
+  definition:
+    'What this column captures. Sent to the model as the extraction instruction, so keep it precise and unambiguous.',
+  rationale:
+    'Why this column exists. Optional context for collaborators; it is not used during extraction.',
   allowed_values:
     'Optional limits: categories (yes/no), numbers, ranges, or one saved date style per column. Leave empty for plain text.',
   auto_expand_threshold:
@@ -142,6 +159,18 @@ const SCHEMA_COLUMN_HEADER_TOOLTIPS = {
 
 const SCHEMA_COLUMN_HEADER_INFO_ICON =
   '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>';
+
+// The observation-unit sheet is a key/value table: the concepts (name,
+// definition, example_names) are row labels in the read-only `field` column,
+// not headers. So the help attaches per row, mirroring the per-field help in
+// the Edit Observation Unit dialog.
+const OBSERVATION_UNIT_FIELD_TOOLTIPS: Record<string, string> = {
+  name: 'Short label shown for each extracted row (e.g. "Judge"). It names what a single row represents.',
+  definition:
+    'What counts as one row. Sent to the model to split documents into rows, so be specific (the dialog suggests 10–500 chars).',
+  example_names:
+    'Optional sample row names that illustrate the unit and guide extraction. They are not stored as data.',
+};
 
 function escapeHtmlAttribute(value: string): string {
   return value
@@ -157,11 +186,44 @@ function escapeHtmlText(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
+// Shared markup for a "label + hover-help icon" pair. Used both in
+// Handsontable column headers and in the observation-unit `field` cells; the
+// label truncates with an ellipsis while the icon stays pinned, and the
+// tooltip text rides on data-tooltip for the body-level tooltip to render.
+function infoLabelMarkup(rawLabel: string, tooltip: string): string {
+  const label = escapeHtmlText(rawLabel);
+  const escaped = escapeHtmlAttribute(tooltip);
+  return (
+    `<span class="workspace-col-header-wrap">` +
+    `<span class="workspace-col-header-label">${label}</span>` +
+    `<span class="workspace-col-header-info" data-tooltip="${escaped}" aria-label="${escaped}" tabindex="0" role="img">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>` +
+    `</span>`
+  );
+}
+
 function formatSheetColHeader(column: SheetColumn): string {
-  const label = escapeHtmlText(column.label);
-  if (!column.headerTooltip) return label;
-  const escaped = escapeHtmlAttribute(column.headerTooltip);
-  return `${label}<span class="workspace-col-header-info" data-tooltip="${escaped}" aria-label="${escaped}" tabindex="0" role="img">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>`;
+  if (!column.headerTooltip) return escapeHtmlText(column.label);
+  return infoLabelMarkup(column.label, column.headerTooltip);
+}
+
+// Handsontable renderer for the observation-unit `field` column: renders the
+// field name plus a hover-help icon when a description exists, otherwise plain
+// text. The column is read-only, so taking over the cell content is safe.
+function renderObservationUnitFieldCell(
+  _instance: unknown,
+  td: HTMLTableCellElement,
+  _row: number,
+  _col: number,
+  _prop: string | number,
+  value: unknown,
+): void {
+  const field = value == null ? '' : String(value);
+  const tooltip = OBSERVATION_UNIT_FIELD_TOOLTIPS[field];
+  if (!tooltip) {
+    td.textContent = field;
+    return;
+  }
+  td.innerHTML = infoLabelMarkup(field, tooltip);
 }
 
 type WorkspaceMessage = {
@@ -807,6 +869,105 @@ function SpreadsheetSurface({
     syncHotTableDimensions();
   }, [gridSize, syncHotTableDimensions]);
 
+  // Hover/focus help for Handsontable column-header info icons.
+  //
+  // Handsontable renders headers as raw HTML inside scroll containers that clip
+  // overflow for virtualization, and it has no React tree we can mount a tooltip
+  // component into. A CSS ::after tooltip therefore gets cut off (and overflows
+  // the viewport on the rightmost column), and a native `title` has an
+  // uncontrollable delay. Instead we keep one tooltip element on document.body
+  // and position it with JS: it escapes every clipping context, appears
+  // instantly, and stays inside the viewport for any column. One element plus
+  // delegated listeners means no per-render cost and it survives table remounts.
+  useEffect(() => {
+    const INFO_SELECTOR = '.workspace-hot .workspace-col-header-info';
+    const tooltip = document.createElement('div');
+    tooltip.className = 'workspace-hot-tooltip';
+    tooltip.setAttribute('role', 'tooltip');
+    tooltip.style.display = 'none';
+    document.body.appendChild(tooltip);
+
+    let activeIcon: HTMLElement | null = null;
+
+    const place = (icon: HTMLElement) => {
+      const margin = 8;
+      const gap = 6;
+      const anchor = icon.getBoundingClientRect();
+      const tip = tooltip.getBoundingClientRect();
+
+      let top = anchor.bottom + gap;
+      if (top + tip.height > window.innerHeight - margin) {
+        top = anchor.top - tip.height - gap; // flip above
+      }
+      top = Math.max(margin, Math.min(top, window.innerHeight - margin - tip.height));
+
+      let left = anchor.left;
+      if (left + tip.width > window.innerWidth - margin) {
+        left = window.innerWidth - margin - tip.width; // clamp to right edge
+      }
+      left = Math.max(margin, left);
+
+      tooltip.style.top = `${Math.round(top)}px`;
+      tooltip.style.left = `${Math.round(left)}px`;
+    };
+
+    const show = (icon: HTMLElement) => {
+      const text = icon.getAttribute('data-tooltip');
+      if (!text) return;
+      activeIcon = icon;
+      tooltip.textContent = text;
+      tooltip.style.display = 'block';
+      place(icon); // measure after content + display so dimensions are real
+    };
+
+    const hide = () => {
+      activeIcon = null;
+      tooltip.style.display = 'none';
+    };
+
+    const resolveIcon = (event: Event): HTMLElement | null => {
+      const target = event.target as HTMLElement | null;
+      return (target?.closest?.(INFO_SELECTOR) as HTMLElement | null) ?? null;
+    };
+
+    const onOver = (event: Event) => {
+      const icon = resolveIcon(event);
+      if (icon && icon !== activeIcon) show(icon);
+    };
+    const onOut = (event: Event) => {
+      if (!activeIcon) return;
+      const related = (event as MouseEvent).relatedTarget as Node | null;
+      if (related && activeIcon.contains(related)) return; // moved onto child svg
+      hide();
+    };
+    const onFocusIn = (event: Event) => {
+      const icon = resolveIcon(event);
+      if (icon) show(icon);
+    };
+    const dismiss = () => {
+      if (activeIcon) hide();
+    };
+
+    document.addEventListener('mouseover', onOver, true);
+    document.addEventListener('mouseout', onOut, true);
+    document.addEventListener('focusin', onFocusIn, true);
+    document.addEventListener('focusout', dismiss, true);
+    // Any scroll (the grid scrolls internally) or resize moves the anchor, so
+    // drop the tooltip rather than let it drift.
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('resize', dismiss);
+
+    return () => {
+      document.removeEventListener('mouseover', onOver, true);
+      document.removeEventListener('mouseout', onOut, true);
+      document.removeEventListener('focusin', onFocusIn, true);
+      document.removeEventListener('focusout', dismiss, true);
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('resize', dismiss);
+      tooltip.remove();
+    };
+  }, []);
+
   const schemaColumns = useMemo(() => {
     const cols = (schema?.schema || []) as Array<ColumnInfo & { allowed_values?: string[] }>;
     return cols;
@@ -902,9 +1063,19 @@ function SpreadsheetSurface({
         rows: schemaRows,
         minSpareRows: 1,
         columns: [
-          { key: 'name', label: 'name', width: 180 },
-          { key: 'definition', label: 'definition', width: 360 },
-          { key: 'rationale', label: 'rationale', width: 320 },
+          { key: 'name', label: 'name', width: 180, headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.name },
+          {
+            key: 'definition',
+            label: 'definition',
+            width: 360,
+            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.definition,
+          },
+          {
+            key: 'rationale',
+            label: 'rationale',
+            width: 320,
+            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.rationale,
+          },
           {
             key: 'allowed_values',
             label: 'allowed_values',
@@ -925,7 +1096,13 @@ function SpreadsheetSurface({
       return {
         rows: observationUnitRows,
         columns: [
-          { key: 'field', label: 'field', width: 190, readOnly: true },
+          {
+            key: 'field',
+            label: 'field',
+            width: 190,
+            readOnly: true,
+            renderer: renderObservationUnitFieldCell,
+          },
           { key: 'value', label: 'value', width: 680 },
         ],
       };
@@ -936,10 +1113,20 @@ function SpreadsheetSurface({
       columns: [
         { key: '_row_name', label: 'unit_name', width: 220, readOnly: true },
         { key: '_source_document', label: 'Source Document', width: 220, readOnly: true },
-        ...dataColumnNames.map((name) => ({ key: name, label: columnDisplayLabel(name), width: 190 })),
+        ...dataColumnNames.map((name) => {
+          // Mirror the legacy DataTable header behaviour: the data column's
+          // header explains itself with the schema definition on hover.
+          const definition = schemaColumns.find((c) => c.name === name)?.definition?.trim();
+          return {
+            key: name,
+            label: columnDisplayLabel(name),
+            width: 190,
+            headerTooltip: definition || undefined,
+          };
+        }),
       ],
     };
-  }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel]);
+  }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel, schemaColumns]);
 
   const handleChanges = useCallback((changes: any[] | null, source: string) => {
     if (!changes || source === 'loadData' || !sessionId) return;
@@ -1195,6 +1382,7 @@ function SpreadsheetSurface({
           data: column.key,
           readOnly: column.readOnly,
           width: column.width,
+          ...(column.renderer ? { renderer: column.renderer } : {}),
         }))}
         colHeaders={sheet.columns.map(formatSheetColHeader)}
         rowHeaders
