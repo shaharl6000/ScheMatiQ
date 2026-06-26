@@ -202,6 +202,7 @@ class ToolExecutor:
       if not session:
           raise ValueError("Session not found")
       definition = args["definition"]
+      rationale = args.get("rationale", "") or ""
       name, display_name = canonicalize_column_name(args["name"])
       if not name:
           raise ValueError("Column name cannot be empty")
@@ -209,14 +210,14 @@ class ToolExecutor:
           if col.name == name:
               raise ValueError(f"Column '{name}' already exists")
       new_column = ColumnInfo(
-          name=name, display_name=display_name, definition=definition, rationale=""
+          name=name, display_name=display_name, definition=definition, rationale=rationale
       )
       session.columns.append(new_column)
       session.modification_history.append(
           ModificationAction(
               action_type="column_added",
               column_name=name,
-              details={"definition": definition},
+              details={"definition": definition, "rationale": rationale},
           )
       )
       session.metadata.last_modified = datetime.now()
@@ -243,6 +244,7 @@ class ToolExecutor:
           raise ValueError("Session not found")
       old_name = args["old_name"]
       definition = args.get("definition")
+      rationale = args.get("rationale")
       new_name: Optional[str] = None
       new_display_name: Optional[str] = None
       if args.get("new_name"):
@@ -262,15 +264,26 @@ class ToolExecutor:
                   col.display_name = new_display_name
               if definition is not None:
                   col.definition = definition
+              if rationale is not None:
+                  col.rationale = rationale
               column_found = True
               break
       if not column_found:
           raise ValueError(f"Column '{old_name}' not found")
+      if new_name is None and definition is None and rationale is None:
+          raise ValueError(
+              "Nothing to update: provide new_name, definition, and/or rationale."
+          )
       session.modification_history.append(
           ModificationAction(
               action_type="column_edited",
               column_name=new_name or old_name,
-              details={"original_name": old_name, "new_name": new_name},
+              details={
+                  "original_name": old_name,
+                  "new_name": new_name,
+                  "definition_changed": definition is not None,
+                  "rationale_changed": rationale is not None,
+              },
           )
       )
       session.metadata.last_modified = datetime.now()
@@ -289,9 +302,17 @@ class ToolExecutor:
               "columns": [col.model_dump() for col in session.columns],
           },
       )
+      changed: list[str] = []
+      if new_name:
+          changed.append("name")
+      if definition is not None:
+          changed.append("definition")
+      if rationale is not None:
+          changed.append("rationale")
+      changed_label = ", ".join(changed) if changed else "no fields"
       return {
           "status": "success",
-          "message": f"Column '{old_name}' updated.",
+          "message": f"Column '{new_name or old_name}' updated ({changed_label}).",
           "reprocessing": False,
       }
 
