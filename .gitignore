@@ -137,3 +137,9 @@ Untitled
 * copy.*
 *\ copy.*
 backend/debug
+
+# Local root-level helper/docs files
+/CLAUDE.md
+/tasks.md
+/requirements.txt
+/*.patch
