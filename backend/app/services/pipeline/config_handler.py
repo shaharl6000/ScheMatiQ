@@ -4,7 +4,6 @@ import logging
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
-from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE
 from app.models.schematiq import ScheMatiQConfig
 from app.storage import get_storage
 

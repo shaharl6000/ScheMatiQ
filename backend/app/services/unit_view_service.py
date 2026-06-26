@@ -17,7 +17,6 @@ from app.models.unit import (
     UnitSuggestionsResponse,
     AutoMergeResult,
 )
-from app.models.session import DataRow
 from app.core.config import DEFAULT_DATA_DIR, DEFAULT_SCHEMATIQ_WORK_DIR
 from app.services import row_filtering
 

@@ -7,12 +7,10 @@ import logging
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from typing import List, Optional
 from pydantic import BaseModel, Field
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 from app.core.logging_utils import set_session_context
-from app.services.session_manager import SessionManager
 from app.services.observation_unit_manager import ObservationUnitManager
 from app.services import session_manager, websocket_manager
 

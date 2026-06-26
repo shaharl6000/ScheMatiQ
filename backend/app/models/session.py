@@ -1,7 +1,7 @@
 """Session and data models for visualization."""
 
 from datetime import datetime
-from typing import List, Optional, Dict, Any, Union, Literal
+from typing import List, Optional, Dict, Any, Literal
 from pydantic import BaseModel, Field
 from enum import Enum
 

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 from fastapi import APIRouter, HTTPException, BackgroundTasks, Query
 from pydantic import BaseModel
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 from app.models.session import VisualizationSession, SessionType, SessionStatus, SessionMetadata, FilterSortRequest
 from app.models.schematiq import ScheMatiQConfig, ScheMatiQStatus, CostEstimate, CostEstimateRequest, PhaseEstimate, DocumentStats

@@ -6,8 +6,8 @@ import threading
 from typing import Dict, List, Optional
 from datetime import datetime
 
-from app.models.session import VisualizationSession, SessionType, SessionStatus, ColumnInfo, ColumnBaseline, SchemaBaseline
-from app.models.modification import CreationMetadata, ModificationAction
+from app.models.session import VisualizationSession, SessionType, SessionStatus, ColumnBaseline, SchemaBaseline
+from app.models.modification import CreationMetadata
 from app.storage import get_storage, StorageInterface
 
 logger = logging.getLogger(__name__)

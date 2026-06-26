@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-from app.core.config import DATA_COLLECTION_ENABLED, DEVELOPER_MODE, MAX_DOCUMENTS
+from app.core.config import DATA_COLLECTION_ENABLED, MAX_DOCUMENTS
 from app.utils.csv_helpers import format_excerpt_for_csv
 
 logger = logging.getLogger(__name__)
