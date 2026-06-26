@@ -2324,6 +2324,36 @@ function Workspace() {
     };
   }, [activeSheet, dataView, sessionId, data]);
 
+  // Order the By Unit rows so their unit groups appear in the same sequence as
+  // the By Document view (the units' first appearance in the by-document data),
+  // instead of the backend's alphabetical order. This keeps the two views
+  // aligned — identical when each document maps to a single unit — while still
+  // grouping each unit's rows together. Ordering only; rows are unchanged.
+  const alignedUnitData = useMemo<PaginatedData>(() => {
+    const rows = unitData.rows || [];
+    if (rows.length === 0) return unitData;
+    const unitKey = (row: DataRow) => String(row.row_name || row._unit_name || '');
+    const firstSeen = new Map<string, number>();
+    (data.rows || []).forEach((row, i) => {
+      const k = unitKey(row);
+      if (!firstSeen.has(k)) firstSeen.set(k, i);
+    });
+    const groups = new Map<string, DataRow[]>();
+    rows.forEach((row) => {
+      const k = unitKey(row);
+      const g = groups.get(k);
+      if (g) g.push(row);
+      else groups.set(k, [row]);
+    });
+    const orderedKeys = Array.from(groups.keys()).sort((a, b) => {
+      const ia = firstSeen.has(a) ? (firstSeen.get(a) as number) : Number.MAX_SAFE_INTEGER;
+      const ib = firstSeen.has(b) ? (firstSeen.get(b) as number) : Number.MAX_SAFE_INTEGER;
+      return ia !== ib ? ia - ib : a.localeCompare(b);
+    });
+    const orderedRows = orderedKeys.flatMap((k) => groups.get(k) as DataRow[]);
+    return { ...unitData, rows: orderedRows };
+  }, [unitData, data]);
+
   useEffect(() => {
     if (activeSheet === 'monitor' && sessionMode !== 'schematiq') {
       setActiveSheet('data');
@@ -2939,7 +2969,7 @@ function Workspace() {
             <div className="workspace-grid-wrap">
               <SpreadsheetSurface
                 activeSheet={activeSheet}
-                data={activeSheet === 'data' && dataView === 'by_unit' ? unitData : data}
+                data={activeSheet === 'data' && dataView === 'by_unit' ? alignedUnitData : data}
                 schema={schema}
                 displayOptions={tableDisplay}
                 cellFormats={cellFormats}
