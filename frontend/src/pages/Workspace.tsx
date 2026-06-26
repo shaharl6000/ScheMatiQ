@@ -1152,7 +1152,7 @@ function SpreadsheetSurface({
       // Schema and Data tabs in sync with a single source of truth.
       return false;
     },
-    [activeSheet, onEditFollowUp, onRefresh, schemaColumns, sessionId, toast],
+    [activeSheet, onRefresh, schemaColumns, sessionId, toast],
   );
 
   if (!sessionId) {
