@@ -129,7 +129,31 @@ type SheetColumn = {
   label: string;
   width?: number;
   readOnly?: boolean;
+  headerTooltip?: string;
 };
+
+const SCHEMA_COLUMN_HEADER_TOOLTIPS = {
+  allowed_values:
+    'Optional limits: categories (yes/no), numbers, ranges, or one saved date style per column. Leave empty for plain text.',
+  auto_expand_threshold:
+    'Automatically add new values to allowed_values when they appear in at least this many documents. Set to -1 to disable auto-expansion.',
+} as const;
+
+const SCHEMA_COLUMN_HEADER_INFO_ICON =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>';
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;');
+}
+
+function formatSheetColHeader(column: SheetColumn): string {
+  if (!column.headerTooltip) return column.label;
+  const escaped = escapeHtmlAttribute(column.headerTooltip);
+  return `${column.label}<span class="workspace-col-header-info" title="${escaped}" aria-label="${escaped}">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>`;
+}
 
 type WorkspaceMessage = {
   id: string;
@@ -870,8 +894,18 @@ function SpreadsheetSurface({
           { key: 'name', label: 'name', width: 180 },
           { key: 'definition', label: 'definition', width: 360 },
           { key: 'rationale', label: 'rationale', width: 320 },
-          { key: 'allowed_values', label: 'allowed_values', width: 260 },
-          { key: 'auto_expand_threshold', label: 'auto_expand_threshold', width: 150 },
+          {
+            key: 'allowed_values',
+            label: 'allowed_values',
+            width: 260,
+            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.allowed_values,
+          },
+          {
+            key: 'auto_expand_threshold',
+            label: 'auto_expand_threshold',
+            width: 150,
+            headerTooltip: SCHEMA_COLUMN_HEADER_TOOLTIPS.auto_expand_threshold,
+          },
         ],
       };
     }
@@ -1151,7 +1185,7 @@ function SpreadsheetSurface({
           readOnly: column.readOnly,
           width: column.width,
         }))}
-        colHeaders={sheet.columns.map((column) => column.label)}
+        colHeaders={sheet.columns.map(formatSheetColHeader)}
         rowHeaders
         width={gridSize.width || 320}
         height={gridSize.height || 260}
