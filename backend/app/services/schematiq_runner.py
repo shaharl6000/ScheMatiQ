@@ -541,22 +541,37 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             if isinstance(docs_paths, str):
                 docs_paths = [docs_paths]
 
+            # Mirror the extension set the schematiq-lib reader (and the commit
+            # layer in document_preprocessor) treat as loadable, so files placed
+            # in documents/ — e.g. .html/.htm — are not silently dropped here.
+            from app.services.document_preprocessor import LIB_READABLE_STORAGE_EXTENSIONS
+
             documents = []
             filenames = []
+            seen_filenames = set()
             total_docs = 0
 
             for docs_path in docs_paths:
                 doc_path = Path(docs_path)
-                if doc_path.exists():
-                    doc_files = list(doc_path.glob("*.txt")) + list(doc_path.glob("*.md"))
-                    total_docs += len(doc_files)
-                    for doc_file in doc_files:
-                        try:
-                            content = doc_file.read_text(encoding='utf-8')
-                            documents.append(content)
-                            filenames.append(doc_file.name)
-                        except Exception as e:
-                            logger.warning("Could not read %s: %s", doc_file, e)
+                if not doc_path.exists():
+                    continue
+                doc_files = sorted(
+                    f for f in doc_path.iterdir()
+                    if f.is_file() and f.suffix.lower() in LIB_READABLE_STORAGE_EXTENSIONS
+                )
+                for doc_file in doc_files:
+                    # De-duplicate across dirs by filename (pending_documents/
+                    # takes precedence over documents/ via the ordering above).
+                    if doc_file.name in seen_filenames:
+                        continue
+                    seen_filenames.add(doc_file.name)
+                    total_docs += 1
+                    try:
+                        content = doc_file.read_text(encoding='utf-8')
+                        documents.append(content)
+                        filenames.append(doc_file.name)
+                    except Exception as e:
+                        logger.warning("Could not read %s: %s", doc_file, e)
 
             # Cap documents at MAX_DOCUMENTS
             bypass_limit = schematiq_config.get("bypass_limit", False)
