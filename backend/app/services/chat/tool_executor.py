@@ -101,10 +101,28 @@ class ToolExecutor:
   ) -> dict[str, Any]:
       session = session_manager.get_session(session_id)
       if session and session.columns:
+          # Return a compact, agent-focused view (name/definition/rationale/
+          # allowed_values) instead of the full model_dump. Dropping noise fields
+          # (counts, timestamps, pending/value details) keeps the payload small so
+          # the whole schema survives result-size limits and reaches the model
+          # intact — a truncated schema is what makes the agent mis-handle edits.
+          def _compact(col: ColumnInfo) -> dict[str, Any]:
+              entry: dict[str, Any] = {"name": col.name}
+              if col.display_name:
+                  entry["display_name"] = col.display_name
+              if col.definition:
+                  entry["definition"] = col.definition
+              if col.rationale:
+                  entry["rationale"] = col.rationale
+              if col.allowed_values:
+                  entry["allowed_values"] = col.allowed_values
+              return entry
+
           return {
               "query": session.schema_query or "",
-              "schema": [col.model_dump() for col in session.columns],
+              "column_count": len(session.columns),
               "column_names": [col.name for col in session.columns],
+              "schema": [_compact(col) for col in session.columns],
               "observation_unit": (
                   session.observation_unit.model_dump() if session.observation_unit else None
               ),
@@ -292,7 +310,16 @@ class ToolExecutor:
           try:
               await data_editor.rename_column(session_id, old_name, new_name)
           except FileNotFoundError:
-              pass
+              # Expected on storage backends with no local data file yet (e.g. a
+              # freshly created session, or the Supabase backend where this path
+              # no-ops). The schema rename already succeeded above; the data-file
+              # rename is best-effort. Log rather than swallow silently so a real
+              # failure is visible in diagnostics.
+              logger.warning(
+                  "rename_column: no data file to rename for session %s (%s -> %s); "
+                  "schema updated, data rename skipped.",
+                  session_id, old_name, new_name,
+              )
       await websocket_manager.broadcast_schema_updated(
           session_id,
           {
