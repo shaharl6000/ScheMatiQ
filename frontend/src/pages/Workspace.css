@@ -565,7 +565,9 @@
   font-weight: 700;
 }
 
-.workspace-hot .handsontable .colHeader .workspace-col-header-wrap {
+/* Used in column headers (.colHeader) and in observation-unit `field` cells
+   (td); the label truncates with an ellipsis while the icon stays pinned. */
+.workspace-hot .handsontable .workspace-col-header-wrap {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -573,14 +575,14 @@
   vertical-align: middle;
 }
 
-.workspace-hot .handsontable .colHeader .workspace-col-header-label {
+.workspace-hot .handsontable .workspace-col-header-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.workspace-hot .handsontable .colHeader .workspace-col-header-info {
+.workspace-hot .handsontable .workspace-col-header-info {
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -590,13 +592,13 @@
   transition: color 100ms ease;
 }
 
-.workspace-hot .handsontable .colHeader .workspace-col-header-info:hover,
-.workspace-hot .handsontable .colHeader .workspace-col-header-info:focus-visible {
+.workspace-hot .handsontable .workspace-col-header-info:hover,
+.workspace-hot .handsontable .workspace-col-header-info:focus-visible {
   color: hsl(var(--foreground));
   outline: none;
 }
 
-.workspace-hot .handsontable .colHeader .workspace-col-header-info svg {
+.workspace-hot .handsontable .workspace-col-header-info svg {
   width: 14px;
   height: 14px;
 }

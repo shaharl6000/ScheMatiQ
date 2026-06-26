@@ -129,6 +129,17 @@ type SheetColumn = {
   width?: number;
   readOnly?: boolean;
   headerTooltip?: string;
+  // Optional Handsontable cell renderer (used for the observation-unit `field`
+  // column, where the meaningful concepts live in the rows rather than the
+  // headers). Typed loosely to avoid importing Handsontable's renderer types.
+  renderer?: (
+    instance: unknown,
+    td: HTMLTableCellElement,
+    row: number,
+    col: number,
+    prop: string | number,
+    value: unknown,
+  ) => void;
 };
 
 const SCHEMA_COLUMN_HEADER_TOOLTIPS = {
@@ -147,6 +158,18 @@ const SCHEMA_COLUMN_HEADER_TOOLTIPS = {
 const SCHEMA_COLUMN_HEADER_INFO_ICON =
   '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg>';
 
+// The observation-unit sheet is a key/value table: the concepts (name,
+// definition, example_names) are row labels in the read-only `field` column,
+// not headers. So the help attaches per row, mirroring the per-field help in
+// the Edit Observation Unit dialog.
+const OBSERVATION_UNIT_FIELD_TOOLTIPS: Record<string, string> = {
+  name: 'Short label shown for each extracted row (e.g. "Judge"). It names what a single row represents.',
+  definition:
+    'What counts as one row. Sent to the model to split documents into rows, so be specific (the dialog suggests 10–500 chars).',
+  example_names:
+    'Optional sample row names that illustrate the unit and guide extraction. They are not stored as data.',
+};
+
 function escapeHtmlAttribute(value: string): string {
   return value
     .replace(/&/g, '&amp;')
@@ -161,22 +184,44 @@ function escapeHtmlText(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
-function formatSheetColHeader(column: SheetColumn): string {
-  const label = escapeHtmlText(column.label);
-  if (!column.headerTooltip) return label;
-  const escaped = escapeHtmlAttribute(column.headerTooltip);
-  // Wrap the label and icon in a flex container: the label truncates with an
-  // ellipsis when the column is narrow while the info icon stays pinned and
-  // visible (otherwise long headers like "auto_expand_threshold" clip the icon
-  // away). The tooltip text rides on data-tooltip and is rendered by a single
-  // body-level element (see SpreadsheetSurface) so it escapes Handsontable's
-  // overflow-clipped scroll containers.
+// Shared markup for a "label + hover-help icon" pair. Used both in
+// Handsontable column headers and in the observation-unit `field` cells; the
+// label truncates with an ellipsis while the icon stays pinned, and the
+// tooltip text rides on data-tooltip for the body-level tooltip to render.
+function infoLabelMarkup(rawLabel: string, tooltip: string): string {
+  const label = escapeHtmlText(rawLabel);
+  const escaped = escapeHtmlAttribute(tooltip);
   return (
     `<span class="workspace-col-header-wrap">` +
     `<span class="workspace-col-header-label">${label}</span>` +
     `<span class="workspace-col-header-info" data-tooltip="${escaped}" aria-label="${escaped}" tabindex="0" role="img">${SCHEMA_COLUMN_HEADER_INFO_ICON}</span>` +
     `</span>`
   );
+}
+
+function formatSheetColHeader(column: SheetColumn): string {
+  if (!column.headerTooltip) return escapeHtmlText(column.label);
+  return infoLabelMarkup(column.label, column.headerTooltip);
+}
+
+// Handsontable renderer for the observation-unit `field` column: renders the
+// field name plus a hover-help icon when a description exists, otherwise plain
+// text. The column is read-only, so taking over the cell content is safe.
+function renderObservationUnitFieldCell(
+  _instance: unknown,
+  td: HTMLTableCellElement,
+  _row: number,
+  _col: number,
+  _prop: string | number,
+  value: unknown,
+): void {
+  const field = value == null ? '' : String(value);
+  const tooltip = OBSERVATION_UNIT_FIELD_TOOLTIPS[field];
+  if (!tooltip) {
+    td.textContent = field;
+    return;
+  }
+  td.innerHTML = infoLabelMarkup(field, tooltip);
 }
 
 type WorkspaceMessage = {
@@ -1047,7 +1092,13 @@ function SpreadsheetSurface({
       return {
         rows: observationUnitRows,
         columns: [
-          { key: 'field', label: 'field', width: 190, readOnly: true },
+          {
+            key: 'field',
+            label: 'field',
+            width: 190,
+            readOnly: true,
+            renderer: renderObservationUnitFieldCell,
+          },
           { key: 'value', label: 'value', width: 680 },
         ],
       };
@@ -1327,6 +1378,7 @@ function SpreadsheetSurface({
           data: column.key,
           readOnly: column.readOnly,
           width: column.width,
+          ...(column.renderer ? { renderer: column.renderer } : {}),
         }))}
         colHeaders={sheet.columns.map(formatSheetColHeader)}
         rowHeaders
