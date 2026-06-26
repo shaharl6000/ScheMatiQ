@@ -197,11 +197,11 @@
 
 .workspace-bottombar {
   flex: 0 0 auto;
-  height: 40px;
+  height: 52px;
   display: grid;
-  grid-template-columns: minmax(220px, 30vw) minmax(0, 1fr) clamp(96px, 12vw, 160px) 32px;
+  grid-template-columns: minmax(240px, 32vw) minmax(0, 1fr) clamp(120px, 14vw, 190px) 36px;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   border-top: 1px solid hsl(var(--border));
   background: hsl(var(--background));
   padding: 0 12px;
@@ -232,8 +232,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   color: hsl(var(--muted-foreground));
-  font-size: 12px;
-  line-height: 1;
+  font-size: 14px;
+  line-height: 1.2;
 }
 
 .workspace-topbar-question:focus-visible {
@@ -256,12 +256,12 @@
   align-items: center;
   gap: 8px;
   color: hsl(var(--muted-foreground));
-  font-size: 12px;
+  font-size: 14px;
   white-space: nowrap;
 }
 
 .workspace-topbar-percent {
-  width: 34px;
+  width: 42px;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -417,12 +417,12 @@
 }
 
 .workspace-sheet-tab {
-  height: 28px;
+  height: 36px;
   flex: 0 0 auto;
   border: 1px solid transparent;
   border-radius: 4px;
-  padding: 0 12px;
-  font-size: 12px;
+  padding: 0 14px;
+  font-size: 13px;
   color: hsl(var(--muted-foreground));
 }
 

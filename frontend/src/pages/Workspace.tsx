@@ -3098,7 +3098,7 @@ function Workspace() {
         <div className="workspace-topbar-status" title={bottombarStatus}>
           {status || reextraction ? (
             <>
-              <Progress value={bottombarProgress} className="h-1.5" />
+              <Progress value={bottombarProgress} className="h-2.5" />
               <span className="workspace-topbar-percent">{bottombarProgress}%</span>
               {reextraction && (
                 <Button
