@@ -58,6 +58,7 @@ import { useToast } from '@/components/ui/use-toast';
 import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
 import StatsDashboard from '@/components/StatsDashboard/StatsDashboard';
 import ScheMatiQMonitor from '@/components/ScheMatiQMonitor/ScheMatiQMonitor';
+import DocumentViewer from '@/components/DocumentViewer/DocumentViewer';
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import {
@@ -113,7 +114,7 @@ const documentDisplayName = (value?: string | null): string => {
   return (parts[parts.length - 1] || String(value)).trim();
 };
 
-type SheetId = 'data' | 'unit' | 'schema' | 'stats' | 'monitor';
+type SheetId = 'data' | 'unit' | 'schema' | 'stats' | 'monitor' | 'documents';
 type WorkspaceSessionMode = 'schematiq' | 'load';
 type PendingRerunKind = 'schema' | 'unit';
 
@@ -312,6 +313,7 @@ const SHEETS: Array<{ id: SheetId; label: string }> = [
   { id: 'unit', label: 'Observation Unit' },
   { id: 'schema', label: 'Schema' },
   { id: 'stats', label: 'Statistics' },
+  { id: 'documents', label: 'Documents' },
   { id: 'monitor', label: 'ScheMatiQ Monitor' },
 ];
 
@@ -2975,6 +2977,10 @@ function Workspace() {
                   Statistics will appear once processing completes.
                 </div>
               )}
+            </div>
+          ) : activeSheet === 'documents' ? (
+            <div style={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
+              <DocumentViewer sessionId={sessionId} />
             </div>
           ) : activeSheet !== 'monitor' ? (
             <div className="workspace-grid-wrap">

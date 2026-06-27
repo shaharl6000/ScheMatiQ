@@ -912,6 +912,13 @@ export const unitsAPI = {
   },
 
   /**
+   * Build the URL that serves a source document's raw bytes for inline viewing.
+   * Works both as an <iframe> src and as an anchor href (open in a new tab).
+   */
+  getDocumentContentUrl: (sessionId: string, name: string): string =>
+    `${API_BASE}/units/document-content/${encodeURIComponent(sessionId)}?name=${encodeURIComponent(name)}`,
+
+  /**
    * Get list of source documents with row counts.
    */
   getDocuments: async (sessionId: string): Promise<DocumentListResponse> => {
