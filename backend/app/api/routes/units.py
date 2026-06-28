@@ -1,7 +1,12 @@
 """API routes for observation unit view and merge operations."""
 
-from typing import Optional
+import io
+import mimetypes
+from pathlib import Path
+from typing import Optional, Tuple
+
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 
 from app.models.unit import (
     UnitListResponse,
@@ -14,6 +19,8 @@ from app.models.unit import (
 from app.models.session import PaginatedData, DataRow, FilterSortRequest
 from app.services.unit_view_service import unit_view_service
 from app.services import session_manager, pubmed_enrichment_service
+from app.services.data_utils import candidate_data_dirs
+from app.storage import get_storage
 
 router = APIRouter()
 
@@ -96,6 +103,131 @@ async def list_source_documents(session_id: str):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing documents: {str(e)}")
+
+
+# Extensions served with an explicit, browser-renderable content type so the
+# document viewer can show them inline in an <iframe>. Anything else falls back
+# to a generic type and is offered as a download by the frontend.
+_INLINE_MEDIA_TYPES = {
+    ".pdf": "application/pdf",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".csv": "text/csv",
+    ".json": "application/json",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".svg": "image/svg+xml",
+}
+
+# Media types whose content can carry executable markup (scripts, embeds). When
+# we serve these inline we add a sandboxing CSP so user-uploaded files cannot
+# run script in the application origin.
+_SANDBOXED_MEDIA_TYPES = {"text/html", "image/svg+xml"}
+
+
+def _media_type_for(name: str) -> str:
+    ext = Path(name).suffix.lower()
+    if ext in _INLINE_MEDIA_TYPES:
+        return _INLINE_MEDIA_TYPES[ext]
+    guessed, _ = mimetypes.guess_type(name)
+    return guessed or "application/octet-stream"
+
+
+def _find_local_document(session_id: str, name: str) -> Optional[Path]:
+    """Locate an uploaded source document on the local filesystem.
+
+    Searches documents/ and pending_documents/ across every known data dir
+    (CWD, backend, dev.sh instances). Matches the exact filename first, then
+    falls back to stem matching since the recorded source_document name may
+    omit the extension.
+    """
+    target_stem = Path(name).stem.lower()
+    target_name = name.lower()
+    for base in candidate_data_dirs():
+        for sub in ("documents", "pending_documents"):
+            doc_dir = base / session_id / sub
+            if not doc_dir.is_dir():
+                continue
+            exact = doc_dir / name
+            if exact.is_file():
+                return exact
+            for f in doc_dir.iterdir():
+                if not f.is_file() or f.name.startswith("."):
+                    continue
+                if f.name.lower() == target_name or f.stem.lower() == target_stem:
+                    return f
+    return None
+
+
+async def _load_document_bytes(session, session_id: str, name: str) -> Tuple[Optional[bytes], Optional[str]]:
+    """Return (bytes, media_type) for a source document, or (None, None).
+
+    Tries the local filesystem first (dev / freshly uploaded), then Supabase
+    storage's ``datasets`` bucket under the session's cloud dataset. Richer
+    per-document cloud-folder resolution lives in reextraction_service if this
+    fallback ever proves insufficient.
+    """
+    local = _find_local_document(session_id, name)
+    if local is not None:
+        return local.read_bytes(), _media_type_for(local.name)
+
+    cloud_dataset = getattr(session.metadata, "cloud_dataset", None)
+    if cloud_dataset:
+        storage = get_storage()
+        try:
+            content = await storage.download_file("datasets", f"{cloud_dataset}/{name}")
+        except Exception:
+            content = None
+        if content:
+            return content, _media_type_for(name)
+
+    return None, None
+
+
+@router.get(
+    "/document-content/{session_id}",
+    summary="Serve a source document inline",
+    description="Stream the raw bytes of an uploaded source document for inline viewing",
+)
+async def get_document_content(
+    session_id: str,
+    name: str = Query(..., description="Source document filename"),
+):
+    """Serve an uploaded source document's raw bytes for the document viewer.
+
+    The ``name`` is validated against the session's known source documents to
+    prevent path traversal; only files that actually appear in the session are
+    served. HTML/SVG is served with a sandboxing CSP so user-uploaded markup
+    cannot execute scripts in the app origin.
+    """
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Allowlist: only serve names that are real source documents for this session.
+    known = {d["name"] for d in unit_view_service.get_source_documents(session_id)}
+    if name not in known:
+        raise HTTPException(status_code=404, detail="Document not found in this session")
+
+    content, media_type = await _load_document_bytes(session, session_id, name)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Document file is not available")
+
+    headers = {
+        "Content-Disposition": f'inline; filename="{Path(name).name}"',
+        "Cache-Control": "private, max-age=60",
+    }
+    if media_type in _SANDBOXED_MEDIA_TYPES:
+        headers["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
+        )
+
+    return StreamingResponse(io.BytesIO(content), media_type=media_type, headers=headers)
 
 
 @router.post(

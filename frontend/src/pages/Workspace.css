@@ -274,6 +274,29 @@
   text-overflow: ellipsis;
 }
 
+<<<<<<< HEAD
+/* Data sheet split: optional source-document panel on the left of the grid. */
+.workspace-data-split {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.workspace-source-panel {
+  flex: 0 0 clamp(260px, 32%, 520px);
+  min-width: 0;
+  display: flex;
+  border-right: 1px solid hsl(var(--border));
+  overflow: hidden;
+}
+
+.workspace-data-split .workspace-grid-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+||||||| c3c55458
+=======
 /* Lift the global toast viewport above the 52px workspace bottombar so
    transient toasts (e.g. "Project started") never cover the live progress bar.
    Scoped to the Workspace route via the body attribute, and only on the sm+
@@ -285,6 +308,7 @@
   }
 }
 
+>>>>>>> origin/main
 .workspace-followup-banner {
   flex: 0 0 auto;
   display: flex;
