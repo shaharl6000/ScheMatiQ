@@ -317,7 +317,7 @@ const SHEETS: Array<{ id: SheetId; label: string }> = [
   { id: 'unit', label: 'Observation Unit' },
   { id: 'schema', label: 'Schema' },
   { id: 'stats', label: 'Statistics' },
-  { id: 'monitor', label: 'ScheMatiQ Monitor' },
+  { id: 'monitor', label: 'Monitor' },
 ];
 
 const WORKSPACE_MENUS = [
