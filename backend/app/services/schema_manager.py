@@ -601,39 +601,88 @@ class SchemaManager(WebSocketBroadcasterMixin):
             return separator.join(values)
     
     async def _update_column_data(self, session_id: str, column_name: str, extraction_file: Path):
-        """Update existing data with newly extracted values for a column."""
+        """Update existing data with newly extracted values for a column.
+
+        Values are matched to existing rows by a composite key (row name +
+        source document), with row-name and paper-stem fallbacks, mirroring
+        ``_add_new_column_data``. Matching by key rather than by file position
+        keeps each value aligned to the correct observation unit even when the
+        extraction file and the main data file differ in row order or count
+        (e.g. after dedup, sorting, or sampling).
+        """
         if not extraction_file.exists():
             return
 
-        # Read extracted values
-        extracted_data = {}
+        from app.services.data_utils import row_dedup_key, _resolve_source_document
+
+        # Index extracted values by key, with fallbacks.
+        extracted_by_key: Dict[tuple, Any] = {}
+        extracted_by_row_name: Dict[str, List[tuple]] = {}
+        extracted_by_paper_stem: Dict[str, List[tuple]] = {}
         with open(extraction_file, 'r') as f:
-            for line_num, line in enumerate(f):
-                if line.strip():
-                    row_data = json.loads(line)
-                    if column_name in row_data:
-                        extracted_data[line_num] = row_data[column_name]
+            for line in f:
+                if not line.strip():
+                    continue
+                row_data = json.loads(line)
+                if column_name not in row_data:
+                    continue
+                key = row_dedup_key(row_data)
+                value = row_data.get(column_name)
+                if key[0] and value is not None:
+                    extracted_by_key[key] = value
+                    extracted_by_row_name.setdefault(key[0], []).append((key, value))
+                    extracted_by_paper_stem.setdefault(key[0].lower(), []).append((key, value))
 
         # Update main data file
         data_file = await find_session_data_file(session_id)
 
         if not data_file:
             return
-        
+
         updated_rows = []
         with open(data_file, 'r') as f:
-            for line_num, line in enumerate(f):
-                if line.strip():
-                    row_data = json.loads(line)
-                    
-                    # Update with extracted value if available
-                    if line_num in extracted_data:
-                        if 'data' not in row_data:
-                            row_data['data'] = {}
-                        row_data['data'][column_name] = extracted_data[line_num]
-                    
-                    updated_rows.append(row_data)
-        
+            for line in f:
+                if not line.strip():
+                    continue
+                row_data = json.loads(line)
+                row_name = row_data.get('row_name') or row_data.get('_row_name')
+                row_src = _resolve_source_document(row_data)
+                papers = row_data.get('papers') or []
+
+                # Match by composite key first, then row-name, then paper-stem.
+                value = None
+                row_key = (row_name, row_src) if row_name else None
+                if row_key and row_key in extracted_by_key:
+                    value = extracted_by_key[row_key]
+                elif row_name and row_name in extracted_by_row_name:
+                    candidates = extracted_by_row_name[row_name]
+                    if len(candidates) == 1:
+                        value = candidates[0][1]
+                    else:
+                        for paper in papers:
+                            paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
+                            for cand_key, cand_val in candidates:
+                                if cand_key[1].lower() == paper_stem:
+                                    value = cand_val
+                                    break
+                            if value is not None:
+                                break
+                if value is None:
+                    for paper in papers:
+                        paper_stem = paper.split('_')[0].lower() if '_' in paper else paper.rsplit('.', 1)[0].lower()
+                        if paper_stem in extracted_by_paper_stem:
+                            candidates = extracted_by_paper_stem[paper_stem]
+                            if len(candidates) == 1:
+                                value = candidates[0][1]
+                            break
+
+                if value is not None:
+                    if 'data' not in row_data:
+                        row_data['data'] = {}
+                    row_data['data'][column_name] = value
+
+                updated_rows.append(row_data)
+
         # Write back updated data
         with open(data_file, 'w') as f:
             for row in updated_rows:
