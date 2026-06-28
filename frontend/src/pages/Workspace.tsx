@@ -1,4 +1,4 @@
-import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type MutableRefObject, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HotTable, type HotTableClass } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
@@ -320,13 +320,13 @@ type NewProjectDialogProps = {
   onCreated: (sessionId: string) => void;
 };
 
-const SHEETS: Array<{ id: SheetId; label: string }> = [
-  { id: 'data', label: 'Data' },
-  { id: 'unit', label: 'Observation Unit' },
-  { id: 'schema', label: 'Schema' },
-  { id: 'stats', label: 'Statistics' },
-  { id: 'documents', label: 'Documents' },
-  { id: 'monitor', label: 'Monitor' },
+const SHEETS: Array<{ id: SheetId; label: string; group: 'structure' | 'analysis' }> = [
+  { id: 'data', label: 'Data', group: 'structure' },
+  { id: 'unit', label: 'Observation Unit', group: 'structure' },
+  { id: 'schema', label: 'Schema', group: 'structure' },
+  { id: 'stats', label: 'Statistics', group: 'analysis' },
+  { id: 'documents', label: 'Documents', group: 'analysis' },
+  { id: 'monitor', label: 'Monitor', group: 'analysis' },
 ];
 
 const WORKSPACE_MENUS = [
@@ -3394,15 +3394,19 @@ function Workspace() {
 
       <div className="workspace-bottombar">
         <div className="workspace-bottombar-tabs">
-          {SHEETS.filter((sheet) => sheet.id !== 'monitor' || sessionMode === 'schematiq').map((sheet) => (
-            <button
-              key={sheet.id}
-              className="workspace-sheet-tab"
-              data-active={activeSheet === sheet.id}
-              onClick={() => setActiveSheet(sheet.id)}
-            >
-              {sheet.label}
-            </button>
+          {SHEETS.filter((sheet) => sheet.id !== 'monitor' || sessionMode === 'schematiq').map((sheet, index, sheets) => (
+            <Fragment key={sheet.id}>
+              {index > 0 && sheets[index - 1].group !== sheet.group && (
+                <span className="workspace-sheet-tab-divider" aria-hidden="true" />
+              )}
+              <button
+                className="workspace-sheet-tab"
+                data-active={activeSheet === sheet.id}
+                onClick={() => setActiveSheet(sheet.id)}
+              >
+                {sheet.label}
+              </button>
+            </Fragment>
           ))}
         </div>
 

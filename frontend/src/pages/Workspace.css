@@ -465,6 +465,14 @@
   font-weight: 600;
 }
 
+.workspace-sheet-tab-divider {
+  flex: 0 0 auto;
+  width: 1px;
+  height: 20px;
+  margin: 0 8px;
+  background: hsl(var(--border));
+}
+
 .workspace-chat {
   min-width: 0;
   height: 100%;
