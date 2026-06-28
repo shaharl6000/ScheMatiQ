@@ -70,7 +70,7 @@ export function CloudDatasetPicker({
             <ChevronDown className="ml-2 h-4 w-4 flex-shrink-0" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="w-full min-w-[300px] max-h-[300px] overflow-y-auto">
+        <DropdownMenuContent className="z-[140] w-full min-w-[300px] max-h-[300px] overflow-y-auto">
           <DropdownMenuLabel>Select Datasets</DropdownMenuLabel>
           {datasets.length === 0 ? (
             <div className="px-2 py-1.5 text-sm text-muted-foreground">No datasets available</div>
