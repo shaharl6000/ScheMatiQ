@@ -74,6 +74,7 @@ import {
 import ContentModal from '@/components/ContentModal/ContentModal';
 import { CostBreakdown } from '@/components/CostBreakdown/CostBreakdown';
 import { CloudDatasetPicker, type CloudDataset } from '@/components/CloudDatasetPicker/CloudDatasetPicker';
+import { ConsentDialog, getSavedConsent } from '@/components/ConsentDialog/ConsentDialog';
 import {
   AdvancedSettingsFields,
   DEFAULT_ADVANCED_SETTINGS,
@@ -428,11 +429,13 @@ function buildConfig(
   apiKey: string,
   advanced: AdvancedSettingsValue = WORKSPACE_DEFAULT_ADVANCED,
   docs: DocumentSourceInput = { mode: 'upload' },
+  optOut = false,
 ): ScheMatiQConfig {
   const config: ScheMatiQConfig = {
     query,
     docs_path: docs.mode === 'cloud' ? docs.datasets : null,
     upload_pending: docs.mode === 'upload',
+    opt_out_data_collection: optOut,
     max_keys_schema: advanced.maxKeysSchema,
     documents_batch_size: advanced.documentsBatchSize,
     schema_creation_backend: {
@@ -529,6 +532,8 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
   const [advanced, setAdvanced] = useState<AdvancedSettingsValue>(WORKSPACE_DEFAULT_ADVANCED);
   const [developerMode, setDeveloperMode] = useState(false);
   const [allowLlmConfig, setAllowLlmConfig] = useState(false);
+  const [dataCollectionEnabled, setDataCollectionEnabled] = useState(false);
+  const [consentOpen, setConsentOpen] = useState(false);
   const [maxDocuments, setMaxDocuments] = useState<number | undefined>(undefined);
   const [providers, setProviders] = useState<LLMProviderKey[]>([DEFAULT_PROVIDER as LLMProviderKey]);
 
@@ -548,6 +553,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
       setServerHasKeys(Boolean(config?.server_has_api_keys));
       setDeveloperMode(Boolean(config?.developer_mode));
       setAllowLlmConfig(Boolean(config?.allow_llm_config));
+      setDataCollectionEnabled(Boolean(config?.data_collection_enabled));
       setMaxDocuments(typeof config?.max_documents === 'number' ? config.max_documents : undefined);
       setProviders(available.length > 0 ? available : [DEFAULT_PROVIDER as LLMProviderKey]);
     })();
@@ -614,6 +620,33 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     }
   }, [apiKey, files, query, advanced, documentSource, selectedDatasets]);
 
+  const runCreate = useCallback(async (optOut: boolean) => {
+    setCreating(true);
+    setError(null);
+    try {
+      const docs: DocumentSourceInput = documentSource === 'cloud'
+        ? { mode: 'cloud', datasets: selectedDatasets }
+        : { mode: 'upload' };
+      const config = buildConfig(query.trim(), apiKey.trim(), advanced, docs, optOut);
+      const result = await schematiqAPI.configure(config);
+      if (documentSource === 'upload') {
+        await loadAPI.addDocuments(result.session_id, files, advanced.bypassLimit);
+      }
+      await schematiqAPI.run(result.session_id);
+      toast({
+        title: 'Project started',
+        description: 'The workspace will update as schema and data arrive.',
+      });
+      onCreated(result.session_id);
+      onOpenChange(false);
+      navigate(`/workspace/${result.session_id}`, { replace: true });
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || err?.message || 'Failed to start project');
+    } finally {
+      setCreating(false);
+    }
+  }, [apiKey, files, navigate, onCreated, onOpenChange, query, toast, advanced, documentSource, selectedDatasets]);
+
   const startProject = useCallback(async () => {
     if (!query.trim() || !hasDocuments) {
       setError(
@@ -633,33 +666,22 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
       return;
     }
 
-    setCreating(true);
-    setError(null);
-    try {
-      const docs: DocumentSourceInput = documentSource === 'cloud'
-        ? { mode: 'cloud', datasets: selectedDatasets }
-        : { mode: 'upload' };
-      const config = buildConfig(query.trim(), apiKey.trim(), advanced, docs);
-      const result = await schematiqAPI.configure(config);
-      if (documentSource === 'upload') {
-        await loadAPI.addDocuments(result.session_id, files, advanced.bypassLimit);
-      }
-      await schematiqAPI.run(result.session_id);
-      toast({
-        title: 'Project started',
-        description: 'The workspace will update as schema and data arrive.',
-      });
-      onCreated(result.session_id);
-      onOpenChange(false);
-      navigate(`/workspace/${result.session_id}`, { replace: true });
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || err?.message || 'Failed to start project');
-    } finally {
-      setCreating(false);
+    // Consent gate: skip when data collection is off or in developer mode;
+    // otherwise honor saved consent, or prompt for it.
+    if (!dataCollectionEnabled || developerMode) {
+      await runCreate(false);
+      return;
     }
-  }, [apiKey, estimate, estimateProject, files, hasDocuments, navigate, onCreated, onOpenChange, query, serverHasKeys, startConfirmed, toast, advanced, documentSource, selectedDatasets]);
+    const { consentGiven, savedOptOut } = getSavedConsent();
+    if (consentGiven) {
+      await runCreate(savedOptOut);
+      return;
+    }
+    setConsentOpen(true);
+  }, [apiKey, dataCollectionEnabled, developerMode, documentSource, estimate, estimateProject, hasDocuments, query, runCreate, serverHasKeys, startConfirmed]);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
@@ -808,6 +830,8 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <ConsentDialog open={consentOpen} onOpenChange={setConsentOpen} onConfirm={runCreate} />
+    </>
   );
 }
 
