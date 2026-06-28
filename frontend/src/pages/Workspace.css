@@ -274,7 +274,6 @@
   text-overflow: ellipsis;
 }
 
-<<<<<<< HEAD
 /* Data sheet split: optional source-document panel on the left of the grid. */
 .workspace-data-split {
   display: flex;
@@ -295,8 +294,6 @@
   min-width: 0;
 }
 
-||||||| c3c55458
-=======
 /* Lift the global toast viewport above the 52px workspace bottombar so
    transient toasts (e.g. "Project started") never cover the live progress bar.
    Scoped to the Workspace route via the body attribute, and only on the sm+
@@ -308,7 +305,6 @@
   }
 }
 
->>>>>>> origin/main
 .workspace-followup-banner {
   flex: 0 0 auto;
   display: flex;

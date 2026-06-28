@@ -320,14 +320,8 @@ const SHEETS: Array<{ id: SheetId; label: string }> = [
   { id: 'unit', label: 'Observation Unit' },
   { id: 'schema', label: 'Schema' },
   { id: 'stats', label: 'Statistics' },
-<<<<<<< HEAD
   { id: 'documents', label: 'Documents' },
-  { id: 'monitor', label: 'ScheMatiQ Monitor' },
-||||||| c3c55458
-  { id: 'monitor', label: 'ScheMatiQ Monitor' },
-=======
   { id: 'monitor', label: 'Monitor' },
->>>>>>> origin/main
 ];
 
 const WORKSPACE_MENUS = [
