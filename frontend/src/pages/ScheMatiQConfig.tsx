@@ -23,14 +23,6 @@ import { ConsentDialog, getSavedConsent } from '@/components/ConsentDialog/Conse
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-  DropdownMenuLabel,
-} from '@/components/ui/dropdown-menu';
-import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -40,6 +32,7 @@ import {
   type AdvancedSettingsValue,
 } from '@/components/AdvancedSettings/AdvancedSettingsFields';
 import { CostBreakdown } from '@/components/CostBreakdown/CostBreakdown';
+import { CloudDatasetPicker } from '@/components/CloudDatasetPicker/CloudDatasetPicker';
 import {
   Sheet,
   SheetContent,
@@ -400,15 +393,6 @@ const ScheMatiQConfigPage = () => {
   const effectiveMaxDocs = (developerMode && limitBypassEnabled) ? Infinity : maxDocuments;
   const isOverLimit = uploadedFiles.length > effectiveMaxDocs;
 
-  // Cloud file count calculation
-  const cloudFileCount = useMemo(() => {
-    const selectedPaths = Array.isArray(config.docs_path) ? config.docs_path : [];
-    return selectedPaths.reduce((total, name) => {
-      const ds = datasets.find(d => d.name === name);
-      return total + (ds?.file_count || 0);
-    }, 0);
-  }, [config.docs_path, datasets]);
-  const isCloudOverLimit = cloudFileCount > effectiveMaxDocs;
 
   const handleConfigChange = (field: string, value: any) => {
     setConfig(prev => ({
@@ -990,70 +974,14 @@ const ScheMatiQConfigPage = () => {
 
             {/* Cloud Datasets */}
             {documentSource === 'cloud' && (
-              <div className="space-y-2">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-between"
-                      disabled={datasetsLoading}
-                    >
-                      {datasetsLoading ? (
-                        <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                          Loading datasets...
-                        </>
-                      ) : selectedPaths.length === 0 ? (
-                        'Select datasets...'
-                      ) : (
-                        selectedPaths.length <= 3
-                          ? selectedPaths.join(', ')
-                          : `${selectedPaths.slice(0, 2).join(', ')} +${selectedPaths.length - 2} more`
-                      )}
-                      <ChevronDown className="ml-2 h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent className="w-full min-w-[300px] max-h-[300px] overflow-y-auto">
-                    <DropdownMenuLabel>Select Datasets</DropdownMenuLabel>
-                    {datasets.length === 0 ? (
-                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                        No datasets available
-                      </div>
-                    ) : (
-                      datasets.map((dataset) => (
-                        <DropdownMenuCheckboxItem
-                          key={dataset.name}
-                          checked={selectedPaths.includes(dataset.name)}
-                          onSelect={(e) => e.preventDefault()}
-                          onCheckedChange={(checked) => {
-                            const newPaths = checked
-                              ? [...selectedPaths, dataset.name]
-                              : selectedPaths.filter(p => p !== dataset.name);
-                            handleConfigChange('docs_path', newPaths);
-                          }}
-                        >
-                          <span className="flex items-center justify-between w-full">
-                            <span>{dataset.name}</span>
-                            <Badge variant="secondary" className="ml-2 text-xs">
-                              {dataset.file_count} files
-                            </Badge>
-                          </span>
-                        </DropdownMenuCheckboxItem>
-                      ))
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-
-                {/* Cloud dataset document limit warning */}
-                {!limitBypassEnabled && isCloudOverLimit && (
-                  <Alert className="border-amber-500 bg-amber-50 dark:bg-amber-950/20">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                    <AlertDescription className="text-amber-700 dark:text-amber-400">
-                      Your selection contains {cloudFileCount} documents, but analysis is limited to {maxDocuments} to ensure fast results and reasonable costs. A representative sample will be used.
-                    </AlertDescription>
-                  </Alert>
-                )}
-              </div>
+              <CloudDatasetPicker
+                datasets={datasets}
+                loading={datasetsLoading}
+                selected={selectedPaths as string[]}
+                onChange={(names) => handleConfigChange('docs_path', names)}
+                maxDocuments={maxDocuments}
+                bypassLimit={limitBypassEnabled}
+              />
             )}
             </div>
           </section>
