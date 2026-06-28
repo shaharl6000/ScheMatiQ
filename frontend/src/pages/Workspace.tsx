@@ -21,6 +21,7 @@ import {
   Plus,
   Printer,
   RotateCw,
+  Save,
   Search,
   Sparkles,
   Strikethrough,
@@ -87,7 +88,7 @@ import {
   WS_DISCONNECTED_REFRESH_INTERVAL,
   type LLMProviderKey,
 } from '@/constants';
-import { chatAPI, cloudAPI, configAPI, loadAPI, observationUnitAPI, schemaAPI, schematiqAPI, unitsAPI } from '@/services/api';
+import api, { chatAPI, cloudAPI, configAPI, loadAPI, observationUnitAPI, schemaAPI, schematiqAPI, unitsAPI } from '@/services/api';
 import webSocketService from '@/services/websocket';
 import {
   ChatToolInfo,
@@ -331,7 +332,7 @@ const SHEETS: Array<{ id: SheetId; label: string }> = [
 const WORKSPACE_MENUS = [
   {
     label: 'File',
-    items: ['New project', 'Import project', 'Open classic visualizer', 'Export table'],
+    items: ['New project', 'Import project', 'Open classic visualizer', 'Download table (.csv)', 'Save project (.schematiq.json)'],
   },
   {
     label: 'Edit',
@@ -367,6 +368,38 @@ const DEFAULT_PROVIDER = 'gemini';
 const EDITABLE_OBSERVATION_UNIT_FIELDS = new Set(['name', 'definition', 'example_names']);
 const TABLE_FONT_OPTIONS: TableFontFamily[] = ['Inter', 'Arial', 'Georgia', 'Mono'];
 const TABLE_FONT_SIZE_OPTIONS = [10, 11, 12, 13, 14, 16, 18];
+
+/**
+ * Build a human-readable export filename from the research question.
+ *
+ * Shape: `schematiq_<up to 3 slugged words from the question>_<YYYY-MM-DD>.<ext>`
+ * Falls back to `schematiq_<8-char session id>_<date>` when no question is set.
+ * e.g. "How do firms respond to tariffs?" -> schematiq_how-do-firms_2026-06-28.csv
+ */
+function buildExportFilename(question: string, ext: string, sessionId?: string): string {
+  const date = new Date().toISOString().slice(0, 10); // YYYY-MM-DD, local-agnostic
+  const slug = (question || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ') // drop punctuation
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join('-');
+  const stem = slug || (sessionId ? sessionId.slice(0, 8) : 'project');
+  return `schematiq_${stem}_${date}.${ext}`;
+}
+
+/** Download a blob from an API path under a caller-controlled filename. */
+async function downloadAs(path: string, filename: string): Promise<void> {
+  const response = await api.get(path, { responseType: 'blob' });
+  const blob = new Blob([response.data]);
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  window.URL.revokeObjectURL(url);
+}
 
 const emptyData: PaginatedData = {
   rows: [],
@@ -2117,6 +2150,7 @@ function SpreadsheetChrome({
   onRefresh,
   onPrint,
   onExport,
+  onSaveProject,
   onSearch,
   onEstimateCost,
   onShowSheet,
@@ -2137,6 +2171,7 @@ function SpreadsheetChrome({
   onRefresh: () => void;
   onPrint: () => void;
   onExport: () => void;
+  onSaveProject: () => void;
   onSearch: () => void;
   onEstimateCost: () => void;
   onShowSheet: () => void;
@@ -2150,7 +2185,8 @@ function SpreadsheetChrome({
     if (label === 'New project') onNewProject();
     if (label === 'Import project') onImportProject();
     if (label === 'Open classic visualizer') onOpenClassic();
-    if (label === 'Export table') onExport();
+    if (label === 'Download table (.csv)') onExport();
+    if (label === 'Save project (.schematiq.json)') onSaveProject();
     if (label === 'Project details') onProjectDetails();
     if (label === 'Refresh project') onRefresh();
     if (label === 'Estimate cost') onEstimateCost();
@@ -2165,7 +2201,8 @@ function SpreadsheetChrome({
     if (label === 'Re-extract table') return rerunDisabled;
     return !canUseProjectActions && [
       'Open classic visualizer',
-      'Export table',
+      'Download table (.csv)',
+      'Save project (.schematiq.json)',
       'Project details',
       'Refresh project',
       'Estimate cost',
@@ -2214,9 +2251,29 @@ function SpreadsheetChrome({
         <button className="workspace-toolbar-icon" type="button" onClick={onPrint} title="Print">
           <Printer className="h-3.5 w-3.5" />
         </button>
-        <button className="workspace-toolbar-icon" type="button" onClick={onExport} disabled={!canUseProjectActions} title="Export">
-          <Download className="h-3.5 w-3.5" />
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="workspace-toolbar-icon" type="button" disabled={!canUseProjectActions} title="Export">
+              <Download className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="workspace-menu-content w-72">
+            <DropdownMenuItem onClick={onExport} disabled={!canUseProjectActions}>
+              <Download className="h-4 w-4 mr-2 shrink-0" />
+              <div>
+                <div>Download Table (.csv)</div>
+                <div className="text-xs text-muted-foreground">Clean data for Excel, no metadata</div>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onSaveProject} disabled={!canUseProjectActions}>
+              <Save className="h-4 w-4 mr-2 shrink-0" />
+              <div>
+                <div>Save Project (.schematiq.json)</div>
+                <div className="text-xs text-muted-foreground">Full project with schema and history, for reloading</div>
+              </div>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         <span className="workspace-toolbar-separator" />
 
@@ -2751,18 +2808,14 @@ function Workspace() {
 
   const exportCurrentProject = useCallback(async () => {
     if (!sessionId) return;
+    const question = schema?.query || config?.query || '';
+    const filename = buildExportFilename(question, 'csv', sessionId);
     try {
-      if (sessionMode === 'schematiq') {
-        await schematiqAPI.export(sessionId);
-      } else {
-        const blob = await loadAPI.exportData(sessionId);
-        const url = window.URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `schematiq_import_${sessionId.slice(0, 8)}.csv`;
-        link.click();
-        window.URL.revokeObjectURL(url);
-      }
+      const tzOffset = new Date().getTimezoneOffset();
+      const path = sessionMode === 'schematiq'
+        ? `/schematiq/export/${sessionId}?tz_offset=${tzOffset}`
+        : `/load/export/${sessionId}?tz_offset=${tzOffset}`;
+      await downloadAs(path, filename);
     } catch (err: any) {
       toast({
         title: 'Export failed',
@@ -2770,7 +2823,26 @@ function Workspace() {
         variant: 'destructive',
       });
     }
-  }, [sessionId, sessionMode, toast]);
+  }, [sessionId, sessionMode, schema, config, toast]);
+
+  const saveCurrentProject = useCallback(async () => {
+    if (!sessionId) return;
+    const question = schema?.query || config?.query || '';
+    const filename = buildExportFilename(question, 'schematiq.json', sessionId);
+    try {
+      const tzOffset = new Date().getTimezoneOffset();
+      const path = sessionMode === 'schematiq'
+        ? `/schematiq/export-complete/${sessionId}?format=json&tz_offset=${tzOffset}`
+        : `/load/export-complete/${sessionId}?format=json`;
+      await downloadAs(path, filename);
+    } catch (err: any) {
+      toast({
+        title: 'Save failed',
+        description: err?.response?.data?.detail || err?.message || 'Could not save this project',
+        variant: 'destructive',
+      });
+    }
+  }, [sessionId, sessionMode, schema, config, toast]);
 
   const searchPage = useCallback(() => {
     const term = window.prompt('Find in visible workspace');
@@ -3170,6 +3242,7 @@ function Workspace() {
         onRefresh={refresh}
         onPrint={printWorkspace}
         onExport={exportCurrentProject}
+        onSaveProject={saveCurrentProject}
         onSearch={searchPage}
         onEstimateCost={estimateCurrentCost}
         onShowSheet={() => setChatWidth(0)}
