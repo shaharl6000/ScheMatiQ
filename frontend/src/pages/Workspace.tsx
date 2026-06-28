@@ -29,6 +29,7 @@ import {
   Underline,
   X,
   MoreVertical,
+  PanelLeft,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,7 @@ import { extractDisplayValue } from '@/components/DataTable/utils/valueUtils';
 import StatsDashboard from '@/components/StatsDashboard/StatsDashboard';
 import ScheMatiQMonitor from '@/components/ScheMatiQMonitor/ScheMatiQMonitor';
 import DocumentViewer from '@/components/DocumentViewer/DocumentViewer';
+import DocumentPreview from '@/components/DocumentViewer/DocumentPreview';
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import {
@@ -2188,6 +2190,7 @@ function Workspace() {
   });
   const [formatVersion, setFormatVersion] = useState(0);
   const [sheetSelection, setSheetSelection] = useState<SheetSelection>(null);
+  const [showSourcePanel, setShowSourcePanel] = useState(false);
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = Number(localStorage.getItem('workspace.chatWidth'));
     return Number.isFinite(saved) ? saved : 380;
@@ -2908,6 +2911,51 @@ function Workspace() {
     window.addEventListener('pointerup', handleUp);
   }, []);
 
+  // Source document of the currently selected data row, used by the optional
+  // source panel on the Data sheet. Uses the raw _source_document value so it
+  // matches the document names the content endpoint allowlists.
+  const selectedSourceDoc = useMemo<string | null>(() => {
+    if (activeSheet !== 'data' || !sheetSelection || sheetSelection.sheet !== 'data') return null;
+    const rows = (dataView === 'by_unit' ? alignedUnitData : data).rows || [];
+    const hot = hotTableRef.current?.hotInstance;
+    const visualRow = sheetSelection.fromRow;
+    const physical = hot ? hot.toPhysicalRow(visualRow) : visualRow;
+    const row = rows[physical] ?? rows[visualRow];
+    if (!row) return null;
+    const raw =
+      row._source_document ||
+      row._parent_document ||
+      (Array.isArray(row.papers) ? row.papers[0] : undefined);
+    return raw ? String(raw).trim() : null;
+  }, [activeSheet, sheetSelection, data, alignedUnitData, dataView]);
+
+  const dataGridNode = (
+    <div className="workspace-grid-wrap">
+      <SpreadsheetSurface
+        activeSheet={activeSheet}
+        data={activeSheet === 'data' && dataView === 'by_unit' ? alignedUnitData : data}
+        schema={schema}
+        displayOptions={tableDisplay}
+        cellFormats={cellFormats}
+        formatVersion={formatVersion}
+        hotTableRef={hotTableRef}
+        onSelectionChange={updateSheetSelection}
+        onRefresh={refreshSilent}
+        onEditFollowUp={notifyEditFollowUp}
+        onEditEnd={flushDeferredData}
+        layoutRevision={gridLayoutRevision}
+      />
+      {(loading || importingProject) && sessionId && (
+        <div className="workspace-loading-overlay" role="status" aria-live="polite">
+          <div className="workspace-loading-card">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span>Loading project…</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="workspace-root h-full w-full">
       <SpreadsheetChrome
@@ -2961,6 +3009,18 @@ function Workspace() {
                 viewMode={dataView === 'by_unit' ? 'by_unit' : 'standard'}
                 onViewModeChange={(mode) => setDataView(mode === 'by_unit' ? 'by_unit' : 'by_document')}
               />
+              <span style={{ flex: 1 }} />
+              <Button
+                size="sm"
+                variant={showSourcePanel ? 'secondary' : 'ghost'}
+                onClick={() => setShowSourcePanel((v) => !v)}
+                className="gap-1"
+                aria-pressed={showSourcePanel}
+                title="Show the source document for the selected row"
+              >
+                <PanelLeft className="h-4 w-4" />
+                Source
+              </Button>
             </div>
           )}
           {activeSheet === 'stats' ? (
@@ -2983,30 +3043,18 @@ function Workspace() {
               <DocumentViewer sessionId={sessionId} />
             </div>
           ) : activeSheet !== 'monitor' ? (
-            <div className="workspace-grid-wrap">
-              <SpreadsheetSurface
-                activeSheet={activeSheet}
-                data={activeSheet === 'data' && dataView === 'by_unit' ? alignedUnitData : data}
-                schema={schema}
-                displayOptions={tableDisplay}
-                cellFormats={cellFormats}
-                formatVersion={formatVersion}
-                hotTableRef={hotTableRef}
-                onSelectionChange={updateSheetSelection}
-                onRefresh={refreshSilent}
-                onEditFollowUp={notifyEditFollowUp}
-                onEditEnd={flushDeferredData}
-                layoutRevision={gridLayoutRevision}
-              />
-              {(loading || importingProject) && sessionId && (
-                <div className="workspace-loading-overlay" role="status" aria-live="polite">
-                  <div className="workspace-loading-card">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span>Loading project…</span>
-                  </div>
+            activeSheet === 'data' && showSourcePanel ? (
+              <div className="workspace-data-split">
+                <div className="workspace-source-panel">
+                  <DocumentPreview
+                    sessionId={sessionId}
+                    documentName={selectedSourceDoc}
+                    emptyHint="Select a row to see its source document."
+                  />
                 </div>
-              )}
-            </div>
+                {dataGridNode}
+              </div>
+            ) : dataGridNode
           ) : null}
 
           {/*

@@ -1,31 +1,18 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, ExternalLink, Download } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { FileText } from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
 import { DocumentSummary } from '../../types/unit';
-
-/** Extensions the browser can render inline in an <iframe>. */
-const INLINE_EXTENSIONS = new Set([
-  'pdf', 'html', 'htm', 'txt', 'md', 'csv', 'json',
-  'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg',
-]);
-
-/** Inline content that can carry executable markup, so the iframe is sandboxed. */
-const SANDBOX_EXTENSIONS = new Set(['html', 'htm', 'svg']);
-
-const extensionOf = (name: string): string => {
-  const dot = name.lastIndexOf('.');
-  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
-};
+import DocumentPreview from './DocumentPreview';
 
 interface DocumentViewerProps {
-  sessionId: string | null;
+  sessionId: string | null | undefined;
 }
 
 /**
- * Browse a session's uploaded source documents: a list on the left, an inline
- * preview on the right (native browser rendering for PDF/HTML/images/text), and
- * an "Open full" link that opens the document in a new browser tab.
+ * Browse a session's uploaded source documents: a list on the left and an
+ * inline preview on the right (see DocumentPreview). "Open full" opens the
+ * document in a new browser tab.
  */
 const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId }) => {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
@@ -59,15 +46,6 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId }) => {
       cancelled = true;
     };
   }, [sessionId]);
-
-  const contentUrl = useMemo(
-    () => (sessionId && selected ? unitsAPI.getDocumentContentUrl(sessionId, selected) : null),
-    [sessionId, selected],
-  );
-
-  const selectedExt = selected ? extensionOf(selected) : '';
-  const canRenderInline = INLINE_EXTENSIONS.has(selectedExt);
-  const needsSandbox = SANDBOX_EXTENSIONS.has(selectedExt);
 
   if (!sessionId) {
     return (
@@ -118,55 +96,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId }) => {
       </div>
 
       {/* Preview pane */}
-      <div className="flex-1 min-w-0 flex flex-col">
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border text-xs">
-          <span className="truncate text-muted-foreground" title={selected || ''}>
-            {selected || 'No document selected'}
-          </span>
-          <span className="flex-1" />
-          {contentUrl && (
-            <a
-              href={contentUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border hover:bg-muted/50 transition-colors text-foreground"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              Open full
-            </a>
-          )}
-        </div>
-
-        <div className="flex-1 min-h-0 bg-muted/20">
-          {!contentUrl ? (
-            <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
-              Select a document to preview it.
-            </div>
-          ) : canRenderInline ? (
-            <iframe
-              key={contentUrl}
-              src={contentUrl}
-              title={selected || 'Document preview'}
-              className="w-full h-full border-0"
-              {...(needsSandbox ? { sandbox: '' } : {})}
-            />
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-              <FileText className="h-8 w-8 opacity-40" />
-              <span>Preview isn&apos;t available for .{selectedExt} files.</span>
-              <a
-                href={contentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors text-foreground"
-              >
-                <Download className="h-4 w-4" />
-                Open / download
-              </a>
-            </div>
-          )}
-        </div>
-      </div>
+      <DocumentPreview sessionId={sessionId} documentName={selected} />
     </div>
   );
 };
