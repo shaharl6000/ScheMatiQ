@@ -12,28 +12,17 @@ import {
 import {
   getDefaultModelForProvider,
   getAvailableProviders,
-  LLM_PROVIDER_NAMES,
   LLMProviderKey,
   DEFAULT_SCHEMA_MODEL,
   DEFAULT_RELEASE_EXTRACTION_MODEL,
 } from '@/constants/llmModels';
-import { ModelSelector } from '@/components/ModelSelector';
 
 import { WelcomeDialog } from '@/components/WelcomeDialog/WelcomeDialog';
 import { ConsentDialog, getSavedConsent } from '@/components/ConsentDialog/ConsentDialog';
-import { InfoTooltip } from '@/components/InfoTooltip/InfoTooltip';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -43,11 +32,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Switch } from '@/components/ui/switch';
-import { Checkbox } from '@/components/ui/checkbox';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import InitialSchemaEditor from '@/components/InitialSchemaEditor/InitialSchemaEditor';
+import {
+  AdvancedSettingsFields,
+  RETRIEVER_DEFAULTS,
+  type AdvancedSettingsValue,
+} from '@/components/AdvancedSettings/AdvancedSettingsFields';
 import {
   Sheet,
   SheetContent,
@@ -100,10 +91,6 @@ const ScheMatiQConfigPage = () => {
 
   // Settings sheet state
   const [settingsOpen, setSettingsOpen] = useState(false);
-
-  // LLM editing states (dev mode smart defaults display)
-  const [editingSchemaLlm, setEditingSchemaLlm] = useState(false);
-  const [editingValueLlm, setEditingValueLlm] = useState(false);
 
   // Cost estimate expand state
   const [costExpanded, setCostExpanded] = useState(false);
@@ -402,8 +389,6 @@ const ScheMatiQConfigPage = () => {
     setObservationUnitDefinition('');
     setCostEstimate(null);
     setSettingsOpen(false);
-    setEditingSchemaLlm(false);
-    setEditingValueLlm(false);
     setCostExpanded(false);
     setError(null);
   };
@@ -475,6 +460,64 @@ const ScheMatiQConfigPage = () => {
         [field]: value,
       },
     }));
+  };
+
+  // Adapter: map this screen's config + local state into the shared
+  // AdvancedSettingsFields model, and route the model's changes back to the
+  // existing setters/handlers so submit, restore, and cost-estimate logic
+  // stay unchanged.
+  const advancedValue: AdvancedSettingsValue = useMemo(() => ({
+    skipValueExtraction: config.skip_value_extraction ?? false,
+    maxKeysSchema: config.max_keys_schema,
+    documentsBatchSize: config.documents_batch_size,
+    seed: config.document_randomization_seed,
+    convergenceThreshold: config.convergence_threshold ?? null,
+    observationUnitMode,
+    observationUnitName,
+    observationUnitDefinition,
+    reviewObservationUnit: config.review_observation_unit ?? false,
+    schemaProvider: config.schema_creation_backend.provider,
+    schemaModel: config.schema_creation_backend.model,
+    schemaTemperature: config.schema_creation_backend.temperature,
+    valueProvider: config.value_extraction_backend.provider,
+    valueModel: config.value_extraction_backend.model,
+    valueTemperature: config.value_extraction_backend.temperature,
+    retrieverModelName: config.retriever?.model_name ?? RETRIEVER_DEFAULTS.model_name,
+    retrieverPassageChars: config.retriever?.passage_chars ?? RETRIEVER_DEFAULTS.passage_chars,
+    retrieverOverlap: config.retriever?.overlap ?? RETRIEVER_DEFAULTS.overlap,
+    retrieverK: config.retriever?.k ?? RETRIEVER_DEFAULTS.k,
+    retrieverDynamicK: config.retriever?.dynamic_k_threshold ?? RETRIEVER_DEFAULTS.dynamic_k_threshold,
+    bypassLimit: limitBypassEnabled,
+    initialSchemaPath,
+    initialSchemaData,
+  }), [config, observationUnitMode, observationUnitName, observationUnitDefinition, limitBypassEnabled, initialSchemaPath, initialSchemaData]);
+
+  const applyAdvancedSettings = (patch: Partial<AdvancedSettingsValue>) => {
+    if (patch.skipValueExtraction !== undefined) handleConfigChange('skip_value_extraction', patch.skipValueExtraction);
+    if (patch.maxKeysSchema !== undefined) handleConfigChange('max_keys_schema', patch.maxKeysSchema);
+    if (patch.documentsBatchSize !== undefined) handleConfigChange('documents_batch_size', patch.documentsBatchSize);
+    if (patch.seed !== undefined) handleConfigChange('document_randomization_seed', patch.seed);
+    if ('convergenceThreshold' in patch) handleConfigChange('convergence_threshold', patch.convergenceThreshold ?? undefined);
+    if (patch.reviewObservationUnit !== undefined) handleConfigChange('review_observation_unit', patch.reviewObservationUnit);
+    if (patch.observationUnitMode !== undefined) setObservationUnitMode(patch.observationUnitMode);
+    if (patch.observationUnitName !== undefined) setObservationUnitName(patch.observationUnitName);
+    if (patch.observationUnitDefinition !== undefined) setObservationUnitDefinition(patch.observationUnitDefinition);
+    if (patch.schemaProvider !== undefined) handleSchemaBackendChange('provider', patch.schemaProvider);
+    if (patch.schemaModel !== undefined) handleSchemaBackendChange('model', patch.schemaModel);
+    if (patch.schemaTemperature !== undefined) handleSchemaBackendChange('temperature', patch.schemaTemperature);
+    if (patch.valueProvider !== undefined) handleValueBackendChange('provider', patch.valueProvider);
+    if (patch.valueModel !== undefined) handleValueBackendChange('model', patch.valueModel);
+    if (patch.valueTemperature !== undefined) handleValueBackendChange('temperature', patch.valueTemperature);
+    if (patch.retrieverModelName !== undefined) handleRetrieverChange('model_name', patch.retrieverModelName);
+    if (patch.retrieverPassageChars !== undefined) handleRetrieverChange('passage_chars', patch.retrieverPassageChars);
+    if (patch.retrieverOverlap !== undefined) handleRetrieverChange('overlap', patch.retrieverOverlap);
+    if (patch.retrieverK !== undefined) handleRetrieverChange('k', patch.retrieverK);
+    if (patch.retrieverDynamicK !== undefined) handleRetrieverChange('dynamic_k_threshold', patch.retrieverDynamicK);
+    if (patch.bypassLimit !== undefined) setLimitBypassEnabled(patch.bypassLimit);
+    if ('initialSchemaPath' in patch || 'initialSchemaData' in patch) {
+      setInitialSchemaPath(patch.initialSchemaPath);
+      setInitialSchemaData(patch.initialSchemaData ?? undefined);
+    }
   };
 
   // InitialSchema state kept for navigation-state restoration; UI hidden for simplicity
@@ -1141,413 +1184,14 @@ const ScheMatiQConfigPage = () => {
             <SheetDescription>Fine-tune how the schema is discovered and data is extracted.</SheetDescription>
           </SheetHeader>
           <div className="space-y-4">
-                {/* Schema Only Mode Checkbox */}
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="schema-only"
-                    checked={config.skip_value_extraction || false}
-                    onCheckedChange={(checked) => handleConfigChange('skip_value_extraction', checked)}
-                  />
-                  <Label htmlFor="schema-only" className="text-sm cursor-pointer inline-flex items-center gap-1.5">
-                    Discover columns only (skip data extraction)
-                    <InfoTooltip text="Discover only the table schema without extracting data values. Faster and lower cost." />
-                  </Label>
-                </div>
-
-                {/* Schema Parameters */}
-                <div className="space-y-3">
-                  <Label className="text-sm font-medium">Schema Parameters</Label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-1">
-                      <Label htmlFor="max_keys" className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                        Max Columns
-                        <InfoTooltip text="Maximum number of columns in your table." />
-                      </Label>
-                      <Input
-                        id="max_keys"
-                        type="number"
-                        value={config.max_keys_schema}
-                        onChange={(e) => handleConfigChange('max_keys_schema', parseInt(e.target.value))}
-                        min={1}
-                        max={500}
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <Label htmlFor="batch_size" className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                        Batch Size
-                        <InfoTooltip text="Documents per schema refinement batch." />
-                      </Label>
-                      <Input
-                        id="batch_size"
-                        type="number"
-                        value={config.documents_batch_size}
-                        onChange={(e) => handleConfigChange('documents_batch_size', parseInt(e.target.value))}
-                        min={1}
-                        max={20}
-                      />
-                    </div>
-                    {developerMode && (
-                      <>
-                        <div className="space-y-1">
-                          <Label htmlFor="seed" className="text-xs text-muted-foreground">Seed</Label>
-                          <Input
-                            id="seed"
-                            type="number"
-                            value={config.document_randomization_seed}
-                            onChange={(e) => handleConfigChange('document_randomization_seed', parseInt(e.target.value))}
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label htmlFor="convergence_threshold" className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                            Convergence Threshold
-                            <InfoTooltip text="Number of consecutive batches without schema change needed to stop discovery." />
-                          </Label>
-                          <Input
-                            id="convergence_threshold"
-                            type="number"
-                            value={config.convergence_threshold ?? 5}
-                            onChange={(e) => handleConfigChange('convergence_threshold', parseInt(e.target.value))}
-                            min={1}
-                            max={20}
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <hr />
-
-                {/* Pre-define columns (collapsed by default) */}
-                <Collapsible>
-                  <CollapsibleTrigger className="group flex items-center gap-2 text-sm font-medium hover:text-foreground transition-colors">
-                    <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
-                    <span>Pre-define columns</span>
-                    <span className="text-xs font-normal text-muted-foreground">(optional)</span>
-                  </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-3">
-                    <p className="text-xs text-muted-foreground mb-3">
-                      Add columns you want to appear in the final table. Only the column name is
-                      required — definition and rationale are optional and will be filled by the
-                      AI during discovery if left blank.
-                    </p>
-                    <InitialSchemaEditor
-                      onSchemaChange={(path, data) => {
-                        setInitialSchemaPath(path);
-                        setInitialSchemaData(data);
-                      }}
-                    />
-                  </CollapsibleContent>
-                </Collapsible>
-
-                <hr />
-
-                {/* Observation Unit */}
-                <div className="space-y-3">
-                  <Label className="text-sm font-medium inline-flex items-center gap-1.5">
-                    Observation Unit
-                    <InfoTooltip text="What each row in your table represents (e.g., 'a research paper' or 'a patient'). Usually auto-detected, but you can customize it if needed." />
-                  </Label>
-                  <RadioGroup
-                    value={observationUnitMode === 'auto' ? 'auto' : 'specify'}
-                    onValueChange={(value) => {
-                      if (value === 'auto') {
-                        setObservationUnitMode('auto');
-                        setObservationUnitName('');
-                        setObservationUnitDefinition('');
-                      } else {
-                        setObservationUnitMode('name_only');
-                        // Clear review flag when user specifies manually
-                        handleConfigChange('review_observation_unit', false);
-                      }
-                    }}
-                    className="space-y-3"
-                  >
-                    <div className="flex items-start space-x-3">
-                      <RadioGroupItem value="auto" id="obs-auto" className="mt-1" />
-                      <div className="space-y-1">
-                        <Label htmlFor="obs-auto" className="font-medium cursor-pointer">
-                          Auto-detect (recommended)
-                        </Label>
-                        <p className="text-sm text-muted-foreground">
-                          The system will automatically determine the observation unit from your query and documents.
-                        </p>
-                        {observationUnitMode === 'auto' && (
-                          <div className="flex items-center gap-2 mt-1.5">
-                            <Checkbox
-                              id="review-obs-unit"
-                              checked={config.review_observation_unit || false}
-                              onCheckedChange={(checked) => handleConfigChange('review_observation_unit', checked)}
-                            />
-                            <Label htmlFor="review-obs-unit" className="text-sm cursor-pointer inline-flex items-center gap-1.5">
-                              Review before schema generation
-                              <InfoTooltip text="Pause after the observation unit is discovered so you can review and edit it before schema generation begins." />
-                            </Label>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <RadioGroupItem value="specify" id="obs-specify" className="mt-1" />
-                      <div className="space-y-1 flex-1">
-                        <Label htmlFor="obs-specify" className="font-medium cursor-pointer">
-                          I'll specify
-                        </Label>
-                        <p className="text-sm text-muted-foreground">
-                          Provide a unit name; optionally add a definition for full control.
-                        </p>
-                        {observationUnitMode !== 'auto' && (
-                          <div className="space-y-2 mt-2">
-                            <Input
-                              placeholder="e.g., Research Paper, Model-Benchmark Evaluation"
-                              value={observationUnitName}
-                              onChange={(e) => setObservationUnitName(e.target.value)}
-                            />
-                            <Collapsible>
-                              <CollapsibleTrigger className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-                                <ChevronDown className="h-3.5 w-3.5" />
-                                <span>Add definition</span>
-                              </CollapsibleTrigger>
-                              <CollapsibleContent className="mt-2">
-                                <Input
-                                  placeholder="e.g., Each row represents a single research paper"
-                                  value={observationUnitDefinition}
-                                  onChange={(e) => {
-                                    setObservationUnitDefinition(e.target.value);
-                                    if (e.target.value.trim()) {
-                                      setObservationUnitMode('full');
-                                    }
-                                  }}
-                                />
-                              </CollapsibleContent>
-                            </Collapsible>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </RadioGroup>
-                </div>
-
-                {/* Developer Mode: LLM Configuration */}
-                {allowLlmConfig && (
-                  <>
-                    <hr />
-
-                    {/* Schema Creation LLM */}
-                    <div className="space-y-3">
-                      {editingSchemaLlm ? (
-                        <>
-                          <div className="flex items-center justify-between">
-                            <Label className="text-sm font-medium">Schema Creation LLM</Label>
-                            <Button variant="ghost" size="sm" onClick={() => setEditingSchemaLlm(false)}>
-                              Done
-                            </Button>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="space-y-1">
-                              <Label className="text-xs">Provider</Label>
-                              <Select
-                                value={config.schema_creation_backend.provider}
-                                onValueChange={(value) => handleSchemaBackendChange('provider', value)}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {configuredProviders.map((provider) => (
-                                    <SelectItem key={provider} value={provider}>
-                                      {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Model</Label>
-                              <ModelSelector
-                                provider={config.schema_creation_backend.provider as LLMProviderKey}
-                                value={config.schema_creation_backend.model}
-                                onChange={(modelId) => handleSchemaBackendChange('model', modelId)}
-                                showDetails={true}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Temperature</Label>
-                              <Input
-                                type="number"
-                                value={config.schema_creation_backend.temperature}
-                                onChange={(e) => handleSchemaBackendChange('temperature', parseFloat(e.target.value))}
-                                min={0}
-                                max={2}
-                                step={0.1}
-                              />
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm">
-                            <span className="font-medium">Schema LLM:</span>{' '}
-                            <span className="text-muted-foreground">
-                              {LLM_PROVIDER_NAMES[config.schema_creation_backend.provider as LLMProviderKey]} / {config.schema_creation_backend.model}
-                              {config.schema_creation_backend.temperature !== 0 && ` (temp: ${config.schema_creation_backend.temperature})`}
-                            </span>
-                          </div>
-                          <Button variant="ghost" size="sm" onClick={() => setEditingSchemaLlm(true)}>
-                            Edit
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-
-                    <hr />
-
-                    {/* Value Extraction LLM */}
-                    <div className="space-y-3">
-                      {editingValueLlm ? (
-                        <>
-                          <div className="flex items-center justify-between">
-                            <Label className="text-sm font-medium">Value Extraction LLM</Label>
-                            <Button variant="ghost" size="sm" onClick={() => setEditingValueLlm(false)}>
-                              Done
-                            </Button>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="space-y-1">
-                              <Label className="text-xs">Provider</Label>
-                              <Select
-                                value={config.value_extraction_backend.provider}
-                                onValueChange={(value) => handleValueBackendChange('provider', value)}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {configuredProviders.map((provider) => (
-                                    <SelectItem key={provider} value={provider}>
-                                      {LLM_PROVIDER_NAMES[provider as LLMProviderKey]}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Model</Label>
-                              <ModelSelector
-                                provider={config.value_extraction_backend.provider as LLMProviderKey}
-                                value={config.value_extraction_backend.model}
-                                onChange={(modelId) => handleValueBackendChange('model', modelId)}
-                                showDetails={true}
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-xs">Temperature</Label>
-                              <Input
-                                type="number"
-                                value={config.value_extraction_backend.temperature}
-                                onChange={(e) => handleValueBackendChange('temperature', parseFloat(e.target.value))}
-                                min={0}
-                                max={2}
-                                step={0.1}
-                              />
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex items-center justify-between">
-                          <div className="text-sm">
-                            <span className="font-medium">Value LLM:</span>{' '}
-                            <span className="text-muted-foreground">
-                              {LLM_PROVIDER_NAMES[config.value_extraction_backend.provider as LLMProviderKey]} / {config.value_extraction_backend.model}
-                              {config.value_extraction_backend.temperature !== 0 && ` (temp: ${config.value_extraction_backend.temperature})`}
-                            </span>
-                          </div>
-                          <Button variant="ghost" size="sm" onClick={() => setEditingValueLlm(true)}>
-                            Edit
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-
-                {/* Developer Mode: Retriever Settings */}
-                {developerMode && (
-                  <>
-                    <hr />
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">Retriever</Label>
-                      <div className="space-y-2">
-                        <div className="space-y-1">
-                          <Label className="text-xs">Model Name</Label>
-                          <Input
-                            value={config.retriever?.model_name || ''}
-                            onChange={(e) => handleRetrieverChange('model_name', e.target.value)}
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Passage Chars</Label>
-                            <Input
-                              type="number"
-                              value={config.retriever?.passage_chars || 512}
-                              onChange={(e) => handleRetrieverChange('passage_chars', parseInt(e.target.value))}
-                              min={128}
-                              max={2048}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Overlap</Label>
-                            <Input
-                              type="number"
-                              value={config.retriever?.overlap || 64}
-                              onChange={(e) => handleRetrieverChange('overlap', parseInt(e.target.value))}
-                              min={0}
-                              max={256}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">K</Label>
-                            <Input
-                              type="number"
-                              value={config.retriever?.k || 15}
-                              onChange={(e) => handleRetrieverChange('k', parseInt(e.target.value))}
-                              min={1}
-                              max={50}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs">Dynamic K</Label>
-                            <Input
-                              type="number"
-                              value={config.retriever?.dynamic_k_threshold || 0.65}
-                              onChange={(e) => handleRetrieverChange('dynamic_k_threshold', parseFloat(e.target.value))}
-                              min={0}
-                              max={1}
-                              step={0.05}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* Developer Mode: Bypass Document Limit */}
-                {developerMode && (
-                  <>
-                    <hr />
-                    <div className="flex items-center justify-between p-3 border rounded-lg bg-amber-50 border-amber-200 dark:bg-amber-950/20 dark:border-amber-800">
-                      <div>
-                        <Label className="text-sm font-medium">Bypass Document Limit</Label>
-                        <p className="text-xs text-muted-foreground">
-                          Disable the {maxDocuments}-document limit for testing.
-                        </p>
-                      </div>
-                      <Switch checked={limitBypassEnabled} onCheckedChange={setLimitBypassEnabled} />
-                    </div>
-                  </>
-                )}
+                <AdvancedSettingsFields
+                  value={advancedValue}
+                  onChange={applyAdvancedSettings}
+                  developerMode={developerMode}
+                  allowLlmConfig={allowLlmConfig}
+                  providers={configuredProviders as LLMProviderKey[]}
+                  maxDocuments={maxDocuments}
+                />
           </div>
 
               {/* Cost Estimate - Developer mode only */}
