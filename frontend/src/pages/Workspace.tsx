@@ -2454,6 +2454,16 @@ function Workspace() {
     setSessionMode(requestedMode);
   }, [requestedMode, sessionId]);
 
+  // Mark the body while the Workspace is mounted so global toasts can be lifted
+  // above the fixed bottombar (see Workspace.css). Scoped to this route only so
+  // toast positioning elsewhere in the app is unaffected.
+  useEffect(() => {
+    document.body.setAttribute('data-workspace-active', 'true');
+    return () => {
+      document.body.removeAttribute('data-workspace-active');
+    };
+  }, []);
+
   useEffect(() => {
     setPendingRerunKind(null);
     setPendingSchemaColumns([]);
