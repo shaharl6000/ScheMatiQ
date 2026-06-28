@@ -70,6 +70,7 @@ import {
   type CellGrounding,
 } from '@/components/DataTable/utils/excerptUtils';
 import ContentModal from '@/components/ContentModal/ContentModal';
+import { CostBreakdown } from '@/components/CostBreakdown/CostBreakdown';
 import {
   AdvancedSettingsFields,
   DEFAULT_ADVANCED_SETTINGS,
@@ -320,14 +321,8 @@ const SHEETS: Array<{ id: SheetId; label: string }> = [
   { id: 'unit', label: 'Observation Unit' },
   { id: 'schema', label: 'Schema' },
   { id: 'stats', label: 'Statistics' },
-<<<<<<< HEAD
   { id: 'documents', label: 'Documents' },
-  { id: 'monitor', label: 'ScheMatiQ Monitor' },
-||||||| c3c55458
-  { id: 'monitor', label: 'ScheMatiQ Monitor' },
-=======
   { id: 'monitor', label: 'Monitor' },
->>>>>>> origin/main
 ];
 
 const WORKSPACE_MENUS = [
@@ -705,11 +700,11 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
             <div className="rounded-md border bg-muted/30 p-3 text-sm">
               <div className="font-medium">Estimated cost</div>
               <div className="mt-1 text-muted-foreground">{formatCost(estimate)}</div>
-              {estimate.warnings?.length > 0 && (
-                <div className="mt-2 text-amber-700 dark:text-amber-300">
-                  {estimate.warnings.join(' ')}
-                </div>
-              )}
+              <CostBreakdown
+                estimate={estimate}
+                skipValueExtraction={advanced.skipValueExtraction}
+                className="mt-2"
+              />
             </div>
           )}
 

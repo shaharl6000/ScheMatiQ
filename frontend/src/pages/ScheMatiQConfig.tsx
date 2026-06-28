@@ -39,6 +39,7 @@ import {
   RETRIEVER_DEFAULTS,
   type AdvancedSettingsValue,
 } from '@/components/AdvancedSettings/AdvancedSettingsFields';
+import { CostBreakdown } from '@/components/CostBreakdown/CostBreakdown';
 import {
   Sheet,
   SheetContent,
@@ -1214,82 +1215,10 @@ const ScheMatiQConfigPage = () => {
                   </div>
 
                   {costEstimate && (
-                    <Collapsible>
-                      <CollapsibleTrigger className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                        <ChevronDown className="h-3 w-3" />
-                        <span>View breakdown</span>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent className="mt-2 space-y-3">
-                        {/* Schema Discovery */}
-                        <div className="p-2 bg-muted/30 rounded border text-xs">
-                          <div className="font-medium text-muted-foreground mb-1">Schema Discovery</div>
-                          <div className="space-y-0.5">
-                            <div className="flex justify-between">
-                              <span>API Calls:</span>
-                              <span className="font-mono">{costEstimate.schema_discovery.api_calls}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Input:</span>
-                              <span className="font-mono">{costEstimate.schema_discovery.input_tokens.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Output:</span>
-                              <span className="font-mono">{costEstimate.schema_discovery.output_tokens.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between pt-0.5 border-t font-medium">
-                              <span>Cost:</span>
-                              <span className="font-mono">${costEstimate.schema_discovery.cost_usd.toFixed(4)}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Value Extraction */}
-                        <div className={`p-2 bg-muted/30 rounded border text-xs ${config.skip_value_extraction ? 'opacity-50' : ''}`}>
-                          <div className="font-medium text-muted-foreground mb-1">
-                            Value Extraction
-                            {config.skip_value_extraction && <Badge variant="secondary" className="ml-1 text-[10px]">Skipped</Badge>}
-                          </div>
-                          <div className="space-y-0.5">
-                            <div className="flex justify-between">
-                              <span>API Calls:</span>
-                              <span className="font-mono">{costEstimate.value_extraction.api_calls}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Input:</span>
-                              <span className="font-mono">{costEstimate.value_extraction.input_tokens.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span>Output:</span>
-                              <span className="font-mono">{costEstimate.value_extraction.output_tokens.toLocaleString()}</span>
-                            </div>
-                            <div className="flex justify-between pt-0.5 border-t font-medium">
-                              <span>Cost:</span>
-                              <span className="font-mono">${costEstimate.value_extraction.cost_usd.toFixed(4)}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Document Stats */}
-                        {costEstimate.document_stats.num_documents > 0 && (
-                          <div className="text-[11px] text-muted-foreground space-y-0.5">
-                            <div>{costEstimate.document_stats.num_documents} docs, ~{costEstimate.document_stats.avg_tokens_per_document.toLocaleString()} tok/doc</div>
-                          </div>
-                        )}
-
-                        {/* Warnings */}
-                        {costEstimate.warnings.length > 0 && (
-                          <div className="space-y-1">
-                            {costEstimate.warnings.map((warning, idx) => (
-                              <p key={idx} className="text-[11px] text-amber-600">{warning}</p>
-                            ))}
-                          </div>
-                        )}
-
-                        <p className="text-[11px] text-muted-foreground italic">
-                          * Estimate may vary with actual usage.
-                        </p>
-                      </CollapsibleContent>
-                    </Collapsible>
+                    <CostBreakdown
+                      estimate={costEstimate}
+                      skipValueExtraction={config.skip_value_extraction}
+                    />
                   )}
 
                   {costEstimateError && (
