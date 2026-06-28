@@ -14,6 +14,8 @@ import {
   Download,
   FileUp,
   FolderOpen,
+  Cloud,
+  HardDrive,
   Italic,
   Loader2,
   Play,
@@ -71,6 +73,7 @@ import {
 } from '@/components/DataTable/utils/excerptUtils';
 import ContentModal from '@/components/ContentModal/ContentModal';
 import { CostBreakdown } from '@/components/CostBreakdown/CostBreakdown';
+import { CloudDatasetPicker, type CloudDataset } from '@/components/CloudDatasetPicker/CloudDatasetPicker';
 import {
   AdvancedSettingsFields,
   DEFAULT_ADVANCED_SETTINGS,
@@ -84,7 +87,7 @@ import {
   WS_DISCONNECTED_REFRESH_INTERVAL,
   type LLMProviderKey,
 } from '@/constants';
-import { chatAPI, configAPI, loadAPI, observationUnitAPI, schemaAPI, schematiqAPI, unitsAPI } from '@/services/api';
+import { chatAPI, cloudAPI, configAPI, loadAPI, observationUnitAPI, schemaAPI, schematiqAPI, unitsAPI } from '@/services/api';
 import webSocketService from '@/services/websocket';
 import {
   ChatToolInfo,
@@ -416,11 +419,20 @@ const WORKSPACE_DEFAULT_ADVANCED: AdvancedSettingsValue = {
   valueProvider: DEFAULT_PROVIDER,
 };
 
-function buildConfig(query: string, apiKey: string, advanced: AdvancedSettingsValue = WORKSPACE_DEFAULT_ADVANCED): ScheMatiQConfig {
+type DocumentSourceInput =
+  | { mode: 'upload' }
+  | { mode: 'cloud'; datasets: string[] };
+
+function buildConfig(
+  query: string,
+  apiKey: string,
+  advanced: AdvancedSettingsValue = WORKSPACE_DEFAULT_ADVANCED,
+  docs: DocumentSourceInput = { mode: 'upload' },
+): ScheMatiQConfig {
   const config: ScheMatiQConfig = {
     query,
-    docs_path: null,
-    upload_pending: true,
+    docs_path: docs.mode === 'cloud' ? docs.datasets : null,
+    upload_pending: docs.mode === 'upload',
     max_keys_schema: advanced.maxKeysSchema,
     documents_batch_size: advanced.documentsBatchSize,
     schema_creation_backend: {
@@ -504,6 +516,10 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
   const [query, setQuery] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [files, setFiles] = useState<File[]>([]);
+  const [documentSource, setDocumentSource] = useState<'upload' | 'cloud'>('upload');
+  const [datasets, setDatasets] = useState<CloudDataset[]>([]);
+  const [datasetsLoading, setDatasetsLoading] = useState(true);
+  const [selectedDatasets, setSelectedDatasets] = useState<string[]>([]);
   const [serverHasKeys, setServerHasKeys] = useState(false);
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
   const [estimating, setEstimating] = useState(false);
@@ -541,6 +557,23 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await cloudAPI.getDatasets();
+        if (!cancelled) setDatasets(Array.isArray(data) ? data : []);
+      } catch {
+        if (!cancelled) setDatasets([]);
+      } finally {
+        if (!cancelled) setDatasetsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (folderInputRef.current) {
       folderInputRef.current.setAttribute('webkitdirectory', '');
       folderInputRef.current.setAttribute('directory', '');
@@ -552,16 +585,22 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     [files]
   );
 
-  const canEstimate = query.trim().length > 0 && files.length > 0 && (serverHasKeys || apiKey.trim().length > 0);
+  const hasDocuments = documentSource === 'cloud' ? selectedDatasets.length > 0 : files.length > 0;
+  const canEstimate = query.trim().length > 0 && hasDocuments && (serverHasKeys || apiKey.trim().length > 0);
 
   const estimateProject = useCallback(async () => {
     setError(null);
     setEstimating(true);
     try {
-      const config = buildConfig(query.trim(), apiKey.trim(), advanced);
+      const docs: DocumentSourceInput = documentSource === 'cloud'
+        ? { mode: 'cloud', datasets: selectedDatasets }
+        : { mode: 'upload' };
+      const config = buildConfig(query.trim(), apiKey.trim(), advanced, docs);
       const result = await schematiqAPI.estimateCostPreview(
         config,
-        files.map((file) => ({ name: file.webkitRelativePath || file.name, size: file.size }))
+        documentSource === 'cloud'
+          ? []
+          : files.map((file) => ({ name: file.webkitRelativePath || file.name, size: file.size })),
       );
       setEstimate(result);
       setStartConfirmed(false);
@@ -573,11 +612,15 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     } finally {
       setEstimating(false);
     }
-  }, [apiKey, files, query, advanced]);
+  }, [apiKey, files, query, advanced, documentSource, selectedDatasets]);
 
   const startProject = useCallback(async () => {
-    if (!query.trim() || files.length === 0) {
-      setError('Choose a folder of documents and enter a research question first.');
+    if (!query.trim() || !hasDocuments) {
+      setError(
+        documentSource === 'cloud'
+          ? 'Select at least one cloud dataset and enter a research question first.'
+          : 'Choose a folder of documents and enter a research question first.',
+      );
       return;
     }
     if (!serverHasKeys && !apiKey.trim()) {
@@ -593,9 +636,14 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     setCreating(true);
     setError(null);
     try {
-      const config = buildConfig(query.trim(), apiKey.trim(), advanced);
+      const docs: DocumentSourceInput = documentSource === 'cloud'
+        ? { mode: 'cloud', datasets: selectedDatasets }
+        : { mode: 'upload' };
+      const config = buildConfig(query.trim(), apiKey.trim(), advanced, docs);
       const result = await schematiqAPI.configure(config);
-      await loadAPI.addDocuments(result.session_id, files, advanced.bypassLimit);
+      if (documentSource === 'upload') {
+        await loadAPI.addDocuments(result.session_id, files, advanced.bypassLimit);
+      }
       await schematiqAPI.run(result.session_id);
       toast({
         title: 'Project started',
@@ -609,7 +657,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     } finally {
       setCreating(false);
     }
-  }, [apiKey, estimate, estimateProject, files, navigate, onCreated, onOpenChange, query, serverHasKeys, startConfirmed, toast, advanced]);
+  }, [apiKey, estimate, estimateProject, files, hasDocuments, navigate, onCreated, onOpenChange, query, serverHasKeys, startConfirmed, toast, advanced, documentSource, selectedDatasets]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -617,7 +665,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
         <DialogHeader>
           <DialogTitle>New Project</DialogTitle>
           <DialogDescription>
-            Import a local folder, describe the research question, estimate cost, then start extraction.
+            Pick a local folder or a cloud dataset, describe the research question, estimate cost, then start extraction.
           </DialogDescription>
         </DialogHeader>
 
@@ -638,18 +686,51 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
           </div>
 
           <div className="grid gap-2">
-            <Label>Local document folder</Label>
-            <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" onClick={() => folderInputRef.current?.click()}>
-                <FolderOpen className="h-4 w-4" />
-                Choose Folder
+            <Label>Documents</Label>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={documentSource === 'upload' ? 'default' : 'outline'}
+                onClick={() => { setDocumentSource('upload'); setEstimate(null); setStartConfirmed(false); }}
+              >
+                <HardDrive className="h-4 w-4" />
+                Local folder
               </Button>
-              <span className="text-sm text-muted-foreground">
-                {files.length > 0
-                  ? `${files.length} files, ${formatFileSize(selectedBytes)}`
-                  : 'No folder selected'}
-              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant={documentSource === 'cloud' ? 'default' : 'outline'}
+                onClick={() => { setDocumentSource('cloud'); setEstimate(null); setStartConfirmed(false); }}
+              >
+                <Cloud className="h-4 w-4" />
+                Cloud dataset
+              </Button>
             </div>
+
+            {documentSource === 'upload' ? (
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" onClick={() => folderInputRef.current?.click()}>
+                  <FolderOpen className="h-4 w-4" />
+                  Choose Folder
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  {files.length > 0
+                    ? `${files.length} files, ${formatFileSize(selectedBytes)}`
+                    : 'No folder selected'}
+                </span>
+              </div>
+            ) : (
+              <CloudDatasetPicker
+                datasets={datasets}
+                loading={datasetsLoading}
+                selected={selectedDatasets}
+                onChange={(names) => { setSelectedDatasets(names); setEstimate(null); setStartConfirmed(false); }}
+                maxDocuments={maxDocuments}
+                bypassLimit={advanced.bypassLimit}
+              />
+            )}
+
             <input
               ref={folderInputRef}
               type="file"
