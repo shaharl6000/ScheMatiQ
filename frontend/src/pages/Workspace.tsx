@@ -2917,11 +2917,22 @@ function Workspace() {
   const selectedSourceDoc = useMemo<string | null>(() => {
     if (activeSheet !== 'data' || !sheetSelection || sheetSelection.sheet !== 'data') return null;
     const rows = (dataView === 'by_unit' ? alignedUnitData : data).rows || [];
-    const hot = hotTableRef.current?.hotInstance;
+    if (rows.length === 0) return null;
     const visualRow = sheetSelection.fromRow;
-    const physical = hot ? hot.toPhysicalRow(visualRow) : visualRow;
+    if (visualRow == null || visualRow < 0) return null;
+
+    // Map the visually selected row to its data row, accounting for column
+    // sorting. toPhysicalRow can return null/-1 for out-of-range rows, so guard
+    // and fall back to the visual index, then bound-check before reading.
+    const hot = hotTableRef.current?.hotInstance;
+    let physical = visualRow;
+    if (hot && typeof hot.toPhysicalRow === 'function') {
+      const mapped = hot.toPhysicalRow(visualRow);
+      if (mapped != null && mapped >= 0) physical = mapped;
+    }
     const row = rows[physical] ?? rows[visualRow];
     if (!row) return null;
+
     const raw =
       row._source_document ||
       row._parent_document ||
@@ -3009,18 +3020,19 @@ function Workspace() {
                 viewMode={dataView === 'by_unit' ? 'by_unit' : 'standard'}
                 onViewModeChange={(mode) => setDataView(mode === 'by_unit' ? 'by_unit' : 'by_document')}
               />
-              <span style={{ flex: 1 }} />
+              <span style={{ width: 1, alignSelf: 'stretch', background: '#e2e8e2', margin: '2px 4px' }} />
               <Button
                 size="sm"
-                variant={showSourcePanel ? 'secondary' : 'ghost'}
+                variant={showSourcePanel ? 'secondary' : 'outline'}
                 onClick={() => setShowSourcePanel((v) => !v)}
-                className="gap-1"
+                className="gap-1.5"
                 aria-pressed={showSourcePanel}
-                title="Show the source document for the selected row"
+                title="Show the source document for the selected row, side by side with the data"
               >
                 <PanelLeft className="h-4 w-4" />
-                Source
+                {showSourcePanel ? 'Hide source' : 'Show source document'}
               </Button>
+              <span style={{ flex: 1 }} />
             </div>
           )}
           {activeSheet === 'stats' ? (
@@ -3040,7 +3052,7 @@ function Workspace() {
             </div>
           ) : activeSheet === 'documents' ? (
             <div style={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
-              <DocumentViewer sessionId={sessionId} />
+              <DocumentViewer sessionId={sessionId} refreshKey={data.total_count} />
             </div>
           ) : activeSheet !== 'monitor' ? (
             activeSheet === 'data' && showSourcePanel ? (

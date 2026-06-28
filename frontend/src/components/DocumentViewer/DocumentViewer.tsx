@@ -7,6 +7,8 @@ import DocumentPreview from './DocumentPreview';
 
 interface DocumentViewerProps {
   sessionId: string | null | undefined;
+  /** Changes when the underlying data updates, so the list refetches as documents arrive. */
+  refreshKey?: number;
 }
 
 /**
@@ -14,7 +16,7 @@ interface DocumentViewerProps {
  * inline preview on the right (see DocumentPreview). "Open full" opens the
  * document in a new browser tab.
  */
-const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId }) => {
+const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }) => {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +47,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId }) => {
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, refreshKey]);
 
   if (!sessionId) {
     return (
