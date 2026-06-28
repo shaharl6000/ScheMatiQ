@@ -15,7 +15,6 @@ import {
   FileUp,
   FolderOpen,
   Cloud,
-  HardDrive,
   Italic,
   Loader2,
   Play,
@@ -714,10 +713,15 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
                 type="button"
                 size="sm"
                 variant={documentSource === 'upload' ? 'default' : 'outline'}
-                onClick={() => { setDocumentSource('upload'); setEstimate(null); setStartConfirmed(false); }}
+                onClick={() => {
+                  setDocumentSource('upload');
+                  setEstimate(null);
+                  setStartConfirmed(false);
+                  folderInputRef.current?.click();
+                }}
               >
-                <HardDrive className="h-4 w-4" />
-                Local folder
+                <FolderOpen className="h-4 w-4" />
+                Choose Folder
               </Button>
               <Button
                 type="button"
@@ -731,17 +735,11 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
             </div>
 
             {documentSource === 'upload' ? (
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" onClick={() => folderInputRef.current?.click()}>
-                  <FolderOpen className="h-4 w-4" />
-                  Choose Folder
-                </Button>
-                <span className="text-sm text-muted-foreground">
-                  {files.length > 0
-                    ? `${files.length} files, ${formatFileSize(selectedBytes)}`
-                    : 'No folder selected'}
-                </span>
-              </div>
+              <span className="text-sm text-muted-foreground">
+                {files.length > 0
+                  ? `${files.length} files, ${formatFileSize(selectedBytes)}`
+                  : 'No folder selected'}
+              </span>
             ) : (
               <CloudDatasetPicker
                 datasets={datasets}
