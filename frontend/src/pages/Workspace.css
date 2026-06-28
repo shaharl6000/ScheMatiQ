@@ -233,6 +233,7 @@
   white-space: nowrap;
   color: hsl(var(--muted-foreground));
   font-size: 14px;
+  font-weight: 600;
   line-height: 1.2;
 }
 
@@ -273,6 +274,7 @@
   text-overflow: ellipsis;
 }
 
+<<<<<<< HEAD
 /* Data sheet split: optional source-document panel on the left of the grid. */
 .workspace-data-split {
   display: flex;
@@ -293,6 +295,20 @@
   min-width: 0;
 }
 
+||||||| c3c55458
+=======
+/* Lift the global toast viewport above the 52px workspace bottombar so
+   transient toasts (e.g. "Project started") never cover the live progress bar.
+   Scoped to the Workspace route via the body attribute, and only on the sm+
+   breakpoint where the viewport is bottom-anchored (it is top-anchored on
+   mobile). The viewport's own padding adds the visual gap above the bar. */
+@media (min-width: 640px) {
+  body[data-workspace-active="true"] .app-toast-viewport {
+    bottom: 52px;
+  }
+}
+
+>>>>>>> origin/main
 .workspace-followup-banner {
   flex: 0 0 auto;
   display: flex;

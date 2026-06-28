@@ -53,6 +53,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/components/ui/use-toast';
@@ -70,9 +71,13 @@ import {
 } from '@/components/DataTable/utils/excerptUtils';
 import ContentModal from '@/components/ContentModal/ContentModal';
 import {
-  DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
-  DEFAULT_DOCUMENTS_BATCH_SIZE,
-  DEFAULT_MAX_KEYS_SCHEMA,
+  AdvancedSettingsFields,
+  DEFAULT_ADVANCED_SETTINGS,
+  observationUnitFromValue,
+  retrieverIsCustomized,
+  type AdvancedSettingsValue,
+} from '@/components/AdvancedSettings/AdvancedSettingsFields';
+import {
   getAvailableProviders,
   getDefaultModelForProvider,
   WS_DISCONNECTED_REFRESH_INTERVAL,
@@ -315,8 +320,14 @@ const SHEETS: Array<{ id: SheetId; label: string }> = [
   { id: 'unit', label: 'Observation Unit' },
   { id: 'schema', label: 'Schema' },
   { id: 'stats', label: 'Statistics' },
+<<<<<<< HEAD
   { id: 'documents', label: 'Documents' },
   { id: 'monitor', label: 'ScheMatiQ Monitor' },
+||||||| c3c55458
+  { id: 'monitor', label: 'ScheMatiQ Monitor' },
+=======
+  { id: 'monitor', label: 'Monitor' },
+>>>>>>> origin/main
 ];
 
 const WORKSPACE_MENUS = [
@@ -355,8 +366,6 @@ const WORKSPACE_MENUS = [
 ];
 
 const DEFAULT_PROVIDER = 'gemini';
-const DEFAULT_SCHEMA_MODEL = 'gemini-2.5-flash';
-const DEFAULT_VALUE_MODEL = 'gemini-3.1-flash-lite-preview';
 const EDITABLE_OBSERVATION_UNIT_FIELDS = new Set(['name', 'definition', 'example_names']);
 const TABLE_FONT_OPTIONS: TableFontFamily[] = ['Inter', 'Arial', 'Georgia', 'Mono'];
 const TABLE_FONT_SIZE_OPTIONS = [10, 11, 12, 13, 14, 16, 18];
@@ -406,29 +415,58 @@ function parseAllowedValues(value: unknown): string[] | undefined {
     .filter(Boolean);
 }
 
-function buildConfig(query: string, apiKey: string): ScheMatiQConfig {
-  const backend = {
-    provider: DEFAULT_PROVIDER,
-    model: DEFAULT_SCHEMA_MODEL,
-    temperature: 0,
-    api_key: apiKey || undefined,
-  };
+const WORKSPACE_DEFAULT_ADVANCED: AdvancedSettingsValue = {
+  ...DEFAULT_ADVANCED_SETTINGS,
+  schemaProvider: DEFAULT_PROVIDER,
+  valueProvider: DEFAULT_PROVIDER,
+};
 
-  return {
+function buildConfig(query: string, apiKey: string, advanced: AdvancedSettingsValue = WORKSPACE_DEFAULT_ADVANCED): ScheMatiQConfig {
+  const config: ScheMatiQConfig = {
     query,
     docs_path: null,
     upload_pending: true,
-    max_keys_schema: DEFAULT_MAX_KEYS_SCHEMA,
-    documents_batch_size: DEFAULT_DOCUMENTS_BATCH_SIZE,
-    schema_creation_backend: backend,
+    max_keys_schema: advanced.maxKeysSchema,
+    documents_batch_size: advanced.documentsBatchSize,
+    schema_creation_backend: {
+      provider: advanced.schemaProvider,
+      model: advanced.schemaModel,
+      temperature: advanced.schemaTemperature,
+      api_key: apiKey || undefined,
+    },
     value_extraction_backend: {
-      ...backend,
-      model: DEFAULT_VALUE_MODEL,
+      provider: advanced.valueProvider,
+      model: advanced.valueModel,
+      temperature: advanced.valueTemperature,
+      api_key: apiKey || undefined,
     },
     output_path: 'outputs/workspace_output.json',
-    document_randomization_seed: DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
-    skip_value_extraction: false,
+    document_randomization_seed: advanced.seed,
+    skip_value_extraction: advanced.skipValueExtraction,
+    initial_observation_unit: observationUnitFromValue(advanced),
+    review_observation_unit: advanced.observationUnitMode === 'auto' ? advanced.reviewObservationUnit : undefined,
+    initial_schema: advanced.initialSchemaData ?? undefined,
+    initial_schema_path: !advanced.initialSchemaData ? advanced.initialSchemaPath : undefined,
   };
+
+  if (advanced.convergenceThreshold != null) {
+    config.convergence_threshold = advanced.convergenceThreshold;
+  }
+
+  if (retrieverIsCustomized(advanced)) {
+    config.retriever = {
+      type: 'embedding',
+      model_name: advanced.retrieverModelName,
+      passage_chars: advanced.retrieverPassageChars,
+      overlap: advanced.retrieverOverlap,
+      k: advanced.retrieverK,
+      enable_dynamic_k: true,
+      dynamic_k_threshold: advanced.retrieverDynamicK,
+      dynamic_k_minimum: 3,
+    };
+  }
+
+  return config;
 }
 
 function schemaFromLoadSession(session: VisualizationSession | null): SchemaData | null {
@@ -477,11 +515,34 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
   const [creating, setCreating] = useState(false);
   const [startConfirmed, setStartConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [advanced, setAdvanced] = useState<AdvancedSettingsValue>(WORKSPACE_DEFAULT_ADVANCED);
+  const [developerMode, setDeveloperMode] = useState(false);
+  const [allowLlmConfig, setAllowLlmConfig] = useState(false);
+  const [maxDocuments, setMaxDocuments] = useState<number | undefined>(undefined);
+  const [providers, setProviders] = useState<LLMProviderKey[]>([DEFAULT_PROVIDER as LLMProviderKey]);
+
+  const updateAdvanced = useCallback((patch: Partial<AdvancedSettingsValue>) => {
+    setAdvanced((prev) => ({ ...prev, ...patch }));
+    setEstimate(null);
+    setStartConfirmed(false);
+  }, []);
 
   useEffect(() => {
-    configAPI.getConfig()
-      .then((config) => setServerHasKeys(Boolean(config.server_has_api_keys)))
-      .catch(() => setServerHasKeys(false));
+    let cancelled = false;
+    (async () => {
+      const config = await configAPI.getConfig().catch(() => null);
+      const configured = await getConfiguredProviders().catch(() => []);
+      if (cancelled) return;
+      const available = getAvailableProviders(configured) as LLMProviderKey[];
+      setServerHasKeys(Boolean(config?.server_has_api_keys));
+      setDeveloperMode(Boolean(config?.developer_mode));
+      setAllowLlmConfig(Boolean(config?.allow_llm_config));
+      setMaxDocuments(typeof config?.max_documents === 'number' ? config.max_documents : undefined);
+      setProviders(available.length > 0 ? available : [DEFAULT_PROVIDER as LLMProviderKey]);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -502,7 +563,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     setError(null);
     setEstimating(true);
     try {
-      const config = buildConfig(query.trim(), apiKey.trim());
+      const config = buildConfig(query.trim(), apiKey.trim(), advanced);
       const result = await schematiqAPI.estimateCostPreview(
         config,
         files.map((file) => ({ name: file.webkitRelativePath || file.name, size: file.size }))
@@ -517,7 +578,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     } finally {
       setEstimating(false);
     }
-  }, [apiKey, files, query]);
+  }, [apiKey, files, query, advanced]);
 
   const startProject = useCallback(async () => {
     if (!query.trim() || files.length === 0) {
@@ -537,9 +598,9 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     setCreating(true);
     setError(null);
     try {
-      const config = buildConfig(query.trim(), apiKey.trim());
+      const config = buildConfig(query.trim(), apiKey.trim(), advanced);
       const result = await schematiqAPI.configure(config);
-      await loadAPI.addDocuments(result.session_id, files);
+      await loadAPI.addDocuments(result.session_id, files, advanced.bypassLimit);
       await schematiqAPI.run(result.session_id);
       toast({
         title: 'Project started',
@@ -553,7 +614,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     } finally {
       setCreating(false);
     }
-  }, [apiKey, estimate, estimateProject, files, navigate, onCreated, onOpenChange, query, serverHasKeys, startConfirmed, toast]);
+  }, [apiKey, estimate, estimateProject, files, navigate, onCreated, onOpenChange, query, serverHasKeys, startConfirmed, toast, advanced]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -621,6 +682,24 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
               placeholder={serverHasKeys ? 'Optional: server keys are configured' : 'Required unless server keys are configured'}
             />
           </div>
+
+          <Collapsible>
+            <CollapsibleTrigger className="group flex items-center gap-2 text-sm font-medium hover:text-foreground transition-colors">
+              <ChevronDown className="h-4 w-4 transition-transform duration-200 group-data-[state=open]:rotate-180" />
+              <span>Advanced settings</span>
+              <span className="text-xs font-normal text-muted-foreground">(optional)</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="mt-3">
+              <AdvancedSettingsFields
+                value={advanced}
+                onChange={updateAdvanced}
+                developerMode={developerMode}
+                allowLlmConfig={allowLlmConfig}
+                providers={providers}
+                maxDocuments={maxDocuments}
+              />
+            </CollapsibleContent>
+          </Collapsible>
 
           {estimate && (
             <div className="rounded-md border bg-muted/30 p-3 text-sm">
@@ -2307,6 +2386,16 @@ function Workspace() {
     setProjectDialogOpen(!sessionId);
     setSessionMode(requestedMode);
   }, [requestedMode, sessionId]);
+
+  // Mark the body while the Workspace is mounted so global toasts can be lifted
+  // above the fixed bottombar (see Workspace.css). Scoped to this route only so
+  // toast positioning elsewhere in the app is unaffected.
+  useEffect(() => {
+    document.body.setAttribute('data-workspace-active', 'true');
+    return () => {
+      document.body.removeAttribute('data-workspace-active');
+    };
+  }, []);
 
   useEffect(() => {
     setPendingRerunKind(null);
