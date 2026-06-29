@@ -460,14 +460,14 @@
 
 .workspace-sheet-tab[data-group="structure"] {
   color: hsl(var(--foreground));
-  font-weight: 500;
+  font-weight: 700;
 }
 
 .workspace-sheet-tab[data-active="true"] {
   border-color: #188038;
   background: #e6f4ea;
   color: #137333;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .workspace-sheet-tab-divider {
