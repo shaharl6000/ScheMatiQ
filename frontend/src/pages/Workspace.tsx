@@ -1,4 +1,4 @@
-import { type CSSProperties, type MutableRefObject, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type MutableRefObject, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { HotTable, type HotTableClass } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
@@ -3580,21 +3580,26 @@ function Workspace() {
 
       <div className="workspace-bottombar">
         <div className="workspace-bottombar-tabs">
-          {SHEETS.filter((sheet) => sheet.id !== 'monitor' || sessionMode === 'schematiq').map((sheet, index, sheets) => (
-            <Fragment key={sheet.id}>
-              {index > 0 && sheets[index - 1].group !== sheet.group && (
-                <span className="workspace-sheet-tab-divider" aria-hidden="true" />
-              )}
-              <button
-                className="workspace-sheet-tab"
-                data-active={activeSheet === sheet.id}
-                data-group={sheet.group}
-                onClick={() => setActiveSheet(sheet.id)}
-              >
-                {sheet.label}
-              </button>
-            </Fragment>
-          ))}
+          {(['structure', 'analysis'] as const).map((group) => {
+            const groupSheets = SHEETS.filter(
+              (sheet) => sheet.group === group && (sheet.id !== 'monitor' || sessionMode === 'schematiq'),
+            );
+            if (groupSheets.length === 0) return null;
+            return (
+              <div key={group} className="workspace-sheet-tab-group">
+                {groupSheets.map((sheet) => (
+                  <button
+                    key={sheet.id}
+                    className="workspace-sheet-tab"
+                    data-active={activeSheet === sheet.id}
+                    onClick={() => setActiveSheet(sheet.id)}
+                  >
+                    {sheet.label}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </div>
 
         <Tooltip>

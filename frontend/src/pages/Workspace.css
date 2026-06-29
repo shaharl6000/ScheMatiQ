@@ -211,10 +211,20 @@
   min-width: 0;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+}
+
+.workspace-sheet-tab-group {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 8px;
+  background: hsl(var(--muted));
 }
 
 .workspace-bottombar-tabs::-webkit-scrollbar {
@@ -458,24 +468,11 @@
   color: hsl(var(--muted-foreground));
 }
 
-.workspace-sheet-tab[data-group="structure"] {
-  color: hsl(var(--foreground));
-  font-weight: 500;
-}
-
 .workspace-sheet-tab[data-active="true"] {
   border-color: #188038;
   background: #e6f4ea;
   color: #137333;
   font-weight: 600;
-}
-
-.workspace-sheet-tab-divider {
-  flex: 0 0 auto;
-  width: 1px;
-  height: 20px;
-  margin: 0 8px;
-  background: hsl(var(--border));
 }
 
 .workspace-chat {
