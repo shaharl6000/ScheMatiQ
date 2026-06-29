@@ -2298,6 +2298,7 @@ function SpreadsheetChrome({
   onPrint,
   onExport,
   onSaveProject,
+  onHome,
   onSearch,
   onEstimateCost,
   onShowSheet,
@@ -2319,6 +2320,7 @@ function SpreadsheetChrome({
   onPrint: () => void;
   onExport: () => void;
   onSaveProject: () => void;
+  onHome: () => void;
   onSearch: () => void;
   onEstimateCost: () => void;
   onShowSheet: () => void;
@@ -2363,9 +2365,15 @@ function SpreadsheetChrome({
   return (
     <div className="workspace-chrome" role="toolbar" aria-label="Spreadsheet menu and formatting toolbar">
       <div className="workspace-chrome-titlebar">
-        <div className="workspace-file-mark">
-          <Table2 className="h-4 w-4" />
-        </div>
+        <button
+          type="button"
+          className="workspace-file-mark"
+          onClick={onHome}
+          title="ScheMatiQ home"
+          aria-label="ScheMatiQ home"
+        >
+          <img src="/icon.png" alt="" className="workspace-file-mark-logo" />
+        </button>
         <div className="workspace-file-title">
           <div className="workspace-file-name">{projectTitle}</div>
           <div className="workspace-file-status">{sessionStatus}</div>
@@ -3451,6 +3459,7 @@ function Workspace() {
         onPrint={printWorkspace}
         onExport={exportCurrentProject}
         onSaveProject={saveCurrentProject}
+        onHome={() => navigate('/')}
         onSearch={searchPage}
         onEstimateCost={estimateCurrentCost}
         onShowSheet={() => setChatWidth(0)}

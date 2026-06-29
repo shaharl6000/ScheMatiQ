@@ -31,14 +31,28 @@
 }
 
 .workspace-file-mark {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  background: #188038;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: #ffffff;
+  cursor: pointer;
+}
+
+.workspace-file-mark:hover {
+  background: rgba(24, 128, 56, 0.1);
+}
+
+.workspace-file-mark-logo {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  display: block;
 }
 
 .workspace-file-title {
@@ -890,7 +904,11 @@
 }
 
 .dark .workspace-file-mark {
-  background: hsl(144 42% 34%);
+  background: transparent;
+}
+
+.dark .workspace-file-mark:hover {
+  background: hsl(145 12% 18%);
 }
 
 .dark .workspace-file-status {
