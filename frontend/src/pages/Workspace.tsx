@@ -3402,6 +3402,7 @@ function Workspace() {
               <button
                 className="workspace-sheet-tab"
                 data-active={activeSheet === sheet.id}
+                data-group={sheet.group}
                 onClick={() => setActiveSheet(sheet.id)}
               >
                 {sheet.label}

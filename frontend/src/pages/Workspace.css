@@ -458,6 +458,11 @@
   color: hsl(var(--muted-foreground));
 }
 
+.workspace-sheet-tab[data-group="structure"] {
+  color: hsl(var(--foreground));
+  font-weight: 500;
+}
+
 .workspace-sheet-tab[data-active="true"] {
   border-color: #188038;
   background: #e6f4ea;
