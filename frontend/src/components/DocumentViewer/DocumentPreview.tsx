@@ -1,5 +1,5 @@
-import React, { useMemo } from 'react';
-import { FileText, ExternalLink, Download } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { FileText, ExternalLink, Download, FileX } from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
 
@@ -17,6 +17,8 @@ const extensionOf = (name: string): string => {
   return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
 };
 
+type Availability = 'idle' | 'checking' | 'ok' | 'unavailable';
+
 interface DocumentPreviewProps {
   sessionId: string | null | undefined;
   /** Source-document name (raw value, as returned by the documents endpoint). */
@@ -28,9 +30,12 @@ interface DocumentPreviewProps {
 /**
  * Renders a single source document inline (native browser rendering for
  * PDF/HTML/images/text) with an "Open full" link to a new tab, and a download
- * fallback for formats the browser cannot render. The browser uses the HTTP
- * Content-Type to decide how to render, so a name without an extension is still
- * attempted inline.
+ * fallback for formats the browser cannot render.
+ *
+ * Before rendering, the content URL is probed with a HEAD request: if the
+ * document cannot be served (e.g. an older project whose files are no longer
+ * stored, where the endpoint returns an error), a friendly "not available"
+ * message is shown instead of letting the iframe render the raw error body.
  */
 const DocumentPreview: React.FC<DocumentPreviewProps> = ({ sessionId, documentName, emptyHint }) => {
   const contentUrl = useMemo(
@@ -38,9 +43,85 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({ sessionId, documentNa
     [sessionId, documentName],
   );
 
+  const [availability, setAvailability] = useState<Availability>('idle');
+
+  useEffect(() => {
+    if (!contentUrl) {
+      setAvailability('idle');
+      return undefined;
+    }
+    let cancelled = false;
+    setAvailability('checking');
+    fetch(contentUrl, { method: 'HEAD' })
+      .then((res) => {
+        if (!cancelled) setAvailability(res.ok ? 'ok' : 'unavailable');
+      })
+      .catch(() => {
+        if (!cancelled) setAvailability('unavailable');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [contentUrl]);
+
   const ext = documentName ? extensionOf(documentName) : '';
   const canRenderInline = ext === '' || INLINE_EXTENSIONS.has(ext);
   const needsSandbox = SANDBOX_EXTENSIONS.has(ext);
+  const showOpenFull = Boolean(contentUrl) && availability === 'ok';
+
+  const renderBody = () => {
+    if (!contentUrl) {
+      return (
+        <div className="h-full flex items-center justify-center text-sm text-muted-foreground text-center px-4">
+          {emptyHint || 'Select a document to preview it.'}
+        </div>
+      );
+    }
+    if (availability === 'checking' || availability === 'idle') {
+      return (
+        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+          Loading…
+        </div>
+      );
+    }
+    if (availability === 'unavailable') {
+      return (
+        <div className="h-full flex flex-col items-center justify-center gap-2 text-sm text-muted-foreground text-center px-6">
+          <FileX className="h-8 w-8 opacity-40" />
+          <span>This document isn&apos;t available to preview.</span>
+          <span className="text-xs">
+            It may be from an older project whose source files are no longer stored.
+          </span>
+        </div>
+      );
+    }
+    if (canRenderInline) {
+      return (
+        <iframe
+          key={contentUrl}
+          src={contentUrl}
+          title={documentName || 'Document preview'}
+          className="w-full h-full border-0"
+          {...(needsSandbox ? { sandbox: '' } : {})}
+        />
+      );
+    }
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+        <FileText className="h-8 w-8 opacity-40" />
+        <span>Preview isn&apos;t available for .{ext} files.</span>
+        <a
+          href={contentUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors text-foreground"
+        >
+          <Download className="h-4 w-4" />
+          Open / download
+        </a>
+      </div>
+    );
+  };
 
   return (
     <div className="flex-1 min-w-0 h-full flex flex-col">
@@ -49,9 +130,9 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({ sessionId, documentNa
           {documentName || 'No document selected'}
         </span>
         <span className="flex-1" />
-        {contentUrl && (
+        {showOpenFull && (
           <a
-            href={contentUrl}
+            href={contentUrl as string}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border hover:bg-muted/50 transition-colors text-foreground"
@@ -62,35 +143,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({ sessionId, documentNa
         )}
       </div>
 
-      <div className="flex-1 min-h-0 bg-muted/20">
-        {!contentUrl ? (
-          <div className="h-full flex items-center justify-center text-sm text-muted-foreground text-center px-4">
-            {emptyHint || 'Select a document to preview it.'}
-          </div>
-        ) : canRenderInline ? (
-          <iframe
-            key={contentUrl}
-            src={contentUrl}
-            title={documentName || 'Document preview'}
-            className="w-full h-full border-0"
-            {...(needsSandbox ? { sandbox: '' } : {})}
-          />
-        ) : (
-          <div className="h-full flex flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-            <FileText className="h-8 w-8 opacity-40" />
-            <span>Preview isn&apos;t available for .{ext} files.</span>
-            <a
-              href={contentUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors text-foreground"
-            >
-              <Download className="h-4 w-4" />
-              Open / download
-            </a>
-          </div>
-        )}
-      </div>
+      <div className="flex-1 min-h-0 bg-muted/20">{renderBody()}</div>
     </div>
   );
 };
