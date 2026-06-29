@@ -24,21 +24,46 @@
 .workspace-chrome-titlebar {
   height: 38px;
   display: grid;
-  grid-template-columns: 32px minmax(160px, 320px) minmax(0, 1fr);
+  grid-template-columns: auto minmax(160px, 320px) minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   padding: 6px 10px 2px;
 }
 
 .workspace-file-mark {
-  width: 28px;
-  height: 28px;
+  height: 30px;
+  padding: 0 8px 0 4px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 4px;
-  background: #188038;
+  gap: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: #ffffff;
+  cursor: pointer;
+}
+
+.workspace-file-mark:hover {
+  background: rgba(24, 128, 56, 0.1);
+}
+
+.workspace-file-mark-logo {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  display: block;
+}
+
+.workspace-file-mark-name {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  background: linear-gradient(to right, hsl(var(--primary)), #60a5fa);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
 }
 
 .workspace-file-title {
@@ -890,7 +915,11 @@
 }
 
 .dark .workspace-file-mark {
-  background: hsl(144 42% 34%);
+  background: transparent;
+}
+
+.dark .workspace-file-mark:hover {
+  background: hsl(145 12% 18%);
 }
 
 .dark .workspace-file-status {
@@ -988,7 +1017,11 @@
 
   .workspace-chrome-titlebar {
     height: 58px;
-    grid-template-columns: 32px minmax(120px, 1fr);
+    grid-template-columns: auto minmax(120px, 1fr);
+  }
+
+  .workspace-file-mark-name {
+    display: none;
   }
 
   .workspace-menu-row {
