@@ -2373,6 +2373,7 @@ function SpreadsheetChrome({
           aria-label="ScheMatiQ home"
         >
           <img src="/icon.png" alt="" className="workspace-file-mark-logo" />
+          <span className="workspace-file-mark-name">ScheMatiQ</span>
         </button>
         <div className="workspace-file-title">
           <div className="workspace-file-name">{projectTitle}</div>
