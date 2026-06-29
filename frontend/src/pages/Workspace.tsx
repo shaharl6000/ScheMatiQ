@@ -3315,9 +3315,31 @@ function Workspace() {
   const progressPercent = Math.round((status?.progress || 0) * 100);
   const topbarQuestion = schema?.query || config?.query || '';
   const projectTitle = topbarQuestion || (sessionId ? `ScheMatiQ ${sessionId.slice(0, 8)}` : 'Untitled workspace');
-  const chromeStatus = sessionId
-    ? `${sessionMode} / ${loading ? 'loading' : status?.status || 'loading'}`
-    : 'No project open';
+  const chromeStatus = useMemo(() => {
+    if (!sessionId) return 'No project open';
+    if (loading) return 'Loading…';
+
+    const rawStatus = status?.status || '';
+    const isDone = rawStatus === 'completed' || rawStatus === 'schema_extracted' || rawStatus === 'stopped';
+    const isFailed = rawStatus === 'error' || rawStatus === 'failed';
+
+    if (isFailed) return 'Extraction failed';
+
+    // Still working: surface a live, human label instead of the raw status key.
+    if (!isDone) {
+      return sessionMode === 'load' ? 'Importing…' : 'Extracting…';
+    }
+
+    // Done: replace the status word (which just repeats what the visible table
+    // already shows) with useful context — where the data came from + its size.
+    const source = sessionMode === 'load' ? 'Imported file' : 'Extracted from documents';
+    const rowCount = data.total_count;
+    const colCount = status?.columns_discovered ?? schema?.schema.length ?? 0;
+    const parts = [source];
+    if (rowCount > 0) parts.push(`${rowCount} ${rowCount === 1 ? 'row' : 'rows'}`);
+    if (colCount > 0) parts.push(`${colCount} ${colCount === 1 ? 'column' : 'columns'}`);
+    return parts.join(' · ');
+  }, [sessionId, loading, status, sessionMode, data.total_count, schema]);
   const isSheetHidden = chatWidth >= window.innerWidth - 80;
   const isChatHidden = chatWidth <= 24;
   const bodyGridColumns = isSheetHidden
