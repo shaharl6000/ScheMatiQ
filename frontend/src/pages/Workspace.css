@@ -199,7 +199,7 @@
   flex: 0 0 auto;
   height: 52px;
   display: grid;
-  grid-template-columns: minmax(240px, 32vw) minmax(0, 1fr) clamp(120px, 14vw, 190px) 36px;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) clamp(120px, 14vw, 190px) 36px;
   align-items: center;
   gap: 14px;
   border-top: 1px solid hsl(var(--border));
