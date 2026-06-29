@@ -991,6 +991,7 @@ function SpreadsheetSurface({
   onEditFollowUp,
   onEditEnd,
   layoutRevision,
+  dataView,
 }: {
   activeSheet: SheetId;
   data: PaginatedData;
@@ -1004,6 +1005,10 @@ function SpreadsheetSurface({
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
   onEditEnd: () => void;
   layoutRevision: string;
+  // Current Data-sheet grouping. Drives the visual cell-merge of the leftmost
+  // grouping column: 'by_unit' merges unit_name, 'by_document' merges the
+  // Source Document column. Ignored on non-data sheets.
+  dataView: 'by_unit' | 'by_document';
 }) {
   const { sessionId } = useParams();
   const { toast } = useToast();
@@ -1257,6 +1262,136 @@ function SpreadsheetSurface({
     content: { answer: string; excerpts: CellGrounding['excerpts'] };
   } | null>(null);
 
+  // --- Grouped cell merging (By Unit / By Document) ------------------------
+  // Mirror the classic flow's grouped views: the leftmost grouping column
+  // visually merges consecutive rows that share the same value, with a small
+  // count badge on the group's first (top) row.
+  //   By Unit      -> group unit_name (col 0); badge "N documents"
+  //   By Document  -> group Source Document (col 1); badge "N observations"
+  // The parent pre-orders the rows so each group's rows are contiguous, so the
+  // merge runs are simple consecutive equal-value spans. All grouping logic is
+  // scoped to the Data sheet; other sheets render flat.
+  // The grouping (aggregation) column is always rendered leftmost so the user
+  // always sees what they're grouping on in the first column: By Unit puts
+  // unit_name first, By Document puts the Source Document first.
+  const groupColIndex = 0;
+  const groupColKey = dataView === 'by_unit' ? '_row_name' : '_source_document';
+  const groupBadgeNoun = dataView === 'by_unit' ? 'documents' : 'observations';
+
+  // One normalized group key per data row, in displayed (physical) order. The
+  // renderer and merge builder both index this by physical row, so they stay
+  // in sync with each other and survive column sorting/filtering (which only
+  // changes the visual<->physical mapping, not this array).
+  const groupKeys = useMemo<string[]>(() => {
+    if (activeSheet !== 'data') return [];
+    return dataRows.map((row) => String((row as Record<string, string>)[groupColKey] ?? '').trim().toLowerCase());
+  }, [activeSheet, dataRows, groupColKey]);
+
+  // Resolve the group key shown at a given *visual* row (accounting for sort).
+  const groupKeyAtVisual = useCallback(
+    (hot: any, visualRow: number): string => {
+      const phys = typeof hot?.toPhysicalRow === 'function' ? hot.toPhysicalRow(visualRow) : visualRow;
+      if (phys == null || phys < 0) return '';
+      return groupKeys[phys] ?? '';
+    },
+    [groupKeys],
+  );
+
+  // Recompute and apply merge ranges from the *current* visual order. Driven
+  // imperatively (not via a HotTable prop) so unrelated settings updates — e.g.
+  // width/height on resize — never clobber the merges; updateSettings only
+  // touches the keys it is given.
+  const applyGroupMerges = useCallback(() => {
+    const hot = hotTableRef.current?.hotInstance;
+    if (!hot) return;
+    if (activeSheet !== 'data' || groupKeys.length === 0) {
+      try { hot.updateSettings({ mergeCells: false }); } catch { /* plugin may be mid-teardown */ }
+      return;
+    }
+    const rowCount = hot.countRows();
+    const ranges: { row: number; col: number; rowspan: number; colspan: number }[] = [];
+    let start = 0;
+    while (start < rowCount) {
+      const key = groupKeyAtVisual(hot, start);
+      let end = start + 1;
+      if (key) {
+        while (end < rowCount && groupKeyAtVisual(hot, end) === key) end++;
+      }
+      if (end - start > 1) {
+        ranges.push({ row: start, col: groupColIndex, rowspan: end - start, colspan: 1 });
+      }
+      start = end;
+    }
+    try {
+      hot.updateSettings({ mergeCells: ranges.length ? ranges : true });
+    } catch { /* plugin may be mid-teardown */ }
+  }, [activeSheet, groupColIndex, groupKeyAtVisual, groupKeys.length, hotTableRef]);
+
+  // Renderer for the active grouping column: plain text plus a count badge on
+  // the group's first row. With cells merged, only the top row of a group is
+  // visible for this column, so the badge lands on the spanning cell.
+  const renderGroupCell = useCallback(
+    (
+      instance: unknown,
+      td: HTMLTableCellElement,
+      visualRow: number,
+      _col: number,
+      _prop: string | number,
+      value: unknown,
+    ): void => {
+      const hot = instance as any;
+      const text = value == null ? '' : String(value);
+      td.textContent = text;
+      td.style.verticalAlign = 'top';
+      if (activeSheet !== 'data') return;
+
+      const key = groupKeyAtVisual(hot, visualRow);
+      if (!key) return;
+      // Only the first row of a run carries the badge.
+      if (visualRow > 0 && groupKeyAtVisual(hot, visualRow - 1) === key) return;
+
+      const rowCount = typeof hot?.countRows === 'function' ? hot.countRows() : 0;
+      let span = 1;
+      for (let i = visualRow + 1; i < rowCount && groupKeyAtVisual(hot, i) === key; i++) span++;
+      if (span <= 1) return;
+
+      td.textContent = '';
+      const wrap = document.createElement('div');
+      wrap.style.display = 'flex';
+      wrap.style.flexDirection = 'column';
+      wrap.style.alignItems = 'flex-start';
+      wrap.style.gap = '4px';
+
+      const nameEl = document.createElement('span');
+      nameEl.textContent = text;
+      nameEl.style.fontWeight = '500';
+      nameEl.style.wordBreak = 'break-word';
+
+      const badge = document.createElement('span');
+      badge.textContent = `${span} ${groupBadgeNoun}`;
+      badge.style.alignSelf = 'flex-start';
+      badge.style.fontSize = '11px';
+      badge.style.lineHeight = '1.4';
+      badge.style.padding = '0 6px';
+      badge.style.borderRadius = '9999px';
+      badge.style.background = 'rgba(100, 116, 139, 0.15)';
+      badge.style.color = '#475569';
+      badge.style.whiteSpace = 'nowrap';
+
+      wrap.appendChild(nameEl);
+      wrap.appendChild(badge);
+      td.appendChild(wrap);
+    },
+    [activeSheet, groupBadgeNoun, groupKeyAtVisual],
+  );
+
+  // Re-apply merges whenever the displayed data, grouping column, or grid size
+  // changes. gridSize is a dep because Handsontable re-applies width/height via
+  // its own settings update on resize, after which the merges must be restored.
+  useEffect(() => {
+    applyGroupMerges();
+  }, [applyGroupMerges, gridSize, formatVersion]);
+
   const schemaRows = useMemo(() => {
     return schemaColumns.map((column) => ({
       // Display-only: the canonical `column.name` remains the edit identity
@@ -1334,11 +1469,18 @@ function SpreadsheetSurface({
       };
     }
 
+    // Order the two provenance columns so the active grouping column is
+    // leftmost (and carries the merge + badge renderer); the other follows.
+    const unitNameCol = { key: '_row_name', label: 'unit_name', width: 220, readOnly: true };
+    const sourceDocCol = { key: '_source_document', label: 'Source Document', width: 220, readOnly: true };
+    const groupCol = dataView === 'by_unit' ? unitNameCol : sourceDocCol;
+    const otherCol = dataView === 'by_unit' ? sourceDocCol : unitNameCol;
+
     return {
       rows: dataRows,
       columns: [
-        { key: '_row_name', label: 'unit_name', width: 220, readOnly: true },
-        { key: '_source_document', label: 'Source Document', width: 220, readOnly: true },
+        { ...groupCol, renderer: renderGroupCell },
+        otherCol,
         ...dataColumnNames.map((name) => {
           // Mirror the legacy DataTable header behaviour: the data column's
           // header explains itself with the schema definition on hover.
@@ -1352,7 +1494,7 @@ function SpreadsheetSurface({
         }),
       ],
     };
-  }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel, schemaColumns]);
+  }, [activeSheet, dataColumnNames, dataRows, observationUnitRows, schemaRows, columnDisplayLabel, schemaColumns, dataView, renderGroupCell]);
 
   const handleChanges = useCallback((changes: any[] | null, source: string) => {
     if (!changes || source === 'loadData' || !sessionId) return;
@@ -1600,7 +1742,7 @@ function SpreadsheetSurface({
     >
       <HotTable
         ref={hotTableRef}
-        key={`${activeSheet}-${sheet.columns.length}-${formatVersion}`}
+        key={`${activeSheet}-${sheet.columns.length}-${formatVersion}-${activeSheet === 'data' ? dataView : 'x'}`}
         className="workspace-hot"
         theme="ht-theme-main"
         data={sheet.rows}
@@ -1625,7 +1767,12 @@ function SpreadsheetSurface({
         undo
         minSpareRows={sheet.minSpareRows || 0}
         licenseKey="non-commercial-and-evaluation"
-        afterInit={syncHotTableDimensions}
+        afterInit={() => {
+          syncHotTableDimensions();
+          applyGroupMerges();
+        }}
+        afterColumnSort={applyGroupMerges}
+        afterFilter={applyGroupMerges}
         beforeRemoveRow={handleBeforeRemoveRow}
         afterChange={(changes, source) => {
           handleChanges(changes, source);
@@ -2614,6 +2761,44 @@ function Workspace() {
     return { ...unitData, rows: orderedRows };
   }, [unitData, data]);
 
+  // By Document counterpart of alignedUnitData: order the by-document rows so
+  // every document's rows are contiguous (preserving each document's first
+  // appearance), then stable-sort within a document by unit name. This mirrors
+  // the classic By Document view and lets the grid visually merge the Source
+  // Document column. Ordering only; rows are unchanged.
+  const alignedDocData = useMemo<PaginatedData>(() => {
+    const rows = data.rows || [];
+    if (rows.length === 0) return data;
+    const docKey = (row: DataRow) =>
+      documentDisplayName(
+        row._source_document ||
+          row._parent_document ||
+          (Array.isArray(row.papers) ? row.papers[0] : ''),
+      ).toLowerCase();
+    const unitKey = (row: DataRow) => String(row.row_name || row._unit_name || '').toLowerCase();
+    const firstSeen = new Map<string, number>();
+    rows.forEach((row, i) => {
+      const k = docKey(row);
+      if (!firstSeen.has(k)) firstSeen.set(k, i);
+    });
+    const groups = new Map<string, DataRow[]>();
+    rows.forEach((row) => {
+      const k = docKey(row);
+      const g = groups.get(k);
+      if (g) g.push(row);
+      else groups.set(k, [row]);
+    });
+    const orderedKeys = Array.from(groups.keys()).sort((a, b) => {
+      const ia = firstSeen.has(a) ? (firstSeen.get(a) as number) : Number.MAX_SAFE_INTEGER;
+      const ib = firstSeen.has(b) ? (firstSeen.get(b) as number) : Number.MAX_SAFE_INTEGER;
+      return ia !== ib ? ia - ib : a.localeCompare(b);
+    });
+    const orderedRows = orderedKeys.flatMap((k) =>
+      [...(groups.get(k) as DataRow[])].sort((x, y) => unitKey(x).localeCompare(unitKey(y))),
+    );
+    return { ...data, rows: orderedRows };
+  }, [data]);
+
   useEffect(() => {
     if (activeSheet === 'monitor' && sessionMode !== 'schematiq') {
       setActiveSheet('data');
@@ -3175,7 +3360,7 @@ function Workspace() {
   // matches the document names the content endpoint allowlists.
   const selectedSourceDoc = useMemo<string | null>(() => {
     if (activeSheet !== 'data' || !sheetSelection || sheetSelection.sheet !== 'data') return null;
-    const rows = (dataView === 'by_unit' ? alignedUnitData : data).rows || [];
+    const rows = (dataView === 'by_unit' ? alignedUnitData : alignedDocData).rows || [];
     if (rows.length === 0) return null;
     const visualRow = sheetSelection.fromRow;
     if (visualRow == null || visualRow < 0) return null;
@@ -3197,13 +3382,13 @@ function Workspace() {
       row._parent_document ||
       (Array.isArray(row.papers) ? row.papers[0] : undefined);
     return raw ? String(raw).trim() : null;
-  }, [activeSheet, sheetSelection, data, alignedUnitData, dataView]);
+  }, [activeSheet, sheetSelection, alignedDocData, alignedUnitData, dataView]);
 
   const dataGridNode = (
     <div className="workspace-grid-wrap">
       <SpreadsheetSurface
         activeSheet={activeSheet}
-        data={activeSheet === 'data' && dataView === 'by_unit' ? alignedUnitData : data}
+        data={activeSheet === 'data' && dataView === 'by_unit' ? alignedUnitData : alignedDocData}
         schema={schema}
         displayOptions={tableDisplay}
         cellFormats={cellFormats}
@@ -3214,6 +3399,7 @@ function Workspace() {
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
         layoutRevision={gridLayoutRevision}
+        dataView={dataView}
       />
       {(loading || importingProject) && sessionId && (
         <div className="workspace-loading-overlay" role="status" aria-live="polite">
