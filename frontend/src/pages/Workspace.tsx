@@ -1902,7 +1902,9 @@ function formatToolsList(tools: ChatToolInfo[]): string {
     .map((tool) => {
       const badge = tool.cost_class === 'expensive' ? ' [cost]' : '';
       const status = tool.available ? '' : ' (planned)';
-      return `• ${tool.name}${badge}${status}: ${tool.description}`;
+      // Markdown list item; the name is inline code so underscores in tool
+      // names (e.g. edit_observation_unit) are not parsed as emphasis.
+      return `- \`${tool.name}\`${badge}${status}: ${tool.description}`;
     })
     .join('\n');
 }
