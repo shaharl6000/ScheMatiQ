@@ -65,7 +65,7 @@ class ChatAgentService:
         chat_id: Optional[str] = None,
         pinned_tool: Optional[str] = None,
     ) -> dict[str, Any]:
-        state = self._get_or_create_session(session_id, session_mode, chat_id, pinned_tool)
+        state = self._get_or_create_session(session_id, session_mode, chat_id)
         outbound_messages: list[dict[str, Any]] = []
         if state.pending:
             abort_messages, new_pending = await self._abort_pending(
@@ -82,7 +82,7 @@ class ChatAgentService:
                 }
         user_text = message
         if pinned_tool:
-            user_text = f"[User pinned tool: {pinned_tool}]\n{message}"
+            user_text = f"[User suggested tool: {pinned_tool}]\n{message}"
 
         try:
             result = await self._run_loop(state, user_text, outbound_messages)
@@ -107,7 +107,7 @@ class ChatAgentService:
             if self._is_stale_chat_error(exc) and chat_id:
                 logger.warning("Stale chat session %s, starting fresh: %s", chat_id, exc)
                 chat_session_store.delete(chat_id)
-                state = self._get_or_create_session(session_id, session_mode, None, pinned_tool)
+                state = self._get_or_create_session(session_id, session_mode, None)
                 result = await self._run_loop(state, user_text, outbound_messages)
                 return {
                     "chat_id": state.chat_id,
@@ -231,12 +231,10 @@ class ChatAgentService:
         session_id: str,
         session_mode: str,
         chat_id: Optional[str],
-        pinned_tool: Optional[str],
     ) -> ChatSessionState:
         if chat_id:
             existing = chat_session_store.get(chat_id)
             if existing and existing.workspace_session_id == session_id:
-                existing.pinned_tool = pinned_tool
                 return existing
 
         client, chat = self._create_gemini_chat(session_id, session_mode)
@@ -245,7 +243,6 @@ class ChatAgentService:
             chat=chat,
             workspace_session_id=session_id,
             session_mode=session_mode,
-            pinned_tool=pinned_tool,
         )
         new_id = chat_session_store.create(state)
         state.chat_id = new_id
