@@ -68,6 +68,7 @@ import DocumentViewer from '@/components/DocumentViewer/DocumentViewer';
 import DocumentPreview from '@/components/DocumentViewer/DocumentPreview';
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
+import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
 import {
   buildExcerptMapping,
   resolveCellGrounding,
@@ -2580,6 +2581,7 @@ function Workspace() {
   const [unitData, setUnitData] = useState<PaginatedData>(emptyData);
   const [documents, setDocuments] = useState<DocumentListResponse | null>(null);
   const [config, setConfig] = useState<ScheMatiQConfig | null>(null);
+  const [developerMode, setDeveloperMode] = useState(false);
   const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
   const [loading, setLoading] = useState(false);
   const [importingProject, setImportingProject] = useState(false);
@@ -2737,6 +2739,14 @@ function Workspace() {
     return () => {
       document.body.removeAttribute('data-workspace-active');
     };
+  }, []);
+
+  // Fetch app-level developer mode so the table feedback widget can be hidden
+  // for developers (parity with the classic flow).
+  useEffect(() => {
+    configAPI.getConfig()
+      .then((cfg) => setDeveloperMode(Boolean(cfg?.developer_mode)))
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -3850,6 +3860,17 @@ function Workspace() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Table feedback widget (release mode only) — parity with the classic flow */}
+      {!developerMode && sessionId && (
+        <TableFeedbackWidget
+          sessionId={sessionId}
+          sessionStatus={session?.status || ''}
+          activeTab={activeSheet}
+          tableRowCount={data?.total_count || 0}
+          tableColumnCount={session?.columns?.length || 0}
+        />
+      )}
     </div>
   );
 }
