@@ -22,7 +22,6 @@ class ChatSessionState:
     session_mode: str
     chat_id: Optional[str] = None
     pending: Optional[PendingToolCall] = None
-    pinned_tool: Optional[str] = None
 
 
 class ChatSessionStore:

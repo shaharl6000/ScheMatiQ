@@ -1929,6 +1929,12 @@ function ChatMessageBody({ message }: { message: WorkspaceMessage }) {
   );
 }
 
+// Tool-suggestion control. Lets the user nudge the assistant toward a specific
+// tool; it is sent to the backend as a soft hint (prepended to the message), not
+// an enforced tool_choice, so the assistant may still pick a different tool.
+// Hidden for now — flip to `true` to re-expose the picker.
+const SHOW_TOOL_SUGGESTION: boolean = false;
+
 function ChatPanel({
   sessionId,
   sessionMode,
@@ -2179,14 +2185,14 @@ function ChatPanel({
         </div>
       </div>
 
-      {availableTools.length > 0 && (
+      {SHOW_TOOL_SUGGESTION && availableTools.length > 0 && (
         <div className="workspace-chat-tools px-3 pb-2">
           <select
             className="w-full rounded-md border bg-background px-2 py-1 text-xs"
             value={pinnedTool || ''}
             onChange={(event) => setPinnedTool(event.target.value || null)}
           >
-            <option value="">Pin a tool (optional)</option>
+            <option value="">Suggest a tool (optional)</option>
             {availableTools.map((tool) => (
               <option key={tool.name} value={tool.name}>
                 {tool.name}
