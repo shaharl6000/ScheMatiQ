@@ -35,7 +35,6 @@ import {
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
   Dialog,
   DialogContent,
@@ -65,7 +64,6 @@ import StatsDashboard from '@/components/StatsDashboard/StatsDashboard';
 import ScheMatiQMonitor from '@/components/ScheMatiQMonitor/ScheMatiQMonitor';
 import DocumentViewer from '@/components/DocumentViewer/DocumentViewer';
 import DocumentPreview from '@/components/DocumentViewer/DocumentPreview';
-import DocumentUpload from '@/components/DocumentUpload/DocumentUpload';
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import {
@@ -99,7 +97,6 @@ import {
   CostEstimate,
   DataRow,
   DocumentAvailabilityResponse,
-  DocumentUploadResult,
   PaginatedData,
   SchemaData,
   ReextractionCompletedData,
@@ -355,7 +352,7 @@ const WORKSPACE_MENUS = [
   },
   {
     label: 'Data',
-    items: ['Sort range', 'Create filter', 'Re-extract table', 'Add documents', 'Validate schema'],
+    items: ['Sort range', 'Create filter', 'Re-extract table', 'Validate schema'],
   },
   {
     label: 'Tools',
@@ -2308,7 +2305,6 @@ function SpreadsheetChrome({
   onShowChat,
   onSplitView,
   onRunPendingEdits,
-  onAddDocuments,
   onApplyFormat,
   rerunDisabled,
 }: {
@@ -2331,7 +2327,6 @@ function SpreadsheetChrome({
   onShowChat: () => void;
   onSplitView: () => void;
   onRunPendingEdits: () => void;
-  onAddDocuments: () => void;
   onApplyFormat: (patch: Partial<TableDisplayOptions>) => void;
   rerunDisabled: boolean;
 }) {
@@ -2348,7 +2343,6 @@ function SpreadsheetChrome({
     if (label === 'Show chat full screen') onShowChat();
     if (label === 'Split view') onSplitView();
     if (label === 'Re-extract table') onRunPendingEdits();
-    if (label === 'Add documents') onAddDocuments();
   };
 
   const isDisabled = (label: string) => {
@@ -2365,7 +2359,6 @@ function SpreadsheetChrome({
       'Show chat full screen',
       'Split view',
       'Re-extract table',
-      'Add documents',
     ].includes(label);
   };
 
@@ -2599,16 +2592,6 @@ function Workspace() {
   const [reextractAvailability, setReextractAvailability] = useState<DocumentAvailabilityResponse | null>(null);
   const [reextractAvailabilityLoading, setReextractAvailabilityLoading] = useState(false);
   const [stoppingReextraction, setStoppingReextraction] = useState(false);
-
-  // Add-more-documents (workspace parity with the classic flow): upload extra
-  // source documents and extract them with the existing schema. The backend
-  // endpoints (/load/add-documents, /load/process-documents) are flow-agnostic
-  // and already accept ScheMatiQ sessions, so this is a frontend-only surface.
-  const [addDocsFiles, setAddDocsFiles] = useState<File[]>([]);
-  const [addDocsUploading, setAddDocsUploading] = useState(false);
-  const [addDocsProcessing, setAddDocsProcessing] = useState(false);
-  const [addDocsResult, setAddDocsResult] = useState<DocumentUploadResult | null>(null);
-  const [addDocsError, setAddDocsError] = useState<string | null>(null);
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
   const cancelChatPendingRef = useRef<(() => Promise<boolean>) | null>(null);
@@ -3262,72 +3245,6 @@ function Workspace() {
     if (!reextraction) setStoppingReextraction(false);
   }, [reextraction]);
 
-  // Step 1: upload extra documents into the session's pending queue.
-  const uploadAddDocuments = useCallback(async () => {
-    if (!sessionId || addDocsFiles.length === 0 || addDocsUploading) return;
-    setAddDocsUploading(true);
-    setAddDocsError(null);
-    try {
-      const result = await loadAPI.addDocuments(sessionId, addDocsFiles);
-      setAddDocsResult(result);
-      setAddDocsFiles([]);
-      await refresh({ silent: true });
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      const message =
-        detail && typeof detail === 'object' && Array.isArray(detail.errors)
-          ? detail.errors.join('\n')
-          : typeof detail === 'string'
-            ? detail
-            : err?.message || 'Failed to upload documents';
-      setAddDocsError(message);
-    } finally {
-      setAddDocsUploading(false);
-    }
-  }, [addDocsFiles, addDocsUploading, refresh, sessionId]);
-
-  // Step 2: extract the queued documents with the existing schema. The LLM
-  // config is resolved exactly like re-extraction; the backend additionally
-  // falls back to the session's stored value_extraction_backend when none is
-  // passed. New rows stream into the table via the existing WebSocket handler.
-  const processAddDocuments = useCallback(async () => {
-    if (!sessionId || addDocsProcessing) return;
-    setAddDocsProcessing(true);
-    setAddDocsError(null);
-    try {
-      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
-      const configured = await getConfiguredProviders();
-      const available = getAvailableProviders(configured);
-      const provider: LLMProviderKey = !cfg.allow_llm_config
-        ? 'gemini'
-        : (available[0] ?? 'gemini');
-      const model = getDefaultModelForProvider(provider);
-      const apiKey = await getApiKeyForProvider(provider);
-      const llmConfig: Record<string, unknown> = { provider, model, temperature: 0 };
-      if (apiKey) llmConfig.api_key = apiKey;
-
-      await loadAPI.processDocuments(sessionId, llmConfig);
-      setAddDocsResult(null);
-      setActiveSheet('data');
-      toast({
-        title: 'Processing new documents',
-        description: 'New rows will appear in the table as they are extracted.',
-        duration: 4000,
-      });
-      await refresh({ silent: true });
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      const message = err?.response?.status === 503
-        ? (detail || 'The server is busy. Please try again in a few minutes.')
-        : (typeof detail === 'string' ? detail : err?.message || 'Failed to start processing');
-      setAddDocsError(message);
-    } finally {
-      setAddDocsProcessing(false);
-    }
-  }, [addDocsProcessing, refresh, sessionId, toast]);
-
-  const addDocsPending = (addDocsResult?.uploaded_files?.length ?? 0) > 0;
-
   const startSchemaRediscovery = useCallback(async () => {
     if (!sessionId || rerunStarting) return;
 
@@ -3550,7 +3467,6 @@ function Workspace() {
         onShowChat={() => setChatWidth(window.innerWidth)}
         onSplitView={() => setChatWidth(380)}
         onRunPendingEdits={runPendingEdits}
-        onAddDocuments={() => setActiveSheet('documents')}
         onApplyFormat={applyTableFormat}
         rerunDisabled={!sessionId || !pendingRerunKind || rerunStarting}
       />
@@ -3613,48 +3529,8 @@ function Workspace() {
               )}
             </div>
           ) : activeSheet === 'documents' ? (
-            <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                <DocumentViewer sessionId={sessionId} refreshKey={data.total_count} />
-              </div>
-              {sessionId && (
-                <div
-                  className="border-t border-border"
-                  style={{ flexShrink: 0, maxHeight: '48%', overflowY: 'auto', padding: '16px' }}
-                >
-                  <h3 className="text-base font-semibold mb-1">Add more documents</h3>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    Upload additional documents and extract them with this project&apos;s existing schema. New rows are appended to the table.
-                  </p>
-                  {addDocsError && (
-                    <Alert variant="destructive" className="mb-3">
-                      <AlertDescription className="whitespace-pre-line">{addDocsError}</AlertDescription>
-                    </Alert>
-                  )}
-                  <DocumentUpload
-                    onFilesChange={setAddDocsFiles}
-                    uploadedFiles={addDocsFiles}
-                    loading={addDocsUploading}
-                    onUpload={uploadAddDocuments}
-                    canUpload={Boolean(sessionId) && !addDocsProcessing}
-                    uploadResult={addDocsResult}
-                    sessionId={sessionId}
-                    existingDocumentCount={documents?.documents?.length ?? 0}
-                  />
-                  {addDocsPending && (
-                    <Button
-                      type="button"
-                      className="w-full mt-3"
-                      onClick={processAddDocuments}
-                      disabled={addDocsProcessing}
-                    >
-                      {addDocsProcessing
-                        ? 'Starting extraction\u2026'
-                        : `Process ${addDocsResult?.uploaded_files?.length ?? 0} new document(s)`}
-                    </Button>
-                  )}
-                </div>
-              )}
+            <div style={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
+              <DocumentViewer sessionId={sessionId} refreshKey={data.total_count} />
             </div>
           ) : activeSheet !== 'monitor' ? (
             activeSheet === 'data' && showSourcePanel ? (
