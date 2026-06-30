@@ -1,12 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { FileText, Upload, Loader2 } from 'lucide-react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { FileText } from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
 import { DocumentSummary } from '../../types/unit';
 import DocumentPreview from './DocumentPreview';
-
-/** Extensions accepted by the source-document re-attach picker (mirrors the backend allow-list). */
-const ACCEPTED_UPLOAD_EXTENSIONS = '.txt,.md,.pdf,.doc,.docx,.rtf,.json';
+import SourceUploadButton from './SourceUploadButton';
 
 interface DocumentViewerProps {
   sessionId: string | null | undefined;
@@ -29,9 +27,10 @@ const extractErrorMessage = (err: any): string => {
  * document in a new browser tab.
  *
  * Imported projects carry the schema and data but not the original files, so the
- * preview reports documents as unavailable. The header (and the preview's empty
- * state) offer an upload action that re-attaches the original source files via
- * the existing add-documents endpoint, after which previews resolve.
+ * preview reports documents as unavailable. The header and the preview's empty
+ * state offer one upload control (SourceUploadButton) that re-attaches the
+ * original source files — picked individually or dropped as a whole folder —
+ * after which previews resolve.
  */
 const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }) => {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
@@ -44,7 +43,6 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }
   const [reloadToken, setReloadToken] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!sessionId) {
@@ -73,18 +71,9 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }
     };
   }, [sessionId, refreshKey, reloadToken]);
 
-  const openFilePicker = useCallback(() => {
-    setUploadError(null);
-    fileInputRef.current?.click();
-  }, []);
-
-  const handleFilesSelected = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files || []);
-      // Reset so selecting the same files again re-triggers onChange.
-      e.target.value = '';
+  const uploadFiles = useCallback(
+    async (files: File[]) => {
       if (!sessionId || files.length === 0) return;
-
       setUploading(true);
       setUploadError(null);
       try {
@@ -110,16 +99,6 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }
 
   return (
     <div className="h-full flex min-h-0">
-      {/* Hidden picker shared by the header button and the preview's empty state. */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept={ACCEPTED_UPLOAD_EXTENSIONS}
-        onChange={handleFilesSelected}
-        className="hidden"
-      />
-
       {/* Document list */}
       <div className="w-56 flex-shrink-0 border-r border-border overflow-y-auto">
         <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground border-b border-border">
@@ -127,16 +106,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }
             {loading ? 'Loading\u2026' : `${documents.length} document${documents.length === 1 ? '' : 's'}`}
           </span>
           <span className="flex-1" />
-          <button
-            type="button"
-            onClick={openFilePicker}
-            disabled={uploading}
-            title="Upload the original source documents for this project"
-            className="inline-flex items-center gap-1 px-1.5 py-1 rounded-md border border-border hover:bg-muted/50 transition-colors text-foreground disabled:opacity-50"
-          >
-            {uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
-            <span>Upload</span>
-          </button>
+          <SourceUploadButton onFiles={uploadFiles} busy={uploading} />
         </div>
         {error && <div className="px-3 py-2 text-xs text-destructive">{error}</div>}
         {uploadError && <div className="px-3 py-2 text-xs text-destructive">{uploadError}</div>}
@@ -177,7 +147,14 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }
         sessionId={sessionId}
         documentName={selected}
         reloadToken={reloadToken}
-        onRequestUpload={openFilePicker}
+        uploadSlot={
+          <SourceUploadButton
+            onFiles={uploadFiles}
+            busy={uploading}
+            variant="dropzone"
+            label="Upload source documents"
+          />
+        }
       />
     </div>
   );

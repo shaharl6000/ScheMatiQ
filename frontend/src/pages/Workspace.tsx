@@ -1,4 +1,4 @@
-import { type CSSProperties, type ChangeEvent, type MutableRefObject, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type MutableRefObject, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -66,6 +66,7 @@ import StatsDashboard from '@/components/StatsDashboard/StatsDashboard';
 import ScheMatiQMonitor from '@/components/ScheMatiQMonitor/ScheMatiQMonitor';
 import DocumentViewer from '@/components/DocumentViewer/DocumentViewer';
 import DocumentPreview from '@/components/DocumentViewer/DocumentPreview';
+import SourceUploadButton from '@/components/DocumentViewer/SourceUploadButton';
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
@@ -2618,7 +2619,6 @@ function Workspace() {
   // the token re-probes the preview so a freshly uploaded file resolves.
   const [sourceDocReloadToken, setSourceDocReloadToken] = useState(0);
   const [attachingSourceDocs, setAttachingSourceDocs] = useState(false);
-  const sourceDocInputRef = useRef<HTMLInputElement | null>(null);
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = Number(localStorage.getItem('workspace.chatWidth'));
     return Number.isFinite(saved) ? saved : 380;
@@ -3462,9 +3462,7 @@ function Workspace() {
   }, [activeSheet, sheetSelection, alignedDocData, alignedUnitData, dataView]);
 
   const handleAttachSourceDocs = useCallback(
-    async (e: ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(e.target.files || []);
-      e.target.value = '';
+    async (files: File[]) => {
       if (!sessionId || files.length === 0) return;
       setAttachingSourceDocs(true);
       try {
@@ -3604,20 +3602,19 @@ function Workspace() {
             activeSheet === 'data' && showSourcePanel ? (
               <div className="workspace-data-split">
                 <div className="workspace-source-panel">
-                  <input
-                    ref={sourceDocInputRef}
-                    type="file"
-                    multiple
-                    accept=".txt,.md,.pdf,.doc,.docx,.rtf,.json"
-                    onChange={handleAttachSourceDocs}
-                    className="hidden"
-                  />
                   <DocumentPreview
                     sessionId={sessionId}
                     documentName={selectedSourceDoc}
                     emptyHint="Select a row to see its source document."
                     reloadToken={sourceDocReloadToken}
-                    onRequestUpload={attachingSourceDocs ? undefined : () => sourceDocInputRef.current?.click()}
+                    uploadSlot={
+                      <SourceUploadButton
+                        onFiles={handleAttachSourceDocs}
+                        busy={attachingSourceDocs}
+                        variant="dropzone"
+                        label="Upload source documents"
+                      />
+                    }
                   />
                 </div>
                 {dataGridNode}

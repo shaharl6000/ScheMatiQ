@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, ExternalLink, Download, FileX, Upload } from 'lucide-react';
+import { FileText, ExternalLink, Download, FileX } from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
 
@@ -31,10 +31,10 @@ interface DocumentPreviewProps {
    */
   reloadToken?: number;
   /**
-   * When provided, the "not available" state offers a button that invokes this
-   * (typically opens a file picker to re-attach the original source documents).
+   * Rendered in the "not available" state — typically an upload control that
+   * re-attaches the original source files (as files or a dropped folder).
    */
-  onRequestUpload?: () => void;
+  uploadSlot?: React.ReactNode;
 }
 
 /**
@@ -53,7 +53,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   documentName,
   emptyHint,
   reloadToken,
-  onRequestUpload,
+  uploadSlot,
 }) => {
   const contentUrl = useMemo(() => {
     if (!sessionId || !documentName) return null;
@@ -111,16 +111,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
           <span className="text-xs">
             Imported projects don&apos;t include the original files. Upload them to enable preview.
           </span>
-          {onRequestUpload && (
-            <button
-              type="button"
-              onClick={onRequestUpload}
-              className="mt-1 inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors text-foreground"
-            >
-              <Upload className="h-4 w-4" />
-              Upload source documents
-            </button>
-          )}
+          {uploadSlot}
         </div>
       );
     }
