@@ -1,5 +1,7 @@
 import { type CSSProperties, type MutableRefObject, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { HotTable, type HotTableClass } from '@handsontable/react';
 import { registerAllModules } from 'handsontable/registry';
 import 'handsontable/styles/handsontable.min.css';
@@ -1904,6 +1906,29 @@ function formatToolsList(tools: ChatToolInfo[]): string {
     .join('\n');
 }
 
+// Render assistant text replies as Markdown (bullets, bold, code, tables, etc.).
+// User messages and tool logs stay as plain text to preserve their exact formatting.
+function ChatMessageBody({ message }: { message: WorkspaceMessage }) {
+  const isMarkdown = message.role === 'assistant' && message.kind !== 'tool_log';
+  if (!isMarkdown) {
+    return <>{message.content}</>;
+  }
+  return (
+    <div className="workspace-chat-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ node, ...props }) => (
+            <a {...props} target="_blank" rel="noopener noreferrer" />
+          ),
+        }}
+      >
+        {message.content}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
 function ChatPanel({
   sessionId,
   sessionMode,
@@ -2180,7 +2205,7 @@ function ChatPanel({
             data-role={message.role}
             data-tool-status={message.toolStatus}
           >
-            {message.content}
+            <ChatMessageBody message={message} />
           </div>
         ))}
 
