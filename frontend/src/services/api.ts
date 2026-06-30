@@ -919,6 +919,26 @@ export const unitsAPI = {
     `${API_BASE}/units/document-content/${encodeURIComponent(sessionId)}?name=${encodeURIComponent(name)}`,
 
   /**
+   * Re-attach original source files to a session so the document viewer can
+   * render them. View-only: does not change session status or queue the files
+   * for processing (unlike loadAPI.addDocuments). Used to restore previews for
+   * imported projects, which carry schema + data but not the original files.
+   */
+  attachSourceDocuments: async (
+    sessionId: string,
+    files: File[],
+  ): Promise<{ status: string; attached: string[]; skipped: { name: string; reason: string }[] }> => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('files', file));
+    const response = await api.post(
+      `/units/source-documents/${encodeURIComponent(sessionId)}`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } },
+    );
+    return response.data;
+  },
+
+  /**
    * Get list of source documents with row counts.
    */
   getDocuments: async (sessionId: string): Promise<DocumentListResponse> => {

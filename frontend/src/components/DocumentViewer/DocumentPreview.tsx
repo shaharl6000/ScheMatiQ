@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { FileText, ExternalLink, Download, FileX } from 'lucide-react';
+import { FileText, ExternalLink, Download, FileX, Upload } from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
 
@@ -25,6 +25,16 @@ interface DocumentPreviewProps {
   documentName: string | null;
   /** Message shown when no document is selected. */
   emptyHint?: string;
+  /**
+   * Bump this to force a fresh availability probe and iframe reload — e.g. after
+   * the user uploads previously-missing source files for an imported project.
+   */
+  reloadToken?: number;
+  /**
+   * When provided, the "not available" state offers a button that invokes this
+   * (typically opens a file picker to re-attach the original source documents).
+   */
+  onRequestUpload?: () => void;
 }
 
 /**
@@ -33,15 +43,24 @@ interface DocumentPreviewProps {
  * fallback for formats the browser cannot render.
  *
  * Before rendering, the content URL is probed with a HEAD request: if the
- * document cannot be served (e.g. an older project whose files are no longer
- * stored, where the endpoint returns an error), a friendly "not available"
- * message is shown instead of letting the iframe render the raw error body.
+ * document cannot be served (e.g. an imported project whose files were never
+ * re-attached, where the endpoint returns an error), a friendly "not available"
+ * message is shown instead of letting the iframe render the raw error body. The
+ * message can offer an upload action so the user can supply the original files.
  */
-const DocumentPreview: React.FC<DocumentPreviewProps> = ({ sessionId, documentName, emptyHint }) => {
-  const contentUrl = useMemo(
-    () => (sessionId && documentName ? unitsAPI.getDocumentContentUrl(sessionId, documentName) : null),
-    [sessionId, documentName],
-  );
+const DocumentPreview: React.FC<DocumentPreviewProps> = ({
+  sessionId,
+  documentName,
+  emptyHint,
+  reloadToken,
+  onRequestUpload,
+}) => {
+  const contentUrl = useMemo(() => {
+    if (!sessionId || !documentName) return null;
+    const base = unitsAPI.getDocumentContentUrl(sessionId, documentName);
+    // Cache-bust so a freshly uploaded file isn't masked by a cached 404/response.
+    return reloadToken ? `${base}&_t=${reloadToken}` : base;
+  }, [sessionId, documentName, reloadToken]);
 
   const [availability, setAvailability] = useState<Availability>('idle');
 
@@ -90,8 +109,18 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({ sessionId, documentNa
           <FileX className="h-8 w-8 opacity-40" />
           <span>This document isn&apos;t available to preview.</span>
           <span className="text-xs">
-            It may be from an older project whose source files are no longer stored.
+            Imported projects don&apos;t include the original files. Upload them to enable preview.
           </span>
+          {onRequestUpload && (
+            <button
+              type="button"
+              onClick={onRequestUpload}
+              className="mt-1 inline-flex items-center gap-1 px-3 py-1.5 rounded-md border border-border hover:bg-muted/50 transition-colors text-foreground"
+            >
+              <Upload className="h-4 w-4" />
+              Upload source documents
+            </button>
+          )}
         </div>
       );
     }

@@ -1,4 +1,4 @@
-import { type CSSProperties, type MutableRefObject, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, type ChangeEvent, type MutableRefObject, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -2614,6 +2614,11 @@ function Workspace() {
   const [formatVersion, setFormatVersion] = useState(0);
   const [sheetSelection, setSheetSelection] = useState<SheetSelection>(null);
   const [showSourcePanel, setShowSourcePanel] = useState(false);
+  // View-only re-attach of source files for the data-sheet source panel. Bumping
+  // the token re-probes the preview so a freshly uploaded file resolves.
+  const [sourceDocReloadToken, setSourceDocReloadToken] = useState(0);
+  const [attachingSourceDocs, setAttachingSourceDocs] = useState(false);
+  const sourceDocInputRef = useRef<HTMLInputElement | null>(null);
   const [chatWidth, setChatWidth] = useState(() => {
     const saved = Number(localStorage.getItem('workspace.chatWidth'));
     return Number.isFinite(saved) ? saved : 380;
@@ -3456,6 +3461,28 @@ function Workspace() {
     return raw ? String(raw).trim() : null;
   }, [activeSheet, sheetSelection, alignedDocData, alignedUnitData, dataView]);
 
+  const handleAttachSourceDocs = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files || []);
+      e.target.value = '';
+      if (!sessionId || files.length === 0) return;
+      setAttachingSourceDocs(true);
+      try {
+        await unitsAPI.attachSourceDocuments(sessionId, files);
+        setSourceDocReloadToken((t) => t + 1);
+      } catch (err) {
+        toast({
+          title: 'Upload failed',
+          description: 'Could not attach the source documents. Please try again.',
+          variant: 'destructive',
+        });
+      } finally {
+        setAttachingSourceDocs(false);
+      }
+    },
+    [sessionId, toast],
+  );
+
   const dataGridNode = (
     <div className="workspace-grid-wrap">
       <SpreadsheetSurface
@@ -3577,10 +3604,20 @@ function Workspace() {
             activeSheet === 'data' && showSourcePanel ? (
               <div className="workspace-data-split">
                 <div className="workspace-source-panel">
+                  <input
+                    ref={sourceDocInputRef}
+                    type="file"
+                    multiple
+                    accept=".txt,.md,.pdf,.doc,.docx,.rtf,.json"
+                    onChange={handleAttachSourceDocs}
+                    className="hidden"
+                  />
                   <DocumentPreview
                     sessionId={sessionId}
                     documentName={selectedSourceDoc}
                     emptyHint="Select a row to see its source document."
+                    reloadToken={sourceDocReloadToken}
+                    onRequestUpload={attachingSourceDocs ? undefined : () => sourceDocInputRef.current?.click()}
                   />
                 </div>
                 {dataGridNode}
