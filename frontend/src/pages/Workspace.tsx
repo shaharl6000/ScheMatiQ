@@ -1932,8 +1932,7 @@ function ChatMessageBody({ message }: { message: WorkspaceMessage }) {
 // Tool-suggestion control. Lets the user nudge the assistant toward a specific
 // tool; it is sent to the backend as a soft hint (prepended to the message), not
 // an enforced tool_choice, so the assistant may still pick a different tool.
-// Hidden for now — flip to `true` to re-expose the picker.
-const SHOW_TOOL_SUGGESTION: boolean = false;
+const SHOW_TOOL_SUGGESTION: boolean = true;
 
 function ChatPanel({
   sessionId,
