@@ -3,9 +3,9 @@
 import io
 import mimetypes
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 
 from app.models.unit import (
@@ -19,7 +19,8 @@ from app.models.unit import (
 from app.models.session import PaginatedData, DataRow, FilterSortRequest
 from app.services.unit_view_service import unit_view_service
 from app.services import session_manager, pubmed_enrichment_service
-from app.services.data_utils import candidate_data_dirs
+from app.services.data_utils import candidate_data_dirs, get_data_dir
+from app.services.file_parser import is_system_file
 from app.storage import get_storage
 
 router = APIRouter()
@@ -228,6 +229,67 @@ async def get_document_content(
         )
 
     return StreamingResponse(io.BytesIO(content), media_type=media_type, headers=headers)
+
+
+# Per-file ceiling, mirroring the add-documents upload guard.
+_MAX_ATTACH_FILE_BYTES = 25 * 1024 * 1024
+
+
+@router.post(
+    "/source-documents/{session_id}",
+    summary="Attach source documents for inline viewing",
+    description=(
+        "Store the original bytes of uploaded source documents so the document "
+        "viewer can render them. Unlike /load/add-documents this is view-only: it "
+        "does NOT change session status or queue the files for processing, so an "
+        "imported project stays 'completed'. Files are matched to existing rows by "
+        "name/stem at serve time, so re-uploading the project's original filenames "
+        "is enough to make previews resolve."
+    ),
+)
+async def attach_source_documents(
+    session_id: str,
+    files: List[UploadFile] = File(...),
+):
+    """Persist uploaded originals under the session's pending_documents/ dir.
+
+    The viewer's ``get_document_content`` already searches documents/ and
+    pending_documents/ (with stem matching) across every candidate data dir, so
+    writing the originals here is sufficient for inline preview. We deliberately
+    avoid preprocessing (no PDF->text conversion) so the original file renders
+    natively, and we never touch session.status or uploaded_documents.
+
+    Note: this writes to the local filesystem, which is durable in dev and for a
+    single-instance backend. Durable storage of re-attached files on the Supabase
+    backend is handled by the project-bundle (zip) work.
+    """
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    pending_dir = get_data_dir() / session_id / "pending_documents"
+    pending_dir.mkdir(parents=True, exist_ok=True)
+
+    attached: list[str] = []
+    skipped: list[dict] = []
+    for upload in files:
+        name = Path(upload.filename or "").name
+        if not name or is_system_file(name):
+            continue
+        content = await upload.read()
+        if len(content) > _MAX_ATTACH_FILE_BYTES:
+            skipped.append({"name": name, "reason": "exceeds 25MB limit"})
+            continue
+        try:
+            (pending_dir / name).write_bytes(content)
+            attached.append(name)
+        except Exception as e:  # pragma: no cover - defensive
+            skipped.append({"name": name, "reason": str(e)})
+
+    if not attached and skipped:
+        raise HTTPException(status_code=400, detail={"skipped": skipped})
+
+    return {"status": "success", "attached": attached, "skipped": skipped}
 
 
 @router.post(
