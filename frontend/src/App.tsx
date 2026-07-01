@@ -35,7 +35,7 @@ function AppHeader() {
 
 function App() {
   const location = useLocation();
-  const isWorkspace = location.pathname.startsWith('/workspace');
+  const isWorkspace = location.pathname === '/' || location.pathname.startsWith('/workspace');
 
   return (
     <TooltipProvider>
@@ -47,11 +47,13 @@ function App() {
         {/* Main Content */}
         <main className={isWorkspace ? 'flex-1 min-h-0 overflow-hidden' : 'container py-6 flex-1'}>
           <Routes>
-            <Route path="/" element={<ScheMatiQConfig />} />
+            <Route path="/" element={<Workspace />} />
+            <Route path="/classic" element={<ScheMatiQConfig />} />
             <Route path="/load" element={<Load />} />
-            <Route path="/schematiq" element={<Navigate to="/" replace />} />
+            <Route path="/schematiq" element={<Navigate to="/classic" replace />} />
             <Route path="/visualize/:sessionId" element={<Visualize />} />
-            <Route path="/workspace" element={<Workspace />} />
+            {/* Bare /workspace redirects to the new default; session URLs keep the prefix. */}
+            <Route path="/workspace" element={<Navigate to="/" replace />} />
             <Route path="/workspace/:sessionId" element={<Workspace />} />
           </Routes>
         </main>
