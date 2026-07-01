@@ -3530,7 +3530,7 @@ function Workspace() {
         onPrint={printWorkspace}
         onExport={exportCurrentProject}
         onSaveProject={saveCurrentProject}
-        onHome={() => navigate('/')}
+        onHome={() => navigate('/workspace')}
         onSearch={searchPage}
         onEstimateCost={estimateCurrentCost}
         onShowSheet={() => setChatWidth(0)}
