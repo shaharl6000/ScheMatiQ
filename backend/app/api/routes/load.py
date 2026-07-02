@@ -1529,6 +1529,31 @@ async def export_complete_data(session_id: str, format: str = "json"):
                 headers={"Content-Disposition": f"attachment; filename={filename}"}
             )
             
+        elif format.lower() == "bundle":
+            # Self-contained project bundle: the round-trippable project.json plus
+            # the original source files, so a re-imported project can preview them.
+            import zipfile
+            from app.services.document_files import gather_source_documents
+
+            documents = await gather_source_documents(session, session_id)
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                zip_file.writestr(
+                    "project.json",
+                    json.dumps(export_data, indent=2, ensure_ascii=False, default=str),
+                )
+                for name, content in documents:
+                    safe = Path(name).name
+                    if safe:
+                        zip_file.writestr(f"documents/{safe}", content)
+
+            filename = f"{session_id[:8]}_bundle.zip"
+            return StreamingResponse(
+                io.BytesIO(buf.getvalue()),
+                media_type="application/zip",
+                headers={"Content-Disposition": f"attachment; filename={filename}"},
+            )
+
         elif format.lower() == "zip":
             # ZIP package with separate files
             import zipfile
