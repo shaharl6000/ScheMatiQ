@@ -114,8 +114,10 @@ class FileParser:
             detected_format = "csv"
         elif filename.endswith('.json') or filename.endswith('.jsonl'):
             detected_format = "json"
+        elif filename.endswith('.zip'):
+            detected_format = "zip"
         else:
-            errors.append("Unsupported file format. Please upload CSV or JSON files.")
+            errors.append("Unsupported file format. Please upload CSV, JSON, or a project bundle (.zip).")
         
         # Try to read and validate content
         try:
@@ -179,7 +181,23 @@ class FileParser:
                                 sample_data = [{k: v for k, v in data.items() if k is not None}]
                 except json.JSONDecodeError as e:
                     errors.append(f"Invalid JSON format: {str(e)}")
-                    
+
+            elif detected_format == "zip":
+                # Project bundle: must be a valid zip containing project.json.
+                import io as _io
+                import zipfile
+                content = await file.read()
+                await file.seek(0)
+                if not zipfile.is_zipfile(_io.BytesIO(content)):
+                    errors.append("Invalid project bundle: not a valid .zip file.")
+                else:
+                    with zipfile.ZipFile(_io.BytesIO(content)) as zf:
+                        names = zf.namelist()
+                        if not any(n == "project.json" or n.endswith("/project.json") for n in names):
+                            errors.append("Project bundle is missing project.json.")
+                        else:
+                            warnings.append("Detected ScheMatiQ project bundle (.zip)")
+
         except Exception as e:
             errors.append(f"Error reading file: {str(e)}")
         
@@ -293,7 +311,13 @@ class FileParser:
         return result
 
     async def save_uploaded_file(self, session_id: str, file: UploadFile):
-        """Save uploaded file to data directory."""
+        """Save uploaded file to data directory.
+
+        For a project bundle (.zip) the archive is unpacked: project.json is
+        written at the session root (so parse_file picks it up like a normal JSON
+        import) and bundled source files are restored under pending_documents/ so
+        the document viewer can render them. The raw zip is removed afterwards.
+        """
         session_dir = self.data_dir / session_id
         session_dir.mkdir(exist_ok=True)
         
@@ -301,8 +325,43 @@ class FileParser:
         async with aiofiles.open(file_path, 'wb') as f:
             content = await file.read()
             await f.write(content)
-        
+
+        if file_path.suffix.lower() == '.zip':
+            return self._extract_project_bundle(file_path, session_dir)
+
         return file_path
+
+    def _extract_project_bundle(self, zip_path: Path, session_dir: Path) -> Path:
+        """Unpack a project bundle into the session dir; return the project.json path.
+
+        Only the basename of each bundled document is used (zip-slip safe), and
+        documents land in pending_documents/ where the viewer's resolver looks.
+        """
+        import zipfile
+
+        pending_dir = session_dir / "pending_documents"
+        pending_dir.mkdir(parents=True, exist_ok=True)
+        project_json_path = session_dir / "project.json"
+
+        with zipfile.ZipFile(zip_path) as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                name = info.filename
+                base = Path(name).name
+                if name == "project.json" or name.endswith("/project.json"):
+                    with zf.open(info) as src:
+                        project_json_path.write_bytes(src.read())
+                elif (name.startswith("documents/") or "/documents/" in name) and base:
+                    with zf.open(info) as src:
+                        (pending_dir / base).write_bytes(src.read())
+
+        zip_path.unlink(missing_ok=True)
+
+        if not project_json_path.exists():
+            raise ValueError("Project bundle is missing project.json")
+
+        return project_json_path
     
     async def parse_file(self, session_id: str, mapping: Optional[ColumnMappingRequest] = None) -> Dict[str, Any]:
         """Parse file and extract data."""

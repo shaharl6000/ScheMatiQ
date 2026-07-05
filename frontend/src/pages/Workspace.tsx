@@ -335,7 +335,7 @@ const SHEETS: Array<{ id: SheetId; label: string; group: 'structure' | 'analysis
 const WORKSPACE_MENUS = [
   {
     label: 'File',
-    items: ['New project', 'Import project', 'Open classic visualizer', 'Download table (.csv)', 'Save project (.schematiq.json)'],
+    items: ['New project', 'Import project', 'Open classic visualizer', 'Download table (.csv)', 'Save project (.schematiq.json)', 'Save project with documents (.zip)'],
   },
   {
     label: 'Edit',
@@ -2332,6 +2332,7 @@ function SpreadsheetChrome({
   onPrint,
   onExport,
   onSaveProject,
+  onSaveProjectWithDocs,
   onHome,
   onSearch,
   onEstimateCost,
@@ -2354,6 +2355,7 @@ function SpreadsheetChrome({
   onPrint: () => void;
   onExport: () => void;
   onSaveProject: () => void;
+  onSaveProjectWithDocs: () => void;
   onHome: () => void;
   onSearch: () => void;
   onEstimateCost: () => void;
@@ -2370,6 +2372,7 @@ function SpreadsheetChrome({
     if (label === 'Open classic visualizer') onOpenClassic();
     if (label === 'Download table (.csv)') onExport();
     if (label === 'Save project (.schematiq.json)') onSaveProject();
+    if (label === 'Save project with documents (.zip)') onSaveProjectWithDocs();
     if (label === 'Project details') onProjectDetails();
     if (label === 'Refresh project') onRefresh();
     if (label === 'Estimate cost') onEstimateCost();
@@ -2386,6 +2389,7 @@ function SpreadsheetChrome({
       'Open classic visualizer',
       'Download table (.csv)',
       'Save project (.schematiq.json)',
+      'Save project with documents (.zip)',
       'Project details',
       'Refresh project',
       'Estimate cost',
@@ -2460,6 +2464,13 @@ function SpreadsheetChrome({
               <div>
                 <div>Save Project (.schematiq.json)</div>
                 <div className="text-xs text-muted-foreground">Full project with schema and history, for reloading</div>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onSaveProjectWithDocs} disabled={!canUseProjectActions}>
+              <Save className="h-4 w-4 mr-2 shrink-0" />
+              <div>
+                <div>Save Project with Documents (.zip)</div>
+                <div className="text-xs text-muted-foreground">Bundle including the original source files, so previews survive re-import</div>
               </div>
             </DropdownMenuItem>
           </DropdownMenuContent>
@@ -3086,6 +3097,25 @@ function Workspace() {
     }
   }, [sessionId, sessionMode, schema, config, toast]);
 
+  const saveProjectWithDocuments = useCallback(async () => {
+    if (!sessionId) return;
+    const question = schema?.query || config?.query || '';
+    const filename = buildExportFilename(question, 'bundle.zip', sessionId);
+    try {
+      const tzOffset = new Date().getTimezoneOffset();
+      const path = sessionMode === 'schematiq'
+        ? `/schematiq/export-complete/${sessionId}?format=bundle&tz_offset=${tzOffset}`
+        : `/load/export-complete/${sessionId}?format=bundle`;
+      await downloadAs(path, filename);
+    } catch (err: any) {
+      toast({
+        title: 'Save failed',
+        description: err?.response?.data?.detail || err?.message || 'Could not save this project bundle',
+        variant: 'destructive',
+      });
+    }
+  }, [sessionId, sessionMode, schema, config, toast]);
+
   const searchPage = useCallback(() => {
     const term = window.prompt('Find in visible workspace');
     const findInPage = (window as Window & { find?: (text: string) => boolean }).find;
@@ -3530,6 +3560,7 @@ function Workspace() {
         onPrint={printWorkspace}
         onExport={exportCurrentProject}
         onSaveProject={saveCurrentProject}
+        onSaveProjectWithDocs={saveProjectWithDocuments}
         onHome={() => navigate('/workspace')}
         onSearch={searchPage}
         onEstimateCost={estimateCurrentCost}
@@ -3809,7 +3840,7 @@ function Workspace() {
           ref={importInputRef}
           type="file"
           className="hidden"
-          accept=".json,.jsonl,.csv,.schematiq.json,application/json,text/csv"
+          accept=".json,.jsonl,.csv,.zip,.schematiq.json,application/json,text/csv,application/zip"
           onChange={(event) => {
             const file = event.target.files?.[0];
             if (file) importExistingProject(file);
