@@ -481,3 +481,47 @@ async def get_merge_suggestions(
         return unit_view_service.suggest_similar_units(session_id, threshold, auto_merge)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error getting suggestions: {str(e)}")
+
+
+@router.head(
+    "/document-content/{session_id}",
+    summary="Probe whether a source document can be served",
+    description="Lightweight availability check used by the document viewer's HEAD probe.",
+)
+async def head_document_content(
+    session_id: str,
+    name: str = Query(..., description="Source document filename"),
+):
+    """Return 200 if the named source document is resolvable, else 404.
+
+    FastAPI does not auto-answer HEAD for a GET route (a bare HEAD to the GET
+    document-content endpoint returns 405 Method Not Allowed), so the document
+    viewer's HEAD availability probe needs this explicit handler. The check
+    mirrors get_document_content's resolution but stays light: the local
+    filesystem is probed by path (no full read), with a cloud fallback for
+    cloud-dataset sessions.
+    """
+    from fastapi.responses import Response
+
+    session = session_manager.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    known = {d["name"] for d in unit_view_service.get_source_documents(session_id)}
+    if name not in known:
+        raise HTTPException(status_code=404, detail="Document not found in this session")
+
+    if _find_local_document(session_id, name) is not None:
+        return Response(status_code=200)
+
+    cloud_dataset = getattr(session.metadata, "cloud_dataset", None)
+    if cloud_dataset:
+        storage = get_storage()
+        try:
+            content = await storage.download_file("datasets", f"{cloud_dataset}/{name}")
+        except Exception:
+            content = None
+        if content:
+            return Response(status_code=200)
+
+    raise HTTPException(status_code=404, detail="Document file is not available")
