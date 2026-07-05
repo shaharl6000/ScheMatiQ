@@ -19,6 +19,7 @@ import {
   Cloud,
   Italic,
   Loader2,
+  Mail,
   Play,
   Plus,
   Printer,
@@ -862,6 +863,75 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
             {estimate || startConfirmed ? 'Start Project' : 'Estimate & Start'}
           </Button>
         </DialogFooter>
+
+        {/* Project & lab resources — mirrors the classic start page */}
+        <div className="mt-2 border-t pt-4 space-y-3">
+          <div className="flex items-center justify-center gap-2 flex-wrap font-['Google_Sans',sans-serif]">
+            <a
+              href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-1 rounded-full text-white text-xs transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-0.5"
+              style={{ background: 'linear-gradient(135deg, #ff4444 0%, #cc0000 100%)' }}
+            >
+              <span className="flex items-center justify-center w-4 h-4">
+                <i className="fa-brands fa-youtube text-sm"></i>
+              </span>
+              <span>Demo Video</span>
+            </a>
+            <a
+              href="https://arxiv.org/pdf/2604.09237"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-xs transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-0.5"
+            >
+              <span className="flex items-center justify-center w-4 h-4">
+                <i className="ai ai-arxiv text-base"></i>
+              </span>
+              <span>arXiv</span>
+            </a>
+            <a
+              href="https://github.com/shaharl6000/ScheMatiQ"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-xs transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-0.5"
+            >
+              <span className="flex items-center justify-center w-4 h-4">
+                <i className="fab fa-github text-base"></i>
+              </span>
+              <span>Code</span>
+            </a>
+            <a
+              href="https://x.com/EliyaHabba/status/2043690798257250662"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-4 py-1 rounded-full bg-[#363636] hover:bg-[#2b2b2b] text-white text-xs transition-all duration-300 shadow-sm hover:shadow-lg hover:-translate-y-0.5"
+            >
+              <span className="flex items-center justify-center w-4 h-4">
+                <i className="fa-brands fa-x-twitter text-xs"></i>
+              </span>
+              <span>Twitter</span>
+            </a>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3">
+            <img src="/huji_icon.png" alt="HUJI NLP Lab" className="h-8 w-auto dark:invert" />
+            <div className="flex flex-col items-center sm:items-start gap-0.5 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">The Hebrew University of Jerusalem</span>
+              <span className="flex items-center gap-3 flex-wrap">
+                <a href="mailto:shahar.levy2@mail.huji.ac.il" className="inline-flex items-center gap-1 hover:text-primary hover:underline transition-colors">
+                  <Mail className="h-3 w-3" />
+                  shahar.levy2@mail.huji.ac.il
+                </a>
+                <a href="mailto:eliya.habba@mail.huji.ac.il" className="inline-flex items-center gap-1 hover:text-primary hover:underline transition-colors">
+                  <Mail className="h-3 w-3" />
+                  eliya.habba@mail.huji.ac.il
+                </a>
+              </span>
+            </div>
+          </div>
+        </div>
+
       </DialogContent>
     </Dialog>
     <ConsentDialog open={consentOpen} onOpenChange={setConsentOpen} onConfirm={runCreate} />
@@ -2438,6 +2508,48 @@ function SpreadsheetChrome({
               </DropdownMenuContent>
             </DropdownMenu>
           ))}
+        </div>
+        <div className="workspace-chrome-links">
+          <a
+            href="https://youtube.com/watch?v=VILym_Ch0hg&feature=youtu.be"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="workspace-chrome-link"
+            title="Demonstration video"
+            aria-label="Demonstration video"
+          >
+            <i className="fa-brands fa-youtube"></i>
+          </a>
+          <a
+            href="https://arxiv.org/pdf/2604.09237"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="workspace-chrome-link"
+            title="arXiv paper"
+            aria-label="arXiv paper"
+          >
+            <i className="ai ai-arxiv"></i>
+          </a>
+          <a
+            href="https://github.com/shaharl6000/ScheMatiQ"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="workspace-chrome-link"
+            title="Code on GitHub"
+            aria-label="Code on GitHub"
+          >
+            <i className="fab fa-github"></i>
+          </a>
+          <a
+            href="https://x.com/EliyaHabba/status/2043690798257250662"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="workspace-chrome-link"
+            title="Twitter / X"
+            aria-label="Twitter / X"
+          >
+            <i className="fa-brands fa-x-twitter"></i>
+          </a>
         </div>
       </div>
 

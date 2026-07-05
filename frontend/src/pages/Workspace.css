@@ -24,10 +24,36 @@
 .workspace-chrome-titlebar {
   height: 38px;
   display: grid;
-  grid-template-columns: auto minmax(160px, 320px) minmax(0, 1fr);
+  grid-template-columns: auto minmax(160px, 320px) minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   padding: 6px 10px 2px;
+}
+
+.workspace-chrome-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: end;
+  padding-right: 2px;
+}
+
+.workspace-chrome-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: hsl(var(--muted-foreground));
+  font-size: 14px;
+  text-decoration: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.workspace-chrome-link:hover {
+  color: hsl(var(--foreground));
+  background: hsl(var(--muted));
 }
 
 .workspace-file-mark {
@@ -1125,6 +1151,10 @@
   }
 
   .workspace-file-mark-name {
+    display: none;
+  }
+
+  .workspace-chrome-links {
     display: none;
   }
 
