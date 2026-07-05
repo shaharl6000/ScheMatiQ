@@ -3770,7 +3770,7 @@ function Workspace() {
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => navigate('/')}>
+            <DropdownMenuItem onClick={() => navigate('/classic')}>
               <FileUp className="h-4 w-4" />
               Existing Start Page
             </DropdownMenuItem>

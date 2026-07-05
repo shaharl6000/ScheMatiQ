@@ -114,7 +114,7 @@ const Load = () => {
       {/* Top nav bar — matches ScheMatiQConfig */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/')} aria-label="Back to Home">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/classic')} aria-label="Back to Home">
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </div>

@@ -1219,7 +1219,7 @@ const Visualize = () => {
         navigate('/schematiq', { replace: true, state: fallbackPayload });
       }
     } else {
-      navigate('/');
+      navigate('/classic');
     }
   }, [session, mode, sessionId, navigate]);
 
