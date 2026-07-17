@@ -238,6 +238,12 @@ class GoogleSheetsLogger:
     def read_total_llm_calls(self) -> int:
         """Read the sum of all LLM calls from the LLM usage spreadsheet (column C).
 
+        Only rows that look like real usage entries are counted: the row must
+        carry a parseable ISO timestamp in column A. This makes the total
+        immune to stray numeric cells in column C (e.g. a manually added
+        =SUM() cell), which previously inflated the synced total - and, being
+        max-only, the inflation then stuck in the local counter.
+
         Returns 0 if the spreadsheet is empty or not configured.
         """
         if not self._enabled or not self._service or not GOOGLE_SHEETS_LLM_USAGE_ID:
@@ -246,16 +252,21 @@ class GoogleSheetsLogger:
         try:
             result = self._service.spreadsheets().values().get(
                 spreadsheetId=GOOGLE_SHEETS_LLM_USAGE_ID,
-                range="Sheet1!C:C",
+                range="Sheet1!A:C",
             ).execute()
             values = result.get("values", [])
             total = 0
             for row in values[1:]:  # skip header row
-                if row and row[0]:
-                    try:
-                        total += int(row[0])
-                    except (ValueError, TypeError):
-                        pass
+                if len(row) < 3 or not row[0] or not row[2]:
+                    continue
+                try:
+                    datetime.fromisoformat(str(row[0]))
+                except ValueError:
+                    continue  # not a logged usage row (e.g. a SUM cell)
+                try:
+                    total += int(row[2])
+                except (ValueError, TypeError):
+                    pass
             logger.debug("[llm-usage] Read total LLM calls: %d", total)
             return total
         except Exception as e:
