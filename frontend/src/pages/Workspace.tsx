@@ -548,6 +548,11 @@ function statusFromLoadSession(session: VisualizationSession | null): ScheMatiQS
   };
 }
 
+// Temporary: hide the per-project API key input. All projects currently run on
+// server-configured keys, so the field only confused users. Flip to true to
+// restore user-supplied keys (the state and plumbing are intentionally kept).
+const SHOW_API_KEY_FIELD = false;
+
 function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogProps) {
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -801,6 +806,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
             />
           </div>
 
+          {SHOW_API_KEY_FIELD && (
           <div className="grid gap-2">
             <Label htmlFor="workspace-api-key">API key</Label>
             <Input
@@ -815,6 +821,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
               placeholder={serverHasKeys ? 'Optional: server keys are configured' : 'Required unless server keys are configured'}
             />
           </div>
+          )}
 
           <Collapsible>
             <CollapsibleTrigger className="group flex items-center gap-2 text-sm font-medium hover:text-foreground transition-colors">
