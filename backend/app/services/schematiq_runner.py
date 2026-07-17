@@ -21,6 +21,7 @@ from app.services.pipeline.config_handler import (
     resolve_docs_paths, convert_config_to_schematiq_format, validate_config as _validate_config,
 )
 from app.services.pipeline.schema_discovery import run_schema_discovery
+from app.services.pipeline.error_reporting import describe_llm_error
 from app.services.pipeline.value_extraction import run_value_extraction
 from app.services.pipeline.data_query import (
     compute_statistics, get_status as _get_status, get_schema as _get_schema, get_data as _get_data,
@@ -290,10 +291,11 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             await task
 
         except Exception as e:
-            logger.error("ScheMatiQ run failed for session %s: %s", session_id, e)
+            user_message, log_detail = describe_llm_error(e)
+            logger.error("ScheMatiQ run failed for session %s: %s", session_id, log_detail)
             session = self.session_manager.get_session(session_id)
             session.status = SessionStatus.ERROR
-            session.error_message = str(e)
+            session.error_message = user_message
             self.session_manager.update_session(session)
 
             is_quota_error = "quota exceeded" in str(e).lower()
@@ -311,7 +313,7 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                     "timestamp": datetime.now().isoformat(),
                 })
             else:
-                await self.broadcast_error(session_id, str(e))
+                await self.broadcast_error(session_id, user_message)
 
         finally:
             with self._state_lock:
@@ -833,12 +835,13 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             self._move_pending_documents(session_id)
 
         except Exception as e:
-            logger.error("ScheMatiQ execution failed: %s", e, exc_info=True)
+            user_message, log_detail = describe_llm_error(e)
+            logger.error("ScheMatiQ execution failed: %s", log_detail, exc_info=True)
             session = self.session_manager.get_session(session_id)
             session.status = SessionStatus.ERROR
-            session.error_message = str(e)
+            session.error_message = user_message
             self.session_manager.update_session(session)
-            await self.broadcast_error(session_id, str(e))
+            await self.broadcast_error(session_id, user_message)
             raise
 
     # ── Private orchestration helpers ──────────────────────────────
