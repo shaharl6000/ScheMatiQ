@@ -1787,6 +1787,66 @@ function SpreadsheetSurface({
     [activeSheet, onRefresh, schemaColumns, sessionId, toast],
   );
 
+  const handleBeforeRemoveCol = useCallback(
+    (_index: number, _amount: number, physicalColumns: number[], _source?: string): boolean | void => {
+      // Removing a grid column only maps to a schema-column deletion on the Data
+      // sheet. On the Schema / Unit sheets the columns are fixed structural
+      // fields (name/definition/... and field/value), so block removal there.
+      if (activeSheet !== 'data') {
+        toast({
+          title: 'Cannot delete this column',
+          description: 'Columns can only be removed on the Data sheet. Edit structural fields in place instead.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+
+      if (!sessionId) return false;
+
+      const keys = physicalColumns
+        .map((colIndex) => sheet.columns[colIndex]?.key)
+        .filter((key): key is string => Boolean(key));
+
+      // The leading provenance/grouping columns (_row_name, _source_document)
+      // are not schema columns and must never be deleted.
+      if (keys.some((key) => key.startsWith('_'))) {
+        toast({
+          title: 'Cannot delete this column',
+          description: 'Source and unit columns are fixed and cannot be removed.',
+          variant: 'destructive',
+        });
+        return false;
+      }
+
+      const names = keys.filter((key) => schemaColumns.some((col) => col.name === key));
+      if (names.length === 0) return false;
+
+      Promise.all(names.map((name) => schemaAPI.deleteColumn(sessionId, name)))
+        .then(() => {
+          toast({
+            title: names.length > 1 ? 'Schema columns deleted' : 'Schema column deleted',
+            description: names.join(', '),
+          });
+          // Same rationale as row deletion: dropping a column does not
+          // invalidate the remaining columns' values, so no re-extract flag.
+          onRefresh();
+        })
+        .catch((err: any) => {
+          toast({
+            title: 'Column delete failed',
+            description: err?.response?.data?.detail || err?.message || 'Could not delete column',
+            variant: 'destructive',
+          });
+          onRefresh();
+        });
+
+      // Cancel the local removal; the refresh re-renders the grid from the
+      // server's updated schema so Data and Schema tabs stay in sync.
+      return false;
+    },
+    [activeSheet, onRefresh, schemaColumns, sessionId, sheet.columns, toast],
+  );
+
   if (!sessionId) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -1847,6 +1907,7 @@ function SpreadsheetSurface({
         afterColumnSort={applyGroupMerges}
         afterFilter={applyGroupMerges}
         beforeRemoveRow={handleBeforeRemoveRow}
+        beforeRemoveCol={handleBeforeRemoveCol}
         afterChange={(changes, source) => {
           handleChanges(changes, source);
           if (source !== 'loadData') onEditEnd();
