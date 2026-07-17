@@ -7,7 +7,7 @@ import os
 import random
 import threading
 import time
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 from datetime import datetime
 
@@ -69,11 +69,28 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         self.stop_flags: Dict[str, bool] = {}
         self._state_lock = threading.Lock()
         self._global_usage = GlobalLLMUsageTracker(self.work_dir / "global_llm_usage.json")
+        # Throttle Google Sheets reads made by quota checks. The local usage
+        # file already reflects everything recorded by this process (pipeline
+        # and chat), so the external total only guards against redeploys and
+        # is allowed to be a few minutes stale.
+        self._usage_sync_ttl = float(os.environ.get("LLM_USAGE_SYNC_TTL_SECONDS", "300"))
+        self._usage_sync_lock = threading.Lock()
+        self._last_sheets_sync = 0.0
+        self._external_window_cache: Dict[int, Tuple[float, int]] = {}
 
     # ── Usage tracking ─────────────────────────────────────────────
 
-    def _sync_usage_from_sheets(self) -> None:
-        """Sync the local global usage file from Google Sheets."""
+    def _sync_usage_from_sheets(self, force: bool = False) -> None:
+        """Sync the local global usage file from Google Sheets.
+
+        Reads are throttled to once per LLM_USAGE_SYNC_TTL_SECONDS (default
+        300). Pass ``force=True`` to bypass the throttle (e.g. /api/usage).
+        """
+        now = time.monotonic()
+        with self._usage_sync_lock:
+            if not force and now - self._last_sheets_sync < self._usage_sync_ttl:
+                return
+            self._last_sheets_sync = now
         try:
             from app.storage.google_sheets import GoogleSheetsLogger
             sheets = GoogleSheetsLogger.get_instance()
@@ -97,21 +114,35 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         except Exception as e:
             logger.debug("Could not log LLM usage to Google Sheets: %s", e)
 
-    def _external_usage_total(self, window_days: int = 0) -> int:
-        """Read the cumulative (or windowed) LLM call total from Google Sheets."""
+    def _external_usage_total(self, window_days: int = 0, force: bool = False) -> int:
+        """Read the cumulative (or windowed) LLM call total from Google Sheets.
+
+        Results are cached for LLM_USAGE_SYNC_TTL_SECONDS per window (failures
+        cache as 0, which also avoids hammering a failing Sheets API).
+        """
+        now = time.monotonic()
+        if not force:
+            with self._usage_sync_lock:
+                cached = self._external_window_cache.get(window_days)
+                if cached and now - cached[0] < self._usage_sync_ttl:
+                    return cached[1]
+        total = 0
         try:
             from app.storage.google_sheets import GoogleSheetsLogger
             sheets = GoogleSheetsLogger.get_instance()
-            if sheets is None:
-                return 0
-            if window_days > 0:
-                return sheets.read_recent_llm_calls(window_days)
-            return sheets.read_total_llm_calls()
+            if sheets is not None:
+                if window_days > 0:
+                    total = sheets.read_recent_llm_calls(window_days)
+                else:
+                    total = sheets.read_total_llm_calls()
         except Exception as e:
             logger.debug("Could not read LLM usage from Google Sheets: %s", e)
-            return 0
+            total = 0
+        with self._usage_sync_lock:
+            self._external_window_cache[window_days] = (now, total)
+        return total
 
-    def get_quota_usage(self, limit: int) -> Dict[str, Any]:
+    def get_quota_usage(self, limit: int, force_sync: bool = False) -> Dict[str, Any]:
         """Return effective usage vs *limit*, honoring LLM_CALL_LIMIT_WINDOW_DAYS.
 
         With a rolling window configured, the effective total is the max of
@@ -124,10 +155,10 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         if window > 0:
             used = max(
                 self._global_usage.get_windowed_total(window),
-                self._external_usage_total(window),
+                self._external_usage_total(window, force=force_sync),
             )
         else:
-            self._sync_usage_from_sheets()
+            self._sync_usage_from_sheets(force=force_sync)
             used = self._global_usage.get_total()
         return {
             "used": used,
@@ -157,8 +188,12 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             raise QuotaExceededError(used=usage["used"], limit=limit)
 
     def get_usage_report(self) -> Dict[str, Any]:
-        """Full quota usage report for the ``/api/usage`` endpoint."""
-        report = self.get_quota_usage(LLM_CALL_GLOBAL_LIMIT)
+        """Full quota usage report for the ``/api/usage`` endpoint.
+
+        Always bypasses the Sheets read throttle so the endpoint reports
+        fresh numbers when you are actively investigating.
+        """
+        report = self.get_quota_usage(LLM_CALL_GLOBAL_LIMIT, force_sync=True)
         data = self._global_usage.get_usage()
         report["enforced"] = (not DEVELOPER_MODE) and LLM_CALL_GLOBAL_LIMIT > 0
         report["lifetime_total"] = data.get("total_calls", 0)
