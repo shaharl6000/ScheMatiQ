@@ -38,6 +38,15 @@ data_editor = DataEditor()
 # Project root for path resolution (backend/app/api/routes -> project root = 5 levels up)
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent.parent
 
+# User-facing message for the global LLM quota (LLM_CALL_GLOBAL_LIMIT).
+# Deliberately distinct from the ConcurrencyLimiter's 503 message: hitting the
+# quota is not a transient load issue, so "try again later" would mislead.
+QUOTA_EXCEEDED_USER_MESSAGE = (
+    "This deployment has reached its LLM usage quota, so new extractions are "
+    "paused. This is a usage quota rather than a temporary load issue, so "
+    "retrying will not help - please contact us to restore access."
+)
+
 
 def _resolve_docs_path(path: str, session_id: Optional[str] = None) -> Optional[Path]:
     """Resolve a document path to an existing directory.
@@ -280,19 +289,15 @@ async def run_schematiq(session_id: str, background_tasks: BackgroundTasks):
         # This gives the user an immediate HTTP error instead of a delayed WebSocket error.
         from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
         from schematiq.core.llm_call_tracker import QuotaExceededError
-        if not DEVELOPER_MODE and LLM_CALL_GLOBAL_LIMIT > 0:
+        if not DEVELOPER_MODE:
             try:
-                schematiq_runner._sync_usage_from_sheets()
-                schematiq_runner._global_usage.check_quota(LLM_CALL_GLOBAL_LIMIT)
+                schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
             except QuotaExceededError as exc:
                 # Send email alert (once per process lifetime)
                 from app.core.email_alerts import send_quota_exceeded_alert
                 send_quota_exceeded_alert(total_used=exc.used)
 
-                raise HTTPException(
-                    status_code=429,
-                    detail="The system has reached its processing capacity and is unable to start new sessions at this time. Please try again later or contact us for assistance."
-                )
+                raise HTTPException(status_code=429, detail=QUOTA_EXCEEDED_USER_MESSAGE)
 
         # Reserve concurrency slot before starting background task
         await concurrency_limiter.acquire(session_id, "schematiq")
@@ -350,17 +355,13 @@ async def resume_schematiq(session_id: str, background_tasks: BackgroundTasks):
         # Pre-check global LLM quota before starting background task
         from app.core.config import LLM_CALL_GLOBAL_LIMIT, DEVELOPER_MODE
         from schematiq.core.llm_call_tracker import QuotaExceededError
-        if not DEVELOPER_MODE and LLM_CALL_GLOBAL_LIMIT > 0:
+        if not DEVELOPER_MODE:
             try:
-                schematiq_runner._sync_usage_from_sheets()
-                schematiq_runner._global_usage.check_quota(LLM_CALL_GLOBAL_LIMIT)
+                schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
             except QuotaExceededError as exc:
                 from app.core.email_alerts import send_quota_exceeded_alert
                 send_quota_exceeded_alert(total_used=exc.used)
-                raise HTTPException(
-                    status_code=429,
-                    detail="The system has reached its processing capacity. Please try again later."
-                )
+                raise HTTPException(status_code=429, detail=QUOTA_EXCEEDED_USER_MESSAGE)
 
         # Stop + prepare synchronously so resume cannot race the active pipeline.
         try:

@@ -266,6 +266,29 @@ class GlobalLLMUsageTracker:
         with self._lock:
             return self._load()
 
+    def get_windowed_total(self, window_days: int) -> int:
+        """Return total calls from sessions recorded within the last *window_days*.
+
+        Only locally recorded sessions carry timestamps; totals synced from an
+        external source via ``sync_from_external`` adjust the lifetime scalar
+        without session entries and are therefore invisible to the window.
+        Callers that need redeploy-safe windowed totals should also consult
+        the external source directly and take the max.
+        """
+        if window_days <= 0:
+            return self.get_total()
+        cutoff = time.time() - window_days * 86400
+        with self._lock:
+            data = self._load()
+            total = 0
+            for entry in data.get("sessions", []):
+                try:
+                    if float(entry.get("timestamp", 0)) >= cutoff:
+                        total += int(entry.get("calls", 0))
+                except (TypeError, ValueError):
+                    continue
+            return total
+
     def check_quota(self, limit: int) -> None:
         """Raise ``QuotaExceededError`` if cumulative calls >= *limit*.
 

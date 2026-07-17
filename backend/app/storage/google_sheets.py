@@ -7,7 +7,7 @@ Entirely optional — skipped if GOOGLE_SHEETS_SPREADSHEET_ID is not set.
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from app.core.config import (
@@ -260,6 +260,45 @@ class GoogleSheetsLogger:
             return total
         except Exception as e:
             logger.debug("[llm-usage] Could not read LLM usage spreadsheet: %s", e)
+            return 0
+
+    def read_recent_llm_calls(self, window_days: int) -> int:
+        """Sum LLM calls from usage rows whose timestamp falls within the last *window_days*.
+
+        Returns 0 if the spreadsheet is empty, not configured, or on error.
+        """
+        if window_days <= 0:
+            return self.read_total_llm_calls()
+        if not self._enabled or not self._service or not GOOGLE_SHEETS_LLM_USAGE_ID:
+            return 0
+
+        try:
+            result = self._service.spreadsheets().values().get(
+                spreadsheetId=GOOGLE_SHEETS_LLM_USAGE_ID,
+                range="Sheet1!A:C",
+            ).execute()
+            values = result.get("values", [])
+            cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+            total = 0
+            for row in values[1:]:  # skip header row
+                if len(row) < 3 or not row[0] or not row[2]:
+                    continue
+                try:
+                    ts = datetime.fromisoformat(str(row[0]))
+                except ValueError:
+                    continue
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts < cutoff:
+                    continue
+                try:
+                    total += int(row[2])
+                except (ValueError, TypeError):
+                    pass
+            logger.debug("[llm-usage] Read %d LLM calls within last %d days", total, window_days)
+            return total
+        except Exception as e:
+            logger.debug("[llm-usage] Could not read windowed LLM usage: %s", e)
             return 0
 
     def log_feedback(
