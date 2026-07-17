@@ -508,6 +508,10 @@ class GeminiLLM(LLMInterface):
         # Whether this model accepts thinking_config. Lite models reject it when
         # combined with response_schema, causing 400 INVALID_ARGUMENT.
         self.supports_thinking = spec.supports_thinking
+        # Gemini 3.x+ models use the thinking_level enum instead of the legacy
+        # integer thinking_budget and reject temperature/top_p/top_k. See
+        # _apply_thinking_config for the translation.
+        self.uses_thinking_level = spec.uses_thinking_level
 
         # Load single API key
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
@@ -596,6 +600,44 @@ class GeminiLLM(LLMInterface):
 
         return True
 
+    # Map a legacy integer thinking_budget onto a Gemini 3.x thinking_level.
+    # (max_budget_inclusive, level). Anything larger maps to "high".
+    # "low" is the floor rather than "minimal": Gemini 3.x cannot disable
+    # thinking, and "minimal" additionally requires thought-signature handling
+    # (returns 400 without it), which this pipeline does not implement.
+    _THINKING_LEVEL_THRESHOLDS = (
+        (2048, "low"),
+        (8192, "medium"),
+    )
+
+    def _thinking_budget_to_level(self, budget: int) -> str:
+        """Translate a legacy thinking_budget hint to a Gemini 3.x thinking_level."""
+        for max_budget, level in self._THINKING_LEVEL_THRESHOLDS:
+            if budget <= max_budget:
+                return level
+        return "high"
+
+    def _apply_thinking_config(self, config_kwargs: dict, thinking_budget) -> None:
+        """Attach thinking config and prune sampling params for the model family.
+
+        Gemini 3.x+ (``uses_thinking_level``): translate the integer budget to a
+        ``thinking_level`` enum and drop temperature/top_p/top_k, which those
+        models reject with 400 INVALID_ARGUMENT. Earlier Gemini models keep the
+        legacy integer ``thinking_budget``. Mutates ``config_kwargs`` in place.
+        """
+        if self.uses_thinking_level:
+            # These are rejected / no longer supported by Gemini 3.x.
+            for stale in ("temperature", "top_p", "top_k"):
+                config_kwargs.pop(stale, None)
+            if thinking_budget is not None:
+                config_kwargs["thinking_config"] = self.types.ThinkingConfig(
+                    thinking_level=self._thinking_budget_to_level(thinking_budget)
+                )
+        elif thinking_budget is not None and self.supports_thinking:
+            config_kwargs["thinking_config"] = self.types.ThinkingConfig(
+                thinking_budget=thinking_budget
+            )
+
     def generate(self,
                  prompt: Union[str, List[Dict[str, str]]],
                  **kwargs) -> str:
@@ -654,13 +696,12 @@ class GeminiLLM(LLMInterface):
         if kwargs.get("response_schema") is not None:
             config_kwargs["response_mime_type"] = "application/json"
             config_kwargs["response_schema"] = kwargs["response_schema"]
-        # Add thinking budget only for models that support it.
-        # Lite models reject thinking_config with 400 INVALID_ARGUMENT, especially
-        # when combined with response_schema.
-        if kwargs.get("thinking_budget") is not None and self.supports_thinking:
-            config_kwargs["thinking_config"] = self.types.ThinkingConfig(
-                thinking_budget=kwargs["thinking_budget"]
-            )
+        # Attach thinking config and prune sampling params per model family.
+        # Gemini 3.x uses thinking_level and rejects temperature/top_p/top_k;
+        # earlier Gemini keeps the legacy integer thinking_budget. Lite models
+        # reject thinking_config with 400 INVALID_ARGUMENT when combined with
+        # response_schema, which is handled inside the helper via supports_thinking.
+        self._apply_thinking_config(config_kwargs, kwargs.get("thinking_budget"))
         config = self.types.GenerateContentConfig(**config_kwargs)
 
         # Retry logic (3 retries like OpenAI/Together)
@@ -848,10 +889,7 @@ class GeminiLLM(LLMInterface):
         if kwargs.get("response_schema") is not None:
             config_kwargs["response_mime_type"] = "application/json"
             config_kwargs["response_schema"] = kwargs["response_schema"]
-        if kwargs.get("thinking_budget") is not None and self.supports_thinking:
-            config_kwargs["thinking_config"] = self.types.ThinkingConfig(
-                thinking_budget=kwargs["thinking_budget"]
-            )
+        self._apply_thinking_config(config_kwargs, kwargs.get("thinking_budget"))
         config = self.types.GenerateContentConfig(**config_kwargs)
 
         max_retries = 3
