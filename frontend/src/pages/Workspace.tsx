@@ -54,7 +54,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
@@ -462,7 +461,6 @@ type DocumentSourceInput =
 
 function buildConfig(
   query: string,
-  apiKey: string,
   advanced: AdvancedSettingsValue = WORKSPACE_DEFAULT_ADVANCED,
   docs: DocumentSourceInput = { mode: 'upload' },
   optOut = false,
@@ -478,13 +476,13 @@ function buildConfig(
       provider: advanced.schemaProvider,
       model: advanced.schemaModel,
       temperature: advanced.schemaTemperature,
-      api_key: apiKey || undefined,
+      api_key: undefined,
     },
     value_extraction_backend: {
       provider: advanced.valueProvider,
       model: advanced.valueModel,
       temperature: advanced.valueTemperature,
-      api_key: apiKey || undefined,
+      api_key: undefined,
     },
     output_path: 'outputs/workspace_output.json',
     document_randomization_seed: advanced.seed,
@@ -553,7 +551,6 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
   const { toast } = useToast();
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState('');
-  const [apiKey, setApiKey] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [documentSource, setDocumentSource] = useState<'upload' | 'cloud'>('upload');
   const [datasets, setDatasets] = useState<CloudDataset[]>([]);
@@ -628,7 +625,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
   );
 
   const hasDocuments = documentSource === 'cloud' ? selectedDatasets.length > 0 : files.length > 0;
-  const canEstimate = query.trim().length > 0 && hasDocuments && (serverHasKeys || apiKey.trim().length > 0);
+  const canEstimate = query.trim().length > 0 && hasDocuments && serverHasKeys;
 
   const estimateProject = useCallback(async () => {
     setError(null);
@@ -637,7 +634,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
       const docs: DocumentSourceInput = documentSource === 'cloud'
         ? { mode: 'cloud', datasets: selectedDatasets }
         : { mode: 'upload' };
-      const config = buildConfig(query.trim(), apiKey.trim(), advanced, docs);
+      const config = buildConfig(query.trim(), advanced, docs);
       const result = await schematiqAPI.estimateCostPreview(
         config,
         documentSource === 'cloud'
@@ -654,7 +651,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     } finally {
       setEstimating(false);
     }
-  }, [apiKey, files, query, advanced, documentSource, selectedDatasets]);
+  }, [files, query, advanced, documentSource, selectedDatasets]);
 
   const runCreate = useCallback(async (optOut: boolean) => {
     setCreating(true);
@@ -663,7 +660,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
       const docs: DocumentSourceInput = documentSource === 'cloud'
         ? { mode: 'cloud', datasets: selectedDatasets }
         : { mode: 'upload' };
-      const config = buildConfig(query.trim(), apiKey.trim(), advanced, docs, optOut);
+      const config = buildConfig(query.trim(), advanced, docs, optOut);
       const result = await schematiqAPI.configure(config);
       if (documentSource === 'upload') {
         await loadAPI.addDocuments(result.session_id, files, advanced.bypassLimit);
@@ -681,7 +678,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     } finally {
       setCreating(false);
     }
-  }, [apiKey, files, navigate, onCreated, onOpenChange, query, toast, advanced, documentSource, selectedDatasets]);
+  }, [files, navigate, onCreated, onOpenChange, query, toast, advanced, documentSource, selectedDatasets]);
 
   const startProject = useCallback(async () => {
     if (!query.trim() || !hasDocuments) {
@@ -692,8 +689,8 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
       );
       return;
     }
-    if (!serverHasKeys && !apiKey.trim()) {
-      setError('Add an API key or configure server-side API keys before starting.');
+    if (!serverHasKeys) {
+      setError('Server-side API keys are not configured. Contact the administrator before starting.');
       return;
     }
     if (!estimate && !startConfirmed) {
@@ -714,7 +711,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
       return;
     }
     setConsentOpen(true);
-  }, [apiKey, dataCollectionEnabled, developerMode, documentSource, estimate, estimateProject, hasDocuments, query, runCreate, serverHasKeys, startConfirmed]);
+  }, [dataCollectionEnabled, developerMode, documentSource, estimate, estimateProject, hasDocuments, query, runCreate, serverHasKeys, startConfirmed]);
 
   return (
     <>
@@ -798,21 +795,6 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
                 setEstimate(null);
                 setStartConfirmed(false);
               }}
-            />
-          </div>
-
-          <div className="grid gap-2">
-            <Label htmlFor="workspace-api-key">API key</Label>
-            <Input
-              id="workspace-api-key"
-              value={apiKey}
-              type="password"
-              onChange={(event) => {
-                setApiKey(event.target.value);
-                setEstimate(null);
-                setStartConfirmed(false);
-              }}
-              placeholder={serverHasKeys ? 'Optional: server keys are configured' : 'Required unless server keys are configured'}
             />
           </div>
 
