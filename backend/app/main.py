@@ -164,6 +164,21 @@ async def get_public_config():
         "server_has_api_keys": server_has_api_keys,
     }
 
+@app.get("/api/usage", tags=["root"], summary="LLM Usage", description="Returns global LLM quota usage and recent sessions")
+async def get_llm_usage():
+    """Return global LLM call usage vs the configured quota.
+
+    ``used``/``remaining`` honor the optional rolling window
+    (LLM_CALL_LIMIT_WINDOW_DAYS); ``lifetime_total`` is always cumulative.
+    """
+    from app.api.routes.schematiq import schematiq_runner
+    from app.services import concurrency_limiter
+
+    report = schematiq_runner.get_usage_report()
+    report["active_sessions"] = await concurrency_limiter.get_active_count()
+    report["max_concurrent_sessions"] = MAX_CONCURRENT_SESSIONS
+    return report
+
 if __name__ == "__main__":
     import os
     import uvicorn

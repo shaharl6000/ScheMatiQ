@@ -95,7 +95,7 @@ class ChatAgentService:
         except QuotaExceededError:
             outbound_messages.append(
                 self._text_message(
-                    "The system has reached its LLM processing capacity. Please try again later."
+                    "The system has reached its LLM usage quota and cannot run this request right now. Please contact us to restore access."
                 )
             )
             return {

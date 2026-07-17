@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional, List
 from pathlib import Path
 from datetime import datetime
 
-from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT
+from app.core.config import MAX_DOCUMENTS, DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT, LLM_CALL_LIMIT_WINDOW_DAYS
 from app.core.logging_utils import set_session_context
 from app.services import schematiq_thread_pool, concurrency_limiter
 
@@ -96,6 +96,82 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
             sheets.log_llm_usage(session_id, total, counts)
         except Exception as e:
             logger.debug("Could not log LLM usage to Google Sheets: %s", e)
+
+    def _external_usage_total(self, window_days: int = 0) -> int:
+        """Read the cumulative (or windowed) LLM call total from Google Sheets."""
+        try:
+            from app.storage.google_sheets import GoogleSheetsLogger
+            sheets = GoogleSheetsLogger.get_instance()
+            if sheets is None:
+                return 0
+            if window_days > 0:
+                return sheets.read_recent_llm_calls(window_days)
+            return sheets.read_total_llm_calls()
+        except Exception as e:
+            logger.debug("Could not read LLM usage from Google Sheets: %s", e)
+            return 0
+
+    def get_quota_usage(self, limit: int) -> Dict[str, Any]:
+        """Return effective usage vs *limit*, honoring LLM_CALL_LIMIT_WINDOW_DAYS.
+
+        With a rolling window configured, the effective total is the max of
+        the local windowed total and the Google Sheets windowed total (the
+        local file may be wiped by a redeploy; the sheet may lag behind the
+        local file). Without a window, legacy behavior: sync the lifetime
+        scalar from Sheets, then read the local lifetime total.
+        """
+        window = LLM_CALL_LIMIT_WINDOW_DAYS
+        if window > 0:
+            used = max(
+                self._global_usage.get_windowed_total(window),
+                self._external_usage_total(window),
+            )
+        else:
+            self._sync_usage_from_sheets()
+            used = self._global_usage.get_total()
+        return {
+            "used": used,
+            "limit": limit,
+            "window_days": window,
+            "remaining": max(limit - used, 0) if limit > 0 else None,
+        }
+
+    def check_global_quota(self, limit: int) -> None:
+        """Raise ``QuotaExceededError`` when the global LLM quota is exhausted.
+
+        A *limit* of 0 (or less) disables the check. Honors the optional
+        rolling window (``LLM_CALL_LIMIT_WINDOW_DAYS``).
+        """
+        if limit <= 0:
+            return
+        usage = self.get_quota_usage(limit)
+        if usage["used"] >= limit:
+            # Visible on the uvicorn terminal even when logging is minimal
+            print(
+                f"[LLM quota] blocked: used={usage['used']} quota_limit={limit} "
+                f"window_days={usage['window_days']} "
+                f"(raise LLM_CALL_GLOBAL_LIMIT, set a rolling window via "
+                f"LLM_CALL_LIMIT_WINDOW_DAYS, or LLM_CALL_GLOBAL_LIMIT=0 to disable)",
+                flush=True,
+            )
+            raise QuotaExceededError(used=usage["used"], limit=limit)
+
+    def get_usage_report(self) -> Dict[str, Any]:
+        """Full quota usage report for the ``/api/usage`` endpoint."""
+        report = self.get_quota_usage(LLM_CALL_GLOBAL_LIMIT)
+        data = self._global_usage.get_usage()
+        report["enforced"] = (not DEVELOPER_MODE) and LLM_CALL_GLOBAL_LIMIT > 0
+        report["lifetime_total"] = data.get("total_calls", 0)
+        report["per_stage"] = data.get("per_stage", {})
+        report["recent_sessions"] = [
+            {
+                "session_id": (entry.get("session_id") or "")[:8],
+                "calls": entry.get("calls", 0),
+                "timestamp": entry.get("timestamp"),
+            }
+            for entry in data.get("sessions", [])[-10:]
+        ]
+        return report
 
     # ── Stop management ────────────────────────────────────────────
 
@@ -508,9 +584,8 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
                 effective_limit = LLM_CALL_GLOBAL_LIMIT
 
             if effective_limit > 0:
-                self._sync_usage_from_sheets()
                 try:
-                    self._global_usage.check_quota(effective_limit)
+                    self.check_global_quota(effective_limit)
                 except QuotaExceededError as exc:
                     logger.warning("Session %s blocked by global LLM quota: %s", session_id, exc)
                     raise RuntimeError(str(exc)) from exc

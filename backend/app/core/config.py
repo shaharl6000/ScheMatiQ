@@ -133,6 +133,12 @@ DATA_COLLECTION_ENABLED = (
 # Set to 0 to allow unlimited calls (no quota enforced).
 LLM_CALL_GLOBAL_LIMIT = int(os.environ.get("LLM_CALL_GLOBAL_LIMIT", "1000"))
 
+# Optional rolling window (in days) for the quota above.
+# 0 (default) keeps the legacy behavior: a lifetime cumulative quota.
+# When > 0, only LLM calls recorded within the last N days count toward
+# LLM_CALL_GLOBAL_LIMIT, so the quota recovers as old usage ages out.
+LLM_CALL_LIMIT_WINDOW_DAYS = int(os.environ.get("LLM_CALL_LIMIT_WINDOW_DAYS", "0"))
+
 # ── Quota Alert Email ────────────────────────────────────────────
 # Send an email when the LLM quota is exceeded.
 # Uses the same Google OAuth credentials as Google Sheets (no extra passwords).

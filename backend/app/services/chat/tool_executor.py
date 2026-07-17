@@ -514,9 +514,8 @@ class ToolExecutor:
       session = session_manager.get_session(session_id)
       if not session or session.type != SessionType.SCHEMATIQ:
           raise ValueError("ScheMatiQ session not found")
-      if not DEVELOPER_MODE and LLM_CALL_GLOBAL_LIMIT > 0:
-          schematiq_runner._sync_usage_from_sheets()
-          schematiq_runner._global_usage.check_quota(LLM_CALL_GLOBAL_LIMIT)
+      if not DEVELOPER_MODE:
+          schematiq_runner.check_global_quota(LLM_CALL_GLOBAL_LIMIT)
       await concurrency_limiter.acquire(session_id, "schematiq")
       asyncio.create_task(self._run_schematiq_task(session_id))
       return {"status": "started", "message": "ScheMatiQ execution started."}
