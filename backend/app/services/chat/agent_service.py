@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
+import time
 import uuid
 from typing import Any, Optional
 
+from app.core.config import DEVELOPER_MODE, LLM_CALL_GLOBAL_LIMIT
 from schematiq.core.llm_call_tracker import LLMCallTracker, QuotaExceededError
 
-from .deps import CHAT_MODEL, get_gemini_api_key
+from .deps import CHAT_MODEL, get_gemini_api_key, schematiq_runner
 from .session_store import ChatSessionState, PendingToolCall, chat_session_store
 from .tool_executor import tool_executor
 from .tool_registry import (
@@ -41,11 +44,47 @@ Rules:
 """
 
 
+QUOTA_EXCEEDED_CHAT_MESSAGE = (
+    "The system has reached its LLM usage quota and cannot run this request "
+    "right now. Please contact us to restore access."
+)
+
+
 class ChatAgentService:
     def __init__(self) -> None:
         self._executor = tool_executor
         self._genai_client: Any = None
         self._client_lock = threading.Lock()
+
+    @staticmethod
+    async def _ensure_quota_available() -> None:
+        """Raise ``QuotaExceededError`` if the global LLM quota is exhausted.
+
+        Chat calls Gemini directly (bypassing the schematiq LLM backends), so
+        the quota must be enforced here explicitly. Bypassed in developer
+        mode, mirroring the pipeline routes. Runs in a thread because the
+        check may hit the Google Sheets API.
+        """
+        if DEVELOPER_MODE:
+            return
+        await asyncio.to_thread(
+            schematiq_runner.check_global_quota, LLM_CALL_GLOBAL_LIMIT
+        )
+
+    @staticmethod
+    async def _flush_llm_usage(state: ChatSessionState) -> None:
+        """Record this turn's Gemini calls toward the global LLM quota."""
+        calls = state.pending_llm_calls
+        if not calls:
+            return
+        state.pending_llm_calls = 0
+        try:
+            record_id = f"chat-{(state.chat_id or 'unknown')[:8]}-{int(time.time())}"
+            await asyncio.to_thread(
+                schematiq_runner.record_external_usage, record_id, {"chat": calls}
+            )
+        except Exception as exc:
+            logger.debug("Could not record chat LLM usage: %s", exc)
 
     async def list_tools(
         self,
@@ -85,6 +124,7 @@ class ChatAgentService:
             user_text = f"[User suggested tool: {pinned_tool}]\n{message}"
 
         try:
+            await self._ensure_quota_available()
             result = await self._run_loop(state, user_text, outbound_messages)
             return {
                 "chat_id": state.chat_id,
@@ -93,11 +133,7 @@ class ChatAgentService:
                 "pending_action": result.get("pending_action"),
             }
         except QuotaExceededError:
-            outbound_messages.append(
-                self._text_message(
-                    "The system has reached its LLM usage quota and cannot run this request right now. Please contact us to restore access."
-                )
-            )
+            outbound_messages.append(self._text_message(QUOTA_EXCEEDED_CHAT_MESSAGE))
             return {
                 "chat_id": state.chat_id,
                 "status": "complete",
@@ -116,6 +152,8 @@ class ChatAgentService:
                     "pending_action": result.get("pending_action"),
                 }
             raise
+        finally:
+            await self._flush_llm_usage(state)
 
     async def confirm_pending(
         self,
@@ -127,6 +165,17 @@ class ChatAgentService:
             raise ValueError("Chat session not found. Start a new conversation.")
         if not state.pending:
             raise ValueError("No pending action to confirm.")
+
+        # Check quota before consuming the pending action so a blocked
+        # confirmation can be retried once the quota is restored.
+        try:
+            await self._ensure_quota_available()
+        except QuotaExceededError:
+            return {
+                "chat_id": chat_id,
+                "status": "complete",
+                "messages": [self._text_message(QUOTA_EXCEEDED_CHAT_MESSAGE)],
+            }
 
         pending = state.pending
         state.pending = None
@@ -156,6 +205,13 @@ class ChatAgentService:
                 "messages": outbound_messages,
                 "pending_action": loop_result.get("pending_action"),
             }
+        except QuotaExceededError:
+            outbound_messages.append(self._text_message(QUOTA_EXCEEDED_CHAT_MESSAGE))
+            return {
+                "chat_id": chat_id,
+                "status": "complete",
+                "messages": outbound_messages,
+            }
         except Exception as exc:
             outbound_messages.append(
                 self._tool_log(pending.tool_name, "error", f"Tool failed: {exc}")
@@ -165,6 +221,8 @@ class ChatAgentService:
                 "status": "complete",
                 "messages": outbound_messages,
             }
+        finally:
+            await self._flush_llm_usage(state)
 
     async def cancel_pending(
         self,
@@ -185,6 +243,7 @@ class ChatAgentService:
             state,
             reason="User declined confirmation.",
         )
+        await self._flush_llm_usage(state)
         return {
             "chat_id": chat_id,
             "status": "pending_confirmation" if new_pending else "complete",
@@ -384,6 +443,7 @@ class ChatAgentService:
 
     async def _send_user_message(self, state: ChatSessionState, user_text: str) -> Any:
         LLMCallTracker.get_instance().set_stage("chat")
+        state.pending_llm_calls += 1
         return await state.chat.send_message(user_text)
 
     async def _send_function_response(
@@ -399,6 +459,7 @@ class ChatAgentService:
             response={"result": tool_result},
         )
         LLMCallTracker.get_instance().set_stage("chat")
+        state.pending_llm_calls += 1
         return await state.chat.send_message(part)
 
     def _text_message(self, content: str) -> dict[str, Any]:

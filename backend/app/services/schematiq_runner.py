@@ -208,6 +208,14 @@ class ScheMatiQRunner(WebSocketBroadcasterMixin):
         ]
         return report
 
+    def record_external_usage(self, source_id: str, counts: Dict[str, int]) -> None:
+        """Record LLM calls made outside the main pipeline (e.g. chat) toward the global quota.
+
+        Writes to the same local usage file and Google Sheet as pipeline runs.
+        """
+        self._global_usage.record_session(source_id, counts)
+        self._log_llm_usage_to_sheets(source_id, counts)
+
     # ── Stop management ────────────────────────────────────────────
 
     def is_stop_requested(self, session_id: str) -> bool:

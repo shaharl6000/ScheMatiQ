@@ -22,6 +22,9 @@ class ChatSessionState:
     session_mode: str
     chat_id: Optional[str] = None
     pending: Optional[PendingToolCall] = None
+    # Gemini calls made since the last quota flush (chat bypasses the
+    # schematiq LLM backends, so calls are counted here explicitly).
+    pending_llm_calls: int = 0
 
 
 class ChatSessionStore:
