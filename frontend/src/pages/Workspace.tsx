@@ -17,6 +17,7 @@ import {
   FileUp,
   FolderOpen,
   Cloud,
+  HelpCircle,
   Italic,
   Loader2,
   Mail,
@@ -558,6 +559,7 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
   const { toast } = useToast();
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState('');
+  const [showHelp, setShowHelp] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [documentSource, setDocumentSource] = useState<'upload' | 'cloud'>('upload');
@@ -726,11 +728,55 @@ function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogPro
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>New Project</DialogTitle>
+          <div className="flex items-start justify-between gap-2">
+            <DialogTitle>New Project</DialogTitle>
+            <button
+              type="button"
+              onClick={() => setShowHelp((v) => !v)}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-expanded={showHelp}
+              aria-controls="workspace-how-it-works"
+              title="How ScheMatiQ works"
+            >
+              <HelpCircle className="h-4 w-4" />
+              How it works
+            </button>
+          </div>
           <DialogDescription>
             Pick a local folder or a cloud dataset, describe the research question, estimate cost, then start extraction.
           </DialogDescription>
         </DialogHeader>
+
+        {showHelp && (
+          <div
+            id="workspace-how-it-works"
+            className="rounded-md border bg-muted/40 p-4 text-sm text-muted-foreground space-y-3"
+          >
+            <p className="text-foreground">
+              ScheMatiQ reads a set of documents and turns them into a structured, editable table,
+              guided by a research question you write in plain language.
+            </p>
+            <ol className="list-decimal space-y-1.5 pl-5">
+              <li>
+                <span className="font-medium text-foreground">Describe your research question</span> — what
+                you want to learn or compare across the documents.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Add documents</span> — choose a local folder
+                or a cloud dataset to analyze.
+              </li>
+              <li>
+                <span className="font-medium text-foreground">Estimate &amp; Start</span> — preview the cost,
+                then run extraction. ScheMatiQ discovers the columns (a schema) from your question and fills
+                in the table.
+              </li>
+            </ol>
+            <p>
+              Once it finishes you can edit cells, chat with the table to refine it, and re-extract. New
+              here? The video and paper linked at the bottom of this dialog walk through a full example.
+            </p>
+          </div>
+        )}
 
         <div className="grid gap-4">
           <div className="grid gap-2">
