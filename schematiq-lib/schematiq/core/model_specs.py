@@ -23,6 +23,11 @@ class ModelSpec:
     context_window: int
     max_output_tokens: int
     supports_thinking: bool = False
+    # Gemini 3.x+ models replace the integer ``thinking_budget`` with the
+    # semantic ``thinking_level`` enum and reject the legacy sampling params
+    # (temperature/top_p/top_k). Sending the old parameters returns
+    # 400 INVALID_ARGUMENT. True selects the thinking_level code path.
+    uses_thinking_level: bool = False
 
 
 # ── Canonical model names ───────────────────────────────────────────
@@ -70,9 +75,9 @@ MODEL_SPECS: Dict[str, Dict[str, ModelSpec]] = {
         ModelNames.GEMINI_25_FLASH: ModelSpec(1_048_576, 65_535, supports_thinking=True),
         ModelNames.GEMINI_25_FLASH_LITE: ModelSpec(1_048_576, 65_535, supports_thinking=True),
         ModelNames.GEMINI_25_PRO: ModelSpec(1_048_576, 65_535, supports_thinking=True),
-        ModelNames.GEMINI_31_FLASH_LITE: ModelSpec(1_048_576, 65_536, supports_thinking=True),
-        ModelNames.GEMINI_35_FLASH: ModelSpec(1_048_576, 65_536, supports_thinking=True),
-        ModelNames.GEMINI_31_PRO_PREVIEW: ModelSpec(1_000_000, 64_000, supports_thinking=True),
+        ModelNames.GEMINI_31_FLASH_LITE: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
+        ModelNames.GEMINI_35_FLASH: ModelSpec(1_048_576, 65_536, supports_thinking=True, uses_thinking_level=True),
+        ModelNames.GEMINI_31_PRO_PREVIEW: ModelSpec(1_000_000, 64_000, supports_thinking=True, uses_thinking_level=True),
         "_default": ModelSpec(1_000_000, 32_000, supports_thinking=False),
     },
     "openai": {
