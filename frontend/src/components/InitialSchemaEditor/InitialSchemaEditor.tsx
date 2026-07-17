@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Trash2, Pencil, Loader2, X, FileJson, List, Info, Upload, Cloud, Check, AlertCircle, Lock, Sparkles, HelpCircle, Copy } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 
@@ -189,16 +189,28 @@ const InitialSchemaEditor: React.FC<InitialSchemaEditorProps> = ({ onSchemaChang
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
 
+  // Keep the latest onSchemaChange in a ref so the notify effect below does not
+  // depend on it. The parent (AdvancedSettingsFields) passes a brand-new inline
+  // callback on every render; listing it as a dependency made this effect fire
+  // on every render and call the parent's updateAdvanced, which resets the New
+  // Project dialog's `estimate`/`startConfirmed` state each time. That reset
+  // trapped startProject in its "estimate first" branch forever, so the Start
+  // button appeared to do nothing whenever pre-defined columns were used.
+  const onSchemaChangeRef = useRef(onSchemaChange);
+  useEffect(() => {
+    onSchemaChangeRef.current = onSchemaChange;
+  }, [onSchemaChange]);
+
   // Notify parent when schema changes. File-uploaded and cloud-selected columns
   // are imported into `columns` (the unified editable list), so the parent only
-  // needs to watch `columns`.
+  // needs to watch `source` and `columns`.
   useEffect(() => {
     if (source === 'none' || columns.length === 0) {
-      onSchemaChange(undefined, undefined);
+      onSchemaChangeRef.current(undefined, undefined);
     } else {
-      onSchemaChange(undefined, columns);
+      onSchemaChangeRef.current(undefined, columns);
     }
-  }, [source, columns, onSchemaChange]);
+  }, [source, columns]);
 
   // Import a batch of columns into the unified editable list and switch to manual mode.
   // Used by both file-upload and cloud-schema-select paths.
