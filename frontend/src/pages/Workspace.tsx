@@ -15,6 +15,7 @@ import {
   ChevronDown,
   Download,
   FileUp,
+  FileText,
   FolderOpen,
   Cloud,
   HelpCircle,
@@ -2887,6 +2888,7 @@ function Workspace() {
   const [addDocsResult, setAddDocsResult] = useState<DocumentUploadResult | null>(null);
   const [addDocsError, setAddDocsError] = useState<string | null>(null);
   const [addDocsNotice, setAddDocsNotice] = useState<string | null>(null);
+  const [removingAddDoc, setRemovingAddDoc] = useState<string | null>(null);
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
   const cancelChatPendingRef = useRef<(() => Promise<boolean>) | null>(null);
@@ -3632,10 +3634,22 @@ function Workspace() {
     }
   }, [addDocsProcessing, refresh, sessionId, toast]);
 
-  const existingDocNames = useMemo(
-    () => new Set((documents?.documents ?? []).map((d) => d.name.trim().toLowerCase())),
-    [documents],
-  );
+  // Documents already in the project, taken from the session metadata (the same
+  // source the classic flow uses). This is authoritative and covers documents
+  // that exist in the project even when they are not currently available in the
+  // viewer (e.g. after opening a project fresh).
+  const existingUploadedDocs = session?.metadata?.uploaded_documents ?? [];
+  const documentMeta = session?.metadata?.document_metadata;
+
+  const existingDocNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const doc of existingUploadedDocs) {
+      names.add(doc.trim().toLowerCase());
+      const orig = documentMeta?.[doc]?.original_filename;
+      if (orig) names.add(orig.trim().toLowerCase());
+    }
+    return names;
+  }, [existingUploadedDocs, documentMeta]);
 
   // Reject files whose name already exists in the project so an already-extracted
   // source is never uploaded and re-processed. Also de-dupes repeated names within
@@ -3662,6 +3676,21 @@ function Workspace() {
         : null,
     );
   }, [existingDocNames]);
+
+  const handleRemoveAddDoc = useCallback(async (docName: string) => {
+    if (!sessionId || removingAddDoc) return;
+    setRemovingAddDoc(docName);
+    setAddDocsError(null);
+    try {
+      await loadAPI.removeDocument(sessionId, docName);
+      await refresh({ silent: true });
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      setAddDocsError(typeof detail === 'string' ? detail : err?.message || 'Failed to remove document');
+    } finally {
+      setRemovingAddDoc(null);
+    }
+  }, [refresh, removingAddDoc, sessionId]);
 
   const addDocsPending = (addDocsResult?.uploaded_files?.length ?? 0) > 0;
 
@@ -3986,6 +4015,44 @@ function Workspace() {
                   <p className="text-sm text-muted-foreground mb-3">
                     Upload additional documents and extract them with this project&apos;s existing schema. New rows are appended to the table.
                   </p>
+                  {existingUploadedDocs.length > 0 && (
+                    <div className="space-y-2 mb-3">
+                      <p className="text-sm font-medium">Already in this project ({existingUploadedDocs.length}):</p>
+                      <div className="flex flex-wrap gap-2">
+                        {existingUploadedDocs.map((doc, index) => {
+                          const extraction = documentMeta?.[doc];
+                          const label = extraction?.original_filename || doc;
+                          const statusHint = extraction?.extraction_status;
+                          return (
+                            <div
+                              key={`${doc}-${index}`}
+                              className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full text-sm"
+                              title={statusHint ? `${label} \u2014 ${statusHint}` : label}
+                            >
+                              <FileText className="h-3.5 w-3.5 shrink-0 text-blue-600 dark:text-blue-400" />
+                              <span className="text-blue-700 dark:text-blue-300 max-w-[200px] truncate">{label}</span>
+                              {statusHint && (
+                                <span className="text-xs text-blue-500/80 dark:text-blue-400/80 truncate max-w-[120px]">({statusHint})</span>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAddDoc(doc)}
+                                disabled={removingAddDoc === doc || addDocsProcessing}
+                                className="ml-1 p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full transition-colors disabled:opacity-50"
+                                title={`Remove ${label}`}
+                              >
+                                {removingAddDoc === doc ? (
+                                  <Loader2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
+                                ) : (
+                                  <X className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 hover:text-red-600 dark:hover:text-red-400" />
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                   {addDocsError && (
                     <Alert variant="destructive" className="mb-3">
                       <AlertDescription className="whitespace-pre-line">{addDocsError}</AlertDescription>
