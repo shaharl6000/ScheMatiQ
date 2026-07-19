@@ -919,6 +919,19 @@ export const unitsAPI = {
     `${API_BASE}/units/document-content/${encodeURIComponent(sessionId)}?name=${encodeURIComponent(name)}`,
 
   /**
+   * Fetch a source document's raw text via the shared axios instance (so it
+   * reuses the configured base URL, credentials, and interceptors). Used by the
+   * highlight-capable preview to render text documents in a DOM we control.
+   */
+  getDocumentContentText: async (sessionId: string, name: string): Promise<string> => {
+    const response = await api.get<string>(
+      `/units/document-content/${encodeURIComponent(sessionId)}?name=${encodeURIComponent(name)}`,
+      { responseType: 'text', transformResponse: [(d) => d] },
+    );
+    return typeof response.data === 'string' ? response.data : String(response.data ?? '');
+  },
+
+  /**
    * Re-attach original source files to a session so the document viewer can
    * render them. View-only: does not change session status or queue the files
    * for processing (unlike loadAPI.addDocuments). Used to restore previews for

@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, ExternalLink, Download, FileX, Upload } from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
+import { findHighlightRanges } from './highlightUtils';
 
 /** Extensions the browser can render inline in an <iframe>. */
 const INLINE_EXTENSIONS = new Set([
@@ -11,6 +12,14 @@ const INLINE_EXTENSIONS = new Set([
 
 /** Inline content that can carry executable markup, so the iframe is sandboxed. */
 const SANDBOX_EXTENSIONS = new Set(['html', 'htm', 'svg']);
+
+/**
+ * Text formats we render ourselves (in a DOM we control) when highlight mode is
+ * enabled, so a cell's grounding excerpt can be marked and scrolled into view.
+ * Non-text formats (pdf/images/html) keep the native <iframe> rendering, which
+ * cannot be annotated from the parent document.
+ */
+const TEXT_EXTENSIONS = new Set(['txt', 'text', 'md', 'markdown', 'csv', 'tsv', 'json', 'log']);
 
 const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf('.');
@@ -35,6 +44,19 @@ interface DocumentPreviewProps {
    * (typically opens a file picker to re-attach the original source documents).
    */
   onRequestUpload?: () => void;
+  /**
+   * Grounding excerpts to highlight in the document. Passing this prop at all
+   * (even `null`/`[]`) enables the highlight-capable inline text renderer for
+   * text-based formats; the Documents tab omits it and keeps the plain iframe.
+   * All excerpts are marked; the first found match is scrolled into view.
+   */
+  highlightTexts?: string[] | null;
+  /**
+   * Changes on every user click of a grounded cell. Re-scrolls to the first
+   * highlight even when the excerpt set is unchanged (e.g. the user scrolled the
+   * document away and clicked the same cell again).
+   */
+  scrollNonce?: number;
 }
 
 /**
@@ -47,6 +69,13 @@ interface DocumentPreviewProps {
  * re-attached, where the endpoint returns an error), a friendly "not available"
  * message is shown instead of letting the iframe render the raw error body. The
  * message can offer an upload action so the user can supply the original files.
+ *
+ * When `highlightTexts` is supplied (highlight mode), text-based documents are
+ * fetched and rendered in a controlled scroll container so the grounding
+ * excerpts can be marked; the first match is scrolled into view and the rest
+ * are visible as the user scrolls. PDFs/images/HTML cannot be annotated inside
+ * their native iframe, so they keep the iframe and show a brief note when a
+ * highlight was requested.
  */
 const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   sessionId,
@@ -54,6 +83,8 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   emptyHint,
   reloadToken,
   onRequestUpload,
+  highlightTexts,
+  scrollNonce,
 }) => {
   const contentUrl = useMemo(() => {
     if (!sessionId || !documentName) return null;
@@ -87,6 +118,96 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   const canRenderInline = ext === '' || INLINE_EXTENSIONS.has(ext);
   const needsSandbox = SANDBOX_EXTENSIONS.has(ext);
   const showOpenFull = Boolean(contentUrl) && availability === 'ok';
+
+  // Highlight mode is opt-in (the prop is present) and only applies to text
+  // formats we can render and annotate ourselves.
+  const highlightEnabled = highlightTexts !== undefined;
+  const isTextRenderable = ext === '' || TEXT_EXTENSIONS.has(ext);
+  const useInlineText = highlightEnabled && isTextRenderable;
+
+  const [text, setText] = useState<string | null>(null);
+  const [textError, setTextError] = useState(false);
+
+  useEffect(() => {
+    if (!useInlineText || !sessionId || !documentName || availability !== 'ok') {
+      setText(null);
+      setTextError(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setText(null);
+    setTextError(false);
+    unitsAPI
+      .getDocumentContentText(sessionId, documentName)
+      .then((content) => {
+        if (!cancelled) setText(content);
+      })
+      .catch(() => {
+        if (!cancelled) setTextError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [useInlineText, sessionId, documentName, availability, reloadToken]);
+
+  const highlightRanges = useMemo(
+    () => (useInlineText ? findHighlightRanges(text, highlightTexts) : []),
+    [useInlineText, text, highlightTexts],
+  );
+
+  const firstMarkRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (firstMarkRef.current) {
+      firstMarkRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }
+  }, [highlightRanges, text, scrollNonce]);
+
+  const renderInlineText = () => {
+    if (textError) {
+      return (
+        <div className="h-full flex items-center justify-center text-sm text-muted-foreground text-center px-4">
+          Could not load this document&apos;s text.
+        </div>
+      );
+    }
+    if (text === null) {
+      return (
+        <div className="h-full flex items-center justify-center text-sm text-muted-foreground">
+          Loading…
+        </div>
+      );
+    }
+
+    let body: React.ReactNode = text;
+    if (highlightRanges.length > 0) {
+      const nodes: React.ReactNode[] = [];
+      let cursor = 0;
+      highlightRanges.forEach(([start, end], i) => {
+        if (start > cursor) nodes.push(text.slice(cursor, start));
+        nodes.push(
+          <mark
+            key={`mark-${start}-${end}`}
+            ref={i === 0 ? firstMarkRef : undefined}
+            style={{ backgroundColor: '#fde047', color: '#1f2937', padding: '0 1px', borderRadius: 2 }}
+          >
+            {text.slice(start, end)}
+          </mark>,
+        );
+        cursor = end;
+      });
+      if (cursor < text.length) nodes.push(text.slice(cursor));
+      body = <>{nodes}</>;
+    }
+
+    return (
+      <pre
+        className="h-full w-full overflow-auto m-0 px-4 py-3 text-xs leading-relaxed text-foreground"
+        style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'inherit' }}
+      >
+        {body}
+      </pre>
+    );
+  };
 
   const renderBody = () => {
     if (!contentUrl) {
@@ -124,6 +245,9 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
         </div>
       );
     }
+    if (useInlineText) {
+      return renderInlineText();
+    }
     if (canRenderInline) {
       return (
         <iframe
@@ -152,6 +276,14 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     );
   };
 
+  // A highlight was requested but this format can't be annotated inline.
+  const showHighlightUnsupportedNote =
+    highlightEnabled &&
+    Boolean(highlightTexts && highlightTexts.length > 0) &&
+    !isTextRenderable &&
+    availability === 'ok' &&
+    canRenderInline;
+
   return (
     <div className="flex-1 min-w-0 h-full flex flex-col">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border text-xs">
@@ -171,6 +303,12 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
           </a>
         )}
       </div>
+
+      {showHighlightUnsupportedNote && (
+        <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-b border-border bg-muted/20">
+          Source highlighting isn&apos;t available for .{ext || 'this'} files — see the grounding popup for the excerpt.
+        </div>
+      )}
 
       <div className="flex-1 min-h-0 bg-muted/20">{renderBody()}</div>
     </div>
