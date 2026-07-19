@@ -44,6 +44,7 @@ interface DocumentUploadProps {
   // Document limit props
   maxDocuments?: number;
   existingDocumentCount?: number;
+  hideHeader?: boolean;
 }
 
 const DocumentUpload: React.FC<DocumentUploadProps> = ({
@@ -57,6 +58,7 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
   onCloudDocumentsAdd,
   maxDocuments,
   existingDocumentCount = 0,
+  hideHeader = false,
 }) => {
   // Cloud datasets state
   const [cloudDatasets, setCloudDatasets] = useState<CloudDataset[]>([]);
@@ -175,13 +177,15 @@ const DocumentUpload: React.FC<DocumentUploadProps> = ({
 
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-lg font-semibold mb-2">Upload Documents for Processing</h3>
-        <p className="text-sm text-muted-foreground">
-          Upload text files, PDFs, or documents that will be processed using the extracted schema.
-          Each file will be analyzed to extract data according to the discovered column definitions.
-        </p>
-      </div>
+      {!hideHeader && (
+        <div>
+          <h3 className="text-lg font-semibold mb-2">Upload Documents for Processing</h3>
+          <p className="text-sm text-muted-foreground">
+            Upload text files, PDFs, or documents that will be processed using the extracted schema.
+            Each file will be analyzed to extract data according to the discovered column definitions.
+          </p>
+        </div>
+      )}
 
       {maxDocuments && (
         <Alert className="border-blue-200 bg-blue-50 dark:bg-blue-950/20">
