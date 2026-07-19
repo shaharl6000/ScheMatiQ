@@ -2886,6 +2886,7 @@ function Workspace() {
   const [addDocsProcessing, setAddDocsProcessing] = useState(false);
   const [addDocsResult, setAddDocsResult] = useState<DocumentUploadResult | null>(null);
   const [addDocsError, setAddDocsError] = useState<string | null>(null);
+  const [addDocsNotice, setAddDocsNotice] = useState<string | null>(null);
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
   const cancelChatPendingRef = useRef<(() => Promise<boolean>) | null>(null);
@@ -3571,6 +3572,7 @@ function Workspace() {
     if (!sessionId || addDocsFiles.length === 0 || addDocsUploading) return;
     setAddDocsUploading(true);
     setAddDocsError(null);
+    setAddDocsNotice(null);
     try {
       const result = await loadAPI.addDocuments(sessionId, addDocsFiles);
       setAddDocsResult(result);
@@ -3629,6 +3631,37 @@ function Workspace() {
       setAddDocsProcessing(false);
     }
   }, [addDocsProcessing, refresh, sessionId, toast]);
+
+  const existingDocNames = useMemo(
+    () => new Set((documents?.documents ?? []).map((d) => d.name.trim().toLowerCase())),
+    [documents],
+  );
+
+  // Reject files whose name already exists in the project so an already-extracted
+  // source is never uploaded and re-processed. Also de-dupes repeated names within
+  // a single selection. Note: this is a client-side guard by filename; the backend
+  // remains the authoritative source of truth.
+  const handleAddDocsFilesChange = useCallback((incoming: File[]) => {
+    const seen = new Set<string>();
+    const accepted: File[] = [];
+    const skipped: string[] = [];
+    for (const file of incoming) {
+      const key = file.name.trim().toLowerCase();
+      if (existingDocNames.has(key)) {
+        skipped.push(file.name);
+        continue;
+      }
+      if (seen.has(key)) continue;
+      seen.add(key);
+      accepted.push(file);
+    }
+    setAddDocsFiles(accepted);
+    setAddDocsNotice(
+      skipped.length > 0
+        ? `Skipped ${skipped.length} document${skipped.length !== 1 ? 's' : ''} already in this project (already extracted, not re-processed): ${Array.from(new Set(skipped)).join(', ')}`
+        : null,
+    );
+  }, [existingDocNames]);
 
   const addDocsPending = (addDocsResult?.uploaded_files?.length ?? 0) > 0;
 
@@ -3958,8 +3991,21 @@ function Workspace() {
                       <AlertDescription className="whitespace-pre-line">{addDocsError}</AlertDescription>
                     </Alert>
                   )}
+                  {addDocsNotice && (
+                    <Alert className="mb-3">
+                      <AlertDescription className="whitespace-pre-line">{addDocsNotice}</AlertDescription>
+                    </Alert>
+                  )}
+                  {addDocsFiles.length > 0 && (
+                    <div className="mb-3 flex items-center gap-2 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground">
+                      <Check className="h-4 w-4 shrink-0 text-primary" />
+                      <span>
+                        {addDocsFiles.length} file{addDocsFiles.length !== 1 ? 's' : ''} ready. Review the list below, then click &ldquo;Upload&rdquo; to add {addDocsFiles.length !== 1 ? 'them' : 'it'} to the project.
+                      </span>
+                    </div>
+                  )}
                   <DocumentUpload
-                    onFilesChange={setAddDocsFiles}
+                    onFilesChange={handleAddDocsFilesChange}
                     uploadedFiles={addDocsFiles}
                     loading={addDocsUploading}
                     onUpload={uploadAddDocuments}
@@ -3967,6 +4013,7 @@ function Workspace() {
                     uploadResult={addDocsResult}
                     sessionId={sessionId}
                     existingDocumentCount={documents?.documents?.length ?? 0}
+                    hideHeader
                   />
                   {addDocsPending && (
                     <Button
