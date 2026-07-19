@@ -2823,6 +2823,10 @@ function Workspace() {
   const [developerMode, setDeveloperMode] = useState(false);
   const [costEstimate, setCostEstimate] = useState<CostEstimate | null>(null);
   const [loading, setLoading] = useState(false);
+  // Separate from `loading`: structure (status/schema) is ready and the grid
+  // chrome is shown, but the heavy row payload is still streaming in. Lets the
+  // full-screen overlay clear early so the user sees the project has opened.
+  const [dataLoading, setDataLoading] = useState(false);
   const [importingProject, setImportingProject] = useState(false);
   const [tableDisplay, setTableDisplay] = useState<TableDisplayOptions>(() => {
     try {
@@ -2904,57 +2908,81 @@ function Workspace() {
 
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (!sessionId) return;
-    if (!options?.silent) {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
       setLoading(true);
     }
+    // Fetch the lightweight structure (status/schema/config/session) first and
+    // render it before the heavy row payload, so the full-screen overlay clears
+    // as soon as the project's shell is on screen. The row/document payload is
+    // fetched in a second phase tracked by `dataLoading`, which drives a subtle
+    // inline indicator instead of blocking the whole view. `silent` refreshes
+    // (WebSocket-driven background polls) keep the original single-phase load so
+    // their behaviour is unchanged.
+    const loadHeavy = async (
+      fetchData: () => Promise<PaginatedData>,
+      fetchDocuments: () => Promise<DocumentListResponse | null>,
+    ) => {
+      if (!silent) setDataLoading(true);
+      try {
+        const [nextData, nextDocuments] = await Promise.all([
+          fetchData().catch(() => emptyData),
+          fetchDocuments().catch(() => null),
+        ]);
+        applyData(nextData, options);
+        setDocuments(nextDocuments);
+      } finally {
+        if (!silent) setDataLoading(false);
+      }
+    };
+
     try {
       if (sessionMode === 'load') {
-        const [loadSession, nextData, nextDocuments] = await Promise.all([
-          loadAPI.getSession(sessionId).catch(() => null),
-          loadAPI.getData(sessionId, 0, 500).catch(() => emptyData),
-          unitsAPI.getDocuments(sessionId).catch(() => null),
-        ]);
+        const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
         setSession(loadSession);
-        applyData(nextData, options);
-        setDocuments(nextDocuments);
         setConfig(null);
+        if (!silent) setLoading(false);
+        await loadHeavy(
+          () => loadAPI.getData(sessionId, 0, 500),
+          () => unitsAPI.getDocuments(sessionId),
+        );
         return;
       }
 
       try {
-        const [nextStatus, nextSchema, nextData, nextDocuments, nextConfig, statsSession] = await Promise.all([
+        const [nextStatus, nextSchema, nextConfig, statsSession] = await Promise.all([
           schematiqAPI.getStatus(sessionId),
           schematiqAPI.getSchema(sessionId).catch(() => null),
-          schematiqAPI.getData(sessionId, 0, 500).catch(() => emptyData),
-          unitsAPI.getDocuments(sessionId).catch(() => null),
           schematiqAPI.getConfig(sessionId).catch(() => null),
           loadAPI.getSession(sessionId).catch(() => null),
         ]);
         setStatus(nextStatus);
         setSchema(nextSchema);
         setSession(statsSession);
-        applyData(nextData, options);
-        setDocuments(nextDocuments);
         setConfig(nextConfig);
+        if (!silent) setLoading(false);
+        await loadHeavy(
+          () => schematiqAPI.getData(sessionId, 0, 500),
+          () => unitsAPI.getDocuments(sessionId),
+        );
       } catch (err) {
         const loadSession = await loadAPI.getSession(sessionId).catch(() => null);
         if (!loadSession) throw err;
         setSessionMode('load');
-        const [nextData, nextDocuments] = await Promise.all([
-          loadAPI.getData(sessionId, 0, 500).catch(() => emptyData),
-          unitsAPI.getDocuments(sessionId).catch(() => null),
-        ]);
         setStatus(statusFromLoadSession(loadSession));
         setSchema(schemaFromLoadSession(loadSession));
         setSession(loadSession);
-        applyData(nextData, options);
-        setDocuments(nextDocuments);
         setConfig(null);
+        if (!silent) setLoading(false);
+        await loadHeavy(
+          () => loadAPI.getData(sessionId, 0, 500),
+          () => unitsAPI.getDocuments(sessionId),
+        );
       }
     } finally {
-      if (!options?.silent) {
+      if (!silent) {
         setLoading(false);
       }
     }
@@ -3764,6 +3792,18 @@ function Workspace() {
             <Loader2 className="h-5 w-5 animate-spin" />
             <span>Loading project…</span>
           </div>
+        </div>
+      )}
+      {/*
+        Structure is on screen (overlay cleared) but the row payload is still
+        streaming in. Show a small non-blocking badge instead of covering the
+        whole grid, so the project reads as "open, loading rows" rather than
+        "stuck". Suppressed while the full overlay or an import is showing.
+      */}
+      {dataLoading && !loading && !importingProject && sessionId && (
+        <div className="workspace-data-loading-badge" role="status" aria-live="polite">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>Loading rows…</span>
         </div>
       )}
     </div>

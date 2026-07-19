@@ -499,6 +499,24 @@
   color: #2f3b2f;
 }
 
+.workspace-data-loading-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #d7e6d7;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  font-size: 0.78rem;
+  color: #2f3b2f;
+  pointer-events: none;
+}
+
 .workspace-sheet-tab {
   height: 36px;
   flex: 0 0 auto;
