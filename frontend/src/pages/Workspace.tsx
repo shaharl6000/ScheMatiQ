@@ -1114,6 +1114,7 @@ function SpreadsheetSurface({
   hotTableRef,
   onSelectionChange,
   onGroundingHighlight,
+  onGroundingScrollRequest,
   onRefresh,
   onEditFollowUp,
   onEditEnd,
@@ -1131,6 +1132,9 @@ function SpreadsheetSurface({
   // Reports all grounding excerpts of the newly selected data cell (or null when
   // the cell has no grounding), so the source panel can highlight them.
   onGroundingHighlight?: (texts: string[] | null) => void;
+  // Fires on each mouse click of a grounded data cell, so the source panel can
+  // re-scroll to the highlight even when the same cell is clicked again.
+  onGroundingScrollRequest?: () => void;
   onRefresh: () => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
   onEditEnd: () => void;
@@ -2017,6 +2021,10 @@ function SpreadsheetSurface({
           const physicalRow = hot ? hot.toPhysicalRow(coords.row) : coords.row;
           if (!dataGrounding[physicalRow]?.[column.key]) return;
 
+          // Any click on a grounded cell re-scrolls the source panel to the
+          // highlight (mousedown fires only on real clicks, so this never loops).
+          onGroundingScrollRequest?.();
+
           // Open grounding on the top-right indicator only so single-click
           // selection and keyboard editing on grounded cells stay normal.
           const cellElement = (event.target as HTMLElement | null)?.closest('td');
@@ -2888,6 +2896,9 @@ function Workspace() {
   // Grounding excerpts of the currently selected data cell, highlighted in the
   // source panel so the user can see every place the value came from.
   const [groundingHighlights, setGroundingHighlights] = useState<string[] | null>(null);
+  // Bumped on each grounded-cell click so the source panel re-scrolls to the
+  // highlight even when the excerpt set is unchanged (same cell clicked again).
+  const [groundingScrollNonce, setGroundingScrollNonce] = useState(0);
   // View-only re-attach of source files for the data-sheet source panel. Bumping
   // the token re-probes the preview so a freshly uploaded file resolves.
   const [sourceDocReloadToken, setSourceDocReloadToken] = useState(0);
@@ -3827,6 +3838,7 @@ function Workspace() {
         hotTableRef={hotTableRef}
         onSelectionChange={updateSheetSelection}
         onGroundingHighlight={handleGroundingHighlight}
+        onGroundingScrollRequest={() => setGroundingScrollNonce((n) => n + 1)}
         onRefresh={refreshSilent}
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
@@ -3964,6 +3976,7 @@ function Workspace() {
                     emptyHint="Select a row to see its source document."
                     reloadToken={sourceDocReloadToken}
                     highlightTexts={groundingHighlights}
+                    scrollNonce={groundingScrollNonce}
                     onRequestUpload={attachingSourceDocs ? undefined : () => sourceDocInputRef.current?.click()}
                   />
                 </div>

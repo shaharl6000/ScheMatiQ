@@ -51,6 +51,12 @@ interface DocumentPreviewProps {
    * All excerpts are marked; the first found match is scrolled into view.
    */
   highlightTexts?: string[] | null;
+  /**
+   * Changes on every user click of a grounded cell. Re-scrolls to the first
+   * highlight even when the excerpt set is unchanged (e.g. the user scrolled the
+   * document away and clicked the same cell again).
+   */
+  scrollNonce?: number;
 }
 
 /**
@@ -78,6 +84,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   reloadToken,
   onRequestUpload,
   highlightTexts,
+  scrollNonce,
 }) => {
   const contentUrl = useMemo(() => {
     if (!sessionId || !documentName) return null;
@@ -153,7 +160,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     if (firstMarkRef.current) {
       firstMarkRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }
-  }, [highlightRanges, text]);
+  }, [highlightRanges, text, scrollNonce]);
 
   const renderInlineText = () => {
     if (textError) {
