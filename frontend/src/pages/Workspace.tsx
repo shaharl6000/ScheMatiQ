@@ -2805,6 +2805,9 @@ function SpreadsheetChrome({
   );
 }
 
+const normalizeDocName = (s: string) => s.trim().toLowerCase();
+const stripDocExt = (s: string) => s.replace(/\.[^.\\/]+$/, '');
+
 function Workspace() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -3634,34 +3637,63 @@ function Workspace() {
     }
   }, [addDocsProcessing, refresh, sessionId, toast]);
 
-  // Documents already in the project, taken from the session metadata (the same
-  // source the classic flow uses). This is authoritative and covers documents
-  // that exist in the project even when they are not currently available in the
-  // viewer (e.g. after opening a project fresh).
-  const existingUploadedDocs = session?.metadata?.uploaded_documents ?? [];
-  const documentMeta = session?.metadata?.document_metadata;
+  // Everything already in this project. Two sources, unioned:
+  //  - documents.documents: documents that already have extracted rows. This is
+  //    authoritative for a loaded/saved project, where the source files may no
+  //    longer be "available" for preview but the document is still in the table.
+  //  - session.metadata.uploaded_documents: documents uploaded this session that
+  //    may not have been processed into rows yet.
+  const existingDocs = useMemo(() => {
+    const map = new Map<string, { name: string; label: string; status?: string }>();
+    for (const d of documents?.documents ?? []) {
+      const key = normalizeDocName(d.name);
+      if (!map.has(key)) {
+        map.set(key, {
+          name: d.name,
+          label: d.name,
+          status: d.rowCount ? `${d.rowCount} row${d.rowCount === 1 ? '' : 's'}` : undefined,
+        });
+      }
+    }
+    const meta = session?.metadata?.document_metadata;
+    for (const doc of session?.metadata?.uploaded_documents ?? []) {
+      const label = meta?.[doc]?.original_filename || doc;
+      const key = normalizeDocName(label);
+      const status = meta?.[doc]?.extraction_status;
+      const existing = map.get(key);
+      if (existing) {
+        if (status && !existing.status) existing.status = status;
+      } else {
+        map.set(key, { name: doc, label, status });
+      }
+    }
+    return Array.from(map.values());
+  }, [documents, session]);
 
   const existingDocNames = useMemo(() => {
     const names = new Set<string>();
-    for (const doc of existingUploadedDocs) {
-      names.add(doc.trim().toLowerCase());
-      const orig = documentMeta?.[doc]?.original_filename;
-      if (orig) names.add(orig.trim().toLowerCase());
+    for (const d of existingDocs) {
+      names.add(normalizeDocName(d.label));
+      names.add(normalizeDocName(d.name));
+      names.add(normalizeDocName(stripDocExt(d.label)));
+      names.add(normalizeDocName(stripDocExt(d.name)));
     }
     return names;
-  }, [existingUploadedDocs, documentMeta]);
+  }, [existingDocs]);
 
   // Reject files whose name already exists in the project so an already-extracted
-  // source is never uploaded and re-processed. Also de-dupes repeated names within
-  // a single selection. Note: this is a client-side guard by filename; the backend
-  // remains the authoritative source of truth.
+  // source is never uploaded and re-processed. Matches on the full name and on the
+  // extension-stripped base name (a loaded project may store the document without
+  // its original extension). Also de-dupes repeated names within a selection.
+  // Client-side guard; the backend remains the source of truth.
   const handleAddDocsFilesChange = useCallback((incoming: File[]) => {
     const seen = new Set<string>();
     const accepted: File[] = [];
     const skipped: string[] = [];
     for (const file of incoming) {
-      const key = file.name.trim().toLowerCase();
-      if (existingDocNames.has(key)) {
+      const key = normalizeDocName(file.name);
+      const baseKey = normalizeDocName(stripDocExt(file.name));
+      if (existingDocNames.has(key) || existingDocNames.has(baseKey)) {
         skipped.push(file.name);
         continue;
       }
@@ -4015,17 +4047,16 @@ function Workspace() {
                   <p className="text-sm text-muted-foreground mb-3">
                     Upload additional documents and extract them with this project&apos;s existing schema. New rows are appended to the table.
                   </p>
-                  {existingUploadedDocs.length > 0 && (
+                  {existingDocs.length > 0 && (
                     <div className="space-y-2 mb-3">
-                      <p className="text-sm font-medium">Already in this project ({existingUploadedDocs.length}):</p>
+                      <p className="text-sm font-medium">Already in this project ({existingDocs.length}):</p>
                       <div className="flex flex-wrap gap-2">
-                        {existingUploadedDocs.map((doc, index) => {
-                          const extraction = documentMeta?.[doc];
-                          const label = extraction?.original_filename || doc;
-                          const statusHint = extraction?.extraction_status;
+                        {existingDocs.map((doc, index) => {
+                          const label = doc.label;
+                          const statusHint = doc.status;
                           return (
                             <div
-                              key={`${doc}-${index}`}
+                              key={`${doc.name}-${index}`}
                               className="flex items-center gap-1 px-3 py-1.5 bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-full text-sm"
                               title={statusHint ? `${label} \u2014 ${statusHint}` : label}
                             >
@@ -4036,12 +4067,12 @@ function Workspace() {
                               )}
                               <button
                                 type="button"
-                                onClick={() => handleRemoveAddDoc(doc)}
-                                disabled={removingAddDoc === doc || addDocsProcessing}
+                                onClick={() => handleRemoveAddDoc(doc.name)}
+                                disabled={removingAddDoc === doc.name || addDocsProcessing}
                                 className="ml-1 p-0.5 hover:bg-blue-200 dark:hover:bg-blue-800 rounded-full transition-colors disabled:opacity-50"
                                 title={`Remove ${label}`}
                               >
-                                {removingAddDoc === doc ? (
+                                {removingAddDoc === doc.name ? (
                                   <Loader2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 animate-spin" />
                                 ) : (
                                   <X className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400 hover:text-red-600 dark:hover:text-red-400" />
