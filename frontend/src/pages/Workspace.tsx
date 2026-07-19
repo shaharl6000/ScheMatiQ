@@ -1113,6 +1113,7 @@ function SpreadsheetSurface({
   formatVersion,
   hotTableRef,
   onSelectionChange,
+  onGroundingHighlight,
   onRefresh,
   onEditFollowUp,
   onEditEnd,
@@ -1127,6 +1128,9 @@ function SpreadsheetSurface({
   formatVersion: number;
   hotTableRef: MutableRefObject<HotTableClass | null>;
   onSelectionChange: (selection: SheetSelection) => void;
+  // Reports all grounding excerpts of the newly selected data cell (or null when
+  // the cell has no grounding), so the source panel can highlight them.
+  onGroundingHighlight?: (texts: string[] | null) => void;
   onRefresh: () => void;
   onEditFollowUp: (kind: PendingRerunKind, columns?: string[]) => void;
   onEditEnd: () => void;
@@ -1969,15 +1973,39 @@ function SpreadsheetSurface({
         afterSelectionEnd={(row: number, col: number, row2: number, col2: number) => {
           if (row < 0 || col < 0 || row2 < 0 || col2 < 0) {
             onSelectionChange(null);
+            onGroundingHighlight?.(null);
             return;
           }
+          const fromRow = Math.min(row, row2);
+          const fromCol = Math.min(col, col2);
           onSelectionChange({
             sheet: activeSheet,
-            fromRow: Math.min(row, row2),
+            fromRow,
             toRow: Math.max(row, row2),
-            fromCol: Math.min(col, col2),
+            fromCol,
             toCol: Math.max(col, col2),
           });
+
+          // Report the top-left cell's grounding excerpts so the source panel
+          // can highlight every place the value came from (all marked; the
+          // first is scrolled into view).
+          if (onGroundingHighlight) {
+            let excerptTexts: string[] | null = null;
+            if (activeSheet === 'data') {
+              const column = sheet.columns[fromCol];
+              const hot = hotTableRef.current?.hotInstance;
+              const physicalRow = hot ? hot.toPhysicalRow(fromRow) : fromRow;
+              const grounding =
+                column && physicalRow != null && physicalRow >= 0
+                  ? dataGrounding[physicalRow]?.[column.key]
+                  : null;
+              const texts = (grounding?.excerpts ?? [])
+                .map((e) => e.text)
+                .filter((t): t is string => Boolean(t && t.trim()));
+              excerptTexts = texts.length > 0 ? texts : null;
+            }
+            onGroundingHighlight(excerptTexts);
+          }
         }}
         afterOnCellMouseDown={(event, coords) => {
           if (activeSheet !== 'data' || coords.row < 0 || coords.col < 0) return;
@@ -2857,6 +2885,9 @@ function Workspace() {
   const [formatVersion, setFormatVersion] = useState(0);
   const [sheetSelection, setSheetSelection] = useState<SheetSelection>(null);
   const [showSourcePanel, setShowSourcePanel] = useState(false);
+  // Grounding excerpts of the currently selected data cell, highlighted in the
+  // source panel so the user can see every place the value came from.
+  const [groundingHighlights, setGroundingHighlights] = useState<string[] | null>(null);
   // View-only re-attach of source files for the data-sheet source panel. Bumping
   // the token re-probes the preview so a freshly uploaded file resolves.
   const [sourceDocReloadToken, setSourceDocReloadToken] = useState(0);
@@ -3266,6 +3297,21 @@ function Workspace() {
     setSheetSelection((current) => (
       selectionsEqual(current, nextSelection) ? current : nextSelection
     ));
+  }, []);
+
+  // Dedupe like updateSheetSelection: HotTable re-emits afterSelectionEnd on
+  // every re-render, so returning the previous value for an unchanged excerpt
+  // set is required to avoid an infinite render loop.
+  const handleGroundingHighlight = useCallback((texts: string[] | null) => {
+    setGroundingHighlights((current) => {
+      if (current === texts) return current;
+      if (!current || !texts) return texts;
+      if (current.length !== texts.length) return texts;
+      for (let i = 0; i < current.length; i += 1) {
+        if (current[i] !== texts[i]) return texts;
+      }
+      return current;
+    });
   }, []);
 
   const applyTableFormat = useCallback((patch: Partial<TableDisplayOptions>) => {
@@ -3780,6 +3826,7 @@ function Workspace() {
         formatVersion={formatVersion}
         hotTableRef={hotTableRef}
         onSelectionChange={updateSheetSelection}
+        onGroundingHighlight={handleGroundingHighlight}
         onRefresh={refreshSilent}
         onEditFollowUp={notifyEditFollowUp}
         onEditEnd={flushDeferredData}
@@ -3916,6 +3963,7 @@ function Workspace() {
                     documentName={selectedSourceDoc}
                     emptyHint="Select a row to see its source document."
                     reloadToken={sourceDocReloadToken}
+                    highlightTexts={groundingHighlights}
                     onRequestUpload={attachingSourceDocs ? undefined : () => sourceDocInputRef.current?.click()}
                   />
                 </div>
