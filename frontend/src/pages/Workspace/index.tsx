@@ -45,33 +45,18 @@ import DocumentUpload from '@/components/DocumentUpload/DocumentUpload';
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
-import {
-  WS_DISCONNECTED_REFRESH_INTERVAL,
-  getAvailableProviders,
-  getDefaultModelForProvider,
-  type LLMProviderKey,
-} from '@/constants';
-import api, { configAPI, loadAPI, schemaAPI, schematiqAPI, unitsAPI } from '@/services/api';
-import webSocketService from '@/services/websocket';
+import api, { configAPI, loadAPI, schematiqAPI, unitsAPI } from '@/services/api';
 import type {
   CostEstimate,
   DataRow,
   DocumentAvailabilityResponse,
-  DocumentUploadResult,
   PaginatedData,
-  ReextractionCompletedData,
-  ReextractionFailedData,
-  ReextractionProgressData,
-  ReextractionRequest,
-  ReextractionStartedData,
   ScheMatiQConfig,
   ScheMatiQStatus,
   SchemaData,
   VisualizationSession,
-  WebSocketMessage,
 } from '@/types';
 import type { DocumentListResponse } from '@/types/unit';
-import { getApiKeyForProvider, getConfiguredProviders } from '@/utils/apiKeyStorage';
 
 import { ChatPanel } from './chat/ChatPanel';
 import { emptyData, SHEETS, cellFormatKey } from './constants';
@@ -88,14 +73,16 @@ import { NewProjectDialog } from './NewProjectDialog';
 import { PendingRerunBanner } from './PendingRerunBanner';
 import { ProjectDetailsDialog } from './ProjectDetailsDialog';
 import { SpreadsheetChrome } from './SpreadsheetChrome';
+import { useAddDocuments } from './hooks/useAddDocuments';
+import { useReextraction } from './hooks/useReextraction';
+import { useWorkspaceLayout } from './hooks/useWorkspaceLayout';
+import { useWorkspaceSocket } from './hooks/useWorkspaceSocket';
 import { SpreadsheetSurface } from './SpreadsheetSurface';
 import type {
   CellFormatMap,
-  PendingRerunKind,
   SheetId,
   SheetSelection,
   TableDisplayOptions,
-  WorkspaceReextractionState,
   WorkspaceSessionMode,
 } from './types';
 
@@ -112,9 +99,6 @@ async function downloadAs(path: string, filename: string): Promise<void> {
   window.URL.revokeObjectURL(url);
 }
 
-const normalizeDocName = (s: string) => s.trim().toLowerCase();
-const stripDocExt = (s: string) => s.replace(/\.[^.\\/]+$/, '');
-
 function Workspace() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -127,9 +111,6 @@ function Workspace() {
   const [sessionMode, setSessionMode] = useState<WorkspaceSessionMode>(requestedMode);
   const [projectDialogOpen, setProjectDialogOpen] = useState(!sessionId);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
-  const [pendingRerunKind, setPendingRerunKind] = useState<PendingRerunKind | null>(null);
-  const [pendingSchemaColumns, setPendingSchemaColumns] = useState<string[]>([]);
-  const [rerunStarting, setRerunStarting] = useState(false);
   const [status, setStatus] = useState<ScheMatiQStatus | null>(null);
   const [session, setSession] = useState<VisualizationSession | null>(null);
   const [schema, setSchema] = useState<SchemaData | null>(null);
@@ -186,28 +167,12 @@ function Workspace() {
   const [sourceDocReloadToken, setSourceDocReloadToken] = useState(0);
   const [attachingSourceDocs, setAttachingSourceDocs] = useState(false);
   const sourceDocInputRef = useRef<HTMLInputElement | null>(null);
-  const [chatWidth, setChatWidth] = useState(() => {
-    const saved = Number(localStorage.getItem('workspace.chatWidth'));
-    return Number.isFinite(saved) ? saved : 380;
-  });
-  const [isDraggingDivider, setIsDraggingDivider] = useState(false);
-  const [reextraction, setReextraction] = useState<WorkspaceReextractionState | null>(null);
-  const [wsConnected, setWsConnected] = useState(false);
-  const [reextractConfirm, setReextractConfirm] = useState<{ columns: string[] } | null>(null);
-  const [reextractAvailability, setReextractAvailability] = useState<DocumentAvailabilityResponse | null>(null);
-  const [reextractAvailabilityLoading, setReextractAvailabilityLoading] = useState(false);
-  const [stoppingReextraction, setStoppingReextraction] = useState(false);
-
-  // Add-more-documents (workspace parity with the classic flow): upload extra
-  // source documents and extract them with the existing schema. The backend
-  // endpoints (/load/add-documents, /load/process-documents) are flow-agnostic
-  // and already accept ScheMatiQ sessions, so this is a frontend-only surface.
-  const [addDocsFiles, setAddDocsFiles] = useState<File[]>([]);
-  const [addDocsUploading, setAddDocsUploading] = useState(false);
-  const [addDocsProcessing, setAddDocsProcessing] = useState(false);
-  const [addDocsResult, setAddDocsResult] = useState<DocumentUploadResult | null>(null);
-  const [addDocsError, setAddDocsError] = useState<string | null>(null);
-  const [addDocsNotice, setAddDocsNotice] = useState<string | null>(null);
+  const {
+    chatWidth,
+    setChatWidth,
+    isDraggingDivider,
+    startDividerDrag,
+  } = useWorkspaceLayout();
 
   const deferredDataRef = useRef<PaginatedData | null>(null);
   const cancelChatPendingRef = useRef<(() => Promise<boolean>) | null>(null);
@@ -333,6 +298,65 @@ function Workspace() {
     return run;
   }, [refresh]);
 
+  const {
+    addDocsFiles,
+    addDocsUploading,
+    addDocsProcessing,
+    addDocsResult,
+    addDocsError,
+    addDocsNotice,
+    addDocsPending,
+    handleAddDocsFilesChange,
+    uploadAddDocuments,
+    processAddDocuments,
+  } = useAddDocuments({
+    sessionId,
+    documents,
+    session,
+    refresh,
+    setActiveSheet,
+    toast,
+  });
+
+  const {
+    pendingRerunKind,
+    pendingSchemaColumns,
+    rerunStarting,
+    reextraction,
+    setReextraction,
+    reextractConfirm,
+    setReextractConfirm,
+    reextractAvailability,
+    setReextractAvailability,
+    reextractAvailabilityLoading,
+    stoppingReextraction,
+    clearPendingRerun,
+    runReextractPrecheck,
+    requestReextraction,
+    confirmReextraction,
+    stopReextraction,
+    startSchemaRediscovery,
+    notifyEditFollowUp,
+    runPendingEdits,
+  } = useReextraction({
+    sessionId,
+    sessionMode,
+    schema,
+    refresh,
+    setActiveSheet,
+    cancelChatPendingIfAny,
+    toast,
+  });
+
+  useWorkspaceSocket({
+    sessionId,
+    refresh,
+    refreshSilent,
+    setActiveSheet,
+    setReextraction,
+    toast,
+  });
+
   useEffect(() => {
     setProjectDialogOpen(!sessionId);
     setSessionMode(requestedMode);
@@ -357,11 +381,6 @@ function Workspace() {
   }, []);
 
   useEffect(() => {
-    setPendingRerunKind(null);
-    setPendingSchemaColumns([]);
-    setRerunStarting(false);
-    setReextraction(null);
-    setWsConnected(false);
     // Reset session-scoped view/data so a freshly imported/loaded session
     // never renders the previous session's sheet, schema, or rows.
     setActiveSheet('data');
@@ -469,115 +488,6 @@ function Workspace() {
   useEffect(() => {
     refresh();
   }, [refresh, sessionId]);
-
-  useEffect(() => {
-    if (!sessionId || wsConnected) return undefined;
-    const interval = window.setInterval(() => refreshSilent(), WS_DISCONNECTED_REFRESH_INTERVAL);
-    return () => window.clearInterval(interval);
-  }, [refreshSilent, sessionId, wsConnected]);
-
-  useEffect(() => {
-    if (!sessionId) return undefined;
-
-    const handler = (message: WebSocketMessage) => {
-      if (message.type === 'connected') {
-        setWsConnected(true);
-        void refreshSilent();
-        return;
-      }
-
-      if (message.type === 'disconnected' || message.type === 'reconnecting') {
-        setWsConnected(false);
-        return;
-      }
-
-      if (message.type === 'heartbeat' || message.type === 'pong') {
-        return;
-      }
-
-      if (message.type === 'reextraction_started' && message.data) {
-        const payload = message.data as ReextractionStartedData;
-        setReextraction({
-          operationId: payload.operation_id,
-          columns: payload.columns || [],
-          progress: 0,
-          processedDocuments: 0,
-          totalDocuments: payload.total_documents || 0,
-        });
-        setActiveSheet('data');
-        void refresh({ silent: true });
-        return;
-      }
-
-      if (message.type === 'reextraction_progress' && message.data) {
-        const payload = message.data as ReextractionProgressData;
-        setReextraction((current) => ({
-          operationId: payload.operation_id,
-          columns: current?.columns || (payload.column ? [payload.column] : []),
-          progress: payload.progress ?? current?.progress ?? 0,
-          processedDocuments: payload.processed_documents ?? current?.processedDocuments ?? 0,
-          totalDocuments: payload.total_documents ?? current?.totalDocuments ?? 0,
-          currentColumn: payload.column || current?.currentColumn,
-        }));
-        void refresh({ silent: true });
-        return;
-      }
-
-      if (message.type === 'reextraction_completed' && message.data) {
-        const payload = message.data as ReextractionCompletedData;
-        setReextraction(null);
-        void refresh({ silent: true });
-        toast({
-          title: 'Re-extraction completed',
-          description: payload.columns?.length
-            ? `Updated ${payload.columns.length} column(s) from source documents.`
-            : 'Table values were refreshed from source documents.',
-        });
-        return;
-      }
-
-      if (message.type === 'reextraction_failed' && message.data) {
-        const payload = message.data as ReextractionFailedData;
-        setReextraction(null);
-        toast({
-          title: 'Re-extraction failed',
-          description: payload.error || 'Could not re-extract values from source documents.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      if (message.type === 'reextraction_stopped') {
-        setReextraction(null);
-        void refresh({ silent: true });
-        return;
-      }
-
-      if (
-        message.type === 'progress' ||
-        message.type === 'completed' ||
-        message.type === 'schema_completed' ||
-        message.type === 'schema_updated' ||
-        message.type === 'cell_extracted' ||
-        message.type === 'row_completed' ||
-        message.type === 'schema_progress' ||
-        message.type === 'reprocessing_progress' ||
-        message.type === 'reprocessing_completed' ||
-        message.type === 'observation_unit_definition_updated'
-      ) {
-        void refresh({ silent: true });
-      }
-    };
-
-    webSocketService.addMessageHandler(handler);
-    webSocketService.connect(sessionId, 'progress');
-
-    return () => {
-      webSocketService.removeMessageHandler(handler);
-      webSocketService.disconnect();
-      setWsConnected(false);
-    };
-  }, [refresh, refreshSilent, sessionId, toast]);
 
   const estimateCurrentCost = useCallback(async () => {
     if (!sessionId) return;
@@ -750,398 +660,6 @@ function Workspace() {
     }
   }, [navigate, toast]);
 
-  const clearPendingRerun = useCallback(() => {
-    setPendingRerunKind(null);
-    setPendingSchemaColumns([]);
-  }, []);
-
-  const markRerunNeeded = useCallback((kind: PendingRerunKind, columns: string[] = []) => {
-    if (kind === 'unit') {
-      setPendingRerunKind('unit');
-      setPendingSchemaColumns([]);
-      return;
-    }
-
-    setPendingRerunKind((current) => current === 'unit' ? 'unit' : 'schema');
-    setPendingSchemaColumns((current) => {
-      const merged = new Set(current);
-      columns
-        .map((column) => column.trim())
-        .filter(Boolean)
-        .forEach((column) => merged.add(column));
-      return Array.from(merged);
-    });
-  }, []);
-
-  // Pre-check source-document availability for the current session. Used by the
-  // re-extract confirm card so the user can upload missing originals (e.g. after
-  // loading a project from JSON, where documents are not bundled) before running
-  // the extraction model. Failures leave availability null and fall back to the
-  // backend gate in start_gated_reextraction, which still blocks and reports.
-  const runReextractPrecheck = useCallback(async () => {
-    if (!sessionId) return;
-    setReextractAvailabilityLoading(true);
-    try {
-      const availability = await schemaAPI.precheckDocuments(sessionId, {
-        operation_type: 'reextraction',
-      });
-      setReextractAvailability(availability);
-    } catch {
-      setReextractAvailability(null);
-    } finally {
-      setReextractAvailabilityLoading(false);
-    }
-  }, [sessionId]);
-
-  // Resolve the requested columns to a concrete, non-empty target set and open
-  // the confirm card. Both routes (manual button + chat tool) re-extract only
-  // after an explicit confirm; the backend gated action owns baseline capture
-  // and document precheck so this stays purely presentational.
-  const requestReextraction = useCallback((columns?: string[]) => {
-    if (!sessionId || rerunStarting) return;
-
-    const schemaColumnNames = new Set(
-      (schema?.schema || [])
-        .map((column) => column.name)
-        .filter((name): name is string => Boolean(name)),
-    );
-    const requestedColumns = (columns && columns.length > 0 ? columns : pendingSchemaColumns)
-      .map((name) => name.trim())
-      .filter((name) => Boolean(name) && !name.toLowerCase().endsWith('_excerpt'));
-    const targetColumns = (requestedColumns.length > 0 ? requestedColumns : Array.from(schemaColumnNames))
-      .filter((name) => schemaColumnNames.has(name));
-
-    if (targetColumns.length === 0) {
-      toast({
-        title: 'No columns to re-extract',
-        description: 'Add schema columns first, then try again.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setReextractConfirm({ columns: targetColumns });
-    setReextractAvailability(null);
-    void runReextractPrecheck();
-  }, [pendingSchemaColumns, rerunStarting, runReextractPrecheck, schema?.schema, sessionId, toast]);
-
-  const startReextraction = useCallback(async (targetColumns: string[]) => {
-    if (!sessionId || rerunStarting || targetColumns.length === 0) return;
-
-    const chatPendingCleared = await cancelChatPendingIfAny();
-    if (!chatPendingCleared) {
-      toast({
-        title: 'Chat confirmation still pending',
-        description: 'Cancel the chat confirmation card first, then try again.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setRerunStarting(true);
-    try {
-      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
-      const configured = await getConfiguredProviders();
-      const available = getAvailableProviders(configured);
-      const provider: LLMProviderKey = !cfg.allow_llm_config
-        ? 'gemini'
-        : (available[0] ?? 'gemini');
-      const model = getDefaultModelForProvider(provider);
-      const apiKey = await getApiKeyForProvider(provider);
-      const request: ReextractionRequest = { columns: targetColumns };
-      if (apiKey) {
-        request.llm_config = { provider, model, api_key: apiKey, temperature: 0 };
-      }
-
-      const response = await schemaAPI.startReextraction(sessionId, request);
-      const docCount = response.rows_to_process || response.estimated_papers || 0;
-      if (docCount === 0) {
-        toast({
-          title: 'No source documents',
-          description: 'Upload documents or open a ScheMatiQ project with source files, then try again.',
-          variant: 'destructive',
-        });
-        return;
-      }
-
-      clearPendingRerun();
-      setActiveSheet('data');
-      setReextraction({
-        operationId: response.operation_id,
-        columns: response.columns,
-        progress: 0,
-        processedDocuments: 0,
-        totalDocuments: docCount,
-        currentColumn: response.columns[0],
-      });
-      toast({
-        title: 'Re-extraction started',
-        description: `Re-extracting ${response.columns.join(', ')} across ${docCount} document(s). Other columns stay unchanged.`,
-        duration: 4000,
-      });
-    } catch (err: any) {
-      toast({
-        title: 'Re-extraction failed to start',
-        description: err?.response?.data?.detail || err?.message || 'Could not start re-extraction',
-        variant: 'destructive',
-      });
-    } finally {
-      setRerunStarting(false);
-    }
-  }, [cancelChatPendingIfAny, clearPendingRerun, rerunStarting, sessionId, toast]);
-
-  const confirmReextraction = useCallback(async () => {
-    if (!reextractConfirm) return;
-    // Belt-and-suspenders: the Confirm button is disabled when no documents are
-    // available, but guard here too so a stale click can't bypass the gate.
-    if (reextractAvailability && !reextractAvailability.can_proceed) return;
-    const { columns } = reextractConfirm;
-    setReextractConfirm(null);
-    setReextractAvailability(null);
-    await startReextraction(columns);
-  }, [reextractAvailability, reextractConfirm, startReextraction]);
-
-  // Cancel a running re-extraction. Reuses the same backend stop mechanism as
-  // the classic Visualizer (POST /schema/stop-reextraction); the WebSocket
-  // 'reextraction_stopped' handler clears the spinner.
-  const stopReextraction = useCallback(async () => {
-    if (!sessionId || !reextraction?.operationId || stoppingReextraction) return;
-    setStoppingReextraction(true);
-    try {
-      await schemaAPI.stopReextraction(sessionId, reextraction.operationId);
-      toast({
-        title: 'Stopping re-extraction',
-        description: 'Finishing the current document, then stopping. Partial results are kept.',
-      });
-    } catch (err: any) {
-      toast({
-        title: 'Could not stop re-extraction',
-        description: err?.response?.data?.detail || err?.message || 'Stop request failed.',
-        variant: 'destructive',
-      });
-      setStoppingReextraction(false);
-    }
-  }, [reextraction?.operationId, sessionId, stoppingReextraction, toast]);
-
-  useEffect(() => {
-    if (!reextraction) setStoppingReextraction(false);
-  }, [reextraction]);
-
-  // Step 1: upload extra documents into the session's pending queue.
-  const uploadAddDocuments = useCallback(async () => {
-    if (!sessionId || addDocsFiles.length === 0 || addDocsUploading) return;
-    setAddDocsUploading(true);
-    setAddDocsError(null);
-    setAddDocsNotice(null);
-    try {
-      const result = await loadAPI.addDocuments(sessionId, addDocsFiles);
-      setAddDocsResult(result);
-      setAddDocsFiles([]);
-      await refresh({ silent: true });
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      const message =
-        detail && typeof detail === 'object' && Array.isArray(detail.errors)
-          ? detail.errors.join('\n')
-          : typeof detail === 'string'
-            ? detail
-            : err?.message || 'Failed to upload documents';
-      setAddDocsError(message);
-    } finally {
-      setAddDocsUploading(false);
-    }
-  }, [addDocsFiles, addDocsUploading, refresh, sessionId]);
-
-  // Step 2: extract the queued documents with the existing schema. The LLM
-  // config is resolved exactly like re-extraction; the backend additionally
-  // falls back to the session's stored value_extraction_backend when none is
-  // passed. New rows stream into the table via the existing WebSocket handler.
-  const processAddDocuments = useCallback(async () => {
-    if (!sessionId || addDocsProcessing) return;
-    setAddDocsProcessing(true);
-    setAddDocsError(null);
-    try {
-      const cfg = await configAPI.getConfig().catch(() => ({ allow_llm_config: true }));
-      const configured = await getConfiguredProviders();
-      const available = getAvailableProviders(configured);
-      const provider: LLMProviderKey = !cfg.allow_llm_config
-        ? 'gemini'
-        : (available[0] ?? 'gemini');
-      const model = getDefaultModelForProvider(provider);
-      const apiKey = await getApiKeyForProvider(provider);
-      const llmConfig: Record<string, unknown> = { provider, model, temperature: 0 };
-      if (apiKey) llmConfig.api_key = apiKey;
-
-      await loadAPI.processDocuments(sessionId, llmConfig);
-      setAddDocsResult(null);
-      setActiveSheet('data');
-      toast({
-        title: 'Processing new documents',
-        description: 'New rows will appear in the table as they are extracted.',
-        duration: 4000,
-      });
-      await refresh({ silent: true });
-    } catch (err: any) {
-      const detail = err?.response?.data?.detail;
-      const message = err?.response?.status === 503
-        ? (detail || 'The server is busy. Please try again in a few minutes.')
-        : (typeof detail === 'string' ? detail : err?.message || 'Failed to start processing');
-      setAddDocsError(message);
-    } finally {
-      setAddDocsProcessing(false);
-    }
-  }, [addDocsProcessing, refresh, sessionId, toast]);
-
-  // Everything already in this project. Two sources, unioned:
-  //  - documents.documents: documents that already have extracted rows. This is
-  //    authoritative for a loaded/saved project, where the source files may no
-  //    longer be "available" for preview but the document is still in the table.
-  //  - session.metadata.uploaded_documents: documents uploaded this session that
-  //    may not have been processed into rows yet.
-  const existingDocs = useMemo(() => {
-    const map = new Map<string, { name: string; label: string; status?: string }>();
-    for (const d of documents?.documents ?? []) {
-      const key = normalizeDocName(d.name);
-      if (!map.has(key)) {
-        map.set(key, {
-          name: d.name,
-          label: d.name,
-          status: d.rowCount ? `${d.rowCount} row${d.rowCount === 1 ? '' : 's'}` : undefined,
-        });
-      }
-    }
-    const meta = session?.metadata?.document_metadata;
-    for (const doc of session?.metadata?.uploaded_documents ?? []) {
-      const label = meta?.[doc]?.original_filename || doc;
-      const key = normalizeDocName(label);
-      const status = meta?.[doc]?.extraction_status;
-      const existing = map.get(key);
-      if (existing) {
-        if (status && !existing.status) existing.status = status;
-      } else {
-        map.set(key, { name: doc, label, status });
-      }
-    }
-    return Array.from(map.values());
-  }, [documents, session]);
-
-  const existingDocNames = useMemo(() => {
-    const names = new Set<string>();
-    for (const d of existingDocs) {
-      names.add(normalizeDocName(d.label));
-      names.add(normalizeDocName(d.name));
-      names.add(normalizeDocName(stripDocExt(d.label)));
-      names.add(normalizeDocName(stripDocExt(d.name)));
-    }
-    return names;
-  }, [existingDocs]);
-
-  // Reject files whose name already exists in the project so an already-extracted
-  // source is never uploaded and re-processed. Matches on the full name and on the
-  // extension-stripped base name (a loaded project may store the document without
-  // its original extension). Also de-dupes repeated names within a selection.
-  // Client-side guard; the backend remains the source of truth.
-  const handleAddDocsFilesChange = useCallback((incoming: File[]) => {
-    const seen = new Set<string>();
-    const accepted: File[] = [];
-    const skipped: string[] = [];
-    for (const file of incoming) {
-      const key = normalizeDocName(file.name);
-      const baseKey = normalizeDocName(stripDocExt(file.name));
-      if (existingDocNames.has(key) || existingDocNames.has(baseKey)) {
-        skipped.push(file.name);
-        continue;
-      }
-      if (seen.has(key)) continue;
-      seen.add(key);
-      accepted.push(file);
-    }
-    setAddDocsFiles(accepted);
-    setAddDocsNotice(
-      skipped.length > 0
-        ? `Skipped ${skipped.length} document${skipped.length !== 1 ? 's' : ''} already in this project (already extracted, not re-processed): ${Array.from(new Set(skipped)).join(', ')}`
-        : null,
-    );
-  }, [existingDocNames]);
-
-  const addDocsPending = (addDocsResult?.uploaded_files?.length ?? 0) > 0;
-
-  const startSchemaRediscovery = useCallback(async () => {
-    if (!sessionId || rerunStarting) return;
-
-    if (sessionMode !== 'schematiq') {
-      toast({
-        title: 'Rediscovery needs a ScheMatiQ run',
-        description: 'Imported static projects can edit the observation unit, but rediscovering schema requires a ScheMatiQ project with source documents.',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    setRerunStarting(true);
-    try {
-      const chatPendingCleared = await cancelChatPendingIfAny();
-      if (!chatPendingCleared) {
-        toast({
-          title: 'Chat confirmation still pending',
-          description: 'Cancel the chat confirmation card first, then try again.',
-          variant: 'destructive',
-        });
-        return;
-      }
-      await schematiqAPI.resume(sessionId);
-      clearPendingRerun();
-      toast({
-        title: 'Schema rediscovery started',
-        description: 'Rediscovering schema from the updated observation unit.',
-        duration: 4000,
-      });
-      await refresh({ silent: true });
-    } catch (err: any) {
-      toast({
-        title: 'Schema rediscovery failed',
-        description: err?.response?.data?.detail || err?.message || 'Could not start schema rediscovery',
-        variant: 'destructive',
-      });
-    } finally {
-      setRerunStarting(false);
-    }
-  }, [cancelChatPendingIfAny, clearPendingRerun, refresh, rerunStarting, sessionId, sessionMode, toast]);
-
-  const notifyEditFollowUp = useCallback((kind: PendingRerunKind, columns: string[] = []) => {
-    markRerunNeeded(kind, columns);
-
-    if (kind === 'unit') {
-      // The persistent top banner (driven by markRerunNeeded above) already
-      // surfaces the "Rediscover schema & re-extract" action, so we do not fire a
-      // competing toast. Exception: in an imported (non-ScheMatiQ) project
-      // rediscovery is impossible and the banner's action only errors, so we
-      // surface a proactive, action-less explanation instead.
-      if (sessionMode !== 'schematiq') {
-        toast({
-          title: 'Observation unit updated',
-          description: 'Imported static projects can edit the unit, but rediscovery needs a ScheMatiQ project with source documents.',
-        });
-      }
-      return;
-    }
-
-    // Schema edits: the persistent "Schema changed" banner is the single,
-    // always-fresh entry point for re-extraction, so we raise no duplicate toast
-    // here. The old toast was also broken — its action captured a stale
-    // `requestReextraction` closure (schema not yet refreshed when the toast was
-    // created), producing a false "No columns to re-extract" error on click.
-  }, [markRerunNeeded, sessionMode, toast]);
-
-  const runPendingEdits = useCallback(async () => {
-    if (!sessionId || !pendingRerunKind || rerunStarting) return;
-    if (pendingRerunKind === 'unit') {
-      await startSchemaRediscovery();
-      return;
-    }
-    requestReextraction(pendingSchemaColumns);
-  }, [pendingRerunKind, pendingSchemaColumns, rerunStarting, requestReextraction, sessionId, startSchemaRediscovery]);
-
   const progressPercent = Math.round((status?.progress || 0) * 100);
   const topbarQuestion = schema?.query || config?.query || '';
   const projectTitle = topbarQuestion || (sessionId ? `ScheMatiQ ${sessionId.slice(0, 8)}` : 'Untitled workspace');
@@ -1183,29 +701,6 @@ function Workspace() {
     ? `Re-extracting ${reextraction.columns.join(', ')} (${reextraction.processedDocuments}/${reextraction.totalDocuments || '?'} docs)`
     : (status?.current_step || status?.status || 'No project status');
   const bottombarProgress = reextraction ? reextractionPercent : progressPercent;
-
-  const startDividerDrag = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsDraggingDivider(true);
-
-    const handleMove = (moveEvent: PointerEvent) => {
-      const nextWidth = window.innerWidth - moveEvent.clientX;
-      const maxWidth = Math.max(24, window.innerWidth - 24);
-      const clamped = Math.min(maxWidth, Math.max(0, nextWidth));
-      const snapped = clamped < 56 ? 0 : clamped > window.innerWidth - 80 ? window.innerWidth : clamped;
-      setChatWidth(snapped);
-      localStorage.setItem('workspace.chatWidth', String(snapped));
-    };
-
-    const handleUp = () => {
-      setIsDraggingDivider(false);
-      window.removeEventListener('pointermove', handleMove);
-      window.removeEventListener('pointerup', handleUp);
-    };
-
-    window.addEventListener('pointermove', handleMove);
-    window.addEventListener('pointerup', handleUp);
-  }, []);
 
   // Source document of the currently selected data row, used by the optional
   // source panel on the Data sheet. Uses the raw _source_document value so it
