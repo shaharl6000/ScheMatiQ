@@ -219,7 +219,10 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="max-w-2xl max-h-[90vh] overflow-y-auto"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
         <DialogHeader>
           <div className="flex items-start justify-between gap-2">
             <DialogTitle>New Project</DialogTitle>
