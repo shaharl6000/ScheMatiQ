@@ -62,6 +62,7 @@ class ScheMatiQConfig(BaseModel):
     upload_pending: bool = False  # True when documents will be uploaded after session creation
     max_keys_schema: int = 100
     documents_batch_size: int = 4
+    batch_strategy: str = "smart"  # "smart" = token-aware bin-packing; "fixed" = legacy fixed-size slices
     initial_schema_path: Optional[str] = None  # Path to schema file
     initial_schema: Optional[List[InitialSchemaColumn]] = None  # Inline schema definition
     initial_observation_unit: Optional[InitialObservationUnit] = None  # Pre-configured observation unit

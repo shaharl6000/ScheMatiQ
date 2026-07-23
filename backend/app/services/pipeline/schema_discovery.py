@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime
 
 from app.services import schematiq_thread_pool
+from app.services.pipeline.batch_execution import generate_schema_with_split
 
 from schematiq.core import schematiq as ScheMatiQ
 from schematiq.core.schema import Schema, Column, ObservationUnit
@@ -56,14 +57,19 @@ async def run_schema_discovery(
     initial_schema = _load_initial_schema(schematiq_config, query, max_keys)
     current_schema = initial_schema or Schema(query=query, columns=[], max_keys=max_keys)
 
-    batch_size = schematiq_config.get("documents_batch_size", 1)
     convergence_threshold = schematiq_config.get("convergence_threshold") or 5
     unchanged_count = 0
 
-    batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
-    filename_batches = [filenames[i:i+batch_size] for i in range(0, len(filenames), batch_size)]
+    from app.services.pipeline.batch_planner import plan_batches
 
-    logger.debug("Document batching - %d docs, batch_size=%d, %d batches", len(documents), batch_size, len(batches))
+    planned_batches = plan_batches(documents, filenames, schematiq_config)
+    batches = [pb.documents for pb in planned_batches]
+    filename_batches = [pb.filenames for pb in planned_batches]
+
+    strategy = (schematiq_config.get("batch_strategy") or "smart").lower()
+    logger.debug(
+        "Document batching (%s) - %d docs, %d batches", strategy, len(documents), len(batches)
+    )
 
     evolution = SchemaEvolution(snapshots=[], column_sources={})
     cumulative_docs = 0
@@ -194,26 +200,71 @@ async def run_schema_discovery(
             )
         completion_done = True
 
-        # Generate schema for this iteration
-        logger.debug("[%s] Offloading generate_schema to thread pool", session_id)
-        try:
-            schema_result = await loop.run_in_executor(
+        # Generate schema for this iteration.
+        # Wrapped in a split-aware runner: if the assembled prompt exceeds the
+        # model's token limit, the batch is split in half and each half retried
+        # (content selection re-runs per subset). A single document that still
+        # overflows is skipped and recorded, rather than crashing discovery.
+        ctx_window = schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192)
+
+        async def _run_generate(sub_docs):
+            # Re-select relevant content for this (possibly reduced) doc subset,
+            # then generate the schema. On the full batch this reuses the passages
+            # already computed above to avoid a redundant retrieval pass.
+            if sub_docs is batch_docs:
+                sub_content = relevant_content
+            else:
+                sub_content = await loop.run_in_executor(
+                    schematiq_thread_pool,
+                    functools.partial(
+                        ScheMatiQ.select_relevant_content,
+                        docs=sub_docs,
+                        query=query,
+                        retriever=retriever,
+                    )
+                )
+            result = await loop.run_in_executor(
                 schematiq_thread_pool,
                 functools.partial(
                     ScheMatiQ.generate_schema,
-                    passages=relevant_content,
+                    passages=sub_content,
                     query=query,
                     max_keys_schema=schematiq_config.get("max_keys_schema", 100),
                     current_schema=current_schema,
                     llm=llm,
-                    context_window_size=schematiq_config["schema_creation_backend"].get("context_window_size") or getattr(llm, 'context_window_size', 8192),
+                    context_window_size=ctx_window,
                 )
             )
-            new_schema = schema_result[0] if isinstance(schema_result, tuple) else schema_result
-            logger.debug("Generated schema with %d columns", len(new_schema.columns))
+            return result[0] if isinstance(result, tuple) else result
+
+        async def _notify_split(level: str, message: str):
+            if ws_manager:
+                await ws_manager.broadcast_log(session_id, {"level": level, "message": message})
+
+        try:
+            new_schema = await generate_schema_with_split(
+                session_id=session_id,
+                batch_docs=batch_docs,
+                batch_names=batch_names,
+                run_generate=_run_generate,
+                is_stop_requested=is_stop_requested,
+                work_dir=work_dir,
+                notify=_notify_split,
+            )
         except Exception as e:
             logger.error("ERROR in generate_schema: %s", e)
             raise
+
+        if new_schema is None:
+            # Entire batch was skipped (all documents exceeded the token limit
+            # even when isolated). Already logged and recorded as an artifact.
+            logger.warning(
+                "Batch %d/%d produced no schema (all documents skipped for token limits); continuing",
+                iteration + 1, len(batches),
+            )
+            continue
+
+        logger.debug("Generated schema with %d columns", len(new_schema.columns))
 
         if is_stop_requested(session_id):
             logger.warning("Stop requested after schema generation - saving partial schema")

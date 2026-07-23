@@ -116,6 +116,7 @@ def convert_config_to_schematiq_format(
         "docs_path": resolved_docs_paths[0] if len(resolved_docs_paths) == 1 else resolved_docs_paths,
         "max_keys_schema": config.max_keys_schema,
         "documents_batch_size": config.documents_batch_size,
+        "batch_strategy": config.batch_strategy,
         "output_path": str(session_dir / "discovered_schema.json"),
         "document_randomization_seed": config.document_randomization_seed,
         "skip_value_extraction": config.skip_value_extraction,
