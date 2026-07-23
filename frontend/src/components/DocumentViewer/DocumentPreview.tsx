@@ -133,20 +133,32 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
 
   const [text, setText] = useState<string | null>(null);
   const [textError, setTextError] = useState(false);
+  // A recorded name may lack a usable extension (internal periods), so the
+  // text path can be reached for a file the server actually serves as binary
+  // (e.g. a raw PDF whose conversion failed). Detect that and fall back to the
+  // native iframe instead of rendering raw bytes as gibberish.
+  const [contentIsBinary, setContentIsBinary] = useState(false);
 
   useEffect(() => {
     if (!useInlineText || !sessionId || !documentName || availability !== 'ok') {
       setText(null);
       setTextError(false);
+      setContentIsBinary(false);
       return undefined;
     }
     let cancelled = false;
     setText(null);
     setTextError(false);
+    setContentIsBinary(false);
     unitsAPI
       .getDocumentContentText(sessionId, documentName)
       .then((content) => {
-        if (!cancelled) setText(content);
+        if (cancelled) return;
+        if (content.startsWith('%PDF-') || content.indexOf('\u0000') !== -1) {
+          setContentIsBinary(true);
+        } else {
+          setText(content);
+        }
       })
       .catch(() => {
         if (!cancelled) setTextError(true);
@@ -251,7 +263,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
         </div>
       );
     }
-    if (useInlineText) {
+    if (useInlineText && !contentIsBinary) {
       return renderInlineText();
     }
     if (canRenderInline) {

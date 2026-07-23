@@ -22,6 +22,7 @@ from app.services.unit_view_service import unit_view_service
 from app.services import session_manager, pubmed_enrichment_service
 from app.services.data_utils import candidate_data_dirs, get_data_dir
 from app.services.file_parser import is_system_file
+from app.services.document_preprocessor import commit_document_to_documents_dir
 from app.storage import get_storage
 
 router = APIRouter()
@@ -301,6 +302,7 @@ async def attach_source_documents(
 
     pending_dir = get_data_dir() / session_id / "pending_documents"
     pending_dir.mkdir(parents=True, exist_ok=True)
+    documents_dir = get_data_dir() / session_id / "documents"
 
     attached: list[str] = []
     skipped: list[dict] = []
@@ -313,7 +315,17 @@ async def attach_source_documents(
             skipped.append({"name": name, "reason": "exceeds 25MB limit"})
             continue
         try:
-            (pending_dir / name).write_bytes(content)
+            written = pending_dir / name
+            written.write_bytes(content)
+            # Convert to a lib-readable text form in documents/ (mirroring the
+            # ingestion pipeline) so previews render as text with reliable
+            # grounding highlights rather than serving raw PDF/office bytes. On
+            # conversion failure the original stays in pending_documents/ as a
+            # best-effort fallback.
+            try:
+                commit_document_to_documents_dir(written, documents_dir)
+            except Exception:  # pragma: no cover - defensive; keep the original
+                pass
             attached.append(name)
         except Exception as e:  # pragma: no cover - defensive
             skipped.append({"name": name, "reason": str(e)})
