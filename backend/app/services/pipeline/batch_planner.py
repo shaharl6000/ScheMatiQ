@@ -11,9 +11,11 @@ more API calls than necessary and inconsistent per-batch content density.
 
 This module packs documents into batches by estimated input token size using
 First-Fit-Decreasing bin-packing, so each batch fills the available context
-window budget without exceeding it. A per-batch document count cap keeps
-individual batches from mixing too many documents (which can dilute schema
-signal), and oversized single documents are placed alone in their own batch.
+window budget without exceeding it. Packing as many documents as fit gives the
+model broader context per call, which tends to produce a richer schema. A high
+safety cap on documents per batch guards only against pathological inputs (e.g.
+thousands of tiny documents forming one unwieldy prompt); oversized single
+documents are placed alone in their own batch.
 
 Two strategies are supported:
 
@@ -29,6 +31,15 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# Resolve the token counter once. Prefer schematiq-lib's tiktoken-based counter
+# so estimates match the cost estimator; fall back to a chars/4 heuristic
+# (identical to the library's own fallback) if it can't be imported.
+try:
+    from schematiq.core.cost_estimator import count_tokens as _count_tokens
+except Exception:  # pragma: no cover - exercised only when the lib is absent
+    def _count_tokens(text: str) -> int:
+        return len(text) // 4 if text else 0
 
 # Conservative fallbacks used only when the config / model specs do not provide
 # a value. These mirror the fallbacks already used in schema_discovery.py.
@@ -61,22 +72,6 @@ class PlannedBatch:
     documents: List[str]
     filenames: List[str]
     estimated_tokens: int
-
-
-def _count_tokens(text: str) -> int:
-    """Count tokens for a single document.
-
-    Reuses the tiktoken-based counter from schematiq-lib when importable so the
-    estimate matches the cost estimator. Falls back to a chars/4 heuristic,
-    identical to the library's own fallback.
-    """
-    try:
-        from schematiq.core.cost_estimator import count_tokens as _lib_count_tokens
-        return _lib_count_tokens(text)
-    except Exception:
-        if not text:
-            return 0
-        return len(text) // 4
 
 
 def _measured_prompt_overhead() -> int:
