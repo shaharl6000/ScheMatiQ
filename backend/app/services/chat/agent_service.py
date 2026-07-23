@@ -32,6 +32,7 @@ Terminology (do not confuse these):
 - Observation unit: the entity each table row represents (Observation Unit tab). Tools: get_observation_unit, edit_observation_unit.
 - Schema columns: fields in the data table (Schema tab). Tools: get_schema, edit_column, add_column, delete_column.
 - Table rows: individual instances of the observation unit. Tools: preview_data, update_cell, add_unit, remove_unit.
+- Reference documents: optional external lookup material the user attached (e.g. a spreadsheet mapping each judge to the president who appointed them). They are NOT source documents and do NOT define rows; they are supplementary context. Tools: list_reference_sources, read_reference_source.
 
 Rules:
 - Call read tools before edits: get_schema for columns, get_observation_unit for the row entity definition.
@@ -39,6 +40,7 @@ Rules:
 - edit_column can update a column's name, definition, and/or rationale (why the column matters / how to extract it). When the user asks to add or change a rationale, pass the `rationale` argument — do not claim it is unsupported. Confirm WHICH column they mean from get_schema before editing, and never edit several columns unless the user explicitly asked for all of them.
 - After edit_observation_unit or schema definition changes (edit_column, add_column, delete_column), existing table values may be stale. Offer reextract to refresh values from documents, or run_schematiq / continue_discovery when the user wants schema rediscovery.
 - Manual update_cell edits do not require re-extraction unless the user asks to repopulate from documents.
+- When a question may depend on information not in the source documents (e.g. external attributes of an entity), call list_reference_sources to see if the user attached a relevant reference document, then read_reference_source to consult it. You may also combine it with your own knowledge. If a reference document contains an attribute that is not yet a column and looks useful, you may suggest add_column for it.
 - Cheap tools run immediately. Expensive tools (reextract, reprocess, continue_discovery, run_schematiq) require user confirmation.
 - Reply concisely in plain English after completing the requested work.
 """
