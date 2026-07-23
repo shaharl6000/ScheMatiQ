@@ -139,16 +139,38 @@ def _media_type_for(name: str) -> str:
     return guessed or "application/octet-stream"
 
 
+# Document extensions we may strip when matching a recorded source name (which
+# often omits the extension, or was recorded before PDF->txt conversion) against
+# a stored file. We strip ONLY these known suffixes — never a generic
+# "everything after the last dot" (Path.stem / lastIndexOf('.')), because
+# document names routinely contain periods (e.g. "... Order No. 19-cv-7151",
+# "Dep't", "Inc."), which such splitting would truncate and break matching.
+_DOC_MATCH_EXTENSIONS = (
+    ".pdf", ".txt", ".md", ".markdown", ".html", ".htm",
+    ".doc", ".docx", ".rtf", ".json", ".csv", ".tsv",
+)
+
+
+def _strip_doc_extension(filename: str) -> str:
+    """Return the filename without a trailing known document extension."""
+    lower = filename.lower()
+    for ext in _DOC_MATCH_EXTENSIONS:
+        if lower.endswith(ext) and len(filename) > len(ext):
+            return filename[: -len(ext)]
+    return filename
+
+
 def _find_local_document(session_id: str, name: str) -> Optional[Path]:
     """Locate an uploaded source document on the local filesystem.
 
     Searches documents/ and pending_documents/ across every known data dir
     (CWD, backend, dev.sh instances). Matches the exact filename first, then
-    falls back to stem matching since the recorded source_document name may
-    omit the extension.
+    compares ignoring a known extension on either side, since the recorded
+    source_document name may omit the extension or differ from the stored file
+    (e.g. an original ``.pdf`` converted to ``.txt``).
     """
-    target_stem = Path(name).stem.lower()
     target_name = name.lower()
+    target_base = _strip_doc_extension(name).lower()
     for base in candidate_data_dirs():
         for sub in ("documents", "pending_documents"):
             doc_dir = base / session_id / sub
@@ -160,7 +182,9 @@ def _find_local_document(session_id: str, name: str) -> Optional[Path]:
             for f in doc_dir.iterdir():
                 if not f.is_file() or f.name.startswith("."):
                     continue
-                if f.name.lower() == target_name or f.stem.lower() == target_stem:
+                file_name = f.name.lower()
+                file_base = _strip_doc_extension(f.name).lower()
+                if target_name in (file_name, file_base) or target_base in (file_name, file_base):
                     return f
     return None
 

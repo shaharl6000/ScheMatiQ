@@ -23,7 +23,13 @@ const TEXT_EXTENSIONS = new Set(['txt', 'text', 'md', 'markdown', 'csv', 'tsv', 
 
 const extensionOf = (name: string): string => {
   const dot = name.lastIndexOf('.');
-  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+  if (dot < 0) return '';
+  const ext = name.slice(dot + 1).toLowerCase();
+  // Only treat the suffix as a real extension if it looks like one. Document
+  // names often contain internal periods (e.g. "... Order No. 19-cv-7151"),
+  // where the text after the last dot is not an extension; those resolve to ''
+  // so they take the text-renderable path instead of the download fallback.
+  return /^[a-z0-9]{1,8}$/.test(ext) && /[a-z]/.test(ext) ? ext : '';
 };
 
 type Availability = 'idle' | 'checking' | 'ok' | 'unavailable';
