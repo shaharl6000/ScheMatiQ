@@ -56,14 +56,19 @@ async def run_schema_discovery(
     initial_schema = _load_initial_schema(schematiq_config, query, max_keys)
     current_schema = initial_schema or Schema(query=query, columns=[], max_keys=max_keys)
 
-    batch_size = schematiq_config.get("documents_batch_size", 1)
     convergence_threshold = schematiq_config.get("convergence_threshold") or 5
     unchanged_count = 0
 
-    batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
-    filename_batches = [filenames[i:i+batch_size] for i in range(0, len(filenames), batch_size)]
+    from app.services.pipeline.batch_planner import plan_batches
 
-    logger.debug("Document batching - %d docs, batch_size=%d, %d batches", len(documents), batch_size, len(batches))
+    planned_batches = plan_batches(documents, filenames, schematiq_config)
+    batches = [pb.documents for pb in planned_batches]
+    filename_batches = [pb.filenames for pb in planned_batches]
+
+    strategy = (schematiq_config.get("batch_strategy") or "smart").lower()
+    logger.debug(
+        "Document batching (%s) - %d docs, %d batches", strategy, len(documents), len(batches)
+    )
 
     evolution = SchemaEvolution(snapshots=[], column_sources={})
     cumulative_docs = 0
