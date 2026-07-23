@@ -10,6 +10,7 @@ from datetime import datetime
 
 from app.services import schematiq_thread_pool
 from app.services.pipeline.callbacks import create_value_extracted_callback, create_warning_callback
+from app.services.reference_context import build_reference_context
 from app.models.session import SkippedDocumentInfo
 
 from schematiq.core.schema import Schema
@@ -72,6 +73,8 @@ async def run_value_extraction(
     on_value_extracted = create_value_extracted_callback(ws_mixin, session_id, loop)
     on_warning = create_warning_callback(ws_manager, session_id, loop)
 
+    reference_context = build_reference_context(session)
+
     extraction_result = {}
 
     def should_stop():
@@ -93,6 +96,7 @@ async def run_value_extraction(
             should_stop=should_stop,
             on_warning=on_warning,
             write_skip_rationale_artifact=write_artifacts,
+            reference_context=reference_context,
         )
         return extraction_result
 

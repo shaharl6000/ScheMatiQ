@@ -27,6 +27,7 @@ from app.core.logging_utils import set_session_context
 
 # ScheMatiQ library imports
 from schematiq.value_extraction.main import build_table_jsonl
+from app.services.reference_context import build_reference_context
 from schematiq.core.llm_backends import GeminiLLM
 from schematiq.core.model_specs import ModelNames
 from schematiq.core import utils as schematiq_utils
@@ -1350,6 +1351,7 @@ class ReextractionService(WebSocketBroadcasterMixin):
                         should_stop=should_stop,  # Allow graceful stop
                         known_units=known_units if known_units else None,
                         write_skip_rationale_artifact=session.write_artifacts,
+                        reference_context=build_reference_context(session),
                     )
 
                 await asyncio.get_event_loop().run_in_executor(schematiq_thread_pool, run_extraction)
