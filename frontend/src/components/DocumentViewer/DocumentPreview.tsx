@@ -1,8 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, ExternalLink, Download, FileX, Upload } from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
 import { findHighlightRanges } from './highlightUtils';
+
+// react-pdf/pdfjs are heavy; load them only when a PDF is previewed.
+const PdfHighlightViewer = lazy(() => import('./PdfHighlightViewer'));
 
 /** Extensions the browser can render inline in an <iframe>. */
 const INLINE_EXTENSIONS = new Set([
@@ -124,6 +127,10 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
   const highlightEnabled = highlightTexts !== undefined;
   const isTextRenderable = ext === '' || TEXT_EXTENSIONS.has(ext);
   const useInlineText = highlightEnabled && isTextRenderable;
+  // PDFs render via react-pdf when highlight mode is on, so excerpts can be
+  // marked in the text layer. With highlight mode off (e.g. the Documents tab)
+  // PDFs keep the native iframe.
+  const usePdfHighlight = highlightEnabled && ext === 'pdf';
 
   const [text, setText] = useState<string | null>(null);
   const [textError, setTextError] = useState(false);
@@ -248,6 +255,19 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     if (useInlineText) {
       return renderInlineText();
     }
+    if (usePdfHighlight && contentUrl) {
+      return (
+        <Suspense
+          fallback={<div className="h-full flex items-center justify-center text-sm text-muted-foreground">Loading…</div>}
+        >
+          <PdfHighlightViewer
+            fileUrl={contentUrl}
+            highlightTexts={highlightTexts}
+            scrollNonce={scrollNonce}
+          />
+        </Suspense>
+      );
+    }
     if (canRenderInline) {
       return (
         <iframe
@@ -281,6 +301,7 @@ const DocumentPreview: React.FC<DocumentPreviewProps> = ({
     highlightEnabled &&
     Boolean(highlightTexts && highlightTexts.length > 0) &&
     !isTextRenderable &&
+    !usePdfHighlight &&
     availability === 'ok' &&
     canRenderInline;
 
