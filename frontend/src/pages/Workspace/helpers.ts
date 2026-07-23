@@ -183,6 +183,7 @@ export function buildConfig(
     opt_out_data_collection: optOut,
     max_keys_schema: advanced.maxKeysSchema,
     documents_batch_size: advanced.documentsBatchSize,
+    batch_strategy: advanced.batchStrategy,
     schema_creation_backend: {
       provider: advanced.schemaProvider,
       model: advanced.schemaModel,

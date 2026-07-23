@@ -38,6 +38,7 @@ import type { InitialSchemaColumn } from '@/types';
 export interface AdvancedSettingsValue {
   skipValueExtraction: boolean;
   maxKeysSchema: number;
+  batchStrategy: 'smart' | 'fixed';
   documentsBatchSize: number;
   // Developer-mode schema params
   seed: number;
@@ -79,6 +80,7 @@ export const RETRIEVER_DEFAULTS = {
 export const DEFAULT_ADVANCED_SETTINGS: AdvancedSettingsValue = {
   skipValueExtraction: false,
   maxKeysSchema: DEFAULT_MAX_KEYS_SCHEMA,
+  batchStrategy: 'smart',
   documentsBatchSize: DEFAULT_DOCUMENTS_BATCH_SIZE,
   seed: DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
   convergenceThreshold: null,
@@ -183,9 +185,28 @@ export function AdvancedSettingsFields({
             />
           </div>
           <div className="space-y-1">
+            <Label htmlFor="adv-batch-strategy" className="text-xs text-muted-foreground inline-flex items-center gap-1">
+              Batching
+              <InfoTooltip text="How documents are grouped for schema discovery. Smart packs as many documents as fit the model context automatically. Fixed lets you set an exact number per batch." />
+            </Label>
+            <Select
+              value={value.batchStrategy}
+              onValueChange={(strategy) => onChange({ batchStrategy: strategy as 'smart' | 'fixed' })}
+            >
+              <SelectTrigger id="adv-batch-strategy"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="smart">Smart (automatic)</SelectItem>
+                <SelectItem value="fixed">Fixed size</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {value.batchStrategy === 'fixed' ? (
+          <div className="space-y-1">
             <Label htmlFor="adv-batch-size" className="text-xs text-muted-foreground inline-flex items-center gap-1">
-              Batch Size
-              <InfoTooltip text="Documents per schema refinement batch." />
+              Documents per batch
+              <InfoTooltip text="How many documents are analyzed together in each schema refinement step." />
             </Label>
             <Input
               id="adv-batch-size"
@@ -195,9 +216,21 @@ export function AdvancedSettingsFields({
               value={value.documentsBatchSize}
               onChange={(e) => onChange({ documentsBatchSize: parseInt(e.target.value, 10) || DEFAULT_DOCUMENTS_BATCH_SIZE })}
             />
+            <p className="text-xs text-muted-foreground">
+              Analyzing more documents together gives the model more context and usually
+              produces a richer schema. Higher values raise the chance of exceeding the
+              model's token limit; batches that do are split automatically.
+            </p>
           </div>
-          {developerMode && (
-            <>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Documents are grouped automatically to fit as many as possible into each
+            step, giving the model broad context for a richer schema without exceeding
+            token limits.
+          </p>
+        )}
+        {developerMode && (
+          <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="adv-seed" className="text-xs text-muted-foreground">Seed</Label>
                 <Input
@@ -225,9 +258,8 @@ export function AdvancedSettingsFields({
                   }}
                 />
               </div>
-            </>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       <hr />

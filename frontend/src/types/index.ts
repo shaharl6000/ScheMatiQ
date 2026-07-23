@@ -242,6 +242,8 @@ export interface ScheMatiQConfig {
   upload_pending?: boolean;
   max_keys_schema: number;
   documents_batch_size: number;
+  /** "smart" = token-aware auto batching (default); "fixed" = user-set batch size */
+  batch_strategy?: 'smart' | 'fixed';
   initial_schema_path?: string;  // Path to schema file
   initial_schema?: InitialSchemaColumn[];  // Inline schema definition
   initial_observation_unit?: InitialObservationUnit;  // Pre-configured observation unit
@@ -772,6 +774,7 @@ export interface ContinueDiscoveryRequest {
   };
   max_keys_schema?: number;
   documents_batch_size?: number;
+  batch_strategy?: 'smart' | 'fixed';
   convergence_threshold?: number;
   document_randomization_seed?: number;
   skip_value_extraction?: boolean;

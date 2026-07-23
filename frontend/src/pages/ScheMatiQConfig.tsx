@@ -59,6 +59,7 @@ const DEFAULT_CONFIG: ScheMatiQConfig = {
   docs_path: [],
   max_keys_schema: DEFAULT_MAX_KEYS_SCHEMA,
   documents_batch_size: DEFAULT_DOCUMENTS_BATCH_SIZE,
+  batch_strategy: 'smart',
   schema_creation_backend: {
     provider: 'gemini',
     model: DEFAULT_SCHEMA_MODEL,
@@ -316,6 +317,7 @@ const ScheMatiQConfigPage = () => {
       docs_path: restoredConfig.docs_path || [],
       max_keys_schema: restoredConfig.max_keys_schema ?? DEFAULT_MAX_KEYS_SCHEMA,
       documents_batch_size: restoredConfig.documents_batch_size ?? DEFAULT_DOCUMENTS_BATCH_SIZE,
+      batch_strategy: restoredConfig.batch_strategy ?? 'smart',
       document_randomization_seed: restoredConfig.document_randomization_seed ?? DEFAULT_DOCUMENT_RANDOMIZATION_SEED,
       convergence_threshold: restoredConfig.convergence_threshold,
       skip_value_extraction: restoredConfig.skip_value_extraction ?? false,
@@ -353,6 +355,7 @@ const ScheMatiQConfigPage = () => {
     const hasAdvancedChanges =
       (restoredConfig.max_keys_schema ?? DEFAULT_MAX_KEYS_SCHEMA) !== DEFAULT_MAX_KEYS_SCHEMA ||
       (restoredConfig.documents_batch_size ?? DEFAULT_DOCUMENTS_BATCH_SIZE) !== DEFAULT_DOCUMENTS_BATCH_SIZE ||
+      (restoredConfig.batch_strategy ?? 'smart') !== 'smart' ||
       (restoredConfig.document_randomization_seed ?? DEFAULT_DOCUMENT_RANDOMIZATION_SEED) !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED ||
       (restoredConfig.convergence_threshold != null && restoredConfig.convergence_threshold !== DEFAULT_CONVERGENCE_THRESHOLD) ||
       restoredConfig.initial_observation_unit ||
@@ -454,6 +457,7 @@ const ScheMatiQConfigPage = () => {
   const advancedValue: AdvancedSettingsValue = useMemo(() => ({
     skipValueExtraction: config.skip_value_extraction ?? false,
     maxKeysSchema: config.max_keys_schema,
+    batchStrategy: config.batch_strategy ?? 'smart',
     documentsBatchSize: config.documents_batch_size,
     seed: config.document_randomization_seed,
     convergenceThreshold: config.convergence_threshold ?? null,
@@ -481,6 +485,7 @@ const ScheMatiQConfigPage = () => {
     if (patch.skipValueExtraction !== undefined) handleConfigChange('skip_value_extraction', patch.skipValueExtraction);
     if (patch.maxKeysSchema !== undefined) handleConfigChange('max_keys_schema', patch.maxKeysSchema);
     if (patch.documentsBatchSize !== undefined) handleConfigChange('documents_batch_size', patch.documentsBatchSize);
+    if (patch.batchStrategy !== undefined) handleConfigChange('batch_strategy', patch.batchStrategy);
     if (patch.seed !== undefined) handleConfigChange('document_randomization_seed', patch.seed);
     if ('convergenceThreshold' in patch) handleConfigChange('convergence_threshold', patch.convergenceThreshold ?? undefined);
     if (patch.reviewObservationUnit !== undefined) handleConfigChange('review_observation_unit', patch.reviewObservationUnit);
@@ -691,6 +696,7 @@ const ScheMatiQConfigPage = () => {
     if (config.query !== '') return true;
     if (config.max_keys_schema !== DEFAULT_MAX_KEYS_SCHEMA) return true;
     if (config.documents_batch_size !== DEFAULT_DOCUMENTS_BATCH_SIZE) return true;
+    if ((config.batch_strategy ?? 'smart') !== 'smart') return true;
     if (config.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED) return true;
     if (config.convergence_threshold != null && config.convergence_threshold !== DEFAULT_CONVERGENCE_THRESHOLD) return true;
     if (config.skip_value_extraction) return true;
@@ -727,6 +733,7 @@ const ScheMatiQConfigPage = () => {
     if (observationUnitMode !== 'auto') parts.push('Custom unit');
     if (config.max_keys_schema !== DEFAULT_MAX_KEYS_SCHEMA ||
         config.documents_batch_size !== DEFAULT_DOCUMENTS_BATCH_SIZE ||
+        (config.batch_strategy ?? 'smart') !== 'smart' ||
         config.document_randomization_seed !== DEFAULT_DOCUMENT_RANDOMIZATION_SEED ||
         (config.convergence_threshold != null && config.convergence_threshold !== DEFAULT_CONVERGENCE_THRESHOLD)) {
       parts.push('Custom params');
@@ -738,7 +745,7 @@ const ScheMatiQConfigPage = () => {
     if (config.retriever) parts.push('Custom retriever');
     if (limitBypassEnabled) parts.push('Bypass enabled');
     return parts;
-  }, [initialSchemaData, initialSchemaPath, observationUnitMode, config.max_keys_schema, config.documents_batch_size, config.document_randomization_seed, config.convergence_threshold, config.schema_creation_backend.provider, config.schema_creation_backend.model, config.retriever, allowLlmConfig, limitBypassEnabled]);
+  }, [initialSchemaData, initialSchemaPath, observationUnitMode, config.max_keys_schema, config.documents_batch_size, config.batch_strategy, config.document_randomization_seed, config.convergence_threshold, config.schema_creation_backend.provider, config.schema_creation_backend.model, config.retriever, allowLlmConfig, limitBypassEnabled]);
 
   return (
     <div className="max-w-4xl mx-auto">
