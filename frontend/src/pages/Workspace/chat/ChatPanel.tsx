@@ -1,13 +1,13 @@
 // Side-panel chat UI for inspecting and editing the project via workspace tools.
 // Parent: Workspace (index.tsx).
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, Check, X } from 'lucide-react';
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { Bot, Check, FileText, Loader2, Paperclip, X } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { chatAPI } from '@/services/api';
+import { chatAPI, referenceAPI, type ReferenceDocumentInfo } from '@/services/api';
 import type { ChatToolInfo, PaginatedData, SchemaData, ScheMatiQStatus } from '@/types';
 
 import {
@@ -50,7 +50,11 @@ export function ChatPanel({
   const [pinnedTool, setPinnedTool] = useState<string | null>(null);
   const [availableTools, setAvailableTools] = useState<ChatToolInfo[]>([]);
   const [pendingAction, setPendingAction] = useState<PendingChatAction | null>(null);
+  const [references, setReferences] = useState<ReferenceDocumentInfo[]>([]);
+  const [uploadingReference, setUploadingReference] = useState(false);
+  const [referenceError, setReferenceError] = useState<string | null>(null);
   const messagesRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const container = messagesRef.current;
@@ -73,6 +77,65 @@ export function ChatPanel({
       setAvailableTools([]);
     });
   }, [loadTools]);
+
+  const loadReferences = useCallback(async () => {
+    if (!sessionId) {
+      setReferences([]);
+      return;
+    }
+    try {
+      setReferences(await referenceAPI.list(sessionId));
+    } catch {
+      setReferences([]);
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    loadReferences();
+  }, [loadReferences]);
+
+  const handleAttachClick = useCallback(() => {
+    setReferenceError(null);
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleReferenceSelected = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      // Reset so selecting the same file again still fires onChange.
+      event.target.value = '';
+      if (!file || !sessionId) return;
+      setUploadingReference(true);
+      setReferenceError(null);
+      try {
+        const created = await referenceAPI.upload(sessionId, file);
+        setReferences((current) => [...current, created]);
+      } catch (error) {
+        const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data
+          ?.detail;
+        setReferenceError(
+          typeof detail === 'string' ? detail : `Could not attach ${file.name}.`,
+        );
+      } finally {
+        setUploadingReference(false);
+      }
+    },
+    [sessionId],
+  );
+
+  const handleRemoveReference = useCallback(
+    async (referenceId: string) => {
+      if (!sessionId) return;
+      const previous = references;
+      setReferences((current) => current.filter((ref) => ref.id !== referenceId));
+      try {
+        await referenceAPI.remove(sessionId, referenceId);
+      } catch {
+        setReferences(previous); // restore on failure
+      }
+    },
+    [sessionId, references],
+  );
 
   const appendMessages = useCallback((next: WorkspaceMessage[]) => {
     setMessages((current) => [...current, ...next]);
@@ -319,6 +382,34 @@ export function ChatPanel({
       </div>
 
       <div className="workspace-chat-input">
+        {(references.length > 0 || referenceError) && (
+          <div className="mb-2 flex flex-col gap-1">
+            {references.map((ref) => (
+              <div
+                key={ref.id}
+                className="flex items-center gap-2 rounded-md border bg-muted/30 px-2 py-1 text-xs"
+                title={`External reference document${ref.truncated ? ' (truncated)' : ''}`}
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                <span className="truncate">{ref.filename}</span>
+                {ref.truncated && (
+                  <span className="shrink-0 text-muted-foreground">(truncated)</span>
+                )}
+                <button
+                  type="button"
+                  className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => handleRemoveReference(ref.id)}
+                  aria-label={`Remove ${ref.filename}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            {referenceError && (
+              <div className="text-xs text-destructive">{referenceError}</div>
+            )}
+          </div>
+        )}
         <Textarea
           value={input}
           onChange={(event) => setInput(event.target.value)}
@@ -332,6 +423,30 @@ export function ChatPanel({
             }
           }}
         />
+        <div className="mt-2 flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept=".txt,.md,.markdown,.json,.csv,.tsv,.xlsx,.xls,.pdf,.docx"
+            onChange={handleReferenceSelected}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleAttachClick}
+            disabled={!sessionId || uploadingReference}
+            title="Attach an external reference document (e.g. a lookup spreadsheet). It is not treated as a source document."
+          >
+            {uploadingReference ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Paperclip className="h-4 w-4" />
+            )}
+            Attach reference
+          </Button>
+        </div>
       </div>
     </aside>
   );

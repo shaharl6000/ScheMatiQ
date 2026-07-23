@@ -1062,6 +1062,40 @@ export const chatAPI = {
   },
 };
 
+export interface ReferenceDocumentInfo {
+  id: string;
+  filename: string;
+  char_count: number;
+  truncated: boolean;
+}
+
+/**
+ * External reference documents attached to a session. These are supplementary
+ * lookup material (e.g. a spreadsheet mapping entities to extra attributes),
+ * distinct from the source documents that define observation-unit rows.
+ */
+export const referenceAPI = {
+  list: async (sessionId: string): Promise<ReferenceDocumentInfo[]> => {
+    const response = await api.get(`/reference/${sessionId}`);
+    return response.data.reference_documents;
+  },
+
+  upload: async (sessionId: string, file: File): Promise<ReferenceDocumentInfo> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post(`/reference/${sessionId}/upload`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  remove: async (sessionId: string, referenceId: string): Promise<void> => {
+    await api.delete(`/reference/${sessionId}/${referenceId}`);
+  },
+};
+
 export async function downloadBlob(path: string, fallbackFilename: string): Promise<void> {
   const response = await api.get(path, { responseType: 'blob' });
 
