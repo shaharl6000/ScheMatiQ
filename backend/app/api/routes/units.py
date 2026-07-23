@@ -4,6 +4,7 @@ import io
 import mimetypes
 from pathlib import Path
 from typing import List, Optional, Tuple
+from urllib.parse import quote
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
@@ -243,8 +244,15 @@ async def get_document_content(
     if content is None:
         raise HTTPException(status_code=404, detail="Document file is not available")
 
+    # HTTP headers must be latin-1 encodable, but document names often contain
+    # non-latin-1 characters (e.g. the curly apostrophe in "Dep't"). Use an
+    # ASCII fallback plus an RFC 5987 filename* for the real name.
+    raw_name = Path(name).name
+    ascii_fallback = raw_name.encode("ascii", "ignore").decode("ascii").replace('"', "").strip() or "document"
     headers = {
-        "Content-Disposition": f'inline; filename="{Path(name).name}"',
+        "Content-Disposition": (
+            f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(raw_name)}"
+        ),
         "Cache-Control": "private, max-age=60",
     }
     if media_type in _SANDBOXED_MEDIA_TYPES:
