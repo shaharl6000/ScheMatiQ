@@ -3,6 +3,7 @@ import { FileText, Upload, Loader2 } from 'lucide-react';
 
 import { unitsAPI } from '../../services/api';
 import { DocumentSummary } from '../../types/unit';
+import { SkippedDocument } from '../../types';
 import DocumentPreview from './DocumentPreview';
 
 /** Extensions accepted by the source-document re-attach picker (mirrors the backend allow-list). */
@@ -12,6 +13,8 @@ interface DocumentViewerProps {
   sessionId: string | null | undefined;
   /** Changes when the underlying data updates, so the list refetches as documents arrive. */
   refreshKey?: number;
+  /** Documents skipped during extraction (no observation unit). Shown in the list so they can still be opened. */
+  skippedDocuments?: SkippedDocument[];
 }
 
 const extractErrorMessage = (err: any): string => {
@@ -33,7 +36,7 @@ const extractErrorMessage = (err: any): string => {
  * state) offer an upload action that re-attaches the original source files via
  * the existing add-documents endpoint, after which previews resolve.
  */
-const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }) => {
+const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey, skippedDocuments = [] }) => {
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +111,12 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }
     );
   }
 
+  // Documents skipped during extraction have no rows, so getDocuments omits them.
+  // Show them in the list anyway (deduped) so the user can open and inspect them.
+  const skippedNames = new Set(documents.map((d) => d.name));
+  const skippedOnly = skippedDocuments.filter((s) => !skippedNames.has(s.document));
+  const totalCount = documents.length + skippedOnly.length;
+
   return (
     <div className="h-full flex min-h-0">
       {/* Hidden picker shared by the header button and the preview's empty state. */}
@@ -124,7 +133,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }
       <div className="w-56 flex-shrink-0 border-r border-border overflow-y-auto">
         <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted-foreground border-b border-border">
           <span className="truncate">
-            {loading ? 'Loading\u2026' : `${documents.length} document${documents.length === 1 ? '' : 's'}`}
+            {loading ? 'Loading\u2026' : `${totalCount} document${totalCount === 1 ? '' : 's'}`}
           </span>
           <span className="flex-1" />
           <button
@@ -165,7 +174,33 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({ sessionId, refreshKey }
             </button>
           );
         })}
-        {!loading && documents.length === 0 && !error && (
+        {skippedOnly.map((doc) => {
+          const active = doc.document === selected;
+          return (
+            <button
+              key={doc.document}
+              type="button"
+              onClick={() => setSelected(doc.document)}
+              className={`w-full text-left flex items-center gap-2 px-3 py-2 border-l-2 transition-colors ${
+                active ? 'border-primary bg-primary/10' : 'border-transparent hover:bg-muted/50'
+              }`}
+            >
+              <FileText className="h-4 w-4 flex-shrink-0 text-amber-500" />
+              <span className="min-w-0">
+                <span className="block text-xs font-medium truncate" title={doc.document}>
+                  {doc.document}
+                </span>
+                <span
+                  className="block text-[11px] text-amber-600 dark:text-amber-500 truncate"
+                  title={doc.reason || 'No observation unit found'}
+                >
+                  skipped &mdash; no observation unit
+                </span>
+              </span>
+            </button>
+          );
+        })}
+        {!loading && totalCount === 0 && !error && (
           <div className="px-3 py-6 text-xs text-muted-foreground text-center">
             No documents in this project yet.
           </div>

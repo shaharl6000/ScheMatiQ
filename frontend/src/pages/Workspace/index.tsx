@@ -901,7 +901,7 @@ function Workspace() {
           ) : activeSheet === 'documents' ? (
             <div style={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               <div style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-                <DocumentViewer sessionId={sessionId} refreshKey={data.total_count} />
+                <DocumentViewer sessionId={sessionId} refreshKey={data.total_count} skippedDocuments={skippedDocuments} />
               </div>
               {sessionId && (
                 <div
