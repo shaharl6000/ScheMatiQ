@@ -52,7 +52,10 @@ export function ProjectDetailsDialog({
     { label: 'Schema model', value: config?.schema_creation_backend?.model || '' },
     { label: 'Value provider', value: config?.value_extraction_backend?.provider || '' },
     { label: 'Value model', value: config?.value_extraction_backend?.model || '' },
-    { label: 'Documents batch size', value: config?.documents_batch_size ?? '' },
+    { label: 'Batching', value: (config?.batch_strategy ?? 'smart') === 'fixed' ? 'Fixed size' : 'Smart (automatic)' },
+    ...((config?.batch_strategy ?? 'smart') === 'fixed'
+      ? [{ label: 'Documents per batch', value: config?.documents_batch_size ?? '' }]
+      : []),
     { label: 'Max schema columns', value: config?.max_keys_schema ?? '' },
   ];
 
