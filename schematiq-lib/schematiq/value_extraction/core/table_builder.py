@@ -39,7 +39,8 @@ class TableBuilder:
                  should_stop: Optional[ShouldStopCallback] = None,
                  on_warning: Optional[OnWarningCallback] = None,
                  on_document_started: Optional[Callable[[str], None]] = None,
-                 write_skip_rationale_artifact: Optional[bool] = None):
+                 write_skip_rationale_artifact: Optional[bool] = None,
+                 reference_context: Optional[str] = None):
         self.llm = llm
         self.retriever = retriever
         self.cache = cache or LLMCache()
@@ -54,7 +55,7 @@ class TableBuilder:
             else lib_config.write_artifacts
         )
         # Pass should_stop and on_warning to PaperProcessor for fine-grained stop checking and warning reporting
-        self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted, should_stop, on_warning)
+        self.paper_processor = PaperProcessor(llm, self.cache, retriever, on_value_extracted, should_stop, on_warning, reference_context=reference_context)
         self.row_manager = RowDataManager()
         self._stopped = False  # Track if we stopped early
         self._skipped_documents: List[SkippedDocument] = []

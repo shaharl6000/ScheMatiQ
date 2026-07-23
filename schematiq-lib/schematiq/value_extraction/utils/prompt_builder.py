@@ -10,8 +10,10 @@ from ..config.prompts import SYSTEM_PROMPT_VAL, SYSTEM_PROMPT_VAL_STRICT
 class PromptBuilder:
     """Builds prompts for value extraction LLM calls."""
 
-    def __init__(self):
-        pass
+    def __init__(self, reference_context: str | None = None):
+        # Optional external reference text injected into every value-extraction
+        # prompt as supplementary lookup material (never a source document).
+        self.reference_context = reference_context
 
     def build_val_messages(
         self,
@@ -75,6 +77,20 @@ class PromptBuilder:
             </ALREADY_EXTRACTED_VALUES>
             """.strip()
 
+        reference_block = ""
+        if self.reference_context:
+            reference_block = (
+                "<EXTERNAL_REFERENCE>\n"
+                "The text below is an EXTERNAL REFERENCE supplied separately by the "
+                "user. It is NOT the source document and does NOT define observation "
+                "units - never create a row from it. Use it only as supplementary "
+                "lookup information (for example, to map an entity named in the source "
+                "document to an attribute recorded here) when it is relevant to a "
+                "requested column; otherwise ignore it.\n"
+                f"{self.reference_context}\n"
+                "</EXTERNAL_REFERENCE>"
+            )
+
         user_prompt = f"""
             <QUESTION>
             {query}
@@ -91,6 +107,8 @@ class PromptBuilder:
             <PAPER_TEXT>
             {paper_text}
             </PAPER_TEXT>
+
+            {reference_block}
             """.strip()
 
         system = SYSTEM_PROMPT_VAL_STRICT if strict else SYSTEM_PROMPT_VAL

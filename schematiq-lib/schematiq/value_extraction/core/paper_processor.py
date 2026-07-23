@@ -93,6 +93,7 @@ class PaperProcessor:
         on_value_extracted: Optional[OnValueExtractedCallback] = None,
         should_stop: Optional[ShouldStopCallback] = None,
         on_warning: Optional[OnWarningCallback] = None,
+        reference_context: Optional[str] = None,
     ):
         self.llm = llm
         self.cache = cache or LLMCache()
@@ -100,7 +101,7 @@ class PaperProcessor:
         self.json_parser = JSONResponseParser()
         self.unit_parser = UnitIdentificationParser()
         self.text_processor = TextProcessor()
-        self.prompt_builder = PromptBuilder()
+        self.prompt_builder = PromptBuilder(reference_context=reference_context)
         self.on_value_extracted = on_value_extracted
         self.should_stop = should_stop
         self.on_warning = on_warning
