@@ -42,6 +42,7 @@ import ScheMatiQMonitor from '@/components/ScheMatiQMonitor/ScheMatiQMonitor';
 import DocumentViewer from '@/components/DocumentViewer/DocumentViewer';
 import DocumentPreview from '@/components/DocumentViewer/DocumentPreview';
 import DocumentUpload from '@/components/DocumentUpload/DocumentUpload';
+import SkippedDocumentsBanner from '@/components/DataTable/SkippedDocumentsBanner';
 import { ViewModeToggle } from '@/components/ViewMode/ViewModeToggle';
 import MissingDocumentsSection from '@/components/SchemaEditor/MissingDocumentsSection';
 import TableFeedbackWidget from '@/components/TableFeedbackWidget/TableFeedbackWidget';
@@ -753,6 +754,12 @@ function Workspace() {
     [sessionId, toast],
   );
 
+  // Documents that produced no observation unit during extraction. Same source
+  // the classic flow reads, so it is populated for both live and loaded sessions.
+  const skippedDocuments = session?.statistics?.skipped_documents ?? [];
+  const skippedTotalDocuments =
+    (session?.statistics?.total_documents ?? session?.statistics?.total_rows ?? 0) + skippedDocuments.length;
+
   const dataGridNode = (
     <div className="workspace-grid-wrap">
       <SpreadsheetSurface
@@ -865,6 +872,15 @@ function Workspace() {
                 {showSourcePanel ? 'Hide source' : 'Show source document'}
               </Button>
               <span style={{ flex: 1 }} />
+            </div>
+          )}
+          {activeSheet === 'data' && skippedDocuments.length > 0 && (
+            <div style={{ flex: '0 0 auto', padding: '0 8px' }}>
+              <SkippedDocumentsBanner
+                skippedDocuments={skippedDocuments}
+                totalDocuments={skippedTotalDocuments}
+                observationUnitName={session?.observation_unit?.name}
+              />
             </div>
           )}
           {activeSheet === 'stats' ? (
