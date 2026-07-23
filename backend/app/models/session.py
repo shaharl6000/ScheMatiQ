@@ -141,6 +141,28 @@ class SessionMetadata(BaseModel):
     # Suppress partial data-collection archive when stop is only preparing rediscovery.
     skip_stop_data_collection: bool = False
 
+class ReferenceDocument(BaseModel):
+    """A user-supplied external reference document attached to a session.
+
+    Unlike the source documents that define observation units (one row per
+    document/unit), a reference document is *supplementary* external information
+    (e.g. a lookup table mapping judges to the president who appointed them).
+    Its text is made available to the chat assistant — and, in a later step, to
+    value extraction — as additional context, clearly labelled as external so it
+    is never mistaken for a source document that yields rows.
+
+    The extracted text is stored inline on the session so it persists through the
+    normal session storage backend (local filesystem or Supabase) without a
+    separate file-path convention.
+    """
+    id: str
+    filename: str
+    content: str  # Plain-text representation of the uploaded file
+    char_count: int = 0
+    truncated: bool = False  # True if content was capped at the size limit
+    uploaded_at: datetime = Field(default_factory=datetime.now)
+
+
 class SkippedDocumentInfo(BaseModel):
     """Metadata for a document that was skipped during extraction."""
     document: str
@@ -179,6 +201,8 @@ class VisualizationSession(BaseModel):
     modification_history: List[ModificationAction] = Field(default_factory=list)  # Schema modification log
     # Observation unit tracking
     observation_unit: Optional[ObservationUnitInfo] = None  # What constitutes a single row
+    # External reference documents (supplementary lookup material, not row sources)
+    reference_documents: List[ReferenceDocument] = Field(default_factory=list)
     # Privacy / data collection
     opt_out_data_collection: bool = False  # User opted out of research data archival
     write_artifacts: Optional[bool] = None  # If True, write debug artifacts like skip rationales

@@ -33,6 +33,10 @@ from .tool_registry import TOOL_BY_NAME
 
 logger = logging.getLogger(__name__)
 
+# Max characters of a reference document returned by read_reference_source. Kept
+# below the tool-result truncation budget so the body is never dropped wholesale.
+READ_REFERENCE_CHAT_BUDGET = 6000
+
 
 class ToolExecutor:
   async def execute(
@@ -211,6 +215,61 @@ class ToolExecutor:
           "warnings": warnings,
           "column_count": len(session.columns),
           "missing_definitions": missing_definitions,
+      }
+
+  async def _handle_list_reference_sources(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      session = session_manager.get_session(session_id)
+      if not session:
+          raise ValueError("Session not found")
+      from app.services import reference_document_service as refsvc
+
+      refs = refsvc.list_reference_documents(session)
+      return {
+          "status": "success",
+          "count": len(refs),
+          "reference_sources": [
+              {
+                  "id": ref.id,
+                  "filename": ref.filename,
+                  "char_count": ref.char_count,
+                  "truncated": ref.truncated,
+              }
+              for ref in refs
+          ],
+      }
+
+  async def _handle_read_reference_source(
+      self, session_id: str, session_mode: str, args: dict[str, Any]
+  ) -> dict[str, Any]:
+      session = session_manager.get_session(session_id)
+      if not session:
+          raise ValueError("Session not found")
+      reference_id = (args.get("reference_id") or "").strip()
+      if not reference_id:
+          raise ValueError("reference_id is required")
+      from app.services import reference_document_service as refsvc
+
+      ref = refsvc.get_reference_document(session, reference_id)
+      if not ref:
+          raise ValueError(f"Reference document '{reference_id}' not found")
+      # Cap the returned text so the whole result stays within the chat
+      # tool-result budget. truncate_result drops an oversized string value
+      # outright, which would hand the model an empty body; clip it here instead
+      # and flag that more text exists. The full document is still used during
+      # value extraction.
+      content = ref.content
+      clipped = len(content) > READ_REFERENCE_CHAT_BUDGET
+      if clipped:
+          content = content[:READ_REFERENCE_CHAT_BUDGET]
+      return {
+          "status": "success",
+          "id": ref.id,
+          "filename": ref.filename,
+          "char_count": ref.char_count,
+          "content_clipped": clipped,
+          "content": content,
       }
 
   async def _handle_add_column(

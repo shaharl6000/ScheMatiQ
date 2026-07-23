@@ -114,6 +114,45 @@ def _all_tools() -> list[ToolSpec]:
             handler="get_validation",
         ),
         ToolSpec(
+            name="list_reference_sources",
+            description=(
+                "List the external reference documents the user attached to this "
+                "session — supplementary lookup material such as a spreadsheet that "
+                "maps entities to extra attributes (e.g. each judge to the president "
+                "who appointed them). These are NOT the source documents that define "
+                "rows; they are additional external context. Use this to discover "
+                "what external information is available before answering a question or "
+                "proposing a new column. Returns each reference's id, filename and "
+                "size; call read_reference_source to read one."
+            ),
+            parameters=EMPTY_PARAMS,
+            cost_class="cheap",
+            handler="list_reference_sources",
+        ),
+        ToolSpec(
+            name="read_reference_source",
+            description=(
+                "Read the text of one external reference document by id (get the id "
+                "from list_reference_sources first). Use its content as supplementary "
+                "context to answer the user's question, or to decide whether to "
+                "propose a new schema column. Treat it as external reference "
+                "information, not as a source document that yields observation-unit "
+                "rows."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "reference_id": {
+                        "type": "string",
+                        "description": "Reference document id from list_reference_sources.",
+                    },
+                },
+                "required": ["reference_id"],
+            },
+            cost_class="cheap",
+            handler="read_reference_source",
+        ),
+        ToolSpec(
             name="add_column",
             description="Add a new column to the schema. Values are extracted later via re-extraction.",
             parameters={
@@ -423,6 +462,8 @@ def tool_running_label(tool_name: str) -> str:
         "edit_observation_unit": "Updating observation unit definition",
         "preview_data": "Loading data preview",
         "get_validation": "Validating schema",
+        "list_reference_sources": "Listing reference documents",
+        "read_reference_source": "Reading reference document",
         "add_column": "Adding column",
         "edit_column": "Editing column",
         "delete_column": "Deleting column",
