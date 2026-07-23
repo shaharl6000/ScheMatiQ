@@ -408,8 +408,17 @@ class UploadDocumentProcessor(WebSocketBroadcasterMixin):
             # Recompute statistics from merged data
             try:
                 skipped_detail = extraction_result.get("skipped_documents", []) if extraction_result else []
-                skipped_documents = [SkippedDocumentInfo(**d) for d in skipped_detail]
-                
+                new_skipped = [SkippedDocumentInfo(**d) for d in skipped_detail]
+
+                # Statistics is rebuilt from scratch here, so merge the skips from
+                # earlier runs with this batch's skips; otherwise adding documents
+                # would drop the documents skipped by the original extraction.
+                prior_skipped = (session.statistics.skipped_documents or []) if session.statistics else []
+                merged_skipped = {s.document: s for s in prior_skipped}
+                for s in new_skipped:
+                    merged_skipped[s.document] = s
+                skipped_documents = list(merged_skipped.values())
+
                 statistics = self._compute_statistics_from_data(session_id, session, skipped_documents)
                 if statistics:
                     session.statistics = statistics
