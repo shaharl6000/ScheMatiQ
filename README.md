@@ -19,17 +19,32 @@
 ScheMatiQ helps domain experts turn a research question and a document collection into a structured table — no predefined schema needed. The system uses a backbone LLM to iteratively discover an annotation schema, then extracts structured data grounded in the source documents. A web interface at [schematiq-ai.com](https://www.schematiq-ai.com/) supports human–AI collaboration, letting users inspect, revise, and refine results at every stage.
 
 <div align="center">
-  <img src="docs/screenshot.png" alt="ScheMatiQ web interface" width="700">
+  <img src="docs/screenshot.png" alt="The ScheMatiQ Workspace" width="720">
+  <br>
+  <sub><i>The ScheMatiQ Workspace: the extracted table next to the source document, with the text behind a selected value highlighted.</i></sub>
 </div>
 
 ## Table of Contents
 
+- [What's New](#whats-new)
 - [How It Works](#how-it-works)
 - [Getting Started](#getting-started)
 - [Features](#features)
 - [Development](#development)
 - [Contributing](#contributing)
 - [Citation](#citation)
+
+## What's New
+
+<!-- Keep short and user-facing: prepend notable, visible changes; skip internals, chores, and small fixes. -->
+
+- A new interface (now the default): a familiar spreadsheet, like Google Sheets, paired with a chat assistant you can ask to build, edit, and refine your table as you go. The previous interface is still available at `/classic`.
+- Read your source documents in a side panel, and click any value to see the exact text it came from, highlighted in the document.
+- Add more documents to a project whenever you want — their values are extracted and added to the table automatically.
+- If a document produces no result, you'll see the model's explanation of why (for example, an empty document, or no observation unit found).
+- Save a whole project as a single file, documents included — reopen it later and the documents are still there to view.
+- Give the chat assistant your own reference documents to work from — for example, a list of judges' birth dates to pull into a new column.
+- Runs on Google's Gemini 3.5 Flash (schema discovery) and 3.5 Flash-Lite (data extraction).
 
 ## How It Works
 
@@ -74,13 +89,16 @@ See [Features > Core Library](#core-library-schematiq-lib) for the full API surf
 
 ### Web Application
 
+- **Workspace** — A spreadsheet-style interface (the default) with By Unit / By Document views, a Documents tab for browsing and previewing sources, and Statistics and Monitor tabs. The previous interface remains available at `/classic`
+- **Chat Assistant** — An agentic, tool-calling assistant that can inspect and edit the schema and data, with optional external reference documents for context
 - **Real-time Progress** — WebSocket-based live updates during discovery and extraction
 - **Interactive Schema Editor** — Inspect and revise schema elements — add, edit, remove, or merge fields
 - **Continue Discovery** — Extend schema after initial convergence by processing more documents
 - **Reextraction** — Re-run structured data extraction with the current or edited schema
+- **Add Documents** — Add more documents to an existing project and extract them with the current schema; documents that yield no observation unit are surfaced with a reason
 - **Cost Estimation** — Preview estimated API costs before running expensive operations
-- **Document Upload** — TXT, MD, PDF, DOC, DOCX, and RTF; non-text formats are converted to plain text automatically before schema discovery and extraction
-- **Export** — Download results as CSV, JSON, or JSONL
+- **Document Upload** — TXT, MD, PDF, DOC, DOCX, RTF, and JSON; non-text formats are converted to plain text automatically before schema discovery and extraction
+- **Save & Export** — Save portable project bundles (with source documents), and export results as CSV, JSON, or JSONL
 
 ### Core Library (schematiq-lib)
 
